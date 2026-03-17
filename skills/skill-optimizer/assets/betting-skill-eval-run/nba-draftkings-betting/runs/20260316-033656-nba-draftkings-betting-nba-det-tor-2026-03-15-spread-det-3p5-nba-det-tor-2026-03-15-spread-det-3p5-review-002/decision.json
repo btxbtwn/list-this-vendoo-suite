@@ -1,0 +1,14 @@
+{
+  "apply_mode": "dry-run",
+  "baseline_max_score": 22,
+  "baseline_score": 22,
+  "bet_id": "nba-det-tor-2026-03-15-spread-det-3p5",
+  "generated_at": "2026-03-16T03:46:39Z",
+  "notes": "revised skill did not beat the baseline",
+  "review_id": "nba-det-tor-2026-03-15-spread-det-3p5-review-002",
+  "revised_max_score": 22,
+  "revised_score": 22,
+  "run_tag": "20260316-033656-nba-draftkings-betting-nba-det-tor-2026-03-15-spread-det-3p5-nba-det-tor-2026-03-15-spread-det-3p5-review-002",
+  "status": "reverted",
+  "target_skill": "nba-draftkings-betting"
+}

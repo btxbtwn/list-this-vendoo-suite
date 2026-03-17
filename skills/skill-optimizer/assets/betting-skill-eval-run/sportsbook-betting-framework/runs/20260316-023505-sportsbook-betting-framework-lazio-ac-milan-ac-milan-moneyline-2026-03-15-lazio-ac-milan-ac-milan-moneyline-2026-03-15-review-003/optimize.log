@@ -1,0 +1,70 @@
+I’m reviewing the skill, the fixed prompts/criteria, and the bet review together so I can make a surgical update that improves actual decision quality rather than just wording.
+
+● SQL: Create work todos
+  └ 3 row(s) inserted. Last inserted row ID: 3.
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/test-prompts.json
+  └ 27 lines read
+
+● Read sportsbook-betting-framework/SKILL.md
+  └ 137 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/runs/20260316-02350
+  5-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan
+  -moneyline-2026-03-15-review-003/review-context.json
+  └ 46 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/eval-criteria.md
+  └ 17 lines read
+
+● Create session plan
+  $ cat > <session-state>/03db90e3-0318-4f0c-816a-38582e878c0b/plan.md <<'EOF'
+  1. Read target skill, prompts, eval criteria, and review context.
+  2. Identify specific judgment failures supported by the review.
+  3. Apply a minimal, surgical update only to sportsbook-betting-framework/SKILL.md.
+  4. Validate the diff and ensure only the target skill changed....
+  └ 2 lines...
+
+I found a narrow failure mode worth encoding: the skill already mentions draw risk, but it doesn’t strongly enough prevent paying for a fragile 3-way side when the cleaner outcome is `draw no bet` or `pass`. I’m tightening that judgment rule without touching routing or scope.
+
+● Todo started:
+
+● Read sportsbook-betting-framework/SKILL.md lines 62-100
+  └ 39 lines read
+
+● Edit sportsbook-betting-framework/SKILL.md
+
+The edit is in place. I’m doing a quick diff check now to confirm the change stayed surgical and only affected the target skill content I intended to touch.
+
+● Todo started:
+
+● Read sportsbook-betting-framework/SKILL.md lines 67-96
+  └ 29 lines read
+
+● Show target skill diff
+  $ cd <workspace>/skills && git --no-pager diff --
+  sportsbook-betting-framework/SKILL.md
+  └ 7 lines...
+
+● Todo completed: validate-change
+
+● Show focused target diff
+  $ cd <workspace>/skills && git --no-pager diff --unified=3 --
+  sportsbook-betting-framework/SKILL.md | sed -n '1,120p'
+  └ 121 lines...
+
+● Show target diff stat
+  $ cd <workspace>/skills && git --no-pager diff --stat --
+  sportsbook-betting-framework/SKILL.md
+  └ 3 lines...
+
+<DONE>
+
+
+
+Total usage est:        1 Premium request
+API time spent:         1m 18s
+Total session time:     1m 21s
+Total code changes:     +4 -0
+Breakdown by AI model:
+ gpt-5.4                 130.1k in, 4.8k out, 121.2k cached (Est. 1 Premium request)

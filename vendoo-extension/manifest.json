@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "Vendoo Multi-Platform Lister",
+  "version": "0.1.0",
+  "description": "Paste JSON → fill Vendoo, then eBay/Poshmark/Mercari/Depop/Etsy (draft-only)",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://app.vendoo.co/*",
+    "https://web.vendoo.co/*",
+    "https://www.ebay.com/*",
+    "https://poshmark.com/*",
+    "https://www.mercari.com/*",
+    "https://www.depop.com/*",
+    "https://www.etsy.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://app.vendoo.co/*", "https://web.vendoo.co/*"],
+      "js": ["content-scripts/vendoo.js"]
+    },
+    {
+      "matches": ["https://www.ebay.com/*"],
+      "js": ["content-scripts/ebay.js"]
+    },
+    {
+      "matches": ["https://poshmark.com/*"],
+      "js": ["content-scripts/poshmark.js"]
+    },
+    {
+      "matches": ["https://www.mercari.com/*"],
+      "js": ["content-scripts/mercari.js"]
+    },
+    {
+      "matches": ["https://www.depop.com/*"],
+      "js": ["content-scripts/depop.js"]
+    },
+    {
+      "matches": ["https://www.etsy.com/*"],
+      "js": ["content-scripts/etsy.js"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

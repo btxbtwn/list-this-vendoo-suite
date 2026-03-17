@@ -1,0 +1,125 @@
+● SQL: Init scoring todos
+  └ 3 row(s) inserted. Last inserted row ID: 3.
+
+● Read skill-optimizer/assets/betting-skill-eval-run/nba-draftkings-betting/runs/20260316-024253-nba-
+  draftkings-betting-nba-det-tor-2026-03-15-spread-det-3p5-nba-det-tor-2026-03-15-spread-det-3p5-revi
+  ew-002/review-context.json
+  └ 46 lines read
+
+● Read nba-draftkings-betting/SKILL.md
+  └ 104 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/nba-draftkings-betting/test-prompts.json
+  └ 27 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/nba-draftkings-betting/eval-criteria.md
+  └ 17 lines read
+
+● Create session plan
+  $ cat > <session-state>/a0037c60-c452-4cac-ac9e-f0d903aed054/plan.md <<'EOF'
+  1. Read the target skill, prompt pack, criteria, and review context.
+  2. Determine the prompt pack structure, maxScore values, and evaluation criteria.
+  3. Score each prompt using binary criterion judgments based on how well the skill would guide
+  a strong answer....
+  └ 3 lines...
+
+I’ve read the core inputs. Next I’m checking the referenced guidance the skill explicitly pulls in, so the scoring reflects the full instructions it would actually provide.
+
+● Todo started: plan-scoring
+
+● Read sportsbook-betting-framework/references/shared/pricing-and-grading.md
+  └ 35 lines read
+
+● Read sportsbook-betting-framework/references/shared/autoresearch-loop.md
+  └ 34 lines read
+
+● Read sportsbook-betting-framework/references/shared/output-contract.md
+  └ 23 lines read
+
+● Read sportsbook-betting-framework/references/sports/nba.md
+  └ 35 lines read
+
+The wrapper itself looks strong, but I want to verify how this eval pack maps criteria to prompt scores so I don’t over- or under-count any prompt.
+
+● Todo started: read-inputs
+
+● List directory skill-optimizer/assets/betting-skill-eval-run/nba-draftkings-betting/runs/20260316-0
+  24253-nba-draftkings-betting-nba-det-tor-2026-03-15-spread-det-3p5-nba-det-tor-2026-03-15-spread-de
+  t-3p5-review-002
+  └ 3 files found
+
+● Grep "nba-best-bet|maxScore|per_prompt|routes cross-sport bankroll|binary checks" in
+**/*.{md,json,js,ts,py} (<workspace>/skills/skill-optimizer)
+  └ 40 lines found
+
+I found existing baseline score files in the eval assets. I’m spot-checking them now to mirror the intended scoring style and avoid inventing my own rubric mapping.
+
+● Read skill-optimizer/scripts/run_betting_review_pass.py lines 150-230
+  └ 81 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/runs/20260316-02350
+  5-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan
+  -moneyline-2026-03-15-review-003/baseline-score.json
+  └ 37 lines read
+
+I’ve got the rubric mapping and the score is straightforward: the current wrapper appears to fully satisfy this fixed prompt pack. I’m just updating my tracking state and then I’ll return the exact result block.
+
+● Todo completed: score-prompts
+
+● SQL: Check total score
+  └ 1 row(s) returned
+
+● SQL: Verify stored scores
+  └ 5 row(s) returned
+
+● SQL: Verify total scores
+  └ 1 row(s) returned
+
+<RESULT>
+{
+  "score": 22,
+  "max_score": 22,
+  "per_prompt": [
+    {
+      "id": "nba-best-bet",
+      "score": 5,
+      "max_score": 5,
+      "notes": "It requires exact current DraftKings pricing, fair-value math, a skeptic/pass check, and honest handling of lineup uncertainty before naming an official bet."
+    },
+    {
+      "id": "nba-clean-market",
+      "score": 5,
+      "max_score": 5,
+      "notes": "It explicitly compares props against cleaner team-level markets, ties picks to current price and fair value, and keeps pass discipline and counterarguments in the workflow."
+    },
+    {
+      "id": "nba-injury-uncertainty",
+      "score": 5,
+      "max_score": 5,
+      "notes": "It treats questionable news, minutes, and lineup uncertainty as first-class inputs and tells the model to downgrade to pass or a less fragile market when needed."
+    },
+    {
+      "id": "nba-overpriced-favorite",
+      "score": 4,
+      "max_score": 4,
+      "notes": "It includes exact-price and fair-number logic, skeptic/pass discipline, and specifically warns against forcing favorites without price discipline."
+    },
+    {
+      "id": "nba-bankroll-route",
+      "score": 3,
+      "max_score": 3,
+      "notes": "It explicitly routes cross-sport bankroll or card requests to `sportsbook-bankroll-router`."
+    }
+  ],
+  "summary": "The current NBA DraftKings wrapper fully covers this eval pack: exact DraftKings prices, fair-line math, skeptic/pass discipline, cleaner-market selection, honest injury handling, and bankroll routing."
+}
+</RESULT>
+
+
+
+Total usage est:        1 Premium request
+API time spent:         1m 49s
+Total session time:     1m 54s
+Total code changes:     +0 -0
+Breakdown by AI model:
+ gpt-5.4                 219.9k in, 6.5k out, 207.6k cached (Est. 1 Premium request)

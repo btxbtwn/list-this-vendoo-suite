@@ -1,0 +1,32 @@
+--- before
++++ after
+@@ -52,8 +52,11 @@
+ - current DraftKings odds
+ - injury report, starters, or rotation context
+ - pace, matchup, usage, or role data
++- home/away splits and effort context when evaluating a side, especially a road favorite
+ - line movement
+ - strongest case against the first read
++
++For road-favorite sides, the split and effort check is mandatory even if 3 other buckets are already covered.
+ 
+ ## NBA-specific market rules
+ 
+@@ -64,7 +67,8 @@
+ - do not present fragile props as high-confidence plays when minutes or role are unresolved
+ - prefer team-level markets when the thesis is team-level and the prop adds extra assumptions
+ - treat lineup uncertainty, foul risk, and blowout risk as first-class inputs
+-- before backing a road favorite, require a home/away split check plus an honest read on the home team's effort or incentive level
++- before backing a road favorite spread, require a home/away split check plus an honest read on the home team's effort or incentive level; if that check weakens the cover case or leaves only a thin split-adjusted edge, do not force the spread
++- when season-long record or efficiency conflicts with venue splits or home-team effort, do not let the season-long signal alone justify a road spread; fold the split and motivation read into the fair line, and only downgrade to a moneyline if the win thesis is cleaner and still beats the DraftKings price, otherwise pass
+ - if the edge depends on unresolved news, downgrade the play or pass until the news resolves
+ 
+ ## Workflow
+@@ -77,6 +81,7 @@
+ - challenge whether the bet still works if recent box-score noise is ignored
+ - verify that the chosen market survives availability and minutes assumptions
+ - for road favorites, stress-test the thesis against the home team's split strength and motivation before making it official
++- if the road team still rates better after that stress test, compare spread versus moneyline only after split-adjusted pricing; if the cover edge is thin, keep only a clearly cleaner moneyline or pass
+ 
+ ## Output
+ 

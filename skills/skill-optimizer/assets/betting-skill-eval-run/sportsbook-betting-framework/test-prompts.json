@@ -1,0 +1,27 @@
+[
+  {
+    "id": "soccer-best-bet",
+    "prompt": "Break down the best DraftKings soccer bet for this match and tell me if pass is better.",
+    "maxScore": 5
+  },
+  {
+    "id": "soccer-draw-risk",
+    "prompt": "One side looks better, but draw risk is real. Is draw no bet cleaner than the 3-way side?",
+    "maxScore": 5
+  },
+  {
+    "id": "unsupported-sport",
+    "prompt": "What is the best NHL bet tonight on DraftKings?",
+    "maxScore": 3
+  },
+  {
+    "id": "route-ufc",
+    "prompt": "Give me the best UFC DraftKings bet tonight.",
+    "maxScore": 3
+  },
+  {
+    "id": "route-bankroll",
+    "prompt": "I have $20. Where should I bet today across supported sports?",
+    "maxScore": 3
+  }
+]

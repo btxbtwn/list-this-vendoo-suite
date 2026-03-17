@@ -1,0 +1,86 @@
+I’m reading the skill, prompts, criteria, and review context together, then I’ll score each fixed prompt against the criteria and total it up.
+
+● Todo added: Read evaluation inputs
+
+● Read sportsbook-betting-framework/SKILL.md
+  └ 138 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/test-prompts.json
+  └ 27 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/eval-criteria.md
+  └ 17 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/runs/20260316-02283
+  4-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan
+  -moneyline-2026-03-15-review-003/review-context.json
+  └ 46 lines read
+
+I’ve got the inputs; I’m doing one quick convention check so the per-prompt totals align cleanly with the fixed `maxScore` values before I finalize the rubric-based scores.
+
+● Todo started: read-eval-inputs
+
+● Grep "maxScore|binary checks|Shared Framework Eval Criteria|soccer-best-bet" in
+**/*.{md,json,js,ts,py} (<workspace>/skills/skill-optimizer)
+  └ 33 lines found
+
+● Read skill-optimizer/scripts/run_betting_review_pass.py lines 150-230
+  └ 81 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/runs/20260316-02283
+  4-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan
+  -moneyline-2026-03-15-review-003/baseline-score.json
+  └ 37 lines read
+
+The rubric lines up cleanly with the skill as written, and the routing/direct-support language is unusually explicit. I’m marking the scoring pass complete and returning the final JSON exactly in the requested envelope.
+
+● Todo completed: score-prompts
+
+<RESULT>
+{
+  "score": 19,
+  "max_score": 19,
+  "per_prompt": [
+    {
+      "id": "soccer-best-bet",
+      "score": 5,
+      "max_score": 5,
+      "notes": "The skill requires exact current odds, fair-price logic, skeptic/pass discipline, market comparison, and explicit soccer draw-risk handling."
+    },
+    {
+      "id": "soccer-draw-risk",
+      "score": 5,
+      "max_score": 5,
+      "notes": "It directly covers draw risk, compares 3-way versus draw no bet, prefers the cleaner market, and passes when the protected price kills the edge."
+    },
+    {
+      "id": "unsupported-sport",
+      "score": 3,
+      "max_score": 3,
+      "notes": "It clearly says unsupported sports are not onboarded yet and should be declined instead of bluffed."
+    },
+    {
+      "id": "route-ufc",
+      "score": 3,
+      "max_score": 3,
+      "notes": "It explicitly routes UFC and MMA requests to the specialist `ufc-draftkings-betting` skill."
+    },
+    {
+      "id": "route-bankroll",
+      "score": 3,
+      "max_score": 3,
+      "notes": "It explicitly routes cross-sport bankroll requests to `sportsbook-bankroll-router`."
+    }
+  ],
+  "summary": "The current skill strongly covers exact pricing, fair-value logic, pass discipline, soccer draw-risk handling, and the required routing and unsupported-sport behavior across the fixed prompt pack."
+}
+</RESULT>
+
+
+
+Total usage est:        1 Premium request
+API time spent:         1m 23s
+Total session time:     1m 25s
+Total code changes:     +0 -0
+Breakdown by AI model:
+ gpt-5.4                 156.8k in, 4.8k out, 148.9k cached (Est. 1 Premium request)

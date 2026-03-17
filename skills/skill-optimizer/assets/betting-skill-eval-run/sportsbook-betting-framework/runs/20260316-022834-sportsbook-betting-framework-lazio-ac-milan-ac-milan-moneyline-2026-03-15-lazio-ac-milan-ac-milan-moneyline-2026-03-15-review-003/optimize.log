@@ -1,0 +1,97 @@
+● Todo added: Review skill inputs
+
+● Read sportsbook-betting-framework/SKILL.md
+  └ 137 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/test-prompts.json
+  └ 27 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/eval-criteria.md
+  └ 17 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/runs/20260316-02283
+  4-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan
+  -moneyline-2026-03-15-review-003/review-context.json
+  └ 46 lines read
+
+● Create session plan file
+  $ mkdir -p <session-state>/9f349127-bf8d-42bf-9f53-37cf3ebe9d3c && cat >
+  <session-state>/9f349127-bf8d-42bf-9f53-37cf3ebe9d3c/plan.md <<'EOF'
+  # Plan
+
+  1. Read the target skill, prompt pack, eval criteria, and review context....
+  └ 6 lines...
+
+I’ve got the review inputs. I’m making one small rule adjustment in the shared soccer guidance so the framework is more likely to choose protection or pass when draw-heavy, low-event risk undercuts a 3-way side.
+
+● Todo started:
+
+● Edit sportsbook-betting-framework/SKILL.md
+
+The edit is in place. I’m doing a quick diff check now to confirm the change stayed surgical and only touched the target skill.
+
+● Todo started:
+
+● Read sportsbook-betting-framework/SKILL.md lines 84-96
+  └ 13 lines read
+
+● Show skill diff and status
+  $ cd <workspace>/skills && git --no-pager diff --
+  sportsbook-betting-framework/SKILL.md && printf '\n---STATUS---\n' && git --no-pager status
+  --short -- sportsbook-betting-framework/SKILL.md
+  └ 7 lines...
+
+The first diff dump was noisy, likely because of the file format in the repo. I’m narrowing it to the relevant hunk so I can verify the exact change cleanly.
+
+● Inspect diff hunk and file status
+  $ cd <workspace>/skills && git --no-pager diff --unified=5 --
+  sportsbook-betting-framework/SKILL.md | sed -n '80,120p' && printf '\n---STATUS---\n' && git
+  --no-pager status --short -- sportsbook-betting-framework/SKILL.md
+  └ 45 lines...
+
+I found the diff is larger than expected, which usually means a line-ending mismatch rather than a real content rewrite. I’m checking that before I finalize so the patch stays truly surgical.
+
+● Check line endings and diffstat
+  $ cd <workspace>/skills && python - <<'PY'
+  from pathlib import Path
+  import subprocess
+  path = Path('sportsbook-betting-framework/SKILL.md')
+  cur = path.read_bytes()...
+  └ 16 lines...
+
+● Inspect current and HEAD newlines
+  $ cd <workspace>/skills && python3 - <<'PY'
+  from pathlib import Path
+  import subprocess
+  path = Path('sportsbook-betting-framework/SKILL.md')
+  cur = path.read_bytes()...
+  └ 21 lines...
+
+This repo doesn’t have a normal `HEAD`, so the meaningful comparison is against the index. I’m checking that version directly to see whether the big diff is just newline churn.
+
+● Read sportsbook-betting-framework/SKILL.md lines 1-30
+  └ 30 lines read
+
+● Compare working tree with index
+  $ cd <workspace>/skills && python3 - <<'PY'
+  from pathlib import Path
+  import subprocess
+  path = Path('sportsbook-betting-framework/SKILL.md')
+  cur = path.read_bytes()...
+  └ 96 lines...
+
+● Todo completed: validate-change
+
+● Read sportsbook-betting-framework/SKILL.md lines 88-92
+  └ 5 lines read
+
+<DONE>
+
+
+
+Total usage est:        1 Premium request
+API time spent:         2m 7s
+Total session time:     2m 15s
+Total code changes:     +2 -1
+Breakdown by AI model:
+ gpt-5.4                 228.7k in, 7.3k out, 217.6k cached (Est. 1 Premium request)

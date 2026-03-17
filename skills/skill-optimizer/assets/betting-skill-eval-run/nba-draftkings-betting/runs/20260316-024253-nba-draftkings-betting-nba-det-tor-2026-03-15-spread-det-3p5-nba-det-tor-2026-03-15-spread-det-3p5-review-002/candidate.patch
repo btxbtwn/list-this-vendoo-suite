@@ -1,0 +1,35 @@
+--- before
++++ after
+@@ -51,7 +51,7 @@
+ Cover at least 3 of these buckets before recommending an official bet:
+ - current DraftKings odds
+ - injury report, starters, or rotation context
+-- pace, matchup, usage, or role data
++- pace, matchup, home/away split, usage, or role data
+ - line movement
+ - strongest case against the first read
+ 
+@@ -64,6 +64,7 @@
+ - do not present fragile props as high-confidence plays when minutes or role are unresolved
+ - prefer team-level markets when the thesis is team-level and the prop adds extra assumptions
+ - treat lineup uncertainty, foul risk, and blowout risk as first-class inputs
++- do not back road favorites on full-season team strength alone; require home/away split support and an honest read on whether the home side still has reason to play hard
+ - if the edge depends on unresolved news, downgrade to `pass` or a lower-fragility market
+ 
+ ## Workflow
+@@ -74,6 +75,7 @@
+ NBA-specific emphasis:
+ - compare at least one team-level market against the tempting prop when possible
+ - challenge whether the bet still works if recent box-score noise is ignored
++- before endorsing a road-favorite spread, write the home/away split check and ask whether effort or incentive context makes the number too rich
+ - verify that the chosen market survives availability and minutes assumptions
+ 
+ ## Output
+@@ -98,6 +100,7 @@
+ ## Avoid
+ 
+ - box-score narratives without price math
++- road-favorite spreads built mostly on season-long priors while ignoring venue splits or effort context
+ - player props without minutes or role logic
+ - auto-parlays
+ - blind recency bias

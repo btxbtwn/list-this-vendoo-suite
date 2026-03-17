@@ -1,0 +1,37 @@
+{
+  "max_score": 19,
+  "per_prompt": [
+    {
+      "id": "soccer-best-bet",
+      "max_score": 5,
+      "notes": "It explicitly requires current odds, fair-number logic, skeptic/pass discipline, and soccer-side draw-risk handling.",
+      "score": 5
+    },
+    {
+      "id": "soccer-draw-risk",
+      "max_score": 5,
+      "notes": "It directly tells the model to compare markets, address draw risk, and prefer draw no bet when that failure path matters.",
+      "score": 5
+    },
+    {
+      "id": "unsupported-sport",
+      "max_score": 3,
+      "notes": "It clearly says unsupported sports are not onboarded and should be declined instead of bluffed.",
+      "score": 3
+    },
+    {
+      "id": "route-ufc",
+      "max_score": 3,
+      "notes": "It explicitly routes UFC and MMA requests to the specialist UFC DraftKings skill rather than answering in the shared core.",
+      "score": 3
+    },
+    {
+      "id": "route-bankroll",
+      "max_score": 3,
+      "notes": "It explicitly routes cross-sport bankroll and card requests to the bankroll router.",
+      "score": 3
+    }
+  ],
+  "score": 19,
+  "summary": "The skill strongly covers exact pricing, fair-price logic, pass discipline, soccer draw-risk handling, and required routing, so it should guide strong answers across this fixed prompt pack."
+}

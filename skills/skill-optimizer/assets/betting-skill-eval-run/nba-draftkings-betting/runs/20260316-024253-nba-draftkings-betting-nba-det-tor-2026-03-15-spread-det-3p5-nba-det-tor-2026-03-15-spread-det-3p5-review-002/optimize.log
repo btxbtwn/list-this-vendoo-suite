@@ -1,0 +1,67 @@
+● skill(skill-creator)
+
+● SQL: Create initial todos
+  └ 3 row(s) inserted. Last inserted row ID: 3.
+
+● Read skill-optimizer/assets/betting-skill-eval-run/nba-draftkings-betting/eval-criteria.md
+  └ 17 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/nba-draftkings-betting/test-prompts.json
+  └ 27 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/nba-draftkings-betting/runs/20260316-024253-nba-
+  draftkings-betting-nba-det-tor-2026-03-15-spread-det-3p5-nba-det-tor-2026-03-15-spread-det-3p5-revi
+  ew-002/review-context.json
+  └ 46 lines read
+
+● Read nba-draftkings-betting/SKILL.md
+  └ 104 lines read
+
+● Check target file git status
+  $ git -C <workspace>/skills --no-pager status --short --
+  nba-draftkings-betting/SKILL.md
+  └ 2 lines...
+
+● Create session plan
+  $ cat > <session-state>/d161ba8b-bb49-4a3c-8a15-0c58a4444192/plan.md <<'EOF'
+  # Plan
+
+  1. Read the target skill, prompt pack, eval criteria, and review context.
+  2. Extract concrete betting-judgment failures supported by the review, focusing on market ...
+  └ 6 lines...
+
+I’ve got the core context. Next I’m checking the current diff state and then I’ll make a very small rules update focused on road-favorite spread discipline and venue-based signal weighting.
+
+● Todo started: plan-skill-update
+
+● Inspect target file diff
+  $ git -C <workspace>/skills --no-pager diff -- nba-draftkings-betting/SKILL.md
+  └ 386 lines...
+
+I found the concrete gap: the wrapper already handles props/news fragility, but it doesn’t explicitly force venue-sensitive checks before laying points with road favorites. I’m patching that in without touching routing or front matter.
+
+● Edit nba-draftkings-betting/SKILL.md
+
+● Todo started: edit-skill-file
+
+● Read nba-draftkings-betting/SKILL.md lines 49-105
+  └ 57 lines read
+
+● Review final target diff
+  $ git -C <workspace>/skills --no-pager diff -- nba-draftkings-betting/SKILL.md
+   && printf '\n---FILES---\n' && git -C <workspace>/skills --no-pager diff
+  --name-only -- nba-draftkings-betting/SKILL.md
+  └ 392 lines...
+
+● Todo completed: validate-final-skill
+
+<DONE>
+
+
+
+Total usage est:        1 Premium request
+API time spent:         1m 31s
+Total session time:     1m 36s
+Total code changes:     +4 -1
+Breakdown by AI model:
+ gpt-5.4                 233.0k in, 5.0k out, 198.9k cached (Est. 1 Premium request)

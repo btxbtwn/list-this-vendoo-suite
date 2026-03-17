@@ -1,0 +1,99 @@
+I’m reading the skill, prompt pack, rubric, and review context together, then I’ll score each prompt against the fixed criteria and return the exact JSON format.
+
+● Todo added: Read evaluation inputs
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/runs/20260316-02350
+  5-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan
+  -moneyline-2026-03-15-review-003/review-context.json
+  └ 46 lines read
+
+● Read sportsbook-betting-framework/SKILL.md
+  └ 137 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/test-prompts.json
+  └ 27 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/eval-criteria.md
+  └ 17 lines read
+
+I’ve got the inputs. Next I’m checking whether the repo already defines how these binary checks map onto each prompt so I can score it consistently.
+
+● Todo started:
+
+● Grep "betting-skill-eval-run|eval-criteria.md|test-prompts.json"
+(<workspace>/skills/skill-optimizer)
+  └ 29 lines found
+
+● Grep "Shared Framework Eval Criteria|binary checks|maxScore|per_prompt"
+(<workspace>/skills/skill-optimizer)
+  └ 45 lines found
+
+● Grep "soccer-best-bet|soccer-draw-risk|unsupported-sport|route-ufc|route-bankroll"
+(<workspace>/skills)
+  └ 28 lines found
+
+I found prior generated score reports in the same eval run, so I’m spot-checking them against the current `SKILL.md` before finalizing instead of guessing the prompt-to-check mapping.
+
+● Read skill-optimizer/scripts/run_betting_review_pass.py lines 150-240
+  └ 91 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/runs/20260316-02283
+  4-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan
+  -moneyline-2026-03-15-review-003/baseline-score.json
+  └ 37 lines read
+
+● Read skill-optimizer/assets/betting-skill-eval-run/sportsbook-betting-framework/runs/20260316-02283
+  4-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan
+  -moneyline-2026-03-15-review-003/revised-score.json
+  └ 37 lines read
+
+● Todo completed: score-prompts, return-result
+
+<RESULT>
+{
+  "score": 19,
+  "max_score": 19,
+  "per_prompt": [
+    {
+      "id": "soccer-best-bet",
+      "score": 5,
+      "max_score": 5,
+      "notes": "The skill requires exact current odds, fair-price logic, skeptic/pass discipline, market comparison, and explicit soccer draw-risk handling."
+    },
+    {
+      "id": "soccer-draw-risk",
+      "score": 5,
+      "max_score": 5,
+      "notes": "It directly covers draw risk, compares 3-way versus draw no bet, prefers the cleaner market, and allows pass when price or evidence is weak."
+    },
+    {
+      "id": "unsupported-sport",
+      "score": 3,
+      "max_score": 3,
+      "notes": "It clearly says unsupported sports are not onboarded yet and should be declined instead of bluffed."
+    },
+    {
+      "id": "route-ufc",
+      "score": 3,
+      "max_score": 3,
+      "notes": "It explicitly routes UFC and MMA requests to the specialist `ufc-draftkings-betting` skill."
+    },
+    {
+      "id": "route-bankroll",
+      "score": 3,
+      "max_score": 3,
+      "notes": "It explicitly routes cross-sport bankroll requests to `sportsbook-bankroll-router`."
+    }
+  ],
+  "summary": "The current skill fully covers exact pricing, fair-value logic, pass discipline, soccer draw-risk handling, and the required routing and unsupported-sport behavior for this fixed prompt pack."
+}
+</RESULT>
+
+
+
+Total usage est:        1 Premium request
+API time spent:         1m 25s
+Total session time:     1m 27s
+Total code changes:     +0 -0
+Breakdown by AI model:
+ gpt-5.4                 134.8k in, 5.4k out, 119.9k cached (Est. 1 Premium request)

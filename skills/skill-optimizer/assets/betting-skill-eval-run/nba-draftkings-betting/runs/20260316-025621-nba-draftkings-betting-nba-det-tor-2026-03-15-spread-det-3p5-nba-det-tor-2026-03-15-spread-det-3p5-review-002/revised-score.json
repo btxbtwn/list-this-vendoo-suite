@@ -1,0 +1,37 @@
+{
+  "max_score": 22,
+  "per_prompt": [
+    {
+      "id": "nba-best-bet",
+      "max_score": 5,
+      "notes": "It requires exact DraftKings pricing, fair-value math, a skeptic/pass check, and honest handling of lineup uncertainty before naming an official bet.",
+      "score": 5
+    },
+    {
+      "id": "nba-clean-market",
+      "max_score": 5,
+      "notes": "It explicitly compares props against cleaner team-level markets, ties picks to current price and fair value, and keeps pass discipline and counterarguments in the workflow.",
+      "score": 5
+    },
+    {
+      "id": "nba-injury-uncertainty",
+      "max_score": 5,
+      "notes": "It treats questionable news, minutes, and lineup uncertainty as first-class inputs and tells the model to downgrade to pass or a less fragile market when needed.",
+      "score": 5
+    },
+    {
+      "id": "nba-overpriced-favorite",
+      "max_score": 4,
+      "notes": "It includes exact-price and fair-number logic, skeptic/pass discipline, and specifically warns against forcing favorites without price discipline.",
+      "score": 4
+    },
+    {
+      "id": "nba-bankroll-route",
+      "max_score": 3,
+      "notes": "It explicitly routes cross-sport bankroll or card requests to `sportsbook-bankroll-router`.",
+      "score": 3
+    }
+  ],
+  "score": 22,
+  "summary": "The current NBA DraftKings wrapper fully covers this eval pack: exact DraftKings prices, fair-line math, skeptic/pass discipline, cleaner-market selection, honest injury handling, and bankroll routing."
+}

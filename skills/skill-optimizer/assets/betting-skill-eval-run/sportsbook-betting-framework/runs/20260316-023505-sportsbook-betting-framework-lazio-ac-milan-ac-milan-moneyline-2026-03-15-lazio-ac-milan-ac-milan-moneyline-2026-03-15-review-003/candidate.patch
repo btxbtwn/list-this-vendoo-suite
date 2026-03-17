@@ -1,0 +1,21 @@
+--- before
++++ after
+@@ -70,7 +70,9 @@
+ - compare at least 2 plausible markets when available
+ - estimate a fair number or fair probability
+ - choose the cleanest market, not the flashiest market
++- do not let broad strength signals like form table, standings, or brand name outweigh a clear tactical failure path
+ - run a skeptic pass before finalizing
++- if the safer market is too expensive, do not auto-slide into the riskier market; either prove the aggressive price stands on its own or pass
+ - downgrade to `pass` if the price, evidence, or timing does not support a bet
+ 
+ ## Soccer v1 scope
+@@ -88,6 +90,8 @@
+ Extra soccer rules:
+ - address draw risk explicitly on side bets
+ - prefer draw no bet when the draw is a central failure path
++- do not upgrade from draw no bet to a 3-way side just to avoid paying for protection; the 3-way number must clear on its own
++- be stricter on road-favorite moneylines in low-event matchups, especially against home sides likely to defend compact and turn the game into a one-goal or draw-heavy script
+ - do not force props or exotics in this shared skill
+ 
+ ## Research minimums

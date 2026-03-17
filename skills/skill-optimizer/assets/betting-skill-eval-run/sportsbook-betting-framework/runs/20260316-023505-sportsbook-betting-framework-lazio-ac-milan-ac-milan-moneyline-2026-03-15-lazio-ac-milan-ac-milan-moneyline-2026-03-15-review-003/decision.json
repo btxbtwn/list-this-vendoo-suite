@@ -1,0 +1,14 @@
+{
+  "apply_mode": "dry-run",
+  "baseline_max_score": 19,
+  "baseline_score": 19,
+  "bet_id": "lazio-ac-milan-ac-milan-moneyline-2026-03-15",
+  "generated_at": "2026-03-16T02:39:05Z",
+  "notes": "revised skill did not beat the baseline",
+  "review_id": "lazio-ac-milan-ac-milan-moneyline-2026-03-15-review-003",
+  "revised_max_score": 19,
+  "revised_score": 19,
+  "run_tag": "20260316-023505-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan-moneyline-2026-03-15-review-003",
+  "status": "reverted",
+  "target_skill": "sportsbook-betting-framework"
+}
