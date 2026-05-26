@@ -1,177 +1,16 @@
-# VENDOO CROSS-LISTING TEMPLATE
+# Vendoo Listing Schema Reference
 
-Purpose: produce copy/insert-ready field values for Vendoo + eBay + Etsy + Poshmark + Depop from attached photos and any notes.
+Reference-only support material for `list-this-direct`.
 
-# **GLOBAL OUTPUT RULES (Hard Constraints)**
+## Ownership and scope
 
-* Complete STEP -1 then STEP 0 before any marketplace blocks.  
-* Output ONLY the fields in the exact order shown. Do not add extra commentary.  
-* One field per line in the format: Field: Value  
-* Never combine multiple fields into one line.  
-* If unknown or not visible, leave blank after the colon (do not guess).  
-* Do not use an em dash in any title or description (use a standard hyphen if needed).  
-* Do not add a period after the last tag in any tag list.  
-* After you determine market price from sold comps, apply a 35% markup to create the listing price.  
-* Offers: Auto-accept = Listing Price minus 2; Minimum offer = Listing Price minus 4.  
-* Pricing format: eBay/Etsy use .99; Poshmark/Depop use whole dollars.
+- `../list-this/SKILL.md` and the current `list-this` output remain the only source of truth for copy, pricing, comps, category reasoning, and marketplace policy.
+- Use this file only to confirm Vendoo/marketplace field names, JSON nesting, and allowed dropdown values while mapping already-approved `list-this` data into live forms.
+- Do not use this file to generate new titles, descriptions, pricing rules, offer math, trend keywords, or marketplace strategy.
 
-# **INPUTS**
+## Example extension JSON shape
 
-***Attach photos. Optionally paste any known details below (leave blank if none).***
-
-**User Notes:** 
-
-**Known Brand (if any):** 
-
-**Known Size (if any):** 
-
-**Known Flaws (if any):** 
-
-Target Platform Overrides (if any): 
-
-STEP -1: PHOTO-TO-DATA EXTRACTION (Facts Only)
-
-Fill these from photos (tags, labels, visible details). Do not include measurements in body text; keep them here only.
-
-**Item Type:**
-
-**Category Guess:**
-
-**Brand:**
-
-**Style/Model Name or Code:**
-
-**Size Tag:**
-
-**Size Type (Regular/Petite/Tall/Plus/Maternity):**
-
-**Department (Women/Men/Unisex/Kids):**
-
-**Primary Color:**
-
-**Secondary Color:**
-
-**Pattern:**
-
-**Material(s) from Tag:**
-
-**Fabric Type/Texture:**
-
-**Closure:**
-
-**Accents:**
-
-**Fit/Silhouette:**
-
-**Era/Aesthetic (2-3):**
-
-**Condition Grade (New w tags/New/Excellent/Good/Fair):**
-
-**Flaws (list):**
-
-**Measurements (if shown):**
-
-**Etsy Vintage Eligible? (Yes/No/Unknown):**
-
-**When Made (Etsy dropdown if vintage):**
-
-# **STEP 0: LIVE DEMAND & PRICING CHECK (Sold Comps)**
-
-Build search strings from {brand + item + color + fit + pattern + era} + synonyms. Use median sold price when exact matches exist.
-
-**Search String (Primary):**
-
-**Search String (Backup):**
-
-**Comps Source (eBay/Poshmark/Depop/Etsy):**
-
-**Market Price (median sold):**
-
-**Listing Price (Market x 1.35):**
-
-**Auto-Accept Offer (Listing - 2):**
-
-**Minimum Offer (Listing - 4):**
-
-# **STANDARDIZED COPY BLOCKS**
-
-Generate once, then reuse across platforms (with Etsy-safe adjustments if needed).
-
-TITLE + DESCRIPTION BLOCKS
-
- Branded Title (eBay/Poshmark) (80 chars)  
- {BRAND} {SIZE} {VIBE/AESTHETIC} {ITEM} {COLOR} {FIT/SILHOUETTE} {DECADE/TREND}
-
-*line break*
-
-Etsy-Safe Title (Etsy only – no brand) (140 chars)  
- {VIBE/AESTHETIC} {SIZE}  {ITEM} {COLOR} {FIT/SILHOUETTE} {DECADE/TREND} {STYLE KEYWORDS}
-
-*line break*
-
-Universal Description (paste-ready, include line breaks, 200-300 characters) 
-
-{Vibe/era} {decade/trend} {brand} {item} with {key style/feature} in {color/pattern}.​
-
-*line break*
-
-{Fit/silhouette} in {fabric/texture}, styled for {use-case/season}.​
-
-*line break*
-
-Size: {size}
-
-*line break*
-
-Condition: {honest assessment}; Flaws: {specific, only list flaws if you see them in the photos- otherwise do not list flaws}.​ See photos for details.
-
-*line break*
-
-Measurements: {key set} or “See photos for full measurements” if fully legible there.​
-
-*line break*
-
-OFFERS WELCOME! Ships in 1-2 business days. 
-
-*line break*
-
-15% off bundles of 2+ items.
-
-*line break*
-
-QUICK-SWITCH TITLE MATRIX
-
-eBay: Branded Title
-
-Poshmark: Branded Title
-
-Etsy: Etsy-Safe Title (no brand)
-
-Depop: No title field → use Universal Description only
-
-**Keywords/Tags Pool (comma-separated):**
-
-# **FINAL OUTPUTS (COPY/INSERT READY)**
-
-***Return TWO things:***
-1. **Human Readable Template**: A clean summary for the user to read.
-2. **Extension JSON**: The strict JSON block for the Vendoo extension.
-
-## **1. Human Readable Template**
-
-**Title:** {Title}
-**Description:** {Description}
-**Condition:** {Condition}; {Flaws}.
-**Measurements:** See photos for measurements.
-**Brand:** {Brand}
-**Size:** {Size}
-**Color:** {Color}
-**Material:** {Material}
-**Price:** ${Price}
-**Weight:** {Weight} oz
-**Tags:** {Tags}
-
-## **2. Extension JSON Structure**
+Illustrative structure only. Treat the keys and nesting as the reference; treat example values as placeholders, not instructions. If you need live listing values, regenerate them with `list-this` instead of copying from this example.
 
 ```json
 {
@@ -189,7 +28,7 @@ Depop: No title field → use Universal Description only
   "size": "XL",
   "size_us": "XL",
   "tags": ["Drag Racing", "NHRA", "Pomona", "Auto Club", "Racing", "Streetwear", "Car Guy"],
-  "labels": ["To List"],
+  "labels": [],
   "weight_lb": 0,
   "weight_oz": 8,
   "package_dimensions_in": "13x10x3",
@@ -262,7 +101,7 @@ Depop: No title field → use Universal Description only
     "costPrice": 5.00,
     "otherInfo": ""
   },
-
+  
   "depop_specifics": {
     "source": "Preloved",
     "age": "Modern",
@@ -278,7 +117,9 @@ Depop: No title field → use Universal Description only
 }
 ```
 
-### **JSON Field Reference**
+## JSON field reference
+
+Populate these fields from `list-this`; this section only describes the expected field names and shapes.
 
 **Main Vendoo Fields:**
 - `title` (required): Listing title, max 80 chars
@@ -340,11 +181,11 @@ All eBay Item Specifics fields. Use Appendix values.
 - `occasion`: Array of 3 occasions
 - `parcelSize`: Shipping size tier
 
-# **APPENDIX: ALLOWED VALUES REFERENCES (Do not copy into outputs)**
+## Appendix: allowed values reference
 
-Use these lists only to select valid dropdown values. Outputs should still be the clean one-line Field: Value format.
+Use these lists only to choose valid dropdown values when mapping `list-this` output into live Vendoo or marketplace forms.
 
-## **eBay Optional Fields - Value Lists**
+### eBay optional fields - value lists
 
 * “Show Optional Fields” – REQUIRED  
 * Accents: Beaded, Bow, Button, Crochet, Embroidered, Fringe, Fur Trim, Glitter, Jewel, Logo, Pleated, Quilted, Rhinestone, Ruffle, Sequin, Strap, Studded, Tasseled, Zipper  
@@ -373,7 +214,7 @@ Use these lists only to select valid dropdown values. Outputs should still be th
 * Theme: 80s; 90s; Animals; Anime; Army; Art; Aztec; Beach; Beer; Biker; Bird; Bohemian; Butterfly; Cars; Cartoon; Cat; Christmas; City; Classic; Coins; College; Colorful; Comics; Countries; Cowboy; Dad; Designer; Dog; Fish; Flag; Flower; Funny; Geek; Gothic; Grunge; Halloween; Hawaiian; Heart; Hip Hop; Hippie; Hipster; Holiday; Horror; Horse; Indian; Italian; Korean; Leopard; London; Love; Marine; Metal; Money; Moon; Motorcycle; Movie; Music; Nature; Nautical; Nerd; Outdoor; Owl; Paris; Patriotic; Peasant; Preppy; Princess; Punk; Quotes; Rainbow; Retro; Rock; School; Shell; Ski; Skull; Snake; Southwestern; Space; Sports; Stars; Steampunk; Tattoo; Teacher; Tortoise; Transportation; Tribal; Tropical; Unicorn; University; USA; Wedding; Western; Zebra  
 * Unit Quantity: 1; Unit Type: Unit; Vintage: Yes / No; MPN: Does Not Apply; UPC: Does Not Apply
 
-## **Etsy Optional Fields - Value Lists**
+### Etsy optional fields - value lists
 
 * Clothing Style (up to 1): ---- ; Western & cowboy ; Minimalist ; Boho & hippie ; Gothic ; Harajuku ; Lolita ; Military ; Mod ; Preppy ; Rave ; Pin-up & rockabilly ; Rocker ; Menswear  
 * Closure (up to 3): Zipper; Buttons; Tie; Pullover; Elastic; Hook & eye; Snap; Drawstring; Lace-up; Toggle; Velcro  
@@ -388,11 +229,11 @@ Use these lists only to select valid dropdown values. Outputs should still be th
 * Sustainability (up to 3): Eco‑friendly; Organic; Recycled; Upcycled; Handmade; Made to order  
 * Pattern: Abstract; Animal print; Camouflage; Check; Floral; Geometric; Herringbone; Houndstooth; Ikat; Paisley; Plaid; Polka dot; Solid; Striped; Tie dye; Patchwork; Southwestern
 
-## **Poshmark Style Tags - Master List**
+### Poshmark style tags - master list
 
 * Style Tags (separate with commas, 3 max):  (70s, 80s, 90s, Activewear, Animal Print, Athleisure, Avant Garde, Baggy, Balletcore, Beach, Bodycon, Bohemian, Bow, Bridal, Bridesmaid, Business Casual, Cable Knit, Cashmere, Casual, Chunky, Collegiate, Colorblock, Colorful, Contemporary, Coord Sets, Coquette Girl, Corduroy, Cottagecore, Cozy, Crochet, Cropped, Cruelty-Free, Cut-Out, Drop Waist, Eclectic Grandpa, Embroidered, Fall, Faux Fur, Feminine, Festival, Festive, Flannel, Flare, Floral, Formal, Fringe, Gingham, Girlhoodcore, Gorpcore, Goth, Grunge, Hand Knit, Handmade, Herringbone, Houndstooth, Leather, Leopard Print, Lightweight, Linen, Luxury, Maximalism, Mesh, Metallic, Minimalist, Monochrome, Neutral, Nylon, Office, Oversized, Paisley, Party, Pastel, Patchwork, Peplum, Plaid, Platform, Pleated, Polka Dot, Preppy, Punk, Quiet Luxury, Quilted, Relaxed Fit, Resortwear, Retro, Rosette, Ruffle, Satin, Silk, Sporty, Strapless, Streetwear, Stripes, Suede, Tailored, Tennis Prep, Travel, Tropical, Tweed, Two-Tone, Unisex, Upcycled, Utility, Vacation, Vegan, Velour, Vintage, Waterproof, Wedding, Western, Whimsigoth, Winter, Wool, Woven, Y2K)
 
-## **Depop Tags + Style + Parcel Sizes**
+### Depop tags + style + parcel sizes
 
 * Tags (separate with commas, up to five): #y2k; #vintage; #90s; #grunge; #coquette; #indie; #preppy; #boho; #streetwear; #cottagecore; #emo; #punk; #retro; #minimalist  
 * Condition: Brand new; Like new; Used - Excellent; Used - Good; Used - Fair  
@@ -418,18 +259,3 @@ Use these lists only to select valid dropdown values. Outputs should still be th
 * Medium (M): Under 1 lb — $7.99​  
 * Large (L): Under 2 lb — $11.99​  
 * Extra large (XL): Under 10 lb — $13.99​
-
-# **2026 STRATEGY UPDATES (Daily Protocol)**
-
-* **BOLO Brands 2026 (Price Aggressively):**
-    * **Women:** Lululemon, Alo Yoga, Vuori, Nike, Gymshark, Quince, Everlane, Halara, Sezane, House of CB.
-    * **Men:** Kuhl, Carhartt, Patagonia, Chrome Hearts, Ralph Lauren, Vuori, Outdoor Research.
-    * **Target:** Wild Fable, A New Day (flip fast).
-* **Trend Keywords (Inject into Title/Tags):**
-    * **Aesthetics:** "Gorpcore" (outdoor/hiking), "Y2K" (90s/00s), "Coquette" (bows/lace), "Silent Luxury" (basics/neutrals).
-    * **Styles:** Wide-Leg/Flare (Jeans), Skorts, Oversized Hoodies, Graphic Tees (Single-stitch).
-* **Platform Strategy:**
-    * **eBay:** Maximize Item Specifics (Sleeve, Fit, Theme).
-    * **Depop:** Use "Punchy" descriptions + Aesthetic tags (#y2k #grunge).
-    * **Poshmark:** Use NWT toggle if applicable + 3 Style Tags.
-* **Pricing Rule:** Always check sold comps + live listings. If brand is on BOLO list, aim for upper range of comps.

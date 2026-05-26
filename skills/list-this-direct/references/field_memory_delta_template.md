@@ -39,7 +39,7 @@ Use JSON:
 
 | Field | What to capture |
 | --- | --- |
-| `platform` | `vendoo`, `ebay`, `etsy`, `poshmark`, `mercari`, or `depop` |
+| `platform` | `vendoo`, `ebay`, `etsy`, `poshmark`, or `depop` |
 | `context_key` | Best available category/context scope, such as `global`, `women-pants`, or `etsy-tops` |
 | `field_key` | Stable key when known, such as `shippingMethod` or `what_is` |
 | `field_label` | Visible label when the stable key is missing or unclear |
@@ -75,25 +75,25 @@ Use the optional value arrays only when the run learned something durable enough
   "source": "list-this-direct",
   "field_memory_delta": [
     {
-      "platform": "mercari",
+      "platform": "vendoo",
       "context_key": "global",
-      "field_key": "shippingMethod",
-      "field_label": "Shipping Method",
+      "field_key": "condition",
+      "field_label": "Condition",
       "widget_type": "select",
-      "trace_step_goal": "Mercari > shipping label",
-      "target_ui": "Shipping Label dropdown",
+      "trace_step_goal": "Main form > condition",
+      "target_ui": "Vendoo condition combobox",
       "visible_options": [
-        "USPS Ground Advantage",
-        "UPS SurePost",
-        "FedEx Ground Economy"
+        "New With Tags",
+        "Excellent",
+        "Good",
+        "Fair"
       ],
-      "attempted_value": "USPS Ground Advantage",
-      "committed_value": "USPS Ground Advantage",
-      "interaction_pattern": "Opened dropdown, clicked visible option row, confirmed rendered value before save",
+      "attempted_value": "Excellent",
+      "committed_value": "Excellent",
+      "interaction_pattern": "Typed the candidate value, clicked the visible option row, and confirmed the closed field value before save",
       "save_outcome": "saved",
       "blockers": "None",
-      "confidence": "high",
-      "preferred_values": ["USPS Ground Advantage"]
+      "confidence": "high"
     },
     {
       "platform": "depop",

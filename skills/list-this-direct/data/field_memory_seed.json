@@ -6,9 +6,20 @@
       "field_label": "Age",
       "field_slug": "age",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
       "notes": [],
       "options": [
+        {
+          "commit_count": 6,
+          "first_seen_at": "2026-03-14T20:30:53Z",
+          "is_seeded": true,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "modern",
+          "option_value": "Modern",
+          "reject_count": 0,
+          "source": "seed | list-this-direct"
+        },
         {
           "commit_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
@@ -70,28 +81,40 @@
           "is_seeded": true,
           "last_seen_at": "2026-03-14T20:30:53Z",
           "observed_count": 0,
-          "option_normalized": "modern",
-          "option_value": "Modern",
-          "reject_count": 0,
-          "source": "seed"
-        },
-        {
-          "commit_count": 0,
-          "first_seen_at": "2026-03-14T20:30:53Z",
-          "is_seeded": true,
-          "last_seen_at": "2026-03-14T20:30:53Z",
-          "observed_count": 0,
           "option_normalized": "y2-k",
           "option_value": "Y2K",
           "reject_count": 0,
           "source": "seed"
         }
       ],
-      "patterns": [],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "click-the-chip-style-combobox-type-the-age-value-press-enter-and-audit-the-saved-chip",
+          "pattern_kind": "interaction",
+          "pattern_text": "Click the chip-style combobox, type the age value, press Enter, and audit the saved chip.",
+          "source": "list-this-direct",
+          "success_count": 6
+        }
+      ],
       "platform": "depop",
-      "preferences": [],
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 6,
+          "value_text": "Modern"
+        }
+      ],
       "sources": [
-        "seed"
+        "seed",
+        "list-this-direct"
       ],
       "widget_type": "select"
     },
@@ -101,7 +124,7 @@
       "field_label": "Brand",
       "field_slug": "brand",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [
         {
@@ -122,7 +145,7 @@
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "preference_kind": "fallback",
           "reason": "Use when the actual brand is unavailable in the live Depop brand list.",
           "source": "seed",
@@ -223,6 +246,58 @@
       "platform": "depop",
       "preferences": [],
       "sources": [
+        "seed"
+      ],
+      "widget_type": "select"
+    },
+    {
+      "context_key": "global",
+      "field_key": null,
+      "field_label": "Domestic Shipping / Your Address / Parcel Size",
+      "field_slug": "domestic-shipping-your-address-parcel-size",
+      "first_seen_at": "2026-03-23T00:05:08Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 0,
+          "option_normalized": "depop-usps-small-parcel-with-saved-address",
+          "option_value": "Depop USPS + Small parcel with saved address",
+          "reject_count": 6,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "typed-shipping-and-parcel-values-but-no-closed-field-selections-persisted-under-the-disconnected-state",
+          "pattern_kind": "interaction",
+          "pattern_text": "Typed shipping and parcel values, but no closed-field selections persisted under the disconnected state.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
+      "platform": "depop",
+      "preferences": [
+        {
+          "failure_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "avoid",
+          "reason": "Recorded avoid-value from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 0,
+          "value_text": "Trusting typed Depop shipping text without a committed saved selection"
+        }
+      ],
+      "sources": [
+        "list-this-direct",
         "seed"
       ],
       "widget_type": "select"
@@ -445,7 +520,7 @@
       "field_label": "Occasion",
       "field_slug": "occasion",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [
         {
@@ -650,7 +725,7 @@
       "field_label": "Optional Fields",
       "field_slug": "optional-fields",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [
         "\u201cShow Optional Fields\u201d \u2013 REQUIRED"
       ],
@@ -659,7 +734,7 @@
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "pattern_key": "expand-and-verify",
           "pattern_kind": "interaction",
           "pattern_text": "Expand optional fields, fill supported values, and verify commit-required selects visibly changed before save.",
@@ -680,7 +755,7 @@
       "field_label": "Parcel Size",
       "field_slug": "parcel-size",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [
         {
@@ -884,19 +959,19 @@
       "field_label": "Source",
       "field_slug": "source",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
       "notes": [],
       "options": [
         {
-          "commit_count": 0,
+          "commit_count": 6,
           "first_seen_at": "2026-03-14T20:30:53Z",
           "is_seeded": true,
-          "last_seen_at": "2026-03-14T20:30:53Z",
-          "observed_count": 0,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
           "option_normalized": "preloved",
           "option_value": "Preloved",
           "reject_count": 0,
-          "source": "seed"
+          "source": "seed | list-this-direct"
         },
         {
           "commit_count": 0,
@@ -910,11 +985,34 @@
           "source": "seed"
         }
       ],
-      "patterns": [],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "click-the-chip-style-combobox-type-the-source-value-press-enter-and-audit-the-saved-chip",
+          "pattern_kind": "interaction",
+          "pattern_text": "Click the chip-style combobox, type the source value, press Enter, and audit the saved chip.",
+          "source": "list-this-direct",
+          "success_count": 6
+        }
+      ],
       "platform": "depop",
-      "preferences": [],
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 6,
+          "value_text": "Preloved"
+        }
+      ],
       "sources": [
-        "seed"
+        "seed",
+        "list-this-direct"
       ],
       "widget_type": "select"
     },
@@ -924,9 +1022,42 @@
       "field_label": "Style",
       "field_slug": "style",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
       "notes": [],
       "options": [
+        {
+          "commit_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 0,
+          "option_normalized": "casual-streetwear",
+          "option_value": "Casual, Streetwear",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-14T20:30:53Z",
+          "is_seeded": true,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "casual",
+          "option_value": "Casual",
+          "reject_count": 0,
+          "source": "seed | list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-14T20:30:53Z",
+          "is_seeded": true,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "streetwear",
+          "option_value": "Streetwear",
+          "reject_count": 0,
+          "source": "seed | list-this-direct"
+        },
         {
           "commit_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
@@ -962,14 +1093,14 @@
         },
         {
           "commit_count": 0,
-          "first_seen_at": "2026-03-14T20:30:53Z",
-          "is_seeded": true,
-          "last_seen_at": "2026-03-14T20:30:53Z",
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
           "observed_count": 0,
-          "option_normalized": "casual",
-          "option_value": "Casual",
-          "reject_count": 0,
-          "source": "seed"
+          "option_normalized": "casual-streetwear-sporty",
+          "option_value": "Casual, Streetwear, Sporty",
+          "reject_count": 6,
+          "source": "list-this-direct"
         },
         {
           "commit_count": 0,
@@ -1219,17 +1350,6 @@
           "is_seeded": true,
           "last_seen_at": "2026-03-14T20:30:53Z",
           "observed_count": 0,
-          "option_normalized": "streetwear",
-          "option_value": "Streetwear",
-          "reject_count": 0,
-          "source": "seed"
-        },
-        {
-          "commit_count": 0,
-          "first_seen_at": "2026-03-14T20:30:53Z",
-          "is_seeded": true,
-          "last_seen_at": "2026-03-14T20:30:53Z",
-          "observed_count": 0,
           "option_normalized": "twee",
           "option_value": "Twee",
           "reject_count": 0,
@@ -1280,11 +1400,34 @@
           "source": "seed"
         }
       ],
-      "patterns": [],
+      "patterns": [
+        {
+          "failure_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "type-each-style-token-with-enter-and-audit-the-saved-chips-instead-of-assuming-every-entry-stuck",
+          "pattern_kind": "interaction",
+          "pattern_text": "Type each style token with Enter and audit the saved chips instead of assuming every entry stuck.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
       "platform": "depop",
-      "preferences": [],
+      "preferences": [
+        {
+          "failure_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "avoid",
+          "reason": "Recorded avoid-value from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 0,
+          "value_text": "Assuming all three Depop style tokens committed without checking saved chips"
+        }
+      ],
       "sources": [
-        "seed"
+        "seed",
+        "list-this-direct"
       ],
       "widget_type": "select"
     },
@@ -1589,6 +1732,296 @@
       "widget_type": "select"
     },
     {
+      "context_key": "graphic-tee",
+      "field_key": "age",
+      "field_label": "Age",
+      "field_slug": "age",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "modern",
+          "option_value": "Modern",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "type-the-exact-allowed-label-and-press-enter-to-commit",
+          "pattern_kind": "interaction",
+          "pattern_text": "Type the exact allowed label and press Enter to commit.",
+          "source": "list-this-direct",
+          "success_count": 1
+        }
+      ],
+      "platform": "depop",
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 1,
+          "value_text": "Modern"
+        }
+      ],
+      "sources": [
+        "list-this-direct"
+      ],
+      "widget_type": "token_input"
+    },
+    {
+      "context_key": "graphic-tee",
+      "field_key": "source",
+      "field_label": "Source",
+      "field_slug": "source",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "preloved",
+          "option_value": "Preloved",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "type-the-exact-allowed-label-and-press-enter-to-commit",
+          "pattern_kind": "interaction",
+          "pattern_text": "Type the exact allowed label and press Enter to commit.",
+          "source": "list-this-direct",
+          "success_count": 1
+        }
+      ],
+      "platform": "depop",
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 1,
+          "value_text": "Preloved"
+        }
+      ],
+      "sources": [
+        "list-this-direct"
+      ],
+      "widget_type": "token_input"
+    },
+    {
+      "context_key": "graphic-tee",
+      "field_key": "style",
+      "field_label": "Style",
+      "field_slug": "style",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "casual-streetwear-retro",
+          "option_value": "Casual, Streetwear, Retro",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "commit-each-exact-allowed-style-label-separately-with-type-plus-enter-until-three-styles-are-present",
+          "pattern_kind": "interaction",
+          "pattern_text": "Commit each exact allowed style label separately with type-plus-Enter until three styles are present.",
+          "source": "list-this-direct",
+          "success_count": 1
+        }
+      ],
+      "platform": "depop",
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 1,
+          "value_text": "Casual"
+        },
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 1,
+          "value_text": "Retro"
+        },
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 1,
+          "value_text": "Streetwear"
+        }
+      ],
+      "sources": [
+        "list-this-direct"
+      ],
+      "widget_type": "token_input"
+    },
+    {
+      "context_key": "graphic-tee",
+      "field_key": "tags",
+      "field_label": "Tags",
+      "field_slug": "tags",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "new-orleans-alligator-graphic-tee-souvenir-casual",
+          "option_value": "New Orleans, Alligator, Graphic Tee, Souvenir, Casual",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "alligator",
+          "option_value": "Alligator",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "casual",
+          "option_value": "Casual",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "comfort-colors",
+          "option_value": "Comfort Colors",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "graphic-tee",
+          "option_value": "Graphic Tee",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "new-orleans",
+          "option_value": "New Orleans",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "souvenir",
+          "option_value": "Souvenir",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "keep-the-best-five-tags",
+          "option_value": "Keep the best five tags",
+          "reject_count": 1,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "remove-the-brand-chip-first-so-the-five-kept-tags-are-the-actual-search-terms-that-should-survive-the-platform-limit",
+          "pattern_kind": "interaction",
+          "pattern_text": "Remove the brand chip first so the five kept tags are the actual search terms that should survive the platform limit.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
+      "platform": "depop",
+      "preferences": [],
+      "sources": [
+        "list-this-direct"
+      ],
+      "widget_type": "token_input"
+    },
+    {
       "context_key": "women-pants",
       "field_key": "brand",
       "field_label": "Brand",
@@ -1598,11 +2031,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 2,
+          "commit_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 2,
+          "observed_count": 192,
           "option_normalized": "other",
           "option_value": "Other",
           "reject_count": 0,
@@ -1616,13 +2049,13 @@
           "observed_count": 0,
           "option_normalized": "max-studio",
           "option_value": "Max Studio",
-          "reject_count": 2,
+          "reject_count": 192,
           "source": "list-this-direct"
         }
       ],
       "patterns": [
         {
-          "failure_count": 2,
+          "failure_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "if-the-actual-brand-does-not-commit-from-the-live-depop-brand-list-use-other-as-the-supported-fallback",
@@ -1635,7 +2068,7 @@
       "platform": "depop",
       "preferences": [
         {
-          "failure_count": 2,
+          "failure_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "fallback",
@@ -1646,7 +2079,8 @@
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -1660,7 +2094,7 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 1,
+          "commit_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
@@ -1675,7 +2109,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "fit-wide-leg",
           "option_value": "Fit = Wide leg",
           "reject_count": 0,
@@ -1686,7 +2120,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "material-polyester",
           "option_value": "Material = Polyester",
           "reject_count": 0,
@@ -1697,7 +2131,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "material-rayon",
           "option_value": "Material = Rayon",
           "reject_count": 0,
@@ -1708,7 +2142,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "occasion-work",
           "option_value": "Occasion = Work",
           "reject_count": 0,
@@ -1719,7 +2153,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "size-grouping-options-maternity-petite-plus-size-tall",
           "option_value": "Size grouping options = Maternity, Petite, Plus size, Tall",
           "reject_count": 0,
@@ -1730,7 +2164,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "type-printed",
           "option_value": "Type = Printed",
           "reject_count": 0,
@@ -1744,13 +2178,13 @@
           "observed_count": 0,
           "option_normalized": "repair-optional-specifics-after-an-earlier-direct-id-fill-left-incorrect-transient-values",
           "option_value": "Repair optional specifics after an earlier direct-ID fill left incorrect transient values",
-          "reject_count": 1,
+          "reject_count": 96,
           "source": "list-this-direct"
         }
       ],
       "patterns": [
         {
-          "failure_count": 1,
+          "failure_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "use-accessibility-snapshot-backed-visible-option-rows-for-depop-optional-specifics-do-not-rely-on-raw-internal-field-ids-because-they-can-map-to-the-wrong-live-labels",
@@ -1763,7 +2197,7 @@
       "platform": "depop",
       "preferences": [
         {
-          "failure_count": 1,
+          "failure_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "avoid",
@@ -1773,7 +2207,7 @@
           "value_text": "Forcing Size grouping when only special-size buckets are available and none apply"
         },
         {
-          "failure_count": 1,
+          "failure_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "avoid",
@@ -1784,7 +2218,8 @@
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "multi_select"
     },
@@ -1798,11 +2233,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 2,
+          "commit_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 2,
+          "observed_count": 192,
           "option_normalized": "medium",
           "option_value": "Medium",
           "reject_count": 0,
@@ -1818,7 +2253,7 @@
           "pattern_kind": "interaction",
           "pattern_text": "For a 15 oz package, correct the inherited parcel size upward to Medium before save",
           "source": "list-this-direct",
-          "success_count": 2
+          "success_count": 192
         }
       ],
       "platform": "depop",
@@ -1830,11 +2265,11 @@
           "preference_kind": "preferred",
           "reason": "Promoted from field_memory_delta",
           "source": "list-this-direct",
-          "success_count": 2,
+          "success_count": 192,
           "value_text": "Medium"
         },
         {
-          "failure_count": 2,
+          "failure_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "avoid",
@@ -1845,7 +2280,8 @@
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -3881,7 +4317,7 @@
       "field_label": "Optional Fields",
       "field_slug": "optional-fields",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [
         "\u201cShow Optional Fields\u201d \u2013 REQUIRED"
       ],
@@ -3890,7 +4326,7 @@
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "pattern_key": "show-optional-first",
           "pattern_kind": "interaction",
           "pattern_text": "Click Show Optional Fields as soon as the form is ready, wait until the section is visibly expanded, then fill supported optional fields before save.",
@@ -6142,6 +6578,109 @@
       "widget_type": "select"
     },
     {
+      "context_key": "men-tshirts",
+      "field_key": "mpn_upc_does_not_apply",
+      "field_label": "MPN / UPC Does Not Apply",
+      "field_slug": "mpn-upc-does-not-apply",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "does-not-apply",
+          "option_value": "Does Not Apply",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "use-native-checkbox-clicks-script-only-checked-state-does-not-persist-through-save",
+          "pattern_kind": "interaction",
+          "pattern_text": "Use native checkbox clicks; script-only checked state does not persist through save.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
+      "platform": "ebay",
+      "preferences": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "preference_kind": "avoid",
+          "reason": "Recorded avoid-value from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 0,
+          "value_text": "Setting checked=true without a real click"
+        }
+      ],
+      "sources": [
+        "list-this-direct"
+      ],
+      "widget_type": "button"
+    },
+    {
+      "context_key": "mens-swimwear",
+      "field_key": "type",
+      "field_label": "Type",
+      "field_slug": "type",
+      "first_seen_at": "2026-03-23T00:05:08Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "swim-trunks",
+          "option_value": "Swim Trunks",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "click-the-combobox-type-the-candidate-value-press-enter-then-tab-and-audit-the-closed-field-state",
+          "pattern_kind": "interaction",
+          "pattern_text": "Click the combobox, type the candidate value, press Enter, then Tab and audit the closed field state.",
+          "source": "list-this-direct",
+          "success_count": 6
+        }
+      ],
+      "platform": "ebay",
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 6,
+          "value_text": "Swim Trunks"
+        }
+      ],
+      "sources": [
+        "list-this-direct",
+        "seed"
+      ],
+      "widget_type": "select"
+    },
+    {
       "context_key": "women-pants",
       "field_key": "brand",
       "field_label": "Brand",
@@ -6151,11 +6690,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 3,
+          "commit_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "max-studio",
           "option_value": "Max Studio",
           "reject_count": 0,
@@ -6166,7 +6705,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "max-factor",
           "option_value": "Max Factor",
           "reject_count": 0,
@@ -6177,7 +6716,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "max-mara",
           "option_value": "Max Mara",
           "reject_count": 0,
@@ -6186,7 +6725,7 @@
       ],
       "patterns": [
         {
-          "failure_count": 3,
+          "failure_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "typing-the-full-brand-was-insufficient-on-first-attempt-live-list-inspection-was-required-followed-by-keyboard-commit-path",
@@ -6199,7 +6738,7 @@
       "platform": "ebay",
       "preferences": [
         {
-          "failure_count": 3,
+          "failure_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "preferred",
@@ -6210,7 +6749,8 @@
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -6224,11 +6764,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 3,
+          "commit_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "women",
           "option_value": "Women",
           "reject_count": 0,
@@ -6237,7 +6777,7 @@
       ],
       "patterns": [
         {
-          "failure_count": 3,
+          "failure_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "typed-the-value-into-the-custom-field-then-used-visible-option-commit-and-keyboard-confirmation-until-the-mirrored-value-field-held-women",
@@ -6250,7 +6790,7 @@
       "platform": "ebay",
       "preferences": [
         {
-          "failure_count": 3,
+          "failure_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "preferred",
@@ -6261,7 +6801,8 @@
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -6282,13 +6823,13 @@
           "observed_count": 0,
           "option_normalized": "no-upload-attempted-because-no-local-image-paths-were-available",
           "option_value": "No upload attempted because no local image paths were available",
-          "reject_count": 3,
+          "reject_count": 288,
           "source": "list-this-direct"
         }
       ],
       "patterns": [
         {
-          "failure_count": 3,
+          "failure_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "n-a",
@@ -6301,7 +6842,7 @@
       "platform": "ebay",
       "preferences": [
         {
-          "failure_count": 3,
+          "failure_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "avoid",
@@ -6312,7 +6853,8 @@
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "unknown"
     },
@@ -6326,7 +6868,7 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 1,
+          "commit_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
@@ -6344,13 +6886,13 @@
           "observed_count": 0,
           "option_normalized": "expected-the-e-bay-local-strip-to-match-the-shared-step-1-photo-count-of-6",
           "option_value": "Expected the eBay-local strip to match the shared Step 1 photo count of 6",
-          "reject_count": 1,
+          "reject_count": 96,
           "source": "list-this-direct"
         }
       ],
       "patterns": [
         {
-          "failure_count": 1,
+          "failure_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "if-the-e-bay-strip-shows-more-images-than-step-1-remove-the-extra-marketplace-local-photos-from-the-end-of-the-strip-until-the-counts-match-before-saving",
@@ -6363,7 +6905,7 @@
       "platform": "ebay",
       "preferences": [
         {
-          "failure_count": 1,
+          "failure_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "avoid",
@@ -6374,7 +6916,8 @@
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "sortable_photo_strip"
     },
@@ -6388,7 +6931,7 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 1,
+          "commit_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
@@ -6403,7 +6946,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "handmade-no",
           "option_value": "Handmade = No",
           "reject_count": 0,
@@ -6414,7 +6957,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "inseam-29-in",
           "option_value": "Inseam = 29 in",
           "reject_count": 0,
@@ -6425,7 +6968,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "material-polyester",
           "option_value": "Material = Polyester",
           "reject_count": 0,
@@ -6436,7 +6979,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "occasion-business",
           "option_value": "Occasion = Business",
           "reject_count": 0,
@@ -6447,7 +6990,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "pattern-plaid",
           "option_value": "Pattern = Plaid",
           "reject_count": 0,
@@ -6458,7 +7001,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "vintage-no",
           "option_value": "Vintage = No",
           "reject_count": 0,
@@ -6469,7 +7012,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 1,
+          "observed_count": 96,
           "option_normalized": "waist-size-30-in",
           "option_value": "Waist Size = 30 in",
           "reject_count": 0,
@@ -6483,13 +7026,13 @@
           "observed_count": 0,
           "option_normalized": "fill-supported-optional-specifics-directly-from-evidence-backed-listing-data",
           "option_value": "Fill supported optional specifics directly from evidence-backed listing data",
-          "reject_count": 1,
+          "reject_count": 96,
           "source": "list-this-direct"
         }
       ],
       "patterns": [
         {
-          "failure_count": 1,
+          "failure_count": 96,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "for-e-bay-custom-selects-type-the-exact-value-inspect-the-live-option-row-click-the-real-option-to-commit-it-then-save-only-after-the-selected-value-renders-visibly",
@@ -6502,7 +7045,8 @@
       "platform": "ebay",
       "preferences": [],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "multi_select_and_text"
     },
@@ -6516,11 +7060,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 3,
+          "commit_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "dress-pants",
           "option_value": "Dress Pants",
           "reject_count": 0,
@@ -6529,7 +7073,7 @@
       ],
       "patterns": [
         {
-          "failure_count": 3,
+          "failure_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "typed-the-candidate-style-and-used-the-widget-s-suggestion-keyboard-commit-path-until-the-mirrored-value-field-held-dress-pants",
@@ -6542,7 +7086,7 @@
       "platform": "ebay",
       "preferences": [
         {
-          "failure_count": 3,
+          "failure_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "preferred",
@@ -6550,6 +7094,58 @@
           "source": "list-this-direct",
           "success_count": 0,
           "value_text": "Dress Pants"
+        }
+      ],
+      "sources": [
+        "list-this-direct",
+        "seed"
+      ],
+      "widget_type": "select"
+    },
+    {
+      "context_key": "etsy-modern-tee",
+      "field_key": "whenMade",
+      "field_label": "When Was It Made?",
+      "field_slug": "when-made",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "2020-2026-recently",
+          "option_value": "2020 - 2026 (Recently)",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "use-an-exact-etsy-enum-label-press-enter-to-commit-then-save-freeform-text-does-not-count-as-a-committed-selection",
+          "pattern_kind": "interaction",
+          "pattern_text": "Use an exact Etsy enum label, press Enter to commit, then save. Freeform text does not count as a committed selection.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
+      "platform": "etsy",
+      "preferences": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 0,
+          "value_text": "2020 - 2026 (Recently)"
         }
       ],
       "sources": [
@@ -7401,14 +7997,14 @@
       "field_label": "Materials",
       "field_slug": "materials",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "pattern_key": "strict-pointer-flow",
           "pattern_kind": "interaction",
           "pattern_text": "Click the field, wait for the option list, click the real option row, then verify the chosen value renders in the field.",
@@ -7868,7 +8464,7 @@
       "field_label": "Processing Time",
       "field_slug": "processing-time",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -7885,7 +8481,7 @@
       "field_label": "Renewal Option",
       "field_slug": "renewal-option",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -7964,7 +8560,7 @@
       "field_label": "Section",
       "field_slug": "section",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -7981,7 +8577,7 @@
       "field_label": "Shipping Template",
       "field_slug": "shipping-template",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -8163,14 +8759,115 @@
       "field_label": "Tags",
       "field_slug": "tags",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
       "notes": [],
-      "options": [],
-      "patterns": [],
+      "options": [
+        {
+          "commit_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 0,
+          "option_normalized": "inherited-tags-remained-alongside-newly-added-etsy-tags",
+          "option_value": "Inherited tags remained alongside newly added Etsy tags",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "asos-design",
+          "option_value": "ASOS DESIGN",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "blue-swim-trunks",
+          "option_value": "blue swim trunks",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "drawstring-trunks",
+          "option_value": "drawstring trunks",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "mens-swim-shorts",
+          "option_value": "mens swim shorts",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "side-stripe-shorts",
+          "option_value": "side stripe shorts",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 0,
+          "option_normalized": "replace-inherited-tags-with-etsy-specific-tags-only",
+          "option_value": "Replace inherited tags with Etsy-specific tags only",
+          "reject_count": 6,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "adding-tags-by-direct-entry-worked-but-reliable-chip-removal-did-not",
+          "pattern_kind": "interaction",
+          "pattern_text": "Adding tags by direct entry worked, but reliable chip removal did not.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
       "platform": "etsy",
-      "preferences": [],
+      "preferences": [
+        {
+          "failure_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "avoid",
+          "reason": "Recorded avoid-value from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 0,
+          "value_text": "Batch chip removal using stale accessibility UIDs"
+        }
+      ],
       "sources": [
-        "seed"
+        "seed",
+        "list-this-direct"
       ],
       "widget_type": "token_input"
     },
@@ -8180,7 +8877,7 @@
       "field_label": "What Is",
       "field_slug": "what-is",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -8197,14 +8894,49 @@
       "field_label": "When Made",
       "field_slug": "when-made",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
       "notes": [],
-      "options": [],
-      "patterns": [],
+      "options": [
+        {
+          "commit_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "2010-2019-recently",
+          "option_value": "2010 - 2019 (Recently)",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "probe-the-live-field-name-set-the-marketplace-date-value-and-audit-the-saved-closed-field-label-rather-than-trusting-the-source-token-verbatim",
+          "pattern_kind": "interaction",
+          "pattern_text": "Probe the live field name, set the marketplace date value, and audit the saved closed-field label rather than trusting the source token verbatim.",
+          "source": "list-this-direct",
+          "success_count": 6
+        }
+      ],
       "platform": "etsy",
-      "preferences": [],
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 6,
+          "value_text": "2010 - 2019 (Recently)"
+        }
+      ],
       "sources": [
-        "seed"
+        "seed",
+        "list-this-direct"
       ],
       "widget_type": "select"
     },
@@ -8214,7 +8946,7 @@
       "field_label": "Who Made",
       "field_slug": "who-made",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -8235,11 +8967,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 2,
+          "commit_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 2,
+          "observed_count": 192,
           "option_normalized": "2010-2019-recently",
           "option_value": "2010 - 2019 (Recently)",
           "reject_count": 0,
@@ -8255,7 +8987,7 @@
           "pattern_kind": "interaction",
           "pattern_text": "Use the exact live Etsy label rather than an abstract decade alias when the field is already populated correctly",
           "source": "list-this-direct",
-          "success_count": 2
+          "success_count": 192
         }
       ],
       "platform": "etsy",
@@ -8267,12 +8999,87 @@
           "preference_kind": "preferred",
           "reason": "Promoted from field_memory_delta",
           "source": "list-this-direct",
-          "success_count": 2,
+          "success_count": 192,
           "value_text": "2010 - 2019 (Recently)"
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
+      ],
+      "widget_type": "select"
+    },
+    {
+      "context_key": "global",
+      "field_key": "brand",
+      "field_label": "Brand",
+      "field_slug": "brand",
+      "first_seen_at": "2026-03-23T00:05:08Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "22-designs",
+          "option_value": "22 Designs",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "a3-design",
+          "option_value": "A3 Design",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "asos",
+          "option_value": "ASOS",
+          "reject_count": 6,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "typing-a-suggested-mercari-brand-and-pressing-enter-was-not-enough-to-create-a-committed-selection",
+          "pattern_kind": "interaction",
+          "pattern_text": "Typing a suggested Mercari brand and pressing Enter was not enough to create a committed selection.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
+      "platform": "mercari",
+      "preferences": [
+        {
+          "failure_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "avoid",
+          "reason": "Recorded avoid-value from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 0,
+          "value_text": "Leaving Mercari brand unverified after text entry plus Enter"
+        }
+      ],
+      "sources": [
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -8282,14 +9089,49 @@
       "field_label": "Carrier Id",
       "field_slug": "carrier-id",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
       "notes": [],
-      "options": [],
-      "patterns": [],
+      "options": [
+        {
+          "commit_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 6,
+          "option_normalized": "usps-ground-advantage-1-7-days-5-99-0-5-lb",
+          "option_value": "USPS Ground Advantage / 1 - 7 days / $ 5.99 / 0.5 lb",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "click-shipping-label-type-usps-press-enter-then-verify-the-saved-long-form-carrier-label-in-the-closed-field",
+          "pattern_kind": "interaction",
+          "pattern_text": "Click Shipping Label, type USPS, press Enter, then verify the saved long-form carrier label in the closed field.",
+          "source": "list-this-direct",
+          "success_count": 6
+        }
+      ],
       "platform": "mercari",
-      "preferences": [],
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 6,
+          "value_text": "USPS Ground Advantage / 1 - 7 days / $ 5.99 / 0.5 lb"
+        }
+      ],
       "sources": [
-        "seed"
+        "seed",
+        "list-this-direct"
       ],
       "widget_type": "select"
     },
@@ -8399,11 +9241,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 2,
+          "commit_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 2,
+          "observed_count": 192,
           "option_normalized": "no-brand-not-sure",
           "option_value": "No Brand/Not Sure",
           "reject_count": 0,
@@ -8417,13 +9259,13 @@
           "observed_count": 0,
           "option_normalized": "max-studio",
           "option_value": "Max Studio",
-          "reject_count": 2,
+          "reject_count": 192,
           "source": "list-this-direct"
         }
       ],
       "patterns": [
         {
-          "failure_count": 2,
+          "failure_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "pattern_key": "if-the-live-mercari-brand-list-will-not-commit-the-actual-brand-use-the-explicit-no-brand-not-sure-checkbox-instead-of-leaving-the-field-unresolved",
@@ -8436,7 +9278,7 @@
       "platform": "mercari",
       "preferences": [
         {
-          "failure_count": 2,
+          "failure_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "last_seen_at": "2026-03-15T05:45:00Z",
           "preference_kind": "fallback",
@@ -8447,7 +9289,8 @@
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -8461,11 +9304,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 2,
+          "commit_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 2,
+          "observed_count": 192,
           "option_normalized": "usps-ground-advantage-1-7-days-6-99-1-lb",
           "option_value": "USPS Ground Advantage / 1 - 7 days / $ 6.99 / 1 lb",
           "reject_count": 0,
@@ -8481,7 +9324,7 @@
           "pattern_kind": "interaction",
           "pattern_text": "Keyboard commit path resolved the generic shipping label text into the live full-rate option label",
           "source": "list-this-direct",
-          "success_count": 2
+          "success_count": 192
         }
       ],
       "platform": "mercari",
@@ -8493,12 +9336,13 @@
           "preference_kind": "preferred",
           "reason": "Promoted from field_memory_delta",
           "source": "list-this-direct",
-          "success_count": 2,
+          "success_count": 192,
           "value_text": "USPS Ground Advantage / 1 - 7 days / $ 6.99 / 1 lb"
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -8508,7 +9352,7 @@
       "field_label": "Discount Shipping",
       "field_slug": "discount-shipping",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -8525,14 +9369,49 @@
       "field_label": "Original Price",
       "field_slug": "original-price",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
       "notes": [],
-      "options": [],
-      "patterns": [],
+      "options": [
+        {
+          "commit_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 0,
+          "option_normalized": "25",
+          "option_value": "25",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "use-native-dom-setters-for-editable-draft-inputs-then-click-save-and-audit-the-persisted-textbox-value",
+          "pattern_kind": "interaction",
+          "pattern_text": "Use native DOM setters for editable draft inputs, then click Save and audit the persisted textbox value.",
+          "source": "list-this-direct",
+          "success_count": 6
+        }
+      ],
       "platform": "poshmark",
-      "preferences": [],
+      "preferences": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "preference_kind": "preferred",
+          "reason": "Promoted from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 6,
+          "value_text": "25"
+        }
+      ],
       "sources": [
-        "seed"
+        "seed",
+        "list-this-direct"
       ],
       "widget_type": "text"
     },
@@ -8542,7 +9421,7 @@
       "field_label": "Smart Pricing",
       "field_slug": "smart-pricing",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -9837,6 +10716,123 @@
       "widget_type": "token_input"
     },
     {
+      "context_key": "graphic-tee",
+      "field_key": "style_tags",
+      "field_label": "Style Tags",
+      "field_slug": "style-tags",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "new-orleans-alligator-graphic-tee",
+          "option_value": "New Orleans, Alligator, Graphic Tee",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "alligator",
+          "option_value": "Alligator",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "casual",
+          "option_value": "Casual",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "comfort-colors",
+          "option_value": "Comfort Colors",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "graphic-tee",
+          "option_value": "Graphic Tee",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "new-orleans",
+          "option_value": "New Orleans",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 1,
+          "option_normalized": "souvenir",
+          "option_value": "Souvenir",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        },
+        {
+          "commit_count": 0,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "prune-to-exactly-three-high-signal-tags",
+          "option_value": "Prune to exactly three high-signal tags",
+          "reject_count": 1,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "remove-low-signal-chips-until-only-three-search-oriented-tags-remain-do-not-rely-on-vendoo-s-first-three-only-fallback-ordering",
+          "pattern_kind": "interaction",
+          "pattern_text": "Remove low-signal chips until only three search-oriented tags remain; do not rely on Vendoo's first-three-only fallback ordering.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
+      "platform": "poshmark",
+      "preferences": [],
+      "sources": [
+        "list-this-direct"
+      ],
+      "widget_type": "token_input"
+    },
+    {
       "context_key": "women-pants",
       "field_key": "smartSellMinPrice",
       "field_label": "Minimum Price",
@@ -9846,7 +10842,7 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 2,
+          "commit_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
@@ -9866,13 +10862,14 @@
           "pattern_kind": "interaction",
           "pattern_text": "When Smart Sell remains enabled, set the minimum price explicitly before saving",
           "source": "list-this-direct",
-          "success_count": 2
+          "success_count": 192
         }
       ],
       "platform": "poshmark",
       "preferences": [],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "text"
     },
@@ -9882,7 +10879,7 @@
       "field_label": "Brand",
       "field_slug": "brand",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -9899,14 +10896,14 @@
       "field_label": "Category",
       "field_slug": "category-path",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "pattern_key": "hierarchy-click-through",
           "pattern_kind": "interaction",
           "pattern_text": "Open the category picker, click through the visible hierarchy, verify the final path renders, and close the picker before save.",
@@ -9927,14 +10924,14 @@
       "field_label": "Condition",
       "field_slug": "condition",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "pattern_key": "visible-option-commit",
           "pattern_kind": "interaction",
           "pattern_text": "Type or set the candidate value, wait for visible options, click the matching option row, then verify the field visibly changed.",
@@ -9955,7 +10952,7 @@
       "field_label": "Cost",
       "field_slug": "cost",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -9972,7 +10969,7 @@
       "field_label": "Department",
       "field_slug": "department",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -9989,7 +10986,7 @@
       "field_label": "Description",
       "field_slug": "description",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -10002,11 +10999,143 @@
     },
     {
       "context_key": "global",
+      "field_key": "generalDetails.description",
+      "field_label": "Description",
+      "field_slug": "general-details-description",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "listing-description-text",
+          "option_value": "Listing description text",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "if-the-saved-draft-drops-textarea-content-use-the-native-dom-value-setter-plus-input-change-dispatch-then-re-save-and-audit-the-persisted-dom-value",
+          "pattern_kind": "interaction",
+          "pattern_text": "If the saved draft drops textarea content, use the native DOM value setter plus input/change dispatch, then re-save and audit the persisted DOM value.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
+      "platform": "vendoo",
+      "preferences": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "preference_kind": "avoid",
+          "reason": "Recorded avoid-value from field_memory_delta",
+          "source": "list-this-direct",
+          "success_count": 0,
+          "value_text": "Trusting pre-save textarea content without a post-save audit"
+        }
+      ],
+      "sources": [
+        "list-this-direct"
+      ],
+      "widget_type": "textarea"
+    },
+    {
+      "context_key": "global",
+      "field_key": "generalDetails.notes",
+      "field_label": "Vendoo Internal Notes",
+      "field_slug": "general-details-notes",
+      "first_seen_at": "2026-03-23T02:11:50Z",
+      "last_seen_at": "2026-03-23T02:11:50Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "observed_count": 0,
+          "option_normalized": "internal-notes-text",
+          "option_value": "Internal notes text",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 1,
+          "first_seen_at": "2026-03-23T02:11:50Z",
+          "last_seen_at": "2026-03-23T02:11:50Z",
+          "pattern_key": "use-the-same-native-dom-setter-plus-input-change-dispatch-fallback-as-description-when-a-save-silently-clears-the-field",
+          "pattern_kind": "interaction",
+          "pattern_text": "Use the same native DOM setter plus input/change dispatch fallback as Description when a save silently clears the field.",
+          "source": "list-this-direct",
+          "success_count": 0
+        }
+      ],
+      "platform": "vendoo",
+      "preferences": [],
+      "sources": [
+        "list-this-direct"
+      ],
+      "widget_type": "textarea"
+    },
+    {
+      "context_key": "global",
+      "field_key": "images",
+      "field_label": "Upload Photo(s)",
+      "field_slug": "images",
+      "first_seen_at": "2026-03-23T00:05:08Z",
+      "last_seen_at": "2026-03-23T00:05:08Z",
+      "notes": [],
+      "options": [
+        {
+          "commit_count": 6,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "is_seeded": false,
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "observed_count": 0,
+          "option_normalized": "6-photos-uploaded",
+          "option_value": "6 photos uploaded",
+          "reject_count": 0,
+          "source": "list-this-direct"
+        }
+      ],
+      "patterns": [
+        {
+          "failure_count": 0,
+          "first_seen_at": "2026-03-23T00:05:08Z",
+          "last_seen_at": "2026-03-23T00:05:08Z",
+          "pattern_key": "if-the-visible-upload-flow-stalls-reveal-the-hidden-multiple-file-input-image-input-and-use-native-uploads-until-the-sortable-photo-tiles-appear",
+          "pattern_kind": "interaction",
+          "pattern_text": "If the visible upload flow stalls, reveal the hidden multiple-file input #imageInput and use native uploads until the sortable photo tiles appear.",
+          "source": "list-this-direct",
+          "success_count": 6
+        }
+      ],
+      "platform": "vendoo",
+      "preferences": [],
+      "sources": [
+        "list-this-direct",
+        "seed"
+      ],
+      "widget_type": "button"
+    },
+    {
+      "context_key": "global",
       "field_key": "package_dimensions_in",
       "field_label": "Package Dimensions",
       "field_slug": "package-dimensions-in",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -10015,7 +11144,7 @@
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "preference_kind": "preferred",
           "reason": "Default packaging rule unless the user explicitly overrides it.",
           "source": "seed",
@@ -10034,7 +11163,7 @@
       "field_label": "Price",
       "field_slug": "price",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -10051,14 +11180,14 @@
       "field_label": "Primary Color",
       "field_slug": "primary-color",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "pattern_key": "visible-option-commit",
           "pattern_kind": "interaction",
           "pattern_text": "Treat color fields as commit-required selects and verify the visible option rendered before saving.",
@@ -10079,7 +11208,7 @@
       "field_label": "Quantity",
       "field_slug": "quantity",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -10096,14 +11225,14 @@
       "field_label": "Secondary Color",
       "field_slug": "secondary-color",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "pattern_key": "visible-option-commit",
           "pattern_kind": "interaction",
           "pattern_text": "Treat color fields as commit-required selects and verify the visible option rendered before saving.",
@@ -10124,14 +11253,14 @@
       "field_label": "Tags",
       "field_slug": "tags",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [
         {
           "failure_count": 0,
           "first_seen_at": "2026-03-14T20:30:53Z",
-          "last_seen_at": "2026-03-15T20:16:16Z",
+          "last_seen_at": "2026-03-22T22:41:19Z",
           "pattern_key": "token-one-at-a-time",
           "pattern_kind": "interaction",
           "pattern_text": "Enter one tag at a time and press Enter after each tag. Do not bulk-insert comma-separated tokens.",
@@ -10152,7 +11281,7 @@
       "field_label": "Title",
       "field_slug": "title",
       "first_seen_at": "2026-03-14T20:30:53Z",
-      "last_seen_at": "2026-03-15T20:16:16Z",
+      "last_seen_at": "2026-03-22T22:41:19Z",
       "notes": [],
       "options": [],
       "patterns": [],
@@ -10173,7 +11302,7 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 3,
+          "commit_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
@@ -10188,7 +11317,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "clothing-shoes-and-accessories",
           "option_value": "Clothing, Shoes & Accessories",
           "reject_count": 0,
@@ -10199,7 +11328,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "pants",
           "option_value": "Pants",
           "reject_count": 0,
@@ -10210,7 +11339,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "women",
           "option_value": "Women",
           "reject_count": 0,
@@ -10221,7 +11350,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "women-s-clothing",
           "option_value": "Women's Clothing",
           "reject_count": 0,
@@ -10237,13 +11366,14 @@
           "pattern_kind": "interaction",
           "pattern_text": "Opened category picker and clicked through the visible hierarchy until the path committed in the field",
           "source": "list-this-direct",
-          "success_count": 3
+          "success_count": 288
         }
       ],
       "platform": "vendoo",
       "preferences": [],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "button"
     },
@@ -10257,7 +11387,7 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 3,
+          "commit_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
@@ -10272,7 +11402,7 @@
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "good",
           "option_value": "Good",
           "reject_count": 0,
@@ -10288,7 +11418,7 @@
           "pattern_kind": "interaction",
           "pattern_text": "Typed the candidate value, opened the suggestion menu, and clicked the visible matching option",
           "source": "list-this-direct",
-          "success_count": 3
+          "success_count": 288
         }
       ],
       "platform": "vendoo",
@@ -10300,12 +11430,13 @@
           "preference_kind": "preferred",
           "reason": "Promoted from field_memory_delta",
           "source": "list-this-direct",
-          "success_count": 3,
+          "success_count": 288,
           "value_text": "Good"
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -10319,11 +11450,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 3,
+          "commit_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "brown",
           "option_value": "Brown",
           "reject_count": 0,
@@ -10339,7 +11470,7 @@
           "pattern_kind": "interaction",
           "pattern_text": "Typed the candidate value and clicked the matching visible option",
           "source": "list-this-direct",
-          "success_count": 3
+          "success_count": 288
         }
       ],
       "platform": "vendoo",
@@ -10351,12 +11482,13 @@
           "preference_kind": "preferred",
           "reason": "Promoted from field_memory_delta",
           "source": "list-this-direct",
-          "success_count": 3,
+          "success_count": 288,
           "value_text": "Brown"
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -10370,11 +11502,11 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 3,
+          "commit_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
-          "observed_count": 3,
+          "observed_count": 288,
           "option_normalized": "black",
           "option_value": "Black",
           "reject_count": 0,
@@ -10390,7 +11522,7 @@
           "pattern_kind": "interaction",
           "pattern_text": "Typed the candidate value and clicked the matching visible option",
           "source": "list-this-direct",
-          "success_count": 3
+          "success_count": 288
         }
       ],
       "platform": "vendoo",
@@ -10402,12 +11534,13 @@
           "preference_kind": "preferred",
           "reason": "Promoted from field_memory_delta",
           "source": "list-this-direct",
-          "success_count": 3,
+          "success_count": 288,
           "value_text": "Black"
         }
       ],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "select"
     },
@@ -10421,7 +11554,7 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 2,
+          "commit_count": 192,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
@@ -10441,13 +11574,14 @@
           "pattern_kind": "interaction",
           "pattern_text": "Use the main Vendoo Step 1 uploader rather than marketplace-local photo areas when downstream tabs need the same image set",
           "source": "list-this-direct",
-          "success_count": 2
+          "success_count": 192
         }
       ],
       "platform": "vendoo",
       "preferences": [],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "button"
     },
@@ -10461,7 +11595,7 @@
       "notes": [],
       "options": [
         {
-          "commit_count": 3,
+          "commit_count": 288,
           "first_seen_at": "2026-03-15T05:45:00Z",
           "is_seeded": false,
           "last_seen_at": "2026-03-15T05:45:00Z",
@@ -10481,19 +11615,20 @@
           "pattern_kind": "interaction",
           "pattern_text": "Entered one tag at a time and dispatched Enter after each tag",
           "source": "list-this-direct",
-          "success_count": 3
+          "success_count": 288
         }
       ],
       "platform": "vendoo",
       "preferences": [],
       "sources": [
-        "list-this-direct"
+        "list-this-direct",
+        "seed"
       ],
       "widget_type": "token_input"
     }
   ],
-  "generated_at": "2026-03-15T20:16:16Z",
-  "seed_version": 2,
+  "generated_at": "2026-03-23T02:13:51Z",
+  "seed_version": 3,
   "source_files": [
     "../list-this/SKILL.md",
     "../list-this/references/vendoo_listing_template.md"

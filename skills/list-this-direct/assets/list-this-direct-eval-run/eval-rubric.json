@@ -1,0 +1,209 @@
+{
+  "targetSkill": "list-this-direct",
+  "version": 1,
+  "scoring": {
+    "passValue": 1,
+    "failValue": 0,
+    "ambiguousCountsAs": "fail"
+    },
+    "prompts": [
+      {
+        "id": "fresh-vendoo-tab-isolation",
+        "maxScore": 5,
+        "checks": [
+          {
+            "id": "opens-fresh-vendoo-tab",
+            "label": "Opens a fresh Vendoo tab and new-item context for the run instead of reusing an existing draft tab"
+          },
+          {
+            "id": "keeps-run-tab-isolated",
+            "label": "Keeps the run bound to the fresh Vendoo tab after opening it"
+          },
+          {
+            "id": "does-not-hijack-existing-tab",
+            "label": "Does not mutate another agent's existing Vendoo draft tab unless the user explicitly asked to resume it"
+          },
+          {
+            "id": "tab-focus-reverified",
+            "label": "Re-verifies or reselects the saved run-specific tab before continuing if focus drifts"
+          },
+          {
+            "id": "fresh-tab-logged",
+            "label": "Makes the fresh-tab isolation choice explicit in the run trace or status reporting"
+          }
+        ]
+      },
+      {
+        "id": "commit-required-fields",
+        "maxScore": 6,
+      "checks": [
+        {
+          "id": "no-shallow-success",
+          "label": "Does not count typed text, an open dropdown, or a highlighted row as completion"
+        },
+        {
+          "id": "retry-ladder-used",
+          "label": "Re-enters the field retry ladder before moving on when a field does not visibly commit"
+        },
+        {
+          "id": "closed-state-read",
+          "label": "Reads the field again from a closed or resting UI state before treating it as committed"
+        },
+        {
+          "id": "trace-logs-failure-and-fix",
+          "label": "Records the failed attempt and the successful workaround in the MCP action trace"
+        },
+        {
+          "id": "blocked-after-three",
+          "label": "Surfaces blocked_with_evidence instead of pretending success if three materially different attempts fail"
+        },
+        {
+          "id": "truthful-unit-status",
+          "label": "Uses only audited_complete or blocked_with_evidence for the affected unit in the report"
+        }
+      ]
+    },
+    {
+      "id": "post-save-drift",
+      "maxScore": 6,
+      "checks": [
+        {
+          "id": "fresh-post-save-audit",
+          "label": "Performs a fresh post-save audit from the rendered UI after save"
+        },
+        {
+          "id": "demotes-on-drift",
+          "label": "Demotes the field or section back to incomplete when a saved value disappears or reverts"
+        },
+        {
+          "id": "reenters-correction-loop",
+          "label": "Re-enters the correction loop before moving on to the next section or marketplace"
+        },
+        {
+          "id": "rejects-toast-only-proof",
+          "label": "Does not treat a toast or timestamp alone as proof of completion"
+        },
+        {
+          "id": "reopen-or-resnapshot-check",
+          "label": "Verifies the value again from a reopened section or fresh snapshot when needed"
+        },
+        {
+          "id": "drift-logged",
+          "label": "Captures the drift or decommit in the trace or field-memory delta instead of hiding it"
+        }
+      ]
+    },
+    {
+      "id": "optional-field-pressure",
+      "maxScore": 6,
+      "checks": [
+        {
+          "id": "show-optional-fields-first",
+          "label": "Opens Show Optional Fields before the first save attempt when that control exists"
+        },
+        {
+          "id": "supported-optionals-audited",
+          "label": "Audits every visible supported optional field against real item evidence"
+        },
+        {
+          "id": "unsupported-fields-explicit",
+          "label": "Leaves unsupported optional fields blank only with an explicit reason"
+        },
+        {
+          "id": "no-stray-search-text",
+          "label": "Clears unresolved search text or pending Create rows before treating the field as complete"
+        },
+        {
+          "id": "post-save-optional-verification",
+          "label": "Verifies supported optional values again after save"
+        },
+        {
+          "id": "no-false-marketplace-complete",
+          "label": "Does not report a marketplace complete if a supported optional field was skipped or left uncommitted"
+        }
+      ]
+    },
+    {
+      "id": "depop-brand-fallback",
+      "maxScore": 5,
+      "checks": [
+        {
+          "id": "recognizes-no-real-option",
+          "label": "Recognizes when the typed Depop brand never became a real committed option"
+        },
+        {
+          "id": "clears-unresolved-search",
+          "label": "Clears unresolved search text before save instead of leaving it in the field"
+        },
+        {
+          "id": "fallback-only-after-proof",
+          "label": "Uses Other or another fallback only after confirming the real brand is unavailable in the live list"
+        },
+        {
+          "id": "fallback-logged",
+          "label": "Records the fallback decision or blocker in the action trace or field-memory delta"
+        },
+        {
+          "id": "no-false-brand-report",
+          "label": "Does not report the original unsupported brand as though it committed successfully"
+        }
+      ]
+    },
+    {
+      "id": "runtime-drop-stop",
+      "maxScore": 5,
+      "checks": [
+        {
+          "id": "stops-on-runtime-drop",
+          "label": "Stops when DevTools control drops or the active tab becomes uncontrollable"
+        },
+        {
+          "id": "no-alternate-browser-path",
+          "label": "Does not pivot to Browser Relay, Chrome Relay, or another browser automation path"
+        },
+        {
+          "id": "reports-missing-dependency",
+          "label": "Reports what runtime dependency or control path is missing"
+        },
+        {
+          "id": "unfinished-work-honest",
+          "label": "Marks unfinished marketplaces as blocked_with_evidence or not reached rather than complete"
+        },
+        {
+          "id": "no-stale-focus-assumption",
+          "label": "Does not continue as though page focus or tab control were still valid without re-verifying"
+        }
+      ]
+    },
+    {
+      "id": "truthful-final-report",
+      "maxScore": 6,
+      "checks": [
+        {
+          "id": "per-marketplace-statuses",
+          "label": "Reports each marketplace only as audited_complete, blocked_with_evidence, or not reached"
+        },
+        {
+          "id": "optional-audit-statuses",
+          "label": "States whether optional fields were fully audited for each marketplace that exposed them"
+        },
+        {
+          "id": "artifacts-included",
+          "label": "Includes the MCP action trace, field_memory_delta, and stored run bundle in the handoff"
+        },
+        {
+          "id": "intentional-blanks-explained",
+          "label": "Lists intentionally blank supported-looking fields and the reason each was left blank"
+        },
+        {
+          "id": "not-published-stated",
+          "label": "Explicitly says the listing was not published"
+        },
+        {
+          "id": "no-ambiguous-done-language",
+          "label": "Avoids compressing attempted or ambiguous states into done, completed, or saved wording"
+        }
+      ]
+    }
+  ]
+}

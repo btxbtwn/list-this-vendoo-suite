@@ -16,6 +16,10 @@
     console.error(`[${PLATFORM}]`, ...args);
   }
 
+  function warn(...args) {
+    console.warn(`[${PLATFORM}]`, ...args);
+  }
+
   // ===========================================
   // ROBUST SELECTORS (Attribute-based)
   // ===========================================
@@ -24,7 +28,6 @@
     title: 'input[name="title"], input[aria-label="Title"], input[data-testid="textbox"]',
     
     // Condition is often a radio group or dropdown
-    // Note: This often requires clicking a "Condition" section first or handling a modal
     conditionDropdown: 'div[id*="condition"] input, input[name="condition"], input[aria-label="Condition"]',
     conditionOptions: 'div[role="option"], span.radio-text',
     
@@ -46,14 +49,72 @@
     dimWidth: 'input[name*="width"], input[aria-label*="Width"]',
     dimHeight: 'input[name*="height"], input[aria-label*="Height"]',
     
-    // Item Specifics (Container)
-    itemSpecificsContainer: '#s0-1-5-7-17-1-section-body', // This ID might be dynamic, need fallback
-    
-    // Brand (Dynamic within item specifics)
+    // Brand
     brand: 'input[aria-label="Brand"], input[name="Brand"]',
     
     // Category (Search input)
     categorySearch: 'input[role="combobox"][placeholder*="category"], input[aria-label*="category"]',
+  };
+
+  // Field name mapping: JSON key → eBay form label text
+  const fieldNameMap = {
+    'type': 'Type', 'department': 'Department', 'size': 'Size',
+    'sizeType': 'Size Type', 'style': 'Style', 'brand': 'Brand',
+    'color': 'Color', 'material': 'Material', 'pattern': 'Pattern',
+    'fit': 'Fit', 'sleeveLength': 'Sleeve Length', 'sleeveType': 'Sleeve Type',
+    'neckline': 'Neckline', 'closure': 'Closure', 'accents': 'Accents',
+    'features': 'Features', 'theme': 'Theme', 'season': 'Season',
+    'occasion': 'Occasion', 'strapType': 'Strap Type',
+    'countryOfOrigin': 'Country of Origin', 'fabricType': 'Fabric Type',
+    'vintage': 'Vintage', 'handmade': 'Handmade', 'personalize': 'Personalize',
+    'garmentCare': 'Garment Care', 'unitQuantity': 'Unit Quantity',
+    'unitType': 'Unit Type', 'mpn': 'MPN', 'upc': 'UPC',
+    'character': 'Character', 'characterFamily': 'Character Family',
+    'performanceActivity': 'Performance Activity', 'yearManufactured': 'Year Manufactured',
+    'collarStyle': 'Collar Style', 'rise': 'Rise', 'inseam': 'Inseam',
+    'waist': 'Waist'
+  };
+
+  // Label patterns for fallback matching (lowercase)
+  const fieldLabelPatterns = {
+    'type': ['type', 'item type'],
+    'department': ['department'],
+    'size': ['size'],
+    'sizeType': ['size type', 'size type gender'],
+    'style': ['style'],
+    'brand': ['brand'],
+    'color': ['color', 'primary color'],
+    'material': ['material'],
+    'pattern': ['pattern'],
+    'fit': ['fit'],
+    'sleeveLength': ['sleeve length'],
+    'sleeveType': ['sleeve type'],
+    'neckline': ['neckline'],
+    'closure': ['closure'],
+    'accents': ['accents'],
+    'features': ['features'],
+    'theme': ['theme'],
+    'season': ['season'],
+    'occasion': ['occasion'],
+    'strapType': ['strap type'],
+    'countryOfOrigin': ['country of origin', 'country/region'],
+    'fabricType': ['fabric type', 'fabric'],
+    'vintage': ['vintage'],
+    'handmade': ['handmade'],
+    'personalize': ['personalize', 'customized'],
+    'garmentCare': ['garment care'],
+    'unitQuantity': ['unit quantity'],
+    'unitType': ['unit type'],
+    'mpn': ['mpn', 'manufacturer part number'],
+    'upc': ['upc', 'universal product code'],
+    'character': ['character'],
+    'characterFamily': ['character family'],
+    'performanceActivity': ['performance activity', 'activity'],
+    'yearManufactured': ['year manufactured', 'year'],
+    'collarStyle': ['collar style'],
+    'rise': ['rise'],
+    'inseam': ['inseam'],
+    'waist': ['waist']
   };
 
   // ===========================================
@@ -66,7 +127,6 @@
 
   function waitForElement(selector, timeout = 10000) {
     return new Promise((resolve, reject) => {
-      // Try finding it immediately
       const el = document.querySelector(selector);
       if (el) return resolve(el);
 
@@ -108,6 +168,47 @@
     element.dispatchEvent(new Event('blur', { bubbles: true }));
   }
 
+  // Find an input by its associated label text
+  function findInputByLabel(labelText) {
+    const labels = Array.from(document.querySelectorAll('label, span.field-label, div.label'));
+    for (const label of labels) {
+      if (label.textContent.trim().toLowerCase().includes(labelText.toLowerCase())) {
+        // Try for/input control
+        const forId = label.getAttribute('for');
+        if (forId) {
+          const input = document.getElementById(forId);
+          if (input) return input;
+        }
+        // Try sibling input
+        const parent = label.parentElement;
+        if (parent) {
+          const input = parent.querySelector('input, select, textarea, div[role="combobox"]');
+          if (input) return input;
+        }
+        // Try next sibling
+        let sibling = label.nextElementSibling;
+        while (sibling) {
+          if (sibling.matches?.('input, select, textarea, div[role="combobox"]')) return sibling;
+          const inner = sibling.querySelector('input, select, textarea, div[role="combobox"]');
+          if (inner) return inner;
+          sibling = sibling.nextElementSibling;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Find an input by aria-label
+  function findInputByAriaLabel(labelText) {
+    const inputs = document.querySelectorAll('input[aria-label], div[role="combobox"][aria-label], textarea[aria-label]');
+    for (const input of inputs) {
+      if (input.getAttribute('aria-label').toLowerCase().includes(labelText.toLowerCase())) {
+        return input;
+      }
+    }
+    return null;
+  }
+
   // ===========================================
   // FILL FUNCTIONS
   // ===========================================
@@ -118,10 +219,8 @@
       return false;
     }
 
-    // Try to find element
     let el = document.querySelector(selector);
     
-    // If not found, try waiting briefly (eBay lazy loads)
     if (!el) {
       try {
         el = await waitForElement(selector, 2000);
@@ -131,16 +230,12 @@
     }
 
     if (!el) {
-      // Fallback: search by label text (expensive but useful for eBay)
-      const labels = Array.from(document.querySelectorAll('label'));
-      const matchingLabel = labels.find(l => l.innerText.includes(fieldName));
-      if (matchingLabel && matchingLabel.control) {
-        el = matchingLabel.control;
-      }
+      // Fallback: search by label text
+      el = findInputByLabel(fieldName) || findInputByAriaLabel(fieldName);
     }
 
     if (!el) {
-      error(`${fieldName}: selector not found - ${selector}`);
+      error(`${fieldName}: not found`);
       return false;
     }
 
@@ -148,7 +243,6 @@
     await sleep(200);
     el.focus();
     
-    // Handle React/Native inputs
     try {
       setNativeValue(el, String(value));
     } catch (e) {
@@ -164,7 +258,6 @@
   async function fillDescription(value) {
     if (!value) return false;
 
-    // Check for iframe
     const iframe = document.querySelector(SELECTORS.descriptionIframe);
     if (iframe) {
       try {
@@ -179,17 +272,11 @@
       }
     }
 
-    // Fallback: Standard text area
     return fillText('textarea[name="description"]', value, 'Description (Textarea)');
   }
 
   async function fillCondition(condition) {
     if (!condition) return false;
-    
-    // Mapping
-    // 1000 = New
-    // 3000 = Used
-    // eBay UI varies. Sometimes it's a radio, sometimes a dropdown.
     
     const conditionText = condition.toLowerCase();
     let targetText = 'Used';
@@ -198,10 +285,9 @@
 
     log(`Attempting to set condition to "${targetText}"`);
 
-    // Strategy 1: Look for radio buttons with text
+    // Strategy 1: Radio buttons
     const radios = Array.from(document.querySelectorAll('div[role="radio"], input[type="radio"]'));
     for (const radio of radios) {
-      // Check label or nearby text
       const label = radio.getAttribute('aria-label') || radio.nextElementSibling?.innerText || '';
       if (label.includes(targetText)) {
         radio.click();
@@ -228,6 +314,139 @@
   }
 
   // ===========================================
+  // CATEGORY SPECIFICS FILLING
+  // ===========================================
+
+  async function fillDropdownField(el, value, fieldName, isStrict = false, isMulti = false) {
+    if (!value || !el) return false;
+
+    const valueStr = String(value).trim();
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await sleep(200);
+
+    // Click to open dropdown / focus input
+    el.focus();
+    el.click();
+    await sleep(300);
+
+    // Type the value to filter
+    setNativeValue(el, valueStr);
+    await sleep(500);
+
+    // Look for matching option in dropdown
+    const options = Array.from(document.querySelectorAll(
+      'div[role="option"], li[role="option"], span.dropdown-option, div.fake-menu-item'
+    ));
+
+    if (options.length > 0) {
+      for (const option of options) {
+        const optText = (option.textContent || '').trim().toLowerCase();
+        const valLower = valueStr.toLowerCase();
+        
+        if (isStrict) {
+          if (optText === valLower) {
+            option.click();
+            log(`  ✓ ${fieldName}: "${valueStr}" (exact match)`);
+            return true;
+          }
+        } else {
+          if (optText.includes(valLower) || valLower.includes(optText)) {
+            option.click();
+            log(`  ✓ ${fieldName}: "${valueStr}" (partial match)`);
+            return true;
+          }
+        }
+      }
+      // Close dropdown if no match found (for multi-value, keep it open for next value)
+      if (!isMulti) {
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      }
+    }
+
+    // If no dropdown options, it's a text field — value already set
+    log(`  ✓ ${fieldName}: "${valueStr}" (text field)`);
+    return true;
+  }
+
+  async function fillCategorySpecifics(data) {
+    const specifics = data.ebay_specifics || data.categorySpecifics || {};
+    if (!specifics || Object.keys(specifics).length === 0) {
+      log('No category specifics to fill');
+      return;
+    }
+
+    log('Filling category specifics:', Object.keys(specifics));
+
+    // Wait a moment for category specifics to load after category selection
+    await sleep(1500);
+
+    for (const [key, value] of Object.entries(specifics)) {
+      if (!value) continue;
+
+      const fieldName = fieldNameMap[key] || key;
+      const patterns = fieldLabelPatterns[key] || [fieldName.toLowerCase()];
+      
+      // Try multiple strategies to find the input
+      let el = null;
+
+      // Strategy 1: Find by aria-label
+      for (const pattern of patterns) {
+        el = findInputByAriaLabel(pattern);
+        if (el) break;
+      }
+
+      // Strategy 2: Find by label text
+      if (!el) {
+        for (const pattern of patterns) {
+          el = findInputByLabel(pattern);
+          if (el) break;
+        }
+      }
+
+      // Strategy 3: Find by field name in ID (categoryId_FieldName pattern)
+      if (!el) {
+        const allInputs = document.querySelectorAll('input, select, textarea, div[role="combobox"]');
+        const fieldNameLower = fieldName.toLowerCase();
+        const fieldNameUnderscored = fieldNameLower.replace(/\s+/g, '_');
+        for (const input of allInputs) {
+          if (!input.id) continue;
+          const idLower = input.id.toLowerCase();
+          // Match both: _unit quantity (with space) and _Unit_Quantity (with underscore)
+          if (idLower.includes('categoryspecifics') && (
+              idLower.includes('_' + fieldNameLower) ||
+              idLower.includes('_' + fieldNameUnderscored)
+          )) {
+            el = input;
+            break;
+          }
+        }
+      }
+
+      if (el) {
+        // Handle comma-separated values (features, etc.)
+        const values = (typeof value === 'string' && value.includes(','))
+          ? value.split(',').map(v => v.trim())
+          : [value];
+
+        const isSizeField = key.toLowerCase().includes('size');
+        
+        if (values.length > 1) {
+          for (const item of values) {
+            await fillDropdownField(el, item, fieldName, isSizeField, true);
+            await sleep(400);
+          }
+        } else {
+          await fillDropdownField(el, values[0], fieldName, isSizeField, false);
+        }
+      } else {
+        warn(`  ⚠ Could not find field for ${key} ("${fieldName}")`);
+      }
+
+      await sleep(300);
+    }
+  }
+
+  // ===========================================
   // MAIN FILL LOGIC
   // ===========================================
 
@@ -250,20 +469,19 @@
         results.failed.push('condition');
       }
 
-      // 3. Photos (TODO: Drag and drop simulation is hard, skipping for now)
-
-      // 4. Item Specifics (Brand, etc)
-      // These often load LATE after category is picked.
-      // We will try to fill what we see.
-      
+      // 3. Brand
       if (data.brand) {
          if (await fillText(SELECTORS.brand, data.brand, 'Brand')) {
              results.success.push('brand');
          }
-         // Fallback: Generic attribute search
          else if (await fillText(`input[value="Brand"] + input`, data.brand, 'Brand (Fallback)')) {
              results.success.push('brand');
          }
+      }
+
+      // 4. Category Specifics (features, neckline, season, etc.)
+      if (data.ebay_specifics || data.categorySpecifics) {
+        await fillCategorySpecifics(data);
       }
 
       // 5. Description
@@ -274,7 +492,6 @@
       }
 
       // 6. Price
-      // Determine format (Auction vs Fixed) - assuming Fixed Price for now
       const price = data.price || data.listing_price;
       if (await fillText(SELECTORS.price, price, 'Price')) {
         results.success.push('price');
@@ -283,9 +500,6 @@
       }
 
       // 7. Shipping (Weight/Dims)
-      // Usually requires toggling "Package weight & dimensions"
-      
-      // Try to find the toggle if fields aren't visible
       if (!document.querySelector(SELECTORS.shippingWeightLb)) {
           const toggle = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Package weight'));
           if (toggle) {
@@ -297,7 +511,6 @@
       let weightLb = data.weight_lb;
       let weightOz = data.weight_oz;
       
-      // Handle nested weight
       if (data.weight) {
           weightLb = data.weight.pounds || data.weight.lb;
           weightOz = data.weight.ounces || data.weight.oz;
@@ -322,7 +535,6 @@
   // ===========================================
 
   function init() {
-    // Check if on a listing page
     if (!window.location.href.includes('ebay.com/sl/') && !window.location.href.includes('ebay.com/sell/')) {
       return;
     }

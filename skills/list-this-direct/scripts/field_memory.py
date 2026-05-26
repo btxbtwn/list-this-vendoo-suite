@@ -29,7 +29,7 @@ DEFAULT_DB_PATH = DATA_DIR / "field_memory.sqlite3"
 LIST_THIS_PATH = SKILL_DIR.parent / "list-this" / "SKILL.md"
 TEMPLATE_PATH = SKILL_DIR.parent / "list-this" / "references" / "vendoo_listing_template.md"
 STALE_AFTER_DAYS = 45
-SEED_VERSION = 2
+SEED_VERSION = 3
 
 OPTION_SECTION_MAP = {
     "eBay optional fields - value lists": "ebay",
@@ -43,7 +43,6 @@ FIELD_GROUP_MAP = {
     "**eBay Specifics:**": "ebay",
     "**Etsy Specifics:**": "etsy",
     "**Poshmark Specifics:**": "poshmark",
-    "**Mercari Specifics:**": "mercari",
     "**Depop Specifics:**": "depop",
 }
 
@@ -137,15 +136,6 @@ SEEDED_PATTERNS = [
 ]
 
 SEEDED_PREFERENCES = [
-    {
-        "platform": "mercari",
-        "context_key": "global",
-        "field_key": "shippingMethod",
-        "field_label": "Shipping Method",
-        "preference_kind": "preferred",
-        "value_text": "USPS Ground Advantage",
-        "reason": "Default Mercari shipping label unless the user explicitly overrides it.",
-    },
     {
         "platform": "depop",
         "context_key": "global",
@@ -494,9 +484,7 @@ def parse_option_sections(seed_entries: dict[tuple[str, str, str], dict[str, Any
                 continue
 
             field_key = None
-            if current_platform == "mercari" and slugify(label) == "shipping":
-                field_key = "shippingMethod"
-            elif current_platform == "depop" and slugify(label) == "shipping":
+            if current_platform == "depop" and slugify(label) == "shipping":
                 field_key = "shippingMethod"
             elif current_platform == "depop" and slugify(label) == "style-tags":
                 field_key = "styleTags"
@@ -1635,7 +1623,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.set_defaults(func=cmd_init)
 
     lookup = subparsers.add_parser("lookup", help="Look up known options, patterns, and preferences for a field")
-    lookup.add_argument("--platform", required=True, help="Platform name such as vendoo, ebay, etsy, mercari, or depop")
+    lookup.add_argument("--platform", required=True, help="Platform name such as vendoo, ebay, etsy, poshmark, or depop")
     lookup.add_argument("--context-key", default="global", help="Context scope such as global or women-pants")
     lookup.add_argument("--field-key", help="Stable field key when known")
     lookup.add_argument("--field-label", help="Visible field label when the key is unknown")
