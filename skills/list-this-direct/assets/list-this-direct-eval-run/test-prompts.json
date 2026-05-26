@@ -1,0 +1,79 @@
+[
+  {
+    "id": "fresh-vendoo-tab-isolation",
+    "title": "Each run starts in a fresh Vendoo tab",
+    "prompt": "Start a live listing while another Vendoo draft tab already exists from a different agent or an earlier run in the same DevTools-connected Chrome session. The skill must open a fresh Vendoo tab and new-item context for this run, keep the work isolated to that tab, and avoid mutating the existing draft unless the user explicitly asked to resume it.",
+    "scenarioFocus": [
+      "Fresh Vendoo tab per run",
+      "Run-specific tab isolation",
+      "No hijacking another agent's draft"
+    ],
+    "maxScore": 5
+  },
+  {
+    "id": "commit-required-fields",
+    "title": "Commit-required fields refuse shallow fills",
+    "prompt": "Use list-this-direct to create a Vendoo draft from product photos for an item that exercises at least one Vendoo commit-required field such as Condition, Color, or Size plus at least one marketplace dropdown that will not commit from typed text alone. Stop before publish and treat the run as incomplete until every affected field is visibly committed after blur or explicitly blocked with evidence.",
+    "scenarioFocus": [
+      "Vendoo commit-required select",
+      "Marketplace dropdown that needs a visible option click",
+      "No false completion from typed text alone"
+    ],
+    "maxScore": 6
+  },
+  {
+    "id": "post-save-drift",
+    "title": "Values drift or disappear after save",
+    "prompt": "Run a live listing where at least one required or supported optional marketplace value looks filled before save but disappears, decommits, or changes after save, tab switch, or reopen. The skill should catch the drift, re-enter the correction loop, and only report success if the post-save rendered UI still shows the value.",
+    "scenarioFocus": [
+      "Post-save drift",
+      "Save and reopen audit",
+      "Re-entry into correction loop"
+    ],
+    "maxScore": 6
+  },
+  {
+    "id": "optional-field-pressure",
+    "title": "Optional fields are fully audited under pressure",
+    "prompt": "Use an item that exposes multiple supported optional fields on eBay, Etsy, or Depop. The skill must expand optional sections before the first save, fill every evidence-backed optional field, leave unsupported fields blank only with explicit reasons, and avoid stray search text or yellow Create rows.",
+    "scenarioFocus": [
+      "Show Optional Fields gate",
+      "Supported optional field coverage",
+      "No stray search text or pending create state"
+    ],
+    "maxScore": 6
+  },
+  {
+    "id": "depop-brand-fallback",
+    "title": "Depop brand fallback stays truthful",
+    "prompt": "Use an item whose real brand is missing from Depop's live brand list so the field will keep unresolved search text unless the skill clears it and selects the correct fallback. The skill should prefer a real live option when available and otherwise use Other only after confirming the original brand cannot be committed.",
+    "scenarioFocus": [
+      "Depop brand search",
+      "Clear unresolved search text",
+      "Evidence-backed fallback behavior"
+    ],
+    "maxScore": 5
+  },
+  {
+    "id": "runtime-drop-stop",
+    "title": "Runtime drops force an honest stop",
+    "prompt": "During a live run, force or simulate a DevTools MCP drop, an uncontrollable Chrome tab, or lost page focus before all marketplaces are done. The skill should stop safely, refuse alternate browser paths, and keep every unfinished marketplace honest in the report.",
+    "scenarioFocus": [
+      "DevTools runtime drop",
+      "No alternate browser path",
+      "Honest not-reached reporting"
+    ],
+    "maxScore": 5
+  },
+  {
+    "id": "truthful-final-report",
+    "title": "Final report never compresses uncertainty into done",
+    "prompt": "End a run where some marketplaces are audited_complete, at least one marketplace is blocked_with_evidence, and one supported-looking optional field had to be intentionally left blank because no defensible live option existed. The final report should use only audited_complete, blocked_with_evidence, or not reached, include the run artifacts, and clearly say the listing was not published.",
+    "scenarioFocus": [
+      "Honest per-marketplace status",
+      "Intentional blanks with reasons",
+      "No false done language"
+    ],
+    "maxScore": 6
+  }
+]

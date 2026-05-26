@@ -771,7 +771,53 @@
               'countryOfOrigin': 'Country of Origin', 'fabricType': 'Fabric Type',
               'vintage': 'Vintage', 'handmade': 'Handmade', 'personalize': 'Personalize',
               'garmentCare': 'Garment Care', 'unitQuantity': 'Unit Quantity',
-              'unitType': 'Unit Type', 'mpn': 'MPN', 'upc': 'upc'
+              'unitType': 'Unit Type', 'mpn': 'MPN', 'upc': 'UPC',
+              'character': 'Character', 'characterFamily': 'Character Family',
+              'performanceActivity': 'Performance Activity', 'yearManufactured': 'Year Manufactured',
+              'collarStyle': 'Collar Style', 'rise': 'Rise', 'inseam': 'Inseam',
+              'waist': 'Waist'
+          };
+          
+          // Label-based patterns for fallback when ID matching fails
+          const fieldLabelPatterns = {
+              'type': ['type', 'item type'],
+              'department': ['department'],
+              'size': ['size'],
+              'sizeType': ['size type', 'size type gender'],
+              'style': ['style'],
+              'brand': ['brand'],
+              'color': ['color', 'primary color'],
+              'material': ['material'],
+              'pattern': ['pattern'],
+              'fit': ['fit'],
+              'sleeveLength': ['sleeve length'],
+              'sleeveType': ['sleeve type'],
+              'neckline': ['neckline'],
+              'closure': ['closure'],
+              'accents': ['accents'],
+              'features': ['features'],
+              'theme': ['theme'],
+              'season': ['season'],
+              'occasion': ['occasion'],
+              'strapType': ['strap type'],
+              'countryOfOrigin': ['country of origin', 'country/region'],
+              'fabricType': ['fabric type', 'fabric'],
+              'vintage': ['vintage'],
+              'handmade': ['handmade'],
+              'personalize': ['personalize', 'customized'],
+              'garmentCare': ['garment care'],
+              'unitQuantity': ['unit quantity'],
+              'unitType': ['unit type'],
+              'mpn': ['mpn', 'manufacturer part number'],
+              'upc': ['upc', 'universal product code'],
+              'character': ['character'],
+              'characterFamily': ['character family'],
+              'performanceActivity': ['performance activity', 'activity'],
+              'yearManufactured': ['year manufactured', 'year'],
+              'collarStyle': ['collar style'],
+              'rise': ['rise'],
+              'inseam': ['inseam'],
+              'waist': ['waist']
           };
           
           // Find category fields
@@ -789,9 +835,28 @@
                   const fieldNameLower = fieldName.toLowerCase();
                   const afterLastDot = input.id.split('.').pop().toLowerCase();
                   
-                  if (afterLastDot === fieldNameLower || 
-                      idLower.endsWith(`_${fieldNameLower}`) ||
-                      new RegExp(`[._]${fieldNameLower}$`).test(idLower)) {
+                  // Pattern 1: Exact match on afterLastDot (e.g., "color" → "color")
+                  if (afterLastDot === fieldNameLower) {
+                      foundEl = input;
+                      break;
+                  }
+                  
+                  // Pattern 2: categoryId_FieldName with underscore separator
+                  // e.g., "15687_features" matches "Features", "15687_unit quantity" matches "Unit Quantity"
+                  // The afterLastDot is "15687_unit quantity" — check if it ends with "_fieldName"
+                  // Also handle IDs that use underscores instead of spaces (15687_Unit_Quantity)
+                  if (afterLastDot.includes('_') && (
+                      afterLastDot.endsWith('_' + fieldNameLower) ||
+                      afterLastDot.endsWith('_' + fieldNameLower.replace(/\s+/g, '_'))
+                  )) {
+                      foundEl = input;
+                      break;
+                  }
+                  
+                  // Pattern 3: Full ID ends with _fieldName or .fieldName
+                  if (idLower.endsWith('_' + fieldNameLower) || 
+                      idLower.endsWith('.' + fieldNameLower) ||
+                      new RegExp(`[._]${fieldNameLower.replace(/\s+/g, '\\s*')}$`, 'i').test(input.id)) {
                       foundEl = input;
                       break;
                   }
@@ -815,7 +880,34 @@
                       await fillDropdownField(foundEl, valuesToFill[0], key, shouldBeStrict, false);
                   }
               } else {
-                  warn(`Could not find field for ${key}`);
+                  // Fallback: try label-based matching for eBay category specifics
+                  const patterns = fieldLabelPatterns[key] || [normalizeText(fieldName)];
+                  const ebayCategoryInputs = allInputs.filter(i => 
+                      i.id && i.id.includes('categorySpecifics')
+                  );
+                  const labelEl = findInputByLabelPatterns(patterns) || 
+                      findInputByContext(ebayCategoryInputs, patterns);
+                  
+                  if (labelEl) {
+                      let valuesToFill = Array.isArray(value) ? value : 
+                          (typeof value === 'string' && value.includes(',')) ? 
+                          value.split(',').map(v => v.trim()) : [value];
+                      
+                      const isSizeField = key.toLowerCase().includes('size');
+                      const shouldBeStrict = isSizeField;
+                      
+                      log(`  Found ${key} via label fallback`);
+                      if (valuesToFill.length > 1) {
+                          for (const item of valuesToFill) {
+                              await fillDropdownField(labelEl, item, key, shouldBeStrict, true);
+                              await sleep(CONFIG.SLEEP_MEDIUM);
+                          }
+                      } else {
+                          await fillDropdownField(labelEl, valuesToFill[0], key, shouldBeStrict, false);
+                      }
+                  } else {
+                      warn(`Could not find field for ${key}`);
+                  }
               }
           }
       }

@@ -4,9 +4,10 @@ Portable Chrome DevTools MCP bootstrap/runtime helper for list-this-direct.
 
 This wrapper avoids checkout-specific config paths by:
 - verifying local prerequisites
-- prefetching `mcporter` and `chrome-devtools-mcp` with `npx`
-- proxying ad-hoc `mcporter list|call|auth` commands against a repo-local
-  Chrome DevTools MCP runtime
+- prefetching `chrome-devtools-mcp` with `npx`
+- surfacing a direct MCP server command/config for clients such as Copilot CLI that already support native MCP
+- writing a repo-local `mcporter` config only for compatibility-fallback clients that still need it
+- keeping the `mcporter` daemon in sync with that fallback runtime definition when used
 - optionally launching a dedicated Chrome remote-debugging session with a
   repo-local profile
 """
@@ -33,6 +34,9 @@ DEFAULT_REMOTE_DEBUGGING_PORT = 9222
 DEFAULT_VENDOO_URL = "https://web.vendoo.co/app/inventory/items"
 SERVER_NAME = "chrome-devtools"
 MIN_NODE_VERSION = (20, 19, 0)
+MCPORTER_CONFIG_PATH = RUNTIME_DIR / "mcporter.json"
+BROWSER_STATE_PATH = RUNTIME_DIR / "browser_state.json"
+MCPORTER_SERVER_DESCRIPTION = "Repo-local chrome devtools runtime"
 
 
 def clean_text(value: str | None) -> str:
@@ -132,15 +136,66 @@ def env_or_default(name: str, default: str) -> str:
     return value or default
 
 
+def config_browser_url_candidates() -> list[str]:
+    if not MCPORTER_CONFIG_PATH.exists():
+        return []
+    try:
+        payload = json.loads(MCPORTER_CONFIG_PATH.read_text())
+        args = payload.get("mcpServers", {}).get(SERVER_NAME, {}).get("args", [])
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return []
+    if not isinstance(args, list):
+        return []
+
+    candidates: list[str] = []
+    for index, raw_arg in enumerate(args):
+        argument = clean_text(raw_arg if isinstance(raw_arg, str) else str(raw_arg))
+        if not argument:
+            continue
+        if argument.startswith("--browser-url="):
+            candidates.append(clean_text(argument.split("=", 1)[1]))
+            continue
+        if argument in {"--browser-url", "--browserUrl", "-u"} and index + 1 < len(args):
+            next_arg = args[index + 1]
+            candidates.append(clean_text(next_arg if isinstance(next_arg, str) else str(next_arg)))
+    return candidates
+
+
+def nearby_browser_url_candidates(port: int) -> list[str]:
+    candidates: list[str] = []
+    for candidate_port in range(port, port + 8):
+        candidates.append(f"http://127.0.0.1:{candidate_port}")
+        candidates.append(f"http://localhost:{candidate_port}")
+    return candidates
+
+
 def browser_url_candidates() -> list[str]:
+    remembered = ""
+    if BROWSER_STATE_PATH.exists():
+        try:
+            remembered = clean_text(json.loads(BROWSER_STATE_PATH.read_text()).get("browser_url"))
+        except (OSError, json.JSONDecodeError, AttributeError):
+            remembered = ""
+
     explicit = clean_text(
         os.environ.get("LIST_THIS_DIRECT_BROWSER_URL") or os.environ.get("CHROME_DEVTOOLS_BROWSER_URL")
     )
-    port = env_or_default("LIST_THIS_DIRECT_CHROME_DEBUG_PORT", str(DEFAULT_REMOTE_DEBUGGING_PORT))
-    defaults = [f"http://127.0.0.1:{port}", f"http://localhost:{port}"]
-    if explicit:
-        return [explicit, *[item for item in defaults if item != explicit]]
-    return defaults
+    port_text = env_or_default("LIST_THIS_DIRECT_CHROME_DEBUG_PORT", str(DEFAULT_REMOTE_DEBUGGING_PORT))
+    try:
+        base_port = int(port_text)
+    except ValueError:
+        base_port = DEFAULT_REMOTE_DEBUGGING_PORT
+    candidates = [
+        explicit,
+        remembered,
+        *config_browser_url_candidates(),
+        *nearby_browser_url_candidates(base_port),
+    ]
+    deduped: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
 
 
 def browser_url_is_reachable(browser_url: str) -> bool:
@@ -173,6 +228,44 @@ def chrome_devtools_server_command() -> tuple[list[str], str]:
         command.append("--headless")
 
     return command, connection_mode
+
+
+def write_mcporter_config(server_command: list[str]) -> bool:
+    if not server_command:
+        raise RuntimeError("Cannot create mcporter config without a Chrome DevTools server command.")
+
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "mcpServers": {
+            SERVER_NAME: {
+                "command": server_command[0],
+                "args": server_command[1:],
+                "description": MCPORTER_SERVER_DESCRIPTION,
+            }
+        },
+        "imports": [],
+    }
+    config_text = json.dumps(payload, indent=2) + "\n"
+    existing_text = None
+    if MCPORTER_CONFIG_PATH.exists():
+        existing_text = MCPORTER_CONFIG_PATH.read_text()
+    if existing_text == config_text:
+        return False
+    MCPORTER_CONFIG_PATH.write_text(config_text)
+    return True
+
+
+def mcporter_base_command() -> list[str]:
+    return ["npx", "-y", "mcporter@latest", "--config", str(MCPORTER_CONFIG_PATH)]
+
+
+def ensure_mcporter_daemon(config_changed: bool) -> None:
+    daemon_subcommand = "restart" if config_changed else "start"
+    result = run_command([*mcporter_base_command(), "daemon", daemon_subcommand])
+    if result.returncode == 0:
+        return
+    message = clean_text(result.stderr or result.stdout)
+    raise RuntimeError(message or f"`mcporter daemon {daemon_subcommand}` failed.")
 
 
 def prefetch_npx_package(command: list[str]) -> dict[str, object]:
@@ -275,10 +368,14 @@ def launch_chrome(port: int, url: str | None) -> dict[str, object]:
         popen_kwargs["start_new_session"] = True
 
     process = subprocess.Popen(command, **popen_kwargs)
+    browser_url = f"http://127.0.0.1:{port}"
+    BROWSER_STATE_PATH.write_text(
+        json.dumps({"browser_url": browser_url, "pid": process.pid}, indent=2) + "\n"
+    )
     return {
         "pid": process.pid,
         "chrome_path": str(chrome_binary),
-        "browser_url": f"http://127.0.0.1:{port}",
+        "browser_url": browser_url,
         "profile_dir": portable_path(profile_dir),
         "launch_command": command,
     }
@@ -302,6 +399,14 @@ def cmd_bootstrap(_: argparse.Namespace) -> int:
     print_json(
         {
             "chrome_binary": str(chrome_binary) if chrome_binary else None,
+            "copilot_mcp_server": {
+                "name": SERVER_NAME,
+                "type": "stdio",
+                "command": "python3",
+                "args": [str(SCRIPT_PATH), "chrome-devtools-server"],
+                "env": {},
+                "tools": ["*"],
+            },
             "connection_mode": connection_mode,
             "detected_browser_url": browser_url,
             "downloads": {
@@ -310,10 +415,12 @@ def cmd_bootstrap(_: argparse.Namespace) -> int:
             },
             "next_steps": {
                 "bootstrap": "python3 scripts/devtools_runtime.py bootstrap",
+                "copilot_native_mcp": "If the current client already supports MCP directly, register the copilot_mcp_server entry instead of routing through mcporter.",
                 "launch_chrome": "python3 scripts/devtools_runtime.py launch-chrome",
                 "list_tools": "python3 scripts/devtools_runtime.py mcporter list",
-                "sample_call": "python3 scripts/devtools_runtime.py mcporter call chrome-devtools.list_pages",
+                "sample_call": "python3 scripts/devtools_runtime.py mcporter call list_pages",
             },
+            "mcporter_config": portable_path(MCPORTER_CONFIG_PATH),
             "runtime": runtime,
             "server_command": server_command,
         }
@@ -333,6 +440,17 @@ def cmd_launch_chrome(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_chrome_devtools_server(_: argparse.Namespace) -> int:
+    try:
+        ensure_node_runtime()
+        server_command, _ = chrome_devtools_server_command()
+    except RuntimeError as exc:
+        return fail(str(exc))
+
+    os.execvp(server_command[0], server_command)
+    return 1
+
+
 def cmd_mcporter(args: argparse.Namespace) -> int:
     if not args.mcporter_args:
         return fail("Provide a mcporter subcommand such as `list`, `call`, or `auth`.")
@@ -347,23 +465,25 @@ def cmd_mcporter(args: argparse.Namespace) -> int:
     if subcommand not in {"list", "call", "auth"}:
         return fail("This wrapper currently supports only `list`, `call`, and `auth`.")
 
-    if subcommand == "list" and passthrough and passthrough[0] == SERVER_NAME:
-        passthrough = passthrough[1:]
-    if subcommand == "auth" and passthrough and passthrough[0] == SERVER_NAME:
-        passthrough = passthrough[1:]
-
     server_command, _ = chrome_devtools_server_command()
-    mcporter_command = [
-        "npx",
-        "-y",
-        "mcporter@latest",
-        subcommand,
-        "--stdio",
-        join_command(server_command),
-        "--name",
-        SERVER_NAME,
-        *passthrough,
-    ]
+    try:
+        config_changed = write_mcporter_config(server_command)
+        ensure_mcporter_daemon(config_changed)
+    except (OSError, RuntimeError) as exc:
+        return fail(str(exc))
+
+    if subcommand in {"list", "auth"}:
+        if not passthrough or passthrough[0].startswith("-"):
+            passthrough = [SERVER_NAME, *passthrough]
+    elif subcommand == "call":
+        if not passthrough:
+            return fail("Provide a tool selector such as `list_pages` or `chrome-devtools.list_pages`.")
+        selector = passthrough[0]
+        if "://" not in selector and "." not in selector:
+            selector = f"{SERVER_NAME}.{selector}"
+        passthrough = [selector, *passthrough[1:]]
+
+    mcporter_command = [*mcporter_base_command(), subcommand, *passthrough]
     completed = subprocess.run(mcporter_command)
     return completed.returncode
 
@@ -385,6 +505,12 @@ def build_parser() -> argparse.ArgumentParser:
     launch.add_argument("--port", type=int, default=DEFAULT_REMOTE_DEBUGGING_PORT)
     launch.add_argument("--url", default=DEFAULT_VENDOO_URL)
     launch.set_defaults(func=cmd_launch_chrome)
+
+    direct_server = subparsers.add_parser(
+        "chrome-devtools-server",
+        help="Launch chrome-devtools-mcp directly with the best detected browser-url for native MCP clients",
+    )
+    direct_server.set_defaults(func=cmd_chrome_devtools_server)
 
     mcporter = subparsers.add_parser(
         "mcporter",
