@@ -202,6 +202,16 @@
 <body>
   <h1>Vendoo Lister</h1>
   
+  <div id="studioStatus" style="margin-bottom:12px;padding:8px;background:#f5f5f5;border-radius:4px;font-size:11px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <span id="studioStatusText" style="color:#999;">Studio: checking...</span>
+      <button id="openStudioBtn" class="btn btn-secondary btn-sm" style="margin-left:8px;">Open Studio</button>
+    </div>
+    <div id="studioJobInfo" style="margin-top:4px;display:none;">
+      Job: <span id="studioJobStep"></span>
+    </div>
+  </div>
+
   <div class="input-group">
     <label>Listing JSON</label>
     <textarea id="jsonInput" placeholder='Paste listing JSON here...'></textarea>

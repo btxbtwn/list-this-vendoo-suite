@@ -1,0 +1,12 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.env
+data/vendoo_studio.db
+data/vendoo_studio.db-shm
+data/vendoo_studio.db-wal
+data/pairing_token.txt
+data/photos/*
+!data/photos/.gitkeep
+.vite/

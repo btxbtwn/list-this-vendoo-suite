@@ -5,6 +5,7 @@
   'use strict';
 
   const PLATFORM = 'VENDOO';
+  const CONTENT_SCRIPT_VERSION = '0.3.0';
   const DEBUG = true;
   let statusBox;
 
@@ -111,8 +112,24 @@
     price: '#generalDetails\\.price',
     cost: '#generalDetails\\.cost',
     labels: '#labels',
-    notes: '#generalDetails\\.notes'
+    notes: '#generalDetails\\.notes',
+    category: '#categoryV2, [role="category-input"]',
   };
+
+  const CATEGORY_RESULT_SELECTORS = [
+    '[role="option"]',
+    '.MuiAutocomplete-option',
+    '[role="listbox"] [role="option"]',
+    'li[role="option"]',
+  ].join(', ');
+
+  const CATEGORY_POPUP_SELECTORS = [
+    '[role="presentation"]',
+    '.MuiAutocomplete-popper',
+    '[role="listbox"]',
+    '[class*="popover"]',
+    '[class*="menu"]',
+  ].join(', ');
 
   // ============================================
   // OPTIMIZED HELPER FUNCTIONS
@@ -554,7 +571,8 @@
   // ============================================
 
   async function fillTextField(selector, value, fieldName) {
-      if (!value) return;
+      if (value === null || value === undefined) return;
+      if (typeof value === 'string' && value.trim() === '') return;
       
       const el = document.querySelector(selector);
       if (!el) {
@@ -570,7 +588,8 @@
   }
 
   async function fillDropdownField(selectorOrEl, value, fieldName, isStrict = false, isMulti = false) {
-      if (!value) return;
+      if (value === null || value === undefined) return;
+      if (typeof value === 'string' && value.trim() === '') return;
       
       let el;
       if (typeof selectorOrEl === 'string') {
@@ -600,11 +619,187 @@
   }
 
   // ============================================
+  // CATEGORY SELECTION
+  // ============================================
+
+  async function fillCategoryPath(data) {
+      const categoryPath = data.category_path || '';
+      if (!categoryPath) return { ok: true, filled: false };
+
+      log(`Setting category: ${categoryPath}`);
+
+      const segments = categoryPath.split('>').map(s => s.trim()).filter(Boolean);
+      if (segments.length === 0) return { ok: true, filled: false };
+
+      const catBtn = document.querySelector('#categoryV2, [role="category-input"]');
+      if (!catBtn) {
+          warn('Category button #categoryV2 not found');
+          return { ok: false, filled: false, error: 'Category button not found' };
+      }
+
+      log('Opening category selector...');
+      catBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
+      await sleep(CONFIG.SLEEP_MEDIUM);
+      catBtn.click();
+      await sleep(CONFIG.SLEEP_LONG * 2);
+
+      for (let i = 0; i < segments.length; i++) {
+          const segment = segments[i];
+          log(`  Drilling into: "${segment}" (${i + 1}/${segments.length})`);
+
+          let targetOption = null;
+          const lowerSegment = segment.toLowerCase();
+
+          for (let attempt = 0; attempt < 10 && !targetOption; attempt++) {
+              await sleep(CONFIG.SLEEP_LONG);
+              const allOptions = document.querySelectorAll('[role="option"]');
+              for (const opt of allOptions) {
+                  if (opt.offsetParent === null) continue;
+                  const text = (opt.innerText || opt.textContent || '').trim();
+                  if (text.toLowerCase() === lowerSegment) {
+                      targetOption = opt;
+                      break;
+                  }
+              }
+          }
+
+          if (!targetOption) {
+              warn(`Category option "${segment}" not found`);
+              return { ok: false, filled: false, error: `Category option "${segment}" not found` };
+          }
+
+          log(`  Clicking: "${targetOption.innerText.trim()}"`);
+          targetOption.scrollIntoView({ block: 'center', behavior: 'instant' });
+          await sleep(CONFIG.SLEEP_SHORT);
+          targetOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          targetOption.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          targetOption.click();
+          await sleep(CONFIG.SLEEP_LONG * 2);
+      }
+
+      await sleep(CONFIG.SLEEP_LONG * 2);
+
+      const searchInput = document.querySelector('input[role="category-search-field"]');
+      if (searchInput && document.contains(searchInput)) {
+          log('Category modal still open, searching for terminal child...');
+
+          const children = [];
+          const allOptions = document.querySelectorAll('[role="option"]');
+          for (const opt of allOptions) {
+              if (opt.offsetParent === null) continue;
+              const text = (opt.innerText || opt.textContent || '').trim();
+              if (text) children.push(text);
+          }
+
+          log(`  Visible children: ${JSON.stringify(children)}`);
+
+          if (children.length > 0) {
+              const type = data.ebay_specifics?.type || data.type || '';
+              const typeLower = type.toLowerCase().trim();
+
+              const TYPE_MAP = {
+                  't-shirt': 't-shirts',
+                  'tee': 't-shirts',
+                  'polo': 'polos',
+                  'dress shirt': 'dress shirts',
+                  'button-down': 'casual button-down shirts',
+                  'button down': 'casual button-down shirts',
+                  'henley': 'henleys',
+                  'tank': 'tank tops',
+                  'tank top': 'tank tops',
+                  'sweatshirt': 'sweatshirts',
+                  'hoodie': 'hoodies',
+                  'long sleeve': 'long sleeve t-shirts',
+              };
+
+              let targetType = '';
+              for (const [key, val] of Object.entries(TYPE_MAP)) {
+                  if (typeLower.includes(key)) {
+                      targetType = val;
+                      break;
+                  }
+              }
+
+              let targetText = null;
+              if (targetType) {
+                  for (const child of children) {
+                      if (child.toLowerCase() === targetType) {
+                          targetText = child;
+                          break;
+                      }
+                  }
+              }
+
+              if (!targetText) {
+                  for (const child of children) {
+                      if (typeLower && child.toLowerCase().includes(typeLower)) {
+                          targetText = child;
+                          break;
+                      }
+                  }
+              }
+
+              if (!targetText) {
+                  for (const child of children) {
+                      if (child.toLowerCase().includes('t-shirt') || child.toLowerCase().includes('shirt')) {
+                          targetText = child;
+                          break;
+                      }
+                  }
+              }
+
+              if (targetText) {
+                  log(`  Selecting terminal child: "${targetText}"`);
+                  const childOption = [...allOptions].find(o =>
+                      (o.innerText || o.textContent || '').trim() === targetText && o.offsetParent !== null
+                  );
+                  if (childOption) {
+                      childOption.scrollIntoView({ block: 'center', behavior: 'instant' });
+                      await sleep(CONFIG.SLEEP_SHORT);
+                      childOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                      childOption.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                      childOption.click();
+                      await sleep(CONFIG.SLEEP_LONG * 2);
+                  }
+              } else {
+                  warn(`No terminal child match. Children: ${JSON.stringify(children)}`);
+              }
+          }
+      }
+
+      await sleep(CONFIG.SLEEP_LONG);
+
+      const searchInputAfter = document.querySelector('input[role="category-search-field"]');
+      if (searchInputAfter && document.contains(searchInputAfter)) {
+          warn('Category modal still open after selecting all segments');
+          return { ok: false, filled: false, error: 'Category modal did not close after selection' };
+      }
+
+      const catBtnText = (catBtn.innerText || catBtn.textContent || '').trim();
+      log(`Category selected. Button text: "${catBtnText}"`);
+
+      if (!catBtnText || catBtnText.toLowerCase().includes('click to select')) {
+          return { ok: false, filled: false, error: 'Category button not updated after selection' };
+      }
+
+      return { ok: true, filled: true, result: catBtnText };
+  }
+
+  // ============================================
   // MAIN VENDOO FORM FILLER - OPTIMIZED
   // ============================================
 
   async function fillMainForm(data) {
       log('=== Filling Main Vendoo Form ===');
+
+      // Category must be set FIRST (before size/sizeType which depend on it)
+      if (data.category_path) {
+          const catResult = await fillCategoryPath(data);
+          if (!catResult.ok) {
+              return { ok: false, error: catResult.error || 'Category selection failed' };
+          }
+          await sleep(CONFIG.SLEEP_LONG);
+      }
       
       // Text fields (parallel)
       const textFields = [
@@ -628,8 +823,19 @@
       await fillDropdownField(VENDOO_SELECTORS.brand, data.brand, 'Brand');
       await fillDropdownField(VENDOO_SELECTORS.primaryColor, data.primaryColor || data.color, 'Primary Color');
       await fillDropdownField(VENDOO_SELECTORS.secondaryColor, data.secondaryColor, 'Secondary Color');
-      await fillDropdownField(VENDOO_SELECTORS.size, data.size, 'Size');
-      await fillDropdownField(VENDOO_SELECTORS.sizeType, data.sizeType, 'Size Type', true);
+      // Size fields (sizeType BEFORE size - size options depend on sizeType)
+      if (data.sizeType) {
+          await fillDropdownField(VENDOO_SELECTORS.sizeType, data.sizeType, 'Size Type', true);
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      if (data.size) {
+          const sizeEl = document.querySelector(VENDOO_SELECTORS.size);
+          if (sizeEl) {
+              await fillDropdownField(sizeEl, data.size, 'Size', true);
+          } else {
+              warn('Size input not found after category');
+          }
+      }
       
       // Multi-value fields
       if (data.tags) {
@@ -672,6 +878,7 @@
       
       await fillTextField(VENDOO_SELECTORS.notes, data.internal_notes, 'Notes');
       log('=== Main form filled ===');
+      return { ok: true };
   }
 
   // ============================================
@@ -688,16 +895,25 @@
           saveBtn.click();
           return true;
       }
-      
+
+      const PROHIBITED_TERMS = ['list', 'publish', 'activate', 'sell'];
       const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
-      const saveTerms = ['save', 'list', 'save & exit', 'save & list'];
       
-      const target = buttons.find(b => {
-          const t = b.innerText?.trim().toLowerCase();
-          return t && saveTerms.some(term => t === term || (t.includes(term) && t.length < 25));
-      });
+      let target = null;
+      for (const b of buttons) {
+          const t = (b.innerText || '').trim().toLowerCase();
+          if (!t || t.length > 20) continue;
+          if (!t.includes('save')) continue;
+          if (PROHIBITED_TERMS.some(pt => t.includes(pt))) {
+              warn(`Skipping prohibited button: "${b.innerText}"`);
+              continue;
+          }
+          target = b;
+          break;
+      }
       
       if (target) {
+          log(`Clicking save button: "${target.innerText.trim()}"`);
           target.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_MEDIUM);
           target.click();
@@ -911,8 +1127,6 @@
               }
           }
       }
-      
-      await clickSave();
   }
 
   async function fillEtsyForm(data) {
@@ -1045,7 +1259,6 @@
           }
       }
       
-      await clickSave();
   }
 
   async function fillPoshmarkForm(data) {
@@ -1063,7 +1276,6 @@
           await fillTextField('#listings\\.poshmark\\.marketplaceSpecifics\\.originalPrice', data.poshmark_specifics.originalPrice, 'Original Price');
       }
       
-      await clickSave();
   }
 
   async function fillMercariForm(data) {
@@ -1076,11 +1288,19 @@
           fillTextField('#listings\\.mercari\\.overrides\\.price', data.price, 'Mercari Price'),
       ]);
       
-      if (data.shipping_service) {
-          await fillDropdownField('#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId', data.shipping_service, 'Shipping Carrier');
+      const shippingEl = document.querySelector('#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId');
+      if (shippingEl) {
+          const currentVal = (shippingEl.value || '').trim().toLowerCase();
+          if (!currentVal.includes('usps ground advantage')) {
+              log('Setting Mercari shipping to USPS Ground Advantage');
+              await fillDropdownField(shippingEl, 'USPS Ground Advantage', 'Shipping Label', false);
+          } else {
+              log('Mercari shipping already USPS Ground Advantage');
+          }
+      } else {
+          warn('Mercari shipping carrier field not found');
       }
       
-      await clickSave();
   }
 
   async function fillDepopForm(data) {
@@ -1092,6 +1312,12 @@
           fillTextField('#listings\\.depop\\.overrides\\.quantity', data.quantity, 'Depop Quantity'),
           fillTextField('#listings\\.depop\\.overrides\\.price', data.price, 'Depop Price'),
       ]);
+
+      const depopBrandEl = document.querySelector('#listings\\.depop\\.overrides\\.brand');
+      if (depopBrandEl && !depopBrandEl.value?.trim()) {
+          log('Depop Brand is blank, selecting Other');
+          await fillDropdownField(depopBrandEl, 'Other', 'Depop Brand', true);
+      }
       
       if (data.depop_specifics) {
           log('Expanding optional fields for Depop...');
@@ -1217,7 +1443,6 @@
           }
       }
       
-      await clickSave();
   }
 
   // ============================================
@@ -1265,6 +1490,258 @@
   }
 
   // ============================================
+  // STUDIO AUTOMATION COMMANDS
+  // ============================================
+
+  async function uploadStudioPhotos(photos, studioUrl, jobId) {
+      if (!photos || photos.length === 0) {
+          return { ok: true, count: 0 };
+      }
+
+      log(`Uploading ${photos.length} photos from Studio...`);
+
+      let imageInput = null;
+      for (let attempt = 0; attempt < 15; attempt++) {
+          imageInput = document.querySelector('#imageInput, input[type="file"][accept*="image"]');
+          if (imageInput) break;
+          if (attempt < 14) await sleep(1000);
+      }
+
+      if (!imageInput) {
+          warn('Image input not found after waiting');
+          const allInputs = document.querySelectorAll('input[type="file"]');
+          warn(`All file inputs on page: ${allInputs.length}`);
+          allInputs.forEach((inp, i) => warn(`  [${i}] ${inp.id} accept=${inp.accept}`));
+          return { ok: false, error: 'Image input not found' };
+      }
+
+      const fileObjects = [];
+      for (const photo of photos) {
+          try {
+              const url = `${studioUrl}/api/jobs/${jobId}/photos/${photo.id || photo.stored_filename || photo.name}`;
+              const response = await fetch(url);
+              if (!response.ok) {
+                  warn(`Failed to fetch photo: ${url} status=${response.status}`);
+                  continue;
+              }
+              const blob = await response.blob();
+              const name = photo.name || photo.original_filename || 'photo.jpg';
+              const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
+              fileObjects.push(file);
+          } catch (e) {
+              warn(`Photo fetch error: ${e.message}`);
+          }
+      }
+
+      if (fileObjects.length === 0) {
+          return { ok: false, error: 'No photos could be fetched' };
+      }
+
+      const dt = new DataTransfer();
+      fileObjects.forEach(f => dt.items.add(f));
+      imageInput.files = dt.files;
+      imageInput.dispatchEvent(new Event('change', { bubbles: true }));
+      imageInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+      await sleep(CONFIG.SLEEP_LONG * 4);
+
+      log(`Uploaded ${fileObjects.length} photos`);
+      return { ok: true, count: fileObjects.length };
+  }
+
+  async function saveGeneralForm() {
+      log('Saving form...');
+      const saveBtn = document.querySelector('[data-testid="save-item-button"]');
+      if (saveBtn) {
+          saveBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
+          await sleep(CONFIG.SLEEP_MEDIUM);
+          saveBtn.click();
+          await sleep(CONFIG.SLEEP_LONG * 3);
+          log('Save button clicked, waiting for completion');
+
+          for (let i = 0; i < 10; i++) {
+              await sleep(1000);
+              const stillLoading = document.querySelector('[data-testid="save-item-button"][disabled], button:disabled');
+              if (!stillLoading) break;
+          }
+
+          const itemId = extractItemId();
+          const vendooUrl = itemId ? `https://web.vendoo.co/app/item/${itemId}` : window.location.href;
+
+          log(`Save complete. Item ID: ${itemId || 'unknown'}`);
+          return { ok: true, vendoo_item_id: itemId, vendoo_url: vendooUrl };
+      }
+
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      const PROHIBITED_TERMS = ['list', 'publish', 'activate', 'sell'];
+      const target = buttons.find(b => {
+          const t = (b.innerText || '').trim().toLowerCase();
+          if (!t || t.length > 20) return false;
+          if (!t.includes('save')) return false;
+          if (PROHIBITED_TERMS.some(pt => t.includes(pt))) {
+              warn(`Skipping prohibited save button: "${b.innerText}"`);
+              return false;
+          }
+          return true;
+      });
+
+      if (target) {
+          target.scrollIntoView({ block: 'center', behavior: 'instant' });
+          await sleep(CONFIG.SLEEP_MEDIUM);
+          target.click();
+          await sleep(CONFIG.SLEEP_LONG * 3);
+          const itemId = extractItemId();
+          return { ok: true, vendoo_item_id: itemId, vendoo_url: window.location.href };
+      }
+
+      warn('Save button not found');
+      return { ok: false, error: 'Save button not found' };
+  }
+
+  async function auditGeneralForm(data) {
+      log('Auditing general form...');
+      const fields = {};
+
+      const checks = [
+          { key: 'title', selector: '#generalDetails\\.title', label: 'Title' },
+          { key: 'description', selector: '#generalDetails\\.description', label: 'Description' },
+          { key: 'price', selector: '#generalDetails\\.price', label: 'Price' },
+          { key: 'quantity', selector: '#generalDetails\\.quantity', label: 'Quantity' },
+          { key: 'category', selector: '#categoryV2, [role="category-input"]', label: 'Category' },
+          { key: 'size', selector: '#generalDetails\\.size\\.option\\.value', label: 'Size' },
+      ];
+
+      for (const check of checks) {
+          const el = document.querySelector(check.selector);
+          const expected = data[check.key];
+          const observed = el ? el.value : null;
+          const state = expected != null && observed != null && String(observed) === String(expected)
+              ? 'audited_complete' : 'attempted_unverified';
+
+          fields[check.key] = { state, expected: String(expected ?? ''), observed: String(observed ?? '') };
+      }
+
+      const allOk = Object.values(fields).every(f => f.state === 'audited_complete');
+      if (!allOk) {
+          warn('Some audit checks are unverified - continuing');
+      }
+      return { ok: true, fields };
+  }
+
+  async function fillMarketplaceForm(data, platform) {
+      log(`Filling ${platform} marketplace...`);
+
+      await activateMarketplaceSection(platform);
+
+      switch (platform.toLowerCase()) {
+          case 'ebay':
+              await fillEbayForm(data);
+              break;
+          case 'etsy':
+              await fillEtsyForm(data);
+              break;
+          case 'poshmark':
+              await fillPoshmarkForm(data);
+              break;
+          case 'mercari':
+              await fillMercariForm(data);
+              break;
+          case 'depop':
+              await fillDepopForm(data);
+              break;
+          default:
+              warn(`Unknown marketplace: ${platform}`);
+      }
+
+      return { ok: true };
+  }
+
+  async function activateMarketplaceSection(platform) {
+      log(`Activating ${platform} marketplace section...`);
+
+      const buttonTexts = [platform, platform.toUpperCase(), platform.charAt(0).toUpperCase() + platform.slice(1)];
+      const buttons = Array.from(document.querySelectorAll(
+          'button, [role="button"], div[role="tab"], a, span[role="button"]'
+      ));
+
+      for (const btn of buttons) {
+          const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+          if (buttonTexts.some(t => text.includes(t.toLowerCase()))) {
+              const expanded = btn.getAttribute('aria-expanded');
+              if (expanded === 'true') {
+                  log(`  ${platform} section already expanded`);
+                  await sleep(CONFIG.SLEEP_LONG);
+                  return;
+              }
+              log(`  Clicking "${btn.innerText}" to activate ${platform}`);
+              btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+              await sleep(CONFIG.SLEEP_SHORT);
+              btn.click();
+              await sleep(CONFIG.SLEEP_LONG * 2);
+              return;
+          }
+      }
+
+      await expandOptionalFields();
+      await sleep(CONFIG.SLEEP_LONG);
+
+      for (const btn of buttons) {
+          const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+          if (buttonTexts.some(t => text.includes(t.toLowerCase()))) {
+              log(`  Clicking "${btn.innerText}" to activate ${platform}`);
+              btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+              await sleep(CONFIG.SLEEP_SHORT);
+              btn.click();
+              await sleep(CONFIG.SLEEP_LONG * 2);
+              return;
+          }
+      }
+
+      warn(`Could not find activation button for ${platform}`);
+  }
+
+  async function auditMarketplaceForm(data, platform) {
+      log(`Auditing ${platform} marketplace...`);
+      const fields = {};
+      let foundAnyField = false;
+
+      const platformSelectors = {
+          ebay: ['#listings\\.ebay\\.overrides\\.brand', '#listings\\.ebay\\.overrides\\.price', '#listings\\.ebay\\.overrides\\.quantity'],
+          etsy: ['#listings\\.etsy\\.overrides\\.price', '#listings\\.etsy\\.overrides\\.quantity', '#listings\\.etsy\\.marketplaceSpecifics\\.whoMade'],
+          poshmark: ['#listings\\.poshmark\\.overrides\\.brand', '#listings\\.poshmark\\.overrides\\.price', '#listings\\.poshmark\\.overrides\\.quantity'],
+          mercari: ['#listings\\.mercari\\.overrides\\.brand', '#listings\\.mercari\\.overrides\\.price', '#listings\\.mercari\\.overrides\\.quantity'],
+          depop: ['#listings\\.depop\\.overrides\\.price', '#listings\\.depop\\.overrides\\.quantity', '#listings\\.depop\\.marketplaceSpecifics\\.source'],
+      };
+
+      const selectors = platformSelectors[platform.toLowerCase()] || [];
+      for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          fields[sel] = { found: !!el, value: el ? (el.value || 'present') : 'missing' };
+          if (el) foundAnyField = true;
+      }
+
+      if (!foundAnyField) {
+          warn(`${platform}: No marketplace fields found. Section may not be activated.`);
+          fields._error = `${platform} marketplace section appears inactive`;
+      }
+
+      return { ok: true, fields };
+  }
+
+  function extractItemId() {
+      const match = window.location.href.match(/\/app\/item\/([^/?]+)/);
+      if (match) return match[1];
+
+      const draftMatch = window.location.href.match(/\/item\/([^/?]+)/);
+      if (draftMatch) return draftMatch[1];
+
+      const el = document.querySelector('[data-item-id], [data-testid="item-id"]');
+      if (el) return el.getAttribute('data-item-id') || el.textContent?.trim();
+
+      return null;
+  }
+
+  // ============================================
   // INIT
   // ============================================
 
@@ -1273,7 +1750,66 @@
       
       chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (msg.type === 'PING') {
-              sendResponse({ ok: true, platform: PLATFORM });
+              sendResponse({ ok: true, platform: PLATFORM, contentScriptVersion: CONTENT_SCRIPT_VERSION });
+              return true;
+          }
+
+          if (msg.type === 'UPLOAD_PHOTOS') {
+              uploadStudioPhotos(msg.photos || [], msg.studio_url, msg.job_id)
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'FILL_GENERAL') {
+              fillMainForm(msg.data)
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'SAVE_GENERAL') {
+              saveGeneralForm()
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'AUDIT_GENERAL') {
+              auditGeneralForm(msg.data)
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'FILL_MARKETPLACE') {
+              fillMarketplaceForm(msg.data, msg.platform)
+                  .then(() => sendResponse({ ok: true }))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'SAVE_MARKETPLACE') {
+              saveGeneralForm()
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'AUDIT_MARKETPLACE') {
+              auditMarketplaceForm(msg.data, msg.platform)
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'GET_PAGE_STATE') {
+              sendResponse({
+                  ok: true,
+                  url: window.location.href,
+                  hasSaveButton: !!document.querySelector('[data-testid="save-item-button"]'),
+                  itemId: extractItemId(),
+              });
               return true;
           }
           

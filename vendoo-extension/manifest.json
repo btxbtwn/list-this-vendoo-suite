@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Vendoo Multi-Platform Lister",
-  "version": "0.1.0",
-  "description": "Paste JSON → fill Vendoo, then eBay/Poshmark/Mercari/Depop/Etsy (draft-only)",
+  "name": "Vendoo Listing Studio Bridge",
+  "version": "0.2.0",
+  "description": "Connect Vendoo Listing Studio to automate marketplace listing drafts",
   "permissions": [
     "activeTab",
     "storage",
     "scripting",
-    "downloads"
+    "downloads",
+    "tabs"
   ],
   "host_permissions": [
     "https://app.vendoo.co/*",
@@ -16,7 +17,9 @@
     "https://poshmark.com/*",
     "https://www.mercari.com/*",
     "https://www.depop.com/*",
-    "https://www.etsy.com/*"
+    "https://www.etsy.com/*",
+    "http://127.0.0.1:4318/*",
+    "ws://127.0.0.1:4318/*"
   ],
   "action": {
     "default_popup": "popup.html",

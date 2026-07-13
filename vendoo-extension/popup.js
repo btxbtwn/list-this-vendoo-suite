@@ -91,6 +91,39 @@ document.addEventListener('DOMContentLoaded', () => {
   const vendooLabelsInput = document.getElementById('vendooLabelsInput');
   const cogInput = document.getElementById('cogInput');
   const packageDimsInput = document.getElementById('packageDimsInput');
+  const studioStatusText = document.getElementById('studioStatusText');
+  const studioJobInfo = document.getElementById('studioJobInfo');
+  const studioJobStep = document.getElementById('studioJobStep');
+  const openStudioBtn = document.getElementById('openStudioBtn');
+
+  function pollStudioStatus() {
+    chrome.runtime.sendMessage({ type: 'GET_STUDIO_STATUS' }, (resp) => {
+      if (chrome.runtime.lastError) return;
+      if (!resp) return;
+      if (resp.connected) {
+        studioStatusText.textContent = 'Studio: Connected';
+        studioStatusText.style.color = '#4caf50';
+      } else {
+        studioStatusText.textContent = 'Studio: Disconnected';
+        studioStatusText.style.color = '#999';
+      }
+      if (resp.active_job_id) {
+        studioJobInfo.style.display = 'block';
+        studioJobStep.textContent = resp.active_job_step || 'processing';
+      } else {
+        studioJobInfo.style.display = 'none';
+      }
+    });
+  }
+
+  pollStudioStatus();
+  setInterval(pollStudioStatus, 5000);
+
+  if (openStudioBtn) {
+    openStudioBtn.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'OPEN_STUDIO' });
+    });
+  }
 
   function log(msg) {
     const time = new Date().toLocaleTimeString();
