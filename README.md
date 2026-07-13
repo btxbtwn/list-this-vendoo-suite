@@ -1,26 +1,40 @@
 # List This Vendoo Suite
 
-Monorepo combining the `list-this` skill family with the Vendoo Chrome extension. The skills generate marketplace-ready listings from product photos; the extension fills six platforms (Vendoo, eBay, Poshmark, Mercari, Depop, Etsy) from a single JSON payload.
+Monorepo combining the `list-this` skill family, Vendoo Listing Studio, and the Vendoo Chrome extension. The skills generate marketplace-ready listings from product photos; Studio provides a local web interface for chat-driven listing creation and extension automation; the extension fills six platforms (Vendoo, eBay, Poshmark, Mercari, Depop, Etsy) from a single JSON payload.
 
 ## Source of truth
 
 - **`skills/`** — Canonical source of truth for listing rules, templates, research loops, and optimizer tooling.
 - **`vendoo-extension/`** — Chrome extension that consumes listing JSON and fills marketplace forms.
+- **`vendoo-studio/`** — Local web app (FastAPI + React) for MiMo-powered listing generation with automated Vendoo draft creation.
+- **`VENDOO_STUDIO_SPEC.md`** — Product and architecture specification for Vendoo Listing Studio.
 - `vendoo-extension/skills/list-this/` is a legacy compatibility wrapper only.
 
 ---
 
 ## Components
 
+### Vendoo Listing Studio
+
+Local web application at `http://127.0.0.1:4318` that provides:
+
+- Product photo upload and drag-and-drop
+- Chat interface with Xiaomi MiMo V2.5
+- AI-powered listing generation and revisions
+- Structured listing editor with marketplace-specific tabs
+- Raw JSON editor with validation
+- One-click **Send to Vendoo** automation
+- Live progress tracking: photo upload, form filling, saving, and auditing
+- Automatic draft creation — stops before publishing
+
+See `vendoo-studio/README.md` for setup and `VENDOO_STUDIO_SPEC.md` for full specification.
+
 ### Skills
 
 | Skill | Purpose |
 |---|---|
 | **`list-this`** | Generate a marketplace listing JSON from product photos. Produces title, description, pricing, and 100+ platform-specific fields (eBay category specifics, Etsy attributes, Depop style tags, Poshmark details). The output JSON is pasted into the extension. |
-| **`list-this-direct`** | Direct Vendoo draft workflow without the extension. Uses browser automation to fill the Vendoo web form natively. |
-| **`list-this-researcher`** | Post-run research and learning. Turns `list-this-direct` traces into evals, benchmarks prompt edits, and decides which changes to keep. |
-| **`raghouse-box-sourcing`** | Reseller sourcing intelligence. Analyzes Vendoo exports, identifies trending inventory, recommends Raghouse box purchases based on sell-through data. |
-| **`skill-optimizer`** | Eval-driven skill tuning. Runs repeated test prompts against binary criteria, scores outputs, and proposes tighter SKILL.md instructions. |
+
 
 ### Extension (`vendoo-extension/`)
 
@@ -57,17 +71,7 @@ Chrome MV3 extension. Two fill paths:
 3. Click "Fill Vendoo First" — the extension opens Vendoo and fills every marketplace section.
 4. Review and save as draft manually.
 
-### Direct-to-platform flow
 
-Use `skills/list-this-direct/SKILL.md` when you want browser automation without the extension.
-
-### Sourcing intelligence
-
-Use `skills/raghouse-box-sourcing/` to analyze Vendoo exports and get buying recommendations.
-
-### Skill optimization
-
-Use `skills/skill-optimizer/` to run eval-driven tuning on any skill in the suite.
 
 ---
 

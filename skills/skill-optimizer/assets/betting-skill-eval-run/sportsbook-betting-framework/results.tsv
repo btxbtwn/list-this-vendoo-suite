@@ -1,3 +1,0 @@
-run_tag	target_skill	bet_id	review_id	baseline_score	revised_score	status	notes
-20260316-022834-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan-moneyline-2026-03-15-review-003	sportsbook-betting-framework	lazio-ac-milan-ac-milan-moneyline-2026-03-15	lazio-ac-milan-ac-milan-moneyline-2026-03-15-review-003	19	19	reverted	revised skill did not beat the baseline
-20260316-023505-sportsbook-betting-framework-lazio-ac-milan-ac-milan-moneyline-2026-03-15-lazio-ac-milan-ac-milan-moneyline-2026-03-15-review-003	sportsbook-betting-framework	lazio-ac-milan-ac-milan-moneyline-2026-03-15	lazio-ac-milan-ac-milan-moneyline-2026-03-15-review-003	19	19	reverted	revised skill did not beat the baseline

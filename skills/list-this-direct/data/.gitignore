@@ -1,7 +1,0 @@
-field_memory.sqlite3
-field_memory.sqlite3-shm
-field_memory.sqlite3-wal
-field_memory_delta*.json
-runs/
-runtime/
-latest_researcher_bundle.json

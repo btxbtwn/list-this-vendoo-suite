@@ -1,0 +1,50 @@
+# Repository Guidelines
+
+## Repository Overview
+
+Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, and Vendoo Listing Studio. The skills generate marketplace-ready listings from product photos; the extension fills six platforms from a single JSON payload; Studio provides a local web interface for chat-driven listing creation and extension automation.
+
+**Invariant:** Automation must never publish listings. Stop at saved drafts and require human approval before sending.
+
+## Source of Truth
+
+- **`skills/`** — Canonical source for listing rules, templates, research loops, and optimizer tooling.
+- **`vendoo-extension/skills/list-this/`** — Legacy compatibility wrapper only. Do not use as the source for listing rules.
+- **`VENDOO_STUDIO_SPEC.md`** — Product and architecture specification for Vendoo Listing Studio.
+- Do not duplicate listing rules across components.
+
+## Repository Structure
+
+- **`skills/`** — Agent skills for listing generation (`list-this`).
+- **`vendoo-extension/`** — Chrome MV3 extension that consumes listing JSON and fills marketplace forms. Content scripts under `content-scripts/` handle Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy. `background.js` routes messages; `popup.html`/`popup.js` provide the manual paste-and-fill UI.
+- **`vendoo-studio/`** — React + TypeScript frontend (`src/`) and FastAPI Python backend (`server/vendoo_studio/`). Frontend API clients live under `src/api/`. Backend routes live under `server/vendoo_studio/routes/`; domain behavior lives in `server/vendoo_studio/services/` and `server/vendoo_studio/repositories/`.
+
+## Development Commands
+
+- **Studio frontend dev:** `cd vendoo-studio && npm run dev`
+- **Studio frontend build:** `cd vendoo-studio && npm run build`
+- **Studio backend:** Python 3.12+ required. Package entry point defined in `vendoo-studio/pyproject.toml`.
+- **Extension:** Load unpacked from Chrome extensions page (`chrome://extensions/`) with Developer mode enabled.
+
+## Coding Conventions
+
+- Follow the established style within each component. Do not refactor unrelated files.
+- Keep skill instructions in canonical `SKILL.md` files; keep browser-specific logic in the corresponding extension content script.
+- Keep frontend API calls under `vendoo-studio/src/api/`; keep backend routes thin and place domain behavior in services and repositories.
+- Maintain the JSON listing contract across skills, Studio, and the extension. The extension expects the structure documented in `README.md`.
+
+## Verification
+
+- **Studio frontend:** `cd vendoo-studio && npm run build`
+- **Studio backend:** Use narrow Python checks for affected modules.
+- **Extension:** Reload the unpacked extension and test affected marketplace flows manually. Use platform-prefixed console logs (`[EBAY]`, `[POSHMARK]`, etc.), the **Diagnose Page** button for live form structure, and the debug overlay (bottom-left) for per-field fill results.
+- **Skills:** Validate changes with existing eval assets under the skill directory.
+
+## Security and Product Invariants
+
+- Never commit API keys, OAuth credentials, listing photos, generated diagnostics, or private exports.
+- API keys remain in macOS Keychain and never enter SQLite, logs, frontend responses, or extension messages.
+- Bind Studio only to `127.0.0.1`.
+- Require human approval before sending to Vendoo.
+- Allow one automation job at a time.
+- Do not introduce Redis, MongoDB, Celery, Docker, cloud hosting, or provider substitutions unless explicitly requested.
