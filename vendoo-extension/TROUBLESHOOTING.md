@@ -136,7 +136,6 @@ if (dataAttrMatch) {
 ## Bundle Path Notes
 
 - Generate fresh listing payloads from the top-level `skills/list-this/SKILL.md`.
-- For direct browser automation without the extension, follow top-level `skills/list-this-direct/SKILL.md`.
 - Treat `vendoo-extension/skills/list-this/` as a compatibility wrapper only; the top-level `skills/` directory is the source of truth.
 
 ## Debug Mode

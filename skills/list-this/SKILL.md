@@ -406,4 +406,3 @@ Before outputting ANY listing, verify:
 - When the user provides a local path, save the final standard listing as `listing.json` or the Etsy digital download listing as `listing.md` in the resolved photo folder
 - Resolve file paths to their parent folder before saving so a single image path still leaves the final output with the product photos
 - Measurements format: "Waist: 17" / "Rise: 9" / "Inseam: 7"
-- If the user wants live browser automation that creates and saves the Vendoo draft, hand the runtime flow to `../list-this-direct/SKILL.md` after generating the source-of-truth listing output.

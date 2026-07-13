@@ -23,7 +23,6 @@ Flow A: Paste JSON → Fill Vendoo first → Sequential fill for eBay/Poshmark/M
 This bundle keeps the canonical listing skills in the top-level `skills/` directory.
 
 - `skills/list-this/` is the source of truth for listing copy and the JSON payload consumed by this extension.
-- `skills/list-this-direct/` is the source of truth for the direct Vendoo draft workflow when you do not want to use the extension.
 - `vendoo-extension/skills/list-this/` is only a compatibility wrapper for older extension-local skill paths.
 
 Typical flow:

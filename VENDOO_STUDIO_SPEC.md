@@ -863,8 +863,7 @@ Live Vendoo smoke test:
 - `README.md`: monorepo overview and Studio workflow.
 - `skills/list-this/SKILL.md`: canonical listing-generation policy.
 - `skills/list-this/references/vendoo_listing_template.md`: JSON and marketplace guidance.
-- `skills/list-this-direct/SKILL.md`: canonical automation state machine and audit behavior.
-- `skills/list-this-direct/references/vendoo_direct_form_notes.md`: verified selectors and interaction learnings.
+
 - `skills/list-this/references/vendoo-extension-architecture.md`: current extension architecture.
 - `vendoo-extension/manifest.json`: permissions and extension metadata.
 - `vendoo-extension/background.js`: Studio connection and job orchestration.
