@@ -36,5 +36,7 @@ def init_db():
     from vendoo_studio.models.conversation import Conversation  # noqa: F401
     from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
     from vendoo_studio.models.job import Job, JobEvent  # noqa: F401
+    from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation  # noqa: F401
+    from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

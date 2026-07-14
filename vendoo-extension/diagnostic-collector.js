@@ -1,6 +1,9 @@
 // Shared diagnostic collector used by the popup and background worker.
 
-async function collectPageDiagnostics() {
+const COLLECTOR_VERSION = '1.0.0';
+
+async function collectPageDiagnostics(options = {}) {
+  const mode = options.mode || 'active';
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const dropdownPortalSelector = [
@@ -339,7 +342,13 @@ async function collectPageDiagnostics() {
   const fields = [];
   for (const input of controls) {
     const labelSources = getLabelSources(input);
-    const optionsMeta = await scrapeLiveDropdownOptions(input);
+
+    let optionsMeta;
+    if (mode === 'passive') {
+      optionsMeta = { options: [], source: 'passive-skipped' };
+    } else {
+      optionsMeta = await scrapeLiveDropdownOptions(input);
+    }
 
     fields.push({
       label: normalize(labelSources[0] || ''),
@@ -353,7 +362,6 @@ async function collectPageDiagnostics() {
       id: input.id || '',
       placeholder: input.placeholder || '',
       classes: typeof input.className === 'string' ? input.className : '',
-      value: normalize(input.value || input.textContent || ''),
       isDropdown: isDropdownField(input),
       optionCount: optionsMeta.options.length,
       options: optionsMeta.options,
@@ -369,6 +377,8 @@ async function collectPageDiagnostics() {
   const dropdownFields = fields.filter((field) => field.isDropdown);
 
   return {
+    collectorVersion: COLLECTOR_VERSION,
+    mode,
     url: window.location.href,
     title: document.title,
     timestamp: new Date().toISOString(),

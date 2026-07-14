@@ -12,6 +12,7 @@ class MessageType(str, enum.Enum):
     JOB_START = "job.start"
     JOB_RETRY = "job.retry"
     JOB_CANCEL = "job.cancel"
+    DIAGNOSTIC_ACK = "diagnostic.ack"
     PING = "ping"
 
 
@@ -23,6 +24,7 @@ class ExtMessageType(str, enum.Enum):
     JOB_STEP_FAILED = "job.step_failed"
     JOB_CANCELLED = "job.cancelled"
     JOB_COMPLETED = "job.completed"
+    DIAGNOSTIC_OBSERVED = "diagnostic.observed"
     PONG = "pong"
 
 

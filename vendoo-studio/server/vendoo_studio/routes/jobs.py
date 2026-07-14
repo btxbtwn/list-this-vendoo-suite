@@ -47,8 +47,51 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     latest_revision = revisions[0]
     photo_count = len(conv_repo.get_photos(body.conversation_id))
 
+    listing_snapshot = dict(latest_revision.listing_json)
+
+    import json as _json
+    try:
+        conv_notes = _json.loads(conv.notes or "{}")
+        raw_labels = conv_notes.get("vendooLabels", "")
+        if raw_labels:
+            listing_snapshot["labels"] = [
+                label.strip() for label in str(raw_labels).split(",") if label.strip()
+            ]
+        category_override = conv_notes.get("categoryOverride", "").strip()
+        if category_override:
+            listing_snapshot["category_path"] = category_override
+        poshmark_price_override = conv_notes.get("poshmarkOriginalPrice", "").strip()
+        if poshmark_price_override:
+            try:
+                poshmark_price = float(poshmark_price_override)
+            except ValueError:
+                poshmark_price = 0
+        else:
+            poshmark_price = 0
+    except Exception:
+        poshmark_price = 0
+
+    poshmark = listing_snapshot.get("poshmark_specifics") or {}
+    if isinstance(poshmark, dict):
+        poshmark["originalPrice"] = poshmark_price
+    listing_snapshot["poshmark_specifics"] = poshmark
+
+    mercari = listing_snapshot.get("mercari_specifics") or {}
+    if isinstance(mercari, dict):
+        mercari["shippingLabel"] = "USPS Ground Advantage"
+    listing_snapshot["mercari_specifics"] = mercari
+
+    from vendoo_studio.services.registry import RegistryService
+    registry = RegistryService(db)
+    all_warnings = []
+    for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
+        mp_warnings = registry.validate_dropdown_fields(
+            listing_snapshot, marketplace, listing_snapshot.get("category_path"),
+        )
+        all_warnings.extend(mp_warnings)
+
     from vendoo_studio.models.validation import validate_listing
-    validation = validate_listing(latest_revision.listing_json, photo_count)
+    validation = validate_listing(listing_snapshot, photo_count)
     if not validation.can_send:
         raise HTTPException(400, {
             "message": "Listing cannot be sent to Vendoo. Fix validation errors first.",
@@ -60,28 +103,12 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     if active:
         raise HTTPException(409, "Another job is already in progress")
 
-    listing_snapshot = dict(latest_revision.listing_json)
-
-    import json as _json
-    try:
-        conv_notes = _json.loads(conv.notes or "{}")
-        raw_labels = conv_notes.get("vendooLabels", "")
-        if raw_labels:
-            listing_snapshot["labels"] = [
-                label.strip() for label in str(raw_labels).split(",") if label.strip()
-            ]
-    except Exception:
-        pass
-
-    poshmark = listing_snapshot.get("poshmark_specifics") or {}
-    if isinstance(poshmark, dict):
-        poshmark["originalPrice"] = 0
-    listing_snapshot["poshmark_specifics"] = poshmark
-
-    mercari = listing_snapshot.get("mercari_specifics") or {}
-    if isinstance(mercari, dict):
-        mercari["shippingLabel"] = "USPS Ground Advantage"
-    listing_snapshot["mercari_specifics"] = mercari
+    listing_repo.save_revision(
+        conv_id=body.conversation_id,
+        listing_json=listing_snapshot,
+        source="normalized",
+        parent_revision_id=latest_revision.id,
+    )
 
     job_repo = JobRepo(db)
     job = job_repo.create(
@@ -167,8 +194,21 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
                 if isinstance(mercari, dict):
                     mercari["shippingLabel"] = "USPS Ground Advantage"
                 job.listing_snapshot["mercari_specifics"] = mercari
+
+                category_override = conv_notes.get("categoryOverride", "").strip()
+                if category_override:
+                    job.listing_snapshot["category_path"] = category_override
     except Exception:
         pass
+
+    if isinstance(job.listing_snapshot, dict):
+        from vendoo_studio.services.registry import RegistryService
+        registry = RegistryService(db)
+        category_path = job.listing_snapshot.get("category_path", "")
+        for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
+            registry.validate_dropdown_fields(
+                job.listing_snapshot, marketplace, category_path,
+            )
 
     db.commit()
     repo.add_event(job_id, "retried", job.current_step)

@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id
 from vendoo_studio.models.listing import Listing, ListingRevision
 from vendoo_studio.models.job import Job, JobEvent
+from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
+from vendoo_studio.models.registry import FieldRegistry
 
 
 class ConversationRepo:
@@ -163,3 +165,240 @@ class JobRepo:
 
     def get_events(self, job_id: str) -> list[JobEvent]:
         return self.db.query(JobEvent).filter(JobEvent.job_id == job_id).order_by(JobEvent.sequence).all()
+
+
+class DiagnosticRepo:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def save_observation(self, payload: dict) -> DiagnosticRun | None:
+        observation_id = payload.get("observation_id")
+        if not observation_id:
+            return None
+
+        existing = self.db.query(DiagnosticRun).filter(
+            DiagnosticRun.observation_id == observation_id
+        ).first()
+        if existing:
+            return existing
+
+        run = DiagnosticRun(
+            observation_id=observation_id,
+            job_id=payload.get("job_id", ""),
+            step=payload.get("step", ""),
+            collector_version=payload.get("collector_version", "unknown"),
+            mode=payload.get("mode", "unknown"),
+            url=payload.get("url", ""),
+            title=payload.get("title", ""),
+            timestamp=payload.get("timestamp", ""),
+            field_count=payload.get("field_count", 0),
+            dropdown_count=payload.get("dropdown_count", 0),
+            dropdowns_with_options=payload.get("dropdowns_with_options", 0),
+            live_dropdowns_with_options=payload.get("live_dropdowns_with_options", 0),
+            total_dropdown_options=payload.get("total_dropdown_options", 0),
+            expanded_sections=payload.get("expanded_sections", []),
+            headings=payload.get("headings", []),
+        )
+        self.db.add(run)
+        self.db.flush()
+
+        fields = payload.get("fields", [])
+        for f in fields:
+            obs = FieldObservation(
+                diagnostic_run_id=run.id,
+                observation_id=observation_id,
+                label=f.get("label", ""),
+                label_sources=f.get("label_sources", []),
+                section_path=f.get("section_path", []),
+                selector=f.get("selector", ""),
+                tag=f.get("tag", ""),
+                control_type=f.get("control_type", ""),
+                role=f.get("role", ""),
+                name=f.get("name", ""),
+                control_id=f.get("control_id", ""),
+                placeholder=f.get("placeholder", ""),
+                classes=f.get("classes", ""),
+                is_dropdown=1 if f.get("is_dropdown") else 0,
+                option_count=f.get("option_count", 0),
+                options=f.get("options", []),
+                options_source=f.get("options_source", "unknown"),
+            )
+            self.db.add(obs)
+
+        self.db.commit()
+        self.db.refresh(run)
+
+        self._upsert_registry(payload)
+
+        return run
+
+    def get_by_job(self, job_id: str) -> list[DiagnosticRun]:
+        return self.db.query(DiagnosticRun).filter(
+            DiagnosticRun.job_id == job_id
+        ).order_by(DiagnosticRun.created_at).all()
+
+    def get_fields(self, diagnostic_run_id: str) -> list[FieldObservation]:
+        return self.db.query(FieldObservation).filter(
+            FieldObservation.diagnostic_run_id == diagnostic_run_id
+        ).order_by(FieldObservation.created_at).all()
+
+    def _upsert_registry(self, payload: dict):
+        step = payload.get("step", "")
+        marketplace = _step_to_marketplace(step)
+        category_path = payload.get("category_path", "") or None
+
+        registry_repo = RegistryRepo(self.db)
+
+        for f in payload.get("fields", []):
+            label = _normalize_label(f.get("label", ""))
+            if not label:
+                continue
+
+            known = registry_repo.get_by_identity(marketplace, category_path, label)
+            selectors = _build_selector_entry(f, known)
+
+            if known:
+                known.control_type = f.get("control_type") or known.control_type
+                known.is_dropdown = 1 if f.get("is_dropdown") else known.is_dropdown
+                known.known_selectors = _merge_selectors(
+                    known.known_selectors or [], selectors
+                )
+                known.known_options = sorted(set(
+                    (known.known_options or []) + (f.get("options") or [])
+                ))
+                known.observation_count = (known.observation_count or 0) + 1
+            else:
+                registry_repo.create(
+                    marketplace=marketplace,
+                    category_path=category_path,
+                    normalized_label=label,
+                    control_type=f.get("control_type"),
+                    is_dropdown=1 if f.get("is_dropdown") else 0,
+                    known_selectors=selectors,
+                    known_options=f.get("options") or [],
+                )
+        self.db.commit()
+
+
+def _step_to_marketplace(step: str) -> str:
+    for mp in ("general", "ebay", "etsy", "poshmark", "mercari", "depop"):
+        if mp in step.lower():
+            return mp
+    return "unknown"
+
+
+def _normalize_label(label: str) -> str:
+    normalized = label.strip().lower()
+    for suffix in (" (required)", " (optional)", " *", "*"):
+        if normalized.endswith(suffix):
+            normalized = normalized[:-len(suffix)]
+    return normalized.strip()
+
+
+def _build_selector_entry(field: dict, known) -> list[dict]:
+    selector = field.get("selector", "")
+    if not selector:
+        return known.known_selectors if known else []
+    return [{"selector": selector, "success_count": 0, "failure_count": 0}]
+
+
+def _merge_selectors(existing: list, new: list) -> list[dict]:
+    merged = list(existing)
+    for entry in new:
+        sel = entry["selector"]
+        found = False
+        for m in merged:
+            if m["selector"] == sel:
+                found = True
+                break
+        if not found:
+            merged.append(entry)
+    return merged[:20]
+
+
+class RegistryRepo:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_identity(self, marketplace: str, category_path: str | None, normalized_label: str) -> FieldRegistry | None:
+        if category_path:
+            entry = self.db.query(FieldRegistry).filter(
+                FieldRegistry.marketplace == marketplace,
+                FieldRegistry.category_path == category_path,
+                FieldRegistry.normalized_label == normalized_label,
+            ).first()
+            if entry:
+                return entry
+        return self.db.query(FieldRegistry).filter(
+            FieldRegistry.marketplace == marketplace,
+            FieldRegistry.category_path == None,
+            FieldRegistry.normalized_label == normalized_label,
+        ).first()
+
+    def create(self, marketplace: str, category_path: str | None, normalized_label: str, **kwargs) -> FieldRegistry:
+        entry = FieldRegistry(
+            marketplace=marketplace,
+            category_path=category_path,
+            normalized_label=normalized_label,
+            **kwargs,
+        )
+        self.db.add(entry)
+        self.db.flush()
+        return entry
+
+    def get_valid_options(self, marketplace: str, field_label: str, category_path: str | None = None) -> list[str]:
+        label = _normalize_label(field_label)
+        entry = self.get_by_identity(marketplace, category_path, label)
+        if not entry and category_path:
+            entry = self.get_by_identity(marketplace, None, label)
+        return sorted(entry.known_options) if entry else []
+
+    def get_best_selectors(self, marketplace: str, field_label: str, category_path: str | None = None) -> list[dict]:
+        label = _normalize_label(field_label)
+        entry = self.get_by_identity(marketplace, category_path, label)
+        if not entry and category_path:
+            entry = self.get_by_identity(marketplace, None, label)
+        if not entry or not entry.known_selectors:
+            return []
+        selectors = sorted(
+            entry.known_selectors,
+            key=lambda s: -(s.get("success_count", 0) - s.get("failure_count", 0) * 2),
+        )
+        return [s["selector"] for s in selectors if s.get("selector")]
+
+    def record_fill_result(self, marketplace: str, field_label: str, selector: str, success: bool, category_path: str | None = None):
+        label = _normalize_label(field_label)
+        entry = self.get_by_identity(marketplace, category_path, label)
+        if not entry or not entry.known_selectors:
+            return
+        selectors = list(entry.known_selectors or [])
+        for s in selectors:
+            if s.get("selector") == selector:
+                if success:
+                    s["success_count"] = (s.get("success_count") or 0) + 1
+                else:
+                    s["failure_count"] = (s.get("failure_count") or 0) + 1
+                break
+        entry.known_selectors = selectors
+        self.db.commit()
+
+    def get_registry_context(self, marketplace: str, category_path: str | None = None) -> str:
+        query = self.db.query(FieldRegistry).filter(
+            FieldRegistry.marketplace == marketplace
+        )
+        if category_path:
+            query = query.filter(
+                (FieldRegistry.category_path == category_path) |
+                (FieldRegistry.category_path == None)
+            )
+        entries = query.order_by(FieldRegistry.normalized_label).all()
+
+        if not entries:
+            return ""
+
+        lines = []
+        for e in entries:
+            cat = f" [{e.category_path}]" if e.category_path else ""
+            opts = ", ".join(e.known_options[:30]) if e.known_options else ""
+            lines.append(f"- {e.normalized_label}{cat}: {opts}" if opts else f"- {e.normalized_label}{cat}")
+        return "\n".join(lines)

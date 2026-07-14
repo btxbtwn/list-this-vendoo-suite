@@ -202,6 +202,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Display model changes as a field diff.
 - Allow accepting, undoing, and restoring revisions.
 - Ask the user when brand or category remains uncertain instead of guessing.
+- Normalize generated categories to selectable Vendoo General leaf paths before automation. Women's shirts and T-shirts use `Clothing, Shoes & Accessories > Women > Women's Clothing > Tops`; men's T-shirts use `Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts`. Treat `Shirts & Blouses` as a marketplace alias, not a Vendoo General category.
 
 ### Listing Editor
 

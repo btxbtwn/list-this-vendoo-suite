@@ -2,6 +2,7 @@ const STUDIO_URL = 'http://127.0.0.1:4318';
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_MS = 20000;
+const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
 
 let ws = null;
 let reconnectTimer = null;
@@ -95,6 +96,7 @@ function connect() {
     reconnectAttempt = 0;
     startHeartbeat();
     sendIdent();
+    sendPendingObservations();
   };
 
   ws.onmessage = (event) => {
@@ -154,6 +156,118 @@ function stopHeartbeat() {
   }
 }
 
+function generateObservationId() {
+  const ts = Date.now().toString(36);
+  const rand = Array.from({ length: 8 }, () => Math.random().toString(36)[2]).join('');
+  return `obs-${ts}-${rand}`;
+}
+
+async function queueObservation(obs) {
+  const stored = await chrome.storage.local.get(DIAGNOSTIC_OUTBOX_KEY);
+  const outbox = stored[DIAGNOSTIC_OUTBOX_KEY] || [];
+  outbox.push(obs);
+  if (outbox.length > 200) {
+    outbox.splice(0, outbox.length - 200);
+  }
+  await chrome.storage.local.set({ [DIAGNOSTIC_OUTBOX_KEY]: outbox });
+}
+
+async function removeObservation(obsId) {
+  const stored = await chrome.storage.local.get(DIAGNOSTIC_OUTBOX_KEY);
+  const outbox = (stored[DIAGNOSTIC_OUTBOX_KEY] || []).filter(o => o.observation_id !== obsId);
+  await chrome.storage.local.set({ [DIAGNOSTIC_OUTBOX_KEY]: outbox });
+}
+
+async function sendPendingObservations() {
+  const stored = await chrome.storage.local.get(DIAGNOSTIC_OUTBOX_KEY);
+  const outbox = stored[DIAGNOSTIC_OUTBOX_KEY] || [];
+  if (outbox.length === 0) return;
+  log(`Sending ${outbox.length} pending diagnostic observations`);
+  for (const obs of outbox) {
+    send({
+      version: 1,
+      type: 'diagnostic.observed',
+      job_id: obs.job_id,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: obs,
+    });
+  }
+}
+
+async function collectDiagnostics(mode) {
+  const tabId = activeJob?.tabId;
+  if (!tabId) {
+    log('No tabId for diagnostic collection');
+    return;
+  }
+  try {
+    const [execution] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: collectPageDiagnostics,
+      args: [{ mode }],
+    });
+    const result = execution?.result;
+    if (!result) {
+      log('Diagnostic returned no data');
+      return;
+    }
+
+    const observationId = generateObservationId();
+    const listing = activeJob?.listing || {};
+    const obs = {
+      observation_id: observationId,
+      job_id: activeJob.job_id,
+      step: activeJob.current_step || '',
+      category_path: listing.category_path || '',
+      collector_version: result.collectorVersion || 'unknown',
+      mode,
+      url: result.url || '',
+      title: result.title || '',
+      timestamp: result.timestamp || new Date().toISOString(),
+      field_count: result.fieldCount || 0,
+      dropdown_count: result.dropdownCount || 0,
+      dropdowns_with_options: result.dropdownsWithOptions || 0,
+      live_dropdowns_with_options: result.liveDropdownsWithOptions || 0,
+      total_dropdown_options: result.totalDropdownOptions || 0,
+      expanded_sections: result.expandedSections || [],
+      headings: result.headings || [],
+      fields: (result.fields || []).map(f => ({
+        label: f.label || '',
+        label_sources: f.labelSources || [],
+        section_path: f.sectionPath || [],
+        selector: f.selector || '',
+        tag: f.tag || '',
+        control_type: f.type || '',
+        role: f.role || '',
+        name: f.name || '',
+        control_id: f.id || '',
+        placeholder: f.placeholder || '',
+        classes: f.classes || '',
+        is_dropdown: f.isDropdown || false,
+        option_count: f.optionCount || 0,
+        options: f.options || [],
+        options_source: f.optionsSource || 'unknown',
+      })),
+    };
+
+    await queueObservation(obs);
+
+    send({
+      version: 1,
+      type: 'diagnostic.observed',
+      job_id: obs.job_id,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: obs,
+    });
+
+    log(`Collected ${obs.field_count} fields in ${mode} mode, obs=${observationId}`);
+  } catch (err) {
+    error(`Diagnostic collection failed: ${err.message}`);
+  }
+}
+
 async function handleStudioMessage(msg) {
   const type = msg.type || '';
 
@@ -187,6 +301,7 @@ async function handleStudioMessage(msg) {
         listing: payload.listing || {},
         photos: payload.photos || [],
         options: payload.options || {},
+        registry_selectors: payload.registry_selectors || {},
         current_step: 'accepted',
         attempt: 0,
       });
@@ -245,6 +360,15 @@ async function handleStudioMessage(msg) {
         sent_at: new Date().toISOString(),
       });
       break;
+
+    case 'diagnostic.ack': {
+      const obsId = msg.payload?.observation_id;
+      if (obsId) {
+        await removeObservation(obsId);
+        log(`Diagnostic ack: ${obsId}`);
+      }
+      break;
+    }
   }
 }
 
@@ -278,6 +402,7 @@ async function runJob(jobId) {
       const result = await step.fn(activeJob);
       if (!result.ok) {
         failed = true;
+        collectDiagnostics('passive');
         send({
           version: 1,
           type: 'job.step_failed',
@@ -306,12 +431,17 @@ async function runJob(jobId) {
         },
       });
 
+      if (step.step.startsWith('auditing_')) {
+        collectDiagnostics('active');
+      }
+
       if (result.vendoo_item_id && !activeJob.vendoo_item_id) {
         activeJob.vendoo_item_id = result.vendoo_item_id;
         await persistActiveJob(activeJob);
       }
     } catch (err) {
       failed = true;
+      collectDiagnostics('passive');
       send({
         version: 1,
         type: 'job.step_failed',
@@ -460,6 +590,7 @@ async function fillGeneral(job) {
   return sendToVendoo(job, {
     type: 'FILL_GENERAL',
     data: job.listing,
+    registry_selectors: job.registry_selectors || {},
   });
 }
 
@@ -481,6 +612,7 @@ async function fillMarketplace(job, platform) {
     type: 'FILL_MARKETPLACE',
     platform,
     data: job.listing,
+    registry_selectors: job.registry_selectors || {},
   });
 }
 

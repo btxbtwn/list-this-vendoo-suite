@@ -83,21 +83,23 @@ async def dispatch_queued_jobs():
         active_jobs = repo.get_active()
         for job in active_jobs:
             photos_list = _build_photo_list(job.conversation_id, db)
+            registry_selectors = _build_registry_selectors(job.listing_snapshot or {}, db)
             await extension_manager.send_message(ProtocolMessage(
-                type="job.start",
-                job_id=job.id,
-                message_id=uuid.uuid4().hex[:12],
-                payload={
-                    "job_id": job.id,
-                    "listing": job.listing_snapshot,
-                    "photos": photos_list,
-                    "options": {
-                        "platforms": ["ebay", "etsy", "poshmark", "mercari", "depop"],
-                        "saveDrafts": True,
-                        "publish": False,
+                    type="job.start",
+                    job_id=job.id,
+                    message_id=uuid.uuid4().hex[:12],
+                    payload={
+                        "job_id": job.id,
+                        "listing": job.listing_snapshot,
+                        "photos": photos_list,
+                        "options": {
+                            "platforms": ["ebay", "etsy", "poshmark", "mercari", "depop"],
+                            "saveDrafts": True,
+                            "publish": False,
+                        },
+                        "registry_selectors": registry_selectors,
                     },
-                },
-            ).model_dump())
+                ).model_dump())
             repo.update_status(job.id, "dispatched")
     finally:
         db.close()
@@ -108,6 +110,39 @@ def _build_photo_list(conv_id: str, db) -> list[dict]:
     repo = ConversationRepo(db)
     photos = repo.get_photos(conv_id)
     return [{"id": p.id, "name": p.original_filename, "stored_filename": p.stored_filename} for p in photos]
+
+
+def _build_registry_selectors(listing: dict, db) -> dict:
+    from vendoo_studio.repositories.queries import RegistryRepo
+    repo = RegistryRepo(db)
+    category_path = listing.get("category_path", "")
+
+    result = {}
+    for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
+        fields = {}
+        specifics = listing.get(f"{marketplace}_specifics", {}) or {}
+        if isinstance(specifics, dict):
+            for field_label, value in specifics.items():
+                selectors = repo.get_best_selectors(marketplace, field_label, category_path)
+                if selectors:
+                    fields[field_label] = {
+                        "selectors": selectors,
+                        "value": str(value) if value else "",
+                    }
+        result[marketplace] = fields
+
+    general_fields = {}
+    for field_label in ("title", "description", "brand", "tags", "sku", "condition"):
+        selectors = repo.get_best_selectors("general", field_label, category_path)
+        if selectors:
+            general_fields[field_label] = {
+                "selectors": selectors,
+                "value": str(listing.get(field_label, "")),
+            }
+    if general_fields:
+        result["general"] = general_fields
+
+    return result
 
 
 @router.get("/api/extension/pairing-token")
@@ -220,6 +255,17 @@ async def extension_websocket(ws: WebSocket):
                     repo = JobRepo(db)
                     repo.update_status(job_id, "cancelled")
                     repo.add_event(job_id, "cancelled")
+
+            elif msg_type == "diagnostic.observed":
+                payload = message.get("payload", {})
+                obs_id = payload.get("observation_id", "")
+                from vendoo_studio.repositories.queries import DiagnosticRepo
+                repo = DiagnosticRepo(db)
+                repo.save_observation(payload)
+                await ws.send_json(ProtocolMessage(
+                    type="diagnostic.ack",
+                    payload={"observation_id": obs_id},
+                ).model_dump())
 
             elif msg_type == "pong":
                 pass

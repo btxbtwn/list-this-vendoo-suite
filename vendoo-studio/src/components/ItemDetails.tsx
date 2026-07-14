@@ -12,7 +12,20 @@ interface ItemDetailsData {
   packageDimensions: string;
   measurements: string;
   vendooLabels: string;
+  categoryOverride: string;
+  poshmarkOriginalPrice: string;
 }
+
+const CATEGORY_SUGGESTIONS = [
+  "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+  "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts",
+  "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > Polos",
+  "Clothing, Shoes & Accessories > Women > Women's Clothing > Dresses",
+  "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters",
+  "Clothing, Shoes & Accessories > Women > Women's Clothing > Sweaters",
+  "Clothing, Shoes & Accessories > Men > Men's Clothing > Jeans",
+  "Clothing, Shoes & Accessories > Women > Women's Clothing > Jeans",
+];
 
 const DEFAULTS: ItemDetailsData = {
   condition: "",
@@ -20,6 +33,8 @@ const DEFAULTS: ItemDetailsData = {
   packageDimensions: "13x10x3",
   measurements: "",
   vendooLabels: "To List",
+  categoryOverride: "",
+  poshmarkOriginalPrice: "0",
 };
 
 function parseNotes(notes: string | null): ItemDetailsData {
@@ -32,6 +47,8 @@ function parseNotes(notes: string | null): ItemDetailsData {
       packageDimensions: parsed.packageDimensions || "13x10x3",
       measurements: parsed.measurements || "",
       vendooLabels: parsed.vendooLabels || DEFAULTS.vendooLabels,
+      categoryOverride: parsed.categoryOverride || "",
+      poshmarkOriginalPrice: parsed.poshmarkOriginalPrice ?? "0",
     };
   } catch {
     return { ...DEFAULTS, measurements: notes || "" };
@@ -65,6 +82,8 @@ export function ItemDetails({ convId }: Props) {
       packageDimensions: updated.packageDimensions,
       measurements: updated.measurements,
       vendooLabels: updated.vendooLabels,
+      categoryOverride: updated.categoryOverride,
+      poshmarkOriginalPrice: updated.poshmarkOriginalPrice,
     });
     await api.conversations.update(convId, { notes });
     queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
@@ -121,6 +140,25 @@ export function ItemDetails({ convId }: Props) {
         <div style={{ minWidth: 130 }}>
           <label className="label">Labels</label>
           <input {...fieldProps("vendooLabels")} placeholder="To List, A19" />
+        </div>
+
+        <div style={{ minWidth: 90 }}>
+          <label className="label">Posh $Orig</label>
+          <input {...fieldProps("poshmarkOriginalPrice")} placeholder="0" type="number" step="1" />
+        </div>
+
+        <div style={{ minWidth: 190 }}>
+          <label className="label">Category Override</label>
+          <input
+            {...fieldProps("categoryOverride")}
+            placeholder="Clothing, Shoes & Accessories > ..."
+            list="category-suggestions"
+          />
+          <datalist id="category-suggestions">
+            {CATEGORY_SUGGESTIONS.map((cat) => (
+              <option key={cat} value={cat} />
+            ))}
+          </datalist>
         </div>
 
         {saving && (

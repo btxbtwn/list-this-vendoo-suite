@@ -102,19 +102,15 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
     system_prompt = {
         "role": "system",
         "content": (
-            "You are a product listing assistant. You use the listing rules below to generate "
-            "accurate, formula-compliant marketplace listings from product photos.\n\n"
-            "When the user asks you to generate or revise a listing, respond with your analysis, "
-            "then include a JSON update using this format inside your response:\n\n"
-            "```json\n"
-            '{"listingPatch": [...]}\n'
-            "```\n\n"
-            "The listingPatch should be a JSON Patch (RFC 6902) array. "
-            'Use "replace" operations for each field you want to change. '
-            "If generating a complete listing from scratch, generate the full listing JSON.\n\n"
+            "You are a product listing assistant. Your ONLY output is valid JSON. No explanations, no markdown, no code fences.\n\n"
+            "You use the listing rules below to generate accurate, formula-compliant marketplace listings.\n\n"
+            "When the user asks you to revise a listing, output ONLY a JSON Patch array:\n"
+            '[{"op": "replace", "path": "/title", "value": "New Title"}, ...]\n\n'
+            "When generating a complete listing from scratch, output ONLY the full listing JSON object.\n\n"
             "Key rules:\n"
             "- Never publish. Stop at saved drafts.\n"
             "- Be conservative with brand and size. Ask when uncertain instead of guessing.\n"
+            "- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at Women > Women's Clothing > Tops, never Shirts & Blouses.\n"
             "- Follow the title and description formulas EXACTLY from the rules below.\n"
             "- Always fill ALL eBay specifics when generating a complete listing.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
@@ -166,6 +162,60 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
 
         if full_text and "error" not in full_text.lower()[:50]:
             repo.add_message(conv_id, "assistant", full_text, provider="xiaomi-mimo", model="mimo-v2.5-pro")
+
+            import json as _json
+            try:
+                text = full_text.strip()
+                if text.startswith("```"):
+                    import re as _re
+                    match = _re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+                    if match:
+                        text = match.group(1).strip()
+                parsed = _json.loads(text)
+
+                if isinstance(parsed, list) and all(isinstance(op, dict) and op.get("op") for op in parsed):
+                    from vendoo_studio.repositories.queries import ListingRepo
+                    lr = ListingRepo(db)
+                    revisions = lr.get_revisions(conv_id)
+                    if revisions:
+                        import copy
+                        updated = copy.deepcopy(dict(revisions[0].listing_json))
+                        for op in parsed:
+                            op_type = op.get("op")
+                            path = (op.get("path") or "").lstrip("/")
+                            value = op.get("value")
+                            if op_type == "replace" or op_type == "add":
+                                keys = path.split("/")
+                                target = updated
+                                for k in keys[:-1]:
+                                    if k not in target:
+                                        target[k] = {}
+                                    target = target[k]
+                                target[keys[-1]] = value
+                            elif op_type == "remove":
+                                keys = path.split("/")
+                                target = updated
+                                for k in keys[:-1]:
+                                    target = target.get(k, {})
+                                if isinstance(target, dict) and keys[-1] in target:
+                                    del target[keys[-1]]
+                        lr.save_revision(conv_id, updated, source="model_refinement",
+                                         parent_revision_id=revisions[0].id)
+                        repo.add_message(conv_id, "system",
+                                         "Listing updated automatically from refinement.",
+                                         provider="system", model="")
+                elif isinstance(parsed, dict) and parsed.get("title"):
+                    from vendoo_studio.repositories.queries import ListingRepo
+                    lr = ListingRepo(db)
+                    revisions = lr.get_revisions(conv_id)
+                    parent_id = revisions[0].id if revisions else None
+                    lr.save_revision(conv_id, parsed, source="model_refinement",
+                                     parent_revision_id=parent_id)
+                    repo.add_message(conv_id, "system",
+                                     "Listing updated automatically from refinement.",
+                                     provider="system", model="")
+            except Exception:
+                pass
 
     return StreamingResponse(stream_response(), media_type="text/event-stream")
 
@@ -279,6 +329,8 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     system_content = (
         "You are a product listing generator. Generate a COMPLETE, ready-to-use Vendoo listing JSON "
         "from the photo analysis and listing rules below.\n\n"
+        "Use Vendoo's General taxonomy for category_path. Women's shirts and T-shirts must use "
+        '"Clothing, Shoes & Accessories > Women > Women\'s Clothing > Tops", not "Shirts & Blouses".\n\n'
         "Output the full listing JSON inside a fenced code block:\n\n"
         "```json\n"
         "{\n"

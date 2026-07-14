@@ -574,7 +574,7 @@
       if (value === null || value === undefined) return;
       if (typeof value === 'string' && value.trim() === '') return;
       
-      const el = document.querySelector(selector);
+      const el = resolveWithRegistry(selector, fieldName);
       if (!el) {
           warn(`${fieldName}: Element not found`);
           return;
@@ -593,7 +593,7 @@
       
       let el;
       if (typeof selectorOrEl === 'string') {
-          el = document.querySelector(selectorOrEl);
+          el = resolveWithRegistry(selectorOrEl, fieldName);
           if (!el) {
               warn(`${fieldName}: Element not found`);
               return;
@@ -606,6 +606,36 @@
       
       log(`Filling ${fieldName}...`);
       await fillCombobox(el, value, isStrict, isMulti);
+  }
+
+  // Try registry selectors before falling back to hardcoded selector
+  function resolveWithRegistry(selector, fieldName) {
+    if (!currentRegistrySelectors || !fieldName) {
+      return document.querySelector(selector);
+    }
+    for (const mp of Object.keys(currentRegistrySelectors)) {
+      const field = currentRegistrySelectors[mp][fieldName.toLowerCase()];
+      if (field && field.selectors) {
+        for (const regSel of field.selectors) {
+          try {
+            const el = document.querySelector(regSel);
+            if (el) {
+              log(`  [registry] ${fieldName}: using ${mp}/${fieldName} → ${regSel}`);
+              return el;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+    return document.querySelector(selector);
+  }
+
+  // Global registry selectors store set by FILL_GENERAL/FILL_MARKETPLACE
+  let currentRegistrySelectors = {};
+
+  function getRegistryField(marketplace, fieldName) {
+    const mp = currentRegistrySelectors[marketplace] || {};
+    return mp[fieldName] || null;
   }
 
   // ============================================
@@ -629,6 +659,12 @@
       log(`Setting category: ${categoryPath}`);
 
       const segments = categoryPath.split('>').map(s => s.trim()).filter(Boolean);
+      const department = normalizeText(data.department || data.ebay_specifics?.department);
+      const lastSegment = normalizeText(segments[segments.length - 1]);
+      if (department === 'women' && lastSegment === 'shirts & blouses') {
+          log('Normalizing General category "Shirts & Blouses" to Vendoo category "Tops"');
+          segments[segments.length - 1] = 'Tops';
+      }
       if (segments.length === 0) return { ok: true, filled: false };
 
       const catBtn = document.querySelector('#categoryV2, [role="category-input"]');
@@ -1762,6 +1798,7 @@
           }
 
           if (msg.type === 'FILL_GENERAL') {
+              currentRegistrySelectors = msg.registry_selectors || {};
               fillMainForm(msg.data)
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
@@ -1783,6 +1820,7 @@
           }
 
           if (msg.type === 'FILL_MARKETPLACE') {
+              currentRegistrySelectors = msg.registry_selectors || {};
               fillMarketplaceForm(msg.data, msg.platform)
                   .then(() => sendResponse({ ok: true }))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
