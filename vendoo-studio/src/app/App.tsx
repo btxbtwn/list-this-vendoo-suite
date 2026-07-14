@@ -17,6 +17,7 @@ export function App() {
   const { data: conversations } = useQuery({
     queryKey: ["conversations"],
     queryFn: api.conversations.list,
+    refetchInterval: 2000,
   });
 
   const createConv = useMutation({
@@ -31,9 +32,7 @@ export function App() {
   const deleteConv = useMutation({
     mutationFn: (convId: string) => api.conversations.delete(convId),
     onSuccess: (_data, convId) => {
-      if (selectedConvId === convId) {
-        setSelectedConvId(null);
-      }
+      if (selectedConvId === convId) setSelectedConvId(null);
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
@@ -43,63 +42,57 @@ export function App() {
     <div className="app-shell">
       <div className="app-content">
         <aside className="panel sidebar">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Listings</h2>
-            <button className="btn btn-primary btn-sm" onClick={() => createConv.mutate()}>
-              + New
+          <div className="sidebar-masthead">
+            <div className="sidebar-brand">Vendoo Studio</div>
+            <div className="sidebar-subtitle">Listing Workbench</div>
+          </div>
+
+          <div className="sidebar-actions">
+            <button className="btn btn-primary btn-sm" style={{ width: "100%" }} onClick={() => createConv.mutate()}>
+              + New Listing
             </button>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {conversations?.map((c: any) => (
-              <div
-                key={c.id}
-                style={{ display: "flex", gap: 4, alignItems: "center" }}
-              >
-                <button
-                  className={`btn btn-secondary btn-sm`}
-                  style={{
-                    flex: 1,
-                    justifyContent: "flex-start",
-                    background: selectedConvId === c.id && activeView === "listings" ? "var(--color-surface-hover)" : undefined,
-                  }}
-                  onClick={() => { setSelectedConvId(c.id); setActiveView("listings"); }}
-                >
-                  {c.title || "Untitled"}
-                  <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-text-muted)" }}>
-                    {c.status}
-                  </span>
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  title="Delete listing"
-                  style={{ padding: "2px 6px", fontSize: 12, lineHeight: 1, flexShrink: 0 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (confirm(`Delete "${c.title || "Untitled"}"?\nThis cannot be undone.`)) {
-                      deleteConv.mutate(c.id);
-                    }
-                  }}
-                >
-                  {"\u2715"}
-                </button>
-              </div>
-            ))}
+
+          <div className="sidebar-list">
+            {conversations?.map((c: any) => {
+              const isSelected = selectedConvId === c.id && activeView === "listings";
+              const status = String(c.status || "draft");
+              const statusClass = status.replace(/_/g, "-");
+              const statusLabel = status.replace(/_/g, " ");
+              return (
+                <div key={c.id} className="nav-item">
+                  <button
+                    className={`nav-link${isSelected ? " selected" : ""}`}
+                    onClick={() => { setSelectedConvId(c.id); setActiveView("listings"); }}
+                  >
+                    <div className="nav-link-title">{c.title || "Untitled"}</div>
+                    <div className="nav-link-meta">
+                      <span className={`nav-status nav-status-${statusClass}`}>{statusLabel}</span>
+                    </div>
+                  </button>
+                  <button
+                    className="nav-delete"
+                    title="Delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Delete "${c.title || "Untitled"}"?`)) deleteConv.mutate(c.id);
+                    }}
+                  >
+                    {"\u2715"}
+                  </button>
+                </div>
+              );
+            })}
             {(!conversations || conversations.length === 0) && (
-              <div className="empty-state">
-                <p>No listings yet</p>
-                <button className="btn btn-primary btn-sm" onClick={() => createConv.mutate()}>
-                  Create Listing
-                </button>
+              <div style={{ padding: "16px 10px", textAlign: "center" }}>
+                <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>No listings yet</p>
               </div>
             )}
           </div>
-          <div style={{ marginTop: 24, paddingTop: 12, borderTop: "1px solid var(--color-border)" }}>
+
+          <div className="sidebar-footer">
             <button
-              className={`btn btn-secondary btn-sm`}
-              style={{
-                justifyContent: "flex-start", width: "100%",
-                background: activeView === "settings" ? "var(--color-surface-hover)" : undefined,
-              }}
+              className={`sidebar-settings-btn${activeView === "settings" ? " selected" : ""}`}
               onClick={() => setActiveView("settings")}
             >
               Settings
@@ -107,44 +100,47 @@ export function App() {
           </div>
         </aside>
 
-        <main className="panel main-panel">
-          {activeView === "settings" ? (
-            <SettingsPage />
-          ) : selectedConvId ? (
-            <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <PhotoTray convId={selectedConvId} />
-              <ItemDetails convId={selectedConvId} />
-              <div style={{ flex: 1, overflow: "hidden" }}>
-                <ChatPanel convId={selectedConvId} />
+        <div className="workspace-frame">
+          <main className="panel main-panel">
+            {activeView === "settings" ? (
+              <SettingsPage />
+            ) : selectedConvId ? (
+              <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <PhotoTray convId={selectedConvId} />
+                <ItemDetails convId={selectedConvId} />
+                <div style={{ flex: 1, overflow: "hidden" }}>
+                  <ChatPanel convId={selectedConvId} />
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="empty-state">
-              <h3>Vendoo Listing Studio</h3>
-              <p>Create a new listing or select one from the sidebar</p>
-            </div>
-          )}
-        </main>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-state-headline">Turn product photos<br />into marketplace-ready drafts.</div>
+                <div className="empty-state-rule" />
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => createConv.mutate()}>
+                  Create a listing
+                </button>
+              </div>
+            )}
+          </main>
 
-        <aside className="panel detail-panel">
-          {activeView === "listings" && selectedConvId ? (
-            <ListingEditor convId={selectedConvId} />
-          ) : (
-            <div className="empty-state">
-              <p>Select a listing to edit</p>
-            </div>
-          )}
-        </aside>
+          <aside className="panel detail-panel">
+            {activeView === "listings" && selectedConvId ? (
+              <ListingEditor convId={selectedConvId} />
+            ) : (
+              <div className="empty-state">
+                <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
+              </div>
+            )}
+          </aside>
+        </div>
       </div>
 
       <footer className="status-bar">
         <div className="status-left">
           <ExtensionStatus />
-          <span>
-            {status?.provider_configured ? "MiMo configured" : "MiMo not configured"}
-          </span>
+          <span>{status?.provider_configured ? "MIMO CONFIGURED" : "MIMO NOT CONFIGURED"}</span>
         </div>
-        <div>v0.1.0</div>
+        <div>V 0.1.0</div>
       </footer>
     </div>
   );

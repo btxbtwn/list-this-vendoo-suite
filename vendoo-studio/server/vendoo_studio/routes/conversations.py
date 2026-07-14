@@ -71,6 +71,7 @@ def create_conversation(body: ConversationCreate, db: Session = Depends(get_db))
 @router.get("", response_model=list[ConversationResponse])
 def list_conversations(db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
+    repo.reconcile_job_statuses()
     return [_conv_response(c) for c in repo.list_all()]
 
 

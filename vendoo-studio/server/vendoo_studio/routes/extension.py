@@ -145,6 +145,13 @@ def _build_registry_selectors(listing: dict, db) -> dict:
     return result
 
 
+def _set_conversation_status(db, job_id: str, status: str) -> None:
+    from vendoo_studio.repositories.queries import ConversationRepo, JobRepo
+    job = JobRepo(db).get(job_id)
+    if job:
+        ConversationRepo(db).update_status(job.conversation_id, status)
+
+
 @router.get("/api/extension/pairing-token")
 def get_pairing_token():
     token = extension_manager.generate_pairing_token()
@@ -205,6 +212,7 @@ async def extension_websocket(ws: WebSocket):
                     repo = JobRepo(db)
                     repo.update_status(job_id, "dispatched")
                     repo.add_event(job_id, "dispatched")
+                    _set_conversation_status(db, job_id, "listing")
 
             elif msg_type == "job.progress":
                 payload = message.get("payload", {})
@@ -215,6 +223,7 @@ async def extension_websocket(ws: WebSocket):
                     step = payload.get("step", "")
                     repo.update_status(job_id, "dispatched", step)
                     repo.add_event(job_id, "progress", step, payload)
+                    _set_conversation_status(db, job_id, "listing")
 
             elif msg_type == "job.step_completed":
                 payload = message.get("payload", {})
@@ -227,6 +236,7 @@ async def extension_websocket(ws: WebSocket):
                     vurl = payload.get("vendoo_url")
                     repo.update_status(job_id, "dispatched", step, vendoo_item_id=vid, vendoo_url=vurl)
                     repo.add_event(job_id, "step_completed", step, payload)
+                    _set_conversation_status(db, job_id, "listing")
 
             elif msg_type == "job.step_failed":
                 payload = message.get("payload", {})
@@ -238,6 +248,7 @@ async def extension_websocket(ws: WebSocket):
                     step = payload.get("step", "")
                     repo.update_status(job_id, "failed", step, error=err)
                     repo.add_event(job_id, "step_failed", step, payload)
+                    _set_conversation_status(db, job_id, "failed")
 
             elif msg_type == "job.completed":
                 job_id = message.get("job_id")
@@ -247,6 +258,7 @@ async def extension_websocket(ws: WebSocket):
                     vurl = message.get("payload", {}).get("vendoo_url", "")
                     repo.update_status(job_id, "completed", vendoo_url=vurl or None)
                     repo.add_event(job_id, "completed")
+                    _set_conversation_status(db, job_id, "completed")
 
             elif msg_type == "job.cancelled":
                 job_id = message.get("job_id")
@@ -255,6 +267,7 @@ async def extension_websocket(ws: WebSocket):
                     repo = JobRepo(db)
                     repo.update_status(job_id, "cancelled")
                     repo.add_event(job_id, "cancelled")
+                    _set_conversation_status(db, job_id, "draft")
 
             elif msg_type == "diagnostic.observed":
                 payload = message.get("payload", {})

@@ -109,6 +109,7 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
         source="normalized",
         parent_revision_id=latest_revision.id,
     )
+    conv_repo.update_status(body.conversation_id, "listing")
 
     job_repo = JobRepo(db)
     job = job_repo.create(
@@ -211,6 +212,7 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
             )
 
     db.commit()
+    ConversationRepo(db).update_status(job.conversation_id, "listing")
     repo.add_event(job_id, "retried", job.current_step)
 
     from vendoo_studio.routes.extension import dispatch_queued_jobs
@@ -231,6 +233,7 @@ def cancel_job(job_id: str, db: Session = Depends(get_db)):
     job.status = "cancelled"
     job.current_step = None
     db.commit()
+    ConversationRepo(db).update_status(job.conversation_id, "draft")
     repo.add_event(job_id, "cancelled")
 
     return _job_response(job)

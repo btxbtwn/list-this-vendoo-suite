@@ -26,6 +26,41 @@ class ConversationRepo:
     def list_all(self) -> list[Conversation]:
         return self.db.query(Conversation).order_by(Conversation.updated_at.desc()).all()
 
+    def update_status(self, conv_id: str, status: str) -> Conversation | None:
+        conv = self.get(conv_id)
+        if not conv:
+            return None
+        conv.status = status
+        self.db.commit()
+        self.db.refresh(conv)
+        return conv
+
+    def reconcile_job_statuses(self) -> None:
+        status_map = {
+            "queued": "listing",
+            "dispatched": "listing",
+            "completed": "completed",
+            "failed": "failed",
+            "cancelled": "draft",
+        }
+        changed = False
+        for conv in self.db.query(Conversation).all():
+            if conv.status == "in_progress":
+                continue
+            latest_job = self.db.query(Job).filter(
+                Job.conversation_id == conv.id
+            ).order_by(Job.created_at.desc()).first()
+            if not latest_job or latest_job.status not in status_map:
+                continue
+            if conv.updated_at and latest_job.updated_at and latest_job.updated_at < conv.updated_at:
+                continue
+            next_status = status_map[latest_job.status]
+            if conv.status != next_status:
+                conv.status = next_status
+                changed = True
+        if changed:
+            self.db.commit()
+
     def add_message(self, conv_id: str, role: str, text: str, provider: str | None = None, model: str | None = None) -> Message:
         msg = Message(conversation_id=conv_id, role=role, text=text, provider=provider, model=model)
         self.db.add(msg)

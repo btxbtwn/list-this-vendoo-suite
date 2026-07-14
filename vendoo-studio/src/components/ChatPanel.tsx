@@ -6,6 +6,20 @@ interface Props {
   convId: string;
 }
 
+function isJsonBlock(text: string): boolean {
+  return text.includes('"title"') && (text.includes('"description"') || text.includes('"price"'));
+}
+
+function extractJson(text: string): string | null {
+  const match = text.match(/```json\s*([\s\S]*?)```/);
+  if (match) return match[1].trim();
+  try { JSON.parse(text); return text; } catch { return null; }
+}
+
+function isPhotoAnalysis(text: string): boolean {
+  return text.startsWith("Photo analysis") && (text.includes("Brand:") || text.includes("Size:"));
+}
+
 export function ChatPanel({ convId }: Props) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -31,7 +45,6 @@ export function ChatPanel({ convId }: Props) {
   const streamFromFetch = useCallback(async (url: string) => {
     setStreaming(true);
     setStreamText("");
-
     try {
       const res = await fetch(url, { method: "POST" });
       if (!res.ok) {
@@ -40,9 +53,9 @@ export function ChatPanel({ convId }: Props) {
         setStreaming(false);
         return;
       }
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const reader = res.body?.getReader();
       if (!reader) { setStreaming(false); return; }
-
       const decoder = new TextDecoder();
       let buffer = "";
       while (true) {
@@ -80,24 +93,21 @@ export function ChatPanel({ convId }: Props) {
     setInput("");
     setStreaming(true);
     setStreamText("");
-
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
         setStreaming(false);
         return;
       }
-
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const reader = res.body?.getReader();
       if (!reader) { setStreaming(false); return; }
-
       const decoder = new TextDecoder();
       let buffer = "";
       while (true) {
@@ -126,93 +136,87 @@ export function ChatPanel({ convId }: Props) {
   const hasPhotos = (photos && (photos as any[]).length > 0);
   const hasMessages = messages && (messages as any[]).length > 0;
 
+  function renderMessage(m: any) {
+    if (m.role === "user") {
+      return <div key={m.id} className="msg msg-user">{m.text}</div>;
+    }
+
+    if (m.role === "system" && isPhotoAnalysis(m.text)) {
+      const lines = m.text.split("\n").filter((l: string) => l.trim());
+      const body = lines.slice(1).join("\n");
+      return (
+        <div key={m.id} className="evidence-card">
+          <div className="evidence-header">EVIDENCE</div>
+          <div className="evidence-body">{body || m.text}</div>
+        </div>
+      );
+    }
+
+    if (m.role === "system") {
+      return (
+        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-border-bright)", flexShrink: 0 }} />
+          <span className="msg-system" style={{ padding: 0, borderLeft: "none", maxWidth: "none" }}>{m.text}</span>
+        </div>
+      );
+    }
+
+    const json = extractJson(m.text);
+    if (json && isJsonBlock(m.text)) {
+      const fieldCount = (json.match(/"\w+":/g) || []).length;
+      return (
+        <details key={m.id} className="json-collapse">
+          <summary className="json-collapse-summary">
+            <span className="json-badge">{fieldCount} FIELDS</span>
+            Listing generated
+            <span className="text-2xs text-muted font-mono" style={{ marginLeft: "auto" }}>RAW JSON</span>
+          </summary>
+          <div className="json-collapse-body">{json}</div>
+        </details>
+      );
+    }
+
+    return <div key={m.id} className="msg msg-assistant">{m.text}</div>;
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div
-        ref={scrollRef}
-        style={{
-          flex: 1,
-          overflow: "auto",
-          padding: 16,
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-        }}
-      >
+      <div ref={scrollRef} className="chat-scroll">
         {isLoading && !hasMessages && (
-          <div className="empty-state"><p>Loading...</p></div>
+          <div className="empty-state" style={{ padding: "16px 0" }}><p className="text-xs text-muted">Loading...</p></div>
         )}
 
         {!isLoading && !hasMessages && (
-          <div className="empty-state">
-            <h3 style={{ marginBottom: 8 }}>Generate Listing</h3>
+          <div className="empty-state" style={{ padding: "32px 16px" }}>
+            <h3 style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 20, marginBottom: 4, lineHeight: 1.2 }}>Generate a Listing</h3>
             {hasPhotos ? (
               <>
-                <p>{photos ? (photos as any[]).length : 0} photos uploaded. Ready to generate.</p>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleGenerate}
-                  disabled={generating || streaming}
-                  style={{ marginTop: 16, fontSize: 14, padding: "10px 24px" }}
-                >
-                  {generating ? "Analyzing photos..." : "Generate Listing"}
+                <p className="text-xs font-mono text-muted">{(photos as any[]).length} photo{(photos as any[]).length !== 1 ? "s" : ""} uploaded</p>
+                <button className="btn btn-primary" onClick={handleGenerate} disabled={generating || streaming} style={{ marginTop: 12, padding: "9px 22px" }}>
+                  {generating ? "Analyzing..." : "Generate Listing"}
                 </button>
               </>
             ) : (
-              <p style={{ color: "var(--color-text-muted)" }}>
-                Upload product photos using the Add Photos button above, then click Generate Listing.
-              </p>
+              <p className="text-xs font-mono text-muted">Upload photos to begin</p>
             )}
           </div>
         )}
 
-        {messages?.map((m: any) => (
-          <div
-            key={m.id}
-            style={{
-              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-              maxWidth: "80%",
-              padding: "8px 14px",
-              borderRadius: "var(--radius-md)",
-              background: m.role === "user" ? "var(--color-primary)" : "var(--color-surface)",
-              color: m.role === "user" ? "white" : "var(--color-text)",
-              border: m.role === "user" ? "none" : "1px solid var(--color-border)",
-              fontSize: 13,
-              lineHeight: 1.6,
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {m.text}
-          </div>
-        ))}
-        {streamText && (
-          <div
-            style={{
-              alignSelf: "flex-start",
-              maxWidth: "80%",
-              padding: "8px 14px",
-              borderRadius: "var(--radius-md)",
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-              fontSize: 13,
-              lineHeight: 1.6,
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {streamText}
-          </div>
-        )}
+        {messages?.map(renderMessage)}
+
+        {streamText && <div className="msg msg-assistant">{streamText}</div>}
+
         {(streaming || generating) && !streamText && (
-          <div style={{ alignSelf: "flex-start", padding: 8, color: "var(--color-text-muted)" }}>
-            {generating ? "Analyzing photos and generating listing..." : "MiMo is thinking..."}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-cobalt)", flexShrink: 0 }} />
+            <span className="text-xs font-mono text-muted">{generating ? "ANALYZING PHOTOS…" : "MIMO IS THINKING…"}</span>
           </div>
         )}
       </div>
 
       {hasMessages && (
-        <div style={{ padding: 12, borderTop: "1px solid var(--color-border)" }}>
-          <div style={{ display: "flex", gap: 8 }}>
+        <div className="chat-composer">
+          <div className="flex-row" style={{ width: "100%" }}>
             <input
               className="input"
               value={input}
@@ -220,9 +224,10 @@ export function ChatPanel({ convId }: Props) {
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
               placeholder="Refine the listing..."
               disabled={streaming}
+              style={{ flex: 1 }}
             />
             <button className="btn btn-primary" onClick={handleSend} disabled={streaming || !input.trim()}>
-              {streaming ? "..." : "Send"}
+              Send
             </button>
           </div>
         </div>

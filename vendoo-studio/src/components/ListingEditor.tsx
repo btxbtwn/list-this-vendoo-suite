@@ -5,6 +5,13 @@ interface Props {
   convId: string;
 }
 
+interface EditorField {
+  key: string;
+  label: string;
+  type?: string;
+  defaultValue?: string;
+}
+
 export function ListingEditor({ convId }: Props) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = React.useState("general");
@@ -17,15 +24,11 @@ export function ListingEditor({ convId }: Props) {
 
   const updateMutation = useMutation({
     mutationFn: (listing: any) => api.listings.update(convId, listing),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["listing", convId] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["listing", convId] }),
   });
 
   React.useEffect(() => {
-    if (data?.listing) {
-      setJsonText(JSON.stringify(data.listing, null, 2));
-    }
+    if (data?.listing) setJsonText(JSON.stringify(data.listing, null, 2));
   }, [data?.listing]);
 
   const tabs = ["general", "ebay", "poshmark", "mercari", "depop", "etsy", "json"];
@@ -42,48 +45,39 @@ export function ListingEditor({ convId }: Props) {
   const listing = data?.listing || {};
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600 }}>Listing</h3>
-        {data?.can_send && (
-          <span style={{ fontSize: 11, color: "var(--color-success)", fontWeight: 600 }}>Ready</span>
-        )}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div className="editor-header">
+        <span className="editor-title">Listing</span>
+        {data?.can_send && <span className="editor-ready">Ready</span>}
       </div>
 
-      <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+      <div className="tab-group">
         {tabs.map((tab) => (
-          <button
-            key={tab}
-            className={`btn btn-sm ${activeTab === tab ? "btn-primary" : "btn-secondary"}`}
-            style={{ textTransform: "capitalize" }}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab}
+          <button key={tab} className={`tab-btn${activeTab === tab ? " active" : ""}`} onClick={() => setActiveTab(tab)}>
+            {tab === "json" ? "JSON" : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
 
-      {activeTab === "json" ? (
-        <div>
-          <textarea
-            className="input"
-            value={jsonText}
-            onChange={(e) => setJsonText(e.target.value)}
-            style={{ height: 400, fontFamily: "var(--font-mono)", fontSize: 12 }}
-          />
-          <button
-            className="btn btn-primary btn-sm"
-            style={{ marginTop: 8, width: "100%" }}
-            onClick={applyJsonEdit}
-          >
-            Apply JSON
-          </button>
-        </div>
-      ) : (
-        <StructuredEditor listing={listing} tab={activeTab} onChange={(updated) => updateMutation.mutate(updated)} />
-      )}
+      <div className="editor-body">
+        {activeTab === "json" ? (
+          <div>
+            <textarea
+              className="input"
+              value={jsonText}
+              onChange={(e) => setJsonText(e.target.value)}
+              style={{ height: 340, fontFamily: "var(--font-mono)", fontSize: 11.5 }}
+            />
+            <button className="btn btn-primary btn-sm" style={{ marginTop: 8, width: "100%" }} onClick={applyJsonEdit}>
+              Apply JSON
+            </button>
+          </div>
+        ) : (
+          <StructuredEditor listing={listing} tab={activeTab} onChange={(updated) => updateMutation.mutate(updated)} />
+        )}
+      </div>
 
-      <div style={{ marginTop: 16 }}>
+      <div className="editor-footer">
         <SendToVendooButton convId={convId} canSend={data?.can_send ?? false} />
       </div>
     </div>
@@ -98,7 +92,7 @@ function StructuredEditor({ listing, tab, onChange }: { listing: any; tab: strin
     const init: Record<string, string> = {};
     fields.forEach((f) => {
       const val = getNestedValue(listing, f.key);
-      init[f.key] = val != null ? String(val) : "";
+      init[f.key] = val != null ? String(val) : f.defaultValue || "";
     });
     setLocal(init);
   }, [listing, tab]);
@@ -109,35 +103,35 @@ function StructuredEditor({ listing, tab, onChange }: { listing: any; tab: strin
     onChange(updated);
   };
 
+  const generalFields = fields.filter((f) => ["title", "description", "category_path"].includes(f.key));
+  const gridFields = fields.filter((f) => !["title", "description", "category_path"].includes(f.key));
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {fields.map((f) => (
-        <div key={f.key}>
+    <div>
+      {generalFields.map((f) => (
+        <div key={f.key} className="field-row">
           <label className="label">{f.label}</label>
           {f.key === "description" ? (
-            <textarea
-              className="input"
-              style={{ height: 100 }}
-              value={local[f.key] || ""}
-              onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })}
-              onBlur={() => handleBlur(f.key)}
-            />
+            <textarea className="input" style={{ height: 100 }} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
           ) : (
-            <input
-              className="input"
-              type={f.type || "text"}
-              value={local[f.key] || ""}
-              onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })}
-              onBlur={() => handleBlur(f.key)}
-            />
+            <input className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
           )}
         </div>
       ))}
+
+      <div className="field-grid">
+        {gridFields.map((f) => (
+          <div key={f.key} className={f.label === "Category" ? "field-row field-full" : "field-row"}>
+            <label className="label">{f.label}</label>
+            <input className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-function getFieldsForTab(listing: any, tab: string): { key: string; label: string; type?: string }[] {
+function getFieldsForTab(listing: any, tab: string): EditorField[] {
   switch (tab) {
     case "general":
       return [
@@ -154,20 +148,28 @@ function getFieldsForTab(listing: any, tab: string): { key: string; label: strin
         { key: "category_path", label: "Category" },
       ];
     case "ebay":
-      return Object.keys(listing?.ebay_specifics || {}).map((k) => ({
-        key: `ebay_specifics.${k}`,
-        label: k,
-      }));
+      return Object.keys(listing?.ebay_specifics || {}).map((k) => ({ key: `ebay_specifics.${k}`, label: k }));
+    case "poshmark":
+      return [
+        { key: "price", label: "Price", type: "number" },
+        { key: "poshmark_specifics.originalPrice", label: "Original Price", type: "number", defaultValue: "0" },
+        { key: "condition", label: "Condition" },
+        { key: "brand", label: "Brand" },
+        { key: "primaryColor", label: "Primary Color" },
+        { key: "quantity", label: "Quantity", type: "number" },
+      ];
+    case "mercari":
+      return [
+        { key: "price", label: "Price", type: "number" },
+        { key: "condition", label: "Condition" },
+        { key: "brand", label: "Brand" },
+        { key: "quantity", label: "Quantity", type: "number" },
+        { key: "mercari_specifics.shippingLabel", label: "Shipping Label", defaultValue: "USPS Ground Advantage" },
+      ];
     case "depop":
-      return Object.keys(listing?.depop_specifics || {}).map((k) => ({
-        key: `depop_specifics.${k}`,
-        label: k,
-      }));
+      return Object.keys(listing?.depop_specifics || {}).map((k) => ({ key: `depop_specifics.${k}`, label: k }));
     case "etsy":
-      return Object.keys(listing?.etsy_specifics || {}).map((k) => ({
-        key: `etsy_specifics.${k}`,
-        label: k,
-      }));
+      return Object.keys(listing?.etsy_specifics || {}).map((k) => ({ key: `etsy_specifics.${k}`, label: k }));
     default:
       return [];
   }
@@ -218,9 +220,7 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
-    onError: (err: any) => {
-      setError(err.message || "Failed to send");
-    },
+    onError: (err: any) => setError(err.message || "Failed to send"),
   });
 
   const retryMutation = useMutation({
@@ -229,9 +229,7 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
-    onError: (err: any) => {
-      setError(err.message || "Failed to retry");
-    },
+    onError: (err: any) => setError(err.message || "Failed to retry"),
   });
 
   const existingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
@@ -244,18 +242,16 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
     const canRestart = isFailed || isDispatched || isCompleted;
     const buttonLabel = retryMutation.isPending ? "Restarting..." : isFailed ? "Retry" : isCompleted ? "Run Again" : "Restart Job";
     return (
-      <div style={{ padding: "8px 12px", background: "var(--color-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border)" }}>
-        <span style={{ fontSize: 12, color: isFailed ? "var(--color-error)" : "var(--color-text-secondary)" }}>
-          Job {existingJob.status}: {existingJob.current_step || "queued"}
-          {existingJob.last_error && <div style={{ marginTop: 4 }}>{existingJob.last_error}</div>}
-        </span>
+      <div className={`job-card${isFailed ? " job-card-error" : ""}`}>
+        <div className="job-card-copy">
+          <div className="job-card-label">Job Status</div>
+          <div className={`job-card-status${isFailed ? " error" : ""}`}>
+            {existingJob.status}: {existingJob.current_step || "queued"}
+            {existingJob.last_error && <div className="mt-4 text-xs text-error">{existingJob.last_error}</div>}
+          </div>
+        </div>
         {canRestart && (
-          <button
-            className="btn btn-primary"
-            style={{ width: "100%", marginTop: 8, fontSize: 13 }}
-            disabled={retryMutation.isPending}
-            onClick={() => { setError(null); retryMutation.mutate(existingJob.id); }}
-          >
+          <button className="btn btn-primary btn-sm job-card-action" disabled={retryMutation.isPending} onClick={() => { setError(null); retryMutation.mutate(existingJob.id); }}>
             {buttonLabel}
           </button>
         )}
@@ -264,26 +260,15 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
   }
 
   if (!extensionConnected) {
-    return (
-      <div style={{ fontSize: 12, color: "var(--color-text-muted)", textAlign: "center", padding: 8 }}>
-        Extension not connected. Open the Vendoo Lister popup and pair with Studio first.
-      </div>
-    );
+    return <div className="text-xs text-muted" style={{ textAlign: "center" }}>Extension not connected</div>;
   }
 
   return (
     <div>
-      <button
-        className="btn btn-success"
-        style={{ width: "100%" }}
-        disabled={!canSend || sendMutation.isPending}
-        onClick={() => { setError(null); sendMutation.mutate(); }}
-      >
+      <button className="btn btn-success" style={{ width: "100%" }} disabled={!canSend || sendMutation.isPending} onClick={() => { setError(null); sendMutation.mutate(); }}>
         {sendMutation.isPending ? "Sending..." : "Send to Vendoo"}
       </button>
-      {error && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "var(--color-error)" }}>{error}</div>
-      )}
+      {error && <div className="mt-8 text-xs text-error">{error}</div>}
     </div>
   );
 }

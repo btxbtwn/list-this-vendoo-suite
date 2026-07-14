@@ -255,12 +255,16 @@ Depop: No title field → use Universal Description only
   },
   
   "poshmark_specifics": {
-    "originalPrice": 89.00,
+    "originalPrice": 0,
     "discountShipping": "",
     "smartPricing": false,
     "smartPricingMin": "",
     "costPrice": 5.00,
     "otherInfo": ""
+  },
+
+  "mercari_specifics": {
+    "shippingLabel": "USPS Ground Advantage"
   },
 
   "depop_specifics": {

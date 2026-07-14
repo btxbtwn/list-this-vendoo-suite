@@ -173,8 +173,12 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Purpose-built professional workspace.
 - Dense enough for daily operational use.
 - T3 Code-inspired information hierarchy, not a visual clone.
-- Neutral dark or warm-gray shell with marketplace colors used sparingly.
-- Monospace typography only for JSON and technical status.
+- Linear-inspired dark shell using a `#090909` sidebar, `#0f0f11` workspace, and `#1c1e21` borders.
+- The main workspace is inset by 8px inside a 12px rounded frame; navigation remains 244px wide.
+- Sidebar, workspace, and inspector share the same 8px inset and aligned top/bottom frame.
+- Settings, chat composer, and automation status use a shared 88px footer row across all three columns.
+- Muted indigo marks primary actions, selection, and focus; marketplace colors remain sparing.
+- Inter Variable handles navigation, controls, and content while IBM Plex Mono handles measurements, JSON, and technical status.
 - Avoid generic dashboard cards and excessive rounded containers.
 - Persistent status bar for extension and validation state.
 - Fully usable desktop and mobile layouts.
@@ -184,6 +188,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Create a new listing.
 - Search by title, brand, SKU, or job ID.
 - Filter by draft, ready, sending, completed, and failed status.
+- Sidebar status follows the live lifecycle: `In progress` during MiMo generation or refinement, `Listing` during queued/running Vendoo automation, and `Completed` after all draft automation steps finish.
 - Show last-updated time and completed Vendoo draft link.
 
 ### Workspace
@@ -193,6 +198,9 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Reorder and remove photos before approval.
 - Image preview.
 - Notes, cost, SKU, labels, measurements, and package-dimensions inputs.
+- Item details use two even rows of four clearly bordered field cells; narrow screens reduce this to two columns.
+- Poshmark and Mercari inspector tabs expose every field their automation steps fill, including shared listing values and marketplace-specific defaults.
+- Marketplace tab strips include additional space below the active underline before the first field row.
 
 ### Chat
 

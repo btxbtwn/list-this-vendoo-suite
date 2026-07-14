@@ -10,7 +10,8 @@ interface ItemDetailsData {
   condition: string;
   cog: string;
   packageDimensions: string;
-  measurements: string;
+  pitToPit: string;
+  length: string;
   vendooLabels: string;
   categoryOverride: string;
   poshmarkOriginalPrice: string;
@@ -31,7 +32,8 @@ const DEFAULTS: ItemDetailsData = {
   condition: "",
   cog: "",
   packageDimensions: "13x10x3",
-  measurements: "",
+  pitToPit: "",
+  length: "",
   vendooLabels: "To List",
   categoryOverride: "",
   poshmarkOriginalPrice: "0",
@@ -45,13 +47,14 @@ function parseNotes(notes: string | null): ItemDetailsData {
       condition: parsed.condition || "",
       cog: parsed.cog || "",
       packageDimensions: parsed.packageDimensions || "13x10x3",
-      measurements: parsed.measurements || "",
+      pitToPit: parsed.pitToPit || "",
+      length: parsed.length || "",
       vendooLabels: parsed.vendooLabels || DEFAULTS.vendooLabels,
       categoryOverride: parsed.categoryOverride || "",
       poshmarkOriginalPrice: parsed.poshmarkOriginalPrice ?? "0",
     };
   } catch {
-    return { ...DEFAULTS, measurements: notes || "" };
+    return { ...DEFAULTS };
   }
 }
 
@@ -68,24 +71,22 @@ export function ItemDetails({ convId }: Props) {
   const [details, setDetails] = useState<ItemDetailsData>({ ...DEFAULTS });
 
   useEffect(() => {
-    if (conv) {
-      setDetails(parseNotes(conv.notes));
-    }
+    if (conv) setDetails(parseNotes(conv.notes));
   }, [conv]);
 
   const save = useCallback(async (updated: ItemDetailsData) => {
     setSaving(true);
     setDetails(updated);
-    const notes = JSON.stringify({
+    await api.conversations.update(convId, { notes: JSON.stringify({
       condition: updated.condition,
       cog: updated.cog,
       packageDimensions: updated.packageDimensions,
-      measurements: updated.measurements,
+      pitToPit: updated.pitToPit,
+      length: updated.length,
       vendooLabels: updated.vendooLabels,
       categoryOverride: updated.categoryOverride,
       poshmarkOriginalPrice: updated.poshmarkOriginalPrice,
-    });
-    await api.conversations.update(convId, { notes });
+    })});
     queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
     setSaving(false);
   }, [convId, queryClient]);
@@ -96,85 +97,53 @@ export function ItemDetails({ convId }: Props) {
     saveTimerRef.current = setTimeout(() => save(updated), 500);
   }, [save]);
 
-  const fieldProps = (key: keyof ItemDetailsData, type = "text") => ({
+  const f = (key: keyof ItemDetailsData, type = "text") => ({
     className: "input",
     type,
     value: details[key],
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      scheduleSave({ ...details, [key]: e.target.value });
-    },
-    style: { padding: "6px 8px", fontSize: 12 },
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => scheduleSave({ ...details, [key]: e.target.value }),
   });
 
   return (
-    <div
-      style={{
-        padding: "8px 16px",
-        borderBottom: "1px solid var(--color-border)",
-        background: "var(--color-bg)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-          alignItems: "flex-end",
-        }}
-      >
-        <div style={{ minWidth: 140 }}>
+    <div className="item-details">
+      <div className="item-row">
+        <div className="item-field">
           <label className="label">Condition</label>
-          <input {...fieldProps("condition")} placeholder="Good, Excellent, Fair..." />
+          <input {...f("condition")} placeholder="Good" />
         </div>
-
-        <div style={{ minWidth: 80 }}>
-          <label className="label">COG ($)</label>
-          <input {...fieldProps("cog", "number")} step="0.01" placeholder="0.00" />
+        <div className="item-field">
+          <label className="label">Category</label>
+          <input {...f("categoryOverride")} placeholder="Clothing > Women > Tops" list="cats" />
+          <datalist id="cats">{CATEGORY_SUGGESTIONS.map(c => <option key={c} value={c} />)}</datalist>
         </div>
-
-        <div style={{ minWidth: 100 }}>
-          <label className="label">Package (LxWxH)</label>
-          <input {...fieldProps("packageDimensions")} placeholder="13x10x3" />
-        </div>
-
-        <div style={{ minWidth: 130 }}>
+        <div className="item-field">
           <label className="label">Labels</label>
-          <input {...fieldProps("vendooLabels")} placeholder="To List, A19" />
+          <input {...f("vendooLabels")} placeholder="To List" />
         </div>
-
-        <div style={{ minWidth: 90 }}>
-          <label className="label">Posh $Orig</label>
-          <input {...fieldProps("poshmarkOriginalPrice")} placeholder="0" type="number" step="1" />
+        <div className="item-field">
+          <label className="label">Package L×W×H</label>
+          <input {...f("packageDimensions")} placeholder="13x10x3" />
         </div>
-
-        <div style={{ minWidth: 190 }}>
-          <label className="label">Category Override</label>
-          <input
-            {...fieldProps("categoryOverride")}
-            placeholder="Clothing, Shoes & Accessories > ..."
-            list="category-suggestions"
-          />
-          <datalist id="category-suggestions">
-            {CATEGORY_SUGGESTIONS.map((cat) => (
-              <option key={cat} value={cat} />
-            ))}
-          </datalist>
-        </div>
-
-        {saving && (
-          <span style={{ fontSize: 10, color: "var(--color-text-muted)" }}>Saving…</span>
-        )}
       </div>
-
-      <div style={{ marginTop: 6 }}>
-        <label className="label">Measurements</label>
-        <textarea
-          {...fieldProps("measurements")}
-          placeholder='e.g. Pit to pit: 23"
-Length: 27"'
-          style={{ height: 44, fontSize: 12, padding: "6px 8px" }}
-        />
+      <div className="item-row">
+        <div className="item-field">
+          <label className="label">COG ($)</label>
+          <input {...f("cog", "number")} step="0.01" placeholder="0.00" />
+        </div>
+        <div className="item-field">
+          <label className="label">Posh Orig ($)</label>
+          <input {...f("poshmarkOriginalPrice", "number")} step="1" placeholder="0" />
+        </div>
+        <div className="item-field">
+          <label className="label">Pit to Pit</label>
+          <input {...f("pitToPit", "number")} step="0.25" placeholder="22.5" />
+        </div>
+        <div className="item-field">
+          <label className="label">Length</label>
+          <input {...f("length", "number")} step="0.25" placeholder="27" />
+        </div>
       </div>
+      {saving && <span className="item-saving">SAVING…</span>}
     </div>
   );
 }

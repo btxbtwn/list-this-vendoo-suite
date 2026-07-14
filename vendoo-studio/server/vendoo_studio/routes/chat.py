@@ -143,6 +143,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
     if not key:
         raise HTTPException(400, "No API key configured. Add your MiMo key in Settings first.")
 
+    repo.update_status(conv_id, "in_progress")
     repo.add_message(conv_id, "user", body.text)
 
     messages = await _build_messages(conv_id, db, body.text)
@@ -217,6 +218,8 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
             except Exception:
                 pass
 
+        repo.update_status(conv_id, "draft")
+
     return StreamingResponse(stream_response(), media_type="text/event-stream")
 
 
@@ -269,6 +272,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     if not photos:
         raise HTTPException(400, "No photos to generate from. Upload product photos first.")
 
+    repo.update_status(conv_id, "in_progress")
     skill_rules = _load_skill_rules()
 
     from vendoo_studio.config import PHOTOS_DIR
@@ -318,8 +322,15 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 lines.append(f"- Cost of goods: ${parsed['cog']}")
             if parsed.get("packageDimensions"):
                 lines.append(f"- Package dimensions: {parsed['packageDimensions']}")
-            if parsed.get("measurements"):
-                lines.append(f"- Measurements: {parsed['measurements']}")
+            pit_to_pit = (parsed.get("pitToPit") or "").strip()
+            length_val = (parsed.get("length") or "").strip()
+            if pit_to_pit or length_val:
+                parts = []
+                if pit_to_pit:
+                    parts.append(f'Pit to pit: {pit_to_pit}"')
+                if length_val:
+                    parts.append(f'Length: {length_val}"')
+                lines.append("- Measurements: " + "; ".join(parts))
             if lines:
                 item_details = "Known item details from the seller:\n" + "\n".join(lines)
     except _json.JSONDecodeError:
@@ -331,6 +342,8 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         "from the photo analysis and listing rules below.\n\n"
         "Use Vendoo's General taxonomy for category_path. Women's shirts and T-shirts must use "
         '"Clothing, Shoes & Accessories > Women > Women\'s Clothing > Tops", not "Shirts & Blouses".\n\n'
+        "If seller-provided measurements (Pit to pit, Length) are given, use them exactly as-is in the description.\n"
+        "Do not modify, estimate, or replace seller-provided measurements.\n\n"
         "Output the full listing JSON inside a fenced code block:\n\n"
         "```json\n"
         "{\n"
@@ -349,8 +362,8 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         '  "ebay_specifics": {...},\n'
         '  "depop_specifics": {...},\n'
         '  "etsy_specifics": {...},\n'
-        '  "poshmark_specifics": {...},\n'
-        '  "mercari_specifics": {}\n'
+        '  "poshmark_specifics": {"originalPrice": 0},\n'
+        '  "mercari_specifics": {"shippingLabel": "USPS Ground Advantage"}\n'
         "}\n"
         "```\n\n"
         f"{item_details}\n\n"
@@ -387,6 +400,8 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     lr.save_revision(conv_id, parsed, source="model")
                 except Exception:
                     pass
+
+        repo.update_status(conv_id, "draft")
 
     return StreamingResponse(stream_response(), media_type="text/event-stream")
 
