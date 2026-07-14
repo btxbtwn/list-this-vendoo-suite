@@ -66,6 +66,7 @@ export function ChatPanel({ convId }: Props) {
     setGenerating(false);
     await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+    queryClient.invalidateQueries({ queryKey: ["conversations"] });
   }, [convId, queryClient]);
 
   const handleGenerate = useCallback(async () => {
@@ -119,6 +120,7 @@ export function ChatPanel({ convId }: Props) {
     setStreaming(false);
     queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+    queryClient.invalidateQueries({ queryKey: ["conversations"] });
   }, [input, streaming, convId, queryClient]);
 
   const hasPhotos = (photos && (photos as any[]).length > 0);

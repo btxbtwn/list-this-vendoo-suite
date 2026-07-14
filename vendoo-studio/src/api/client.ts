@@ -34,6 +34,8 @@ export const api = {
     photos: (id: string) => request<any[]>(`/conversations/${id}/photos`),
     deletePhoto: (convId: string, photoId: string) =>
       request<any>(`/conversations/${convId}/photos/${photoId}`, { method: "DELETE" }),
+    delete: (id: string) =>
+      request<any>(`/conversations/${id}`, { method: "DELETE" }),
     reorderPhotos: (convId: string, orderedIds: string[]) =>
       request<any>(`/conversations/${convId}/photos/order`, {
         method: "PATCH",

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.database import get_db
 from vendoo_studio.repositories.queries import ConversationRepo
+from vendoo_studio.models.conversation import Photo as PhotoModel
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -86,6 +87,12 @@ class ConversationUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class DeleteConversationResponse(BaseModel):
+    ok: bool
+    deleted_jobs: int
+    deleted_photos: int
+
+
 @router.patch("/{conv_id}")
 def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
@@ -127,6 +134,59 @@ def delete_photo(conv_id: str, photo_id: str, db: Session = Depends(get_db)):
 
     repo.delete_photo(conv_id, photo_id)
     return {"ok": True}
+
+
+@router.delete("/{conv_id}", response_model=DeleteConversationResponse)
+def delete_conversation(conv_id: str, db: Session = Depends(get_db)):
+    import os as _os
+
+    repo = ConversationRepo(db)
+    conv = repo.get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+
+    from vendoo_studio.repositories.queries import JobRepo
+    from vendoo_studio.models.job import Job, JobEvent
+    from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
+
+    active_jobs = db.query(Job).filter(
+        Job.conversation_id == conv_id,
+        Job.status.in_(["queued", "dispatched"]),
+    ).all()
+    if active_jobs:
+        raise HTTPException(400, "Cannot delete a listing with an active automation job")
+
+    photos = repo.get_photos(conv_id)
+    deleted_photos = len(photos)
+    for p in photos:
+        filepath = Path(PHOTOS_DIR) / p.stored_filename
+        if filepath.exists():
+            _os.remove(filepath)
+
+    job_ids = [row[0] for row in db.query(Job.id).filter(Job.conversation_id == conv_id).all()]
+    if job_ids:
+        db.query(FieldObservation).filter(
+            FieldObservation.diagnostic_run_id.in_(
+                db.query(DiagnosticRun.id).filter(DiagnosticRun.job_id.in_(job_ids))
+            )
+        ).delete(synchronize_session=False)
+        db.query(DiagnosticRun).filter(DiagnosticRun.job_id.in_(job_ids)).delete(synchronize_session=False)
+        db.query(JobEvent).filter(JobEvent.job_id.in_(job_ids)).delete(synchronize_session=False)
+        db.query(Job).filter(Job.conversation_id == conv_id).delete(synchronize_session=False)
+    deleted_jobs = len(job_ids)
+
+    from vendoo_studio.models.listing import Listing, ListingRevision
+    from vendoo_studio.models.conversation import Message
+
+    db.query(ListingRevision).filter(ListingRevision.conversation_id == conv_id).delete(synchronize_session=False)
+    db.query(Listing).filter(Listing.conversation_id == conv_id).delete(synchronize_session=False)
+    db.query(Message).filter(Message.conversation_id == conv_id).delete(synchronize_session=False)
+    db.query(PhotoModel).filter(PhotoModel.conversation_id == conv_id).delete(synchronize_session=False)
+
+    db.delete(conv)
+    db.commit()
+
+    return DeleteConversationResponse(ok=True, deleted_jobs=deleted_jobs, deleted_photos=deleted_photos)
 
 
 def _msg_response(msg) -> dict:

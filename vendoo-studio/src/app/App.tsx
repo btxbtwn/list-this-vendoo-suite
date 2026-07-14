@@ -28,6 +28,17 @@ export function App() {
     },
   });
 
+  const deleteConv = useMutation({
+    mutationFn: (convId: string) => api.conversations.delete(convId),
+    onSuccess: (_data, convId) => {
+      if (selectedConvId === convId) {
+        setSelectedConvId(null);
+      }
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+
   return (
     <div className="app-shell">
       <div className="app-content">
@@ -40,20 +51,38 @@ export function App() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {conversations?.map((c: any) => (
-              <button
+              <div
                 key={c.id}
-                className={`btn btn-secondary btn-sm`}
-                style={{
-                  justifyContent: "flex-start",
-                  background: selectedConvId === c.id && activeView === "listings" ? "var(--color-surface-hover)" : undefined,
-                }}
-                onClick={() => { setSelectedConvId(c.id); setActiveView("listings"); }}
+                style={{ display: "flex", gap: 4, alignItems: "center" }}
               >
-                {c.title || "Untitled"}
-                <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-text-muted)" }}>
-                  {c.status}
-                </span>
-              </button>
+                <button
+                  className={`btn btn-secondary btn-sm`}
+                  style={{
+                    flex: 1,
+                    justifyContent: "flex-start",
+                    background: selectedConvId === c.id && activeView === "listings" ? "var(--color-surface-hover)" : undefined,
+                  }}
+                  onClick={() => { setSelectedConvId(c.id); setActiveView("listings"); }}
+                >
+                  {c.title || "Untitled"}
+                  <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-text-muted)" }}>
+                    {c.status}
+                  </span>
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  title="Delete listing"
+                  style={{ padding: "2px 6px", fontSize: 12, lineHeight: 1, flexShrink: 0 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete "${c.title || "Untitled"}"?\nThis cannot be undone.`)) {
+                      deleteConv.mutate(c.id);
+                    }
+                  }}
+                >
+                  {"\u2715"}
+                </button>
+              </div>
             ))}
             {(!conversations || conversations.length === 0) && (
               <div className="empty-state">

@@ -100,6 +100,12 @@ class ListingRepo:
             listing = Listing(conversation_id=conv_id, current_revision_id=revision.id)
             self.db.add(listing)
 
+        title = (listing_json.get("title") or "").strip()
+        if title:
+            conv = self.db.query(Conversation).filter(Conversation.id == conv_id).first()
+            if conv:
+                conv.title = title
+
         self.db.commit()
         self.db.refresh(revision)
         return revision
