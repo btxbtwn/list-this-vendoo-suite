@@ -352,7 +352,7 @@ class RequestBodyLimitMiddleware:
             try:
                 body_lease = self.store.reserve_body(declared)
             except StoreCapacityError as exc:
-                await self._capacity_reject(scope, send, str(exc))
+                await self._capacity_reject(scope, send, exc)
                 return
 
         try:
@@ -375,7 +375,7 @@ class RequestBodyLimitMiddleware:
                     try:
                         self.store.resize_body(body_lease.id, max(declared, total))
                     except StoreCapacityError as exc:
-                        await self._capacity_reject(scope, send, str(exc))
+                        await self._capacity_reject(scope, send, exc)
                         return
                 if not message.get("more_body", False):
                     break
@@ -390,7 +390,7 @@ class RequestBodyLimitMiddleware:
                         self.PARSER_SPOOL_MEMORY_THRESHOLD,
                     )
                 except StoreCapacityError as exc:
-                    await self._capacity_reject(scope, send, str(exc))
+                    await self._capacity_reject(scope, send, exc)
                     return
                 scope.setdefault("state", {})["body_lease_id"] = body_lease.id
 
@@ -433,10 +433,9 @@ class RequestBodyLimitMiddleware:
         )
         await response(scope, self._empty_receive, send)
 
-    async def _capacity_reject(self, scope: Scope, send: Send, detail: str) -> None:
-        response = JSONResponse(
-            {"detail": detail},
-            status_code=507,
+    async def _capacity_reject(self, scope: Scope, send: Send, detail: StoreCapacityError) -> None:
+        response = _capacity_response(
+            detail,
             headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
         )
         await response(scope, self._empty_receive, send)
@@ -506,8 +505,8 @@ def _reserve_render(store: JobStore, job_id: str, operation):
         _raise_job_http(exc)
     except ValueError as exc:
         raise HTTPException(404, "Job not found or expired.") from exc
-    except StoreCapacityError as exc:
-        raise HTTPException(507, str(exc)) from exc
+    except StoreCapacityError:
+        raise
 
 
 def _render(
@@ -592,13 +591,35 @@ def _stroke_result(
 class GenerationFailure(RuntimeError):
     """Lightweight generation error that does not retain worker traceback frames."""
 
-    def __init__(self, classification: str, message: str) -> None:
+    def __init__(self, classification: str, message: str, cause: str = "capacity") -> None:
         self.classification = classification
+        self.cause = cause
         super().__init__(message)
 
 
 class GenerationCancelled(asyncio.CancelledError):
     classification = "cancelled"
+
+
+CAPACITY_CAUSES = {
+    "capacity",
+    "disk_quota",
+    "live_capacity",
+    "memory_quota",
+    "terminal_registry",
+}
+
+
+def _capacity_response(error: BaseException | str, headers=None, cause: str | None = None) -> JSONResponse:
+    detail = error if isinstance(error, str) else str(error)
+    structured_cause = cause or getattr(error, "cause", "capacity")
+    if structured_cause not in CAPACITY_CAUSES:
+        structured_cause = "capacity"
+    return JSONResponse(
+        {"detail": detail, "cause": structured_cause},
+        status_code=507,
+        headers=headers,
+    )
 
 
 
@@ -618,10 +639,10 @@ def _generation_failure_classification(exc: BaseException) -> str:
     return "generation"
 
 
-def _raise_generation_failure(classification: str, message: str) -> NoReturn:
+def _raise_generation_failure(classification: str, message: str, cause: str = "capacity") -> NoReturn:
     if classification == "cancelled":
         raise GenerationCancelled(message) from None
-    raise GenerationFailure(classification, message) from None
+    raise GenerationFailure(classification, message, cause) from None
 
 
 def _generate_job(
@@ -658,6 +679,7 @@ def _generate_job(
         job = store.create(original, raw_mask, job_id, generation)
     except BaseException as exc:
         classification = _generation_failure_classification(exc)
+        cause = getattr(exc, "cause", "capacity")
         message = str(exc) or type(exc).__name__
         caught_traceback = exc.__traceback__
         with contextlib.suppress(RuntimeError):
@@ -670,6 +692,7 @@ def _generate_job(
             store.finalize_creation(job_id, generation, message)
         except BaseException as cleanup_exc:
             classification = _generation_failure_classification(cleanup_exc)
+            cause = getattr(cleanup_exc, "cause", "capacity")
             message = str(cleanup_exc) or type(cleanup_exc).__name__
             cleanup_traceback = cleanup_exc.__traceback__
             with contextlib.suppress(RuntimeError):
@@ -677,7 +700,7 @@ def _generate_job(
                     traceback.clear_frames(cleanup_traceback)
             cleanup_exc.__traceback__ = None
             del cleanup_traceback, cleanup_exc
-        _raise_generation_failure(classification, message)
+        _raise_generation_failure(classification, message, cause)
 
     del data, original, raw_mask
     store.release_worker_memory(job_id, generation)
@@ -734,6 +757,10 @@ def create_app(
     app.state.settings = config
     app.state.store = store
     app.state.inference = inference
+
+    @app.exception_handler(StoreCapacityError)
+    async def capacity_error_handler(_, exc: StoreCapacityError):
+        return _capacity_response(exc)
 
     app.add_middleware(
         RequestBodyLimitMiddleware,
@@ -798,7 +825,7 @@ def create_app(
             raise HTTPException(422, str(exc)) from exc
         except StoreCapacityError as exc:
             await file.close()
-            raise HTTPException(507, str(exc)) from exc
+            return _capacity_response(exc)
 
         if not owner:
             await file.close()
@@ -847,7 +874,7 @@ def create_app(
             if exc.classification == "image_validation":
                 raise HTTPException(415, str(exc)) from None
             if exc.classification == "capacity":
-                raise HTTPException(507, str(exc)) from None
+                return _capacity_response(exc)
             if exc.classification == "terminal":
                 lifecycle = store.lifecycle(job_id)
                 state = lifecycle.state if lifecycle is not None else "tombstoned"
@@ -867,10 +894,7 @@ def create_app(
                 str(exc),
             ) from exc
         except StoreCapacityError as exc:
-            raise HTTPException(
-                507,
-                str(exc),
-            ) from exc
+            return _capacity_response(exc)
         except HTTPException:
             raise
         except JobTerminal as exc:
@@ -922,6 +946,24 @@ def create_app(
         if job is None:
             return JSONResponse({"id": job_id, "state": "unknown"}, status_code=404)
         return {"id": job.id, "width": job.width, "height": job.height}
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    async def cancel_job(job_id: str):
+        try:
+            job_id = normalize_job_id(job_id)
+        except ValueError as exc:
+            raise HTTPException(404, "Job not found or expired.") from exc
+        try:
+            complete = await run_in_threadpool(store.cancel, job_id)
+        except StoreCapacityError as exc:
+            return _capacity_response(exc)
+        if complete:
+            return Response(status_code=204)
+        return JSONResponse(
+            {"id": job_id, "state": "cleanup_pending"},
+            status_code=202,
+            headers={"Retry-After": "1"},
+        )
 
     @app.post("/api/jobs/{job_id}/touch")
     async def touch_job(job_id: str):

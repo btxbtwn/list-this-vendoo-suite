@@ -39,7 +39,9 @@ class JobTerminal(StoreError):
 
 
 class StoreCapacityError(StoreError):
-    pass
+    def __init__(self, message: str, cause: str = "capacity") -> None:
+        super().__init__(message)
+        self.cause = cause
 
 
 class StrokeLimitError(StoreError):
@@ -174,6 +176,7 @@ class BodyLease:
 @dataclass(frozen=True)
 class RenderLease:
     id: str
+    job_id: str
     reserved_memory_bytes: int
 
 
@@ -185,7 +188,7 @@ class _MeteredWriter:
 
     def write(self, data: bytes) -> int:
         if self._written + len(data) > self._limit:
-            raise StoreCapacityError("Encoded job storage exceeded its conservative reservation.")
+            raise StoreCapacityError("Encoded job storage exceeded its conservative reservation.", "disk_quota")
         written = self._handle.write(data)
         self._written += written
         return written
@@ -206,6 +209,7 @@ class JobStore:
         self._body_leases: dict[str, BodyLease] = {}
         self._render_leases: dict[str, RenderLease] = {}
         self._quarantines: dict[str, Quarantine] = {}
+        self._cleanup_claims: set[str] = set()
         self._terminal_registry_max = settings.terminal_registry_max or max(16, settings.max_jobs * 16)
         self._used_job_ids: set[str] = set()
         self._disk_bytes = 0
@@ -261,6 +265,14 @@ class JobStore:
         cutoff = now - self.settings.job_ttl_seconds
         for job_id, lifecycle in list(self._lifecycles.items()):
             if lifecycle.state in ("failed", "tombstoned") and lifecycle.updated_at <= cutoff:
+                if (
+                    lifecycle.job is not None
+                    or job_id in self._jobs
+                    or any(lease.active and lease.job_id == job_id for lease in self._generation_leases.values())
+                    or any(lease.job_id == job_id for lease in self._render_leases.values())
+                    or any(record.job_id == job_id for record in self._quarantines.values())
+                ):
+                    continue
                 # Exact IDs remain recorded while detailed errors expire.
                 self._lifecycles.pop(job_id, None)
 
@@ -301,7 +313,7 @@ class JobStore:
             self._body_bytes + delta > self.settings.inflight_body_quota_bytes
             or self._body_bytes + self._reserved_memory_bytes + delta > self.settings.memory_quota_bytes
         ):
-            raise StoreCapacityError("The in-flight request body limit has been reached. Try again later.")
+            raise StoreCapacityError("The in-flight request body limit has been reached. Try again later.", "memory_quota")
         self._body_bytes += delta
         lease.reserved_bytes = requested_bytes
 
@@ -336,9 +348,9 @@ class JobStore:
             memory_delta = memory_bytes - lease.spool_memory_bytes
             disk_delta = disk_bytes - lease.spool_disk_bytes
             if self._body_bytes + self._reserved_memory_bytes + memory_delta > self.settings.memory_quota_bytes:
-                raise StoreCapacityError("The in-flight multipart parser memory limit has been reached. Try again later.")
+                raise StoreCapacityError("The in-flight multipart parser memory limit has been reached. Try again later.", "memory_quota")
             if self._disk_bytes + self._reserved_disk_bytes + disk_delta > self.settings.disk_quota_bytes:
-                raise StoreCapacityError("The temporary disk quota has been reached. Delete a job and try again.")
+                raise StoreCapacityError("The temporary disk quota has been reached. Delete a job and try again.", "disk_quota")
             self._body_bytes += memory_delta
             self._reserved_disk_bytes += disk_delta
             lease.spool_memory_bytes = memory_bytes
@@ -368,8 +380,8 @@ class JobStore:
             else:
                 memory_bytes = pixels * 9 + self._png_bound(job.width, job.height, 4)
             if self._body_bytes + self._reserved_memory_bytes + memory_bytes > self.settings.memory_quota_bytes:
-                raise StoreCapacityError("The response render memory limit has been reached. Try again later.")
-            lease = RenderLease(uuid.uuid4().hex, memory_bytes)
+                raise StoreCapacityError("The response render memory limit has been reached. Try again later.", "memory_quota")
+            lease = RenderLease(uuid.uuid4().hex, job_id, memory_bytes)
             self._render_leases[lease.id] = lease
             self._reserved_memory_bytes += memory_bytes
             return lease
@@ -393,7 +405,7 @@ class JobStore:
                     normalized = uuid.uuid4().hex
                     attempts += 1
                 if normalized in self._used_job_ids:
-                    raise StoreCapacityError("The public job-id space is unavailable. Restart the backend and try again.")
+                    raise StoreCapacityError("The public job-id space is unavailable. Restart the backend and try again.", "terminal_registry")
             self._forget_terminal_locked(time.monotonic())
             lifecycle = self._lifecycles.get(normalized)
             if lifecycle is None:
@@ -401,9 +413,15 @@ class JobStore:
                     lifecycle = JobLifecycle("tombstoned", time.monotonic())
                     return normalized, False, self._snapshot(lifecycle), None
                 if len(self._used_job_ids) >= self._terminal_registry_max:
-                    raise StoreCapacityError("The terminal job-id registry is full. Restart the backend and try again.")
+                    raise StoreCapacityError(
+                        "The terminal job-id registry is full. Restart the backend and try again.",
+                        "terminal_registry",
+                    )
                 if self._occupied_slots_locked() >= self.settings.max_jobs:
-                    raise StoreCapacityError("The job limit has been reached. Delete a job and try again.")
+                    raise StoreCapacityError(
+                        "The job limit has been reached. Delete a job and try again.",
+                        "live_capacity",
+                    )
                 lifecycle = JobLifecycle("creating", time.monotonic(), generation=uuid.uuid4().hex)
                 self._lifecycles[normalized] = lifecycle
                 self._used_job_ids.add(normalized)
@@ -471,7 +489,7 @@ class JobStore:
                 raise JobTerminal(job_id, lifecycle.state if lifecycle else "tombstoned")
             delta = upload_bytes - lease.reserved_memory_bytes
             if self._body_bytes + self._reserved_memory_bytes + delta > self.settings.memory_quota_bytes:
-                raise StoreCapacityError("The in-flight image memory limit has been reached. Try again later.")
+                raise StoreCapacityError("The in-flight image memory limit has been reached. Try again later.", "memory_quota")
             lease.reserved_memory_bytes = upload_bytes
             self._reserved_memory_bytes += delta
             return lease.reserved_memory_bytes
@@ -492,9 +510,9 @@ class JobStore:
                 return lease.reserved_disk_bytes, lease.reserved_memory_bytes
             memory_delta = max(0, memory_bytes - lease.reserved_memory_bytes)
             if self._disk_bytes + self._reserved_disk_bytes + disk_bytes > self.settings.disk_quota_bytes:
-                raise StoreCapacityError("The temporary disk quota has been reached. Delete a job and try again.")
+                raise StoreCapacityError("The temporary disk quota has been reached. Delete a job and try again.", "disk_quota")
             if self._body_bytes + self._reserved_memory_bytes + memory_delta > self.settings.memory_quota_bytes:
-                raise StoreCapacityError("The in-flight image memory limit has been reached. Try again later.")
+                raise StoreCapacityError("The in-flight image memory limit has been reached. Try again later.", "memory_quota")
             lease.reserved_disk_bytes = disk_bytes
             lease.reserved_memory_bytes += memory_delta
             self._reserved_disk_bytes += disk_bytes
@@ -827,14 +845,14 @@ class JobStore:
             self._save_private(mask, directory / "mask.png")
             disk_bytes, complete = self._directory_bytes(directory)
             if not complete:
-                raise StoreCapacityError("Could not verify encoded job storage.")
+                raise StoreCapacityError("Could not verify encoded job storage.", "disk_quota")
             with self._changed:
                 lifecycle = self._lifecycles.get(job_id)
                 lease = self._generation_leases.get(generation)
                 if lifecycle is None or lifecycle.state != "creating" or lifecycle.generation != generation or lease is None or not lease.active or lease.cancelled:
                     raise JobTerminal(job_id, lifecycle.state if lifecycle else "tombstoned")
                 if disk_bytes > lease.reserved_disk_bytes:
-                    raise StoreCapacityError("Encoded job storage exceeded its conservative reservation.")
+                    raise StoreCapacityError("Encoded job storage exceeded its conservative reservation.", "disk_quota")
                 now = time.monotonic()
                 job = Job(job_id, directory, original.width, original.height, now, now, disk_bytes, generation)
                 # Publication converts disk reservation but retains worker memory
@@ -941,6 +959,139 @@ class JobStore:
         lifecycle.error = str(error) if error else None
         lifecycle.state = "failed" if error else ("tombstoned" if tombstone else "failed")
         self._changed.notify_all()
+
+    def _active_generation_for_job_locked(self, job_id: str) -> GenerationLease | None:
+        return next(
+            (lease for lease in self._generation_leases.values() if lease.active and lease.job_id == job_id),
+            None,
+        )
+
+    def _quarantine_ids_for_job_locked(self, job_id: str) -> list[str]:
+        return [
+            quarantine_id
+            for quarantine_id, record in self._quarantines.items()
+            if record.job_id == job_id
+        ]
+
+    def cancel(self, job_id: str) -> bool:
+        """Make creation impossible, then clean only this public id's storage."""
+        job_id = normalize_job_id(job_id)
+        with self._changed:
+            self._forget_terminal_locked(time.monotonic())
+            lifecycle = self._lifecycles.get(job_id)
+            if lifecycle is None:
+                if job_id in self._used_job_ids:
+                    return True
+                if len(self._used_job_ids) >= self._terminal_registry_max:
+                    raise StoreCapacityError(
+                        "The terminal job-id registry is full. Restart the backend and try again.",
+                        "terminal_registry",
+                    )
+                self._used_job_ids.add(job_id)
+                self._lifecycles[job_id] = JobLifecycle("tombstoned", time.monotonic())
+                self._changed.notify_all()
+                return True
+
+            generation_lease = self._active_generation_for_job_locked(job_id)
+            if generation_lease is not None:
+                generation_lease.cancelled = True
+            if lifecycle.state in ("creating", "live"):
+                lifecycle.state = "tombstoned"
+                lifecycle.error = None
+                lifecycle.updated_at = time.monotonic()
+                self._changed.notify_all()
+            if (
+                generation_lease is not None
+                or any(lease.job_id == job_id for lease in self._render_leases.values())
+                or job_id in self._cleanup_claims
+            ):
+                return False
+            self._cleanup_claims.add(job_id)
+
+        cleanup_failed = False
+        try:
+            with self._changed:
+                lifecycle = self._lifecycles.get(job_id)
+                job = lifecycle.job if lifecycle is not None else None
+                if job is None:
+                    job = self._jobs.get(job_id)
+                quarantine_ids = self._quarantine_ids_for_job_locked(job_id)
+
+            if job is not None:
+                locked_job = job
+                locked_job.lock.acquire()
+                try:
+                    with self._changed:
+                        lifecycle = self._lifecycles.get(job_id)
+                        if not (
+                            self._jobs.get(job_id) is job
+                            and lifecycle is not None
+                            and lifecycle.job is job
+                            and lifecycle.generation == job.generation
+                        ):
+                            job = None
+                        elif (
+                            self._active_generation_for_job_locked(job_id) is not None
+                            or any(lease.job_id == job_id for lease in self._render_leases.values())
+                        ):
+                            return False
+                    if job is not None:
+                        try:
+                            shutil.rmtree(job.directory)
+                        except FileNotFoundError:
+                            pass
+                        except OSError as exc:
+                            scanned, complete = self._directory_bytes(job.directory)
+                            record = Quarantine(
+                                uuid.uuid4().hex,
+                                job_id,
+                                job.generation,
+                                job.directory,
+                                scanned if complete else max(scanned, job.disk_bytes),
+                                str(exc),
+                            )
+                            with self._changed:
+                                lifecycle = self._lifecycles.get(job_id)
+                                if (
+                                    self._jobs.get(job_id) is job
+                                    and lifecycle is not None
+                                    and lifecycle.job is job
+                                    and lifecycle.generation == job.generation
+                                ):
+                                    self._jobs.pop(job_id, None)
+                                    self._disk_bytes += record.disk_bytes - job.disk_bytes
+                                    self._quarantines[record.id] = record
+                                    lifecycle.job = None
+                                    lifecycle.state = "tombstoned"
+                                    lifecycle.error = str(exc)
+                                    lifecycle.updated_at = time.monotonic()
+                                    self._changed.notify_all()
+                            return False
+                        with self._changed:
+                            self._terminalize_live_after_delete_locked(job_id, job, True)
+                finally:
+                    locked_job.lock.release()
+
+            for quarantine_id in quarantine_ids:
+                try:
+                    self._cleanup_quarantine(quarantine_id)
+                except StoreDeletionError:
+                    cleanup_failed = True
+
+            with self._changed:
+                lifecycle = self._lifecycles.get(job_id)
+                return not (
+                    cleanup_failed
+                    or job_id in self._jobs
+                    or (lifecycle is not None and lifecycle.job is not None)
+                    or self._active_generation_for_job_locked(job_id) is not None
+                    or any(lease.job_id == job_id for lease in self._render_leases.values())
+                    or self._quarantine_ids_for_job_locked(job_id)
+                )
+        finally:
+            with self._changed:
+                self._cleanup_claims.discard(job_id)
+                self._changed.notify_all()
 
     def delete(self, job_id: str, tombstone: bool = True) -> bool:
         job_id = normalize_job_id(job_id)

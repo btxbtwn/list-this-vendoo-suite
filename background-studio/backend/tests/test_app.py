@@ -679,6 +679,251 @@ def test_get_unknown_job_is_404(app_factory):
     assert response.json() == {"id": job_id, "state": "unknown"}
 
 
+def test_cancel_unknown_tombstones_id_before_delayed_create(app_factory):
+    _, client, fake = app_factory()
+    job_id = "9" * 32
+
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 204
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 204
+    created = client.post(
+        "/api/jobs",
+        data={"job_id": job_id},
+        files={"file": ("photo.png", image_bytes(), "image/png")},
+    )
+
+    assert created.status_code == 410
+    assert created.json()["detail"]["state"] == "tombstoned"
+    assert fake.calls == 0
+
+
+def test_cancel_creating_job_is_pending_until_worker_cleanup(app_factory):
+    entered = threading.Event()
+    release = threading.Event()
+
+    class DelayedRemover(FakeRemover):
+        def remove(self, image):
+            entered.set()
+            assert release.wait(2)
+            return super().remove(image)
+
+    app, client, _ = app_factory(DelayedRemover())
+    job_id = "a" * 32
+
+    def post():
+        return client.post(
+            "/api/jobs",
+            data={"job_id": job_id},
+            files={"file": ("photo.png", image_bytes(), "image/png")},
+        )
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(post)
+        try:
+            assert entered.wait(1)
+            first = client.post(f"/api/jobs/{job_id}/cancel")
+            repeated = client.post(f"/api/jobs/{job_id}/cancel")
+            assert first.status_code == repeated.status_code == 202
+            assert first.json() == repeated.json() == {
+                "id": job_id,
+                "state": "cleanup_pending",
+            }
+        finally:
+            release.set()
+        response = pending.result(timeout=2)
+
+    assert response.status_code == 410
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 204
+    assert job_id not in app.state.store._jobs
+
+
+def test_cancel_live_job_cleans_and_repeats_as_204(app_factory):
+    app, client, _ = app_factory()
+    job_id = upload(client, image_bytes()).json()["id"]
+    directory = app.state.store._jobs[job_id].directory
+
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 204
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 204
+    assert not directory.exists()
+    terminal = client.get(f"/api/jobs/{job_id}")
+    assert terminal.status_code == 410
+    assert terminal.json() == {"id": job_id, "state": "tombstoned"}
+
+
+def test_cancel_waits_for_active_render_lease(app_factory, monkeypatch):
+    app, client, _ = app_factory()
+    job_id = upload(client, image_bytes()).json()["id"]
+    directory = app.state.store._jobs[job_id].directory
+    entered = threading.Event()
+    release = threading.Event()
+    real_release_render = app.state.store.release_render
+
+    def delayed_release_render(lease_id):
+        entered.set()
+        assert release.wait(2)
+        return real_release_render(lease_id)
+
+    monkeypatch.setattr(app.state.store, "release_render", delayed_release_render)
+    concurrent_client = TestClient(app)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            rendering = pool.submit(client.get, f"/api/jobs/{job_id}/preview")
+            try:
+                assert entered.wait(1)
+                for _ in range(2):
+                    cancelled = concurrent_client.post(f"/api/jobs/{job_id}/cancel")
+                    assert cancelled.status_code == 202
+                    assert cancelled.headers["retry-after"] == "1"
+                    assert cancelled.json() == {"id": job_id, "state": "cleanup_pending"}
+                    assert directory.exists()
+            finally:
+                release.set()
+            assert rendering.result(timeout=2).status_code == 200
+    finally:
+        concurrent_client.close()
+
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 204
+    assert not directory.exists()
+
+
+def test_cancel_retries_only_this_jobs_quarantines(app_factory, monkeypatch):
+    app, client, _ = app_factory()
+    first_id = upload(client, image_bytes()).json()["id"]
+    second_id = upload(client, image_bytes()).json()["id"]
+    first_directory = app.state.store._jobs[first_id].directory
+    second_directory = app.state.store._jobs[second_id].directory
+    targets = {first_directory, second_directory}
+    failed_once = set()
+
+    import app.store as store_module
+    real_rmtree = store_module.shutil.rmtree
+
+    def flaky(path, *args, **kwargs):
+        if path in targets and path not in failed_once:
+            failed_once.add(path)
+            raise OSError("busy")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(store_module.shutil, "rmtree", flaky)
+    assert client.post(f"/api/jobs/{first_id}/cancel").status_code == 202
+    assert client.post(f"/api/jobs/{second_id}/cancel").status_code == 202
+    assert first_directory.exists() and second_directory.exists()
+
+    assert client.post(f"/api/jobs/{first_id}/cancel").status_code == 204
+    assert not first_directory.exists() and second_directory.exists()
+    assert client.post(f"/api/jobs/{first_id}/cancel").status_code == 204
+    assert client.post(f"/api/jobs/{second_id}/cancel").status_code == 204
+    assert not second_directory.exists()
+
+
+def test_concurrent_cancel_cannot_observe_quarantine_handoff_gap(app_factory, monkeypatch):
+    app, client, _ = app_factory()
+    job_id = upload(client, image_bytes()).json()["id"]
+    store = app.state.store
+    directory = store._jobs[job_id].directory
+    before = store.stats()[1]
+    scanning = threading.Event()
+    release = threading.Event()
+
+    import app.store as store_module
+    real_rmtree = store_module.shutil.rmtree
+    real_directory_bytes = store._directory_bytes
+
+    def fail_target(path, *args, **kwargs):
+        if path == directory:
+            raise OSError("busy")
+        return real_rmtree(path, *args, **kwargs)
+
+    def paused_scan(path):
+        if path == directory:
+            scanning.set()
+            assert release.wait(2)
+        return real_directory_bytes(path)
+
+    monkeypatch.setattr(store_module.shutil, "rmtree", fail_target)
+    monkeypatch.setattr(store, "_directory_bytes", paused_scan)
+    concurrent_client = TestClient(app)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            first = pool.submit(client.post, f"/api/jobs/{job_id}/cancel")
+            try:
+                assert scanning.wait(1)
+                repeated = concurrent_client.post(f"/api/jobs/{job_id}/cancel")
+                assert repeated.status_code == 202
+                assert store.stats()[1] == before
+            finally:
+                release.set()
+            assert first.result(timeout=2).status_code == 202
+    finally:
+        concurrent_client.close()
+
+    monkeypatch.setattr(store_module.shutil, "rmtree", real_rmtree)
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 204
+    assert store.stats()[1] == 0
+
+
+def test_cancel_registry_full_is_machine_readable(app_factory):
+    _, client, _ = app_factory(terminal_registry_max=1)
+    assert client.post(f"/api/jobs/{'b' * 32}/cancel").status_code == 204
+    full = client.post(f"/api/jobs/{'c' * 32}/cancel")
+    assert full.status_code == 507
+    assert full.json()["cause"] == "terminal_registry"
+
+
+def test_live_capacity_507_keeps_detail_and_adds_cause(app_factory):
+    _, client, _ = app_factory(max_jobs=1)
+    upload(client, image_bytes())
+    response = client.post(
+        "/api/jobs",
+        data={"job_id": "d" * 32},
+        files={"file": ("photo.png", image_bytes(), "image/png")},
+    )
+    assert response.status_code == 507
+    assert response.json() == {
+        "detail": "The job limit has been reached. Delete a job and try again.",
+        "cause": "live_capacity",
+    }
+
+
+def test_disk_and_memory_capacity_causes_are_machine_readable(app_factory):
+    _, disk_client, _ = app_factory(disk_quota_bytes=1)
+    disk = upload(disk_client, image_bytes())
+    assert disk.status_code == 507
+    assert disk.json()["cause"] == "disk_quota"
+
+    _, memory_client, _ = app_factory(memory_quota_bytes=1)
+    memory = upload(memory_client, image_bytes())
+    assert memory.status_code == 507
+    assert memory.json()["cause"] == "memory_quota"
+
+
+def test_capacity_causes_do_not_depend_on_human_messages(app_factory, monkeypatch):
+    app, client, _ = app_factory()
+
+    def opaque_body_failure(_declared):
+        raise StoreCapacityError("opaque body failure", "memory_quota")
+
+    monkeypatch.setattr(app.state.store, "reserve_body", opaque_body_failure)
+    middleware = upload(client, image_bytes())
+    assert middleware.status_code == 507
+    assert middleware.json() == {
+        "detail": "opaque body failure",
+        "cause": "memory_quota",
+    }
+
+    app2, client2, _ = app_factory()
+
+    def opaque_generation_failure(*_args, **_kwargs):
+        raise StoreCapacityError("opaque generation failure", "disk_quota")
+
+    monkeypatch.setattr(app2.state.store, "reserve_resources", opaque_generation_failure)
+    generation = upload(client2, image_bytes())
+    assert generation.status_code == 507
+    assert generation.json() == {
+        "detail": "opaque generation failure",
+        "cause": "disk_quota",
+    }
+
+
 def test_concurrent_duplicate_posts_share_one_terminal_result(app_factory):
     entered = threading.Event()
     release = threading.Event()
