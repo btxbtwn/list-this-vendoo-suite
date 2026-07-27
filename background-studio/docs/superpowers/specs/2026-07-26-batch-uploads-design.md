@@ -24,11 +24,12 @@ Version one does not include parallel inference, combined ZIP export, cross-sess
 
 ### Backend contracts
 
-The backend remains job-oriented; it does not gain a batch-creation endpoint. Three focused backend changes support retained batches:
+The backend remains job-oriented; it does not gain a batch-creation endpoint. Four focused backend changes support retained batches:
 
 1. Raise the live-job limit from eight to twelve. Ten slots are available for a full batch, with two slots of reconciliation and cleanup headroom. Existing byte and pixel capacity limits remain authoritative.
 2. Add a lightweight authenticated-local `POST /api/jobs/{job_id}/touch` endpoint. It updates the job's last-access time without reading or rendering image data and returns `204`, `404`, or `410` consistently with existing job lookup semantics.
-3. Verify that ten simultaneously retained jobs can each be queried, previewed, exported, touched, and deleted independently.
+3. Add an idempotent `POST /api/jobs/{job_id}/cancel` endpoint. Under the store lock it tombstones an unused valid ID, cancels and terminalizes a creating generation, or deletes a live job. A successful `204` proves that the ID cannot later commit. Cleanup failure remains explicit and retryable. This closes the race where a reconciliation `404` arrives before a delayed create reserves its ID.
+4. Verify that ten simultaneously retained jobs can each be queried, previewed, exported, touched, canceled, and deleted independently.
 
 Inference remains serialized by the existing `InferenceService`. The frontend sends only one creation request at a time.
 
@@ -50,7 +51,7 @@ Each item has:
 - The original browser `File`, retained so validation, inference, or expiration failures can be retried during the current page session.
 - Filename and a bounded thumbnail object URL.
 - A preallocated backend `jobId` used for every create, reconcile, retry, and cleanup operation for that item generation.
-- Status: `queued`, `processing`, `reconciling`, `ready`, `failed`, `expired`, `removing`, or `cancelled`.
+- Status: `queued`, `processing`, `reconciling`, `cleanup-pending`, `ready`, `failed`, `expired`, `removing`, or `cancelled`.
 - Item-specific error text.
 - Backend dimensions after creation.
 - Canonical editor settings: threshold, feather, background mode, solid color, comparison, brush mode, brush size, softness, stroke count, server revision, and uncertainty causes.
@@ -65,33 +66,34 @@ Every reducer action carries the relevant `batchGeneration`, `itemId`, `itemGene
 
 Before upload, the frontend preallocates a backend job ID and records it in the cleanup ledger. It submits that ID with the existing multipart `job_id` field.
 
-On a valid `201`, the matching item becomes ready and the ledger records the job as present. A valid stale `201` from a discarded batch or replaced item generation triggers compensating deletion instead of being ignored.
+On a valid `201`, the matching item becomes ready and the ledger records the job as present. A valid stale `201` from a discarded batch or replaced item generation triggers compensating cancellation instead of being ignored.
 
 If transport, parsing, or response-shape failure leaves creation uncertain, the item enters `reconciling`. The frontend queries that exact preallocated job ID using the existing reconciliation contract:
 
 - Present and complete: accept the job and mark the item ready.
-- Confirmed absent: mark the item failed and permit retry with a new item generation and job ID.
+- `404 unknown`: do not treat absence as terminal because the original request may still reserve later. Call the idempotent cancel endpoint; only its successful `204` makes Retry safe.
 - Present but incomplete: continue bounded reconciliation.
-- Unknown or reconciliation failure: keep the item uncertain and its job ID in the cleanup ledger; do not allow retry yet.
+- Terminal `410`: mark the item failed and permit retry with a new item generation and job ID.
+- Unknown or reconciliation/cancel failure after bounded foreground attempts: move the item to `cleanup-pending`, transfer responsibility to background ledger reconciliation, keep Retry disabled, and advance later queued items when server capacity permits.
 
-Retry never creates another job while a prior attempt remains unresolved.
+Retry never creates another job while a prior attempt remains unresolved. Validation, capacity, inference, cancellation, and cleanup responses are terminal only when lifecycle returns `410` or cancel returns `204`. An error response without terminal proof follows the same reconciliation path.
 
 ### Cleanup ledger
 
-The cleanup ledger is independent of visible items. Removing an item or resetting the batch cannot erase an unresolved backend job ID.
+The cleanup ledger is independent of visible items. Removing an item or resetting the batch cannot erase an unresolved backend job ID. Ledger IDs and minimal state are mirrored to `sessionStorage`, restored on mount, and removed only after terminal proof. This survives component remounts and page reloads; a hard tab close, browser crash without session restoration, or storage clearing may leave jobs until backend TTL cleanup.
 
-Each entry records `jobId`, originating batch/item generation, and `present`, `deleting`, `deleted`, or `unknown`. Confirmed deletion removes the entry. Failed or interrupted deletion returns it to `unknown` for reconciliation.
+Each entry records `jobId`, originating batch/item generation, and `present`, `deleting`, `deleted`, `unknown`, or `terminal`. Confirmed cancellation/deletion removes the entry. Failed or interrupted cleanup returns it to `unknown` for reconciliation.
 
-A new batch may be shown while cleanup continues, but unresolved ledger entries count against the twelve-job capacity. Upload scheduling pauses before it would exceed available capacity and displays a cleanup message instead of producing repeated capacity errors.
+A new batch may be shown while cleanup continues. Locally unresolved ledger entries count against the twelve-job capacity, but the frontend cannot know about jobs in another tab or abandoned session. Server `507` is authoritative backpressure: scheduling pauses, preserves queued items, and offers bounded manual Resume after cleanup rather than treating capacity as an ordinary item failure or spinning automatically.
 
 On reset or unmount:
 
 - Increment the batch generation and stop scheduling queued items.
 - Abort frontend requests where possible.
-- Reconcile every in-flight preallocated job ID.
-- Compensating-delete stale successful creations.
-- Attempt deletion of every known present or unknown job.
-- Preserve unresolved IDs in the ledger until deletion or confirmed absence.
+- Reconcile and cancel every in-flight preallocated job ID.
+- Compensating-cancel stale successful creations.
+- Attempt cancellation/deletion of every known present or unknown job.
+- Preserve unresolved IDs until terminal lifecycle state or successful cancellation/deletion proves they cannot commit.
 - Revoke all thumbnail and preview object URLs.
 
 `sendBeacon` remains best effort only; it does not count as confirmed deletion.
@@ -100,17 +102,17 @@ On reset or unmount:
 
 Queue thumbnails are bounded derivatives, not direct full-resolution file URLs.
 
-For each accepted file, the frontend decodes with EXIF orientation applied, scales to fit within 192×192 without upscaling, and writes a compressed thumbnail blob. The temporary source URL or bitmap is released immediately after thumbnail creation. Only the small thumbnail object URL remains mounted. It is revoked when replaced, removed, reset, or unmounted.
+Thumbnail work has concurrency one. File-byte preflight runs before decode. Files larger than 8 MiB use the placeholder path rather than risking a large browser decode solely for queue decoration. For smaller files, `createImageBitmap` receives EXIF-aware orientation and 192-pixel resize hints where supported, then a bounded canvas writes the thumbnail blob. Bitmap, canvas backing storage, and any temporary source URL are released immediately. Only the small thumbnail object URL remains mounted. It is revoked when replaced, removed, reset, or unmounted.
 
-Thumbnail failure does not prevent processing; the queue falls back to a non-image file placeholder and reports no global error.
+Thumbnail failure, unavailable resize hints, or unsafe dimensions do not prevent backend processing; the queue uses a file placeholder and reports no global error. The design guarantees bounded retained thumbnail memory and sequential decode attempts, not that every browser decoder honors resize hints without a transient source decode.
 
 ## Processing and Job Lifetime
 
-Only one item may be `processing` or actively reconciling creation at a time. A terminal item result advances the queue. One failed item does not stop later queued items.
+Only one item may be `processing` or actively reconciling creation at a time. A terminal result or transfer to background `cleanup-pending` advances the queue when capacity permits. One failed or uncertain item does not stop later queued items indefinitely.
 
-While a batch contains ready jobs, the frontend touches each retained ready job every five minutes and when the page becomes visible. Touches are bounded and sequential, and stop when jobs are removed or the component unmounts. The existing thirty-minute TTL therefore remains the safety boundary for abandoned sessions while active batches retain their editable jobs.
+While a batch contains ready jobs, the frontend touches each retained ready job every five minutes and when the page becomes visible. Touches are bounded and sequential, and stop when jobs are removed or the component unmounts. This retains jobs while JavaScript heartbeat execution is permitted; mobile/background timer suspension may exceed the thirty-minute TTL, so uninterrupted retention is not promised while the browser is suspended.
 
-A `404` or `410` touch marks only that item expired. Because the original `File` remains available, the item can be retried after the old job is confirmed absent or deleted.
+A `404` or `410` touch marks only that item expired. The transition aborts that item's active requests, invalidates every operation sequence, clears preview readiness, revokes its preview URL, and makes reducers reject completions unless the item remains in the operation's required state. Because the original `File` remains available, the item can be retried after cancel or lifecycle state proves the old ID terminal.
 
 ## User Experience
 
@@ -137,13 +139,13 @@ The existing editor is derived from the selected item's reducer state. Queue sel
 
 Switching immediately invalidates visible preview readiness. A preview may update the item that requested it, but only a preview identity matching all of `batchGeneration + itemId + itemGeneration + jobId + editor-parameter fingerprint + serverRevision + requestSequence` may replace the visible selected preview.
 
-Preview, mutation, export, and deletion errors remain owned by their originating item. Late operations cannot overwrite another item's image, controls, revision, stroke count, or error.
+Preview, mutation, export, and deletion errors remain owned by their originating item. Late operations cannot overwrite another item's image, controls, revision, stroke count, or error. Replacing a preview revokes the prior URL. A stale response whose new URL is rejected revokes that URL immediately. Expiration, removal, reset, and unmount revoke every retained preview URL.
 
 For one selected file, the queue may collapse to a compact single-item summary, Previous/Next remain hidden, and the editor interaction remains equivalent to the current workflow.
 
 ### Removal and focus
 
-Removing the selected item chooses the nearest ready neighbor, preferring the next item and then the previous item. Focus moves predictably to that selected item's queue button; if no ready item remains, focus moves to the queue heading or upload control. Removing an unselected item preserves current focus.
+Removing the selected item chooses the nearest ready neighbor, preferring the next item and then the previous item. Focus moves to that selected item's queue button; if no ready item remains, focus moves to the queue heading or upload control. Removing an unselected item preserves focus unless focus was inside the removed item; then focus moves to the next item's primary control, the previous item, the selected item, or the queue heading in that order. Retry control replacement follows the same fallback. Tests activate these controls by keyboard.
 
 Disabled controls remain semantically named. Queued or processing items are not selectable as editors but their status remains readable.
 
@@ -156,13 +158,13 @@ When every visible item is ready, failed, expired, or cancelled, the live region
 ## Error Handling
 
 - Validation or inference failure: mark only that item failed, retain its file, and continue.
-- Lost creation response: reconcile the preallocated ID; do not expose Retry while unresolved.
-- Reset during inference: invalidate the batch; reconcile the ID and delete any resulting job.
-- Retry: only after absence/deletion is confirmed; use a new item generation and job ID.
+- Lost creation response: reconcile and atomically cancel the preallocated ID; do not expose Retry without terminal proof.
+- Reset during inference: invalidate the batch, atomically cancel the ID, and reject or clean any stale result.
+- Retry: only after terminal lifecycle state or successful cancellation/deletion proves the old ID cannot commit; use a new item generation and job ID.
 - Expiration: mark only that item expired and offer safe retry.
 - Preview/mutation/export failure: attribute it to the originating item and preserve other items.
 - Deletion failure: retain the ID as unknown in the cleanup ledger and retry reconciliation later.
-- Capacity pressure: pause queue scheduling with a clear message; do not spin or auto-retry repeatedly.
+- Capacity pressure, including another tab or disk quota: pause scheduling with a clear message and bounded manual Resume; do not spin or convert queued items to ordinary failures. Selecting ten files does not override existing byte, pixel, memory, or disk quotas.
 
 ## Testing
 
@@ -174,7 +176,8 @@ Frontend tests explicitly cover:
 - Strictly sequential creates with no overlapping inference.
 - Item B processing never deleting or resetting item A.
 - Continuing after a validation or inference failure.
-- Lost creation response after backend success, exact-ID reconciliation, and blocked Retry while unresolved.
+- Lost creation response before or after reservation, exact-ID reconciliation/cancellation, and blocked Retry until terminal proof.
+- An unresolved first item moving to `cleanup-pending` while later valid items continue when capacity permits.
 - Reset during inference followed by stale success and compensating deletion.
 - Several deletion failures retaining several independent cleanup-ledger entries.
 - Retry after confirmed absence and retry after expiration using the retained `File`.
@@ -183,18 +186,20 @@ Frontend tests explicitly cover:
 - Removing the selected item while its preview is pending.
 - A mutation response updating its originating unselected item.
 - Preview identity invalidation across item selection and revisions.
-- Touch scheduling, page visibility touch, expiration handling, and a deliberately slow ten-item queue.
+- Touch scheduling, page visibility touch, suspended-timer expiration handling, and a deliberately slow ten-item queue.
+- Expiration racing preview, mutation, and export completion with operation invalidation and URL cleanup.
 - Unmount cleanup with queued, ready, uncertain, and processing items together.
 - Single-file regression behavior.
 - Semantic queue controls, `aria-current`, accessible Retry/Remove names, restrained live announcements, deterministic removal focus, and no focus stealing.
-- Mobile queue/editor layout plus keyboard and screen-reader focus order.
+- Mobile queue/editor layout plus keyboard and screen-reader focus order, including keyboard-triggered Remove and Retry replacement.
 
 Backend tests cover:
 
-- Twelve-job capacity and rejection beyond it.
+- Twelve-job count capacity and rejection beyond it; ten retained jobs remain subject to configured disk, byte, pixel, and memory quotas.
 - Ten simultaneously retained jobs with independent status, preview, export, touch, mutation, and deletion.
 - Touch refreshing last access without rendering or mutating image data.
 - Touch `404`/`410` behavior and cleanup races.
+- Atomic cancel of unknown, creating, live, and terminal IDs, including cancel racing delayed create reservation.
 - Existing single-job behavior and limits not related to live-job count.
 
 Verification includes full backend/frontend suites, production build, dependency audit, and a real browser smoke test with multiple photos: sequential processing, queue switching, refining one result, expiration-safe touches, and individual exports.
@@ -203,13 +208,13 @@ Verification includes full backend/frontend suites, production build, dependency
 
 - A user can choose two to ten supported photos in one action.
 - Processing is strictly sequential and advances automatically.
-- Ten successful jobs can remain live and independently editable.
+- Ten ordinary supported jobs that fit configured resource quotas can remain live and independently editable; capacity backpressure preserves queued work when quotas or other tabs consume capacity.
 - One failure does not block later photos.
 - Lost responses and stale successes cannot duplicate or orphan jobs.
 - Every successful photo remains independently refinable and exportable while the active batch lease is maintained.
 - Switching does not leak editor state, preview readiness, responses, or errors between items.
-- Retry, remove, reset, unmount, and stale completion cleanup act on the intended job IDs through the ledger.
-- Queue thumbnails have bounded decode/display memory.
+- Retry, remove, reset, component remount, and stale completion cleanup act on intended IDs through the session-backed ledger; hard browser termination may rely on backend TTL.
+- Queue thumbnails have bounded retained memory, one-at-a-time decode attempts, and a safe placeholder path for large files.
 - Queue interaction is keyboard and screen-reader accessible without focus theft.
 - Selecting one photo still behaves like the existing single-image workflow.
 - The implementation passes all existing and new tests plus a real multi-photo UI smoke test.
