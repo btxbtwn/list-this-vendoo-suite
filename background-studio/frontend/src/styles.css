@@ -362,6 +362,22 @@ output {
   color: #8c1d1d;
 }
 
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.batch-queue { margin-bottom: 16px; padding: 12px; border: 1px solid #d7deea; border-radius: 14px; background: #fff; }
+.batch-heading, .ready-navigation { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.batch-heading h2 { margin: 0; font-size: 1rem; }
+.batch-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; padding: 0; margin: 12px 0 0; list-style: none; }
+.batch-item { display: flex; gap: 7px; align-items: stretch; padding: 7px; border: 1px solid #d7deea; border-radius: 10px; background: #f8fafc; }
+.batch-item[aria-current="true"] { border-color: #2459e0; box-shadow: inset 3px 0 #2459e0; }
+.batch-select { min-width: 0; flex: 1; display: flex; align-items: center; gap: 9px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.batch-select img, .thumbnail-placeholder { width: 48px; height: 48px; border-radius: 7px; object-fit: cover; background: #e3e8f0; display: grid; place-items: center; flex: 0 0 auto; }
+.batch-select strong, .batch-select small { display: block; max-width: 115px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-select small { color: #64748b; text-transform: capitalize; }
+.active-marker { font-size: .72rem; font-weight: 800; color: #2459e0; }
+.batch-actions { display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+.batch-actions button { min-height: 32px; padding: 4px 7px; font-size: .78rem; }
+.ready-navigation { margin-bottom: 10px; }
+
 @media (max-width: 850px) {
   .shell {
     padding: 16px;

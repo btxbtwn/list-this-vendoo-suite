@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { BATCH_STATUS, batchActions, batchReducer, createBatchItems, createInitialBatchState, selectNextQueuedItem } from './batchState.js'
+import { addCleanupId, readCleanupLedger, removeCleanupId } from './cleanupLedger.js'
+import { createThumbnail } from './thumbnails.js'
 
 const presets = [['White', '#ffffff'], ['Black', '#000000'], ['Marketplace', '#f5f5f5']]
 const MAX_POINTS = 2048
@@ -67,6 +70,10 @@ function streamPoints(stream) {
 }
 
 export default function App() {
+  const [batch, batchDispatch] = useReducer(batchReducer, undefined, createInitialBatchState)
+  const [announcement, setAnnouncement] = useState('')
+  const [queuePaused, setQueuePaused] = useState(false)
+  const [queueProcessing, setQueueProcessing] = useState(false)
   const [job, setJob] = useState(null)
   const [processing, setProcessing] = useState(false)
   const [previewing, setPreviewing] = useState(false)
@@ -112,8 +119,16 @@ export default function App() {
   const normalizedPointsRef = useRef(null)
   const activeBrushRef = useRef(null)
   const keyboardPointRef = useRef([0.5, 0.5])
+  const batchRef = useRef(batch)
+  const queueOperationRef = useRef(null)
+  const batchGenerationRef = useRef(0)
+  const selectedLocalIdRef = useRef(null)
+  const localItemSequenceRef = useRef(0)
+  const queuePausedItemRef = useRef(null)
+  const liveItemIdsRef = useRef(new Set())
 
   useEffect(() => { jobRef.current = job }, [job])
+  useEffect(() => { batchRef.current = batch }, [batch])
   const replacePreviewUrl = useCallback((next, identity = null) => {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
     previewUrlRef.current = next
@@ -187,6 +202,9 @@ export default function App() {
     invalidatePreview()
     jobRef.current = null
     setJob(null)
+    selectedLocalIdRef.current = null
+    const expired = batchRef.current.items.find((item) => item.clientJobId === jobId)
+    if (expired) batchDispatch(batchActions.failed(expired.localId, message))
     clearBrushState()
     replacePreviewUrl('')
     setOwnedError(message, `expired:${jobId}`)
@@ -252,7 +270,7 @@ export default function App() {
     }
   }
 
-  const ingest = useCallback(async (file) => {
+  const legacyIngest = useCallback(async (file) => {
     if (!file || ingestionRef.current || mutationRef.current || exportRef.current || deletionRef.current || activePointerRef.current !== null) return
     const operation = Symbol('ingestion')
     ingestionRef.current = operation
@@ -333,6 +351,161 @@ export default function App() {
       }
     }
   }, [replacePreviewUrl])
+
+  const cancelBatchJob = useCallback(async (jobId) => {
+    const response = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' })
+    if (response.status === 204) {
+      const removed = removeCleanupId(jobId)
+      if (!removed.ok) throw new Error('Backend cleanup completed, but browser cleanup storage could not be updated.')
+      return 'complete'
+    }
+    if (response.status === 202) return 'pending'
+    throw new Error(await apiError(response, 'Cleanup failed.'))
+  }, [])
+
+  const ingest = useCallback((fileOrFiles) => {
+    const files = Array.from(fileOrFiles instanceof FileList || Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles]).filter(Boolean)
+    const slots = Math.max(0, 10 - batchRef.current.items.length)
+    if (!files.length || !slots || queueOperationRef.current || mutationRef.current || exportRef.current || deletionRef.current) return
+    const admitted = createBatchItems(files.slice(0, slots), {
+      localIdFactory: () => `local-${localItemSequenceRef.current += 1}`,
+      jobIdFactory: () => crypto.randomUUID().replaceAll('-', ''),
+    })
+    admitted.forEach((item) => liveItemIdsRef.current.add(item.localId))
+    batchDispatch(batchActions.admit(admitted))
+    for (const item of admitted) {
+      createThumbnail(item.file).then((thumbnail) => {
+        if (liveItemIdsRef.current.has(item.localId)) batchDispatch(batchActions.thumbnailReady(item.localId, thumbnail))
+        else thumbnail.revoke()
+      }).catch((caught) => {
+        batchDispatch(batchActions.thumbnailFailed(item.localId, caught.message || 'Thumbnail unavailable'))
+      })
+    }
+    if (inputRef.current) inputRef.current.value = ''
+  }, [])
+
+  useEffect(() => {
+    const next = selectNextQueuedItem(batch)
+    if (!next || queuePaused || queueOperationRef.current) return undefined
+    const generation = batchGenerationRef.current
+    const operation = Symbol(next.localId)
+    queueOperationRef.current = operation
+    batchDispatch(batchActions.processing(next.localId))
+    setQueueProcessing(true)
+    const run = async () => {
+      const ledger = addCleanupId(next.clientJobId)
+      if (!ledger.ok) throw new Error(ledger.corrupt ? 'Cleanup ledger is corrupt. Reload this page before uploading.' : 'Browser cleanup storage is unavailable.')
+      const form = new FormData()
+      form.append('file', next.file)
+      form.append('job_id', next.clientJobId)
+      let response
+      let transportError
+      try { response = await fetch('/api/jobs', { method: 'POST', body: form }) } catch (caught) { transportError = caught }
+      let nextJob
+      if (response?.ok) {
+        try { nextJob = await response.json() } catch (caught) { transportError = caught }
+        if (!validJobPayload(nextJob, next.clientJobId)) transportError = transportError || new Error('Upload returned an invalid result.')
+      } else if (response) {
+        if (response.status === 507) { setQueuePaused(true); queuePausedItemRef.current = next.localId }
+        transportError = new Error(await apiError(response, 'Upload failed.'))
+      }
+      if (transportError) {
+        const recovered = await reconcileJob(next.clientJobId)
+        if (recovered.state === 'present') nextJob = recovered.job
+        else {
+          await cancelBatchJob(next.clientJobId)
+          throw transportError
+        }
+      }
+      if (generation !== batchGenerationRef.current) {
+        try { await cancelBatchJob(next.clientJobId) } catch (caught) { setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${next.clientJobId}`) }
+        return
+      }
+      batchDispatch(batchActions.ready(next.localId, nextJob))
+      setAnnouncement(`${next.file.name} is ready.`)
+    }
+    run().catch((caught) => {
+      if (generation === batchGenerationRef.current) {
+        batchDispatch(batchActions.failed(next.localId, caught.message || 'Processing failed.'))
+        setAnnouncement(`${next.file.name} failed.`)
+      }
+    }).finally(() => {
+      if (queueOperationRef.current === operation) {
+        queueOperationRef.current = null
+        setQueueProcessing(false)
+      }
+    })
+    return undefined
+  }, [batch, cancelBatchJob, queuePaused])
+
+  useEffect(() => {
+    const item = batch.items.find((candidate) => candidate.localId === batch.selectedLocalId && candidate.status === BATCH_STATUS.READY)
+    if (!item || selectedLocalIdRef.current === item.localId) return
+    selectedLocalIdRef.current = item.localId
+    const editor = item.editor || {}
+    const nextJob = { id: item.clientJobId, width: item.backendWidth, height: item.backendHeight }
+    jobRef.current = nextJob
+    setJob(nextJob)
+    setThreshold(editor.threshold ?? 0); setFeather(editor.feather ?? 0); setBackground(editor.background ?? 'transparent'); setColor(editor.color ?? '#ffffff'); setCompare(editor.compare ?? 50)
+    setMode(editor.mode ?? 'remove'); setBrushSize(editor.brushSize ?? 36); setSoftness(editor.softness ?? 0.35); setStrokeCount(editor.strokeCount ?? 0)
+    serverRevisionRef.current = editor.revision ?? 0
+    replacePreviewUrl('')
+    setPreviewNonce((value) => value + 1)
+  }, [batch.selectedLocalId, batch.items, replacePreviewUrl])
+
+  useEffect(() => {
+    if (!batch.selectedLocalId) return
+    batchDispatch(batchActions.editorPatch(batch.selectedLocalId, { threshold, feather, background, color, compare, mode, brushSize, softness, strokeCount, revision: serverRevisionRef.current }))
+  }, [threshold, feather, background, color, compare, mode, brushSize, softness, strokeCount, batch.selectedLocalId])
+
+  useEffect(() => {
+    const ledger = readCleanupLedger()
+    if (ledger.corrupt) {
+      setOwnedError('Cleanup ledger is corrupt. Reload the page before uploading.', 'ledger')
+      return
+    }
+    ledger.ids.forEach((jobId) => { cancelBatchJob(jobId).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${jobId}`)) })
+  }, [cancelBatchJob])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const ready = batchRef.current.items.filter((item) => item.status === BATCH_STATUS.READY)
+      const active = new Set(batchRef.current.items.filter((item) => item.status === BATCH_STATUS.PROCESSING).map((item) => item.clientJobId))
+      ready.forEach((item) => { fetch(`/api/jobs/${item.clientJobId}/touch`, { method: 'POST' }).catch(() => {}) })
+      const ledger = readCleanupLedger()
+      if (!ledger.corrupt) ledger.ids.filter((id) => !ready.some((item) => item.clientJobId === id) && !active.has(id)).forEach((id) => { cancelBatchJob(id).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${id}`)) })
+    }, 10 * 60 * 1000)
+    return () => window.clearInterval(timer)
+  }, [cancelBatchJob])
+
+  const retryBatchItem = async (item) => {
+    try {
+      await cancelBatchJob(item.clientJobId)
+      batchDispatch(batchActions.retry(item.localId, crypto.randomUUID().replaceAll('-', '')))
+    } catch (caught) { setOwnedError(caught.message || 'Retry cleanup failed.', `retry:${item.localId}`) }
+  }
+
+  const removeBatchItem = async (item) => {
+    try {
+      await cancelBatchJob(item.clientJobId)
+      item.thumbnailRevoke?.()
+      liveItemIdsRef.current.delete(item.localId)
+      batchDispatch(batchActions.remove(item.localId))
+      if (selectedLocalIdRef.current === item.localId) { selectedLocalIdRef.current = null; jobRef.current = null; setJob(null); replacePreviewUrl('') }
+    } catch (caught) { setOwnedError(caught.message || 'Remove failed.', `remove:${item.localId}`) }
+  }
+
+  const resetBatch = async () => {
+    batchGenerationRef.current += 1
+    const items = batchRef.current.items
+    liveItemIdsRef.current.clear()
+    items.forEach((item) => { item.thumbnailRevoke?.(); cancelBatchJob(item.clientJobId).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${item.clientJobId}`)) })
+    selectedLocalIdRef.current = null; jobRef.current = null; setJob(null); replacePreviewUrl(''); clearBrushState()
+    batchDispatch(batchActions.reset())
+    setQueuePaused(false)
+    queuePausedItemRef.current = null
+    setAnnouncement('Started a new batch.')
+  }
 
   useEffect(() => {
     const onPaste = (event) => {
@@ -651,6 +824,15 @@ export default function App() {
   const globallyBusy = processing || mutating || exporting || deleting || drawing
   const controlsBlocked = globallyBusy || stateUncertain
   const brushEnabled = previewReady && !stateUncertain && compare === 0 && !globallyBusy
+  const readyItems = batch.items.filter((item) => item.status === BATCH_STATUS.READY)
+  const readyIndex = readyItems.findIndex((item) => item.localId === batch.selectedLocalId)
+  const editorBusy = mutating || exporting || deleting || drawing || activePointerRef.current !== null
+  const resumeQueue = () => {
+    const item = batchRef.current.items.find((candidate) => candidate.localId === queuePausedItemRef.current && candidate.status === BATCH_STATUS.FAILED)
+    if (item) batchDispatch(batchActions.retry(item.localId, crypto.randomUUID().replaceAll('-', '')))
+    queuePausedItemRef.current = null
+    setQueuePaused(false)
+  }
 
   useEffect(() => {
     if (!brushEnabled && activePointerRef.current === null) setCursor(null)
@@ -658,15 +840,31 @@ export default function App() {
 
   return <main className="shell">
     <header className="app-header"><div><p className="eyebrow">Image editing workspace</p><h1>Background Studio</h1></div>
-      {(job || stateUncertain) && <button className="secondary" disabled={globallyBusy || activePointerRef.current !== null} onClick={reset}>New image</button>}
+      {(batch.items.length > 0 || stateUncertain) && <button className="secondary" disabled={mutating || exporting || deleting || drawing} onClick={resetBatch}>New batch</button>}
     </header>
     {error && <div className="error" role="alert">{error}</div>}
-    {!job ? <section className={`dropzone ${dragging ? 'dragging' : ''}`} onDragEnter={(e) => { e.preventDefault(); setDragging(true) }} onDragOver={(e) => e.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); ingest(e.dataTransfer.files[0]) }}>
-      <input ref={inputRef} id="image-input" type="file" accept="image/jpeg,image/png,image/webp" disabled={processing || mutating} onChange={(e) => ingest(e.target.files[0])}/>
-      <h2>{processing ? 'Removing background…' : 'Drop an image here'}</h2><p>JPEG, PNG, or WebP. You can also paste an image.</p>
-      <label className={`primary ${processing ? 'disabled' : ''}`} htmlFor="image-input">{processing ? 'Processing' : 'Choose image'}</label>
+    <p className="sr-only" aria-live="polite">{announcement}</p>
+    {batch.items.length > 0 && <section className="batch-queue" aria-label="Batch queue">
+      <div className="batch-heading"><h2>Photos</h2><span>{batch.items.length} / 10</span>{queuePaused && <button className="secondary" disabled={editorBusy || !batch.items.some((item) => item.localId === queuePausedItemRef.current && item.status === BATCH_STATUS.FAILED)} onClick={resumeQueue}>Resume queue</button>}</div>
+      <ul className="batch-items">{batch.items.map((item, index) => <li key={item.localId} className={`batch-item status-${item.status}`} aria-current={item.localId === batch.selectedLocalId ? 'true' : undefined}>
+        <button className="batch-select" disabled={item.status !== BATCH_STATUS.READY || editorBusy} onClick={() => batchDispatch(batchActions.select(item.localId))} aria-label={`Select ${item.file.name}`}>
+          {item.thumbnailUrl ? <img src={item.thumbnailUrl} alt=""/> : <span className="thumbnail-placeholder" aria-hidden="true">{index + 1}</span>}
+          <span><strong>{item.file.name}</strong><small>{item.status.replace('_', ' ')}</small></span>
+          {item.localId === batch.selectedLocalId && <span className="active-marker">Selected</span>}
+        </button>
+        <div className="batch-actions">
+          {item.status === BATCH_STATUS.FAILED && <button className="secondary" disabled={editorBusy} onClick={() => retryBatchItem(item)} aria-label={`Retry ${item.file.name}`}>Retry</button>}
+          {item.status !== BATCH_STATUS.PROCESSING && <button className="secondary" disabled={editorBusy} onClick={() => removeBatchItem(item)} aria-label={`Remove ${item.file.name}`}>Remove</button>}
+        </div>
+      </li>)}</ul>
+    </section>}
+    {!job ? <section className={`dropzone ${dragging ? 'dragging' : ''}`} onDragEnter={(e) => { e.preventDefault(); setDragging(true) }} onDragOver={(e) => e.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); ingest(e.dataTransfer.files) }}>
+      <input ref={inputRef} id="image-input" type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={mutating || batch.items.length >= 10} onChange={(e) => ingest(e.target.files)}/>
+      <h2>{queueProcessing ? 'Processing photos…' : 'Drop up to 10 images here'}</h2><p>JPEG, PNG, or WebP. Photos process one at a time.</p>
+      <label className={`primary ${batch.items.length >= 10 ? 'disabled' : ''}`} htmlFor="image-input">Choose photos</label>
     </section> : <section className="workspace">
       <div className="preview-panel">
+        {readyItems.length > 1 && <nav className="ready-navigation" aria-label="Ready photos"><button className="secondary" disabled={readyIndex <= 0 || globallyBusy} onClick={() => batchDispatch(batchActions.select(readyItems[readyIndex - 1].localId))}>Previous</button><span>{readyIndex + 1} of {readyItems.length}</span><button className="secondary" disabled={readyIndex < 0 || readyIndex >= readyItems.length - 1 || globallyBusy} onClick={() => batchDispatch(batchActions.select(readyItems[readyIndex + 1].localId))}>Next</button></nav>}
         <div ref={stageRef} className={`checker stage ${cursor ? 'over-image' : ''}`} aria-label="Mask brush canvas" aria-description="Use arrow keys to move the brush. Press Space or Enter to apply a dab." role="application" tabIndex={0} onKeyDown={onStageKeyDown} onContextMenu={(event) => event.preventDefault()} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={finishStroke} onPointerCancel={discardStroke} onLostPointerCapture={discardStroke} onPointerLeave={() => { if (activePointerRef.current === null) setCursor(null) }}>
           {previewUrl && previewIdentity && <img key={`${previewIdentity.jobId}:${previewIdentity.requestId}:${previewIdentity.url}`} className="result" src={previewUrl} alt="Background removal result" onLoad={() => { if (previewIdentityRef.current === previewIdentity && previewIdentity.jobId === jobRef.current?.id && previewIdentity.requestId === previewRequestRef.current) { previewReadyRef.current = true; setPreviewReady(true); clearOwnedError('preview') } }} onError={() => { if (previewIdentityRef.current === previewIdentity && previewIdentity.jobId === jobRef.current?.id && previewIdentity.requestId === previewRequestRef.current) { previewReadyRef.current = false; setPreviewReady(false); setOwnedError('The current preview image could not be decoded.', 'preview') } }}/>}
           {!painting && <img className="original" src={`/api/jobs/${job.id}/original`} alt="Original" style={{ clipPath: `inset(0 ${100 - compare}% 0 0)` }}/>}
