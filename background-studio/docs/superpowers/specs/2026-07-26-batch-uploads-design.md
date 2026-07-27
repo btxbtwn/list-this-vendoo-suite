@@ -71,7 +71,7 @@ On a valid `201`, the matching item becomes ready and the ledger records the job
 If transport, parsing, or response-shape failure leaves creation uncertain, the item enters `reconciling`. The frontend queries that exact preallocated job ID using the existing reconciliation contract:
 
 - Present and complete: accept the job and mark the item ready.
-- `404 unknown`: do not treat absence as terminal because the original request may still reserve later. Call the idempotent cancel endpoint; only its successful `204` makes Retry safe.
+- `404 unknown`: do not treat absence as terminal because the original request may still reserve later. Call the idempotent cancel endpoint. Cancel `202` or `204` proves commit terminality and makes Retry safe; only `204` proves physical cleanup and permits ledger removal.
 - Present but incomplete: continue bounded reconciliation.
 - Terminal `410`: mark the item failed and permit retry with a new item generation and job ID.
 - Unknown or reconciliation/cancel failure after bounded foreground attempts: move the item to `cleanup-pending`, transfer responsibility to background ledger reconciliation, keep Retry disabled, and advance later queued items when server capacity permits.
