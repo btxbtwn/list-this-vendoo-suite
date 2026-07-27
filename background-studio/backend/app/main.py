@@ -923,6 +923,32 @@ def create_app(
             return JSONResponse({"id": job_id, "state": "unknown"}, status_code=404)
         return {"id": job.id, "width": job.width, "height": job.height}
 
+    @app.post("/api/jobs/{job_id}/touch")
+    async def touch_job(job_id: str):
+        try:
+            job_id = normalize_job_id(job_id)
+        except ValueError as exc:
+            raise HTTPException(404, "Job not found or expired.") from exc
+        try:
+            await run_in_threadpool(store.touch, job_id)
+        except JobNotFound:
+            return JSONResponse(
+                {"id": job_id, "state": "unknown"},
+                status_code=404,
+            )
+        except JobPending:
+            return JSONResponse(
+                {"id": job_id, "state": "creating"},
+                status_code=202,
+                headers={"Retry-After": "1"},
+            )
+        except JobTerminal as exc:
+            return JSONResponse(
+                {"id": job_id, "state": exc.state},
+                status_code=410,
+            )
+        return Response(status_code=204)
+
     @app.post(
         "/api/jobs/{job_id}/strokes"
     )

@@ -77,6 +77,23 @@ def center_alpha(
     )[3]
 
 
+def test_batch_lifecycle_defaults_and_env_overrides(monkeypatch):
+    monkeypatch.delenv("BACKGROUND_STUDIO_MAX_JOBS", raising=False)
+    monkeypatch.delenv("BACKGROUND_STUDIO_TERMINAL_REGISTRY_MAX", raising=False)
+
+    assert Settings().max_jobs == 12
+    assert Settings().terminal_registry_max == 4096
+    defaults = Settings.from_env()
+    assert defaults.max_jobs == 12
+    assert defaults.terminal_registry_max == 4096
+
+    monkeypatch.setenv("BACKGROUND_STUDIO_MAX_JOBS", "7")
+    monkeypatch.setenv("BACKGROUND_STUDIO_TERMINAL_REGISTRY_MAX", "123")
+    overridden = Settings.from_env()
+    assert overridden.max_jobs == 7
+    assert overridden.terminal_registry_max == 123
+
+
 def test_decode_upload_transposes_exif_and_clears_info():
     image = Image.new("RGB", (2, 3), (10, 20, 30))
     exif = Image.Exif()
@@ -647,9 +664,19 @@ def test_idempotent_client_job_id_and_invalid_ids(app_factory):
     assert first.status_code == repeat.status_code == 201
     assert first.json() == repeat.json()
     assert fake.calls == 1
-    assert client.get(f"/api/jobs/{job_id}").json() == first.json()
+    status = client.get(f"/api/jobs/{job_id}")
+    assert status.status_code == 200
+    assert status.json() == first.json()
     assert client.post("/api/jobs", data={"job_id": "../escape"}, files=files).status_code == 422
     assert list(app.state.store.root.glob("*escape*")) == []
+
+
+def test_get_unknown_job_is_404(app_factory):
+    _, client, _ = app_factory()
+    job_id = "0" * 32
+    response = client.get(f"/api/jobs/{job_id}")
+    assert response.status_code == 404
+    assert response.json() == {"id": job_id, "state": "unknown"}
 
 
 def test_concurrent_duplicate_posts_share_one_terminal_result(app_factory):
@@ -686,6 +713,73 @@ def test_concurrent_duplicate_posts_share_one_terminal_result(app_factory):
     assert fake.calls == 1
 
 
+def test_public_posts_serialize_inference_across_failure(app_factory):
+    class OverlapProbeRemover(FakeRemover):
+        def __init__(self):
+            super().__init__()
+            self._state_lock = threading.Lock()
+            self.entered = threading.Event()
+            self.release = threading.Event()
+            self.active = 0
+            self.max_active = 0
+
+        def remove(self, image):
+            with self._state_lock:
+                self.calls += 1
+                call_number = self.calls
+                self.sizes.append(image.size)
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            try:
+                if call_number == 1:
+                    self.entered.set()
+                assert self.release.wait(2)
+                if call_number == 2:
+                    raise RuntimeError("second inference failed")
+                return Image.new("L", image.size, self.value)
+            finally:
+                with self._state_lock:
+                    self.active -= 1
+
+    probe = OverlapProbeRemover()
+    _, client, _ = app_factory(probe)
+    first_id = "6" * 32
+    second_id = "7" * 32
+
+    def post(job_id):
+        return client.post(
+            "/api/jobs",
+            data={"job_id": job_id},
+            files={"file": ("photo.png", image_bytes(), "image/png")},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(post, first_id)
+        assert probe.entered.wait(1)
+        second = pool.submit(post, second_id)
+        try:
+            deadline = time.monotonic() + 1
+            while True:
+                creating = client.get(f"/api/jobs/{second_id}")
+                if creating.status_code == 202:
+                    break
+                assert creating.status_code == 404
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+        finally:
+            probe.release.set()
+        first_response = first.result(timeout=2)
+        second_response = second.result(timeout=2)
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 500
+    assert probe.calls == 2
+    assert probe.max_active == 1
+    failed = client.get(f"/api/jobs/{second_id}")
+    assert failed.status_code == 410
+    assert failed.json() == {"id": second_id, "state": "failed"}
+
+
 def test_delete_tombstones_creating_job_and_prevents_late_publish(app_factory):
     entered = threading.Event()
     release = threading.Event()
@@ -709,7 +803,10 @@ def test_delete_tombstones_creating_job_and_prevents_late_publish(app_factory):
     with ThreadPoolExecutor(max_workers=1) as pool:
         pending = pool.submit(post)
         assert entered.wait(1)
-        assert client.get(f"/api/jobs/{job_id}").status_code == 202
+        creating = client.get(f"/api/jobs/{job_id}")
+        assert creating.status_code == 202
+        assert creating.json() == {"id": job_id, "state": "creating"}
+        assert creating.headers["retry-after"] == "1"
         assert client.delete(f"/api/jobs/{job_id}").status_code == 204
         release.set()
         response = pending.result(timeout=2)
@@ -717,9 +814,42 @@ def test_delete_tombstones_creating_job_and_prevents_late_publish(app_factory):
     assert response.status_code == 410
     status = client.get(f"/api/jobs/{job_id}")
     assert status.status_code == 410
-    assert status.json()["state"] == "tombstoned"
+    assert status.json() == {"id": job_id, "state": "tombstoned"}
     assert job_id not in app.state.store._jobs
     assert not (app.state.store.root / f"job-{job_id}").exists()
+
+
+def test_touch_advances_live_job_without_rendering_and_maps_lifecycle(
+    app_factory,
+    monkeypatch,
+):
+    app, client, _ = app_factory()
+    job_id = upload(client, image_bytes()).json()["id"]
+    store = app.state.store
+    with store._lock:
+        before = store._jobs[job_id].last_access
+
+    def unexpected_image_open(*args, **kwargs):
+        raise AssertionError("touch must not open job images")
+
+    with monkeypatch.context() as patch_context:
+        patch_context.setattr(Image, "open", unexpected_image_open)
+        time.sleep(0.01)
+        touched = client.post(f"/api/jobs/{job_id}/touch")
+    assert touched.status_code == 204
+    assert touched.content == b""
+    with store._lock:
+        assert store._jobs[job_id].last_access > before
+
+    unknown_id = "8" * 32
+    unknown = client.post(f"/api/jobs/{unknown_id}/touch")
+    assert unknown.status_code == 404
+    assert unknown.json() == {"id": unknown_id, "state": "unknown"}
+
+    assert client.delete(f"/api/jobs/{job_id}").status_code == 204
+    terminal = client.post(f"/api/jobs/{job_id}/touch")
+    assert terminal.status_code == 410
+    assert terminal.json() == {"id": job_id, "state": "tombstoned"}
 
 
 def test_delete_failure_keeps_accounting_and_cleanup_retries(app_factory, monkeypatch):

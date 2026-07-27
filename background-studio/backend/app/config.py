@@ -15,8 +15,8 @@ def _env_int(name: str, default: int) -> int:
 class Settings:
     max_upload_bytes: int = 25 * 1024 * 1024
     max_pixels: int = 40_000_000
-    max_jobs: int = 8
-    terminal_registry_max: int = 0
+    max_jobs: int = 12
+    terminal_registry_max: int = 4096
     disk_quota_bytes: int = 1536 * 1024 * 1024
     memory_quota_bytes: int = 3 * 1024 * 1024 * 1024
     inference_working_bytes_per_pixel: int = 8
@@ -43,11 +43,11 @@ class Settings:
             ),
             max_jobs=_env_int(
                 "BACKGROUND_STUDIO_MAX_JOBS",
-                8,
+                12,
             ),
             terminal_registry_max=_env_int(
                 "BACKGROUND_STUDIO_TERMINAL_REGISTRY_MAX",
-                0,
+                4096,
             ),
             disk_quota_bytes=_env_int(
                 "BACKGROUND_STUDIO_DISK_QUOTA_BYTES",

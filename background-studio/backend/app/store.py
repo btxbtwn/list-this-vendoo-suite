@@ -434,6 +434,25 @@ class JobStore:
                 return LifecycleSnapshot("tombstoned", time.monotonic())
             return self._snapshot(lifecycle) if lifecycle is not None else None
 
+    def touch(self, job_id: str) -> None:
+        job_id = normalize_job_id(job_id)
+        with self._lock:
+            now = time.monotonic()
+            self._forget_terminal_locked(now)
+            lifecycle = self._lifecycles.get(job_id)
+            job = self._jobs.get(job_id)
+            if lifecycle is None:
+                if job_id in self._used_job_ids:
+                    raise JobTerminal(job_id, "tombstoned")
+                raise JobNotFound(job_id)
+            if lifecycle.state == "creating":
+                raise JobPending(job_id)
+            if lifecycle.state in ("failed", "tombstoned"):
+                raise JobTerminal(job_id, lifecycle.state)
+            if lifecycle.state != "live" or lifecycle.job is not job or job is None:
+                raise JobNotFound(job_id)
+            job.last_access = now
+
     def reserve_upload_copy(self, job_id: str, generation: str, upload_bytes: int) -> int:
         """Atomically charge a generation copy without reducing the body charge."""
         upload_bytes = max(0, upload_bytes)
