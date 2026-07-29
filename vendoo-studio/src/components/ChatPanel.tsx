@@ -180,7 +180,7 @@ export function ChatPanel({ convId }: Props) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div ref={scrollRef} className="chat-scroll">
         {isLoading && !hasMessages && (
           <div className="empty-state" style={{ padding: "16px 0" }}><p className="text-xs text-muted">Loading...</p></div>

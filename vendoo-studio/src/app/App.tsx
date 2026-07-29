@@ -12,6 +12,7 @@ export function App() {
   const queryClient = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
+  const [mobilePane, setMobilePane] = useState<"listings" | "workspace" | "editor">("listings");
 
   const { data: status } = useQuery({ queryKey: ["status"], queryFn: api.status, refetchInterval: 10000 });
   const { data: conversations } = useQuery({
@@ -26,13 +27,17 @@ export function App() {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       setSelectedConvId(conv.id);
       setActiveView("listings");
+      setMobilePane("workspace");
     },
   });
 
   const deleteConv = useMutation({
     mutationFn: (convId: string) => api.conversations.delete(convId),
     onSuccess: (_data, convId) => {
-      if (selectedConvId === convId) setSelectedConvId(null);
+      if (selectedConvId === convId) {
+        setSelectedConvId(null);
+        setMobilePane("listings");
+      }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
@@ -40,7 +45,18 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <div className="app-content">
+      <div className={`app-content mobile-pane-${mobilePane}`}>
+        <nav className="mobile-nav" aria-label="Dashboard views">
+          <button className={mobilePane === "listings" ? "selected" : ""} onClick={() => setMobilePane("listings")}>Listings</button>
+          <button className={mobilePane === "workspace" ? "selected" : ""} onClick={() => setMobilePane("workspace")}>Workspace</button>
+          <button
+            className={mobilePane === "editor" ? "selected" : ""}
+            onClick={() => setMobilePane("editor")}
+            disabled={activeView !== "listings" || !selectedConvId}
+          >
+            Editor
+          </button>
+        </nav>
         <aside className="panel sidebar">
           <div className="sidebar-masthead">
             <div className="sidebar-brand">Vendoo Studio</div>
@@ -63,7 +79,7 @@ export function App() {
                 <div key={c.id} className="nav-item">
                   <button
                     className={`nav-link${isSelected ? " selected" : ""}`}
-                    onClick={() => { setSelectedConvId(c.id); setActiveView("listings"); }}
+                    onClick={() => { setSelectedConvId(c.id); setActiveView("listings"); setMobilePane("workspace"); }}
                   >
                     <div className="nav-link-title">{c.title || "Untitled"}</div>
                     <div className="nav-link-meta">
@@ -93,7 +109,7 @@ export function App() {
           <div className="sidebar-footer">
             <button
               className={`sidebar-settings-btn${activeView === "settings" ? " selected" : ""}`}
-              onClick={() => setActiveView("settings")}
+              onClick={() => { setActiveView("settings"); setMobilePane("workspace"); }}
             >
               Settings
             </button>
@@ -105,10 +121,10 @@ export function App() {
             {activeView === "settings" ? (
               <SettingsPage />
             ) : selectedConvId ? (
-              <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "auto" }}>
                 <PhotoTray convId={selectedConvId} />
                 <ItemDetails convId={selectedConvId} />
-                <div style={{ flex: 1, overflow: "hidden" }}>
+                <div style={{ flex: 1, overflow: "hidden", minHeight: 200 }}>
                   <ChatPanel convId={selectedConvId} />
                 </div>
               </div>
