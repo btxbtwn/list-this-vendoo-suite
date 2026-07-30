@@ -38,6 +38,45 @@ def configured_remover(monkeypatch):
     return remover, torch
 
 
+def test_normalization_tensors_are_reused_by_device_and_dtype():
+    remover = BiRefNetHRRemover()
+
+    class Tensor:
+        def __init__(self, device, dtype):
+            self.device = device
+            self.dtype = dtype
+
+        def view(self, *shape):
+            assert shape == (1, 3, 1, 1)
+            return self
+
+    class Torch:
+        def __init__(self):
+            self.calls = []
+
+        def tensor(self, values, *, device, dtype):
+            self.calls.append((tuple(values), device, dtype))
+            return Tensor(device, dtype)
+
+    torch = Torch()
+    cpu32 = Tensor("cpu", "float32")
+    cpu16 = Tensor("cpu", "float16")
+    mps32 = Tensor("mps:0", "float32")
+
+    first = remover._normalization_tensors(torch, cpu32)
+    repeated = remover._normalization_tensors(torch, cpu32)
+    different_dtype = remover._normalization_tensors(torch, cpu16)
+    different_device = remover._normalization_tensors(torch, mps32)
+
+    assert repeated is first
+    assert different_dtype is not first
+    assert different_device is not first
+    assert len(torch.calls) == 6
+    assert torch.calls[:2] == [
+        ((0.485, 0.456, 0.406), "cpu", "float32"),
+        ((0.229, 0.224, 0.225), "cpu", "float32"),
+    ]
+
 def test_unsupported_mps_operator_falls_back_to_cpu(monkeypatch):
     remover, torch = configured_remover(monkeypatch)
     calls = []

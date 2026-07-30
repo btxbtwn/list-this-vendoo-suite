@@ -35,6 +35,7 @@ class BiRefNetHRRemover:
         self._np = None
         self._device = None
         self._mps_disabled = False
+        self._normalization_constants = {}
         # A 2048px first pass can monopolize Apple Silicon for tens of minutes.
         # Start at 1024px so local interactive requests complete predictably.
         self._mps_size = 1024
@@ -99,6 +100,25 @@ class BiRefNetHRRemover:
         )
         return canvas, (left, top, width, height)
 
+    def _normalization_tensors(self, torch, tensor):
+        key = (str(tensor.device), tensor.dtype)
+        constants = self._normalization_constants.get(key)
+        if constants is None:
+            constants = (
+                torch.tensor(
+                    [0.485, 0.456, 0.406],
+                    device=tensor.device,
+                    dtype=tensor.dtype,
+                ).view(1, 3, 1, 1),
+                torch.tensor(
+                    [0.229, 0.224, 0.225],
+                    device=tensor.device,
+                    dtype=tensor.dtype,
+                ).view(1, 3, 1, 1),
+            )
+            self._normalization_constants[key] = constants
+        return constants
+
     @staticmethod
     def _prediction_tensor(output):
         if hasattr(output, "logits"):
@@ -146,13 +166,10 @@ class BiRefNetHRRemover:
             .unsqueeze(0)
         )
 
-        mean = torch.tensor(
-            [0.485, 0.456, 0.406]
-        ).view(1, 3, 1, 1)
-
-        std = torch.tensor(
-            [0.229, 0.224, 0.225]
-        ).view(1, 3, 1, 1)
+        mean, std = self._normalization_tensors(
+            torch,
+            tensor,
+        )
 
         tensor = (
             (tensor - mean)
