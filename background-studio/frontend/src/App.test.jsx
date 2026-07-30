@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.jsx'
 
@@ -821,4 +822,69 @@ describe('manual mask brush', () => {
     await waitFor(() => expect(cancelled).toHaveLength(1))
     expect(screen.queryByLabelText('Batch queue')).toBeNull()
   })
+
+  it('does not cancel a successful upload during StrictMode effect replay', async () => {
+    const calls = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url, options = {}) => {
+      calls.push([String(url), options.method])
+      if (url === '/api/jobs' && options.method === 'POST') {
+        const id = options.body.get('job_id')
+        return Promise.resolve(jsonResponse({ id, width: 200, height: 100 }, 201))
+      }
+      if (String(url).includes('/preview?')) return Promise.resolve(imageResponse())
+      return Promise.resolve(jsonResponse({ ok: true }))
+    })
+
+    render(<StrictMode><App /></StrictMode>)
+    fireEvent.change(document.getElementById('image-input'), { target: { files: [new File(['pixels'], 'strict.png', { type: 'image/png' })] } })
+
+    await screen.findByText('200 × 100 pixels')
+    expect(calls.filter(([url]) => url.endsWith('/cancel'))).toEqual([])
+    expect(screen.getByText('ready')).toBeInTheDocument()
+  })
+
+  it('reconciles a creating lost response until the exact job becomes ready', async () => {
+    let probes = 0
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((url, options = {}) => {
+      if (url === '/api/jobs' && options.method === 'POST') return Promise.reject(new TypeError('lost'))
+      if (url === '/api/jobs/00000000000000000000000000000001' && !options.method) {
+        probes += 1
+        return probes < 3
+          ? Promise.resolve(jsonResponse({ id: '00000000000000000000000000000001', state: 'creating' }, 202))
+          : Promise.resolve(jsonResponse(job, 200))
+      }
+      if (String(url).includes('/preview?')) return Promise.resolve(imageResponse())
+      return Promise.resolve(jsonResponse({ ok: true }))
+    })
+
+    render(<App />)
+    fireEvent.change(document.getElementById('image-input'), { target: { files: [new File(['pixels'], 'recovered.png', { type: 'image/png' })] } })
+
+    await screen.findByText('200 × 100 pixels')
+    expect(probes).toBe(3)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/cancel'))).toBe(false)
+    expect(screen.getByText('ready')).toBeInTheDocument()
+  })
+
+  it('keeps an unproven cleanup in the ledger without starting a duplicate job', async () => {
+    let posts = 0
+    let cancels = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url, options = {}) => {
+      if (url === '/api/jobs' && options.method === 'POST') { posts += 1; return Promise.reject(new TypeError('lost')) }
+      if (url === '/api/jobs/00000000000000000000000000000001' && !options.method) return Promise.resolve(new Response('', { status: 404 }))
+      if (String(url).endsWith('/cancel')) { cancels += 1; return Promise.reject(new TypeError('offline')) }
+      return Promise.resolve(jsonResponse({ ok: true }))
+    })
+
+    render(<App />)
+    fireEvent.change(document.getElementById('image-input'), { target: { files: [new File(['pixels'], 'uncertain.png', { type: 'image/png' })] } })
+
+    await screen.findByText('cleanup pending')
+    expect(posts).toBe(1)
+    expect(cancels).toBe(1)
+    expect(sessionStorage.getItem('background-studio.cleanup-ledger.v1')).toContain('00000000000000000000000000000001')
+    expect(screen.queryByRole('button', { name: 'Retry uncertain.png' })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
 })

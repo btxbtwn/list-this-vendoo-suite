@@ -352,6 +352,15 @@ export default function App() {
     }
   }, [replacePreviewUrl])
 
+  const waitForBatchCreate = async (jobId, attempts = 3) => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const outcome = await reconcileJob(jobId)
+      if (outcome.state !== 'creating') return outcome
+      if (attempt + 1 < attempts) await new Promise((resolve) => window.setTimeout(resolve, 25))
+    }
+    return { state: 'creating' }
+  }
+
   const cancelBatchJob = useCallback(async (jobId) => {
     const response = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' })
     if (response.status === 204) {
@@ -410,10 +419,17 @@ export default function App() {
         transportError = new Error(await apiError(response, 'Upload failed.'))
       }
       if (transportError) {
-        const recovered = await reconcileJob(next.clientJobId)
+        const recovered = await waitForBatchCreate(next.clientJobId)
         if (recovered.state === 'present') nextJob = recovered.job
+        else if (recovered.state === 'deleted') throw transportError
         else {
-          await cancelBatchJob(next.clientJobId)
+          try {
+            await cancelBatchJob(next.clientJobId)
+          } catch (cleanupError) {
+            batchDispatch(batchActions.cleanupStatus(next.localId, 'unverified', transportError.message || 'Upload result could not be verified.'))
+            setAnnouncement(`${next.file.name} is awaiting safe cleanup.`)
+            return
+          }
           throw transportError
         }
       }
@@ -464,7 +480,14 @@ export default function App() {
       setOwnedError('Cleanup ledger is corrupt. Reload the page before uploading.', 'ledger')
       return
     }
-    ledger.ids.forEach((jobId) => { cancelBatchJob(jobId).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${jobId}`)) })
+    ledger.ids.forEach((jobId) => {
+      const owned = batchRef.current.items.some((item) => item.clientJobId === jobId && (item.status === BATCH_STATUS.PROCESSING || item.status === BATCH_STATUS.READY))
+      if (owned) return
+      cancelBatchJob(jobId).then(() => {
+        const item = batchRef.current.items.find((candidate) => candidate.clientJobId === jobId && candidate.status === BATCH_STATUS.CLEANUP_PENDING)
+        if (item) batchDispatch(batchActions.failed(item.localId, item.cleanup?.error || 'Upload result could not be verified.'))
+      }).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${jobId}`))
+    })
   }, [cancelBatchJob])
 
   useEffect(() => {
@@ -473,7 +496,12 @@ export default function App() {
       const active = new Set(batchRef.current.items.filter((item) => item.status === BATCH_STATUS.PROCESSING).map((item) => item.clientJobId))
       ready.forEach((item) => { fetch(`/api/jobs/${item.clientJobId}/touch`, { method: 'POST' }).catch(() => {}) })
       const ledger = readCleanupLedger()
-      if (!ledger.corrupt) ledger.ids.filter((id) => !ready.some((item) => item.clientJobId === id) && !active.has(id)).forEach((id) => { cancelBatchJob(id).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${id}`)) })
+      if (!ledger.corrupt) ledger.ids.filter((id) => !ready.some((item) => item.clientJobId === id) && !active.has(id)).forEach((id) => {
+        cancelBatchJob(id).then(() => {
+          const item = batchRef.current.items.find((candidate) => candidate.clientJobId === id && candidate.status === BATCH_STATUS.CLEANUP_PENDING)
+          if (item) batchDispatch(batchActions.failed(item.localId, item.cleanup?.error || 'Upload result could not be verified.'))
+        }).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${id}`))
+      })
     }, 10 * 60 * 1000)
     return () => window.clearInterval(timer)
   }, [cancelBatchJob])
