@@ -11,6 +11,11 @@ def _env_int(name: str, default: int) -> int:
     return default if value is None else int(value)
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    return default if value is None else float(value)
+
+
 @dataclass(frozen=True)
 class Settings:
     max_upload_bytes: int = 25 * 1024 * 1024
@@ -29,6 +34,10 @@ class Settings:
     enforce_loopback: bool = True
     process_lock: bool = True
     shutdown_wait_seconds: int = 5
+    remover_backend: str = "auto"
+    runpod_keychain_service: str = "background-studio-runpod"
+    runpod_connect_timeout_seconds: float = 10.0
+    runpod_read_timeout_seconds: float = 300.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -84,6 +93,22 @@ class Settings:
             shutdown_wait_seconds=_env_int(
                 "BACKGROUND_STUDIO_SHUTDOWN_WAIT_SECONDS",
                 5,
+            ),
+            remover_backend=os.getenv(
+                "BACKGROUND_STUDIO_REMOVER_BACKEND",
+                "auto",
+            ).strip().lower(),
+            runpod_keychain_service=os.getenv(
+                "BACKGROUND_STUDIO_RUNPOD_KEYCHAIN_SERVICE",
+                "background-studio-runpod",
+            ),
+            runpod_connect_timeout_seconds=_env_float(
+                "BACKGROUND_STUDIO_RUNPOD_CONNECT_TIMEOUT_SECONDS",
+                10.0,
+            ),
+            runpod_read_timeout_seconds=_env_float(
+                "BACKGROUND_STUDIO_RUNPOD_READ_TIMEOUT_SECONDS",
+                300.0,
             ),
             temp_root=Path(
                 os.getenv(

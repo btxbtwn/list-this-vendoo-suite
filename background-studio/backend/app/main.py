@@ -42,10 +42,10 @@ from .images import (
     probe_upload,
 )
 from .remover import (
-    BiRefNetHRRemover,
     InferenceService,
     Remover,
 )
+from .runpod_remover import build_default_remover
 from .store import (
     JobNotFound,
     JobPending,
@@ -714,7 +714,7 @@ def create_app(
     config = settings or Settings.from_env()
     store = JobStore(config)
     inference = InferenceService(
-        remover or BiRefNetHRRemover()
+        remover or build_default_remover(config)
     )
 
     @asynccontextmanager

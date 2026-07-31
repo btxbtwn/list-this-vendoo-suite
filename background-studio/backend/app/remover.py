@@ -10,6 +10,42 @@ MODEL_ID = "ZhengPeng7/BiRefNet_HR"
 MODEL_REVISION = "707a63fd375513cc01cddd3c4e6125a184157f35"
 
 
+def letterbox(
+    image: Image.Image,
+    size: int,
+) -> tuple[Image.Image, tuple[int, int, int, int]]:
+    scale = min(
+        size / image.width,
+        size / image.height,
+    )
+    width = max(
+        1,
+        round(image.width * scale),
+    )
+    height = max(
+        1,
+        round(image.height * scale),
+    )
+
+    resized = image.resize(
+        (width, height),
+        Image.Resampling.LANCZOS,
+    )
+    left = (size - width) // 2
+    top = (size - height) // 2
+
+    canvas = Image.new(
+        "RGB",
+        (size, size),
+        (0, 0, 0),
+    )
+    canvas.paste(
+        resized,
+        (left, top),
+    )
+    return canvas, (left, top, width, height)
+
+
 class Remover(Protocol):
     def remove(self, image: Image.Image) -> Image.Image:
         raise NotImplementedError
@@ -69,36 +105,7 @@ class BiRefNetHRRemover:
         image: Image.Image,
         size: int,
     ) -> tuple[Image.Image, tuple[int, int, int, int]]:
-        scale = min(
-            size / image.width,
-            size / image.height,
-        )
-        width = max(
-            1,
-            round(image.width * scale),
-        )
-        height = max(
-            1,
-            round(image.height * scale),
-        )
-
-        resized = image.resize(
-            (width, height),
-            Image.Resampling.LANCZOS,
-        )
-        left = (size - width) // 2
-        top = (size - height) // 2
-
-        canvas = Image.new(
-            "RGB",
-            (size, size),
-            (0, 0, 0),
-        )
-        canvas.paste(
-            resized,
-            (left, top),
-        )
-        return canvas, (left, top, width, height)
+        return letterbox(image, size)
 
     def _normalization_tensors(self, torch, tensor):
         key = (str(tensor.device), tensor.dtype)
