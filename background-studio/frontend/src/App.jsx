@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { BATCH_STATUS, batchActions, batchReducer, createBatchItems, createInitialBatchState, selectNextQueuedItem } from './batchState.js'
+import { BATCH_STATUS, batchActions, batchReducer, createBatchItems, createInitialBatchState, createRestoredBatchItems, selectNextQueuedItem } from './batchState.js'
 import { addCleanupId, readCleanupLedger, removeCleanupId } from './cleanupLedger.js'
+import { readRecoveryManifest, recoveryEntryFromItem, removeRecoveryEntry, upsertRecoveryEntry } from './recoveryManifest.js'
 import { createThumbnail } from './thumbnails.js'
 
 const presets = [['White', '#ffffff'], ['Black', '#000000'], ['Marketplace', '#f5f5f5']]
@@ -88,7 +89,8 @@ function streamPoints(stream) {
 }
 
 export default function App() {
-  const [batch, batchDispatch] = useReducer(batchReducer, undefined, createInitialBatchState)
+  const recoverySnapshot = readRecoveryManifest()
+  const [batch, batchDispatch] = useReducer(batchReducer, createRestoredBatchItems(recoverySnapshot.entries), createInitialBatchState)
   const [announcement, setAnnouncement] = useState('')
   const [queuePaused, setQueuePaused] = useState(false)
   const [queueProcessing, setQueueProcessing] = useState(false)
@@ -144,6 +146,9 @@ export default function App() {
   const localItemSequenceRef = useRef(0)
   const queuePausedItemRef = useRef(null)
   const liveItemIdsRef = useRef(new Set())
+  const recoveryCorruptRef = useRef(recoverySnapshot.corrupt)
+  const recoveryControllerRef = useRef(new Map())
+  const recoveryLifecycleRef = useRef(0)
 
   useEffect(() => { jobRef.current = job }, [job])
   useEffect(() => { batchRef.current = batch }, [batch])
@@ -269,10 +274,10 @@ export default function App() {
     && Number.isInteger(value.width) && value.width > 0
     && Number.isInteger(value.height) && value.height > 0
 
-  const reconcileJob = async (jobId) => {
+  const reconcileJob = async (jobId, missingIsDeleted = false) => {
     try {
       const response = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' })
-      if (response.status === 404) return { state: 'unknown' }
+      if (response.status === 404) return { state: missingIsDeleted ? 'deleted' : 'unknown' }
       if (response.status === 410) {
         try {
           const value = await response.json()
@@ -384,6 +389,8 @@ export default function App() {
     if (response.status === 204) {
       const removed = removeCleanupId(jobId)
       if (!removed.ok) throw new Error('Backend cleanup completed, but browser cleanup storage could not be updated.')
+      const recovered = removeRecoveryEntry(jobId)
+      if (!recovered.ok && !recovered.corrupt) throw new Error('Backend cleanup completed, but browser recovery storage could not be updated.')
       return 'complete'
     }
     if (response.status === 202) return 'pending'
@@ -398,9 +405,11 @@ export default function App() {
       localIdFactory: () => `local-${localItemSequenceRef.current += 1}`,
       jobIdFactory: () => crypto.randomUUID().replaceAll('-', ''),
     })
-    admitted.forEach((item) => liveItemIdsRef.current.add(item.localId))
-    batchDispatch(batchActions.admit(admitted))
-    for (const item of admitted) {
+    const recoverable = admitted.filter((item) => upsertRecoveryEntry(recoveryEntryFromItem({ ...item, status: BATCH_STATUS.QUEUED })).ok)
+    if (recoverable.length !== admitted.length) setOwnedError('Browser recovery storage is unavailable. The selected photos were not queued.', 'recovery-storage')
+    recoverable.forEach((item) => liveItemIdsRef.current.add(item.localId))
+    batchDispatch(batchActions.admit(recoverable))
+    for (const item of recoverable) {
       createThumbnail(item.file).then((thumbnail) => {
         if (liveItemIdsRef.current.has(item.localId)) batchDispatch(batchActions.thumbnailReady(item.localId, thumbnail))
         else thumbnail.revoke()
@@ -420,6 +429,8 @@ export default function App() {
     batchDispatch(batchActions.processing(next.localId))
     setQueueProcessing(true)
     const run = async () => {
+      const persistedProcessing = upsertRecoveryEntry(recoveryEntryFromItem({ ...next, status: BATCH_STATUS.PROCESSING }))
+      if (!persistedProcessing.ok) throw new Error('Browser recovery storage is unavailable. Upload was not started.')
       const ledger = addCleanupId(next.clientJobId)
       if (!ledger.ok) throw new Error(ledger.corrupt ? 'Cleanup ledger is corrupt. Reload this page before uploading.' : 'Browser cleanup storage is unavailable.')
       const form = new FormData()
@@ -462,7 +473,11 @@ export default function App() {
         try { await cancelBatchJob(next.clientJobId) } catch (caught) { setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${next.clientJobId}`) }
         return
       }
+      const persistedReady = upsertRecoveryEntry(recoveryEntryFromItem({ ...next, status: BATCH_STATUS.READY, backendWidth: nextJob.width, backendHeight: nextJob.height }))
+      if (!persistedReady.ok) throw new Error('The image is ready, but browser recovery storage could not be updated. It remains available for safe cleanup.')
       batchDispatch(batchActions.ready(next.localId, nextJob))
+      const removed = removeCleanupId(next.clientJobId)
+      if (!removed.ok) setOwnedError('The image is ready, but browser cleanup storage could not be updated.', `cleanup:${next.clientJobId}`)
       setAnnouncement(`${next.file.name} is ready.`)
     }
     run().catch((caught) => {
@@ -500,38 +515,92 @@ export default function App() {
   }, [threshold, feather, background, color, compare, mode, brushSize, softness, strokeCount, batch.selectedLocalId])
 
   useEffect(() => {
+    if (recoveryCorruptRef.current) return
+    batch.items.forEach((item) => {
+      const status = item.uploadable === false && item.status === BATCH_STATUS.RESTORING ? (item.recoveryStatus || BATCH_STATUS.RESTORING) : item.status
+      const result = upsertRecoveryEntry(recoveryEntryFromItem(item, status))
+      if (!result.ok && !result.corrupt) setOwnedError('Browser recovery storage is unavailable. Existing images remain safe on the backend.', 'recovery-storage')
+    })
+  }, [batch.items])
+
+  useEffect(() => {
     const ledger = readCleanupLedger()
-    if (ledger.corrupt) {
-      setOwnedError('Cleanup ledger is corrupt. Reload the page before uploading.', 'ledger')
+    const manifest = readRecoveryManifest()
+    if (ledger.corrupt) setOwnedError('Cleanup ledger is corrupt. Reload the page before uploading.', 'ledger')
+    if (manifest.corrupt) {
+      recoveryCorruptRef.current = true
+      setOwnedError('Recovery metadata is corrupt. Existing backend jobs were left untouched.', 'recovery-manifest')
       return
     }
-    ledger.ids.forEach((jobId) => {
-      const owned = batchRef.current.items.some((item) => item.clientJobId === jobId && (item.status === BATCH_STATUS.PROCESSING || item.status === BATCH_STATUS.READY))
-      if (owned) return
-      cancelBatchJob(jobId).then(() => {
-        const item = batchRef.current.items.find((candidate) => candidate.clientJobId === jobId && candidate.status === BATCH_STATUS.CLEANUP_PENDING)
-        if (item) batchDispatch(batchActions.failed(item.localId, item.cleanup?.error || 'Upload result could not be verified.'))
-      }).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${jobId}`))
-    })
-  }, [cancelBatchJob])
+    const candidates = new Map()
+    batchRef.current.items.filter((item) => item.uploadable === false).forEach((item) => candidates.set(item.clientJobId, item))
+    const ownedIds = new Set(batchRef.current.items.map((item) => item.clientJobId))
+    if (!ledger.corrupt) ledger.ids.forEach((jobId) => { if (!ownedIds.has(jobId) && !candidates.has(jobId)) candidates.set(jobId, null) })
+
+    const probe = async (jobId, candidate, attempt = 0) => {
+      if (recoveryProbeRef.current.has(jobId)) return
+      recoveryProbeRef.current.add(jobId)
+      const current = batchRef.current.items.find((item) => item.clientJobId === jobId) || candidate
+      const saved = current?.recoveryStatus || manifest.entries.find((entry) => entry.clientJobId === jobId)?.status
+      const outcome = await reconcileJob(jobId, saved === 'ready' || saved === 'failed' || saved === 'cleanup_pending')
+      if (outcome.state === 'present') {
+        if (current) {
+          batchDispatch(batchActions.restoreReady(current.localId, outcome.job))
+          upsertRecoveryEntry(recoveryEntryFromItem({ ...current, status: BATCH_STATUS.READY, backendWidth: outcome.job.width, backendHeight: outcome.job.height }))
+        } else if (batchRef.current.items.length < 10) {
+          const localId = `recovered-${jobId.slice(0, 16)}`
+          const entry = { clientJobId: jobId, localId, file: { name: 'Recovered image', type: 'image/*', size: 0, lastModified: 0 }, status: BATCH_STATUS.RESTORING, uploadable: false, backendWidth: outcome.job.width, backendHeight: outcome.job.height, editor: {}, createdAt: Date.now(), updatedAt: Date.now() }
+          batchDispatch(batchActions.adopt([entry]))
+          batchDispatch(batchActions.restoreReady(localId, outcome.job))
+          upsertRecoveryEntry({ ...entry, status: BATCH_STATUS.READY })
+        }
+        const removed = removeCleanupId(jobId)
+        if (!removed.ok) setOwnedError('The image was restored, but browser cleanup storage could not be updated.', `cleanup:${jobId}`)
+        return
+      }
+      if (outcome.state === 'deleted') {
+        const removed = removeRecoveryEntry(jobId)
+        if (!removed.ok && !removed.corrupt) setOwnedError('Expired recovery metadata could not be removed safely.', `recovery:${jobId}`)
+        const cleared = removeCleanupId(jobId)
+        if (!cleared.ok) setOwnedError('Expired cleanup metadata could not be removed safely.', `cleanup:${jobId}`)
+        if (current) {
+          current.thumbnailRevoke?.()
+          liveItemIdsRef.current.delete(current.localId)
+          batchDispatch(batchActions.remove(current.localId))
+          if (jobRef.current?.id === jobId) { jobRef.current = null; setJob(null); replacePreviewUrl(''); clearBrushState() }
+        }
+        return
+      }
+      if (current) batchDispatch(batchActions.restorePending(current.localId, outcome.state === 'creating' ? 'Still processing after reload.' : 'Waiting to verify this image after reload.'))
+      if (outcome.state === 'creating' && attempt < 6) {
+        recoveryProbeRef.current.delete(jobId)
+        const timer = window.setTimeout(() => { recoveryTimerRef.current.delete(jobId); probe(jobId, current, attempt + 1) }, 1000)
+        recoveryTimerRef.current.set(jobId, timer)
+      }
+    }
+    candidates.forEach((candidate, jobId) => { probe(jobId, candidate).catch((caught) => { recoveryProbeRef.current.delete(jobId); setOwnedError(caught.message || 'Recovery check failed.', `recovery:${jobId}`) }) })
+  }, [batch.items])
+
+  useEffect(() => () => {
+    recoveryTimerRef.current.forEach((timer) => window.clearTimeout(timer))
+    recoveryTimerRef.current.clear()
+  }, [])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       const ready = batchRef.current.items.filter((item) => item.status === BATCH_STATUS.READY)
-      const active = new Set(batchRef.current.items.filter((item) => item.status === BATCH_STATUS.PROCESSING).map((item) => item.clientJobId))
       ready.forEach((item) => { fetch(`/api/jobs/${item.clientJobId}/touch`, { method: 'POST' }).catch(() => {}) })
-      const ledger = readCleanupLedger()
-      if (!ledger.corrupt) ledger.ids.filter((id) => !ready.some((item) => item.clientJobId === id) && !active.has(id)).forEach((id) => {
-        cancelBatchJob(id).then(() => {
-          const item = batchRef.current.items.find((candidate) => candidate.clientJobId === id && candidate.status === BATCH_STATUS.CLEANUP_PENDING)
-          if (item) batchDispatch(batchActions.failed(item.localId, item.cleanup?.error || 'Upload result could not be verified.'))
-        }).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${id}`))
+      batchRef.current.items.filter((item) => item.status === BATCH_STATUS.CLEANUP_PENDING).forEach((item) => {
+        cancelBatchJob(item.clientJobId).then((result) => {
+          if (result === 'complete') batchDispatch(batchActions.cleanupStatus(item.localId, 'complete'))
+        }).catch((caught) => setOwnedError(caught.message || 'Cleanup storage update failed.', `cleanup:${item.clientJobId}`))
       })
     }, 10 * 60 * 1000)
     return () => window.clearInterval(timer)
   }, [cancelBatchJob])
 
   const retryBatchItem = async (item) => {
+    if (item.uploadable === false) return
     try {
       await cancelBatchJob(item.clientJobId)
       batchDispatch(batchActions.retry(item.localId, crypto.randomUUID().replaceAll('-', '')))
@@ -909,7 +978,7 @@ export default function App() {
           {item.localId === batch.selectedLocalId && <span className="active-marker">Selected</span>}
         </button>
         <div className="batch-actions">
-          {item.status === BATCH_STATUS.FAILED && <button className="secondary" disabled={editorBusy} onClick={() => retryBatchItem(item)} aria-label={`Retry ${item.file.name}`}>Retry</button>}
+          {item.status === BATCH_STATUS.FAILED && item.uploadable !== false && <button className="secondary" disabled={editorBusy} onClick={() => retryBatchItem(item)} aria-label={`Retry ${item.file.name}`}>Retry</button>}
           {item.status !== BATCH_STATUS.PROCESSING && <button className="secondary" disabled={editorBusy} onClick={() => removeBatchItem(item)} aria-label={`Remove ${item.file.name}`}>Remove</button>}
         </div>
       </li>)}</ul>

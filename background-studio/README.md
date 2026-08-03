@@ -124,3 +124,5 @@ npm test
 ## Limits and storage
 
 Defaults are 25 MiB per upload, 40 megapixels, 8 live jobs, 1.5 GiB of temporary job data, and 30 minutes of idle retention. Oriented originals and raw masks are immutable PNG files in a mode-0700 temporary directory; files are mode 0600. Derived previews and exports are rendered on demand. Startup removes stale job directories and shutdown removes all live jobs. Override limits with `BACKGROUND_STUDIO_MAX_UPLOAD_BYTES`, `BACKGROUND_STUDIO_MAX_PIXELS`, `BACKGROUND_STUDIO_MAX_JOBS`, `BACKGROUND_STUDIO_DISK_QUOTA_BYTES`, `BACKGROUND_STUDIO_JOB_TTL_SECONDS`, or `BACKGROUND_STUDIO_TEMP_ROOT`.
+
+The frontend keeps a small, versioned recovery manifest in browser storage so a mobile page reload can restore the queue and reconnect to live jobs. It stores metadata only (job IDs, filenames, dimensions, and editor settings), never image bytes or credentials. Jobs still expire after 30 minutes of inactivity, and a backend restart removes its in-memory jobs; those jobs cannot be recovered from the browser manifest.
