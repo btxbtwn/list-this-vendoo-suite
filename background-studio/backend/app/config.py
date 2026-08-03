@@ -38,6 +38,7 @@ class Settings:
     runpod_keychain_service: str = "background-studio-runpod"
     runpod_connect_timeout_seconds: float = 10.0
     runpod_read_timeout_seconds: float = 300.0
+    runpod_canvas_size: int = 2048
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -109,6 +110,10 @@ class Settings:
             runpod_read_timeout_seconds=_env_float(
                 "BACKGROUND_STUDIO_RUNPOD_READ_TIMEOUT_SECONDS",
                 300.0,
+            ),
+            runpod_canvas_size=_env_int(
+                "BACKGROUND_STUDIO_RUNPOD_CANVAS_SIZE",
+                2048,
             ),
             temp_root=Path(
                 os.getenv(

@@ -265,8 +265,14 @@ def _stroke_coverage(
 def apply_strokes(
     alpha: Image.Image,
     strokes: Iterable[MaskStroke],
+    original: Image.Image | None = None,
 ) -> Image.Image:
     corrected = alpha.convert("L")
+    guide = (
+        original.convert("RGB")
+        if original is not None
+        else None
+    )
 
     for stroke in strokes:
         coverage = _stroke_coverage(
@@ -275,11 +281,25 @@ def apply_strokes(
         )
 
         if stroke.mode == "remove":
+            if guide is not None:
+                coverage = _guided_stroke_coverage(
+                    guide,
+                    ImageOps.invert(corrected),
+                    coverage,
+                    stroke,
+                )
             corrected = ImageChops.multiply(
                 corrected,
                 ImageOps.invert(coverage),
             )
         elif stroke.mode == "restore":
+            if guide is not None:
+                coverage = _guided_stroke_coverage(
+                    guide,
+                    corrected,
+                    coverage,
+                    stroke,
+                )
             corrected = ImageChops.screen(
                 corrected,
                 coverage,
@@ -290,6 +310,516 @@ def apply_strokes(
             )
 
     return corrected
+
+
+def _guided_stroke_coverage(
+    original: Image.Image,
+    alpha: Image.Image,
+    coverage: Image.Image,
+    stroke: MaskStroke,
+) -> Image.Image:
+    """Expand stroke hints within the positive side of visible edges."""
+    if min(coverage.size) < 512:
+        literal_coverage = coverage.point(
+            [
+                0 if value < 64 else 255
+                for value in range(256)
+            ]
+        ).filter(
+            ImageFilter.GaussianBlur(
+                radius=0.5
+            )
+        )
+    else:
+        # Keep the supersampled antialiasing produced by _stroke_coverage. A
+        # binary threshold here turns a high-resolution finger path into a
+        # visibly stair-stepped contour when it is exported at source size.
+        literal_coverage = coverage.filter(
+            ImageFilter.GaussianBlur(
+                radius=0.6
+            )
+        )
+
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return literal_coverage
+
+    width, height = coverage.size
+    assisted_stroke = MaskStroke(
+        mode=stroke.mode,
+        radius=min(
+            MAX_STROKE_RADIUS,
+            stroke.radius * 2.0,
+        ),
+        softness=0.0,
+        points=stroke.points,
+    )
+    assisted_coverage = _stroke_coverage(
+        coverage.size,
+        assisted_stroke,
+    )
+    bounds = assisted_coverage.getbbox()
+    if bounds is None:
+        return literal_coverage
+
+    left = max(0, bounds[0] - 2)
+    top = max(0, bounds[1] - 2)
+    right = min(width, bounds[2] + 2)
+    bottom = min(height, bounds[3] + 2)
+    crop_box = (left, top, right, bottom)
+
+    brush = np.asarray(
+        coverage.crop(crop_box),
+        dtype=np.uint8,
+    )
+    assisted_brush = np.asarray(
+        assisted_coverage.crop(
+            crop_box
+        ),
+        dtype=np.uint8,
+    )
+    current_alpha = np.asarray(
+        alpha.crop(crop_box),
+        dtype=np.uint8,
+    )
+    rgb = np.asarray(
+        original.crop(crop_box),
+        dtype=np.uint8,
+    )
+
+    crop_height, crop_width = brush.shape
+    if crop_width < 3 or crop_height < 3:
+        return literal_coverage
+
+    core_stroke = MaskStroke(
+        mode=stroke.mode,
+        radius=max(
+            MIN_STROKE_RADIUS,
+            1.5 / min(width, height),
+        ),
+        softness=0.0,
+        points=stroke.points,
+    )
+    core = np.asarray(
+        _stroke_coverage(
+            coverage.size,
+            core_stroke,
+        ).crop(crop_box),
+        dtype=np.uint8,
+    )
+    foreground_seed = (
+        (core >= 128)
+        & (assisted_brush > 2)
+    )
+    foreground_seed |= (
+        (current_alpha >= 192)
+        & (assisted_brush > 2)
+    )
+    if not np.any(foreground_seed):
+        return literal_coverage
+
+    blurred = cv2.GaussianBlur(
+        rgb,
+        (7, 7),
+        0,
+    )
+    lab = cv2.cvtColor(
+        blurred,
+        cv2.COLOR_RGB2LAB,
+    )
+    prototype_seed = (
+        (
+            (core >= 128)
+            | (current_alpha >= 192)
+        )
+        & (assisted_brush > 2)
+    )
+    seed_colors = lab[
+        prototype_seed
+    ]
+    if seed_colors.size == 0:
+        return literal_coverage
+
+    def dominant_prototypes(colors):
+        quantized = (
+            colors.astype(
+                np.uint16
+            )
+            // 24
+        )
+        color_codes = (
+            quantized[:, 0] * 121
+            + quantized[:, 1] * 11
+            + quantized[:, 2]
+        )
+        (
+            unique_codes,
+            inverse,
+            counts,
+        ) = np.unique(
+            color_codes,
+            return_inverse=True,
+            return_counts=True,
+        )
+        dominant = np.argsort(
+            counts
+        )[
+            -min(
+                8,
+                unique_codes.size,
+            ):
+        ]
+        return np.stack(
+            [
+                np.median(
+                    colors[
+                        inverse == index
+                    ],
+                    axis=0,
+                )
+                for index in dominant
+            ]
+        ).astype(np.int32)
+
+    prototypes = dominant_prototypes(
+        seed_colors
+    )
+    lab_values = lab.astype(
+        np.int32
+    )
+    color_distance = np.full(
+        lab.shape[:2],
+        np.iinfo(np.int32).max,
+        dtype=np.int32,
+    )
+    for prototype in prototypes:
+        difference = (
+            lab_values
+            - prototype
+        )
+        distance = np.sum(
+            difference * difference,
+            axis=2,
+            dtype=np.int32,
+        )
+        color_distance = np.minimum(
+            color_distance,
+            distance,
+        )
+    color_match = (
+        color_distance
+        <= 42 * 42
+    )
+    assist_allowed = True
+    if np.any(
+        current_alpha >= 192
+    ):
+        background_seed = (
+            (current_alpha < 32)
+            & (assisted_brush > 2)
+            & (core < 128)
+        )
+        background_colors = lab[
+            background_seed
+        ]
+        if background_colors.size > 0:
+            background_prototypes = (
+                dominant_prototypes(
+                    background_colors
+                )
+            )
+            separation = (
+                prototypes[:, None, :]
+                - background_prototypes[
+                    None,
+                    :,
+                    :,
+                ]
+            )
+            minimum_separation = np.min(
+                np.sum(
+                    separation
+                    * separation,
+                    axis=2,
+                    dtype=np.int32,
+                )
+            )
+            assist_allowed = (
+                minimum_separation
+                > 28 * 28
+            )
+    edges = np.zeros(
+        brush.shape,
+        dtype=np.uint8,
+    )
+    for channel in cv2.split(lab):
+        edges = cv2.bitwise_or(
+            edges,
+            cv2.Canny(
+                channel,
+                20,
+                50,
+            ),
+        )
+    edges = cv2.morphologyEx(
+        edges,
+        cv2.MORPH_CLOSE,
+        np.ones(
+            (3, 3),
+            dtype=np.uint8,
+        ),
+    )
+    candidate_brush = (
+        assisted_brush
+        if assist_allowed
+        else brush
+    )
+    inside_brush = (
+        candidate_brush > 2
+    )
+    active_seed = (
+        foreground_seed
+        & inside_brush
+    )
+    edge_pixels = (
+        (edges > 0)
+        & inside_brush
+    )
+    if not np.any(edge_pixels):
+        return literal_coverage
+
+    brush_boundary = (
+        inside_brush
+        & (
+            cv2.erode(
+                inside_brush.astype(
+                    np.uint8
+                ),
+                np.ones(
+                    (3, 3),
+                    dtype=np.uint8,
+                ),
+                iterations=1,
+            )
+            == 0
+        )
+    )
+    brush_boundary[0, :] = (
+        inside_brush[0, :]
+    )
+    brush_boundary[-1, :] = (
+        inside_brush[-1, :]
+    )
+    brush_boundary[:, 0] = (
+        inside_brush[:, 0]
+    )
+    brush_boundary[:, -1] = (
+        inside_brush[:, -1]
+    )
+    edge_count, edge_labels = (
+        cv2.connectedComponents(
+            edge_pixels.astype(
+                np.uint8
+            ),
+            connectivity=8,
+        )
+    )
+    boundary_edge_labels = np.unique(
+        edge_labels[brush_boundary]
+    )
+    boundary_edge_labels = (
+        boundary_edge_labels[
+            boundary_edge_labels != 0
+        ]
+    )
+    if stroke.mode == "restore":
+        long_boundary_labels = []
+        for label in boundary_edge_labels:
+            edge_y, edge_x = np.where(
+                edge_labels == label
+            )
+            if edge_x.size > 0 and (
+                edge_x.max() - edge_x.min() + 1
+                >= max(
+                    3,
+                    round(
+                        crop_width
+                        * 0.55
+                    ),
+                )
+                or edge_y.max() - edge_y.min() + 1
+                >= max(
+                    3,
+                    round(
+                        crop_height
+                        * 0.55
+                    ),
+                )
+            ):
+                long_boundary_labels.append(label)
+        boundary_edge_labels = np.asarray(
+            long_boundary_labels,
+            dtype=np.int32,
+        )
+
+        # Once part of a garment is already visible, only a real alpha
+        # transition should be allowed to fence the restore stroke. Texture
+        # and print edges can be long too, but they do not separate visible
+        # foreground from transparent background. Without this check they
+        # turn a solid shirt restore into a field of tiny islands.
+        if np.any(current_alpha >= 192):
+            foreground = current_alpha >= 192
+            background = current_alpha < 32
+            kernel = np.ones(
+                (3, 3),
+                dtype=np.uint8,
+            )
+            alpha_transition = (
+                cv2.dilate(
+                    foreground.astype(np.uint8),
+                    kernel,
+                    iterations=1,
+                )
+                & cv2.dilate(
+                    background.astype(np.uint8),
+                    kernel,
+                    iterations=1,
+                )
+            )
+            alpha_transition = cv2.dilate(
+                alpha_transition.astype(np.uint8),
+                kernel,
+                iterations=1,
+            ) > 0
+            boundary_edge_labels = np.asarray(
+                [
+                    label
+                    for label in boundary_edge_labels
+                    if np.any(
+                        alpha_transition
+                        & (edge_labels == label)
+                    )
+                ],
+                dtype=np.int32,
+            )
+    if (
+        edge_count <= 1
+        or boundary_edge_labels.size == 0
+    ):
+        return literal_coverage
+
+    barrier = np.isin(
+        edge_labels,
+        boundary_edge_labels,
+    )
+    allowed_foreground = (
+        np.ones(
+            brush.shape,
+            dtype=bool,
+        )
+        if stroke.mode == "restore"
+        else (
+            color_match
+            | (current_alpha >= 64)
+            | (brush > 2)
+        )
+    )
+    walkable = (
+        inside_brush
+        & ~barrier
+        & allowed_foreground
+    )
+    walkable[active_seed] = True
+    _, labels = cv2.connectedComponents(
+        walkable.astype(np.uint8),
+        connectivity=4,
+    )
+    seed_labels = np.unique(
+        labels[active_seed]
+    )
+    seed_labels = seed_labels[
+        seed_labels != 0
+    ]
+    if seed_labels.size == 0:
+        return literal_coverage
+
+    inferred_foreground = np.isin(
+        labels,
+        seed_labels,
+    )
+    inferred_foreground = cv2.dilate(
+        inferred_foreground.astype(
+            np.uint8
+        ),
+        np.ones(
+            (3, 3),
+            dtype=np.uint8,
+        ),
+        iterations=1,
+    ).astype(bool)
+    inferred_foreground = (
+        cv2.morphologyEx(
+            inferred_foreground.astype(
+                np.uint8
+            ),
+            cv2.MORPH_CLOSE,
+            np.ones(
+                (3, 3),
+                dtype=np.uint8,
+            ),
+            iterations=1,
+        )
+        > 0
+    )
+    selected_area = np.count_nonzero(
+        inferred_foreground
+        & inside_brush
+    )
+    brush_area = np.count_nonzero(
+        inside_brush
+    )
+    if (
+        brush_area > 0
+        and selected_area / brush_area < 0.2
+    ):
+        return literal_coverage
+
+    guided_brush = np.where(
+        inferred_foreground
+        & inside_brush,
+        255,
+        0,
+    ).astype(np.uint8)
+    # The inferred region is binary, but the source image is not. Close tiny
+    # gaps caused by fabric texture, then restore a narrow antialiased edge so
+    # the guided path does not export as a pixelated outline.
+    if min(coverage.size) >= 512:
+        guided_brush = cv2.morphologyEx(
+            guided_brush,
+            cv2.MORPH_CLOSE,
+            np.ones((3, 3), dtype=np.uint8),
+        )
+        guided_brush = cv2.GaussianBlur(
+            guided_brush,
+            (0, 0),
+            sigmaX=1.2,
+        )
+
+    result = Image.new(
+        "L",
+        coverage.size,
+        0,
+    )
+    result.paste(
+        Image.fromarray(
+            guided_brush,
+            mode="L",
+        ),
+        (left, top),
+    )
+    return result
 
 
 def parse_background(

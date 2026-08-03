@@ -6,6 +6,24 @@ import { createThumbnail } from './thumbnails.js'
 const presets = [['White', '#ffffff'], ['Black', '#000000'], ['Marketplace', '#f5f5f5']]
 const MAX_POINTS = 2048
 const REBALANCE_POINTS = 1024
+const BATCH_UPLOAD_TIMEOUT_MS = 3 * 60 * 1000
+
+async function fetchWithTimeout(url, options, timeoutMs, timeoutMessage) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (caught) {
+    if (caught?.name === 'AbortError') {
+      const timeout = new Error(timeoutMessage)
+      timeout.code = 'timeout'
+      throw timeout
+    }
+    throw caught
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
 
 function apiError(response, fallback) {
   return response.json().then((body) => body.detail || fallback).catch(() => fallback)
@@ -409,7 +427,14 @@ export default function App() {
       form.append('job_id', next.clientJobId)
       let response
       let transportError
-      try { response = await fetch('/api/jobs', { method: 'POST', body: form }) } catch (caught) { transportError = caught }
+      try {
+        response = await fetchWithTimeout(
+          '/api/jobs',
+          { method: 'POST', body: form },
+          BATCH_UPLOAD_TIMEOUT_MS,
+          'Image processing timed out while waiting for the inference worker. Retry when Runpod is ready.',
+        )
+      } catch (caught) { transportError = caught }
       let nextJob
       if (response?.ok) {
         try { nextJob = await response.json() } catch (caught) { transportError = caught }
@@ -721,10 +746,12 @@ export default function App() {
     setCursor(null)
   }
 
-  const finishStroke = async (event) => {
+  const finishStroke = async (event, includeTerminal = true) => {
     if (activePointerRef.current !== event.pointerId) return
     const activeBrush = activeBrushRef.current
-    const terminal = pointerPosition(event, activeBrush.viewport, true)
+    const terminal = includeTerminal
+      ? pointerPosition(event, activeBrush.viewport, true)
+      : null
     activePointerRef.current = null
     try { event.currentTarget.releasePointerCapture?.(event.pointerId) } catch {}
     let points = streamPoints(normalizedPointsRef.current)
@@ -745,6 +772,7 @@ export default function App() {
     }
     setDrawing(false)
     setLivePoints([])
+    if (!includeTerminal) setCursor(null)
     if (points.length < 2) return
     const radius = Math.max(0.0001, Math.min(1, activeBrush.brushSize / Math.min(activeBrush.viewport.imageRect.width, activeBrush.viewport.imageRect.height)))
     await runMutation('/strokes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: activeBrush.mode, radius, softness: activeBrush.softness, points }) })
@@ -893,9 +921,9 @@ export default function App() {
     </section> : <section className="workspace">
       <div className="preview-panel">
         {readyItems.length > 1 && <nav className="ready-navigation" aria-label="Ready photos"><button className="secondary" disabled={readyIndex <= 0 || globallyBusy} onClick={() => batchDispatch(batchActions.select(readyItems[readyIndex - 1].localId))}>Previous</button><span>{readyIndex + 1} of {readyItems.length}</span><button className="secondary" disabled={readyIndex < 0 || readyIndex >= readyItems.length - 1 || globallyBusy} onClick={() => batchDispatch(batchActions.select(readyItems[readyIndex + 1].localId))}>Next</button></nav>}
-        <div ref={stageRef} className={`checker stage ${cursor ? 'over-image' : ''}`} aria-label="Mask brush canvas" aria-description="Use arrow keys to move the brush. Press Space or Enter to apply a dab." role="application" tabIndex={0} onKeyDown={onStageKeyDown} onContextMenu={(event) => event.preventDefault()} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={finishStroke} onPointerCancel={discardStroke} onLostPointerCapture={discardStroke} onPointerLeave={() => { if (activePointerRef.current === null) setCursor(null) }}>
+        <div ref={stageRef} className={`checker stage ${cursor ? 'over-image' : ''}`} aria-label="Mask brush canvas" aria-description="Use arrow keys to move the brush. Press Space or Enter to apply a dab." role="application" tabIndex={0} onKeyDown={onStageKeyDown} onContextMenu={(event) => event.preventDefault()} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={finishStroke} onPointerCancel={discardStroke} onLostPointerCapture={(event) => finishStroke(event, false)} onPointerLeave={() => { if (activePointerRef.current === null) setCursor(null) }}>
           {previewUrl && previewIdentity && <img key={`${previewIdentity.jobId}:${previewIdentity.requestId}:${previewIdentity.url}`} className="result" src={previewUrl} alt="Background removal result" onLoad={() => { if (previewIdentityRef.current === previewIdentity && previewIdentity.jobId === jobRef.current?.id && previewIdentity.requestId === previewRequestRef.current) { previewReadyRef.current = true; setPreviewReady(true); clearOwnedError('preview') } }} onError={() => { if (previewIdentityRef.current === previewIdentity && previewIdentity.jobId === jobRef.current?.id && previewIdentity.requestId === previewRequestRef.current) { previewReadyRef.current = false; setPreviewReady(false); setOwnedError('The current preview image could not be decoded.', 'preview') } }}/>}
-          {!painting && <img className="original" src={`/api/jobs/${job.id}/original`} alt="Original" style={{ clipPath: `inset(0 ${100 - compare}% 0 0)` }}/>}
+          <img className={`original ${painting ? 'brush-reference' : ''}`} src={`/api/jobs/${job.id}/original`} alt="Original" style={{ clipPath: painting ? 'none' : `inset(0 ${100 - compare}% 0 0)` }}/>
           {imageRect && <svg className="brush-overlay" aria-hidden="true" width="100%" height="100%">
             {livePoints.length > 0 && <polyline points={livePoints.map((p) => p.join(',')).join(' ')} fill="none" stroke={paintColor} strokeOpacity={0.3 + (1 - softness) * 0.45} strokeWidth={brushSize * 2} strokeLinecap="round" strokeLinejoin="round"/>}
             {cursor && <circle cx={cursor[0]} cy={cursor[1]} r={brushSize} fill={paintColor} fillOpacity="0.12" stroke={paintColor} strokeWidth="2"/>}

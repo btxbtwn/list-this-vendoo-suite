@@ -549,6 +549,7 @@ def _render(
         alpha = apply_strokes(
             alpha,
             strokes,
+            original,
         )
 
         return compose(

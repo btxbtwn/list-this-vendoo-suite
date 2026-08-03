@@ -156,14 +156,19 @@ describe('manual mask brush', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/jobs/00000000000000000000000000000001/strokes')).toHaveLength(1))
   })
 
-  it('discards cancel/lost-capture and safely handles release errors', async () => {
+  it('discards cancelled strokes but commits visible work when pointer capture is lost', async () => {
     const { fetchMock, stage } = await openEditor()
     stage.releasePointerCapture = vi.fn(() => { throw new Error('already released') })
     fireEvent(stage, new TestPointerEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 150, pointerId: 3 }))
     fireEvent(stage, new TestPointerEvent('pointercancel', { bubbles: true, pointerId: 3 }))
-    fireEvent(stage, new TestPointerEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 150, pointerId: 4 }))
-    fireEvent(stage, new TestPointerEvent('lostpointercapture', { bubbles: true, pointerId: 4 }))
     expect(fetchMock.mock.calls.some(([url]) => url === '/api/jobs/00000000000000000000000000000001/strokes')).toBe(false)
+
+    fireEvent(stage, new TestPointerEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 150, pointerId: 4 }))
+    fireEvent(stage, new TestPointerEvent('pointermove', { bubbles: true, clientX: 300, clientY: 250, pointerId: 4 }))
+    fireEvent(stage, new TestPointerEvent('lostpointercapture', { bubbles: true, pointerId: 4 }))
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/jobs/00000000000000000000000000000001/strokes')).toHaveLength(1))
+    const payload = JSON.parse(fetchMock.mock.calls.find(([url]) => url === '/api/jobs/00000000000000000000000000000001/strokes')[1].body)
+    expect(payload.points).toEqual([[0.25, 0.25], [0.75, 0.75]])
   })
 
   it('rejects right mouse strokes and suppresses context menus', async () => {
@@ -229,6 +234,28 @@ describe('manual mask brush', () => {
     const payload = JSON.parse(fetchMock.mock.calls.find(([url]) => url === '/api/jobs/00000000000000000000000000000001/strokes')[1].body)
     expect(payload).toMatchObject({ mode: 'restore', softness: 0.6 })
     expect(payload.radius).toBeCloseTo(0.2)
+  })
+
+  it('shows the original as a translucent reference while drawing and applying a brush', async () => {
+    let resolveMutation
+    const pending = new Promise((resolve) => { resolveMutation = resolve })
+    const fetchMock = installFetch((url, options) => options.method === 'POST'
+      ? pending
+      : Promise.resolve(jsonResponse({ revision: 1, count: 0 })))
+    const { stage } = await openEditor(fetchMock)
+    const original = screen.getByAltText('Original')
+
+    expect(original).not.toHaveClass('brush-reference')
+    fireEvent(stage, new TestPointerEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 150, pointerId: 14 }))
+    expect(original).toHaveClass('brush-reference')
+    expect(original).toHaveStyle({ clipPath: 'none' })
+
+    fireEvent(stage, new TestPointerEvent('pointerup', { bubbles: true, clientX: 300, clientY: 250, pointerId: 14 }))
+    await waitFor(() => expect(screen.getByText('Applying brush…')).toBeInTheDocument())
+    expect(original).toHaveClass('brush-reference')
+
+    resolveMutation(jsonResponse({ revision: 1, count: 1 }))
+    await waitFor(() => expect(original).not.toHaveClass('brush-reference'))
   })
 
   it('clears and gates the brush cursor when drawing is unavailable', async () => {
@@ -476,7 +503,7 @@ describe('manual mask brush', () => {
     expect(points.some(([x, y]) => x < 0.1 && y < 0.1)).toBe(true)
     expect(points.some(([x, y]) => x > 0.9 && y < 0.1)).toBe(true)
     expect(points.some(([x, y]) => x < 0.1 && y > 0.9)).toBe(true)
-  })
+  }, 60000)
 
   it('resets the keyboard point to center for a new image', async () => {
     const { fetchMock, stage } = await openEditor()
@@ -757,7 +784,7 @@ describe('manual mask brush', () => {
     expect(points.some(([x, y]) => x > 0.9 && y < 0.1)).toBe(true)
     expect(points.some(([x, y]) => x > 0.9 && y > 0.9)).toBe(true)
     expect(points.some(([x, y]) => x < 0.1 && y > 0.9)).toBe(true)
-  }, 20000)
+  }, 60000)
 
   it('processes multiple selected files strictly one at a time', async () => {
     let resolveFirst

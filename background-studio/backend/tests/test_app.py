@@ -77,6 +77,80 @@ def center_alpha(
     )[3]
 
 
+def split_image_bytes(
+    size: tuple[int, int] = (40, 40),
+    textured: bool = False,
+    subject_color=(220, 30, 30),
+    background_color=(20, 60, 220),
+    texture_color=(30, 30, 30),
+) -> bytes:
+    image = Image.new(
+        "RGB",
+        size,
+        subject_color,
+    )
+    image.paste(
+        background_color,
+        (
+            size[0] // 2,
+            0,
+            size[0],
+            size[1],
+        ),
+    )
+    if textured:
+        image.paste(
+            texture_color,
+            (5, 15, 11, 26),
+        )
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
+def shirt_on_white_bytes(
+    size: tuple[int, int] = (40, 40),
+) -> bytes:
+    image = Image.new(
+        "RGB",
+        size,
+        (245, 245, 240),
+    )
+    image.paste(
+        (105, 20, 45),
+        (0, 0, size[0] // 2, size[1]),
+    )
+    image.putpixel(
+        (10, 20),
+        (245, 245, 240),
+    )
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
+class PartialForegroundRemover:
+    def remove(
+        self,
+        image: Image.Image,
+    ) -> Image.Image:
+        mask = Image.new(
+            "L",
+            image.size,
+            0,
+        )
+        mask.paste(
+            255,
+            (
+                0,
+                0,
+                14,
+                image.height,
+            ),
+        )
+        return mask
+
+
 def test_batch_lifecycle_defaults_and_env_overrides(monkeypatch):
     monkeypatch.delenv("BACKGROUND_STUDIO_MAX_JOBS", raising=False)
     monkeypatch.delenv("BACKGROUND_STUDIO_TERMINAL_REGISTRY_MAX", raising=False)
@@ -89,9 +163,11 @@ def test_batch_lifecycle_defaults_and_env_overrides(monkeypatch):
 
     monkeypatch.setenv("BACKGROUND_STUDIO_MAX_JOBS", "7")
     monkeypatch.setenv("BACKGROUND_STUDIO_TERMINAL_REGISTRY_MAX", "123")
+    monkeypatch.setenv("BACKGROUND_STUDIO_RUNPOD_CANVAS_SIZE", "2048")
     overridden = Settings.from_env()
     assert overridden.max_jobs == 7
     assert overridden.terminal_registry_max == 123
+    assert overridden.runpod_canvas_size == 2048
 
 
 def test_decode_upload_transposes_exif_and_clears_info():
@@ -421,6 +497,359 @@ def test_manual_strokes_remove_restore_and_order(
         "&format=png"
     )
     assert center_alpha(reversed_order) <= 5
+
+
+def test_remove_brush_hugs_subject_edge_and_clears_background(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(255)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(
+            subject_color=(55, 70, 35),
+            background_color=(240, 238, 228),
+        ),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.08,
+        points=[
+            [0.65, 0.30],
+            [0.65, 0.70],
+        ],
+    )
+    assert removed.status_code == 200
+
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert alpha.getpixel((19, 20)) >= 250
+    assert alpha.getpixel((21, 20)) <= 5
+    assert alpha.getpixel((30, 20)) <= 5
+
+
+def test_restore_brush_hugs_contrasting_subject_edge(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(),
+    ).json()["id"]
+
+    restored = append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.35,
+        points=[
+            [0.35, 0.25],
+            [0.35, 0.75],
+        ],
+    )
+    assert restored.status_code == 200
+
+    rendered = [
+        client.get(
+            f"/api/jobs/{job_id}/preview"
+            "?background=transparent"
+        ),
+        client.get(
+            f"/api/jobs/{job_id}/export"
+            "?background=transparent"
+            "&format=png"
+        ),
+    ]
+
+    for response in rendered:
+        assert response.status_code == 200
+        alpha = response_image(
+            response
+        ).getchannel("A")
+        assert alpha.getpixel((15, 20)) >= 250
+        assert alpha.getpixel((24, 20)) <= 5
+
+
+def test_restore_brush_fills_across_internal_subject_texture(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(textured=True),
+    ).json()["id"]
+
+    restored = append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.08,
+        points=[
+            [0.35, 0.30],
+            [0.35, 0.70],
+        ],
+    )
+    assert restored.status_code == 200
+
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert alpha.getpixel((8, 20)) >= 250
+    assert alpha.getpixel((10, 20)) >= 250
+    assert alpha.getpixel((15, 20)) >= 250
+    assert alpha.getpixel((24, 20)) <= 5
+
+
+def test_restore_brush_fills_across_high_contrast_shirt_print(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(
+            textured=True,
+            subject_color=(25, 25, 25),
+            background_color=(20, 60, 220),
+            texture_color=(245, 245, 240),
+        ),
+    ).json()["id"]
+
+    append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.35,
+        points=[
+            [0.35, 0.25],
+            [0.35, 0.75],
+        ],
+    )
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert alpha.getpixel((8, 20)) >= 250
+    assert alpha.getpixel((19, 20)) >= 250
+    assert alpha.getpixel((21, 20)) <= 5
+
+
+def test_restore_brush_follows_a_low_contrast_subject_edge(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(
+            subject_color=(120, 80, 60),
+            background_color=(155, 115, 95),
+        ),
+    ).json()["id"]
+
+    append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.35,
+        points=[
+            [0.35, 0.25],
+            [0.35, 0.75],
+        ],
+    )
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert alpha.getpixel((19, 20)) >= 250
+    assert alpha.getpixel((21, 20)) <= 5
+
+
+def test_restore_brush_assists_beyond_the_literal_stroke(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(),
+    ).json()["id"]
+
+    append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.08,
+        points=[
+            [0.35, 0.30],
+            [0.35, 0.70],
+        ],
+    )
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert alpha.getpixel((8, 20)) >= 240
+    assert alpha.getpixel((19, 20)) >= 240
+    assert alpha.getpixel((21, 20)) <= 5
+
+
+def test_restore_brush_does_not_assist_without_an_edge(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        image_bytes(
+            size=(40, 40),
+            color=(120, 80, 60),
+        ),
+    ).json()["id"]
+
+    append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.08,
+        points=[
+            [0.35, 0.30],
+            [0.35, 0.70],
+        ],
+    )
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert alpha.getpixel((14, 20)) >= 250
+    assert alpha.getpixel((8, 20)) <= 5
+
+
+def test_restore_brush_rejects_white_background_and_closes_small_holes(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        shirt_on_white_bytes(),
+    ).json()["id"]
+
+    append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.08,
+        points=[
+            [0.35, 0.30],
+            [0.35, 0.70],
+        ],
+    )
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert alpha.getpixel((10, 20)) >= 250
+    assert alpha.getpixel((19, 20)) >= 250
+    assert alpha.getpixel((21, 20)) <= 5
+
+
+def test_restore_brush_falls_back_to_solid_manual_paint_when_ambiguous(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        PartialForegroundRemover()
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(
+            subject_color=(220, 220, 215),
+            background_color=(235, 235, 230),
+        ),
+    ).json()["id"]
+
+    append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.08,
+        softness=0.8,
+        points=[
+            [0.40, 0.30],
+            [0.40, 0.70],
+        ],
+    )
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert alpha.getpixel((18, 20)) >= 250
+    assert alpha.getpixel((21, 20)) <= 5
 
 
 def test_manual_stroke_undo_and_reset(
@@ -1358,7 +1787,11 @@ def test_preview_scales_feather_pixels_but_full_render_does_not(monkeypatch):
         return mask
 
     monkeypatch.setattr(main_module, "derive_alpha", derive_alpha)
-    monkeypatch.setattr(main_module, "apply_strokes", lambda alpha, strokes: alpha)
+    monkeypatch.setattr(
+        main_module,
+        "apply_strokes",
+        lambda alpha, strokes, original: alpha,
+    )
     monkeypatch.setattr(main_module, "compose", lambda original, alpha, background: original)
 
     preview = main_module._render(Store(), "job", 0, 10, "transparent", 20)

@@ -2,7 +2,7 @@
 
 Background Studio is a macOS web app for removing an image background with BiRefNet-HR, refining the derived alpha with reversible threshold and feather controls, previewing transparency or a solid color, and exporting full-resolution PNG/JPEG files. When used remotely, image uploads travel through the private Tailnet to Tailscale Serve on this Mac, then Vite proxies them to the loopback FastAPI process.
 
-The default production setup offloads only model inference to a private Runpod Serverless endpoint. The Mac keeps the original full-resolution image, job storage, mask edits, previews, and exports. Runpod receives a deterministic 1024×1024 letterboxed PNG and returns a 1024×1024 grayscale mask; the worker retains neither. The pinned model uses `trust_remote_code=True`, so repository-supplied Python runs inside the Runpod worker with that container's privileges. The app does not use Bria weights.
+The default production setup offloads only model inference to a private Runpod Serverless endpoint. The Mac keeps the original full-resolution image, job storage, mask edits, previews, and exports. The production path uses a deterministic 2048×2048 letterboxed canvas and mask for higher-resolution edge recovery. The worker still supports 1024px and 1536px compatibility modes, but the worker and Mac backend must use the same canvas setting. The pinned model uses `trust_remote_code=True`, so repository-supplied Python runs inside the Runpod worker with that container's privileges. The app does not use Bria weights.
 
 ## Requirements
 
@@ -78,8 +78,7 @@ The first request after scale-to-zero includes worker startup and can be
 substantially slower than a warm request. Cold-start gateway statuses are
 retried for up to five minutes; an ambiguous read timeout is not retried. The
 GPU is billed only while a worker is initializing or running. Runpod reports
-idle and throttled Flex workers as non-billable, so the endpoint configuration
-can remain available continuously without an always-on GPU.
+idle and throttled Flex workers as non-billable. The deployed endpoint uses `BACKGROUND_STUDIO_CANVAS_SIZE=2048`; the Mac backend uses the matching `BACKGROUND_STUDIO_RUNPOD_CANVAS_SIZE=2048` setting. The endpoint can remain available continuously without an always-on GPU.
 
 ### Private Tailnet access
 

@@ -190,6 +190,10 @@ h1 {
   z-index: 2;
 }
 
+.original.brush-reference {
+  opacity: 0.28;
+}
+
 .result {
   z-index: 1;
 }
