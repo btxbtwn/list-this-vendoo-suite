@@ -129,6 +129,30 @@ def shirt_on_white_bytes(
     return stream.getvalue()
 
 
+def fragmented_background_bytes(
+    size: tuple[int, int] = (640, 640),
+) -> bytes:
+    image = Image.new(
+        "RGB",
+        size,
+        (220, 220, 215),
+    )
+    image.paste(
+        (18, 18, 18),
+        (0, 0, size[0] * 7 // 16, size[1]),
+    )
+    for box, color in [
+        ((430, 220, 442, 232), (90, 40, 120)),
+        ((440, 226, 449, 235), (50, 130, 70)),
+        ((465, 340, 477, 352), (150, 70, 45)),
+        ((500, 390, 514, 404), (40, 40, 40)),
+    ]:
+        image.paste(color, box)
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
 class PartialForegroundRemover:
     def remove(
         self,
@@ -540,6 +564,101 @@ def test_remove_brush_hugs_subject_edge_and_clears_background(
     assert alpha.getpixel((30, 20)) <= 5
 
 
+def test_remove_broad_stroke_protects_subject_and_clears_background(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(255)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(
+            subject_color=(15, 15, 15),
+            background_color=(220, 220, 215),
+        ),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.22,
+        softness=0.35,
+        points=[
+            [0.58, 0.20],
+            [0.58, 0.80],
+        ],
+    )
+    assert removed.status_code == 200
+
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(4, 18)
+        for y in range(8, 32)
+    )
+    assert all(
+        alpha.getpixel((x, 20)) <= 5
+        for x in range(22, 36)
+    )
+
+
+def test_remove_high_resolution_stroke_clears_fragmented_background(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(255),
+        max_upload_bytes=10 * 1024 * 1024,
+    )
+
+    job_id = upload(
+        client,
+        fragmented_background_bytes(),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.18,
+        softness=0.35,
+        points=[
+            [0.70, 0.20],
+            [0.70, 0.80],
+        ],
+    )
+    assert removed.status_code == 200
+
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(40, 260)
+        for y in range(80, 560)
+    )
+    assert all(
+        alpha.getpixel((x, y)) <= 5
+        for x in range(340, 560)
+        for y in range(80, 560)
+    )
+
+
 def test_restore_brush_hugs_contrasting_subject_edge(
     app_factory,
 ):
@@ -622,6 +741,56 @@ def test_restore_brush_fills_across_internal_subject_texture(
     assert alpha.getpixel((10, 20)) >= 250
     assert alpha.getpixel((15, 20)) >= 250
     assert alpha.getpixel((24, 20)) <= 5
+
+
+def test_restore_broad_stroke_keeps_subject_solid_without_texture_islands(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(
+            textured=True,
+            subject_color=(25, 25, 25),
+            background_color=(20, 60, 220),
+            texture_color=(245, 245, 240),
+        ),
+    ).json()["id"]
+
+    restored = append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.22,
+        softness=0.35,
+        points=[
+            [0.35, 0.20],
+            [0.35, 0.80],
+        ],
+    )
+    assert restored.status_code == 200
+
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(4, 18)
+        for y in range(8, 32)
+    )
+    assert all(
+        alpha.getpixel((x, 20)) <= 5
+        for x in range(24, 36)
+    )
 
 
 def test_restore_brush_fills_across_high_contrast_shirt_print(

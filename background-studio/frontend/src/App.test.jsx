@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.jsx'
+import { addCleanupId } from './cleanupLedger.js'
 import { RECOVERY_MANIFEST_KEY, upsertRecoveryEntry } from './recoveryManifest.js'
 
 class TestPointerEvent extends MouseEvent {
@@ -895,6 +896,23 @@ describe('manual mask brush', () => {
     await screen.findByText('offline.png')
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/cancel'))).toBe(false)
     expect(sessionStorage.getItem(RECOVERY_MANIFEST_KEY)).toContain(restoredId)
+  })
+
+  it('never restores a cleanup-pending job reported as present', async () => {
+    const cleanupId = '7'.repeat(32)
+    upsertRecoveryEntry({ clientJobId: cleanupId, localId: 'cleanup-1', file: { name: 'cleanup.png', type: 'image/png', size: 10, lastModified: 1 }, status: 'cleanup_pending', uploadable: false, backendWidth: 200, backendHeight: 100, editor: {}, createdAt: 1, updatedAt: 1 }, sessionStorage)
+    addCleanupId(cleanupId, sessionStorage)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      if (String(url).endsWith('/cancel')) return Promise.resolve(new Response(null, { status: 204 }))
+      if (url === `/api/jobs/${cleanupId}`) return Promise.resolve(jsonResponse({ id: cleanupId, width: 200, height: 100 }))
+      if (String(url).includes('/preview?')) return Promise.resolve(imageResponse())
+      return Promise.resolve(jsonResponse({ ok: true }))
+    })
+    render(<App />)
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/cancel'))).toBe(true))
+    expect(fetchMock.mock.calls.some(([url]) => url === `/api/jobs/${cleanupId}`)).toBe(false)
+    await waitFor(() => expect(screen.queryByText('cleanup.png')).toBeNull())
+    expect(sessionStorage.getItem(RECOVERY_MANIFEST_KEY)).not.toContain(cleanupId)
   })
 
   it('reconciles a creating lost response until the exact job becomes ready', async () => {

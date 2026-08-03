@@ -409,12 +409,14 @@ def _guided_stroke_coverage(
         ).crop(crop_box),
         dtype=np.uint8,
     )
+    # The stroke path is the only authoritative seed.  Treating every
+    # already-visible/transparent pixel inside the expanded brush as another
+    # seed turns fabric texture and stray mask islands into separate regions;
+    # the connected-component pass then returns a speckled brush instead of
+    # one protected region.  Existing alpha is still used as a guide below,
+    # but it must not create new seeds away from the user's stroke.
     foreground_seed = (
         (core >= 128)
-        & (assisted_brush > 2)
-    )
-    foreground_seed |= (
-        (current_alpha >= 192)
         & (assisted_brush > 2)
     )
     if not np.any(foreground_seed):
@@ -429,13 +431,7 @@ def _guided_stroke_coverage(
         blurred,
         cv2.COLOR_RGB2LAB,
     )
-    prototype_seed = (
-        (
-            (core >= 128)
-            | (current_alpha >= 192)
-        )
-        & (assisted_brush > 2)
-    )
+    prototype_seed = foreground_seed
     seed_colors = lab[
         prototype_seed
     ]
