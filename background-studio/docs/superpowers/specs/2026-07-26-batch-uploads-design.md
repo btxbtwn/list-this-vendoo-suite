@@ -18,7 +18,7 @@ Version one includes:
 - Canceling unstarted items and reconciling or deleting created jobs when starting a new batch.
 - Preserving the current one-file experience when only one file is selected.
 
-Version one does not include parallel inference, combined ZIP export, cross-session persistence, queue reordering, or more than ten files.
+Version one does not include parallel inference, combined ZIP export, queue reordering, or more than ten files. The browser keeps metadata-only recovery state so a page reload can reconnect to live backend jobs; image bytes are never persisted in browser storage.
 
 ## Architecture
 
@@ -82,7 +82,7 @@ Capacity `507` follows the same rule. The old ID is reconciled/canceled first. M
 
 ### Cleanup ledger
 
-The cleanup ledger is independent of visible items. Removing an item or resetting the batch cannot erase an unresolved backend job ID. Entries are write-ahead persisted synchronously to `sessionStorage` before creation, restored on mount, and removed only after physical-cleanup proof. If storage is unavailable, the affected upload remains failed locally and no backend request starts. This survives component remounts and page reloads; a hard tab close, browser crash without session restoration, or storage clearing may leave jobs until backend TTL cleanup.
+The cleanup ledger is independent of visible items. Removing an item or resetting the batch cannot erase an unresolved backend job ID. Entries are write-ahead persisted synchronously to `sessionStorage` before creation, restored on mount, and removed only after physical-cleanup proof. A metadata-only recovery manifest in browser storage preserves filenames, dimensions, editor settings, and job IDs across page reloads without storing image bytes or credentials. If storage is unavailable, the affected upload remains failed locally and no backend request starts. A hard tab close, browser crash without storage restoration, or storage clearing may leave jobs until backend TTL cleanup. Backend jobs still expire after the thirty-minute idle TTL and are removed on backend restart, so browser metadata cannot recover a restarted job.
 
 Each entry records `jobId`, an independent `ledgerEntryGeneration`, originating batch/item generation, commit-terminal state, physical-cleanup state, and ledger operation sequence. Ledger transitions are guarded by `jobId + ledgerEntryGeneration + ledger operation sequence`, never by the visible `batchGeneration`. Starting a new batch cannot stop old-batch cleanup. Stale creation success always dispatches compensating cancellation even when its item action is rejected. Cancel `202` keeps the entry cleanup-pending; retries continue until `204` or backend TTL/quarantine cleanup provides equivalent physical-cleanup proof.
 

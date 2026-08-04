@@ -409,12 +409,299 @@ def _guided_stroke_coverage(
         ).crop(crop_box),
         dtype=np.uint8,
     )
+    core_pixels = core >= 128
+    core_area = np.count_nonzero(core_pixels)
+    transparent_background_fraction = np.count_nonzero(
+        np.asarray(alpha, dtype=np.uint8) >= 192
+    ) / (width * height)
+    explicit_subject_intent = (
+        stroke.mode == "remove"
+        and core_area > 0
+        and transparent_background_fraction >= 0.05
+        and np.count_nonzero(
+            core_pixels
+            & (current_alpha < 128)
+        ) / core_area
+        >= 0.35
+    )
+
+    def literal_brush_result(protected=None) -> Image.Image:
+        literal = np.asarray(
+            coverage.crop(crop_box),
+            dtype=np.uint8,
+        )
+        # Make the body of a high-resolution brush decisive while retaining
+        # a narrow antialiased boundary. Blur the source coverage before
+        # thresholding so the boundary cannot expand beyond the painted path.
+        if min(coverage.size) >= 512:
+            literal = cv2.GaussianBlur(
+                literal,
+                (0, 0),
+                sigmaX=0.8,
+            )
+        literal = np.where(
+            literal >= 32,
+            255,
+            0,
+        ).astype(np.uint8)
+        if protected is not None:
+            literal[protected & (brush > 2)] = 0
+        result = Image.new(
+            "L",
+            coverage.size,
+            0,
+        )
+        result.paste(
+            Image.fromarray(
+                literal,
+                mode="L",
+            ),
+            (left, top),
+        )
+        return result
+
+    if explicit_subject_intent:
+        # A stroke that deliberately crosses the current subject is an
+        # exact edit. Keep smart-edge protection for background-first strokes,
+        # but do not expand a direct subject edit beyond the painted path.
+        return literal_brush_result()
+
+    if (
+        stroke.mode == "remove"
+        and not explicit_subject_intent
+    ):
+        # A remove stroke must clear every pixel inside the brush. The
+        # previous guided pass could split isolated, visible background
+        # fragments away from the stroke seed, leaving them behind even
+        # though they were inside the brush. When the current mask already
+        # has transparent background, protect only the thick main subject
+        # silhouette and use the literal brush for the rest. Fully opaque
+        # masks still use the colour/edge path below, which is needed when
+        # there is no reliable foreground/background separation yet.
+        mask_alpha = current_alpha
+        analysis_scale = min(
+            1.0,
+            1024 / max(crop_width, crop_height),
+        )
+        analysis_size = (
+            max(1, round(crop_width * analysis_scale)),
+            max(1, round(crop_height * analysis_scale)),
+        )
+        if analysis_scale < 1.0:
+            visible = (
+                cv2.resize(
+                    (mask_alpha < 128).astype(np.uint8),
+                    analysis_size,
+                    interpolation=cv2.INTER_AREA,
+                )
+                >= 0.5
+            )
+            transparent = (
+                cv2.resize(
+                    (mask_alpha >= 192).astype(np.uint8),
+                    analysis_size,
+                    interpolation=cv2.INTER_AREA,
+                )
+                >= 0.5
+            )
+            analysis_rgb = cv2.resize(
+                rgb,
+                analysis_size,
+                interpolation=cv2.INTER_AREA,
+            )
+        else:
+            visible = mask_alpha < 128
+            transparent = mask_alpha >= 192
+            analysis_rgb = rgb
+        transparent_fraction = np.count_nonzero(
+            transparent
+        ) / transparent.size
+        if (
+            np.any(visible)
+            and transparent_fraction >= 0.05
+        ):
+            # Use the thickest interior as the subject seed. A connected
+            # component alone is too broad here: long rods or scraps that
+            # touch the garment become part of the same component and would
+            # then be protected from the remove stroke.
+            distance = cv2.distanceTransform(
+                visible.astype(np.uint8),
+                cv2.DIST_L2,
+                5,
+            )
+            core_threshold = max(
+                4.0,
+                float(distance.max()) * 0.35,
+            )
+            thick_interior = distance >= core_threshold
+            _, thick_labels, thick_stats, _ = (
+                cv2.connectedComponentsWithStats(
+                    thick_interior.astype(np.uint8),
+                    connectivity=8,
+                )
+            )
+            thick_components = np.arange(
+                1,
+                thick_stats.shape[0],
+                dtype=np.int32,
+            )
+            if thick_components.size > 0:
+                largest_component = thick_components[
+                    np.argmax(
+                        thick_stats[
+                            thick_components,
+                            cv2.CC_STAT_AREA,
+                        ]
+                    )
+                ]
+                core_subject = (
+                    thick_labels == largest_component
+                )
+            else:
+                core_subject = thick_interior
+            subject_lab = cv2.cvtColor(
+                analysis_rgb,
+                cv2.COLOR_RGB2LAB,
+            ).astype(np.int32)
+            subject_colors = subject_lab[
+                core_subject
+            ]
+            subject_match = np.zeros(
+                visible.shape,
+                dtype=bool,
+            )
+            if subject_colors.size > 0:
+                quantized = (
+                    subject_colors.astype(np.uint16)
+                    // 24
+                )
+                color_codes = (
+                    quantized[:, 0] * 121
+                    + quantized[:, 1] * 11
+                    + quantized[:, 2]
+                )
+                _, inverse, counts = np.unique(
+                    color_codes,
+                    return_inverse=True,
+                    return_counts=True,
+                )
+                eligible = np.flatnonzero(
+                    counts
+                    >= max(
+                        16,
+                        counts.max() * 0.01,
+                    )
+                )
+                if eligible.size == 0:
+                    eligible = np.asarray(
+                        [int(np.argmax(counts))],
+                        dtype=np.int64,
+                    )
+                dominant = eligible[
+                    np.argsort(counts[eligible])[
+                        -min(8, eligible.size):
+                    ]
+                ]
+                prototypes = np.stack(
+                    [
+                        np.median(
+                            subject_colors[
+                                inverse == index
+                            ],
+                            axis=0,
+                        )
+                        for index in dominant
+                    ]
+                ).astype(np.int32)
+                color_distance = np.full(
+                    visible.shape,
+                    np.iinfo(np.int32).max,
+                    dtype=np.int32,
+                )
+                for prototype in prototypes:
+                    difference = subject_lab - prototype
+                    distance = np.sum(
+                        difference * difference,
+                        axis=2,
+                        dtype=np.int32,
+                    )
+                    color_distance = np.minimum(
+                        color_distance,
+                        distance,
+                    )
+                subject_match = (
+                    color_distance <= 55 * 55
+                )
+            core_subject &= subject_match
+            candidate = visible & subject_match
+            candidate[core_subject] = True
+            # Remove thin appendages from the protected silhouette before
+            # connecting it back to the subject. This keeps a narrow stand or
+            # rod from inheriting the shirt's protection merely because it
+            # touches the shirt at one pixel.
+            # Opening at roughly the measured subject thickness removes thin
+            # rods that touch the garment while retaining its broad outline.
+            subject_open_width = max(
+                3,
+                min(
+                    81,
+                    round(core_threshold * 2.0 + 1),
+                ),
+            )
+            subject_shape = cv2.morphologyEx(
+                candidate.astype(np.uint8),
+                cv2.MORPH_OPEN,
+                np.ones(
+                    (subject_open_width, subject_open_width),
+                    dtype=np.uint8,
+                ),
+            )
+            subject_shape[core_subject] = 1
+            _, candidate_labels = (
+                cv2.connectedComponents(
+                    subject_shape,
+                    connectivity=8,
+                )
+            )
+            selected_labels = np.unique(
+                candidate_labels[core_subject]
+            )
+            selected_labels = selected_labels[
+                selected_labels != 0
+            ]
+            protected = np.isin(
+                candidate_labels,
+                selected_labels,
+            )
+            protected = (
+                cv2.dilate(
+                    protected.astype(np.uint8),
+                    np.ones((3, 3), dtype=np.uint8),
+                    iterations=1,
+                ).astype(bool)
+                & visible
+                & subject_match
+            )
+            protected[core_subject] = True
+            if protected.shape != brush.shape:
+                protected = (
+                    cv2.resize(
+                        protected.astype(np.uint8),
+                        (crop_width, crop_height),
+                        interpolation=cv2.INTER_NEAREST,
+                    )
+                    > 0
+                )
+            return literal_brush_result(protected)
+
+    # The stroke path is the only authoritative seed.  Treating every
+    # already-visible/transparent pixel inside the expanded brush as another
+    # seed turns fabric texture and stray mask islands into separate regions;
+    # the connected-component pass then returns a speckled brush instead of
+    # one protected region.  Existing alpha is still used as a guide below,
+    # but it must not create new seeds away from the user's stroke.
     foreground_seed = (
         (core >= 128)
-        & (assisted_brush > 2)
-    )
-    foreground_seed |= (
-        (current_alpha >= 192)
         & (assisted_brush > 2)
     )
     if not np.any(foreground_seed):
@@ -429,13 +716,7 @@ def _guided_stroke_coverage(
         blurred,
         cv2.COLOR_RGB2LAB,
     )
-    prototype_seed = (
-        (
-            (core >= 128)
-            | (current_alpha >= 192)
-        )
-        & (assisted_brush > 2)
-    )
+    prototype_seed = foreground_seed
     seed_colors = lab[
         prototype_seed
     ]

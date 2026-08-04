@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from app.config import Settings
 from app.images import decode_upload
@@ -129,6 +129,105 @@ def shirt_on_white_bytes(
     return stream.getvalue()
 
 
+def fragmented_background_bytes(
+    size: tuple[int, int] = (640, 640),
+) -> bytes:
+    image = Image.new(
+        "RGB",
+        size,
+        (220, 220, 215),
+    )
+    image.paste(
+        (18, 18, 18),
+        (0, 0, size[0] * 7 // 16, size[1]),
+    )
+    for box, color in [
+        ((430, 220, 442, 232), (90, 40, 120)),
+        ((440, 226, 449, 235), (50, 130, 70)),
+        ((465, 340, 477, 352), (150, 70, 45)),
+        ((500, 390, 514, 404), (40, 40, 40)),
+    ]:
+        image.paste(color, box)
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
+def fragmented_edge_background_bytes(
+    size: tuple[int, int] = (640, 640),
+) -> bytes:
+    image = Image.new(
+        "RGB",
+        size,
+        (220, 220, 215),
+    )
+    image.paste(
+        (80, 80, 80),
+        (180, 80, 400, 560),
+    )
+    for box, color in [
+        ((400, 280, 414, 294), (200, 20, 20)),
+        ((430, 220, 444, 234), (90, 40, 120)),
+        ((440, 226, 454, 240), (50, 130, 70)),
+        ((465, 340, 479, 354), (150, 70, 45)),
+        ((500, 390, 514, 404), (40, 40, 40)),
+        ((530, 470, 544, 484), (10, 180, 210)),
+        ((470, 500, 484, 514), (240, 200, 20)),
+    ]:
+        image.paste(color, box)
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
+def attached_background_bytes(
+    size: tuple[int, int] = (640, 640),
+) -> bytes:
+    image = Image.new(
+        "RGB",
+        size,
+        (220, 220, 215),
+    )
+    image.paste(
+        (100, 100, 100),
+        (180, 80, 400, 560),
+    )
+    for box in (
+        (400, 160, 510, 180),
+        (400, 260, 530, 275),
+        (400, 350, 490, 370),
+        (400, 460, 540, 480),
+        (400, 500, 460, 520),
+        (400, 500, 410, 560),
+    ):
+        image.paste((180, 180, 180), box)
+    image.paste((100, 100, 100), (400, 500, 410, 560))
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
+def bottom_stand_background_bytes(
+    size: tuple[int, int] = (640, 640),
+) -> bytes:
+    image = Image.new(
+        "RGB",
+        size,
+        (220, 220, 215),
+    )
+    image.paste(
+        (30, 30, 30),
+        (180, 80, 460, 520),
+    )
+    image.paste(
+        (30, 30, 30),
+        (300, 521, 320, 620),
+    )
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
 class PartialForegroundRemover:
     def remove(
         self,
@@ -147,6 +246,83 @@ class PartialForegroundRemover:
                 14,
                 image.height,
             ),
+        )
+        return mask
+
+
+class FragmentedForegroundRemover:
+    def remove(
+        self,
+        image: Image.Image,
+    ) -> Image.Image:
+        mask = Image.new(
+            "L",
+            image.size,
+            0,
+        )
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle(
+            (180, 80, 400, 560),
+            fill=255,
+        )
+        for box in (
+            (400, 280, 414, 294),
+            (430, 220, 444, 234),
+            (440, 226, 454, 240),
+            (465, 340, 479, 354),
+            (500, 390, 514, 404),
+            (530, 470, 544, 484),
+            (470, 500, 484, 514),
+        ):
+            draw.rectangle(box, fill=255)
+        return mask
+
+
+class AttachedForegroundRemover:
+    def remove(
+        self,
+        image: Image.Image,
+    ) -> Image.Image:
+        mask = Image.new(
+            "L",
+            image.size,
+            0,
+        )
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle(
+            (180, 80, 400, 560),
+            fill=255,
+        )
+        for box in (
+            (400, 160, 510, 180),
+            (400, 260, 530, 275),
+            (400, 350, 490, 370),
+            (400, 460, 540, 480),
+            (400, 500, 460, 520),
+            (400, 500, 410, 560),
+        ):
+            draw.rectangle(box, fill=255)
+        return mask
+
+
+class BottomStandForegroundRemover:
+    def remove(
+        self,
+        image: Image.Image,
+    ) -> Image.Image:
+        mask = Image.new(
+            "L",
+            image.size,
+            0,
+        )
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle(
+            (180, 80, 460, 520),
+            fill=255,
+        )
+        draw.rectangle(
+            (300, 521, 320, 620),
+            fill=255,
         )
         return mask
 
@@ -540,6 +716,316 @@ def test_remove_brush_hugs_subject_edge_and_clears_background(
     assert alpha.getpixel((30, 20)) <= 5
 
 
+def test_remove_broad_stroke_protects_subject_and_clears_background(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(255)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(
+            subject_color=(15, 15, 15),
+            background_color=(220, 220, 215),
+        ),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.22,
+        softness=0.35,
+        points=[
+            [0.58, 0.20],
+            [0.58, 0.80],
+        ],
+    )
+    assert removed.status_code == 200
+
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(4, 18)
+        for y in range(8, 32)
+    )
+    assert all(
+        alpha.getpixel((x, 20)) <= 5
+        for x in range(22, 36)
+    )
+
+
+def test_remove_high_resolution_stroke_clears_fragmented_background(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(255),
+        max_upload_bytes=10 * 1024 * 1024,
+    )
+
+    job_id = upload(
+        client,
+        fragmented_background_bytes(),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.18,
+        softness=0.35,
+        points=[
+            [0.70, 0.20],
+            [0.70, 0.80],
+        ],
+    )
+    assert removed.status_code == 200
+
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(40, 260)
+        for y in range(80, 560)
+    )
+    assert all(
+        alpha.getpixel((x, y)) <= 5
+        for x in range(340, 560)
+        for y in range(80, 560)
+    )
+
+
+def test_remove_stroke_clears_visible_background_islands_inside_brush(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FragmentedForegroundRemover(),
+        max_upload_bytes=10 * 1024 * 1024,
+        preview_max_side=640,
+    )
+
+    job_id = upload(
+        client,
+        fragmented_edge_background_bytes(),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.16,
+        softness=0.35,
+        points=[
+            [0.70, 0.10],
+            [0.70, 0.90],
+        ],
+    )
+    assert removed.status_code == 200
+
+    preview = client.get(
+        f"/api/jobs/{job_id}/preview"
+        "?background=transparent"
+        "&revision=1"
+    )
+    assert preview.status_code == 200
+    alpha = response_image(
+        preview
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(180, 396)
+        for y in range(80, 560)
+    )
+    for box in (
+        (400, 280, 414, 294),
+        (430, 220, 444, 234),
+        (440, 226, 454, 240),
+        (465, 340, 479, 354),
+        (500, 390, 514, 404),
+        (530, 470, 544, 484),
+        (470, 500, 484, 514),
+    ):
+        x1, y1, x2, y2 = box
+        assert all(
+            alpha.getpixel((x, y)) <= 5
+            for x in range(x1, x2)
+            for y in range(y1, y2)
+        )
+
+
+def test_remove_stroke_can_intentionally_cut_into_the_subject(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FragmentedForegroundRemover(),
+        max_upload_bytes=10 * 1024 * 1024,
+        preview_max_side=640,
+    )
+
+    job_id = upload(
+        client,
+        fragmented_edge_background_bytes(),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.08,
+        softness=0.35,
+        points=[
+            [0.45, 0.30],
+            [0.45, 0.70],
+        ],
+    )
+    assert removed.status_code == 200
+
+    preview = client.get(
+        f"/api/jobs/{job_id}/preview"
+        "?background=transparent"
+        "&revision=1"
+    )
+    assert preview.status_code == 200
+    alpha = response_image(
+        preview
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) <= 5
+        for x in range(270, 307)
+        for y in range(230, 410)
+    )
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(185, 220)
+        for y in range(100, 540)
+    )
+
+
+def test_remove_stroke_clears_background_attached_to_subject_edge(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        AttachedForegroundRemover(),
+        max_upload_bytes=10 * 1024 * 1024,
+        preview_max_side=640,
+    )
+
+    job_id = upload(
+        client,
+        attached_background_bytes(),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.16,
+        softness=0.35,
+        points=[
+            [0.70, 0.10],
+            [0.70, 0.90],
+        ],
+    )
+    assert removed.status_code == 200
+
+    preview = client.get(
+        f"/api/jobs/{job_id}/preview"
+        "?background=transparent"
+        "&revision=1"
+    )
+    assert preview.status_code == 200
+    alpha = response_image(
+        preview
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(180, 395)
+        for y in range(80, 560)
+    )
+    for box in (
+        (400, 160, 510, 180),
+        (400, 260, 530, 275),
+        (400, 350, 490, 370),
+        (400, 460, 540, 480),
+        (401, 500, 460, 520),
+        (401, 530, 410, 560),
+    ):
+        x1, y1, x2, y2 = box
+        assert all(
+            alpha.getpixel((x, y)) <= 5
+            for x in range(x1, x2)
+            for y in range(y1, y2)
+        )
+
+
+def test_remove_stroke_clears_thin_stand_below_subject(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        BottomStandForegroundRemover(),
+        max_upload_bytes=10 * 1024 * 1024,
+        preview_max_side=640,
+    )
+
+    job_id = upload(
+        client,
+        bottom_stand_background_bytes(),
+    ).json()["id"]
+
+    removed = append_stroke(
+        client,
+        job_id,
+        "remove",
+        radius=0.16,
+        softness=0.35,
+        points=[
+            [0.40, 0.90],
+            [0.60, 0.90],
+        ],
+    )
+    assert removed.status_code == 200
+
+    preview = client.get(
+        f"/api/jobs/{job_id}/preview"
+        "?background=transparent"
+        "&revision=1"
+    )
+    assert preview.status_code == 200
+    alpha = response_image(
+        preview
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(180, 460)
+        for y in range(80, 520)
+    )
+    assert all(
+        alpha.getpixel((x, y)) <= 5
+        for x in range(300, 320)
+        for y in range(521, 620)
+    )
+
+
 def test_restore_brush_hugs_contrasting_subject_edge(
     app_factory,
 ):
@@ -622,6 +1108,56 @@ def test_restore_brush_fills_across_internal_subject_texture(
     assert alpha.getpixel((10, 20)) >= 250
     assert alpha.getpixel((15, 20)) >= 250
     assert alpha.getpixel((24, 20)) <= 5
+
+
+def test_restore_broad_stroke_keeps_subject_solid_without_texture_islands(
+    app_factory,
+):
+    _, client, _ = app_factory(
+        FakeRemover(0)
+    )
+
+    job_id = upload(
+        client,
+        split_image_bytes(
+            textured=True,
+            subject_color=(25, 25, 25),
+            background_color=(20, 60, 220),
+            texture_color=(245, 245, 240),
+        ),
+    ).json()["id"]
+
+    restored = append_stroke(
+        client,
+        job_id,
+        "restore",
+        radius=0.22,
+        softness=0.35,
+        points=[
+            [0.35, 0.20],
+            [0.35, 0.80],
+        ],
+    )
+    assert restored.status_code == 200
+
+    exported = client.get(
+        f"/api/jobs/{job_id}/export"
+        "?background=transparent"
+        "&format=png"
+    )
+    alpha = response_image(
+        exported
+    ).getchannel("A")
+
+    assert all(
+        alpha.getpixel((x, y)) >= 250
+        for x in range(4, 18)
+        for y in range(8, 32)
+    )
+    assert all(
+        alpha.getpixel((x, 20)) <= 5
+        for x in range(24, 36)
+    )
 
 
 def test_restore_brush_fills_across_high_contrast_shirt_print(
