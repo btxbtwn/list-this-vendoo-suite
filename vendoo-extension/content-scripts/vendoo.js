@@ -5,7 +5,7 @@
   'use strict';
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.2';
+  const CONTENT_SCRIPT_VERSION = '0.3.3';
   const DEBUG = true;
   let statusBox;
 
@@ -86,6 +86,151 @@
 
   function sleep(ms) {
     return new Promise(r => setTimeout(r, ms));
+  }
+
+  // ============================================
+  // FILL LEDGER — per-step field outcomes
+  // ============================================
+
+  let currentFillMarketplace = 'general';
+  const fillLedger = [];
+
+  function previewValue(value) {
+    if (value == null) return '';
+    const text = Array.isArray(value) ? value.join(', ') : String(value);
+    const compact = text.replace(/\s+/g, ' ').trim();
+    return compact.length > 80 ? `${compact.slice(0, 77)}...` : compact;
+  }
+
+  function beginFillLog(marketplace) {
+    fillLedger.length = 0;
+    currentFillMarketplace = marketplace || 'general';
+  }
+
+  function recordFill(entry) {
+    const field = String(entry.field || '').trim();
+    if (!field) return;
+    fillLedger.push({
+      marketplace: currentFillMarketplace,
+      field,
+      status: entry.status,
+      reason: entry.reason || '',
+      selector: entry.selector || '',
+      value_preview: Object.prototype.hasOwnProperty.call(entry, 'value')
+        ? previewValue(entry.value)
+        : (entry.value_preview || ''),
+    });
+  }
+
+  function summarizeFillLog(entries) {
+    const summary = { filled: 0, skipped: 0, not_found: 0, failed: 0, uncertain: 0, new: 0 };
+    for (const entry of entries) {
+      if (summary[entry.status] != null) summary[entry.status] += 1;
+    }
+    return summary;
+  }
+
+  function normalizeFieldKey(value) {
+    return String(value || '')
+      .replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  function selectorFor(el, fallback) {
+    if (el && el.id) return `#${el.id}`;
+    return fallback || '';
+  }
+
+  function fieldLabelForControl(el) {
+    if (!el) return '';
+    if (el.labels && el.labels.length) {
+      const text = (el.labels[0].textContent || '').replace(/\s+/g, ' ').trim();
+      if (text) return text;
+    }
+    const aria = el.getAttribute && el.getAttribute('aria-label');
+    if (aria) return String(aria).replace(/\s+/g, ' ').trim();
+    if (el.id) {
+      const escaped = (window.CSS && typeof window.CSS.escape === 'function')
+        ? window.CSS.escape(el.id)
+        : String(el.id).replace(/"/g, '\\"');
+      const lab = document.querySelector(`label[for="${escaped}"]`);
+      if (lab) {
+        const text = (lab.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text) return text;
+      }
+    }
+    let container = el.parentElement;
+    for (let depth = 0; depth < 4 && container; depth += 1) {
+      const nearby = container.querySelector('label, legend, [class*="Label"], [class*="label"]');
+      if (nearby && nearby !== el) {
+        const text = (nearby.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text && text.length <= 80) return text;
+      }
+      container = container.parentElement;
+    }
+    if (el.id) {
+      return String(el.id.split('.').pop() || '').replace(/[_-]+/g, ' ').trim();
+    }
+    return '';
+  }
+
+  function isListingFormControl(el) {
+    if (!el) return false;
+    const id = el.id || '';
+    if (/generalDetails|listings\.|categoryV2|^labels$/i.test(id)) return true;
+    if (el.getAttribute && el.getAttribute('role') === 'category-search-field') return true;
+    const parent = el.closest('[id]');
+    const parentId = parent ? parent.id : '';
+    return /listings|generalDetails|category/i.test(parentId);
+  }
+
+  function appendUnmappedFields() {
+    const attempted = new Set(fillLedger.map((entry) => normalizeFieldKey(entry.field)));
+    const seen = new Set();
+    const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
+
+    for (const el of controls) {
+      if (el.closest && el.closest('#vendoo-debug-box')) continue;
+      const type = String(el.type || '').toLowerCase();
+      if (['hidden', 'submit', 'button', 'reset', 'file', 'image'].includes(type)) continue;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) === 0) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      if (!isListingFormControl(el)) continue;
+
+      const label = fieldLabelForControl(el);
+      const key = normalizeFieldKey(label);
+      if (!key || attempted.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      recordFill({
+        field: label,
+        status: 'new',
+        reason: 'Visible on form, not filled by automation',
+        selector: selectorFor(el, ''),
+        value: el.value || '',
+      });
+    }
+  }
+
+  function finishFillLog() {
+    appendUnmappedFields();
+    const summary = summarizeFillLog(fillLedger);
+    log(`=== FILL LOG ${currentFillMarketplace} ===`);
+    log(`filled ${summary.filled} · skipped ${summary.skipped} · not found ${summary.not_found} · failed ${summary.failed} · uncertain ${summary.uncertain} · new ${summary.new}`);
+    fillLedger
+      .filter((entry) => entry.status === 'failed' || entry.status === 'not_found')
+      .forEach((entry) => warn(`  ${entry.field}: ${entry.reason || entry.status}`));
+    fillLedger
+      .filter((entry) => entry.status === 'new')
+      .forEach((entry) => log(`  NEW FIELD: ${entry.field}${entry.selector ? ` (${entry.selector})` : ''}`));
+    return {
+      marketplace: currentFillMarketplace,
+      summary,
+      entries: fillLedger.slice(),
+    };
   }
 
   // ============================================
@@ -355,12 +500,22 @@
       const original = String(raw).trim();
       if (!original) return original;
 
-      const exact = [...VENDOO_COLORS, 'Grey', 'Multi', 'Navy', 'Burgundy', 'Khaki']
-          .find(c => c.toLowerCase() === original.toLowerCase());
+      const namedColors = [...VENDOO_COLORS, 'Grey', 'Multi', 'Navy', 'Burgundy', 'Khaki'];
+      const exact = namedColors.find(c => c.toLowerCase() === original.toLowerCase());
       if (exact) return exact === 'Grey' ? 'Gray' : exact === 'Multi' ? 'Multicolor' : exact;
 
       const t = original.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-      return COLOR_ALIASES[t] || original;
+      if (COLOR_ALIASES[t]) return COLOR_ALIASES[t];
+
+      const words = new Set(t.split(' '));
+      const contained = namedColors
+          .filter(c => words.has(c.toLowerCase()))
+          .sort((a, b) => b.length - a.length)[0];
+      if (contained) {
+          return contained === 'Grey' ? 'Gray' : contained === 'Multi' ? 'Multicolor' : contained;
+      }
+
+      return original;
   }
 
   function mapColor(raw, marketplace) {
@@ -603,6 +758,86 @@
       return null;
   }
 
+  function isEnabledField(el) {
+      if (!el) return false;
+      if (el.disabled) return false;
+      if (el.getAttribute('aria-disabled') === 'true') return false;
+      return true;
+  }
+
+  function isMarketplaceInput(marketplace) {
+      return (input) => {
+          const id = String(input?.id || '');
+          const name = String(input?.name || '');
+          const prefix = `listings.${marketplace}.`;
+          return id.startsWith(prefix) || name.startsWith(prefix);
+      };
+  }
+
+  function resolveMarketplaceField(marketplace, labelPatterns, selectors = []) {
+      let fallback = null;
+      for (const sel of selectors) {
+          try {
+              const el = document.querySelector(sel);
+              if (!el) continue;
+              if (isVisibleElement(el) && isEnabledField(el)) return el;
+              if (isVisibleElement(el) && !fallback) fallback = el;
+          } catch (_) {}
+      }
+      const labeled = findInputByLabelPatterns(labelPatterns, isMarketplaceInput(marketplace));
+      if (labeled && isEnabledField(labeled)) return labeled;
+      return labeled || fallback;
+  }
+
+  async function waitForMarketplaceField(marketplace, labelPatterns, selectors, attempts = 8) {
+      for (let i = 0; i < attempts; i++) {
+          const el = resolveMarketplaceField(marketplace, labelPatterns, selectors);
+          if (el && isEnabledField(el)) return el;
+          await sleep(CONFIG.SLEEP_RETRY);
+      }
+      return resolveMarketplaceField(marketplace, labelPatterns, selectors);
+  }
+
+  async function closeOpenMenus() {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await sleep(CONFIG.SLEEP_SHORT);
+  }
+
+  function fieldLooksFilled(el) {
+      if (!el) return false;
+      const value = (el.value || '').trim();
+      if (!value) return false;
+      return !/^(select|primary color|secondary color|condition|brand|shipping label)\b/i.test(value);
+  }
+
+  function uniqueStrings(values) {
+      const seen = new Set();
+      const out = [];
+      for (const value of values) {
+          const trimmed = String(value || '').trim();
+          if (!trimmed) continue;
+          const key = trimmed.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(trimmed);
+      }
+      return out;
+  }
+
+  function brandFillCandidates(brand) {
+      const candidates = [];
+      if (brand) {
+          candidates.push(brand);
+          String(brand).split(/[\s/&,]+/).forEach(part => {
+              if (part && part.length > 2 && !/^(the|and|co|inc|llc)$/i.test(part)) {
+                  candidates.push(part);
+              }
+          });
+      }
+      candidates.push('Other');
+      return uniqueStrings(candidates);
+  }
+
   function getInputContextTexts(input) {
       const texts = new Set();
       const addText = value => {
@@ -680,7 +915,7 @@
   // ============================================
 
   async function fillCombobox(el, value, isStrict = false, isMulti = false) {
-      if (!value || !el) return;
+      if (!value || !el) return { ok: false, method: 'skipped' };
       
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
       await sleep(CONFIG.SLEEP_MEDIUM);
@@ -697,13 +932,12 @@
               el.value = targetOption.value;
               el.dispatchEvent(new Event('change', { bubbles: true }));
               await sleep(CONFIG.SLEEP_SHORT);
-          } else {
-              // Type as fallback
-              await clearInput(el);
-              setReactValue(el, value);
-              await sleep(CONFIG.SLEEP_LONG);
+              return { ok: true, method: 'option_click' };
           }
-          return;
+          await clearInput(el);
+          setReactValue(el, value);
+          await sleep(CONFIG.SLEEP_LONG);
+          return { ok: true, method: 'typed_fallback' };
       }
       
       // Click to open dropdown
@@ -756,14 +990,15 @@
           }
       }
 
+      let method = 'typed_fallback';
       if (targetOption) {
           const mouseEventOptions = { bubbles: true, cancelable: true, view: window };
           targetOption.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
           targetOption.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
           targetOption.click();
           await sleep(CONFIG.SLEEP_MEDIUM);
+          method = 'option_click';
       } else {
-          // Fallback: type the value
           await clearInput(el);
           setReactValue(el, value);
           await sleep(CONFIG.SLEEP_LONG);
@@ -775,6 +1010,7 @@
           await sleep(CONFIG.SLEEP_MEDIUM);
           if (el.value) await clearInput(el);
       }
+      return { ok: true, method };
   }
 
   // ============================================
@@ -782,13 +1018,17 @@
   // ============================================
 
   async function fillTextField(selector, value, fieldName) {
-      if (value === null || value === undefined) return;
-      if (typeof value === 'string' && value.trim() === '') return;
+      const selectorText = typeof selector === 'string' ? selector : selectorFor(selector, '');
+      if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+          recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
+          return { status: 'skipped' };
+      }
       
       const el = resolveWithRegistry(selector, fieldName);
       if (!el) {
           warn(`${fieldName}: Element not found`);
-          return;
+          recordFill({ field: fieldName, status: 'not_found', reason: 'Element not found', selector: selectorText, value });
+          return { status: 'not_found' };
       }
       
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
@@ -796,27 +1036,58 @@
       setReactValue(el, value);
       await sleep(CONFIG.SLEEP_SHORT);
       log(`  ✓ ${fieldName}: "${value}"`);
+      recordFill({ field: fieldName, status: 'filled', selector: selectorFor(el, selectorText), value });
+      return { status: 'filled' };
   }
 
   async function fillDropdownField(selectorOrEl, value, fieldName, isStrict = false, isMulti = false) {
-      if (value === null || value === undefined) return;
-      if (typeof value === 'string' && value.trim() === '') return;
+      const selectorText = typeof selectorOrEl === 'string' ? selectorOrEl : selectorFor(selectorOrEl, '');
+      if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+          recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
+          return { status: 'skipped' };
+      }
+
+      await closeOpenMenus();
       
       let el;
       if (typeof selectorOrEl === 'string') {
           el = resolveWithRegistry(selectorOrEl, fieldName);
-          if (!el) {
-              warn(`${fieldName}: Element not found`);
-              return;
-          }
       } else if (selectorOrEl instanceof Element) {
           el = selectorOrEl;
       } else {
-          return;
+          el = null;
+      }
+      if (!el) {
+          warn(`${fieldName}: Element not found`);
+          recordFill({ field: fieldName, status: 'not_found', reason: 'Element not found', selector: selectorText, value });
+          return { status: 'not_found' };
       }
       
       log(`Filling ${fieldName}...`);
-      await fillCombobox(el, value, isStrict, isMulti);
+      const result = await fillCombobox(el, value, isStrict, isMulti);
+      const method = result && result.method;
+      if (method === 'option_click') {
+          recordFill({ field: fieldName, status: 'filled', selector: selectorFor(el, selectorText), value });
+          return { status: 'filled' };
+      }
+      if (fieldLooksFilled(el)) {
+          recordFill({
+            field: fieldName,
+            status: 'uncertain',
+            reason: 'Typed fallback; dropdown option was not clicked',
+            selector: selectorFor(el, selectorText),
+            value,
+          });
+          return { status: 'uncertain' };
+      }
+      recordFill({
+        field: fieldName,
+        status: 'failed',
+        reason: 'Option not found and value did not stick',
+        selector: selectorFor(el, selectorText),
+        value,
+      });
+      return { status: 'failed' };
   }
 
   // Try registry selectors before falling back to hardcoded selector
@@ -1037,15 +1308,32 @@
   // ============================================
 
   async function fillMainForm(data) {
+      beginFillLog('general');
       log('=== Filling Main Vendoo Form ===');
 
+      try {
       // Category must be set FIRST (before size, which depends on it)
       if (data.category_path) {
           const catResult = await fillCategoryPath(data);
           if (!catResult.ok) {
-              return { ok: false, error: catResult.error || 'Category selection failed' };
+              recordFill({
+                field: 'Category',
+                status: 'failed',
+                reason: catResult.error || 'Category selection failed',
+                selector: VENDOO_SELECTORS.category,
+                value: data.category_path,
+              });
+              return { ok: false, error: catResult.error || 'Category selection failed', fill_log: finishFillLog() };
           }
+          recordFill({
+            field: 'Category',
+            status: catResult.filled ? 'filled' : 'skipped',
+            selector: VENDOO_SELECTORS.category,
+            value: data.category_path,
+          });
           await sleep(CONFIG.SLEEP_LONG);
+      } else {
+          recordFill({ field: 'Category', status: 'skipped', reason: 'No value in listing', selector: VENDOO_SELECTORS.category });
       }
       
       // Text fields (parallel)
@@ -1076,7 +1364,16 @@
               await fillDropdownField(sizeEl, data.size, 'Size', true);
           } else {
               warn('Size input not found after category');
+              recordFill({
+                field: 'Size',
+                status: 'not_found',
+                reason: 'Size input not found after category',
+                selector: VENDOO_SELECTORS.size,
+                value: data.size,
+              });
           }
+      } else {
+          recordFill({ field: 'Size', status: 'skipped', reason: 'No value in listing', selector: VENDOO_SELECTORS.size });
       }
       
       // Multi-value fields
@@ -1085,7 +1382,12 @@
           if (tagsEl) {
               const tags = Array.isArray(data.tags) ? data.tags : data.tags.split(',').map(t => t.trim());
               for (const tag of tags) await fillCombobox(tagsEl, tag, false, true);
+              recordFill({ field: 'Tags', status: 'filled', selector: VENDOO_SELECTORS.tags, value: tags });
+          } else {
+              recordFill({ field: 'Tags', status: 'not_found', reason: 'Tags input not found', selector: VENDOO_SELECTORS.tags, value: data.tags });
           }
+      } else {
+          recordFill({ field: 'Tags', status: 'skipped', reason: 'No value in listing', selector: VENDOO_SELECTORS.tags });
       }
       
       if (data.labels) {
@@ -1093,7 +1395,12 @@
           if (labelsEl) {
               const labels = Array.isArray(data.labels) ? data.labels : data.labels.split(',').map(l => l.trim());
               for (const label of labels) await fillCombobox(labelsEl, label, false, true);
+              recordFill({ field: 'Labels', status: 'filled', selector: VENDOO_SELECTORS.labels, value: labels });
+          } else {
+              recordFill({ field: 'Labels', status: 'not_found', reason: 'Labels input not found', selector: VENDOO_SELECTORS.labels, value: data.labels });
           }
+      } else {
+          recordFill({ field: 'Labels', status: 'skipped', reason: 'No value in listing', selector: VENDOO_SELECTORS.labels });
       }
       
       // Numeric fields (parallel)
@@ -1202,11 +1509,14 @@
           'eBay Condition',
           true
       );
+      await fillDropdownField('#listings\\.ebay\\.overrides\\.brand', data.brand, 'eBay Brand');
+      await fillDropdownField(
+          '#listings\\.ebay\\.overrides\\.primaryColor',
+          mapColor(data.primaryColor || data.color, 'ebay'),
+          'eBay Color'
+      );
 
-      // Parallel fill for independent fields
       await Promise.all([
-          fillDropdownField('#listings\\.ebay\\.overrides\\.brand', data.brand, 'eBay Brand'),
-          fillDropdownField('#listings\\.ebay\\.overrides\\.primaryColor', mapColor(data.primaryColor || data.color, 'ebay'), 'eBay Color'),
           fillTextField('#listings\\.ebay\\.overrides\\.quantity', data.quantity, 'eBay Quantity'),
           fillTextField('#listings\\.ebay\\.overrides\\.sku', data.sku, 'eBay SKU'),
       ]);
@@ -1391,10 +1701,25 @@
       const normalizedWhenMade = normalizeEtsyWhenMade(
           specs.when_made || specs.whenMade || ebaySpecifics.yearManufactured
       );
-      
-      // Parallel independent fields
+
+      await fillDropdownField(
+          resolveMarketplaceField('etsy', ['primary color'], [
+              '#listings\\.etsy\\.overrides\\.primaryColor',
+              '#listings\\.etsy\\.marketplaceSpecifics\\.primaryColor',
+          ]),
+          mapColor(data.primaryColor || data.color, 'etsy'),
+          'Etsy Color'
+      );
+      await fillDropdownField(
+          resolveMarketplaceField('etsy', ['secondary color'], [
+              '#listings\\.etsy\\.overrides\\.secondaryColor',
+              '#listings\\.etsy\\.marketplaceSpecifics\\.secondaryColor',
+          ]),
+          mapColor(data.secondaryColor, 'etsy'),
+          'Etsy Secondary Color'
+      );
+
       await Promise.all([
-          fillDropdownField('#listings\\.etsy\\.overrides\\.primaryColor', mapColor(data.primaryColor || data.color, 'etsy'), 'Etsy Color'),
           fillTextField('#listings\\.etsy\\.overrides\\.quantity', data.quantity, 'Etsy Quantity'),
           fillTextField('#listings\\.etsy\\.overrides\\.price', data.price, 'Etsy Price'),
           fillTextField('#listings\\.etsy\\.overrides\\.sku', data.sku, 'Etsy SKU'),
@@ -1519,10 +1844,21 @@
   async function fillPoshmarkForm(data) {
       log('Filling Poshmark form...');
       
+      await fillDropdownField(
+          '#listings\\.poshmark\\.overrides\\.condition',
+          mapCondition(data.condition, 'poshmark'),
+          'Poshmark Condition',
+          true
+      );
+      await fillDropdownField('#listings\\.poshmark\\.overrides\\.brand', data.brand, 'Poshmark Brand');
+      await fillDropdownField(
+          '#listings\\.poshmark\\.overrides\\.primaryColor',
+          mapColor(data.primaryColor || data.color, 'poshmark'),
+          'Poshmark Color',
+          true
+      );
+
       await Promise.all([
-          fillDropdownField('#listings\\.poshmark\\.overrides\\.condition', mapCondition(data.condition, 'poshmark'), 'Poshmark Condition', true),
-          fillDropdownField('#listings\\.poshmark\\.overrides\\.brand', data.brand, 'Poshmark Brand'),
-          fillDropdownField('#listings\\.poshmark\\.overrides\\.primaryColor', mapColor(data.primaryColor || data.color, 'poshmark'), 'Poshmark Color', true),
           fillTextField('#listings\\.poshmark\\.overrides\\.quantity', data.quantity, 'Poshmark Quantity'),
           fillTextField('#listings\\.poshmark\\.overrides\\.price', data.price, 'Poshmark Price'),
           fillTextField('#listings\\.poshmark\\.overrides\\.sku', data.sku, 'Poshmark SKU'),
@@ -1536,45 +1872,107 @@
 
   async function fillMercariForm(data) {
       log('Filling Mercari form...');
-      
+
+      await fillDropdownField(
+          resolveMarketplaceField('mercari', ['condition'], [
+              '#listings\\.mercari\\.overrides\\.condition',
+          ]),
+          mapCondition(data.condition, 'mercari'),
+          'Mercari Condition',
+          true
+      );
+      await fillDropdownField(
+          resolveMarketplaceField('mercari', ['brand'], [
+              '#listings\\.mercari\\.overrides\\.brand',
+          ]),
+          data.brand,
+          'Mercari Brand'
+      );
+
       await Promise.all([
-          fillDropdownField('#listings\\.mercari\\.overrides\\.condition', mapCondition(data.condition, 'mercari'), 'Mercari Condition', true),
-          fillDropdownField('#listings\\.mercari\\.overrides\\.brand', data.brand, 'Mercari Brand'),
           fillTextField('#listings\\.mercari\\.overrides\\.quantity', data.quantity, 'Mercari Quantity'),
           fillTextField('#listings\\.mercari\\.overrides\\.price', data.price, 'Mercari Price'),
       ]);
-      
-      const shippingEl = document.querySelector('#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId');
+
+      const shippingLabel = (data.mercari_specifics && data.mercari_specifics.shippingLabel) || 'USPS Ground Advantage';
+      const shippingEl = await waitForMarketplaceField('mercari', ['shipping label'], [
+          '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId',
+          '#listings\\.mercari\\.marketplaceSpecifics\\.shippingLabel',
+          '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.shippingLabel',
+          '#listings\\.mercari\\.overrides\\.shippingLabel',
+      ]);
       if (shippingEl) {
           const currentVal = (shippingEl.value || '').trim().toLowerCase();
           if (!currentVal.includes('usps ground advantage')) {
-              log('Setting Mercari shipping to USPS Ground Advantage');
-              await fillDropdownField(shippingEl, 'USPS Ground Advantage', 'Shipping Label', false);
+              log(`Setting Mercari shipping to ${shippingLabel}`);
+              await fillDropdownField(shippingEl, shippingLabel, 'Shipping Label', false);
           } else {
               log('Mercari shipping already USPS Ground Advantage');
           }
       } else {
-          warn('Mercari shipping carrier field not found');
+          warn('Mercari shipping label field not found');
       }
       
   }
 
+  async function fillDepopBrand(data) {
+      const el = resolveMarketplaceField('depop', ['brand'], [
+          '#listings\\.depop\\.overrides\\.brand',
+      ]);
+      if (!el) {
+          warn('Depop Brand: Element not found');
+          return;
+      }
+      if (fieldLooksFilled(el)) {
+          log(`Depop Brand already set: "${el.value}"`);
+          return;
+      }
+
+      for (const candidate of brandFillCandidates(data.brand)) {
+          log(`Trying Depop Brand: "${candidate}"`);
+          await fillDropdownField(el, candidate, 'Depop Brand', false);
+          if (fieldLooksFilled(el)) {
+              log(`  ✓ Depop Brand: "${el.value || candidate}"`);
+              return;
+          }
+      }
+      warn('Depop Brand: could not select a list brand');
+  }
+
   async function fillDepopForm(data) {
       log('Filling Depop form...');
-      
+
+      await fillDropdownField(
+          resolveMarketplaceField('depop', ['condition'], [
+              '#listings\\.depop\\.overrides\\.condition',
+          ]),
+          mapCondition(data.condition || data.depop_specifics?.condition, 'depop'),
+          'Depop Condition',
+          true
+      );
+      await fillDropdownField(
+          resolveMarketplaceField('depop', ['primary color'], [
+              '#listings\\.depop\\.overrides\\.primaryColor',
+          ]),
+          mapColor(data.primaryColor || data.color, 'depop'),
+          'Depop Color',
+          true
+      );
+      await fillDropdownField(
+          resolveMarketplaceField('depop', ['secondary color'], [
+              '#listings\\.depop\\.overrides\\.secondaryColor',
+          ]),
+          mapColor(data.secondaryColor, 'depop'),
+          'Depop Secondary Color'
+      );
+
       await Promise.all([
-          fillDropdownField('#listings\\.depop\\.overrides\\.condition', mapCondition(data.condition, 'depop'), 'Depop Condition', true),
-          fillDropdownField('#listings\\.depop\\.overrides\\.primaryColor', mapColor(data.primaryColor || data.color, 'depop'), 'Depop Color', true),
           fillTextField('#listings\\.depop\\.overrides\\.quantity', data.quantity, 'Depop Quantity'),
           fillTextField('#listings\\.depop\\.overrides\\.price', data.price, 'Depop Price'),
           fillTextField('#listings\\.depop\\.overrides\\.sku', data.sku, 'Depop SKU'),
       ]);
 
-      const depopBrandEl = document.querySelector('#listings\\.depop\\.overrides\\.brand');
-      if (depopBrandEl && !depopBrandEl.value?.trim()) {
-          log('Depop Brand is blank, selecting Other');
-          await fillDropdownField(depopBrandEl, 'Other', 'Depop Brand', true);
-      }
+      await fillDepopBrand(data);
       
       if (data.depop_specifics) {
           log('Expanding optional fields for Depop...');
@@ -1602,11 +2000,9 @@
               return findInputByContext(getVisibleDepopInputs(), labelPatterns);
           };
           
-          // Marketplace specifics (parallel)
-          await Promise.all([
-              fillDropdownField(findDepopField(['source'], '#listings\\.depop\\.marketplaceSpecifics\\.source'), specs.source, 'Source'),
-              fillDropdownField(findDepopField(['age'], '#listings\\.depop\\.marketplaceSpecifics\\.age'), specs.age, 'Age'),
-          ]);
+          // Marketplace specifics — sequential so dropdowns don't steal each other's menus
+          await fillDropdownField(findDepopField(['source'], '#listings\\.depop\\.marketplaceSpecifics\\.source'), specs.source, 'Source');
+          await fillDropdownField(findDepopField(['age'], '#listings\\.depop\\.marketplaceSpecifics\\.age'), specs.age, 'Age');
           
           // Style (multi-value)
           if (specs.style) {

@@ -76,10 +76,7 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
         poshmark["originalPrice"] = poshmark_price
     listing_snapshot["poshmark_specifics"] = poshmark
 
-    mercari = listing_snapshot.get("mercari_specifics") or {}
-    if isinstance(mercari, dict):
-        mercari["shippingLabel"] = "USPS Ground Advantage"
-    listing_snapshot["mercari_specifics"] = mercari
+    _ensure_listing_defaults(listing_snapshot)
 
     from vendoo_studio.services.registry import RegistryService
     registry = RegistryService(db)
@@ -191,14 +188,11 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
                     poshmark["originalPrice"] = 0
                 job.listing_snapshot["poshmark_specifics"] = poshmark
 
-                mercari = job.listing_snapshot.get("mercari_specifics") or {}
-                if isinstance(mercari, dict):
-                    mercari["shippingLabel"] = "USPS Ground Advantage"
-                job.listing_snapshot["mercari_specifics"] = mercari
-
                 category_override = conv_notes.get("categoryOverride", "").strip()
                 if category_override:
                     job.listing_snapshot["category_path"] = category_override
+
+                _ensure_listing_defaults(job.listing_snapshot)
     except Exception:
         pass
 
@@ -237,6 +231,43 @@ def cancel_job(job_id: str, db: Session = Depends(get_db)):
     repo.add_event(job_id, "cancelled")
 
     return _job_response(job)
+
+
+def _generate_sku(listing: dict) -> str:
+    brand = str(listing.get("brand") or "").strip()
+    size = str(listing.get("size") or "").strip()
+
+    def slug(text: str) -> str:
+        chars = [ch.upper() if ch.isalnum() else "-" for ch in text]
+        return "-".join(part for part in "".join(chars).split("-") if part)
+
+    parts = []
+    if brand:
+        parts.append(slug(brand))
+    if size:
+        parts.append(slug(size))
+    return "-".join(parts) if parts else "ITEM"
+
+
+def _ensure_listing_defaults(listing_snapshot: dict) -> None:
+    if not isinstance(listing_snapshot, dict):
+        return
+
+    from vendoo_studio.models.schema import ListingSchema
+
+    condition = listing_snapshot.get("condition")
+    if condition:
+        listing_snapshot["condition"] = ListingSchema.validate_condition(condition)
+
+    if not str(listing_snapshot.get("sku") or "").strip():
+        listing_snapshot["sku"] = _generate_sku(listing_snapshot)
+
+    mercari = listing_snapshot.get("mercari_specifics") or {}
+    if not isinstance(mercari, dict):
+        mercari = {}
+    label = str(mercari.get("shippingLabel") or "").strip()
+    mercari["shippingLabel"] = label or "USPS Ground Advantage"
+    listing_snapshot["mercari_specifics"] = mercari
 
 
 def _job_response(job) -> JobResponse:

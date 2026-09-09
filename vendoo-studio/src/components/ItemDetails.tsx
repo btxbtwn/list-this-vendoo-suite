@@ -204,7 +204,8 @@ export function ItemDetails({ convId }: Props) {
 
   const chooseLabel = (suggestion: string) => {
     const next = { ...details, vendooLabels: applyLabelSuggestion(details.vendooLabels, suggestion, recentLabels) };
-    scheduleSave(next);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    void save(next);
     setActiveSuggestion(0);
     setLabelMenuOpen(true);
   };
@@ -232,6 +233,7 @@ export function ItemDetails({ convId }: Props) {
             aria-controls="label-history"
             aria-autocomplete="list"
             onFocus={() => { setLabelMenuOpen(true); setActiveSuggestion(0); }}
+            onClick={() => { setLabelMenuOpen(true); setActiveSuggestion(0); }}
             onBlur={() => setTimeout(() => setLabelMenuOpen(false), 120)}
             onKeyDown={(e) => {
               if (!labelMenuOpen && (e.key === "ArrowDown" || e.key === "Enter")) {

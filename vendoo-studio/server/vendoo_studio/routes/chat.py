@@ -342,6 +342,10 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         "from the photo analysis and listing rules below.\n\n"
         "Use Vendoo's General taxonomy for category_path. Women's shirts and T-shirts must use "
         '"Clothing, Shoes & Accessories > Women > Women\'s Clothing > Tops", not "Shirts & Blouses".\n\n'
+        "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
+        "when a second color is visible. Use Vendoo general condition values such as "
+        '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
+        "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
         "If seller-provided measurements (Pit to pit, Length) are given, use them exactly as-is in the description.\n"
         "Do not modify, estimate, or replace seller-provided measurements.\n\n"
         "Output the full listing JSON inside a fenced code block:\n\n"
@@ -355,12 +359,14 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         '  "brand": "...",\n'
         '  "condition": "...",\n'
         '  "primaryColor": "...",\n'
+        '  "secondaryColor": "...",\n'
+        '  "sku": "...",\n'
         '  "size": "...",\n'
         '  "sizeType": "...",\n'
         '  "tags": [...],\n'
         '  "package_dimensions_in": "...",\n'
         '  "ebay_specifics": {...},\n'
-        '  "depop_specifics": {...},\n'
+        '  "depop_specifics": {"source": "Preloved", "age": "Modern"},\n'
         '  "etsy_specifics": {...},\n'
         '  "poshmark_specifics": {"originalPrice": 0},\n'
         '  "mercari_specifics": {"shippingLabel": "USPS Ground Advantage"}\n'
