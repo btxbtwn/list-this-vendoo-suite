@@ -20,11 +20,17 @@ function isPhotoAnalysis(text: string): boolean {
   return text.startsWith("Photo analysis") && (text.includes("Brand:") || text.includes("Size:"));
 }
 
+function isStreamError(text: string): boolean {
+  return text.startsWith("Error:");
+}
+
 export function ChatPanel({ convId }: Props) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [streamText, setStreamText] = useState("");
+  const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(null);
+  const [lastSendText, setLastSendText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -42,14 +48,25 @@ export function ChatPanel({ convId }: Props) {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [messages, streamText]);
 
+  useEffect(() => {
+    setInput("");
+    setStreaming(false);
+    setGenerating(false);
+    setStreamText("");
+    setFailedAction(null);
+    setLastSendText("");
+  }, [convId]);
+
   const streamFromFetch = useCallback(async (url: string) => {
     setStreaming(true);
     setStreamText("");
+    setFailedAction(null);
     try {
       const res = await fetch(url, { method: "POST" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
+        setFailedAction("generate");
         setStreaming(false);
         return;
       }
@@ -58,6 +75,7 @@ export function ChatPanel({ convId }: Props) {
       if (!reader) { setStreaming(false); return; }
       const decoder = new TextDecoder();
       let buffer = "";
+      let assembled = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -68,12 +86,15 @@ export function ChatPanel({ convId }: Props) {
           if (line.startsWith("data: ")) {
             const chunk = line.slice(6);
             if (chunk === "[DONE]") continue;
-            setStreamText((prev) => prev + chunk);
+            assembled += chunk;
+            setStreamText(assembled);
           }
         }
       }
+      if (isStreamError(assembled)) setFailedAction("generate");
     } catch (e: any) {
       setStreamText(`Error: ${e.message}`);
+      setFailedAction("generate");
     }
     setStreaming(false);
     setGenerating(false);
@@ -87,12 +108,13 @@ export function ChatPanel({ convId }: Props) {
     await streamFromFetch(`/api/conversations/${convId}/generate`);
   }, [convId, streamFromFetch]);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  const sendMessage = useCallback(async (text: string) => {
     if (!text || streaming) return;
     setInput("");
+    setLastSendText(text);
     setStreaming(true);
     setStreamText("");
+    setFailedAction(null);
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`, {
         method: "POST",
@@ -102,6 +124,7 @@ export function ChatPanel({ convId }: Props) {
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
+        setFailedAction("send");
         setStreaming(false);
         return;
       }
@@ -110,6 +133,7 @@ export function ChatPanel({ convId }: Props) {
       if (!reader) { setStreaming(false); return; }
       const decoder = new TextDecoder();
       let buffer = "";
+      let assembled = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -120,21 +144,43 @@ export function ChatPanel({ convId }: Props) {
           if (line.startsWith("data: ")) {
             const chunk = line.slice(6);
             if (chunk === "[DONE]") continue;
-            setStreamText((prev) => prev + chunk);
+            assembled += chunk;
+            setStreamText(assembled);
           }
         }
       }
+      if (isStreamError(assembled)) setFailedAction("send");
     } catch (e: any) {
       setStreamText(`Error: ${e.message}`);
+      setFailedAction("send");
     }
     setStreaming(false);
     queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
-  }, [input, streaming, convId, queryClient]);
+  }, [streaming, convId, queryClient]);
+
+  const handleSend = useCallback(() => {
+    void sendMessage(input.trim());
+  }, [input, sendMessage]);
+
+  const handleRetry = useCallback(() => {
+    if (failedAction === "send" && lastSendText) {
+      void sendMessage(lastSendText);
+      return;
+    }
+    void handleGenerate();
+  }, [failedAction, lastSendText, sendMessage, handleGenerate]);
 
   const hasPhotos = (photos && (photos as any[]).length > 0);
   const hasMessages = messages && (messages as any[]).length > 0;
+  const hasListingJson = Boolean(messages?.some((m: any) => {
+    const json = extractJson(m.text);
+    return Boolean(json && isJsonBlock(m.text));
+  }));
+  const streamFailed = isStreamError(streamText);
+  const busy = streaming || generating;
+  const canRetry = failedAction === "send" ? Boolean(lastSendText) : Boolean(hasPhotos);
 
   function renderMessage(m: any) {
     if (m.role === "user") {
@@ -204,7 +250,29 @@ export function ChatPanel({ convId }: Props) {
 
         {messages?.map(renderMessage)}
 
-        {streamText && <div className="msg msg-assistant">{streamText}</div>}
+        {streamText && !streamFailed && <div className="msg msg-assistant">{streamText}</div>}
+
+        {streamFailed && (
+          <div className="chat-error" role="alert">
+            <div className="chat-error-text">{streamText}</div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleRetry}
+              disabled={busy || !canRetry}
+            >
+              {busy ? "Retrying..." : "Retry"}
+            </button>
+          </div>
+        )}
+
+        {hasMessages && !hasListingJson && !streamFailed && !busy && hasPhotos && (
+          <div className="chat-error">
+            <div className="chat-error-text">Listing generation did not finish.</div>
+            <button className="btn btn-primary btn-sm" onClick={handleGenerate}>
+              Retry
+            </button>
+          </div>
+        )}
 
         {(streaming || generating) && !streamText && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
