@@ -95,4 +95,25 @@ export const api = {
     status: () => request<any>("/extension/status"),
     pairingToken: () => request<any>("/extension/pairing-token"),
   },
+
+  updates: {
+    status: () =>
+      request<{
+        available: boolean;
+        behind?: number;
+        ahead?: number;
+        branch?: string;
+        local_sha?: string;
+        remote_sha?: string;
+        remote_ref?: string;
+        summary?: string;
+        commits?: string[];
+        dirty?: string[];
+        error?: string | null;
+      }>("/updates"),
+    apply: () =>
+      request<{ ok: boolean; updated: boolean; sha?: string; reloading?: boolean }>("/updates/apply", {
+        method: "POST",
+      }),
+  },
 };

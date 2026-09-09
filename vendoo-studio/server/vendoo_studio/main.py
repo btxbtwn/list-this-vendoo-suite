@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, BASE_DIR
 from vendoo_studio.database import init_db
-from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat
+from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates
 
 
 @asynccontextmanager
@@ -42,6 +42,7 @@ app.include_router(jobs.router)
 app.include_router(settings.router)
 app.include_router(extension.router)
 app.include_router(chat.router)
+app.include_router(updates.router)
 
 dist_dir = BASE_DIR / "dist"
 if dist_dir.exists():
