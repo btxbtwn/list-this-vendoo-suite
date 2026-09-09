@@ -8,12 +8,13 @@ import { PhotoTray } from "../components/PhotoTray";
 import { SettingsPage } from "../components/SettingsPage";
 import { ItemDetails } from "../components/ItemDetails";
 import { UpdateButton } from "../components/UpdateButton";
+import { BrowserPreview } from "../components/BrowserPreview";
 
 export function App() {
   const queryClient = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
-  const [mobilePane, setMobilePane] = useState<"listings" | "workspace" | "editor">("listings");
+  const [mobilePane, setMobilePane] = useState<"listings" | "workspace" | "editor" | "browser">("listings");
 
   const { data: status } = useQuery({ queryKey: ["status"], queryFn: api.status, refetchInterval: 10000 });
   const { data: conversations } = useQuery({
@@ -21,6 +22,12 @@ export function App() {
     queryFn: api.conversations.list,
     refetchInterval: 2000,
   });
+  const { data: jobs } = useQuery({
+    queryKey: ["jobs"],
+    queryFn: api.jobs.list,
+    refetchInterval: 2000,
+  });
+  const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
 
   const createConv = useMutation({
     mutationFn: () => api.conversations.create({ title: "New Listing" }),
@@ -112,12 +119,19 @@ export function App() {
             {activeView === "settings" ? (
               <SettingsPage />
             ) : selectedConvId ? (
-              <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "auto" }}>
-                <PhotoTray convId={selectedConvId} />
-                <ItemDetails convId={selectedConvId} />
-                <div style={{ flex: 1, overflow: "hidden", minHeight: 200 }}>
-                  <ChatPanel convId={selectedConvId} />
+              <div className="listing-workspace">
+                <div className="listing-workspace-main">
+                  <PhotoTray convId={selectedConvId} />
+                  <ItemDetails convId={selectedConvId} />
+                  <div style={{ flex: 1, overflow: "hidden", minHeight: 200 }}>
+                    <ChatPanel convId={selectedConvId} />
+                  </div>
                 </div>
+                <BrowserPreview
+                  jobId={listingJob?.id ?? null}
+                  step={listingJob?.current_step}
+                  status={listingJob?.status}
+                />
               </div>
             ) : (
               <div className="empty-state">
@@ -132,7 +146,7 @@ export function App() {
 
           <aside className="panel detail-panel">
             {activeView === "listings" && selectedConvId ? (
-              <ListingEditor convId={selectedConvId} />
+              <ListingEditor convId={selectedConvId} onJobStarted={() => setMobilePane("browser")} />
             ) : (
               <div className="empty-state">
                 <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
@@ -158,6 +172,13 @@ export function App() {
           disabled={activeView !== "listings" || !selectedConvId}
         >
           Editor
+        </button>
+        <button
+          className={mobilePane === "browser" ? "selected" : ""}
+          onClick={() => setMobilePane("browser")}
+          disabled={activeView !== "listings" || !selectedConvId}
+        >
+          Browser
         </button>
       </nav>
     </div>

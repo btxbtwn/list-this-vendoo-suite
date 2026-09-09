@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from pathlib import Path
@@ -155,6 +158,38 @@ def get_job_events(job_id: str, db: Session = Depends(get_db)):
         }
         for e in events
     ]
+
+
+@router.get("/{job_id}/preview")
+async def stream_job_preview(job_id: str, db: Session = Depends(get_db)):
+    repo = JobRepo(db)
+    job = repo.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    from vendoo_studio.services.preview_hub import preview_hub
+
+    async def events():
+        queue = await preview_hub.subscribe(job_id)
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"data: {json.dumps(frame)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            await preview_hub.unsubscribe(job_id, queue)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{job_id}/fill-log")
