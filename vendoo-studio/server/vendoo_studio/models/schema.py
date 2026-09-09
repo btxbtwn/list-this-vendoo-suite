@@ -6,27 +6,39 @@ from pydantic import BaseModel, Field, field_validator
 
 
 VALID_CONDITIONS = frozenset((
-    "Pre-Owned - Good",
-    "Pre-Owned - Excellent",
-    "Pre-Owned - Fair",
-    "New With Tags",
+    "New With Tags/Box",
     "New Without Tags/Box",
-    "Pre-Owned - Like New",
+    "New With Imperfections",
+    "Pre-Owned - Excellent",
+    "Pre-Owned - Good",
+    "Pre-Owned - Fair",
+    "Poor (Major flaws)",
 ))
 
-VALID_DEPOP_SOURCE = frozenset(("Preloved", "Deadstock", "Vintage", "New with tags", "New without tags"))
-VALID_DEPOP_AGE = frozenset(("Modern", "Vintage", "Y2K"))
+VALID_DEPOP_SOURCE = frozenset((
+    "Vintage", "Preloved", "Reworked", "Custom", "Handmade", "Deadstock",
+    "Designer", "Repaired",
+))
+VALID_DEPOP_AGE = frozenset(("Modern", "y2k", "90s", "80s", "70s", "60s", "50s", "Antique"))
 VALID_DEPOP_STYLE = frozenset((
-    "Casual", "Streetwear", "Vintage", "Y2K", "Minimalist", "Sporty",
-    "Bohemian", "Grunge", "Preppy", "Athleisure", "Retro",
+    "Streetwear", "Sportswear", "Loungewear", "Goth", "Retro", "Boho",
+    "Western", "Indie", "Skater", "Rave", "Costume", "Cosplay", "Grunge",
+    "Emo", "Minimalist", "Preppy", "Avant Garde", "Punk", "Glam", "Regency",
+    "Casual", "Utility", "Futuristic", "Cottage", "Fairy", "Kidcore", "Y2K",
+    "Biker", "Gorpcore", "Twee", "Coquette", "Whimsygoth",
 ))
 VALID_DEPOP_OCCASION = frozenset((
-    "Casual", "Streetwear", "Formal", "Sporty", "Vintage", "Y2K",
-    "Bohemian", "Minimalist", "Retro", "Summer", "Workwear",
+    "Casual", "Festival", "Gifting", "Going out", "Outdoors", "Party",
+    "Relaxation", "School", "Ski", "Special Occasion", "Summer", "Vacation",
+    "Winter", "Work", "Workout",
 ))
 VALID_DEPOP_MATERIAL = frozenset((
-    "Cotton", "Cotton - Organic", "Cotton - Recycled", "Polyester", "Denim",
-    "Leather", "Wool", "Silk", "Linen", "Fleece", "Velvet", "Satin",
+    "Acrylic", "Canvas", "Cashmere", "Corduroy", "Cotton", "Cotton - Organic",
+    "Cotton - Recycled", "Crochet", "Denim", "Elastane / Lycra / Spandex",
+    "Embellished", "Faux fur", "Faux leather", "Fleece", "Hemp", "Jersey",
+    "Knitted", "Lace", "Leather", "Linen", "Lyocell", "Modal", "Nylon",
+    "Polyester", "Polyester - Recycled", "Rayon", "Rubber", "Silk", "Suede",
+    "Tweed", "Velvet", "Viscose", "Wool",
 ))
 
 PACKAGE_DIMS_PATTERN = r"^\d+(\.\d+)?\s*x\s*\d+(\.\d+)?\s*x\s*\d+(\.\d+)?$"
@@ -136,12 +148,16 @@ class ListingSchema(BaseModel):
             lv = v.lower()
             if "good" in lv:
                 return "Pre-Owned - Good"
+            if "poor" in lv:
+                return "Poor (Major flaws)"
             if "excellent" in lv or "like new" in lv:
                 return "Pre-Owned - Excellent"
             if "fair" in lv:
                 return "Pre-Owned - Fair"
+            if "imperfection" in lv:
+                return "New With Imperfections"
             if "new" in lv and "tag" in lv:
-                return "New With Tags"
+                return "New With Tags/Box"
             if "new" in lv:
                 return "New Without Tags/Box"
         return v

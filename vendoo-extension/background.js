@@ -491,30 +491,42 @@ function buildJobSteps(job) {
   return steps;
 }
 
-async function findOrCreateVendooTab() {
-  const NEW_ITEM_URL = 'https://web.vendoo.co/app/item/new?marketplace=general';
+const NEW_ITEM_URL = 'https://web.vendoo.co/app/item/new?marketplace=general';
+
+function isNewItemUrl(url) {
+  if (!url) return false;
+  try {
+    return new URL(url).pathname.includes('/item/new');
+  } catch {
+    return url.includes('/item/new');
+  }
+}
+
+async function findNewItemTab() {
   const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*' });
   const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*' });
-  const allTabs = [...webTabs, ...appTabs];
-
-  const newItemTab = allTabs.find(t => {
-    const url = t.url || '';
-    return url.includes('/item/new') && url.includes('marketplace=general');
-  });
-
-  if (newItemTab) return { tab: newItemTab, url: NEW_ITEM_URL };
-
-  const anyVendooTab = allTabs[0];
-  if (anyVendooTab) return { tab: anyVendooTab, url: NEW_ITEM_URL };
-
-  return null;
+  return [...webTabs, ...appTabs].find(t => isNewItemUrl(t.url)) || null;
 }
 
 async function openVendooListing(job) {
   try {
+    const existingTab = await findNewItemTab();
+    if (existingTab) {
+      log(`Reusing new-item tab ${existingTab.id} (${existingTab.url})`);
+      await chrome.tabs.update(existingTab.id, { active: true });
+      if (existingTab.windowId) {
+        await chrome.windows.update(existingTab.windowId, { focused: true });
+      }
+      activeJob.windowId = existingTab.windowId;
+      activeJob.tabId = existingTab.id;
+      await persistActiveJob(activeJob);
+      await sleep(1000);
+      return { ok: true };
+    }
+
     const existing = await chrome.windows.getLastFocused();
     const win = await chrome.windows.create({
-      url: 'https://web.vendoo.co/app/item/new?marketplace=general',
+      url: NEW_ITEM_URL,
       focused: true,
       ...(existing && { left: existing.left + 30, top: existing.top + 30 }),
     });
@@ -537,7 +549,7 @@ async function waitForContentScript(job) {
   const tabId = job.tabId || (activeJob && activeJob.tabId);
   if (!tabId) return { ok: false, error: 'No job tab stored' };
 
-  const EXPECTED_VERSION = '0.3.0';
+  const EXPECTED_VERSION = '0.3.2';
 
   for (let i = 0; i < 20; i++) {
     try {
