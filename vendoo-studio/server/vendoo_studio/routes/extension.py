@@ -277,6 +277,15 @@ async def extension_websocket(ws: WebSocket):
                     repo.add_event(job_id, "cancelled")
                     _set_conversation_status(db, job_id, "draft")
 
+            elif msg_type == "job.preview_frame":
+                job_id = message.get("job_id")
+                if job_id:
+                    from vendoo_studio.services.preview_hub import preview_hub, sanitize_frame
+                    payload = message.get("payload") or {}
+                    frame = sanitize_frame(payload, payload.get("step") or "")
+                    if frame:
+                        await preview_hub.publish(job_id, frame)
+
             elif msg_type == "diagnostic.observed":
                 payload = message.get("payload", {})
                 obs_id = payload.get("observation_id", "")

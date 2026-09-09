@@ -13,6 +13,7 @@ let activeJob = null;
 let reconnectAttempt = 0;
 
 importScripts('diagnostic-collector.js');
+importScripts('preview-screencast.js');
 
 function log(msg) {
   console.log(`[BG-Studio] ${msg}`);
@@ -45,6 +46,9 @@ async function restoreActiveJob() {
   if (stored.studio_active_job) {
     activeJob = stored.studio_active_job;
     log(`Restored active job: ${activeJob.job_id} step=${activeJob.current_step}`);
+    if (activeJob.tabId && activeJob.job_id) {
+      startJobPreview(activeJob.tabId, activeJob.job_id);
+    }
   }
 }
 
@@ -340,6 +344,7 @@ async function handleStudioMessage(msg) {
         const csJob = activeJob;
         activeJob = null;
         await persistActiveJob(null);
+        await stopJobPreview();
 
         send({
           version: 1,
@@ -462,6 +467,7 @@ async function runJob(jobId) {
     await addCompletedJobId(jobId);
     activeJob = null;
     await persistActiveJob(null);
+    await stopJobPreview();
 
     send({
       version: 1,
@@ -588,30 +594,26 @@ async function openVendooListing(job) {
     const existingTab = await findNewItemTab();
     if (existingTab) {
       log(`Reusing new-item tab ${existingTab.id} (${existingTab.url})`);
-      await chrome.tabs.update(existingTab.id, { active: true });
-      if (existingTab.windowId) {
-        await chrome.windows.update(existingTab.windowId, { focused: true });
-      }
       activeJob.windowId = existingTab.windowId;
       activeJob.tabId = existingTab.id;
       await persistActiveJob(activeJob);
+      await startJobPreview(existingTab.id, job.job_id);
       await waitForTabComplete(existingTab.id);
       return { ok: true };
     }
 
     const existing = await chrome.windows.getLastFocused();
-    const win = await chrome.windows.create({
+    const tab = await chrome.tabs.create({
+      windowId: existing?.id,
       url: NEW_ITEM_URL,
-      focused: true,
-      ...(existing && { left: existing.left + 30, top: existing.top + 30 }),
+      active: false,
     });
+    log(`Created background Vendoo tab ${tab.id} in window ${tab.windowId}`);
 
-    const tab = win.tabs[0];
-    log(`Created new Vendoo window ${win.id} tab ${tab.id}`);
-
-    activeJob.windowId = win.id;
+    activeJob.windowId = tab.windowId;
     activeJob.tabId = tab.id;
     await persistActiveJob(activeJob);
+    await startJobPreview(tab.id, job.job_id);
 
     const loaded = await waitForTabComplete(tab.id);
     if (!isTabReady(loaded)) {
