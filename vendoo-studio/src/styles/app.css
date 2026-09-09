@@ -359,7 +359,9 @@ textarea.input {
 
 .sidebar-footer {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   min-height: var(--column-footer-height);
   padding: 8px 8px;
   border-top: 1px solid var(--color-ink-border);
@@ -499,6 +501,14 @@ textarea.input {
   border-left-color: var(--color-cobalt);
   background: var(--color-ink-raised);
   color: #E1E3E9;
+}
+
+.sidebar-settings-btn.update-available {
+  color: var(--color-success);
+}
+
+.sidebar-settings-btn.update-available:hover {
+  color: var(--color-success);
 }
 
 /* ── Empty State ── */

@@ -7,6 +7,7 @@ import { ChatPanel } from "../components/ChatPanel";
 import { PhotoTray } from "../components/PhotoTray";
 import { SettingsPage } from "../components/SettingsPage";
 import { ItemDetails } from "../components/ItemDetails";
+import { UpdateButton } from "../components/UpdateButton";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -107,6 +108,7 @@ export function App() {
           </div>
 
           <div className="sidebar-footer">
+            <UpdateButton />
             <button
               className={`sidebar-settings-btn${activeView === "settings" ? " selected" : ""}`}
               onClick={() => { setActiveView("settings"); setMobilePane("workspace"); }}
