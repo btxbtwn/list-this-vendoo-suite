@@ -320,7 +320,7 @@ input, select, textarea {
   align-items: center;
   justify-content: space-between;
   padding: 5px 14px;
-  padding-bottom: max(5px, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(5px, env(safe-area-inset-bottom, 0px), var(--visual-bottom-inset, 0px));
   background: var(--color-ink);
   color: var(--color-ink-muted);
   border-top: 1px solid var(--color-ink-border);
@@ -1502,7 +1502,6 @@ details[open] .json-collapse-summary::before {
   .status-bar {
     gap: 8px;
     min-width: 0;
-    padding-bottom: 5px;
     overflow: hidden;
   }
 
@@ -1527,7 +1526,6 @@ details[open] .json-collapse-summary::before {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     background: var(--color-ink);
     border-top: 1px solid var(--color-border);
-    padding-bottom: max(48px, env(safe-area-inset-bottom, 0px), var(--visual-bottom-inset, 0px));
   }
 
   .mobile-nav button {
