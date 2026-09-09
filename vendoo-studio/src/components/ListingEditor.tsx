@@ -54,7 +54,7 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
   const listing = data?.listing || {};
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div className="listing-editor">
       <div className="editor-header">
         <span className="editor-title">Listing</span>
         {data?.can_send && <span className="editor-ready">Ready</span>}
