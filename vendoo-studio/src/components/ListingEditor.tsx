@@ -4,6 +4,7 @@ import { FillLogPanel, FillLogSummary } from "./FillLogPanel";
 
 interface Props {
   convId: string;
+  onJobStarted?: () => void;
 }
 
 interface EditorField {
@@ -13,7 +14,7 @@ interface EditorField {
   defaultValue?: string;
 }
 
-export function ListingEditor({ convId }: Props) {
+export function ListingEditor({ convId, onJobStarted }: Props) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
@@ -92,7 +93,7 @@ export function ListingEditor({ convId }: Props) {
       </div>
 
       <div className="editor-footer">
-        <SendToVendooButton convId={convId} canSend={data?.can_send ?? false} />
+        <SendToVendooButton convId={convId} canSend={data?.can_send ?? false} onJobStarted={onJobStarted} />
       </div>
     </div>
   );
@@ -214,7 +215,7 @@ function coerce(val: string): any {
 
 import React from "react";
 
-function SendToVendooButton({ convId, canSend }: { convId: string; canSend: boolean }) {
+function SendToVendooButton({ convId, canSend, onJobStarted }: { convId: string; canSend: boolean; onJobStarted?: () => void }) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
 
@@ -236,6 +237,7 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
+      onJobStarted?.();
     },
     onError: (err: any) => setError(err.message || "Failed to send"),
   });
@@ -246,6 +248,7 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
+      onJobStarted?.();
     },
     onError: (err: any) => setError(err.message || "Failed to retry"),
   });

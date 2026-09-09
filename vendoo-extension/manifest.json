@@ -8,7 +8,8 @@
     "storage",
     "scripting",
     "downloads",
-    "tabs"
+    "tabs",
+    "debugger"
   ],
   "host_permissions": [
     "https://app.vendoo.co/*",

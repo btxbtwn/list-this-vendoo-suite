@@ -24,6 +24,7 @@ class ExtMessageType(str, enum.Enum):
     JOB_STEP_FAILED = "job.step_failed"
     JOB_CANCELLED = "job.cancelled"
     JOB_COMPLETED = "job.completed"
+    JOB_PREVIEW_FRAME = "job.preview_frame"
     DIAGNOSTIC_OBSERVED = "diagnostic.observed"
     PONG = "pong"
 

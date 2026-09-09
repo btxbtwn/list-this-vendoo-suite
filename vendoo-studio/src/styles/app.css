@@ -1,36 +1,37 @@
 :root {
-  --color-ink: #090909;
-  --color-ink-hover: #171719;
-  --color-ink-raised: #1C1C1D;
-  --color-ink-border: #1C1E21;
-  --color-ink-muted: #6B6F76;
+  --color-ink: #000000;
+  --color-ink-hover: #131313;
+  --color-ink-raised: #1a1b1b;
+  --color-ink-border: #141414;
+  --color-ink-muted: #a3a3a3;
 
-  --color-paper: #0F0F11;
-  --color-surface: #1C1C1D;
-  --color-surface-secondary: #202122;
-  --color-inspector: #0F0F11;
-  --color-border: #1C1E21;
-  --color-border-light: #242629;
-  --color-border-bright: #34363A;
+  --color-paper: #0a0a0a;
+  --color-surface: #111111;
+  --color-surface-secondary: #111111;
+  --color-surface-raised: #111111;
+  --color-inspector: #0a0a0a;
+  --color-border: #191919;
+  --color-border-light: #191919;
+  --color-border-bright: #222222;
 
-  --color-text: #FFFFFF;
-  --color-text-secondary: #E2E3E5;
-  --color-text-muted: #97979A;
+  --color-text: #f5f5f5;
+  --color-text-secondary: #f1f3f7;
+  --color-text-muted: #818181;
 
-  --color-cobalt: #6D78D5;
-  --color-cobalt-hover: #6C78E6;
-  --color-cobalt-tint: #21243A;
-  --color-accent-ink: #FFFFFF;
+  --color-cobalt: #346bf1;
+  --color-cobalt-hover: #3061d9;
+  --color-cobalt-tint: #121b34;
+  --color-accent-ink: #ffffff;
 
-  --color-tomato: #FF6B5C;
-  --color-tomato-hover: #FF8174;
-  --color-tomato-tint: #351F21;
+  --color-tomato: #fb414a;
+  --color-tomato-hover: #ff6467;
+  --color-tomato-tint: #301214;
   --color-error: var(--color-tomato);
 
-  --color-success: #4BC58B;
-  --color-success-tint: #173127;
-  --color-draft: #E9A74A;
-  --color-draft-tint: #332612;
+  --color-success: #10b981;
+  --color-success-tint: #0b2a20;
+  --color-draft: #fe9a00;
+  --color-draft-tint: #312108;
 
   --color-vendoo: #45AD7B;
   --color-ebay: #B073E8;
@@ -44,9 +45,9 @@
   --radius-md: 8px;
   --radius-lg: 12px;
 
-  --font-serif: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", "SF Mono", Monaco, monospace;
+  --font-serif: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
 
   --text-2xs: 10px;
   --text-xs: 11px;
@@ -70,14 +71,7 @@
   --space-8: 32px;
   --sidebar-width: 244px;
   --column-footer-height: 112px;
-}
-
-@font-face {
-  font-family: "Inter Variable";
-  src: url("https://static.linear.app/fonts/InterVariable.woff2?v=4.1") format("woff2");
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
+  --visual-bottom-inset: 0px;
 }
 
 *, *::before, *::after {
@@ -91,6 +85,7 @@ html, body, #root {
   max-width: 100%;
   height: 100%;
   height: 100svh;
+  max-height: 100svh;
   overflow: hidden;
 }
 
@@ -186,10 +181,113 @@ input, select, textarea {
 .main-panel {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   background: var(--color-paper);
   border-right: 1px solid var(--color-border);
+}
+
+.listing-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.listing-workspace-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.browser-preview {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 42%;
+  min-height: 220px;
+  max-height: 52%;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-ink);
+}
+
+.browser-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.browser-preview-title {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.browser-preview-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.browser-preview-live {
+  flex-shrink: 0;
+}
+
+.browser-preview-live.on {
+  color: var(--color-success);
+}
+
+.browser-preview-step {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.browser-preview-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #000;
+}
+
+.browser-preview-frame {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.browser-preview-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  max-width: 360px;
+}
+
+.browser-preview-empty p + p {
+  margin-top: 8px;
 }
 
 .detail-panel {
@@ -213,16 +311,6 @@ input, select, textarea {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-.workspace-stack {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  max-width: 100%;
-  overflow: auto;
 }
 
 /* ── Status Bar ── */
@@ -383,7 +471,7 @@ textarea.input {
   font-size: 14px;
   font-style: normal;
   font-weight: 600;
-  color: #F0F1F5;
+  color: var(--color-text-secondary);
   line-height: 1.2;
 }
 
@@ -456,7 +544,7 @@ textarea.input {
   font-size: 12.5px;
   line-height: 1.35;
   font-weight: 500;
-  color: #CCD0DA;
+  color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -490,8 +578,8 @@ textarea.input {
 }
 
 .nav-status-in-progress {
-  color: #AEB5FF;
-  background: rgba(109, 120, 213, 0.18);
+  color: #51a2ff;
+  background: var(--color-cobalt-tint);
 }
 
 .nav-status-listing {
@@ -543,14 +631,14 @@ textarea.input {
 }
 
 .sidebar-settings-btn:hover {
-  color: #E1E3E9;
+  color: var(--color-text-secondary);
   background: var(--color-ink-hover);
 }
 
 .sidebar-settings-btn.selected {
   border-left-color: var(--color-cobalt);
   background: var(--color-ink-raised);
-  color: #E1E3E9;
+  color: var(--color-text-secondary);
 }
 
 .sidebar-settings-btn.update-available {
@@ -565,7 +653,7 @@ textarea.input {
   width: 100%;
   justify-content: center;
   background: var(--color-ink-raised);
-  color: #E1E3E9;
+  color: var(--color-text-secondary);
   border: 1px solid var(--color-ink-border);
 }
 
@@ -794,14 +882,14 @@ details[open] .json-collapse-summary::before {
   padding: 8px 10px 7px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: #171719;
+  background: var(--color-surface-raised);
   transition: border-color 0.12s, background-color 0.12s, box-shadow 0.12s;
 }
 
 .item-field:focus-within {
   border-color: var(--color-cobalt);
-  background: #1B1B1E;
-  box-shadow: 0 0 0 1px rgba(109, 120, 213, 0.22);
+  background: var(--color-ink-raised);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-cobalt) 22%, transparent);
 }
 
 .item-field .label {
@@ -836,7 +924,7 @@ details[open] .json-collapse-summary::before {
   padding: 4px;
   border: 1px solid var(--color-border-bright);
   border-radius: var(--radius-sm);
-  background: #141416;
+  background: var(--color-surface-raised);
 }
 
 .label-history-item {
@@ -1436,10 +1524,10 @@ details[open] .json-collapse-summary::before {
   .mobile-nav {
     display: grid;
     flex-shrink: 0;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     background: var(--color-ink);
     border-top: 1px solid var(--color-border);
-    padding-bottom: max(34px, env(safe-area-inset-bottom, 0px));
+    padding-bottom: max(48px, env(safe-area-inset-bottom, 0px), var(--visual-bottom-inset, 0px));
   }
 
   .mobile-nav button {
@@ -1512,7 +1600,8 @@ details[open] .json-collapse-summary::before {
 
   /* Workspace: workspace-frame fills container, main-panel inside */
   .app-content.mobile-pane-workspace .workspace-frame,
-  .app-content.mobile-pane-editor .workspace-frame {
+  .app-content.mobile-pane-editor .workspace-frame,
+  .app-content.mobile-pane-browser .workspace-frame {
     display: flex;
     flex-direction: column;
     position: absolute;
@@ -1561,6 +1650,33 @@ details[open] .json-collapse-summary::before {
     max-width: 100%;
     min-width: 0;
     min-height: 0;
+  }
+
+  .app-content.mobile-pane-workspace .browser-preview {
+    display: none;
+  }
+
+  .app-content.mobile-pane-browser .main-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-right: none;
+  }
+
+  .app-content.mobile-pane-browser .detail-panel,
+  .app-content.mobile-pane-browser .listing-workspace-main {
+    display: none;
+  }
+
+  .app-content.mobile-pane-browser .listing-workspace,
+  .app-content.mobile-pane-browser .browser-preview {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    max-height: none;
   }
 
   .item-row {
