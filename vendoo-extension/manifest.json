@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vendoo Listing Studio Bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Connect Vendoo Listing Studio to automate marketplace listing drafts",
   "permissions": [
     "activeTab",
@@ -35,7 +35,8 @@
   "content_scripts": [
     {
       "matches": ["https://app.vendoo.co/*", "https://web.vendoo.co/*"],
-      "js": ["content-scripts/vendoo.js"]
+      "js": ["content-scripts/vendoo.js"],
+      "run_at": "document_start"
     },
     {
       "matches": ["https://www.ebay.com/*"],

@@ -3,7 +3,8 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
-const CONTENT_SCRIPT_VERSION = '0.3.4';
+const CONTENT_SCRIPT_VERSION = '0.3.5';
+let jobGeneration = 0;
 
 let ws = null;
 let reconnectTimer = null;
@@ -287,6 +288,9 @@ async function handleStudioMessage(msg) {
         return;
       }
 
+      jobGeneration += 1;
+      const generation = jobGeneration;
+
       if (activeJob && activeJob.job_id === jobId) {
         activeJob = null;
         await persistActiveJob(null);
@@ -305,6 +309,7 @@ async function handleStudioMessage(msg) {
         registry_selectors: payload.registry_selectors || {},
         current_step: 'accepted',
         attempt: 0,
+        generation,
       });
 
       send({
@@ -316,7 +321,7 @@ async function handleStudioMessage(msg) {
         payload: { status: 'accepted' },
       });
 
-      runJob(jobId);
+      runJob(jobId, generation);
       break;
     }
 
@@ -325,9 +330,12 @@ async function handleStudioMessage(msg) {
       if (!jobId) return;
 
       if (activeJob && activeJob.job_id === jobId) {
+        jobGeneration += 1;
+        const generation = jobGeneration;
         activeJob.attempt = (activeJob.attempt || 0) + 1;
+        activeJob.generation = generation;
         await persistActiveJob(activeJob);
-        runJob(jobId);
+        runJob(jobId, generation);
       }
       break;
     }
@@ -373,8 +381,12 @@ async function handleStudioMessage(msg) {
   }
 }
 
-async function runJob(jobId) {
-  if (!activeJob || activeJob.job_id !== jobId) {
+function isCurrentJobRun(jobId, generation) {
+  return jobGeneration === generation && !!activeJob && activeJob.job_id === jobId;
+}
+
+async function runJob(jobId, generation) {
+  if (!isCurrentJobRun(jobId, generation)) {
     return;
   }
 
@@ -382,7 +394,7 @@ async function runJob(jobId) {
 
   let failed = false;
   for (const step of steps) {
-    if (!activeJob || activeJob.job_id !== jobId) {
+    if (!isCurrentJobRun(jobId, generation)) {
       log('Job cancelled or replaced, stopping');
       return;
     }
@@ -401,6 +413,10 @@ async function runJob(jobId) {
 
     try {
       const result = await step.fn(activeJob);
+      if (!isCurrentJobRun(jobId, generation) || result.superseded) {
+        log('Job cancelled or replaced after step, ignoring stale result');
+        return;
+      }
       if (!result.ok) {
         failed = true;
         collectDiagnostics('passive');
@@ -443,6 +459,10 @@ async function runJob(jobId) {
         await persistActiveJob(activeJob);
       }
     } catch (err) {
+      if (!isCurrentJobRun(jobId, generation)) {
+        log('Job cancelled or replaced after step error, ignoring stale result');
+        return;
+      }
       failed = true;
       collectDiagnostics('passive');
       send({
@@ -457,7 +477,7 @@ async function runJob(jobId) {
     }
   }
 
-  if (!failed) {
+  if (!failed && isCurrentJobRun(jobId, generation)) {
     const vurl = activeJob?.vendoo_url;
     await addCompletedJobId(jobId);
     activeJob = null;
@@ -519,6 +539,46 @@ function isTabReady(tab) {
   return !!(tab && tab.status === 'complete' && isVendooUrl(tab.url));
 }
 
+async function waitForTabReloadAndComplete(tabId, timeoutMs = 30000) {
+  return new Promise((resolve) => {
+    let seenLoading = false;
+    let settled = false;
+
+    const timer = setTimeout(async () => {
+      if (settled) return;
+      settled = true;
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      try {
+        resolve(await chrome.tabs.get(tabId));
+      } catch {
+        resolve(null);
+      }
+    }, timeoutMs);
+
+    function finish(tab) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(tab);
+    }
+
+    function onUpdated(id, info, tab) {
+      if (id !== tabId) return;
+      if (info.status === 'loading') seenLoading = true;
+      if (seenLoading && isTabReady(tab)) finish(tab);
+    }
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status === 'loading') seenLoading = true;
+      else if (isTabReady(tab)) {
+        // Reload may not have started yet; keep waiting for loading.
+      }
+    }).catch(() => {});
+  });
+}
+
 async function waitForTabComplete(tabId, timeoutMs = 30000) {
   try {
     const current = await chrome.tabs.get(tabId);
@@ -566,7 +626,7 @@ async function pingContentScript(tabId) {
     return await chrome.tabs.sendMessage(tabId, { type: 'PING' });
   } catch (err) {
     log(`PING failed on tab ${tabId}: ${err.message}`);
-    return null;
+    return { ok: false, error: err.message };
   }
 }
 
@@ -574,7 +634,25 @@ async function injectVendooContentScript(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
     files: ['content-scripts/vendoo.js'],
+    injectImmediately: true,
   });
+}
+
+async function probeTabScriptable(tabId) {
+  try {
+    const [execution] = await chrome.scripting.executeScript({
+      target: { tabId },
+      injectImmediately: true,
+      func: () => ({
+        href: location.href,
+        readyState: document.readyState,
+        hasBridge: Boolean(window.__vendooStudioBridge),
+      }),
+    });
+    return execution?.result || { error: 'empty executeScript result' };
+  } catch (err) {
+    return { error: err.message };
+  }
 }
 
 async function findNewItemTab() {
@@ -583,19 +661,55 @@ async function findNewItemTab() {
   return [...webTabs, ...appTabs].find(t => isNewItemUrl(t.url)) || null;
 }
 
+async function focusVendooTab(tab) {
+  await chrome.tabs.update(tab.id, { active: true });
+  if (tab.windowId) {
+    await chrome.windows.update(tab.windowId, { focused: true });
+  }
+}
+
+async function refreshVendooTab(tabId) {
+  let currentUrl = '';
+  try {
+    currentUrl = (await chrome.tabs.get(tabId)).url || '';
+  } catch (_) {}
+
+  try {
+    if (isNewItemUrl(currentUrl)) {
+      await chrome.tabs.reload(tabId);
+    } else {
+      await chrome.tabs.update(tabId, { url: NEW_ITEM_URL });
+    }
+  } catch (err) {
+    log(`Failed to refresh Vendoo tab ${tabId}: ${err.message}`);
+  }
+}
+
 async function openVendooListing(job) {
   try {
     const existingTab = await findNewItemTab();
     if (existingTab) {
       log(`Reusing new-item tab ${existingTab.id} (${existingTab.url})`);
-      await chrome.tabs.update(existingTab.id, { active: true });
-      if (existingTab.windowId) {
-        await chrome.windows.update(existingTab.windowId, { focused: true });
-      }
+      await focusVendooTab(existingTab);
       activeJob.windowId = existingTab.windowId;
       activeJob.tabId = existingTab.id;
       await persistActiveJob(activeJob);
-      await waitForTabComplete(existingTab.id);
+
+      const ping = await pingContentScript(existingTab.id);
+      if (!ping?.ok || ping.contentScriptVersion !== CONTENT_SCRIPT_VERSION) {
+        log(`Existing Vendoo tab ${existingTab.id} has a stale content script, refreshing`);
+        await refreshVendooTab(existingTab.id);
+        const loaded = await waitForTabReloadAndComplete(existingTab.id);
+        if (!isTabReady(loaded)) {
+          return { ok: false, error: `Vendoo tab did not finish loading (${loaded?.url || 'unknown url'})` };
+        }
+        return { ok: true };
+      }
+
+      const loaded = await waitForTabComplete(existingTab.id);
+      if (!isTabReady(loaded)) {
+        return { ok: false, error: `Vendoo tab did not finish loading (${loaded?.url || 'unknown url'})` };
+      }
       return { ok: true };
     }
 
@@ -627,14 +741,21 @@ async function waitForContentScript(job) {
   const tabId = job.tabId || (activeJob && activeJob.tabId);
   if (!tabId) return { ok: false, error: 'No job tab stored' };
 
+  const generation = job.generation;
   const tab = await waitForTabComplete(tabId);
   if (!isTabReady(tab)) {
     return { ok: false, error: `Vendoo tab not ready (${tab?.url || 'unknown url'})` };
   }
 
-  let injected = false;
   let lastUrl = tab.url;
-  for (let i = 0; i < 20; i++) {
+  let lastPingError = 'no ping response';
+  let lastInjectError = null;
+  let refreshed = false;
+  for (let i = 0; i < 25; i++) {
+    if (generation != null && !isCurrentJobRun(job.job_id, generation)) {
+      return { ok: false, error: 'superseded', superseded: true };
+    }
+
     const resp = await pingContentScript(tabId);
     if (resp && resp.ok) {
       if (resp.contentScriptVersion !== CONTENT_SCRIPT_VERSION) {
@@ -644,31 +765,47 @@ async function waitForContentScript(job) {
       log(`Content script ready on tab ${tabId} v${resp.contentScriptVersion}`);
       return { ok: true };
     }
+    if (resp?.error) lastPingError = resp.error;
 
     try {
       const current = await chrome.tabs.get(tabId);
       if (current.url && current.url !== lastUrl) {
         log(`Vendoo tab navigated ${lastUrl} -> ${current.url}`);
         lastUrl = current.url;
-        injected = false;
+      }
+      if (current.status !== 'complete') {
+        await waitForTabComplete(tabId);
       }
     } catch (err) {
       return { ok: false, error: `Vendoo tab closed: ${err.message}` };
     }
 
-    if (!injected) {
-      try {
-        await injectVendooContentScript(tabId);
-        injected = true;
-        log(`Injected content script into tab ${tabId}`);
-      } catch (err) {
-        log(`Content script inject failed on tab ${tabId}: ${err.message}`);
-      }
+    try {
+      await injectVendooContentScript(tabId);
+      lastInjectError = null;
+      log(`Injected content script into tab ${tabId}`);
+    } catch (err) {
+      lastInjectError = err.message;
+      log(`Content script inject failed on tab ${tabId}: ${err.message}`);
     }
 
-    await sleep(1000);
+    if (i === 8 && !refreshed) {
+      refreshed = true;
+      log(`Content script still not ready on tab ${tabId}, refreshing once`);
+      await refreshVendooTab(tabId);
+      await waitForTabReloadAndComplete(tabId);
+    }
+
+    await sleep(800);
   }
-  return { ok: false, error: 'Content script not ready after timeout' };
+
+  const probe = await probeTabScriptable(tabId);
+  const details = [
+    lastPingError,
+    lastInjectError ? `inject: ${lastInjectError}` : null,
+    probe?.error ? `scriptable: ${probe.error}` : `page: ${probe?.href || 'unknown'}`,
+  ].filter(Boolean).join('; ');
+  return { ok: false, error: `Content script not ready after timeout (${details})` };
 }
 
 async function sendToVendoo(job, command) {

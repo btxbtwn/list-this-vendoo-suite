@@ -4,13 +4,41 @@
 (function() {
   'use strict';
 
-  if (window.__vendooStudioBridge) {
+  const PLATFORM = 'VENDOO';
+  const CONTENT_SCRIPT_VERSION = '0.3.5';
+
+  function bindRuntimeListener() {
+      if (window.__vendooStudioOnMessage) {
+          try { chrome.runtime.onMessage.removeListener(window.__vendooStudioOnMessage); } catch (_) {}
+      }
+
+      window.__vendooStudioOnMessage = function(msg, sender, sendResponse) {
+          const ready = typeof window.__vendooStudioHandleMessage === 'function';
+          if (msg.type === 'PING') {
+              sendResponse({
+                  ok: ready,
+                  platform: PLATFORM,
+                  contentScriptVersion: CONTENT_SCRIPT_VERSION,
+                  ready,
+              });
+              return true;
+          }
+          if (ready) {
+              return window.__vendooStudioHandleMessage(msg, sender, sendResponse);
+          }
+          return false;
+      };
+
+      chrome.runtime.onMessage.addListener(window.__vendooStudioOnMessage);
+      window.__vendooStudioVersion = CONTENT_SCRIPT_VERSION;
+  }
+
+  bindRuntimeListener();
+
+  if (window.__vendooStudioBridge && typeof window.__vendooStudioHandleMessage === 'function') {
     return;
   }
   window.__vendooStudioBridge = true;
-
-  const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.4';
   const DEBUG = true;
   let statusBox;
 
@@ -2427,13 +2455,8 @@
 
   function init() {
       log(`✓ Content script loaded on ${window.location.hostname}`);
-      
-      chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-          if (msg.type === 'PING') {
-              sendResponse({ ok: true, platform: PLATFORM, contentScriptVersion: CONTENT_SCRIPT_VERSION });
-              return true;
-          }
 
+      window.__vendooStudioHandleMessage = function(msg, sender, sendResponse) {
           if (msg.type === 'UPLOAD_PHOTOS') {
               uploadStudioPhotos(msg.photos || [], msg.studio_url, msg.job_id)
                   .then(result => sendResponse(result))
@@ -2512,7 +2535,7 @@
               sendResponse({ ok: true });
               return true;
           }
-      });
+      };
   }
 
   if (document.readyState === 'loading') {
