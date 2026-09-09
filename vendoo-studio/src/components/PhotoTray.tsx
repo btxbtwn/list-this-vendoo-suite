@@ -139,7 +139,12 @@ export function PhotoTray({ convId }: Props) {
               ‹
             </button>
           )}
-          <img className="photo-lightbox-image" src={previewPhoto.url} alt={`Photo ${previewIndex + 1}`} />
+          <img
+            className="photo-lightbox-image"
+            src={previewPhoto.url}
+            alt={`Photo ${previewIndex + 1}`}
+            onClick={() => setPreviewId(null)}
+          />
           {photos.length > 1 && (
             <button type="button" className="photo-lightbox-nav photo-lightbox-next" onClick={() => stepPreview(1)} aria-label="Next photo">
               ›
