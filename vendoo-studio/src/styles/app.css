@@ -86,6 +86,11 @@
   padding: 0;
 }
 
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
 html, body {
   font-family: var(--font-sans);
   font-size: var(--text-base);
@@ -123,7 +128,10 @@ input, select, textarea {
 .app-shell {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: 100%;
+  max-height: 100%;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 .app-content {
@@ -184,6 +192,7 @@ input, select, textarea {
   align-items: center;
   justify-content: space-between;
   padding: 5px 14px;
+  padding-bottom: max(5px, env(safe-area-inset-bottom, 0px));
   background: var(--color-ink);
   color: var(--color-ink-muted);
   border-top: 1px solid var(--color-ink-border);
@@ -1346,9 +1355,8 @@ details[open] .json-collapse-summary::before {
 }
 
 @media (max-width: 900px) {
-  .app-shell {
-    --mobile-nav-height: calc(56px + env(safe-area-inset-bottom));
-    padding-bottom: var(--mobile-nav-height);
+  .status-bar {
+    padding-bottom: 5px;
   }
 
   .app-content {
@@ -1359,26 +1367,21 @@ details[open] .json-collapse-summary::before {
     overflow: hidden;
   }
 
-  /* Fixed bottom tab bar */
   .mobile-nav {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 100;
     display: grid;
+    flex-shrink: 0;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    height: var(--mobile-nav-height);
-    padding-bottom: env(safe-area-inset-bottom);
     background: var(--color-ink);
     border-top: 1px solid var(--color-border);
+    padding-bottom: max(34px, env(safe-area-inset-bottom, 0px));
   }
 
   .mobile-nav button {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     min-width: 0;
+    min-height: 56px;
     padding: 0 12px;
     color: var(--color-text-muted);
     font-weight: var(--weight-medium);
