@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ExtensionStatus } from "../components/ExtensionStatus";
+import { ProviderStatus } from "../components/ProviderStatus";
 import { ListingEditor } from "../components/ListingEditor";
 import { ChatPanel } from "../components/ChatPanel";
 import { PhotoTray } from "../components/PhotoTray";
@@ -16,7 +17,6 @@ export function App() {
   const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
   const [mobilePane, setMobilePane] = useState<"listings" | "workspace" | "editor" | "browser">("listings");
 
-  const { data: status } = useQuery({ queryKey: ["status"], queryFn: api.status, refetchInterval: 10000 });
   const { data: conversations } = useQuery({
     queryKey: ["conversations"],
     queryFn: api.conversations.list,
@@ -177,7 +177,7 @@ export function App() {
       <footer className="status-bar">
         <div className="status-left">
           <ExtensionStatus />
-          <span>{status?.provider_configured ? "MIMO CONFIGURED" : "MIMO NOT CONFIGURED"}</span>
+          <ProviderStatus />
         </div>
         <div>V 0.1.0</div>
       </footer>
