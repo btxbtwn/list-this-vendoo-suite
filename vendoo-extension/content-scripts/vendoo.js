@@ -5,7 +5,7 @@
   'use strict';
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.0';
+  const CONTENT_SCRIPT_VERSION = '0.3.2';
   const DEBUG = true;
   let statusBox;
 
@@ -103,7 +103,7 @@
     tags: '#generalDetails\\.tags',
     quantity: '#generalDetails\\.quantity',
     size: '#generalDetails\\.size\\.option\\.value',
-    sizeType: '#generalDetails\\.size\\.scale\\.value',
+    sku: '#generalDetails\\.sku',
     weightLb: '#generalDetails\\.weight\\.pounds',
     weightOz: '#generalDetails\\.weight\\.ounces',
     length: '#generalDetails\\.dimensions\\.length',
@@ -168,6 +168,217 @@
           .replace(/\s+/g, ' ')
           .trim()
           .toLowerCase();
+  }
+
+  function optionMatchText(el) {
+      return (el.innerText || el.textContent || '').trim().split('\n')[0].trim();
+  }
+
+  // Live Vendoo dropdown labels as of 2026-09-08.
+  // See skills/list-this/references/vendoo-dropdown-options.md
+  const MARKETPLACE_CONDITION_MAP = {
+      vendoo: {
+          'New With Tags/Box': 'New With Tags/Box',
+          'New Without Tags/Box': 'New Without Tags/Box',
+          'New With Imperfections': 'New With Imperfections',
+          'Pre-Owned - Excellent': 'Pre-Owned - Excellent',
+          'Pre-Owned - Good': 'Pre-Owned - Good',
+          'Pre-Owned - Fair': 'Pre-Owned - Fair',
+          'Poor (Major flaws)': 'Poor (Major flaws)',
+      },
+      ebay: {
+          'New With Tags/Box': 'New with tags',
+          'New Without Tags/Box': 'New without tags',
+          'New With Imperfections': 'New with imperfections',
+          'Pre-Owned - Excellent': 'Pre-owned - Excellent',
+          'Pre-Owned - Good': 'Pre-owned - Good',
+          'Pre-Owned - Fair': 'Pre-owned - Fair',
+          'Poor (Major flaws)': 'Pre-owned - Fair',
+      },
+      poshmark: {
+          'New With Tags/Box': 'New With Tags (NWT)',
+          'New Without Tags/Box': 'Like New',
+          'New With Imperfections': 'Good',
+          'Pre-Owned - Excellent': 'Like New',
+          'Pre-Owned - Good': 'Good',
+          'Pre-Owned - Fair': 'Fair',
+          'Poor (Major flaws)': 'Fair',
+      },
+      mercari: {
+          'New With Tags/Box': 'New (New with tags)',
+          'New Without Tags/Box': 'Like new (New without tags)',
+          'New With Imperfections': 'Good (Gently used)',
+          'Pre-Owned - Excellent': 'Like new (New without tags)',
+          'Pre-Owned - Good': 'Good (Gently used)',
+          'Pre-Owned - Fair': 'Fair (Used)',
+          'Poor (Major flaws)': 'Poor (Major flaws)',
+      },
+      depop: {
+          'New With Tags/Box': 'Brand new',
+          'New Without Tags/Box': 'Like new',
+          'New With Imperfections': 'Used - Good',
+          'Pre-Owned - Excellent': 'Used - Excellent',
+          'Pre-Owned - Good': 'Used - Good',
+          'Pre-Owned - Fair': 'Used - Fair',
+          'Poor (Major flaws)': 'Used - Fair',
+      },
+  };
+
+  function canonicalizeCondition(raw) {
+      if (raw == null) return raw;
+      const original = String(raw).trim();
+      if (!original) return original;
+      if (MARKETPLACE_CONDITION_MAP.vendoo[original]) return original;
+
+      const t = original.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+      if (t.includes('imperfection')) return 'New With Imperfections';
+      if (t.includes('poor') || t.includes('major flaw')) return 'Poor (Major flaws)';
+      if (/\bnwt\b/.test(t) || (t.includes('new') && t.includes('tag') && !t.includes('without'))) {
+          return 'New With Tags/Box';
+      }
+      if (t.includes('brand new')) return 'New With Tags/Box';
+      if (t.includes('like new') || (t.includes('new') && t.includes('without'))) {
+          return 'New Without Tags/Box';
+      }
+      if (t.includes('excellent')) return 'Pre-Owned - Excellent';
+      if (t.includes('fair')) return 'Pre-Owned - Fair';
+      if (t.includes('good') || t.includes('used') || t.includes('pre owned')) {
+          return 'Pre-Owned - Good';
+      }
+      if (t.includes('new')) return 'New Without Tags/Box';
+      return original;
+  }
+
+  function mapCondition(raw, marketplace) {
+      if (raw == null || String(raw).trim() === '') return raw;
+      const canonical = canonicalizeCondition(raw);
+      const table = MARKETPLACE_CONDITION_MAP[marketplace] || MARKETPLACE_CONDITION_MAP.vendoo;
+      const mapped = table[canonical] || canonical;
+      if (mapped !== String(raw).trim()) {
+          log(`  Condition ${marketplace}: "${raw}" → "${mapped}"`);
+      }
+      return mapped;
+  }
+
+  const VENDOO_COLORS = [
+      'Beige', 'Black', 'Blue', 'Brown', 'Cream', 'Gold', 'Gray', 'Green',
+      'Orange', 'Multicolor', 'Pink', 'Purple', 'Red', 'Silver', 'Yellow', 'Tan', 'White',
+  ];
+
+  const COLOR_ALIASES = {
+      grey: 'Gray',
+      gray: 'Gray',
+      multi: 'Multicolor',
+      multicolor: 'Multicolor',
+      'multi color': 'Multicolor',
+      'multi-color': 'Multicolor',
+      navy: 'Navy',
+      burgundy: 'Burgundy',
+      maroon: 'Burgundy',
+      wine: 'Burgundy',
+      khaki: 'Khaki',
+      camel: 'Beige',
+      beige: 'Beige',
+      tan: 'Tan',
+      cream: 'Cream',
+      ivory: 'Cream',
+      'off white': 'Cream',
+      teal: 'Blue',
+      turquoise: 'Blue',
+      aqua: 'Blue',
+      charcoal: 'Gray',
+      slate: 'Gray',
+      mint: 'Green',
+      sage: 'Green',
+      olive: 'Green',
+      coral: 'Orange',
+      salmon: 'Orange',
+      peach: 'Orange',
+      lavender: 'Purple',
+      lilac: 'Purple',
+      mauve: 'Purple',
+  };
+
+  const VENDOO_COLOR_IDENTITY = Object.fromEntries(VENDOO_COLORS.map(c => [c, c]));
+
+  const MARKETPLACE_COLOR_MAP = {
+      vendoo: {
+          ...VENDOO_COLOR_IDENTITY,
+          Grey: 'Gray',
+          Multi: 'Multicolor',
+          Navy: 'Blue',
+          Burgundy: 'Red',
+          Khaki: 'Beige',
+      },
+      ebay: {
+          ...VENDOO_COLOR_IDENTITY,
+          Grey: 'Gray',
+          Multi: 'Multicolor',
+          Navy: 'Blue',
+          Burgundy: 'Red',
+          Khaki: 'Beige',
+      },
+      etsy: {
+          ...VENDOO_COLOR_IDENTITY,
+          Grey: 'Gray',
+          Multi: 'Multicolor',
+          Navy: 'Blue',
+          Burgundy: 'Red',
+          Khaki: 'Beige',
+      },
+      poshmark: {
+          ...VENDOO_COLOR_IDENTITY,
+          Beige: 'Tan',
+          Multicolor: null,
+          Grey: 'Gray',
+          Multi: null,
+          Navy: 'Blue',
+          Burgundy: 'Red',
+          Khaki: 'Tan',
+      },
+      depop: {
+          ...VENDOO_COLOR_IDENTITY,
+          Gray: 'Grey',
+          Grey: 'Grey',
+          Multicolor: 'Multi',
+          Multi: 'Multi',
+          Beige: 'Tan',
+          Navy: 'Navy',
+          Burgundy: 'Burgundy',
+          Khaki: 'Khaki',
+      },
+  };
+
+  function canonicalizeColor(raw) {
+      if (raw == null) return raw;
+      const original = String(raw).trim();
+      if (!original) return original;
+
+      const exact = [...VENDOO_COLORS, 'Grey', 'Multi', 'Navy', 'Burgundy', 'Khaki']
+          .find(c => c.toLowerCase() === original.toLowerCase());
+      if (exact) return exact === 'Grey' ? 'Gray' : exact === 'Multi' ? 'Multicolor' : exact;
+
+      const t = original.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+      return COLOR_ALIASES[t] || original;
+  }
+
+  function mapColor(raw, marketplace) {
+      if (raw == null || String(raw).trim() === '') return raw;
+      const canonical = canonicalizeColor(raw);
+      const table = MARKETPLACE_COLOR_MAP[marketplace] || MARKETPLACE_COLOR_MAP.vendoo;
+      if (Object.prototype.hasOwnProperty.call(table, canonical)) {
+          const mapped = table[canonical];
+          if (!mapped) {
+              warn(`Color ${marketplace}: "${raw}" has no ${marketplace} option; skipping`);
+              return null;
+          }
+          if (mapped !== String(raw).trim()) {
+              log(`  Color ${marketplace}: "${raw}" → "${mapped}"`);
+          }
+          return mapped;
+      }
+      return canonical;
   }
 
   const ETSY_CATEGORY_VALUE_MAPS = {
@@ -519,15 +730,15 @@
                   const text = (o.innerText || '').toLowerCase();
                   return !text.includes('create your description') && !text.includes('description with ai');
               });
-              
-              // Try exact match first
-              targetOption = options.find(o => o.innerText.trim().toLowerCase() === value.toLowerCase());
-              
-              // Try includes match
+
+              const searchValue = value.toLowerCase().trim();
+              targetOption = options.find(o => optionMatchText(o).toLowerCase() === searchValue);
+
               if (!targetOption && !isStrict) {
-                  targetOption = options.find(o => 
-                      o.innerText.trim().toLowerCase().includes(value.toLowerCase())
-                  );
+                  targetOption = options.find(o => {
+                      const label = optionMatchText(o).toLowerCase();
+                      return label.includes(searchValue) || searchValue.includes(label);
+                  });
               }
               
               if (targetOption) break;
@@ -828,7 +1039,7 @@
   async function fillMainForm(data) {
       log('=== Filling Main Vendoo Form ===');
 
-      // Category must be set FIRST (before size/sizeType which depend on it)
+      // Category must be set FIRST (before size, which depends on it)
       if (data.category_path) {
           const catResult = await fillCategoryPath(data);
           if (!catResult.ok) {
@@ -842,28 +1053,23 @@
           {fn: fillTextField, args: [VENDOO_SELECTORS.title, data.title, 'Title']},
           {fn: fillTextField, args: [VENDOO_SELECTORS.description, data.description, 'Description']},
           {fn: fillTextField, args: [VENDOO_SELECTORS.zipCode, data.zipCode || '70125', 'Zip Code']},
+          {fn: fillTextField, args: [VENDOO_SELECTORS.sku, data.sku, 'SKU']},
       ];
       await batchFillFields(textFields);
       
-      // Condition mapping
       if (data.condition) {
-          let condVal = data.condition;
-          if (condVal.toLowerCase().includes('used') || condVal.toLowerCase() === 'good') condVal = 'Pre-Owned - Good';
-          if (condVal.toLowerCase().includes('excellent')) condVal = 'Pre-Owned - Excellent';
-          if (condVal.toLowerCase().includes('fair')) condVal = 'Pre-Owned - Fair';
-          if (condVal.toLowerCase().includes('new') && !condVal.toLowerCase().includes('imperfections')) condVal = 'New Without Tags/Box';
-          await fillDropdownField(VENDOO_SELECTORS.condition, condVal, 'Condition', true);
+          await fillDropdownField(
+              VENDOO_SELECTORS.condition,
+              mapCondition(data.condition, 'vendoo'),
+              'Condition',
+              true
+          );
       }
       
       // Dropdown fields (sequential for stability)
       await fillDropdownField(VENDOO_SELECTORS.brand, data.brand, 'Brand');
-      await fillDropdownField(VENDOO_SELECTORS.primaryColor, data.primaryColor || data.color, 'Primary Color');
-      await fillDropdownField(VENDOO_SELECTORS.secondaryColor, data.secondaryColor, 'Secondary Color');
-      // Size fields (sizeType BEFORE size - size options depend on sizeType)
-      if (data.sizeType) {
-          await fillDropdownField(VENDOO_SELECTORS.sizeType, data.sizeType, 'Size Type', true);
-          await sleep(CONFIG.SLEEP_LONG);
-      }
+      await fillDropdownField(VENDOO_SELECTORS.primaryColor, mapColor(data.primaryColor || data.color, 'vendoo'), 'Primary Color');
+      await fillDropdownField(VENDOO_SELECTORS.secondaryColor, mapColor(data.secondaryColor, 'vendoo'), 'Secondary Color');
       if (data.size) {
           const sizeEl = document.querySelector(VENDOO_SELECTORS.size);
           if (sizeEl) {
@@ -990,11 +1196,19 @@
   async function fillEbayForm(data) {
       log('Filling eBay form...');
 
+      await fillDropdownField(
+          '#listings\\.ebay\\.overrides\\.condition',
+          mapCondition(data.condition, 'ebay'),
+          'eBay Condition',
+          true
+      );
+
       // Parallel fill for independent fields
       await Promise.all([
           fillDropdownField('#listings\\.ebay\\.overrides\\.brand', data.brand, 'eBay Brand'),
-          fillDropdownField('#listings\\.ebay\\.overrides\\.primaryColor', data.primaryColor || data.color, 'eBay Color'),
+          fillDropdownField('#listings\\.ebay\\.overrides\\.primaryColor', mapColor(data.primaryColor || data.color, 'ebay'), 'eBay Color'),
           fillTextField('#listings\\.ebay\\.overrides\\.quantity', data.quantity, 'eBay Quantity'),
+          fillTextField('#listings\\.ebay\\.overrides\\.sku', data.sku, 'eBay SKU'),
       ]);
       
       // Price
@@ -1118,6 +1332,10 @@
                   let valuesToFill = Array.isArray(value) ? value : 
                       (typeof value === 'string' && value.includes(',')) ? 
                       value.split(',').map(v => v.trim()) : [value];
+
+                  if (key === 'color') {
+                      valuesToFill = valuesToFill.map(item => mapColor(item, 'ebay')).filter(Boolean);
+                  }
                   
                   // Use strict matching for size fields to avoid "S" matching "3XS"
                   const isSizeField = key.toLowerCase().includes('size');
@@ -1176,9 +1394,10 @@
       
       // Parallel independent fields
       await Promise.all([
-          fillDropdownField('#listings\\.etsy\\.overrides\\.primaryColor', data.primaryColor || data.color, 'Etsy Color'),
+          fillDropdownField('#listings\\.etsy\\.overrides\\.primaryColor', mapColor(data.primaryColor || data.color, 'etsy'), 'Etsy Color'),
           fillTextField('#listings\\.etsy\\.overrides\\.quantity', data.quantity, 'Etsy Quantity'),
           fillTextField('#listings\\.etsy\\.overrides\\.price', data.price, 'Etsy Price'),
+          fillTextField('#listings\\.etsy\\.overrides\\.sku', data.sku, 'Etsy SKU'),
       ]);
       
       if (data.etsy_specifics) {
@@ -1301,11 +1520,12 @@
       log('Filling Poshmark form...');
       
       await Promise.all([
-          fillDropdownField('#listings\\.poshmark\\.overrides\\.condition', data.condition, 'Poshmark Condition'),
+          fillDropdownField('#listings\\.poshmark\\.overrides\\.condition', mapCondition(data.condition, 'poshmark'), 'Poshmark Condition', true),
           fillDropdownField('#listings\\.poshmark\\.overrides\\.brand', data.brand, 'Poshmark Brand'),
-          fillDropdownField('#listings\\.poshmark\\.overrides\\.primaryColor', data.primaryColor || data.color, 'Poshmark Color'),
+          fillDropdownField('#listings\\.poshmark\\.overrides\\.primaryColor', mapColor(data.primaryColor || data.color, 'poshmark'), 'Poshmark Color', true),
           fillTextField('#listings\\.poshmark\\.overrides\\.quantity', data.quantity, 'Poshmark Quantity'),
           fillTextField('#listings\\.poshmark\\.overrides\\.price', data.price, 'Poshmark Price'),
+          fillTextField('#listings\\.poshmark\\.overrides\\.sku', data.sku, 'Poshmark SKU'),
       ]);
       
       if (data.poshmark_specifics) {
@@ -1318,7 +1538,7 @@
       log('Filling Mercari form...');
       
       await Promise.all([
-          fillDropdownField('#listings\\.mercari\\.overrides\\.condition', data.condition, 'Mercari Condition'),
+          fillDropdownField('#listings\\.mercari\\.overrides\\.condition', mapCondition(data.condition, 'mercari'), 'Mercari Condition', true),
           fillDropdownField('#listings\\.mercari\\.overrides\\.brand', data.brand, 'Mercari Brand'),
           fillTextField('#listings\\.mercari\\.overrides\\.quantity', data.quantity, 'Mercari Quantity'),
           fillTextField('#listings\\.mercari\\.overrides\\.price', data.price, 'Mercari Price'),
@@ -1343,10 +1563,11 @@
       log('Filling Depop form...');
       
       await Promise.all([
-          fillDropdownField('#listings\\.depop\\.overrides\\.condition', data.condition, 'Depop Condition'),
-          fillDropdownField('#listings\\.depop\\.overrides\\.primaryColor', data.primaryColor || data.color, 'Depop Color'),
+          fillDropdownField('#listings\\.depop\\.overrides\\.condition', mapCondition(data.condition, 'depop'), 'Depop Condition', true),
+          fillDropdownField('#listings\\.depop\\.overrides\\.primaryColor', mapColor(data.primaryColor || data.color, 'depop'), 'Depop Color', true),
           fillTextField('#listings\\.depop\\.overrides\\.quantity', data.quantity, 'Depop Quantity'),
           fillTextField('#listings\\.depop\\.overrides\\.price', data.price, 'Depop Price'),
+          fillTextField('#listings\\.depop\\.overrides\\.sku', data.sku, 'Depop SKU'),
       ]);
 
       const depopBrandEl = document.querySelector('#listings\\.depop\\.overrides\\.brand');

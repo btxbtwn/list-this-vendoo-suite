@@ -397,6 +397,7 @@ Before outputting ANY listing, verify:
 ## Resources
 
 - **Mandatory reference:** `references/vendoo_listing_template.md`
+- **Marketplace dropdowns (live scrape):** `references/vendoo-dropdown-options.md` — use exact condition/color/source strings per marketplace
 - **Script:** `scripts/` (if any helper scripts exist)
 
 ## Notes
