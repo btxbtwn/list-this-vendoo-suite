@@ -69,7 +69,7 @@
   --space-6: 24px;
   --space-8: 32px;
   --sidebar-width: 244px;
-  --column-footer-height: 88px;
+  --column-footer-height: 112px;
 }
 
 @font-face {
@@ -362,6 +362,7 @@ textarea.input {
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
+  flex-shrink: 0;
   min-height: var(--column-footer-height);
   padding: 8px 8px;
   border-top: 1px solid var(--color-ink-border);
@@ -509,6 +510,30 @@ textarea.input {
 
 .sidebar-settings-btn.update-available:hover {
   color: var(--color-success);
+}
+
+.sidebar-update-btn {
+  width: 100%;
+  justify-content: center;
+  background: var(--color-ink-raised);
+  color: #E1E3E9;
+  border: 1px solid var(--color-ink-border);
+}
+
+.sidebar-update-btn:hover:not(:disabled) {
+  background: var(--color-ink-hover);
+  color: #fff;
+}
+
+.sidebar-update-btn.update-available {
+  background: var(--color-success);
+  color: var(--color-accent-ink);
+  border-color: transparent;
+}
+
+.sidebar-update-btn.update-available:hover:not(:disabled) {
+  background: var(--color-vendoo);
+  color: var(--color-accent-ink);
 }
 
 /* ── Empty State ── */

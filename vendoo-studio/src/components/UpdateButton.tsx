@@ -103,7 +103,7 @@ export function UpdateButton() {
 
   return (
     <button
-      className={`sidebar-settings-btn${data?.available ? " update-available" : ""}`}
+      className={`btn btn-sm sidebar-update-btn${data?.available ? " update-available" : ""}`}
       onClick={onClick}
       disabled={busy}
       title={data?.error || data?.summary || "Check origin/main for updates"}
