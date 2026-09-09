@@ -1372,14 +1372,12 @@
       ];
       await batchFillFields(textFields);
       
-      if (data.condition) {
-          await fillDropdownField(
-              VENDOO_SELECTORS.condition,
-              mapCondition(data.condition, 'vendoo'),
-              'Condition',
-              true
-          );
-      }
+      await fillDropdownField(
+          VENDOO_SELECTORS.condition,
+          data.condition ? mapCondition(data.condition, 'vendoo') : data.condition,
+          'Condition',
+          true
+      );
       
       // Dropdown fields (sequential for stability)
       await fillDropdownField(VENDOO_SELECTORS.brand, data.brand, 'Brand');
