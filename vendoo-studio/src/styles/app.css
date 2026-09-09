@@ -915,6 +915,113 @@ details[open] .json-collapse-summary::before {
   opacity: 1;
 }
 
+.photo-thumb-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.photo-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 72px 48px;
+  overflow: hidden;
+  background: rgba(9, 9, 9, 0.92);
+}
+
+.photo-lightbox-image {
+  display: block;
+  max-width: min(92vw, 1200px);
+  max-height: min(86vh, calc(100vh - 104px));
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+}
+
+.photo-lightbox-close,
+.photo-lightbox-nav {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text);
+  background: rgba(28, 28, 29, 0.88);
+  border: 1px solid var(--color-border-bright);
+  cursor: pointer;
+}
+
+.photo-lightbox-close:hover,
+.photo-lightbox-nav:hover {
+  background: var(--color-ink-raised);
+  border-color: var(--color-cobalt);
+}
+
+.photo-lightbox-close:focus-visible,
+.photo-lightbox-nav:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-cobalt);
+}
+
+.photo-lightbox-close {
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.photo-lightbox-nav {
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translateY(-50%);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.photo-lightbox-prev {
+  left: 16px;
+}
+
+.photo-lightbox-next {
+  right: 16px;
+}
+
+.photo-lightbox-meta {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+  background: rgba(28, 28, 29, 0.88);
+  border: 1px solid var(--color-border);
+  padding: 4px 10px;
+}
+
+@media (max-width: 900px) {
+  .photo-lightbox {
+    padding: 56px 16px 48px;
+  }
+
+  .photo-lightbox-image {
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 120px);
+  }
+}
+
 /* ── Listing Editor ── */
 
 .editor-header {
