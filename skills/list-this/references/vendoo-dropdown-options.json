@@ -1,0 +1,211 @@
+{
+  "scrapedAt": "2026-09-08",
+  "host": "https://web.vendoo.co",
+  "itemUrl": "https://web.vendoo.co/app/item/new",
+  "categoryContext": {
+    "vendoo": "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts",
+    "ebayCategoryId": "15687",
+    "poshmark": "Men > Shirts > Tees - Short Sleeve",
+    "depopCategorySpecificPrefix": "menswear_shirts",
+    "etsyCategoryId": "449"
+  },
+  "notes": [
+    "Closed dropdowns only. Brand, tags, Character, Character Family, Country of Origin, Model, Product Line, and store categories were skipped as open-ended or huge.",
+    "Category-specific option lists are for the T-shirt category above. Other categories will have different specifics.",
+    "Etsy shipping/processing/return profiles are account-specific.",
+    "Poshmark Discounted Shipping and Mercari Shipping Label were disabled without an active marketplace connection.",
+    "eBay Fixed Price duration displayed Good 'Til Cancelled; the menu did not open on scrape."
+  ],
+  "forms": {
+    "vendoo": {
+      "condition": [
+        "New With Tags/Box",
+        "New Without Tags/Box",
+        "New With Imperfections",
+        "Pre-Owned - Excellent",
+        "Pre-Owned - Good",
+        "Pre-Owned - Fair",
+        "Poor (Major flaws)"
+      ],
+      "primaryColor": [
+        "Beige", "Black", "Blue", "Brown", "Cream", "Gold", "Gray", "Green",
+        "Orange", "Multicolor", "Pink", "Purple", "Red", "Silver", "Yellow", "Tan", "White"
+      ],
+      "secondaryColor": [
+        "Beige", "Black", "Blue", "Brown", "Cream", "Gold", "Gray", "Green",
+        "Orange", "Multicolor", "Pink", "Purple", "Red", "Silver", "Yellow", "Tan", "White"
+      ],
+      "usSize": [
+        "2XS", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "6XL", "7XL", "8XL",
+        "S/M", "M/L", "L/XL", "XS/S",
+        "28", "30", "32", "34", "36", "38", "40", "42", "44", "46", "48", "50", "52", "54", "56", "58", "60", "62",
+        "Big 1X", "Big 2X", "Big 3X", "Big 4X", "Big 5X", "Big 6X",
+        "ST", "MT", "LT", "XLT", "2XLT", "3XLT", "4XLT", "5XLT", "6XLT",
+        "One Size",
+        "IT 42", "IT 44", "IT 46", "IT 48", "IT 50", "IT 52", "IT 54", "IT 56", "IT 58", "IT 60",
+        "EU 42", "EU 44", "EU 46", "EU 48", "EU 50", "EU 52", "EU 54", "EU 56", "EU 58", "EU 60",
+        "FR 42", "FR 44", "FR 46", "FR 48", "FR 50", "FR 52", "FR 54", "FR 56", "FR 58", "FR 60"
+      ]
+    },
+    "ebay": {
+      "condition": [
+        "New with tags",
+        "New without tags",
+        "New with imperfections",
+        "Pre-owned - Excellent",
+        "Pre-owned - Good",
+        "Pre-owned - Fair"
+      ],
+      "color": [
+        "Beige", "Black", "Blue", "Brown", "Cream", "Gold", "Gray", "Green",
+        "Multicolor", "Orange", "Pink", "Purple", "Red", "Silver", "Yellow", "Tan", "White"
+      ],
+      "department": ["Men", "Teens", "Unisex Adults"],
+      "sizeType": ["Regular", "Big & Tall"],
+      "size": [
+        "2XS", "XS", "S", "M", "L", "XL", "2XL",
+        "S/M", "M/L", "L/XL", "XS/S",
+        "28", "30", "32", "34", "36", "38", "40", "42", "44", "46", "48", "50",
+        "One Size",
+        "IT 42", "IT 44", "IT 46", "IT 48", "IT 50", "IT 52", "IT 54", "IT 56", "IT 58", "IT 60",
+        "EU 42", "EU 44", "EU 46", "EU 48", "EU 50", "EU 52", "EU 54", "EU 56", "EU 58", "EU 60",
+        "FR 42", "FR 44", "FR 46", "FR 48", "FR 50", "FR 52", "FR 54", "FR 56", "FR 58", "FR 60"
+      ],
+      "pricingFormat": ["Auction Style", "Fixed Price"],
+      "durationNote": "Fixed Price displayed Good 'Til Cancelled; menu did not open.",
+      "Type": ["----", "T-Shirt"],
+      "fit": ["----", "Athletic", "Classic", "Extra-Slim", "Regular", "Relaxed", "Slim"],
+      "handmade": ["----", "Yes", "No"],
+      "personalize": ["----", "Yes", "No"],
+      "vintage": ["----", "Yes", "No"],
+      "Sleeve Length": ["----", "Sleeveless", "Short Sleeve", "3/4 Sleeve", "Long Sleeve"],
+      "Neckline": ["----", "Collared", "Crew Neck", "Henley", "High Neck", "Mock Neck", "Round Neck", "Square Neck", "Turtleneck", "V-Neck"],
+      "Pattern": ["----", "Animal Print", "Argyle/Diamond", "Camouflage", "Check", "Colorblock", "Fair Isle", "Floral", "Geometric", "Graphic Print", "Herringbone", "Paisley", "Plaid", "Polka Dot", "Solid", "Striped"],
+      "Style": ["----", "Basic", "Cropped", "Ringer"],
+      "Season": ["Fall", "Spring", "Summer", "Winter"],
+      "Garment Care": ["----", "Dry Clean Only", "Hand Wash Only", "Machine Washable"],
+      "Unit Type": ["----", "Unit", "oz", "lb", "fl oz", "gal", "ft", "ft²", "ft³"],
+      "Year Manufactured": ["----", "2020-2029", "2010-2019", "2000-2009", "1990-1999", "1980-1989", "1970-1979", "1960-1969", "1950-1959", "1940-1949", "1930-1939", "1920-1929", "1910-1919", "1900-1909", "Pre-1900s"],
+      "Fabric Type": ["----", "Canvas", "Chambray", "Chiffon", "Corduroy", "Crochet", "Damask", "Denim", "Down", "Flannel", "Fleece", "Jersey", "Knit", "Lace", "Microfiber", "Rayon", "Satin", "Tweed", "Twill", "Velvet", "Woven"],
+      "accents": ["Beaded", "Bow", "Buckle", "Button", "Crochet", "Embroidered", "Fringe", "Fur Trim", "Glitter", "Logo", "Pleated", "Quilted", "Rhinestone", "Ruffle", "Sequin", "Strap", "Studded", "Tasseled", "Zipper"],
+      "Features": ["1/2 Zip", "Adjustable", "All Seasons", "Belted", "Breathable", "Buckle", "Collarless", "Contrasting Trim", "Crochet", "Double-Sided", "Easy Care", "Full Zip", "Glow in the Dark", "Hand-Painted", "Heavyweight", "Hooded", "LED", "Lightweight", "Limited Edition", "Lined", "Moisture Wicking", "Non-Iron", "Open", "Oversized", "Packable", "Padded", "Pockets", "Preshrunk", "Quick Dry", "Reflective", "Reversible", "Ring Spun", "Seamless", "Sheer", "Shoulder Pads", "Slimming", "Stretch", "Tagless", "Thermal", "Unlined", "UV Protection", "Waterproof", "Wrinkle Resistant"],
+      "Material": ["Acrylic", "Alfa", "Alginate", "Alpaca", "Angora", "Animal Hair", "Aramid", "Bamboo", "Camel", "Cashgora", "Cashmere", "Chlorofiber", "Cotton", "Cotton Blend", "Cupro", "Elastodiene", "Elastolefin", "Elastomultiester", "Faux Fur", "Faux Leather", "Flax", "Fluorofiber", "Fur", "Guanaco", "Hemp", "Henequen", "Kapok", "Leather", "Linen", "Llama", "Lyocell", "Maguey", "Manila Hemp", "Modacrylic", "Modal", "Mohair", "Nylon", "Olefin", "Patent Leather", "Polyacrylate Fiber", "Polyamide", "Polycarbamide", "Polyester", "Polyester Blend", "Polyethylene", "Polylactide", "Polypropylene", "Polyurethane", "Ramie", "Silk", "Spandex", "Suede", "Sunn", "Trivinyl", "Vicuna", "Viscose", "Wool", "Yak"],
+      "Theme": ["20s", "30s", "40s", "50s", "60s", "70s", "80s", "90s", "Animals", "Anime", "Army", "Art", "Aztec", "Baguette", "Band", "Beach", "Beer", "Biker", "Bird", "Birthday", "Bohemian", "Box", "Butterfly", "California", "Cars", "Cartoon", "Cat", "Christmas", "City", "Classic", "Coins", "College", "Colorful", "Comics", "Cosplay", "Countries", "Couture", "Cowboy", "Dad", "Designer", "Dog", "Easter", "Eye", "Fairy", "Fire", "Fish", "Flag", "Florida", "Flower", "Funny", "Geek", "Gothic", "Grunge", "Halloween", "Hawaiian", "Heart", "Hip Hop", "Hippie", "Hipster", "Holiday", "Horror", "Horse", "Indian", "Italian", "Korean", "Leopard", "London", "Love", "Marine", "Metal", "Military", "Money", "Moon", "Motorcycle", "Movie", "Music", "Nature", "Nautical", "Nerd", "Outdoor", "Owl", "Paris", "Patriotic", "Peasant", "Preppy", "Princess", "Punk", "Quotes", "Rainbow", "Retro", "Rock", "Rose", "School", "Shell", "Ski", "Skull", "Snake", "Space", "Sports", "Stars", "Steampunk", "Tattoo", "Teacher", "Tortoise", "Transportation", "Tribal", "Tropical", "Unicorn", "University", "USA", "Wedding", "Western", "Zebra"]
+    },
+    "poshmark": {
+      "condition": ["New With Tags (NWT)", "Like New", "Good", "Fair"],
+      "conditionNotes": {
+        "New With Tags (NWT)": "Brand new with original tags or packaging",
+        "Like New": "New without tags or like new",
+        "Good": "Gently used with minimal signs of wear, to note in description or photos",
+        "Fair": "Clearly used with visible wear, to note in description or photos"
+      },
+      "primaryColor": ["Black", "Blue", "Brown", "Cream", "Gold", "Gray", "Green", "Orange", "Pink", "Purple", "Red", "Silver", "Yellow", "Tan", "White"],
+      "secondaryColor": ["Black", "Blue", "Brown", "Cream", "Gold", "Gray", "Green", "Orange", "Pink", "Purple", "Red", "Silver", "Yellow", "Tan", "White"],
+      "categoryTopLevel": ["Electronics", "Home", "Kids", "Men", "Pets", "Women"],
+      "categoryCurrentPath": ["Men", "Shirts", "Tees - Short Sleeve"],
+      "categoryShirtsChildren": ["Casual Button Down Shirts", "Dress Shirts", "Jerseys", "Polos", "Sweatshirts & Hoodies", "Tank Tops", "Tees - Long Sleeve", "Tees - Short Sleeve", "None"],
+      "discountShipping": "unavailable without active Poshmark connection"
+    },
+    "mercari": {
+      "condition": [
+        "New (New with tags)",
+        "Like new (New without tags)",
+        "Good (Gently used)",
+        "Fair (Used)",
+        "Poor (Major flaws)"
+      ],
+      "deliveryMethod": ["Standard shipping", "Ship on your own"],
+      "payer": ["Buyer pays", "I'll pay"],
+      "shippingLabel": "disabled on this draft (Mercari connection / package weight may be required)"
+    },
+    "depop": {
+      "condition": ["Brand new", "Like new", "Used - Excellent", "Used - Good", "Used - Fair"],
+      "conditionNotes": {
+        "Brand new": "Unused with original packaging or tags",
+        "Like new": "Mint condition pre-owned or new without tags",
+        "Used - Excellent": "Lightly used but no noticeable flaws",
+        "Used - Good": "Minor flaws or signs of wear, to be noted in the description or photos",
+        "Used - Fair": "Obvious flaws or signs of wear, to be noted in the description or photos"
+      },
+      "primaryColor": ["Black", "Grey", "White", "Brown", "Tan", "Cream", "Yellow", "Red", "Burgundy", "Orange", "Pink", "Purple", "Blue", "Navy", "Green", "Khaki", "Multi", "Silver", "Gold"],
+      "source": ["Vintage", "Preloved", "Reworked", "Custom", "Handmade", "Deadstock", "Designer", "Repaired"],
+      "age": ["Modern", "y2k", "90s", "80s", "70s", "60s", "50s", "Antique"],
+      "style": ["Streetwear", "Sportswear", "Loungewear", "Goth", "Retro", "Boho", "Western", "Indie", "Skater", "Rave", "Costume", "Cosplay", "Grunge", "Emo", "Minimalist", "Preppy", "Avant Garde", "Punk", "Glam", "Regency", "Casual", "Utility", "Futuristic", "Cottage", "Fairy", "Kidcore", "Y2K", "Biker", "Gorpcore", "Twee", "Coquette", "Whimsygoth"],
+      "size": ["3XS", "XXS", "XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "6XL", "One size", "Other"],
+      "bodyFit": ["Maternity", "Petite", "Plus size", "Tall"],
+      "material": ["Acrylic", "Canvas", "Cashmere", "Corduroy", "Cotton", "Cotton - Organic", "Cotton - Recycled", "Crochet", "Denim", "Elastane / Lycra / Spandex", "Embellished", "Faux fur", "Faux leather", "Fleece", "Hemp", "Jersey", "Knitted", "Lace", "Leather", "Linen", "Lyocell", "Modal", "Nylon", "Polyester", "Polyester - Recycled", "Rayon", "Rubber", "Silk", "Suede", "Tweed", "Velvet", "Viscose", "Wool"],
+      "occasion": ["Casual", "Festival", "Gifting", "Going out", "Outdoors", "Party", "Relaxation", "School", "Ski", "Special Occasion", "Summer", "Vacation", "Winter", "Work", "Workout"],
+      "shippingMethod": ["Depop Shipping (USPS)", "Other"],
+      "parcelSize": [
+        "Extra extra small",
+        "Extra small",
+        "Small",
+        "Medium",
+        "Large",
+        "Extra large"
+      ],
+      "parcelSizeNotes": {
+        "Extra extra small": "Under 4oz — $1.99",
+        "Extra small": "Under 8oz — $1.99",
+        "Small": "Under 12oz — $1.99",
+        "Medium": "Under 1lb — $1.99",
+        "Large": "Under 2lb — $3.99",
+        "Extra large": "Under 10lb — $5.99"
+      }
+    },
+    "etsy": {
+      "whoMade": ["Another company or person", "A member of my shop", "I did"],
+      "whatIsIt": ["A finished product", "A supply or tool to make things"],
+      "whenMade": [
+        "Made To Order (Not Yet Made)",
+        "2020 - 2026 (Recently)",
+        "2010 - 2019 (Recently)",
+        "2007 - 2009 (Recently)",
+        "Before 2007 (Vintage)",
+        "2000 - 2006 (Vintage)",
+        "1990s (Vintage)",
+        "1980s (Vintage)",
+        "1970s (Vintage)",
+        "1960s (Vintage)",
+        "1950s (Vintage)",
+        "1940s (Vintage)",
+        "1930s (Vintage)",
+        "1920s (Vintage)",
+        "1910s (Vintage)",
+        "1900 - 1909 (Vintage)",
+        "1800s (Vintage)",
+        "1700s (Vintage)",
+        "Before 1700 (Vintage)"
+      ],
+      "listingType": ["Physical Item", "Digital Item"],
+      "renewalOption": ["Automatic", "Manual"],
+      "listingState": ["Draft Listing", "Live Listing", "Inactive"],
+      "shippingProfilesAccountSpecific": ["BUYER PAYS SHIPPING", "FREE SHIPPING"],
+      "processingProfilesAccountSpecific": ["Ready to ship: 1-2 days"],
+      "returnPoliciesAccountSpecific": ["Accept Returns / No Exchanges / 7days"],
+      "clothingStyle": ["----", "Minimalist", "Boho & hippie", "Gothic", "Steampunk", "Athletic", "Military", "Preppy", "Rave", "Rocker", "Streetwear", "Utility"],
+      "sleeveLength": ["----", "Short sleeve", "Half sleeve", "3/4 sleeve", "Long sleeve", "Sleeveless"],
+      "neckline": ["----", "Crew", "Henley", "V-neck"],
+      "graphic": ["----", "Fantasy & Sci Fi", "Food & drink", "Music", "Nautical", "Patriotic & flags", "Religious", "Science & tech", "Sports & fitness", "Travel & transportation", "Plants & trees", "Stars & celestial", "Animal", "Anime & cartoon", "Comics & manga", "Superhero", "Video game", "LGBTQ pride", "Abstract & geometric", "Fitspiration", "Flowers", "Horror & gothic", "Humorous saying", "Inspirational saying", "Literary", "Geography & locale", "Military & historical", "Protest", "Surf & skate", "Politics & elections", "Phrase & saying", "Brand & logo", "Movie", "TV", "Bollywood"],
+      "occasion": ["----", "Anniversary", "Baby shower", "Bachelor party", "Birthday", "Engagement", "Graduation", "Divorce & breakup", "Retirement", "Wedding", "LGBTQ pride"],
+      "holiday": ["----", "Christmas", "Cinco de Mayo", "Easter", "Father's Day", "Halloween", "Hanukkah", "Independence Day", "Kwanzaa", "St Patrick's Day", "Thanksgiving", "Valentine's Day", "Veterans Day", "Diwali", "Holi", "Eid"],
+      "sustainability": ["Hemp", "Linen", "Organic cotton", "Recycled polyester"],
+      "fabricPattern": ["----", "Camouflage", "Check", "Floral", "Geometric", "Plaid", "Polka dot", "Solid", "Striped", "Tie dye", "Ombré"]
+    },
+    "facebook": {
+      "deliveryMethod": ["Shipping only"],
+      "shippingOption": ["Use a prepaid shipping label"]
+    },
+    "shopify": {
+      "note": "Mostly free-text and account-specific (Location, Collections). No condition dropdown on the Shopify form."
+    },
+    "vinted": {
+      "note": "BETA. Visible fields on this draft: Title, Description, Quantity, Category, Price. No condition/color dropdowns. Connection may be required for more fields."
+    },
+    "whatnot": {
+      "hazardousMaterial": ["No Hazardous Materials", "Contains Hazardous Materials", "Contains Lithium Batteries"],
+      "salesFormat": ["Buy It Now", "Anytime Auction"]
+    }
+  }
+}

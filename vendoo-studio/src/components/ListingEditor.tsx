@@ -144,7 +144,7 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
         { key: "condition", label: "Condition" },
         { key: "primaryColor", label: "Primary Color" },
         { key: "size", label: "Size" },
-        { key: "sizeType", label: "Size Type" },
+        { key: "sku", label: "SKU" },
         { key: "category_path", label: "Category" },
       ];
     case "ebay":

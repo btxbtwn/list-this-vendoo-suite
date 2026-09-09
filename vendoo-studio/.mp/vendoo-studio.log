@@ -25,3 +25,27 @@ INFO:     127.0.0.1:51351 - "GET /api/extension/status HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51352 - "GET /api/conversations HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51354 - "GET /api/jobs HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51355 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57683 - "GET /api/extension/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57682 - "GET /api/conversations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57681 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57681 - "GET /api/conversations HTTP/1.1" 200 OK
+INFO:     Started server process [717]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:4318 (Press CTRL+C to quit)
+INFO:     Started server process [1094]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:4318 (Press CTRL+C to quit)
+INFO:     Started server process [655]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:4318 (Press CTRL+C to quit)
+INFO:     Started server process [2453]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:4318 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2453]

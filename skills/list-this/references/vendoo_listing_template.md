@@ -291,7 +291,7 @@ Depop: No title field → use Universal Description only
 - `cost`: Cost of goods
 - `quantity`: Available quantity (default: 1)
 - `brand`: Brand name
-- `condition`: Good, Excellent, Fair, New with Tags, etc.
+- `condition`: Vendoo general form values only. See `references/vendoo-dropdown-options.md` — each marketplace uses a different condition vocabulary.
 - `primaryColor`: Main color (MUST be basic color: Red, Blue, Green, Yellow, Orange, Purple, Pink, Brown, Gray, Black, White, Beige, Navy)
 - `secondaryColor`: Accent color (MUST be basic color: Red, Blue, Green, Yellow, Orange, Purple, Pink, Brown, Gray, Black, White, Beige, Navy)
 - `department`: Men, Women, Unisex, Kids
