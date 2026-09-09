@@ -112,7 +112,7 @@ export function App() {
             {activeView === "settings" ? (
               <SettingsPage />
             ) : selectedConvId ? (
-              <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "auto" }}>
+              <div className="workspace-stack">
                 <PhotoTray convId={selectedConvId} />
                 <ItemDetails convId={selectedConvId} />
                 <div style={{ flex: 1, overflow: "hidden", minHeight: 200 }}>
