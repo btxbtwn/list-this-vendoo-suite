@@ -157,6 +157,16 @@ def get_job_events(job_id: str, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/{job_id}/fill-log")
+def get_job_fill_log(job_id: str, db: Session = Depends(get_db)):
+    repo = JobRepo(db)
+    job = repo.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    from vendoo_studio.services.fill_log import FillLogService
+    return FillLogService(db).report_for_job(job)
+
+
 @router.post("/{job_id}/retry")
 async def retry_job(job_id: str, db: Session = Depends(get_db)):
     repo = JobRepo(db)
@@ -170,6 +180,9 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
     job.current_step = "queued"
     job.attempt_count += 1
     job.last_error = None
+
+    from vendoo_studio.services.fill_log import FillLogService
+    FillLogService(db).clear_job(job_id)
 
     import json as _json
     try:
@@ -191,12 +204,11 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
                 category_override = conv_notes.get("categoryOverride", "").strip()
                 if category_override:
                     job.listing_snapshot["category_path"] = category_override
-
-                _ensure_listing_defaults(job.listing_snapshot)
     except Exception:
         pass
 
     if isinstance(job.listing_snapshot, dict):
+        _ensure_listing_defaults(job.listing_snapshot)
         from vendoo_studio.services.registry import RegistryService
         registry = RegistryService(db)
         category_path = job.listing_snapshot.get("category_path", "")

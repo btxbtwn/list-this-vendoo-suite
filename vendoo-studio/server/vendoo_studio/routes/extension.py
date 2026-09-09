@@ -230,12 +230,16 @@ async def extension_websocket(ws: WebSocket):
                 job_id = message.get("job_id")
                 if job_id:
                     from vendoo_studio.repositories.queries import JobRepo
+                    from vendoo_studio.services.fill_log import FillLogService
                     repo = JobRepo(db)
                     step = payload.get("step", "")
                     vid = payload.get("vendoo_item_id")
                     vurl = payload.get("vendoo_url")
                     repo.update_status(job_id, "dispatched", step, vendoo_item_id=vid, vendoo_url=vurl)
                     repo.add_event(job_id, "step_completed", step, payload)
+                    job = repo.get(job_id)
+                    if job and payload.get("fill_log"):
+                        FillLogService(db).save_step(job, step, payload.get("fill_log"))
                     _set_conversation_status(db, job_id, "listing")
 
             elif msg_type == "job.step_failed":
@@ -243,11 +247,15 @@ async def extension_websocket(ws: WebSocket):
                 job_id = message.get("job_id")
                 if job_id:
                     from vendoo_studio.repositories.queries import JobRepo
+                    from vendoo_studio.services.fill_log import FillLogService
                     repo = JobRepo(db)
                     err = payload.get("error", "Unknown error")
                     step = payload.get("step", "")
                     repo.update_status(job_id, "failed", step, error=err)
                     repo.add_event(job_id, "step_failed", step, payload)
+                    job = repo.get(job_id)
+                    if job and payload.get("fill_log"):
+                        FillLogService(db).save_step(job, step, payload.get("fill_log"))
                     _set_conversation_status(db, job_id, "failed")
 
             elif msg_type == "job.completed":

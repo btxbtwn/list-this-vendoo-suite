@@ -5,7 +5,7 @@
   'use strict';
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.3';
+  const CONTENT_SCRIPT_VERSION = '0.3.4';
   const DEBUG = true;
   let statusBox;
 
@@ -702,6 +702,14 @@
       return Boolean(input?.id) && input.id.startsWith('listings.etsy.categorySpecifics.');
   }
 
+  function isEbayCategorySpecificInput(input) {
+      if (!input) return false;
+      const id = String(input.id || '');
+      const name = String(input.name || '');
+      return id.startsWith('listings.ebay.categorySpecifics.') ||
+          name.startsWith('listings.ebay.categorySpecifics.');
+  }
+
   function isDepopSpecificInput(input) {
       if (!input) return false;
       const id = String(input.id || '');
@@ -751,6 +759,25 @@
           if (!labelText) continue;
           if (!normalizedPatterns.some(pattern => labelText.includes(pattern))) continue;
 
+          const input = findInputNearLabel(labelEl, filterFn);
+          if (input) return input;
+      }
+
+      return null;
+  }
+
+  function findInputByExactLabel(labelText, filterFn = () => true) {
+      const want = normalizeText(labelText).replace(/\s*\*$/, '');
+      if (!want) return null;
+
+      const labels = Array.from(document.querySelectorAll(
+          'label, legend, div[class*="Label"], span[class*="Label"], span[class*="label"], div[class*="label"], h3, h4, p, span[class*="title"], div[class*="title"]'
+      ));
+
+      for (const labelEl of labels) {
+          if (!isVisibleElement(labelEl)) continue;
+          const text = normalizeText(labelEl.innerText || labelEl.textContent || '').replace(/\s*\*$/, '');
+          if (text !== want) continue;
           const input = findInputNearLabel(labelEl, filterFn);
           if (input) return input;
       }
@@ -1345,14 +1372,12 @@
       ];
       await batchFillFields(textFields);
       
-      if (data.condition) {
-          await fillDropdownField(
-              VENDOO_SELECTORS.condition,
-              mapCondition(data.condition, 'vendoo'),
-              'Condition',
-              true
-          );
-      }
+      await fillDropdownField(
+          VENDOO_SELECTORS.condition,
+          data.condition ? mapCondition(data.condition, 'vendoo') : data.condition,
+          'Condition',
+          true
+      );
       
       // Dropdown fields (sequential for stability)
       await fillDropdownField(VENDOO_SELECTORS.brand, data.brand, 'Brand');
@@ -1427,7 +1452,12 @@
       
       await fillTextField(VENDOO_SELECTORS.notes, data.internal_notes, 'Notes');
       log('=== Main form filled ===');
-      return { ok: true };
+      return { ok: true, fill_log: finishFillLog() };
+      } catch (err) {
+          recordFill({ field: 'form', status: 'failed', reason: err.message });
+          error(`Fill Error: ${err.message}`);
+          return { ok: false, error: err.message, fill_log: finishFillLog() };
+      }
   }
 
   // ============================================
@@ -1553,141 +1583,97 @@
               'collarStyle': 'Collar Style', 'rise': 'Rise', 'inseam': 'Inseam',
               'waist': 'Waist'
           };
-          
-          // Label-based patterns for fallback when ID matching fails
-          const fieldLabelPatterns = {
-              'type': ['type', 'item type'],
-              'department': ['department'],
-              'size': ['size'],
-              'sizeType': ['size type', 'size type gender'],
-              'style': ['style'],
-              'brand': ['brand'],
-              'color': ['color', 'primary color'],
-              'material': ['material'],
-              'pattern': ['pattern'],
-              'fit': ['fit'],
-              'sleeveLength': ['sleeve length'],
-              'sleeveType': ['sleeve type'],
-              'neckline': ['neckline'],
-              'closure': ['closure'],
-              'accents': ['accents'],
-              'features': ['features'],
-              'theme': ['theme'],
-              'season': ['season'],
-              'occasion': ['occasion'],
-              'strapType': ['strap type'],
-              'countryOfOrigin': ['country of origin', 'country/region'],
-              'fabricType': ['fabric type', 'fabric'],
-              'vintage': ['vintage'],
-              'handmade': ['handmade'],
-              'personalize': ['personalize', 'customized'],
-              'garmentCare': ['garment care'],
-              'unitQuantity': ['unit quantity'],
-              'unitType': ['unit type'],
-              'mpn': ['mpn', 'manufacturer part number'],
-              'upc': ['upc', 'universal product code'],
-              'character': ['character'],
-              'characterFamily': ['character family'],
-              'performanceActivity': ['performance activity', 'activity'],
-              'yearManufactured': ['year manufactured', 'year'],
-              'collarStyle': ['collar style'],
-              'rise': ['rise'],
-              'inseam': ['inseam'],
-              'waist': ['waist']
-          };
-          
-          // Find category fields
-          let allInputs = Array.from(document.querySelectorAll('input[id^="listings\\.ebay\\.categorySpecifics\\."], select[id^="listings\\.ebay\\.categorySpecifics\\."]'));
-          log(`Found ${allInputs.length} category specific fields`);
-          
-          for (const [key, value] of Object.entries(data.ebay_specifics)) {
-              if (!value) continue;
-              
-              const fieldName = fieldNameMap[key] || key;
-              let foundEl = null;
-              
-              for (const input of allInputs) {
-                  const idLower = input.id.toLowerCase();
-                  const fieldNameLower = fieldName.toLowerCase();
-                  const afterLastDot = input.id.split('.').pop().toLowerCase();
-                  
-                  // Pattern 1: Exact match on afterLastDot (e.g., "color" → "color")
-                  if (afterLastDot === fieldNameLower) {
-                      foundEl = input;
-                      break;
-                  }
-                  
-                  // Pattern 2: categoryId_FieldName with underscore separator
-                  // e.g., "15687_features" matches "Features", "15687_unit quantity" matches "Unit Quantity"
-                  // The afterLastDot is "15687_unit quantity" — check if it ends with "_fieldName"
-                  // Also handle IDs that use underscores instead of spaces (15687_Unit_Quantity)
-                  if (afterLastDot.includes('_') && (
-                      afterLastDot.endsWith('_' + fieldNameLower) ||
-                      afterLastDot.endsWith('_' + fieldNameLower.replace(/\s+/g, '_'))
-                  )) {
-                      foundEl = input;
-                      break;
-                  }
-                  
-                  // Pattern 3: Full ID ends with _fieldName or .fieldName
-                  if (idLower.endsWith('_' + fieldNameLower) || 
-                      idLower.endsWith('.' + fieldNameLower) ||
-                      new RegExp(`[._]${fieldNameLower.replace(/\s+/g, '\\s*')}$`, 'i').test(input.id)) {
-                      foundEl = input;
-                      break;
-                  }
-              }
-              
-              if (foundEl) {
-                  let valuesToFill = Array.isArray(value) ? value : 
-                      (typeof value === 'string' && value.includes(',')) ? 
-                      value.split(',').map(v => v.trim()) : [value];
 
-                  if (key === 'color') {
-                      valuesToFill = valuesToFill.map(item => mapColor(item, 'ebay')).filter(Boolean);
+          function ebaySpecificFieldToken(idOrName) {
+              const afterDot = String(idOrName || '').split('.').pop() || '';
+              return normalizeText(afterDot.replace(/^\d+_/, ''));
+          }
+
+          function collectEbayCategoryInputs() {
+              return Array.from(document.querySelectorAll(
+                  'input[id^="listings.ebay.categorySpecifics."], select[id^="listings.ebay.categorySpecifics."], [id^="listings.ebay.categorySpecifics."][role="combobox"], input[name^="listings.ebay.categorySpecifics."], select[name^="listings.ebay.categorySpecifics."]'
+              )).filter(isVisibleElement);
+          }
+
+          function findEbaySpecificInput(fieldName, inputs) {
+              const want = normalizeText(fieldName);
+              for (const input of inputs) {
+                  const token = ebaySpecificFieldToken(input.id) || ebaySpecificFieldToken(input.name);
+                  if (token === want) return input;
+              }
+              return findInputByExactLabel(fieldName, isEbayCategorySpecificInput);
+          }
+
+          let allInputs = collectEbayCategoryInputs();
+          if (allInputs.length === 0) {
+              for (let attempt = 0; attempt < 6 && allInputs.length === 0; attempt++) {
+                  await sleep(CONFIG.SLEEP_RETRY);
+                  allInputs = collectEbayCategoryInputs();
+              }
+          }
+          log(`Found ${allInputs.length} category specific fields`);
+
+          const specs = data.ebay_specifics;
+          const fillOrder = [
+              'sizeType', 'type', 'department', 'size',
+              ...Object.keys(specs).filter(key => !['sizeType', 'type', 'department', 'size'].includes(key)),
+          ];
+
+          for (const key of fillOrder) {
+              const value = specs[key];
+              if (!value) continue;
+
+              const fieldName = fieldNameMap[key] || key;
+              allInputs = collectEbayCategoryInputs();
+              const foundEl = findEbaySpecificInput(fieldName, allInputs);
+
+              if (!foundEl) {
+                  warn(`Could not find field for ${key}`);
+                  recordFill({
+                    field: fieldName,
+                    status: 'not_found',
+                    reason: 'Category specific field not found',
+                    value,
+                  });
+                  continue;
+              }
+
+              let valuesToFill = Array.isArray(value) ? value :
+                  (typeof value === 'string' && value.includes(',')) ?
+                  value.split(',').map(v => v.trim()) : [value];
+
+              if (key === 'color') {
+                  valuesToFill = valuesToFill.map(item => mapColor(item, 'ebay')).filter(Boolean);
+              }
+              if (key === 'type') {
+                  valuesToFill = uniqueStrings([
+                      ...valuesToFill,
+                      ...(/t[\s-]?shirt/i.test(String(value)) ? ['T-Shirt', 'T Shirt', 'Tee'] : []),
+                  ]);
+              }
+
+              const isSizeField = key.toLowerCase() === 'size';
+              log(`  Filling eBay ${fieldName}: ${valuesToFill.join(', ')}`);
+
+              if (valuesToFill.length > 1 && key !== 'type') {
+                  for (const item of valuesToFill) {
+                      await fillDropdownField(foundEl, item, fieldName, isSizeField, true);
+                      await sleep(CONFIG.SLEEP_MEDIUM);
                   }
-                  
-                  // Use strict matching for size fields to avoid "S" matching "3XS"
-                  const isSizeField = key.toLowerCase().includes('size');
-                  const shouldBeStrict = isSizeField;
-                  
-                  if (valuesToFill.length > 1) {
-                      for (const item of valuesToFill) {
-                          await fillDropdownField(foundEl, item, key, shouldBeStrict, true);
-                          await sleep(CONFIG.SLEEP_MEDIUM);
+              } else if (key === 'type') {
+                  let filled = false;
+                  for (const item of valuesToFill) {
+                      await fillDropdownField(foundEl, item, fieldName, false, false);
+                      if (fieldLooksFilled(foundEl)) {
+                          filled = true;
+                          break;
                       }
-                  } else {
-                      await fillDropdownField(foundEl, valuesToFill[0], key, shouldBeStrict, false);
+                  }
+                  if (!filled) {
+                      warn(`eBay Type could not be set from ${valuesToFill.join(', ')}`);
                   }
               } else {
-                  // Fallback: try label-based matching for eBay category specifics
-                  const patterns = fieldLabelPatterns[key] || [normalizeText(fieldName)];
-                  const ebayCategoryInputs = allInputs.filter(i => 
-                      i.id && i.id.includes('categorySpecifics')
-                  );
-                  const labelEl = findInputByLabelPatterns(patterns) || 
-                      findInputByContext(ebayCategoryInputs, patterns);
-                  
-                  if (labelEl) {
-                      let valuesToFill = Array.isArray(value) ? value : 
-                          (typeof value === 'string' && value.includes(',')) ? 
-                          value.split(',').map(v => v.trim()) : [value];
-                      
-                      const isSizeField = key.toLowerCase().includes('size');
-                      const shouldBeStrict = isSizeField;
-                      
-                      log(`  Found ${key} via label fallback`);
-                      if (valuesToFill.length > 1) {
-                          for (const item of valuesToFill) {
-                              await fillDropdownField(labelEl, item, key, shouldBeStrict, true);
-                              await sleep(CONFIG.SLEEP_MEDIUM);
-                          }
-                      } else {
-                          await fillDropdownField(labelEl, valuesToFill[0], key, shouldBeStrict, false);
-                      }
-                  } else {
-                      warn(`Could not find field for ${key}`);
-                  }
+                  await fillDropdownField(foundEl, valuesToFill[0], fieldName, isSizeField, false);
               }
           }
       }
@@ -1744,11 +1730,17 @@
               if (tagsEl && specs.tags) {
                   const tags = Array.isArray(specs.tags) ? specs.tags : specs.tags.split(',').map(t => t.trim());
                   for (const tag of tags) await fillCombobox(tagsEl, tag, false, true);
+                  recordFill({ field: 'Tags', status: 'filled', value: tags });
+              } else if (specs.tags) {
+                  recordFill({ field: 'Tags', status: 'not_found', reason: 'Etsy tags field not found', value: specs.tags });
               }
               
               if (materialsEl && specs.materials) {
                   const materials = Array.isArray(specs.materials) ? specs.materials : specs.materials.split(',').map(m => m.trim());
                   for (const material of materials) await fillCombobox(materialsEl, material, false, true);
+                  recordFill({ field: 'Materials', status: 'filled', value: materials });
+              } else if (specs.materials) {
+                  recordFill({ field: 'Materials', status: 'not_found', reason: 'Etsy materials field not found', value: specs.materials });
               }
           }
           
@@ -1835,6 +1827,7 @@
                   for (const material of materials) {
                       await fillCombobox(materialsCatEl, material, false, true);
                   }
+                  recordFill({ field: 'Materials', status: 'filled', value: materials });
               }
           }
       }
@@ -1908,9 +1901,22 @@
               await fillDropdownField(shippingEl, shippingLabel, 'Shipping Label', false);
           } else {
               log('Mercari shipping already USPS Ground Advantage');
+              recordFill({
+                field: 'Shipping Label',
+                status: 'filled',
+                reason: 'Already set',
+                selector: selectorFor(shippingEl, ''),
+                value: shippingLabel,
+              });
           }
       } else {
           warn('Mercari shipping label field not found');
+          recordFill({
+            field: 'Shipping Label',
+            status: 'not_found',
+            reason: 'Shipping label field not found',
+            value: shippingLabel,
+          });
       }
       
   }
@@ -1921,6 +1927,7 @@
       ]);
       if (!el) {
           warn('Depop Brand: Element not found');
+          recordFill({ field: 'Depop Brand', status: 'not_found', reason: 'Element not found' });
           return;
       }
       if (fieldLooksFilled(el)) {
@@ -2011,8 +2018,10 @@
               if (styleEl) {
                   log(`Filling ${styles.length} style tags...`);
                   for (const style of styles) await fillCombobox(styleEl, style, false, true);
+                  recordFill({ field: 'Style', status: 'filled', value: styles });
               } else {
                   warn('Style field not found for Depop');
+                  recordFill({ field: 'Style', status: 'not_found', reason: 'Style field not found', value: styles });
               }
           }
           
@@ -2034,8 +2043,10 @@
               if (occasionEl) {
                   log(`Filling ${occasions.length} occasion tags...`);
                   for (const occasion of occasions) await fillCombobox(occasionEl, occasion, false, true);
+                  recordFill({ field: 'Occasion', status: 'filled', value: occasions });
               } else {
                   warn('Occasion field not found for Depop');
+                  recordFill({ field: 'Occasion', status: 'not_found', reason: 'Occasion field not found', value: occasions });
               }
           }
 
@@ -2054,6 +2065,7 @@
                   await fillDropdownField(sizeGroupingEl, specs.size_grouping, 'Size Grouping');
               } else {
                   warn('Size Grouping field not found for Depop');
+                  recordFill({ field: 'Size Grouping', status: 'not_found', reason: 'Size Grouping field not found', value: specs.size_grouping });
               }
           }
 
@@ -2090,8 +2102,10 @@
                   for (const material of materials) {
                       await fillCombobox(materialEl, material, false, materials.length > 1);
                   }
+                  recordFill({ field: 'Material', status: 'filled', value: materials });
               } else {
                   warn('Material field not found for Depop');
+                  recordFill({ field: 'Material', status: 'not_found', reason: 'Material field not found', value: materials });
               }
           }
       }
@@ -2282,8 +2296,10 @@
   }
 
   async function fillMarketplaceForm(data, platform) {
+      beginFillLog(String(platform || 'unknown').toLowerCase());
       log(`Filling ${platform} marketplace...`);
 
+      try {
       await activateMarketplaceSection(platform);
 
       switch (platform.toLowerCase()) {
@@ -2304,9 +2320,15 @@
               break;
           default:
               warn(`Unknown marketplace: ${platform}`);
+              recordFill({ field: 'marketplace', status: 'failed', reason: `Unknown marketplace: ${platform}` });
       }
 
-      return { ok: true };
+      return { ok: true, fill_log: finishFillLog() };
+      } catch (err) {
+          recordFill({ field: 'form', status: 'failed', reason: err.message });
+          error(`Fill Error: ${err.message}`);
+          return { ok: false, error: err.message, fill_log: finishFillLog() };
+      }
   }
 
   async function activateMarketplaceSection(platform) {
@@ -2439,7 +2461,7 @@
           if (msg.type === 'FILL_MARKETPLACE') {
               currentRegistrySelectors = msg.registry_selectors || {};
               fillMarketplaceForm(msg.data, msg.platform)
-                  .then(() => sendResponse({ ok: true }))
+                  .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
               return true;
           }

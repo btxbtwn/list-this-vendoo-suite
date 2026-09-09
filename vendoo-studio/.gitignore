@@ -9,4 +9,6 @@ data/vendoo_studio.db-wal
 data/pairing_token.txt
 data/photos/*
 !data/photos/.gitkeep
+data/fill-logs/*
+!data/fill-logs/.gitkeep
 .vite/
