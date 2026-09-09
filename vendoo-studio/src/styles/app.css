@@ -69,7 +69,7 @@
   --space-6: 24px;
   --space-8: 32px;
   --sidebar-width: 244px;
-  --column-footer-height: 88px;
+  --column-footer-height: 112px;
 }
 
 @font-face {
@@ -362,6 +362,7 @@ textarea.input {
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
+  flex-shrink: 0;
   min-height: var(--column-footer-height);
   padding: 8px 8px;
   border-top: 1px solid var(--color-ink-border);
@@ -509,6 +510,30 @@ textarea.input {
 
 .sidebar-settings-btn.update-available:hover {
   color: var(--color-success);
+}
+
+.sidebar-update-btn {
+  width: 100%;
+  justify-content: center;
+  background: var(--color-ink-raised);
+  color: #E1E3E9;
+  border: 1px solid var(--color-ink-border);
+}
+
+.sidebar-update-btn:hover:not(:disabled) {
+  background: var(--color-ink-hover);
+  color: #fff;
+}
+
+.sidebar-update-btn.update-available {
+  background: var(--color-success);
+  color: var(--color-accent-ink);
+  border-color: transparent;
+}
+
+.sidebar-update-btn.update-available:hover:not(:disabled) {
+  background: var(--color-vendoo);
+  color: var(--color-accent-ink);
 }
 
 /* ── Empty State ── */
@@ -707,6 +732,7 @@ details[open] .json-collapse-summary::before {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+  align-items: start;
 }
 
 .item-row + .item-row {
@@ -745,6 +771,42 @@ details[open] .json-collapse-summary::before {
 
 .item-field .input:focus {
   box-shadow: none;
+}
+
+.item-details:focus-within {
+  z-index: 4;
+}
+
+.label-history {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--color-border-bright);
+  border-radius: var(--radius-sm);
+  background: #141416;
+}
+
+.label-history-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.label-history-item:hover,
+.label-history-item.active {
+  background: var(--color-cobalt-tint);
+  color: var(--color-text);
 }
 
 .item-saving {
