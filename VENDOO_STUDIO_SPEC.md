@@ -173,12 +173,12 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Purpose-built professional workspace.
 - Dense enough for daily operational use.
 - T3 Code-inspired information hierarchy, not a visual clone.
-- Linear-inspired dark shell using a `#090909` sidebar, `#0f0f11` workspace, and `#1c1e21` borders.
+- T3 Code stock dark shell from `pingdotgg/t3code` `themePalette.ts`: `#000000` sidebar, `#0a0a0a` workspace, `#111111` surfaces, `#191919` borders, and `#346bf1` accent.
 - The main workspace is inset by 8px inside a 12px rounded frame; navigation remains 244px wide.
 - Sidebar, workspace, and inspector share the same 8px inset and aligned top/bottom frame.
 - Settings, chat composer, and automation status use a shared 88px footer row across all three columns.
-- Muted indigo marks primary actions, selection, and focus; marketplace colors remain sparing.
-- Inter Variable handles navigation, controls, and content while IBM Plex Mono handles measurements, JSON, and technical status.
+- T3 Code blue marks primary actions, selection, and focus; marketplace colors remain sparing.
+- System UI sans handles navigation, controls, and content while the T3 Code mono stack handles measurements, JSON, and technical status.
 - Avoid generic dashboard cards and excessive rounded containers.
 - Persistent status bar for extension and validation state.
 - Fully usable desktop and mobile layouts.
