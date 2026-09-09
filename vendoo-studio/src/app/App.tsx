@@ -47,17 +47,6 @@ export function App() {
   return (
     <div className="app-shell">
       <div className={`app-content mobile-pane-${mobilePane}`}>
-        <nav className="mobile-nav" aria-label="Dashboard views">
-          <button className={mobilePane === "listings" ? "selected" : ""} onClick={() => setMobilePane("listings")}>Listings</button>
-          <button className={mobilePane === "workspace" ? "selected" : ""} onClick={() => setMobilePane("workspace")}>Workspace</button>
-          <button
-            className={mobilePane === "editor" ? "selected" : ""}
-            onClick={() => setMobilePane("editor")}
-            disabled={activeView !== "listings" || !selectedConvId}
-          >
-            Editor
-          </button>
-        </nav>
         <aside className="panel sidebar">
           <div className="sidebar-masthead">
             <div className="sidebar-brand">Vendoo Studio</div>
@@ -160,6 +149,17 @@ export function App() {
         </div>
         <div>V 0.1.0</div>
       </footer>
+      <nav className="mobile-nav" aria-label="Dashboard views">
+        <button className={mobilePane === "listings" ? "selected" : ""} onClick={() => setMobilePane("listings")}>Listings</button>
+        <button className={mobilePane === "workspace" ? "selected" : ""} onClick={() => setMobilePane("workspace")}>Workspace</button>
+        <button
+          className={mobilePane === "editor" ? "selected" : ""}
+          onClick={() => setMobilePane("editor")}
+          disabled={activeView !== "listings" || !selectedConvId}
+        >
+          Editor
+        </button>
+      </nav>
     </div>
   );
 }
