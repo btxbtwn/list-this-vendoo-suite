@@ -4,6 +4,11 @@
 (function() {
   'use strict';
 
+  if (window.__vendooStudioBridge) {
+    return;
+  }
+  window.__vendooStudioBridge = true;
+
   const PLATFORM = 'VENDOO';
   const CONTENT_SCRIPT_VERSION = '0.3.4';
   const DEBUG = true;
