@@ -143,6 +143,7 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
         { key: "brand", label: "Brand" },
         { key: "condition", label: "Condition" },
         { key: "primaryColor", label: "Primary Color" },
+        { key: "secondaryColor", label: "Secondary Color" },
         { key: "size", label: "Size" },
         { key: "sku", label: "SKU" },
         { key: "category_path", label: "Category" },

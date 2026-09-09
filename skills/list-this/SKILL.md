@@ -332,7 +332,7 @@ Before outputting ANY listing, verify:
 - [ ] **Pricing:** Listing = comp×1.35, Auto-accept = -$2, Minimum = -$4
 - [ ] **Uncertainties documented:** Pricing sources and any uncertainties noted in description
 - [ ] **Local save completed:** If a local path was provided, `listing.json` was written for standard listings or `listing.md` was written for Etsy digital download listings and verified
-- [ ] **Main fields populated:** title, description, price, brand, condition, size, color, quantity, weight_lb, weight_oz, package_dimensions_in
+- [ ] **Main fields populated:** title, description, price, brand, condition, size, primaryColor, secondaryColor (if visible), sku, quantity, weight_lb, weight_oz, package_dimensions_in
 - [ ] **Vendoo category is terminal:** use Vendoo General taxonomy (`Women > Women's Clothing > Tops` for women's shirts/T-shirts; `Men > Men's Clothing > Shirts > T-Shirts` for men's T-shirts), not marketplace-only aliases such as `Shirts & Blouses`
 - [ ] **eBay specifics populated (ALL required):** type, department, sizeType, size, brand, fit, material, pattern, style, accents, features, neckline, closure, countryOfOrigin, fabricType, garmentCare, handmade, personalize, vintage, occasion, season, theme, unitQuantity, unitType
 - [ ] **eBay specifics key names match extension fieldNameMap:** JSON keys like `features`, `neckline`, `season`, `unitQuantity`, `unitType` must use exactly these names (not aliases like `feature` or `qty`) so the Vendoo extension can find and fill the corresponding form fields
@@ -354,6 +354,7 @@ Before outputting ANY listing, verify:
 
 **Etsy (Required for listing):**
 - who_made, what_is, when_made are MANDATORY
+- primaryColor and sku must be present; secondaryColor when a second color is visible
 - Up to 13 tags, up to 10 materials
 - Vintage items (20+ years) need "When Made" set
 
@@ -365,8 +366,14 @@ Before outputting ANY listing, verify:
 **Depop:**
 - NO title field (uses description)
 - Exactly 3 Style tags required
-- Source and Age help with search
+- Source and Age are required
+- Brand must be a Depop list brand (not a free-text Vendoo brand)
+- Maximum 5 tags
 - Parcel size affects shipping cost
+
+**Mercari:**
+- Condition is required and uses Mercari labels (see `vendoo-dropdown-options.md`)
+- shippingLabel must be `USPS Ground Advantage`
 
 ## Examples
 
