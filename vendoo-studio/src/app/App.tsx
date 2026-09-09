@@ -156,13 +156,6 @@ export function App() {
         </div>
       </div>
 
-      <footer className="status-bar">
-        <div className="status-left">
-          <ExtensionStatus />
-          <span>{status?.provider_configured ? "MIMO CONFIGURED" : "MIMO NOT CONFIGURED"}</span>
-        </div>
-        <div>V 0.1.0</div>
-      </footer>
       <nav className="mobile-nav" aria-label="Dashboard views">
         <button className={mobilePane === "listings" ? "selected" : ""} onClick={() => setMobilePane("listings")}>Listings</button>
         <button className={mobilePane === "workspace" ? "selected" : ""} onClick={() => setMobilePane("workspace")}>Workspace</button>
@@ -181,6 +174,13 @@ export function App() {
           Browser
         </button>
       </nav>
+      <footer className="status-bar">
+        <div className="status-left">
+          <ExtensionStatus />
+          <span>{status?.provider_configured ? "MIMO CONFIGURED" : "MIMO NOT CONFIGURED"}</span>
+        </div>
+        <div>V 0.1.0</div>
+      </footer>
     </div>
   );
 }
