@@ -7,6 +7,7 @@ from vendoo_studio.models.listing import Listing, ListingRevision
 from vendoo_studio.models.job import Job, JobEvent
 from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
 from vendoo_studio.models.registry import FieldRegistry
+from vendoo_studio.models.fill_log import FillLogEntry
 
 
 class ConversationRepo:
@@ -409,19 +410,62 @@ class RegistryRepo:
 
     def record_fill_result(self, marketplace: str, field_label: str, selector: str, success: bool, category_path: str | None = None):
         label = _normalize_label(field_label)
+        if not label or not selector:
+            return
         entry = self.get_by_identity(marketplace, category_path, label)
-        if not entry or not entry.known_selectors:
+        if not entry:
+            self.create(
+                marketplace=marketplace,
+                category_path=category_path,
+                normalized_label=label,
+                known_selectors=[{
+                    "selector": selector,
+                    "success_count": 1 if success else 0,
+                    "failure_count": 0 if success else 1,
+                }],
+            )
+            self.db.commit()
             return
         selectors = list(entry.known_selectors or [])
+        found = False
         for s in selectors:
             if s.get("selector") == selector:
                 if success:
                     s["success_count"] = (s.get("success_count") or 0) + 1
                 else:
                     s["failure_count"] = (s.get("failure_count") or 0) + 1
+                found = True
                 break
+        if not found:
+            selectors.append({
+                "selector": selector,
+                "success_count": 1 if success else 0,
+                "failure_count": 0 if success else 1,
+            })
         entry.known_selectors = selectors
         self.db.commit()
+
+    def ensure_field(self, marketplace: str, field_label: str, selector: str = "", category_path: str | None = None):
+        label = _normalize_label(field_label)
+        if not label:
+            return
+        entry = self.get_by_identity(marketplace, category_path, label)
+        if not entry:
+            selectors = [{"selector": selector, "success_count": 0, "failure_count": 0}] if selector else []
+            self.create(
+                marketplace=marketplace,
+                category_path=category_path,
+                normalized_label=label,
+                known_selectors=selectors,
+            )
+            self.db.commit()
+            return
+        if selector:
+            selectors = list(entry.known_selectors or [])
+            if not any(s.get("selector") == selector for s in selectors):
+                selectors.append({"selector": selector, "success_count": 0, "failure_count": 0})
+                entry.known_selectors = selectors
+                self.db.commit()
 
     def get_registry_context(self, marketplace: str, category_path: str | None = None) -> str:
         query = self.db.query(FieldRegistry).filter(
@@ -443,3 +487,60 @@ class RegistryRepo:
             opts = ", ".join(e.known_options[:30]) if e.known_options else ""
             lines.append(f"- {e.normalized_label}{cat}: {opts}" if opts else f"- {e.normalized_label}{cat}")
         return "\n".join(lines)
+
+
+class FillLogRepo:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def replace_step(
+        self,
+        job_id: str,
+        conversation_id: str,
+        step: str,
+        marketplace: str,
+        entries: list[dict],
+    ) -> list[FillLogEntry]:
+        self.db.query(FillLogEntry).filter(
+            FillLogEntry.job_id == job_id,
+            FillLogEntry.step == step,
+        ).delete(synchronize_session=False)
+        saved = []
+        for item in entries:
+            entry = FillLogEntry(
+                job_id=job_id,
+                conversation_id=conversation_id,
+                step=step,
+                marketplace=item.get("marketplace") or marketplace,
+                field=item["field"],
+                status=item["status"],
+                reason=item.get("reason") or "",
+                selector=item.get("selector") or "",
+                value_preview=item.get("value_preview") or "",
+            )
+            self.db.add(entry)
+            saved.append(entry)
+        self.db.commit()
+        for entry in saved:
+            self.db.refresh(entry)
+        return saved
+
+    def list_for_job(self, job_id: str) -> list[FillLogEntry]:
+        return self.db.query(FillLogEntry).filter(
+            FillLogEntry.job_id == job_id
+        ).order_by(FillLogEntry.created_at, FillLogEntry.field).all()
+
+    def list_for_conversation(self, conversation_id: str) -> list[FillLogEntry]:
+        return self.db.query(FillLogEntry).filter(
+            FillLogEntry.conversation_id == conversation_id
+        ).order_by(FillLogEntry.created_at.desc()).all()
+
+    def delete_for_job(self, job_id: str) -> None:
+        self.db.query(FillLogEntry).filter(FillLogEntry.job_id == job_id).delete(synchronize_session=False)
+        self.db.commit()
+
+    def delete_for_jobs(self, job_ids: list[str]) -> None:
+        if not job_ids:
+            return
+        self.db.query(FillLogEntry).filter(FillLogEntry.job_id.in_(job_ids)).delete(synchronize_session=False)
+

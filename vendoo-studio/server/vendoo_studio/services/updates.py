@@ -55,7 +55,7 @@ def dirty_files(root: Path) -> list[str]:
         return []
     names: list[str] = []
     for line in out.splitlines():
-        if not line.strip():
+        if not line.strip() or line.startswith("??"):
             continue
         path = line[2:].strip()
         if path.startswith('"') and path.endswith('"'):
@@ -132,10 +132,6 @@ def apply_update() -> dict:
         behind = int(_run(["git", "rev-list", "--count", f"HEAD..{remote_ref}"], root) or "0")
         if behind == 0:
             return {"ok": True, "updated": False, "sha": rev_parse(root, "HEAD")}
-
-        branch = current_branch(root)
-        if branch != REF:
-            _run(["git", "checkout", REF], root)
 
         _run(["git", "merge", "--ff-only", remote_ref], root)
         sha = rev_parse(root, "HEAD")

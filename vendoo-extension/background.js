@@ -413,6 +413,7 @@ async function runJob(jobId) {
             step: step.step,
             error: result.error || 'Step failed',
             fields: result.fields || {},
+            fill_log: result.fill_log || null,
           },
         });
         break;
@@ -428,6 +429,7 @@ async function runJob(jobId) {
           step: step.step,
           vendoo_item_id: result.vendoo_item_id,
           vendoo_url: result.vendoo_url,
+          fill_log: result.fill_log || null,
         },
       });
 
@@ -549,7 +551,7 @@ async function waitForContentScript(job) {
   const tabId = job.tabId || (activeJob && activeJob.tabId);
   if (!tabId) return { ok: false, error: 'No job tab stored' };
 
-  const EXPECTED_VERSION = '0.3.2';
+  const EXPECTED_VERSION = '0.3.3';
 
   for (let i = 0; i < 20; i++) {
     try {

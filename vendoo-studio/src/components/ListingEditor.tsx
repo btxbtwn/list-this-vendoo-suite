@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { FillLogPanel, FillLogSummary } from "./FillLogPanel";
 
 interface Props {
   convId: string;
@@ -22,6 +23,13 @@ export function ListingEditor({ convId }: Props) {
     queryFn: () => api.listings.get(convId),
   });
 
+  const { data: jobs } = useQuery({
+    queryKey: ["jobs"],
+    queryFn: api.jobs.list,
+    refetchInterval: 2000,
+  });
+  const listingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
+
   const updateMutation = useMutation({
     mutationFn: (listing: any) => api.listings.update(convId, listing),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["listing", convId] }),
@@ -31,7 +39,7 @@ export function ListingEditor({ convId }: Props) {
     if (data?.listing) setJsonText(JSON.stringify(data.listing, null, 2));
   }, [data?.listing]);
 
-  const tabs = ["general", "ebay", "poshmark", "mercari", "depop", "etsy", "json"];
+  const tabs = ["general", "ebay", "poshmark", "mercari", "depop", "etsy", "json", "log"];
 
   const applyJsonEdit = () => {
     try {
@@ -54,13 +62,19 @@ export function ListingEditor({ convId }: Props) {
       <div className="tab-group">
         {tabs.map((tab) => (
           <button key={tab} className={`tab-btn${activeTab === tab ? " active" : ""}`} onClick={() => setActiveTab(tab)}>
-            {tab === "json" ? "JSON" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === "json" ? "JSON" : tab === "log" ? "Fill log" : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
 
       <div className="editor-body">
-        {activeTab === "json" ? (
+        {activeTab === "log" ? (
+          listingJob ? (
+            <FillLogPanel jobId={listingJob.id} />
+          ) : (
+            <p className="text-xs text-muted">No fill log yet. Send this listing to Vendoo to record what gets filled, skipped, or newly seen.</p>
+          )
+        ) : activeTab === "json" ? (
           <div>
             <textarea
               className="input"
@@ -213,13 +227,15 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
   const { data: jobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: api.jobs.list,
+    refetchInterval: 2000,
   });
 
   const sendMutation = useMutation({
     mutationFn: () => api.jobs.create(convId),
-    onSuccess: (data) => {
+    onSuccess: () => {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
     },
     onError: (err: any) => setError(err.message || "Failed to send"),
   });
@@ -229,6 +245,7 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
     onSuccess: () => {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
     },
     onError: (err: any) => setError(err.message || "Failed to retry"),
   });
@@ -250,6 +267,7 @@ function SendToVendooButton({ convId, canSend }: { convId: string; canSend: bool
             {existingJob.status}: {existingJob.current_step || "queued"}
             {existingJob.last_error && <div className="mt-4 text-xs text-error">{existingJob.last_error}</div>}
           </div>
+          <FillLogSummary jobId={existingJob.id} />
         </div>
         {canRestart && (
           <button className="btn btn-primary btn-sm job-card-action" disabled={retryMutation.isPending} onClick={() => { setError(null); retryMutation.mutate(existingJob.id); }}>

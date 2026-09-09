@@ -76,6 +76,7 @@ export const api = {
     list: () => request<any[]>("/jobs"),
     get: (id: string) => request<any>(`/jobs/${id}`),
     events: (id: string) => request<any[]>(`/jobs/${id}/events`),
+    fillLog: (id: string) => request<any>(`/jobs/${id}/fill-log`),
     retry: (id: string) => request<any>(`/jobs/${id}/retry`, { method: "POST" }),
     cancel: (id: string) => request<any>(`/jobs/${id}/cancel`, { method: "POST" }),
   },

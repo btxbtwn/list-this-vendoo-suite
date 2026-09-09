@@ -149,6 +149,7 @@ def delete_conversation(conv_id: str, db: Session = Depends(get_db)):
     from vendoo_studio.repositories.queries import JobRepo
     from vendoo_studio.models.job import Job, JobEvent
     from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
+    from vendoo_studio.models.fill_log import FillLogEntry
 
     active_jobs = db.query(Job).filter(
         Job.conversation_id == conv_id,
@@ -172,6 +173,7 @@ def delete_conversation(conv_id: str, db: Session = Depends(get_db)):
             )
         ).delete(synchronize_session=False)
         db.query(DiagnosticRun).filter(DiagnosticRun.job_id.in_(job_ids)).delete(synchronize_session=False)
+        db.query(FillLogEntry).filter(FillLogEntry.job_id.in_(job_ids)).delete(synchronize_session=False)
         db.query(JobEvent).filter(JobEvent.job_id.in_(job_ids)).delete(synchronize_session=False)
         db.query(Job).filter(Job.conversation_id == conv_id).delete(synchronize_session=False)
     deleted_jobs = len(job_ids)
