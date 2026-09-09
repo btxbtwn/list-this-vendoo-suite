@@ -109,5 +109,16 @@ class FillLogServiceTest(unittest.TestCase):
         self.assertFalse(Path(self.tmp.name).joinpath(f"{self.job.id}.md").exists())
 
 
+class FillLogRouteTest(unittest.TestCase):
+    def test_fill_log_route_returns_job_not_found(self):
+        from fastapi.testclient import TestClient
+        from vendoo_studio.main import app
+
+        client = TestClient(app)
+        response = client.get("/api/jobs/missing/fill-log")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Job not found")
+
+
 if __name__ == "__main__":
     unittest.main()
