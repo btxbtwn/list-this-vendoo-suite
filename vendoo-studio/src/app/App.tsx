@@ -18,6 +18,7 @@ export function App() {
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
   const [mobilePane, setMobilePane] = useState<"listings" | "workspace" | "editor" | "browser">("listings");
+  const [listingQuery, setListingQuery] = useState("");
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -32,6 +33,13 @@ export function App() {
   });
   const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
+  const listingNeedle = listingQuery.trim().toLowerCase();
+  const visibleConversations = conversations?.filter((c: any) => {
+    if (!listingNeedle) return true;
+    const title = String(c.title || "Untitled").toLowerCase();
+    const status = String(c.status || "draft").replace(/_/g, " ").toLowerCase();
+    return title.includes(listingNeedle) || status.includes(listingNeedle);
+  });
 
   useEffect(() => {
     if (wasPreviewOpen.current && !previewOpen && mobilePane === "browser") {
@@ -66,19 +74,41 @@ export function App() {
     <div className="app-shell">
       <div className={`app-content mobile-pane-${mobilePane}`}>
         <aside className="panel sidebar">
-          <div className="sidebar-masthead">
-            <div className="sidebar-brand">Vendoo Studio</div>
-            <div className="sidebar-subtitle">Listing Workbench</div>
+          <div className="sidebar-header">
+            <div className="sidebar-brand">
+              <span className="sidebar-wordmark">Vendoo</span>
+              <span className="sidebar-product">Studio</span>
+            </div>
           </div>
 
-          <div className="sidebar-actions">
-            <button className="btn btn-primary btn-sm" style={{ width: "100%" }} onClick={() => createConv.mutate()}>
-              + New Listing
+          <div className="sidebar-toolbar">
+            <label className="sidebar-search">
+              <svg className="sidebar-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              <input
+                type="search"
+                value={listingQuery}
+                onChange={(e) => setListingQuery(e.target.value)}
+                placeholder="Search listings"
+                aria-label="Search listings"
+              />
+            </label>
+            <button
+              className="sidebar-icon-btn"
+              title="New listing"
+              aria-label="New listing"
+              onClick={() => createConv.mutate()}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
             </button>
           </div>
 
           <div className="sidebar-list">
-            {conversations?.map((c: any) => {
+            {visibleConversations?.map((c: any) => {
               const isSelected = selectedConvId === c.id && activeView === "listings";
               const status = String(c.status || "draft");
               const statusClass = status.replace(/_/g, "-");
@@ -97,31 +127,40 @@ export function App() {
                   <button
                     className="nav-delete"
                     title="Delete"
+                    aria-label={`Delete ${c.title || "Untitled"}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (confirm(`Delete "${c.title || "Untitled"}"?`)) deleteConv.mutate(c.id);
                     }}
                   >
-                    {"\u2715"}
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
                   </button>
                 </div>
               );
             })}
             {(!conversations || conversations.length === 0) && (
-              <div style={{ padding: "16px 10px", textAlign: "center" }}>
-                <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>No listings yet</p>
-              </div>
+              <div className="sidebar-empty">No listings yet</div>
+            )}
+            {conversations && conversations.length > 0 && visibleConversations?.length === 0 && (
+              <div className="sidebar-empty">No matching listings</div>
             )}
           </div>
 
           <div className="sidebar-footer">
-            <UpdateButton />
             <button
-              className={`sidebar-settings-btn${activeView === "settings" ? " selected" : ""}`}
+              className={`sidebar-icon-btn${activeView === "settings" ? " selected" : ""}`}
+              title="Settings"
+              aria-label="Settings"
               onClick={() => { setActiveView("settings"); setMobilePane("workspace"); }}
             >
-              Settings
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M8 2.4v1.5M8 12.1v1.5M2.4 8h1.5M12.1 8h1.5M4 4l1.1 1.1M10.9 10.9l1.1 1.1M12 4l-1.1 1.1M5.1 10.9L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
             </button>
+            <UpdateButton />
           </div>
         </aside>
 
