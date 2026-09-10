@@ -50,7 +50,7 @@ export function BrowserPreview({ jobId, step, status }: Props) {
   const label = step || frame?.step || status || "idle";
 
   return (
-    <section className="browser-preview" aria-label="Live listing browser">
+    <section className="browser-preview is-open" aria-label="Live listing browser">
       <div className="browser-preview-bar">
         <span className="browser-preview-title">Browser</span>
         <span className="browser-preview-url" title={url}>

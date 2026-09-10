@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ExtensionStatus } from "../components/ExtensionStatus";
@@ -11,11 +11,14 @@ import { ItemDetails } from "../components/ItemDetails";
 import { UpdateButton } from "../components/UpdateButton";
 import { BrowserPreview } from "../components/BrowserPreview";
 
+const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
+
 export function App() {
   const queryClient = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
   const [mobilePane, setMobilePane] = useState<"listings" | "workspace" | "editor" | "browser">("listings");
+  const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
     queryKey: ["conversations"],
@@ -28,6 +31,14 @@ export function App() {
     refetchInterval: 2000,
   });
   const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
+  const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
+
+  useEffect(() => {
+    if (wasPreviewOpen.current && !previewOpen && mobilePane === "browser") {
+      setMobilePane("workspace");
+    }
+    wasPreviewOpen.current = previewOpen;
+  }, [previewOpen, mobilePane]);
 
   const createConv = useMutation({
     mutationFn: () => api.conversations.create({ title: "New Listing" }),
@@ -123,15 +134,17 @@ export function App() {
                 <div className="listing-workspace-main">
                   <PhotoTray convId={selectedConvId} />
                   <ItemDetails convId={selectedConvId} />
-                  <div style={{ flex: 1, overflow: "hidden", minHeight: 200 }}>
+                  <div className="chat-column">
                     <ChatPanel convId={selectedConvId} />
                   </div>
                 </div>
-                <BrowserPreview
-                  jobId={listingJob?.id ?? null}
-                  step={listingJob?.current_step}
-                  status={listingJob?.status}
-                />
+                {previewOpen && (
+                  <BrowserPreview
+                    jobId={listingJob?.id ?? null}
+                    step={listingJob?.current_step}
+                    status={listingJob?.status}
+                  />
+                )}
               </div>
             ) : (
               <div className="empty-state">
@@ -169,7 +182,7 @@ export function App() {
         <button
           className={mobilePane === "browser" ? "selected" : ""}
           onClick={() => setMobilePane("browser")}
-          disabled={activeView !== "listings" || !selectedConvId}
+          disabled={activeView !== "listings" || !selectedConvId || !previewOpen}
         >
           Browser
         </button>

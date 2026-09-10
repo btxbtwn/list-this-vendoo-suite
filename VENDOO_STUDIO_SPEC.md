@@ -172,11 +172,13 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 
 - Purpose-built professional workspace.
 - Dense enough for daily operational use.
-- T3 Code-inspired information hierarchy, not a visual clone.
+- T3 Code-inspired information hierarchy, not an IDE clone.
 - T3 Code stock dark shell from `pingdotgg/t3code` `themePalette.ts`: `#000000` sidebar, `#0a0a0a` workspace, `#111111` surfaces, `#191919` borders, and `#346bf1` accent.
 - The main workspace is inset by 8px inside a 12px rounded frame; navigation remains 244px wide.
 - Sidebar, workspace, and inspector share the same 8px inset and aligned top/bottom frame.
-- Settings, chat composer, and automation status use a shared 88px footer row across all three columns.
+- Column footers stay independent: sidebar keeps Settings and updates; inspector keeps Send to Vendoo; only the chat column gets a T3-style composer.
+- Chat chrome follows T3 Code: user right, assistant left, no bubble cards. Assistant and user text render as T3-style markdown (GFM tables, headings, lists, inline code). The composer is always visible as a rounded `#111111` pill on `#0a0a0a` with a circular `#346bf1` send control. Empty state keeps Generate Listing when photos exist.
+- Browser preview is a bottom pane in the center column only while a listing job is `queued`, `awaiting_extension`, or `dispatched`. Collapse it when idle. Do not keep a permanent ~42% split.
 - T3 Code blue marks primary actions, selection, and focus; marketplace colors remain sparing.
 - System UI sans handles navigation, controls, and content while the T3 Code mono stack handles measurements, JSON, and technical status.
 - Avoid generic dashboard cards and excessive rounded containers.
