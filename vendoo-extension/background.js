@@ -597,8 +597,8 @@ async function openVendooListing(job) {
       activeJob.windowId = existingTab.windowId;
       activeJob.tabId = existingTab.id;
       await persistActiveJob(activeJob);
-      await startJobPreview(existingTab.id, job.job_id);
       await waitForTabComplete(existingTab.id);
+      await startJobPreview(existingTab.id, job.job_id);
       return { ok: true };
     }
 
@@ -606,16 +606,16 @@ async function openVendooListing(job) {
     const tab = await chrome.tabs.create({
       windowId: existing?.id,
       url: NEW_ITEM_URL,
-      active: false,
+      active: true,
     });
-    log(`Created background Vendoo tab ${tab.id} in window ${tab.windowId}`);
+    log(`Created Vendoo tab ${tab.id} in window ${tab.windowId}`);
 
     activeJob.windowId = tab.windowId;
     activeJob.tabId = tab.id;
     await persistActiveJob(activeJob);
-    await startJobPreview(tab.id, job.job_id);
 
     const loaded = await waitForTabComplete(tab.id);
+    await startJobPreview(tab.id, job.job_id);
     if (!isTabReady(loaded)) {
       return { ok: false, error: `Vendoo tab did not finish loading (${loaded?.url || 'unknown url'})` };
     }

@@ -172,6 +172,7 @@ async def stream_job_preview(job_id: str, db: Session = Depends(get_db)):
     async def events():
         queue = await preview_hub.subscribe(job_id)
         try:
+            yield ": connected\n\n"
             while True:
                 try:
                     frame = await asyncio.wait_for(queue.get(), timeout=15)
