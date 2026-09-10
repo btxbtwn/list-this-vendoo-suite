@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { ChatMarkdown } from "./ChatMarkdown";
 
 interface Props {
   convId: string;
@@ -32,6 +33,7 @@ export function ChatPanel({ convId }: Props) {
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(null);
   const [lastSendText, setLastSendText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
 
   const { data: messages, isLoading } = useQuery({
@@ -56,6 +58,13 @@ export function ChatPanel({ convId }: Props) {
     setFailedAction(null);
     setLastSendText("");
   }, [convId]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+  }, [input]);
 
   const streamFromFetch = useCallback(async (url: string) => {
     setStreaming(true);
@@ -181,10 +190,19 @@ export function ChatPanel({ convId }: Props) {
   const streamFailed = isStreamError(streamText);
   const busy = streaming || generating;
   const canRetry = failedAction === "send" ? Boolean(lastSendText) : Boolean(hasPhotos);
+  const composerPlaceholder = !hasPhotos
+    ? "Upload photos to begin"
+    : hasMessages
+      ? "Refine the listing..."
+      : "Add a note, or generate the listing...";
 
   function renderMessage(m: any) {
     if (m.role === "user") {
-      return <div key={m.id} className="msg msg-user">{m.text}</div>;
+      return (
+        <div key={m.id} className="msg msg-user">
+          <ChatMarkdown text={m.text} lineBreaks />
+        </div>
+      );
     }
 
     if (m.role === "system" && isPhotoAnalysis(m.text)) {
@@ -222,11 +240,15 @@ export function ChatPanel({ convId }: Props) {
       );
     }
 
-    return <div key={m.id} className="msg msg-assistant">{m.text}</div>;
+    return (
+      <div key={m.id} className="msg msg-assistant">
+        <ChatMarkdown text={m.text} />
+      </div>
+    );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+    <div className="chat-panel">
       <div ref={scrollRef} className="chat-scroll">
         {isLoading && !hasMessages && (
           <div className="empty-state" style={{ padding: "16px 0" }}><p className="text-xs text-muted">Loading...</p></div>
@@ -250,7 +272,11 @@ export function ChatPanel({ convId }: Props) {
 
         {messages?.map(renderMessage)}
 
-        {streamText && !streamFailed && <div className="msg msg-assistant">{streamText}</div>}
+        {streamText && !streamFailed && (
+          <div className="msg msg-assistant">
+            <ChatMarkdown text={streamText} />
+          </div>
+        )}
 
         {streamFailed && (
           <div className="chat-error" role="alert">
@@ -282,24 +308,35 @@ export function ChatPanel({ convId }: Props) {
         )}
       </div>
 
-      {hasMessages && (
-        <div className="chat-composer">
-          <div className="flex-row" style={{ width: "100%" }}>
-            <input
-              className="input"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder="Refine the listing..."
-              disabled={streaming}
-              style={{ flex: 1 }}
-            />
-            <button className="btn btn-primary" onClick={handleSend} disabled={streaming || !input.trim()}>
-              Send
-            </button>
-          </div>
+      <div className="chat-composer">
+        <div className="chat-composer-pill">
+          <textarea
+            ref={textareaRef}
+            className="chat-composer-input"
+            rows={1}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder={composerPlaceholder}
+            disabled={streaming}
+          />
+          <button
+            className="chat-send"
+            onClick={handleSend}
+            disabled={streaming || !input.trim()}
+            aria-label="Send"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 12.5V3.5M8 3.5L3.5 8M8 3.5L12.5 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
