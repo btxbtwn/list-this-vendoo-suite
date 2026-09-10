@@ -106,6 +106,21 @@ class JobRepoActiveTest(unittest.TestCase):
         self.assertEqual(requeued[0].id, job.id)
         self.assertEqual(requeued[0].status, "queued")
 
+    def test_add_event_persists_without_refresh(self):
+        job = self._job("dispatched")
+        event = JobRepo(self.db).add_event(job.id, "cancelled")
+        self.assertEqual(event.event_type, "cancelled")
+        self.assertEqual(JobRepo(self.db).get_events(job.id)[-1].id, event.id)
+
+    def test_cancel_leftover_jobs_clears_dispatched_jobs(self):
+        from vendoo_studio.routes.updates import _cancel_leftover_jobs
+
+        job = self._job("dispatched")
+        cancelled = _cancel_leftover_jobs(self.db)
+        self.assertEqual(cancelled, [job.id])
+        self.db.refresh(job)
+        self.assertEqual(job.status, "cancelled")
+
 
 class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):

@@ -246,10 +246,19 @@ function SendToVendooButton({
     refetchInterval: 2000,
   });
 
+  const rememberJob = (job: any) => {
+    if (!job?.id) return;
+    queryClient.setQueryData(["jobs"], (old: any[] | undefined) => {
+      const rest = (old || []).filter((item) => item.id !== job.id);
+      return [job, ...rest];
+    });
+  };
+
   const sendMutation = useMutation({
     mutationFn: () => api.jobs.create(convId),
-    onSuccess: () => {
+    onSuccess: (job) => {
       setError(null);
+      rememberJob(job);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
       onJobStarted?.();
@@ -259,8 +268,9 @@ function SendToVendooButton({
 
   const retryMutation = useMutation({
     mutationFn: (jobId: string) => api.jobs.retry(jobId),
-    onSuccess: () => {
+    onSuccess: (job) => {
       setError(null);
+      rememberJob(job);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
       onJobStarted?.();

@@ -11,10 +11,17 @@ from vendoo_studio.services.updates import UpdateBlocked
 router = APIRouter(prefix="/api/updates", tags=["updates"])
 
 
-def _require_no_active_job(db: Session) -> None:
-    active = db.query(Job).filter(Job.status.in_(ACTIVE_JOB_STATUSES)).first()
-    if active:
-        raise HTTPException(409, "Finish or cancel the active listing job before updating.")
+def _cancel_leftover_jobs(db: Session) -> list[str]:
+    jobs = db.query(Job).filter(Job.status.in_(ACTIVE_JOB_STATUSES)).all()
+    cancelled: list[str] = []
+    for job in jobs:
+        job.status = "cancelled"
+        job.current_step = None
+        job.last_error = "Cancelled so Studio can update"
+        cancelled.append(job.id)
+    if jobs:
+        db.commit()
+    return cancelled
 
 
 @router.get("")
@@ -24,7 +31,7 @@ def update_status():
 
 @router.post("/apply")
 def apply_update(db: Session = Depends(get_db)):
-    _require_no_active_job(db)
+    cancelled_jobs = _cancel_leftover_jobs(db)
     try:
         result = update_service.apply_update()
     except UpdateBlocked as exc:
@@ -35,4 +42,6 @@ def apply_update(db: Session = Depends(get_db)):
     if result.get("updated"):
         update_service.schedule_restart()
         result["reloading"] = True
+    if cancelled_jobs:
+        result["cancelled_jobs"] = cancelled_jobs
     return result
