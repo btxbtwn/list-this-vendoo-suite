@@ -21,8 +21,8 @@ def status(db: Session = Depends(get_db)):
     from vendoo_studio.services.keychain import get_api_key
 
     conversations = db.query(Conversation).count()
-    active_statuses = {"queued", "awaiting_extension", "dispatched"}
-    active_jobs = db.query(Job).filter(Job.status.in_(active_statuses)).all()
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    active_jobs = db.query(Job).filter(Job.status.in_(ACTIVE_JOB_STATUSES)).all()
 
     return {
         "version": "0.1.0",

@@ -4,17 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from vendoo_studio.database import get_db
+from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
 from vendoo_studio.services import updates as update_service
 from vendoo_studio.services.updates import UpdateBlocked
 
 router = APIRouter(prefix="/api/updates", tags=["updates"])
 
-ACTIVE_JOB_STATUSES = {"queued", "awaiting_extension", "dispatched"}
-
 
 def _require_no_active_job(db: Session) -> None:
-    from vendoo_studio.models.job import Job
-
     active = db.query(Job).filter(Job.status.in_(ACTIVE_JOB_STATUSES)).first()
     if active:
         raise HTTPException(409, "Finish or cancel the active listing job before updating.")

@@ -93,7 +93,12 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
       </div>
 
       <div className="editor-footer">
-        <SendToVendooButton convId={convId} canSend={data?.can_send ?? false} onJobStarted={onJobStarted} />
+        <SendToVendooButton
+          convId={convId}
+          canSend={data?.can_send ?? false}
+          sendBlockers={data?.errors || []}
+          onJobStarted={onJobStarted}
+        />
       </div>
     </div>
   );
@@ -215,7 +220,17 @@ function coerce(val: string): any {
 
 import React from "react";
 
-function SendToVendooButton({ convId, canSend, onJobStarted }: { convId: string; canSend: boolean; onJobStarted?: () => void }) {
+function SendToVendooButton({
+  convId,
+  canSend,
+  sendBlockers,
+  onJobStarted,
+}: {
+  convId: string;
+  canSend: boolean;
+  sendBlockers: { field?: string; message?: string }[];
+  onJobStarted?: () => void;
+}) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
 
@@ -265,14 +280,25 @@ function SendToVendooButton({ convId, canSend, onJobStarted }: { convId: string;
 
   const existingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
   const extensionConnected = extStatus?.connected ?? false;
+  const blockerText = sendBlockers
+    .map((err) => err.message)
+    .filter(Boolean)
+    .join(" · ");
 
   if (existingJob) {
     const isFailed = existingJob.status === "failed";
     const isDispatched = existingJob.status === "dispatched";
     const isCompleted = existingJob.status === "completed";
-    const canRestart = isFailed || isDispatched || isCompleted;
+    const isQueued = existingJob.status === "queued" || existingJob.status === "awaiting_extension";
+    const canRestart = isFailed || isDispatched || isCompleted || isQueued;
     const canCancel = !isCompleted;
-    const buttonLabel = retryMutation.isPending ? "Restarting..." : isFailed ? "Retry" : isCompleted ? "Run Again" : "Restart Job";
+    const buttonLabel = retryMutation.isPending
+      ? "Sending..."
+      : isFailed
+        ? "Retry"
+        : isCompleted || isQueued
+          ? "Send to Vendoo"
+          : "Restart Job";
     return (
       <div className={`job-card${isFailed ? " job-card-error" : ""}`}>
         <div className="job-card-copy">
@@ -285,12 +311,22 @@ function SendToVendooButton({ convId, canSend, onJobStarted }: { convId: string;
         </div>
         <div className="job-card-actions">
           {canRestart && (
-            <button className="btn btn-primary btn-sm job-card-action" disabled={retryMutation.isPending || cancelMutation.isPending} onClick={() => { setError(null); retryMutation.mutate(existingJob.id); }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm job-card-action"
+              disabled={retryMutation.isPending || cancelMutation.isPending}
+              onClick={() => { setError(null); retryMutation.mutate(existingJob.id); }}
+            >
               {buttonLabel}
             </button>
           )}
           {canCancel && (
-            <button className="btn btn-secondary btn-sm job-card-action" disabled={cancelMutation.isPending} onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm job-card-action"
+              disabled={cancelMutation.isPending}
+              onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}
+            >
               {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
             </button>
           )}
@@ -306,10 +342,25 @@ function SendToVendooButton({ convId, canSend, onJobStarted }: { convId: string;
 
   return (
     <div>
-      <button className="btn btn-success" style={{ width: "100%" }} disabled={!canSend || sendMutation.isPending} onClick={() => { setError(null); sendMutation.mutate(); }}>
+      <button
+        type="button"
+        className="btn btn-success"
+        style={{ width: "100%" }}
+        disabled={sendMutation.isPending}
+        onClick={() => {
+          if (!canSend) {
+            setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
+            return;
+          }
+          setError(null);
+          sendMutation.mutate();
+        }}
+      >
         {sendMutation.isPending ? "Sending..." : "Send to Vendoo"}
       </button>
-      {error && <div className="mt-8 text-xs text-error">{error}</div>}
+      {(error || (!canSend && blockerText)) && (
+        <div className="mt-8 text-xs text-error">{error || blockerText}</div>
+      )}
     </div>
   );
 }

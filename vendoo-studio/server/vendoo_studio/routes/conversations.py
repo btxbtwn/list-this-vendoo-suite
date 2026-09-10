@@ -146,14 +146,13 @@ def delete_conversation(conv_id: str, db: Session = Depends(get_db)):
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    from vendoo_studio.repositories.queries import JobRepo
-    from vendoo_studio.models.job import Job, JobEvent
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job, JobEvent
     from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
     from vendoo_studio.models.fill_log import FillLogEntry
 
     active_jobs = db.query(Job).filter(
         Job.conversation_id == conv_id,
-        Job.status.in_(["queued", "dispatched"]),
+        Job.status.in_(ACTIVE_JOB_STATUSES),
     ).all()
     if active_jobs:
         raise HTTPException(400, "Cannot delete a listing with an active automation job")

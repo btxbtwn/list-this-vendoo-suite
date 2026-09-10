@@ -93,11 +93,7 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     from vendoo_studio.models.validation import validate_listing
     validation = validate_listing(listing_snapshot, photo_count)
     if not validation.can_send:
-        raise HTTPException(400, {
-            "message": "Listing cannot be sent to Vendoo. Fix validation errors first.",
-            "errors": validation.errors,
-            "warnings": validation.warnings,
-        })
+        raise HTTPException(400, _validation_error_detail(validation))
 
     active = JobRepo(db).get_active()
     if active:
@@ -209,8 +205,8 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
     job = repo.get(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    if job.status not in {"failed", "dispatched", "completed"}:
-        raise HTTPException(400, f"Job is {job.status}, can only retry failed or dispatched jobs")
+    if job.status not in {"failed", "dispatched", "completed", "queued", "awaiting_extension"}:
+        raise HTTPException(400, f"Job is {job.status}, cannot retry")
 
     job.status = "queued"
     job.current_step = "queued"
@@ -284,7 +280,7 @@ async def cancel_job(job_id: str, db: Session = Depends(get_db)):
         type="job.cancel",
         job_id=job_id,
         payload={"job_id": job_id},
-    ).model_dump())
+    ).model_dump(mode="json"))
 
     return _job_response(job)
 
@@ -303,6 +299,11 @@ def _generate_sku(listing: dict) -> str:
     if size:
         parts.append(slug(size))
     return "-".join(parts) if parts else "ITEM"
+
+
+def _validation_error_detail(validation) -> str:
+    messages = [err.get("message", "") for err in validation.errors if err.get("message")]
+    return "; ".join(messages) or "Listing cannot be sent to Vendoo. Fix validation errors first."
 
 
 def _ensure_listing_defaults(listing_snapshot: dict) -> None:
