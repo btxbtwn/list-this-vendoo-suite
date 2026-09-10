@@ -230,6 +230,7 @@ input, select, textarea {
 .browser-preview-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   min-height: 34px;
   padding: 0 12px;
@@ -275,6 +276,7 @@ input, select, textarea {
 
 .browser-preview-cancel {
   flex-shrink: 0;
+  margin-left: auto;
   height: 22px;
   padding: 0 8px;
   border-radius: var(--radius-xs);
@@ -1147,6 +1149,14 @@ details[open] .json-collapse-summary::before {
   box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 4px var(--color-cobalt);
 }
 
+.chat-send-cancel {
+  background: var(--color-tomato);
+}
+
+.chat-send-cancel:hover:not(:disabled) {
+  background: var(--color-tomato-hover);
+}
+
 /* ── Item Details ── */
 
 .item-details {
@@ -1546,7 +1556,8 @@ details[open] .json-collapse-summary::before {
 
 .editor-footer {
   display: flex;
-  align-items: center;
+  align-items: stretch;
+  flex-shrink: 0;
   min-width: 0;
   padding: 10px 12px;
   border-top: 1px solid var(--color-border);
@@ -1560,6 +1571,7 @@ details[open] .json-collapse-summary::before {
 
 .job-card {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
@@ -1578,8 +1590,10 @@ details[open] .json-collapse-summary::before {
 
 .job-card-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: stretch;
+  justify-content: flex-end;
   gap: 6px;
   flex-shrink: 0;
 }

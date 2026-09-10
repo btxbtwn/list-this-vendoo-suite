@@ -34,6 +34,8 @@ export function ChatPanel({ convId }: Props) {
   const [lastSendText, setLastSendText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const restoreOnAbortRef = useRef(false);
   const queryClient = useQueryClient();
 
   const { data: messages, isLoading } = useQuery({
@@ -51,6 +53,8 @@ export function ChatPanel({ convId }: Props) {
   }, [messages, streamText]);
 
   useEffect(() => {
+    restoreOnAbortRef.current = false;
+    abortRef.current?.abort();
     setInput("");
     setStreaming(false);
     setGenerating(false);
@@ -67,21 +71,25 @@ export function ChatPanel({ convId }: Props) {
   }, [input]);
 
   const streamFromFetch = useCallback(async (url: string) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setStreaming(true);
     setStreamText("");
     setFailedAction(null);
     try {
-      const res = await fetch(url, { method: "POST" });
+      const res = await fetch(url, { method: "POST", signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
         setFailedAction("generate");
         setStreaming(false);
+        setGenerating(false);
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const reader = res.body?.getReader();
-      if (!reader) { setStreaming(false); return; }
+      if (!reader) { setStreaming(false); setGenerating(false); return; }
       const decoder = new TextDecoder();
       let buffer = "";
       let assembled = "";
@@ -102,6 +110,13 @@ export function ChatPanel({ convId }: Props) {
       }
       if (isStreamError(assembled)) setFailedAction("generate");
     } catch (e: any) {
+      if (e?.name === "AbortError") {
+        setStreamText("");
+        setFailedAction(null);
+        setStreaming(false);
+        setGenerating(false);
+        return;
+      }
       setStreamText(`Error: ${e.message}`);
       setFailedAction("generate");
     }
@@ -119,6 +134,9 @@ export function ChatPanel({ convId }: Props) {
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text || streaming) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setInput("");
     setLastSendText(text);
     setStreaming(true);
@@ -129,6 +147,7 @@ export function ChatPanel({ convId }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
@@ -160,6 +179,14 @@ export function ChatPanel({ convId }: Props) {
       }
       if (isStreamError(assembled)) setFailedAction("send");
     } catch (e: any) {
+      if (e?.name === "AbortError") {
+        setStreamText("");
+        setFailedAction(null);
+        if (restoreOnAbortRef.current) setInput(text);
+        restoreOnAbortRef.current = false;
+        setStreaming(false);
+        return;
+      }
       setStreamText(`Error: ${e.message}`);
       setFailedAction("send");
     }
@@ -172,6 +199,11 @@ export function ChatPanel({ convId }: Props) {
   const handleSend = useCallback(() => {
     void sendMessage(input.trim());
   }, [input, sendMessage]);
+
+  const handleCancel = useCallback(() => {
+    restoreOnAbortRef.current = true;
+    abortRef.current?.abort();
+  }, []);
 
   const handleRetry = useCallback(() => {
     if (failedAction === "send" && lastSendText) {
@@ -325,16 +357,30 @@ export function ChatPanel({ convId }: Props) {
             placeholder={composerPlaceholder}
             disabled={streaming}
           />
-          <button
-            className="chat-send"
-            onClick={handleSend}
-            disabled={streaming || !input.trim()}
-            aria-label="Send"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M8 12.5V3.5M8 3.5L3.5 8M8 3.5L12.5 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          {busy ? (
+            <button
+              type="button"
+              className="chat-send chat-send-cancel"
+              onClick={handleCancel}
+              aria-label="Cancel"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+                <rect x="1" y="1" width="8" height="8" rx="1" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="chat-send"
+              onClick={handleSend}
+              disabled={!input.trim()}
+              aria-label="Send"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 12.5V3.5M8 3.5L3.5 8M8 3.5L12.5 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>
