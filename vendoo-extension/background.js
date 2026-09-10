@@ -107,7 +107,9 @@ function connect() {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
-      handleStudioMessage(msg);
+      Promise.resolve(handleStudioMessage(msg)).catch((err) => {
+        error(`Failed to handle message: ${err.message}`);
+      });
     } catch (e) {
       error(`Failed to parse message: ${e.message}`);
     }

@@ -1,5 +1,25 @@
 const BASE = "/api";
 
+function errorMessage(body: any, fallback: string): string {
+  const detail = body?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => item?.msg || item?.message || (typeof item === "string" ? item : ""))
+      .filter(Boolean);
+    if (messages.length) return messages.join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    if (typeof detail.message === "string" && detail.message.trim()) return detail.message;
+    if (Array.isArray(detail.errors)) {
+      const messages = detail.errors.map((item: any) => item?.message || item?.msg).filter(Boolean);
+      if (messages.length) return messages.join("; ");
+    }
+  }
+  if (typeof body?.message === "string" && body.message.trim()) return body.message;
+  return fallback;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -7,7 +27,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || body.message || `Request failed: ${res.status}`);
+    throw new Error(errorMessage(body, `Request failed: ${res.status}`));
   }
   return res.json();
 }

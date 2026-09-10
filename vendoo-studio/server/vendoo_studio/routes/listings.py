@@ -21,6 +21,8 @@ class ListingResponse(BaseModel):
     listing: dict
     revision_count: int
     can_send: bool
+    errors: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
 
 
 class ValidationResponse(BaseModel):
@@ -57,6 +59,8 @@ def get_listing(conv_id: str, db: Session = Depends(get_db)):
         listing=listing_data,
         revision_count=len(revisions),
         can_send=validation.can_send,
+        errors=validation.errors,
+        warnings=validation.warnings,
     )
 
 
