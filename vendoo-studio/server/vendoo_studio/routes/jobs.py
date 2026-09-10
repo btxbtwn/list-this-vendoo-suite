@@ -263,7 +263,7 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{job_id}/cancel")
-def cancel_job(job_id: str, db: Session = Depends(get_db)):
+async def cancel_job(job_id: str, db: Session = Depends(get_db)):
     repo = JobRepo(db)
     job = repo.get(job_id)
     if not job:
@@ -276,6 +276,14 @@ def cancel_job(job_id: str, db: Session = Depends(get_db)):
     db.commit()
     ConversationRepo(db).update_status(job.conversation_id, "draft")
     repo.add_event(job_id, "cancelled")
+
+    from vendoo_studio.models.protocol import ProtocolMessage
+    from vendoo_studio.routes.extension import extension_manager
+    await extension_manager.send_message(ProtocolMessage(
+        type="job.cancel",
+        job_id=job_id,
+        payload={"job_id": job_id},
+    ).model_dump())
 
     return _job_response(job)
 

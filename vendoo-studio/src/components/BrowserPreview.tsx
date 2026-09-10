@@ -13,9 +13,11 @@ interface Props {
   jobId: string | null;
   step?: string | null;
   status?: string | null;
+  onCancel?: () => void;
+  cancelling?: boolean;
 }
 
-export function BrowserPreview({ jobId, step, status }: Props) {
+export function BrowserPreview({ jobId, step, status, onCancel, cancelling }: Props) {
   const [frame, setFrame] = useState<PreviewFrame | null>(null);
   const [live, setLive] = useState(false);
 
@@ -60,6 +62,16 @@ export function BrowserPreview({ jobId, step, status }: Props) {
           {live && frame ? "Live" : "Standby"}
         </span>
         <span className="browser-preview-step">{label.replace(/_/g, " ")}</span>
+        {onCancel && (
+          <button
+            type="button"
+            className="browser-preview-cancel"
+            onClick={onCancel}
+            disabled={cancelling}
+          >
+            {cancelling ? "Cancelling…" : "Cancel"}
+          </button>
+        )}
       </div>
       <div className="browser-preview-stage">
         {frame ? (

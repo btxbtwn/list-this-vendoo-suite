@@ -58,6 +58,14 @@ export function App() {
     },
   });
 
+  const cancelJob = useMutation({
+    mutationFn: (jobId: string) => api.jobs.cancel(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+
   const deleteConv = useMutation({
     mutationFn: (convId: string) => api.conversations.delete(convId),
     onSuccess: (_data, convId) => {
@@ -182,6 +190,8 @@ export function App() {
                     jobId={listingJob?.id ?? null}
                     step={listingJob?.current_step}
                     status={listingJob?.status}
+                    cancelling={cancelJob.isPending}
+                    onCancel={listingJob?.id ? () => cancelJob.mutate(listingJob.id) : undefined}
                   />
                 )}
               </div>
