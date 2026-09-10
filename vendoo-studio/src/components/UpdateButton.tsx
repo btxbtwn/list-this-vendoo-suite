@@ -22,17 +22,15 @@ function promptForUpdate(data: {
   behind?: number;
   summary?: string;
   commits?: string[];
-  dirty?: string[];
 }) {
   const n = data.behind || 0;
   const lines = (data.commits || []).slice(0, 5);
-    const body = [
-      `Update available on main (${n} commit${n === 1 ? "" : "s"}).`,
-      data.summary ? `\n${data.summary}` : "",
-      lines.length ? `\n${lines.join("\n")}` : "",
-      data.dirty?.length ? "\n\nYou have uncommitted changes. Commit or stash first." : "",
-      "\n\nUpdate now and reload Vendoo Studio?",
-    ].join("");
+  const body = [
+    `Update available on main (${n} commit${n === 1 ? "" : "s"}).`,
+    data.summary ? `\n${data.summary}` : "",
+    lines.length ? `\n${lines.join("\n")}` : "",
+    "\n\nUpdate now and reload List This Studio from main?",
+  ].join("");
   return window.confirm(body);
 }
 
@@ -65,7 +63,6 @@ export function UpdateButton() {
 
   useEffect(() => {
     if (!data?.available || !data.remote_sha || waiting || apply.isPending) return;
-    if (data.dirty?.length) return;
     const key = `vendoo-studio-update-${data.remote_sha}`;
     if (askedRef.current === key || sessionStorage.getItem(key)) return;
     askedRef.current = key;
@@ -92,10 +89,6 @@ export function UpdateButton() {
     }
     if (!latest.available) {
       window.alert("Already up to date with main.");
-      return;
-    }
-    if (latest.dirty?.length) {
-      window.alert("Uncommitted changes. Commit or stash before updating.");
       return;
     }
     if (promptForUpdate(latest)) apply.mutate();

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -11,13 +12,29 @@ from vendoo_studio.config import BASE_DIR
 
 REMOTE = os.environ.get("VENDOO_STUDIO_UPDATE_REMOTE", "origin")
 REF = os.environ.get("VENDOO_STUDIO_UPDATE_REF", "main")
+DEFAULT_REMOTE_URL = "https://github.com/btxbtwn/list-this-vendoo-suite.git"
 FETCH_TIMEOUT_S = 30
 GIT_TIMEOUT_S = 60
 BUILD_TIMEOUT_S = 180
+CLONE_TIMEOUT_S = 180
+INSTALL_PRESERVE = (
+    "vendoo-studio/data",
+    "vendoo-studio/.venv",
+    "vendoo-studio/dist",
+    "vendoo-studio/server/vendoo_studio/desktop.py",
+)
 
 
 class UpdateBlocked(Exception):
     pass
+
+
+def _is_dev() -> bool:
+    return os.environ.get("VENDOO_STUDIO_DEV", "") == "1"
+
+
+def remote_url() -> str:
+    return os.environ.get("VENDOO_STUDIO_UPDATE_URL", DEFAULT_REMOTE_URL)
 
 
 def _git_env() -> dict[str, str]:
@@ -66,8 +83,35 @@ def dirty_files(root: Path) -> list[str]:
     return names
 
 
+def is_linked_worktree(root: Path) -> bool:
+    return (root / ".git").is_file()
+
+
+def _normalize_git_url(url: str) -> str:
+    return url.strip().rstrip("/").removesuffix(".git")
+
+
+def _ensure_origin_url(root: Path) -> None:
+    url = remote_url()
+    try:
+        current = _run(["git", "remote", "get-url", "origin"], root)
+    except UpdateBlocked:
+        _run(["git", "remote", "add", "origin", url], root)
+        return
+    if _normalize_git_url(current) != _normalize_git_url(url):
+        _run(["git", "remote", "set-url", "origin", url], root)
+
+
 def fetch(root: Path) -> None:
-    _run(["git", "fetch", REMOTE, REF], root, timeout=FETCH_TIMEOUT_S)
+    if _is_dev():
+        _run(["git", "fetch", REMOTE, REF], root, timeout=FETCH_TIMEOUT_S)
+        return
+    _ensure_origin_url(root)
+    _run(
+        ["git", "fetch", remote_url(), f"{REF}:refs/remotes/{REMOTE}/{REF}"],
+        root,
+        timeout=FETCH_TIMEOUT_S,
+    )
 
 
 def rev_parse(root: Path, name: str) -> str:
@@ -83,62 +127,133 @@ def recent_log(root: Path, local: str, remote: str, limit: int = 5) -> list[str]
     return [line for line in out.splitlines() if line.strip()]
 
 
+def _remote_ref() -> str:
+    return f"{REMOTE}/{REF}"
+
+
+def _in_sync_with_remote(root: Path, remote_ref: str) -> bool:
+    return current_branch(root) == REF and rev_parse(root, "HEAD") == rev_parse(root, remote_ref)
+
+
+def pin_to_remote(root: Path, remote_ref: str) -> None:
+    _run(["git", "checkout", "--force", "-B", REF, remote_ref], root)
+
+
+def _copy_preserved(src_root: Path, dest_root: Path) -> None:
+    for rel in INSTALL_PRESERVE:
+        src = src_root / rel
+        dest = dest_root / rel
+        if not src.exists():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src.is_dir():
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(src, dest, symlinks=True)
+        else:
+            shutil.copy2(src, dest)
+
+
+def ensure_standalone_clone(root: Path) -> Path:
+    """Replace a linked git worktree with an independent clone of the GitHub repo."""
+    if _is_dev() or not is_linked_worktree(root):
+        if not _is_dev():
+            _ensure_origin_url(root)
+        return root
+
+    parent = root.parent
+    staging = parent / f".{root.name}.remote-clone"
+    backup = parent / f".{root.name}.worktree-old"
+    if staging.exists():
+        shutil.rmtree(staging)
+    _run(
+        ["git", "clone", "--branch", REF, "--single-branch", remote_url(), str(staging)],
+        parent,
+        timeout=CLONE_TIMEOUT_S,
+    )
+    _copy_preserved(root, staging)
+    if backup.exists():
+        shutil.rmtree(backup)
+    root.rename(backup)
+    staging.rename(root)
+    try:
+        _run(["git", "worktree", "prune"], backup)
+    except UpdateBlocked:
+        pass
+    return root
+
+
 def check_for_updates() -> dict:
     try:
-        root = repo_root()
+        return check_for_updates_at(repo_root())
     except (UpdateBlocked, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         return {"available": False, "error": str(exc) or "git is unavailable"}
 
+
+def check_for_updates_at(root: Path) -> dict:
     try:
         fetch(root)
     except (UpdateBlocked, subprocess.TimeoutExpired) as exc:
         return {
             "available": False,
             "branch": current_branch(root),
-            "error": f"Could not fetch {REMOTE}/{REF}: {exc}",
+            "error": f"Could not fetch {remote_url()} {REF}: {exc}",
         }
 
-    remote_ref = f"{REMOTE}/{REF}"
+    remote_ref = _remote_ref()
     local_sha = rev_parse(root, "HEAD")
     remote_sha = rev_parse(root, remote_ref)
     behind = int(_run(["git", "rev-list", "--count", f"HEAD..{remote_ref}"], root) or "0")
     ahead = int(_run(["git", "rev-list", "--count", f"{remote_ref}..HEAD"], root) or "0")
+    on_ref = current_branch(root) == REF
+    available = not _in_sync_with_remote(root, remote_ref)
     log = recent_log(root, "HEAD", remote_ref) if behind else []
 
     return {
-        "available": behind > 0,
+        "available": available,
         "behind": behind,
         "ahead": ahead,
         "branch": current_branch(root),
         "local_sha": local_sha,
         "remote_sha": remote_sha,
         "remote_ref": remote_ref,
-        "summary": commit_subject(root, remote_sha) if behind else "",
+        "summary": commit_subject(root, remote_sha) if available else "",
         "commits": log,
-        "dirty": dirty_files(root),
+        "dirty": dirty_files(root) if _is_dev() else [],
         "error": None,
+        "on_ref": on_ref,
+        "remote_url": remote_url() if not _is_dev() else None,
     }
 
 
 def apply_update() -> dict:
     try:
-        root = repo_root()
+        return apply_update_at(repo_root())
+    except subprocess.TimeoutExpired as exc:
+        raise UpdateBlocked("Timed out talking to git.") from exc
+
+
+def apply_update_at(root: Path) -> dict:
+    if not _is_dev():
+        root = ensure_standalone_clone(root)
+    else:
         dirty = dirty_files(root)
         if dirty:
             raise UpdateBlocked("Uncommitted changes. Commit or stash before updating.")
 
-        fetch(root)
-        remote_ref = f"{REMOTE}/{REF}"
-        behind = int(_run(["git", "rev-list", "--count", f"HEAD..{remote_ref}"], root) or "0")
-        if behind == 0:
-            return {"ok": True, "updated": False, "sha": rev_parse(root, "HEAD")}
+    fetch(root)
+    remote_ref = _remote_ref()
+    if _in_sync_with_remote(root, remote_ref):
+        return {"ok": True, "updated": False, "sha": rev_parse(root, "HEAD")}
 
+    if _is_dev():
         _run(["git", "merge", "--ff-only", remote_ref], root)
-        sha = rev_parse(root, "HEAD")
-        rebuilt = _rebuild_frontend_if_needed(root)
-        return {"ok": True, "updated": True, "sha": sha, "rebuilt": rebuilt}
-    except subprocess.TimeoutExpired as exc:
-        raise UpdateBlocked("Timed out talking to git.") from exc
+    else:
+        pin_to_remote(root, remote_ref)
+
+    sha = rev_parse(root, "HEAD")
+    rebuilt = _rebuild_frontend_if_needed(root)
+    return {"ok": True, "updated": True, "sha": sha, "rebuilt": rebuilt}
 
 
 def _rebuild_frontend_if_needed(root: Path) -> bool:
@@ -151,7 +266,7 @@ def _rebuild_frontend_if_needed(root: Path) -> bool:
 
 
 def schedule_restart() -> None:
-    if os.environ.get("VENDOO_STUDIO_DEV", "") == "1":
+    if _is_dev():
         return
 
     def _restart() -> None:

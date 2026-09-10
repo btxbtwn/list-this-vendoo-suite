@@ -32,6 +32,15 @@ class SanitizeFrameTest(unittest.TestCase):
         self.assertIsNone(sanitize_frame({"mime": "image/jpeg", "data": ""}))
         self.assertIsNone(sanitize_frame({"mime": "image/jpeg", "data": "x" * (MAX_FRAME_CHARS + 1)}))
 
+    def test_accepts_full_viewport_jpeg_payload(self):
+        frame = sanitize_frame({
+            "mime": "image/jpeg",
+            "data": "x" * 400_000,
+            "url": "https://web.vendoo.co/app/item/new",
+        })
+        self.assertIsNotNone(frame)
+        self.assertEqual(len(frame["data"]), 400_000)
+
     def test_drops_non_https_urls(self):
         frame = sanitize_frame({
             "mime": "image/jpeg",

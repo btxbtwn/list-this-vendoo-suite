@@ -220,9 +220,9 @@ input, select, textarea {
 .browser-preview.is-open {
   display: flex;
   flex-direction: column;
-  flex: 0 0 42%;
-  min-height: 220px;
-  max-height: 52%;
+  flex: 0 0 48%;
+  min-height: 280px;
+  max-height: 58%;
   border-top: 1px solid var(--color-border);
   background: var(--color-ink);
 }
@@ -262,6 +262,10 @@ input, select, textarea {
 
 .browser-preview-live.on {
   color: var(--color-success);
+}
+
+.browser-preview-live.wait {
+  color: var(--color-text);
 }
 
 .browser-preview-step {

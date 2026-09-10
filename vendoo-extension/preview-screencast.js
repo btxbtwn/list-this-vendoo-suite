@@ -3,12 +3,14 @@ const PREVIEW_MIN_INTERVAL_MS = 250;
 const PREVIEW_MAX_WIDTH = 1024;
 const PREVIEW_MAX_HEIGHT = 720;
 const PREVIEW_QUALITY = 50;
-const PREVIEW_CAPTURE_FALLBACK_MS = 400;
+const PREVIEW_POLL_MS = 400;
+const PREVIEW_WATCHDOG_MS = 800;
 
 let previewTabId = null;
 let previewJobId = null;
 let previewAttached = false;
-let previewFallbackTimer = null;
+let previewPollTimer = null;
+let previewWatchdogTimer = null;
 let lastPreviewSentAt = 0;
 
 function sendPreviewFrame(jobId, data, extra) {
@@ -16,25 +18,30 @@ function sendPreviewFrame(jobId, data, extra) {
     return;
   }
   const now = Date.now();
-  if (now - lastPreviewSentAt < PREVIEW_MIN_INTERVAL_MS) {
+  if (lastPreviewSentAt && now - lastPreviewSentAt < PREVIEW_MIN_INTERVAL_MS) {
     return;
   }
   lastPreviewSentAt = now;
-  send({
-    version: 1,
-    type: 'job.preview_frame',
-    job_id: jobId,
-    message_id: Date.now().toString(36),
-    sent_at: new Date().toISOString(),
-    payload: {
-      mime: 'image/jpeg',
-      data,
-      url: extra?.url || '',
-      step: (typeof activeJob !== 'undefined' && activeJob?.current_step) || extra?.step || '',
-      width: extra?.width || null,
-      height: extra?.height || null,
-    },
-  });
+  try {
+    send({
+      version: 1,
+      type: 'job.preview_frame',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: {
+        mime: 'image/jpeg',
+        data,
+        url: extra?.url || '',
+        step: (typeof activeJob !== 'undefined' && activeJob?.current_step) || extra?.step || '',
+        width: extra?.width || null,
+        height: extra?.height || null,
+      },
+    });
+  } catch (err) {
+    lastPreviewSentAt = 0;
+    log(`Preview frame send failed (${err.message})`);
+  }
 }
 
 async function tabPreviewUrl(tabId) {
@@ -46,16 +53,26 @@ async function tabPreviewUrl(tabId) {
   }
 }
 
-function stopCaptureFallback() {
-  if (previewFallbackTimer) {
-    clearInterval(previewFallbackTimer);
-    previewFallbackTimer = null;
+function stopPreviewPolling() {
+  if (previewPollTimer) {
+    clearInterval(previewPollTimer);
+    previewPollTimer = null;
+  }
+  if (previewWatchdogTimer) {
+    clearTimeout(previewWatchdogTimer);
+    previewWatchdogTimer = null;
   }
 }
 
-function startCaptureFallback(tabId, jobId) {
-  stopCaptureFallback();
-  previewFallbackTimer = setInterval(async () => {
+async function revealPreviewTab(tabId) {
+  try {
+    await chrome.tabs.update(tabId, { active: true });
+  } catch (_) {}
+}
+
+function startVisibleTabPoll(tabId, jobId) {
+  stopPreviewPolling();
+  previewPollTimer = setInterval(async () => {
     if (!previewJobId || previewJobId !== jobId || previewTabId !== tabId) {
       return;
     }
@@ -63,6 +80,9 @@ function startCaptureFallback(tabId, jobId) {
       const tab = await chrome.tabs.get(tabId);
       if (!tab?.windowId) {
         return;
+      }
+      if (!tab.active) {
+        await revealPreviewTab(tabId);
       }
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: 'jpeg',
@@ -74,13 +94,57 @@ function startCaptureFallback(tabId, jobId) {
       }
       sendPreviewFrame(jobId, dataUrl.slice(prefix.length), { url: tab.url || '' });
     } catch (_) {
-      // Tab is not visible in its window; debugger path is preferred.
+      // Window may be minimized; debugger capture is preferred.
     }
-  }, PREVIEW_CAPTURE_FALLBACK_MS);
+  }, PREVIEW_POLL_MS);
+}
+
+function startDebuggerScreenshotPoll(tabId, jobId) {
+  stopPreviewPolling();
+  previewPollTimer = setInterval(async () => {
+    if (!previewJobId || previewJobId !== jobId || previewTabId !== tabId || !previewAttached) {
+      return;
+    }
+    try {
+      const result = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', {
+        format: 'jpeg',
+        quality: PREVIEW_QUALITY,
+        fromSurface: true,
+        captureBeyondViewport: false,
+      });
+      if (!result?.data) {
+        return;
+      }
+      const url = await tabPreviewUrl(tabId);
+      sendPreviewFrame(jobId, result.data, { url });
+    } catch (_) {
+      if (!previewAttached) {
+        startVisibleTabPoll(tabId, jobId);
+      }
+    }
+  }, PREVIEW_POLL_MS);
+}
+
+function armPreviewWatchdog(tabId, jobId) {
+  if (previewWatchdogTimer) {
+    clearTimeout(previewWatchdogTimer);
+  }
+  previewWatchdogTimer = setTimeout(() => {
+    previewWatchdogTimer = null;
+    if (previewJobId !== jobId || previewTabId !== tabId || lastPreviewSentAt) {
+      return;
+    }
+    log('Preview screencast produced no frames; polling screenshots');
+    if (previewAttached) {
+      startDebuggerScreenshotPoll(tabId, jobId);
+    } else {
+      startVisibleTabPoll(tabId, jobId);
+    }
+  }, PREVIEW_WATCHDOG_MS);
 }
 
 async function stopJobPreview() {
-  stopCaptureFallback();
+  stopPreviewPolling();
   const tabId = previewTabId;
   const attached = previewAttached;
   previewAttached = false;
@@ -101,28 +165,35 @@ async function startJobPreview(tabId, jobId) {
   if (!tabId || !jobId) {
     return;
   }
-  if (previewTabId === tabId && previewJobId === jobId && previewAttached) {
+  if (previewTabId === tabId && previewJobId === jobId && (previewAttached || previewPollTimer)) {
     return;
   }
   await stopJobPreview();
   previewTabId = tabId;
   previewJobId = jobId;
+  await revealPreviewTab(tabId);
   try {
     await chrome.debugger.attach({ tabId }, PREVIEW_PROTOCOL);
     previewAttached = true;
     await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
-    await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
-      format: 'jpeg',
-      quality: PREVIEW_QUALITY,
-      maxWidth: PREVIEW_MAX_WIDTH,
-      maxHeight: PREVIEW_MAX_HEIGHT,
-      everyNthFrame: 2,
-    });
-    log(`Preview screencast started on tab ${tabId}`);
+    try {
+      await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
+        format: 'jpeg',
+        quality: PREVIEW_QUALITY,
+        maxWidth: PREVIEW_MAX_WIDTH,
+        maxHeight: PREVIEW_MAX_HEIGHT,
+        everyNthFrame: 2,
+      });
+      log(`Preview screencast started on tab ${tabId}`);
+      armPreviewWatchdog(tabId, jobId);
+    } catch (screencastErr) {
+      log(`Preview screencast failed (${screencastErr.message}); polling screenshots`);
+      startDebuggerScreenshotPoll(tabId, jobId);
+    }
   } catch (err) {
     previewAttached = false;
     log(`Preview debugger unavailable (${err.message}); using visible-tab capture fallback`);
-    startCaptureFallback(tabId, jobId);
+    startVisibleTabPoll(tabId, jobId);
   }
 }
 
@@ -151,7 +222,7 @@ try {
       previewAttached = false;
       log(`Preview debugger detached (${reason || 'unknown'})`);
       if (previewTabId && previewJobId) {
-        startCaptureFallback(previewTabId, previewJobId);
+        startVisibleTabPoll(previewTabId, previewJobId);
       }
     }
   });

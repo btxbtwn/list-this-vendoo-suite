@@ -4,7 +4,7 @@ import asyncio
 from typing import Any, Optional
 
 
-MAX_FRAME_CHARS = 400_000
+MAX_FRAME_CHARS = 1_500_000
 ALLOWED_MIMES = {"image/jpeg"}
 
 
