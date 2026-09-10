@@ -224,10 +224,16 @@ class JobRepo:
 
     def add_event(self, job_id: str, event_type: str, step: str | None = None, payload: dict | None = None) -> JobEvent:
         count = self.db.query(JobEvent).filter(JobEvent.job_id == job_id).count()
-        event = JobEvent(job_id=job_id, sequence=count, event_type=event_type, step=step, payload=payload)
+        event = JobEvent(
+            id=new_id(),
+            job_id=job_id,
+            sequence=count,
+            event_type=event_type,
+            step=step,
+            payload=payload,
+        )
         self.db.add(event)
         self.db.commit()
-        self.db.refresh(event)
         return event
 
     def get_events(self, job_id: str) -> list[JobEvent]:
