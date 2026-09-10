@@ -253,6 +253,16 @@ function SendToVendooButton({ convId, canSend, onJobStarted }: { convId: string;
     onError: (err: any) => setError(err.message || "Failed to retry"),
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: (jobId: string) => api.jobs.cancel(jobId),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+    onError: (err: any) => setError(err.message || "Failed to cancel"),
+  });
+
   const existingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
   const extensionConnected = extStatus?.connected ?? false;
 
@@ -261,6 +271,7 @@ function SendToVendooButton({ convId, canSend, onJobStarted }: { convId: string;
     const isDispatched = existingJob.status === "dispatched";
     const isCompleted = existingJob.status === "completed";
     const canRestart = isFailed || isDispatched || isCompleted;
+    const canCancel = !isCompleted;
     const buttonLabel = retryMutation.isPending ? "Restarting..." : isFailed ? "Retry" : isCompleted ? "Run Again" : "Restart Job";
     return (
       <div className={`job-card${isFailed ? " job-card-error" : ""}`}>
@@ -272,11 +283,19 @@ function SendToVendooButton({ convId, canSend, onJobStarted }: { convId: string;
           </div>
           <FillLogSummary jobId={existingJob.id} />
         </div>
-        {canRestart && (
-          <button className="btn btn-primary btn-sm job-card-action" disabled={retryMutation.isPending} onClick={() => { setError(null); retryMutation.mutate(existingJob.id); }}>
-            {buttonLabel}
-          </button>
-        )}
+        <div className="job-card-actions">
+          {canRestart && (
+            <button className="btn btn-primary btn-sm job-card-action" disabled={retryMutation.isPending || cancelMutation.isPending} onClick={() => { setError(null); retryMutation.mutate(existingJob.id); }}>
+              {buttonLabel}
+            </button>
+          )}
+          {canCancel && (
+            <button className="btn btn-secondary btn-sm job-card-action" disabled={cancelMutation.isPending} onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}>
+              {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
+            </button>
+          )}
+        </div>
+        {error && <div className="job-card-error-text">{error}</div>}
       </div>
     );
   }
