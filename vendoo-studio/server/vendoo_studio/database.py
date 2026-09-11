@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from vendoo_studio.config import DATABASE_PATH
@@ -41,3 +41,21 @@ def init_db():
     from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _ensure_sqlite_columns()
+
+
+def _ensure_sqlite_columns() -> None:
+    inspector = inspect(engine)
+    if "conversations" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("conversations")}
+    statements = []
+    if "settled_at" not in existing:
+        statements.append("ALTER TABLE conversations ADD COLUMN settled_at DATETIME")
+    if "unsettled_at" not in existing:
+        statements.append("ALTER TABLE conversations ADD COLUMN unsettled_at DATETIME")
+    if not statements:
+        return
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))

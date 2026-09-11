@@ -2,12 +2,39 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id
+from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id, utcnow
 from vendoo_studio.models.listing import Listing, ListingRevision
 from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, DISPATCHABLE_JOB_STATUSES, Job, JobEvent
 from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
 from vendoo_studio.models.registry import FieldRegistry
 from vendoo_studio.models.fill_log import FillLogEntry
+
+BUSY_LISTING_STATUSES = ("in_progress", "listing")
+
+
+def _settle(conv: Conversation, when, *, backfill: bool = False) -> bool:
+    if conv.settled_at is not None:
+        return False
+    conv.settled_at = conv.updated_at if backfill and conv.updated_at else when
+    conv.unsettled_at = None
+    return True
+
+
+def _unsettle(conv: Conversation, when) -> bool:
+    if conv.settled_at is None:
+        return False
+    conv.settled_at = None
+    conv.unsettled_at = when
+    return True
+
+
+def _sync_settlement(conv: Conversation, status: str, *, backfill: bool = False) -> bool:
+    now = utcnow()
+    if status in BUSY_LISTING_STATUSES:
+        return _unsettle(conv, now)
+    if status == "completed":
+        return _settle(conv, now, backfill=backfill)
+    return False
 
 
 class ConversationRepo:
@@ -32,6 +59,25 @@ class ConversationRepo:
         if not conv:
             return None
         conv.status = status
+        _sync_settlement(conv, status)
+        self.db.commit()
+        self.db.refresh(conv)
+        return conv
+
+    def settle(self, conv_id: str) -> Conversation | None:
+        conv = self.get(conv_id)
+        if not conv:
+            return None
+        _settle(conv, utcnow())
+        self.db.commit()
+        self.db.refresh(conv)
+        return conv
+
+    def unsettle(self, conv_id: str) -> Conversation | None:
+        conv = self.get(conv_id)
+        if not conv:
+            return None
+        _unsettle(conv, utcnow())
         self.db.commit()
         self.db.refresh(conv)
         return conv
@@ -47,17 +93,24 @@ class ConversationRepo:
         changed = False
         for conv in self.db.query(Conversation).all():
             if conv.status == "in_progress":
+                if _sync_settlement(conv, conv.status):
+                    changed = True
                 continue
             latest_job = self.db.query(Job).filter(
                 Job.conversation_id == conv.id
             ).order_by(Job.created_at.desc()).first()
-            if not latest_job or latest_job.status not in status_map:
-                continue
-            if conv.updated_at and latest_job.updated_at and latest_job.updated_at < conv.updated_at:
-                continue
-            next_status = status_map[latest_job.status]
-            if conv.status != next_status:
-                conv.status = next_status
+            if latest_job and latest_job.status in status_map:
+                skip_job = (
+                    conv.updated_at
+                    and latest_job.updated_at
+                    and latest_job.updated_at < conv.updated_at
+                )
+                if not skip_job:
+                    next_status = status_map[latest_job.status]
+                    if conv.status != next_status:
+                        conv.status = next_status
+                        changed = True
+            if _sync_settlement(conv, conv.status, backfill=True):
                 changed = True
         if changed:
             self.db.commit()
