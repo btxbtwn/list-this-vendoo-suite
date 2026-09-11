@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.database import get_db
-from vendoo_studio.repositories.queries import ConversationRepo
+from vendoo_studio.repositories.queries import BUSY_LISTING_STATUSES, ConversationRepo
 from vendoo_studio.models.conversation import Photo as PhotoModel
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -88,9 +88,6 @@ def get_conversation(conv_id: str, db: Session = Depends(get_db)):
 
 class ConversationUpdate(BaseModel):
     notes: Optional[str] = None
-
-
-BUSY_LISTING_STATUSES = ("in_progress", "listing")
 
 
 class DeleteConversationResponse(BaseModel):
