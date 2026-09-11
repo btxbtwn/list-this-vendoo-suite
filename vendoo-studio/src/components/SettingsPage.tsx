@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { ConnectChromeButton } from "./ConnectChromeButton";
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -85,6 +86,14 @@ export function SettingsPage() {
         {testResult && (
           <div className="mt-8 text-sm" style={{ color: testResult.includes("successful") ? "var(--color-success)" : "var(--color-error)" }}>{testResult}</div>
         )}
+      </div>
+
+      <div className="settings-card" style={{ marginTop: 16 }}>
+        <h2>Vendoo in Chrome</h2>
+        <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
+          Send to Vendoo opens a Studio-managed Chrome window with the listing extension already loaded. Sign in to Vendoo there once.
+        </p>
+        <ConnectChromeButton />
       </div>
     </div>
   );

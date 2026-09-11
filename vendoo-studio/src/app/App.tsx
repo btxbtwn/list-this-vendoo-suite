@@ -82,7 +82,7 @@ export function App() {
     <div className="app-shell">
       <div className={`app-content mobile-pane-${mobilePane}`}>
         <aside className="panel sidebar">
-          <div className="sidebar-header">
+          <div className="sidebar-header pywebview-drag-region">
             <div className="sidebar-brand">
               <span className="sidebar-wordmark">Vendoo</span>
               <span className="sidebar-product">Studio</span>
@@ -174,6 +174,7 @@ export function App() {
 
         <div className="workspace-frame">
           <main className="panel main-panel">
+            <div className="workspace-drag-region pywebview-drag-region" aria-hidden="true" />
             {activeView === "settings" ? (
               <SettingsPage />
             ) : selectedConvId ? (

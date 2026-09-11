@@ -12,3 +12,7 @@ data/photos/*
 data/fill-logs/*
 !data/fill-logs/.gitkeep
 .vite/
+build/
+release/
+desktop/AppIcon.icns
+desktop/build_info.json

@@ -15,6 +15,15 @@ dependencies = [
     "aiofiles>=24.0.0",
 ]
 
+[project.optional-dependencies]
+desktop = [
+    "pywebview>=5,<7",
+]
+package = [
+    "pywebview>=5,<7",
+    "pyinstaller>=6.3",
+]
+
 [project.scripts]
 vendoo-studio = "vendoo_studio.main:main"
 

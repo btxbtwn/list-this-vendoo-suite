@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { FillLogPanel, FillLogSummary } from "./FillLogPanel";
+import { ConnectChromeButton } from "./ConnectChromeButton";
 
 interface Props {
   convId: string;
@@ -55,7 +56,7 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
 
   return (
     <div className="listing-editor">
-      <div className="editor-header">
+      <div className="editor-header pywebview-drag-region">
         <span className="editor-title">Listing</span>
         {data?.can_send && <span className="editor-ready">Ready</span>}
       </div>
@@ -347,7 +348,12 @@ function SendToVendooButton({
   }
 
   if (!extensionConnected) {
-    return <div className="text-xs text-muted" style={{ textAlign: "center" }}>Extension not connected</div>;
+    return (
+      <div style={{ display: "grid", gap: 8, justifyItems: "center", textAlign: "center" }}>
+        <div className="text-xs text-muted">Chrome is not connected yet.</div>
+        <ConnectChromeButton />
+      </div>
+    );
   }
 
   return (

@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from vendoo_studio.config import BASE_DIR
+from vendoo_studio.config import BASE_DIR, is_packaged
 
 REMOTE = os.environ.get("VENDOO_STUDIO_UPDATE_REMOTE", "origin")
 REF = os.environ.get("VENDOO_STUDIO_UPDATE_REF", "main")
@@ -184,6 +184,13 @@ def ensure_standalone_clone(root: Path) -> Path:
 
 
 def check_for_updates() -> dict:
+    if is_packaged():
+        from vendoo_studio.services.packaged_updates import PackagedUpdateError, check_for_packaged_update
+
+        try:
+            return check_for_packaged_update()
+        except PackagedUpdateError as exc:
+            return {"available": False, "packaged": True, "error": str(exc)}
     try:
         return check_for_updates_at(repo_root())
     except (UpdateBlocked, subprocess.TimeoutExpired, FileNotFoundError) as exc:
@@ -227,6 +234,13 @@ def check_for_updates_at(root: Path) -> dict:
 
 
 def apply_update() -> dict:
+    if is_packaged():
+        from vendoo_studio.services.packaged_updates import PackagedUpdateError, apply_packaged_update
+
+        try:
+            return apply_packaged_update()
+        except PackagedUpdateError as exc:
+            raise UpdateBlocked(str(exc)) from exc
     try:
         return apply_update_at(repo_root())
     except subprocess.TimeoutExpired as exc:
@@ -266,11 +280,13 @@ def _rebuild_frontend_if_needed(root: Path) -> bool:
 
 
 def schedule_restart() -> None:
-    if _is_dev():
+    if _is_dev() and not is_packaged():
         return
 
     def _restart() -> None:
         time.sleep(1.0)
+        if is_packaged():
+            os._exit(0)
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
     threading.Thread(target=_restart, daemon=True).start()
