@@ -599,7 +599,6 @@ async function openVendooListing(job) {
       activeJob.windowId = existingTab.windowId;
       activeJob.tabId = existingTab.id;
       await persistActiveJob(activeJob);
-      await chrome.tabs.update(existingTab.id, { url: NEW_ITEM_URL, active: true });
       await waitForTabComplete(existingTab.id);
       await startJobPreview(existingTab.id, job.job_id);
       return { ok: true };

@@ -54,53 +54,74 @@ class ExtensionManager:
             return True
         return token == "direct"
 
-    async def send_message(self, message: dict):
-        if self.connection:
-            try:
-                await self.connection.send_json(message)
-            except Exception:
-                pass
+    async def send_message(self, message: dict) -> bool:
+        connection = self.connection
+        if not connection:
+            return False
+        try:
+            await connection.send_json(message)
+            return True
+        except Exception:
+            if self.connection is connection:
+                self.connection = None
+                self.paired = False
+            return False
 
-    async def disconnect(self):
-        if self.connection:
-            try:
-                await self.connection.close()
-            except Exception:
-                pass
-        self.connection = None
+    async def disconnect(self, ws: WebSocket | None = None):
+        connection = self.connection if ws is None else ws
+        if connection is None:
+            if ws is None:
+                self.connection = None
+                self.paired = False
+            return
+        try:
+            await connection.close()
+        except Exception:
+            pass
+        if self.connection is connection:
+            self.connection = None
+            self.paired = False
 
 
 extension_manager = ExtensionManager()
 
 
 async def dispatch_queued_jobs():
-    if not extension_manager.connected:
-        return
     db = SessionLocal()
     try:
         from vendoo_studio.repositories.queries import JobRepo
         repo = JobRepo(db)
-        active_jobs = repo.get_active()
-        for job in active_jobs:
-            photos_list = _build_photo_list(job.conversation_id, db)
-            registry_selectors = _build_registry_selectors(job.listing_snapshot or {}, db)
-            await extension_manager.send_message(ProtocolMessage(
-                    type="job.start",
-                    job_id=job.id,
-                    message_id=uuid.uuid4().hex[:12],
-                    payload={
-                        "job_id": job.id,
-                        "listing": job.listing_snapshot,
-                        "photos": photos_list,
-                        "options": {
-                            "platforms": ["ebay", "etsy", "poshmark", "mercari", "depop"],
-                            "saveDrafts": True,
-                            "publish": False,
-                        },
-                        "registry_selectors": registry_selectors,
-                    },
-                ).model_dump())
+        jobs = repo.get_dispatchable()
+        if not jobs:
+            return
+        if not extension_manager.connected:
+            for job in jobs:
+                if job.status != "awaiting_extension":
+                    repo.update_status(job.id, "awaiting_extension", "awaiting_extension")
+            return
+        job = jobs[0]
+        photos_list = _build_photo_list(job.conversation_id, db)
+        registry_selectors = _build_registry_selectors(job.listing_snapshot or {}, db)
+        sent = await extension_manager.send_message(ProtocolMessage(
+            type="job.start",
+            job_id=job.id,
+            message_id=uuid.uuid4().hex[:12],
+            payload={
+                "job_id": job.id,
+                "listing": job.listing_snapshot,
+                "photos": photos_list,
+                "options": {
+                    "platforms": ["ebay", "etsy", "poshmark", "mercari", "depop"],
+                    "saveDrafts": True,
+                    "publish": False,
+                },
+                "registry_selectors": registry_selectors,
+            },
+        ).model_dump(mode="json"))
+        if sent:
             repo.update_status(job.id, "dispatched")
+        else:
+            repo.update_status(job.id, "awaiting_extension", "awaiting_extension")
     finally:
         db.close()
 
@@ -170,13 +191,14 @@ def extension_status():
 async def extension_websocket(ws: WebSocket):
     await ws.accept()
 
-    if extension_manager.connection:
+    old = extension_manager.connection
+    if old is not None and old is not ws:
+        extension_manager.connection = None
+        extension_manager.paired = False
         try:
-            await ws.send_json({"type": "error", "message": "Another extension is already connected"})
-            await ws.close()
+            await old.close()
         except Exception:
             pass
-        return
 
     extension_manager.connection = ws
 
@@ -195,7 +217,9 @@ async def extension_websocket(ws: WebSocket):
                     await ws.send_json(ProtocolMessage(
                         type="connection.accepted",
                         payload={"paired": True},
-                    ).model_dump())
+                    ).model_dump(mode="json"))
+                    from vendoo_studio.repositories.queries import JobRepo
+                    JobRepo(db).requeue_interrupted()
                     await dispatch_queued_jobs()
                 else:
                     await ws.send_json({"type": "error", "message": "Invalid pairing token"})
@@ -295,7 +319,7 @@ async def extension_websocket(ws: WebSocket):
                 await ws.send_json(ProtocolMessage(
                     type="diagnostic.ack",
                     payload={"observation_id": obs_id},
-                ).model_dump())
+                ).model_dump(mode="json"))
 
             elif msg_type == "pong":
                 pass
@@ -305,6 +329,7 @@ async def extension_websocket(ws: WebSocket):
     except Exception:
         pass
     finally:
-        extension_manager.connection = None
-        extension_manager.paired = False
+        if extension_manager.connection is ws:
+            extension_manager.connection = None
+            extension_manager.paired = False
         db.close()

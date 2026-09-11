@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id
 from vendoo_studio.models.listing import Listing, ListingRevision
-from vendoo_studio.models.job import Job, JobEvent
+from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, DISPATCHABLE_JOB_STATUSES, Job, JobEvent
 from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
 from vendoo_studio.models.registry import FieldRegistry
 from vendoo_studio.models.fill_log import FillLogEntry
@@ -172,7 +172,32 @@ class JobRepo:
         return self.db.query(Job).filter(Job.id == job_id).first()
 
     def get_active(self) -> list[Job]:
-        return self.db.query(Job).filter(Job.status == "queued").all()
+        return (
+            self.db.query(Job)
+            .filter(Job.status.in_(ACTIVE_JOB_STATUSES))
+            .order_by(Job.created_at.asc())
+            .all()
+        )
+
+    def get_dispatchable(self) -> list[Job]:
+        return (
+            self.db.query(Job)
+            .filter(Job.status.in_(DISPATCHABLE_JOB_STATUSES))
+            .order_by(Job.created_at.asc())
+            .all()
+        )
+
+    def requeue_interrupted(self) -> list[Job]:
+        jobs = self.db.query(Job).filter(Job.status == "dispatched").all()
+        for job in jobs:
+            job.status = "queued"
+            job.current_step = "queued"
+            job.last_error = None
+        if jobs:
+            self.db.commit()
+            for job in jobs:
+                self.db.refresh(job)
+        return jobs
 
     def list_all(self) -> list[Job]:
         return self.db.query(Job).order_by(Job.created_at.desc()).limit(50).all()
@@ -199,10 +224,16 @@ class JobRepo:
 
     def add_event(self, job_id: str, event_type: str, step: str | None = None, payload: dict | None = None) -> JobEvent:
         count = self.db.query(JobEvent).filter(JobEvent.job_id == job_id).count()
-        event = JobEvent(job_id=job_id, sequence=count, event_type=event_type, step=step, payload=payload)
+        event = JobEvent(
+            id=new_id(),
+            job_id=job_id,
+            sequence=count,
+            event_type=event_type,
+            step=step,
+            payload=payload,
+        )
         self.db.add(event)
         self.db.commit()
-        self.db.refresh(event)
         return event
 
     def get_events(self, job_id: str) -> list[JobEvent]:

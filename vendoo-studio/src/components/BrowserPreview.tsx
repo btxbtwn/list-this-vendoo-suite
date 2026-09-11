@@ -13,9 +13,11 @@ interface Props {
   jobId: string | null;
   step?: string | null;
   status?: string | null;
+  onCancel?: () => void;
+  cancelling?: boolean;
 }
 
-export function BrowserPreview({ jobId, step, status }: Props) {
+export function BrowserPreview({ jobId, step, status, onCancel, cancelling }: Props) {
   const [frame, setFrame] = useState<PreviewFrame | null>(null);
   const [live, setLive] = useState(false);
 
@@ -56,10 +58,20 @@ export function BrowserPreview({ jobId, step, status }: Props) {
         <span className="browser-preview-url" title={url}>
           {url || "Waiting for Vendoo…"}
         </span>
-        <span className={`browser-preview-live${live && frame ? " on" : ""}`}>
-          {live && frame ? "Live" : "Standby"}
+        <span className={`browser-preview-live${live && frame ? " on" : live ? " wait" : ""}`}>
+          {live && frame ? "Live" : live ? "Connecting" : "Standby"}
         </span>
         <span className="browser-preview-step">{label.replace(/_/g, " ")}</span>
+        {onCancel && (
+          <button
+            type="button"
+            className="browser-preview-cancel"
+            onClick={onCancel}
+            disabled={cancelling}
+          >
+            {cancelling ? "Cancelling…" : "Cancel"}
+          </button>
+        )}
       </div>
       <div className="browser-preview-stage">
         {frame ? (
@@ -70,8 +82,8 @@ export function BrowserPreview({ jobId, step, status }: Props) {
           />
         ) : (
           <div className="browser-preview-empty">
-            <p>Watch the listing fill here. The Vendoo tab stays in the background.</p>
-            <p className="text-xs text-muted">Chrome may show a debugging banner on that tab. Stay in Studio.</p>
+            <p>{live ? "Connecting to the Vendoo tab…" : "Starting live view…"}</p>
+            <p className="text-xs text-muted">This panel shows the actual listing page as it fills. Stay in Studio.</p>
           </div>
         )}
       </div>

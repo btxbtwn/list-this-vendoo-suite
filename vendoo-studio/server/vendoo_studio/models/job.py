@@ -5,6 +5,9 @@ from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON, Integer
 from vendoo_studio.database import Base
 from vendoo_studio.models.conversation import new_id, utcnow
 
+ACTIVE_JOB_STATUSES = ("queued", "awaiting_extension", "dispatched")
+DISPATCHABLE_JOB_STATUSES = ("queued", "awaiting_extension")
+
 
 class Job(Base):
     __tablename__ = "jobs"

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { ChatMarkdown } from "./ChatMarkdown";
 
 interface Props {
   convId: string;
@@ -20,13 +21,21 @@ function isPhotoAnalysis(text: string): boolean {
   return text.startsWith("Photo analysis") && (text.includes("Brand:") || text.includes("Size:"));
 }
 
+function isStreamError(text: string): boolean {
+  return text.startsWith("Error:");
+}
+
 export function ChatPanel({ convId }: Props) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [streamText, setStreamText] = useState("");
+  const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(null);
+  const [lastSendText, setLastSendText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const restoreOnAbortRef = useRef(false);
   const queryClient = useQueryClient();
 
   const { data: messages, isLoading } = useQuery({
@@ -43,22 +52,47 @@ export function ChatPanel({ convId }: Props) {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [messages, streamText]);
 
+  useEffect(() => {
+    restoreOnAbortRef.current = false;
+    abortRef.current?.abort();
+    setInput("");
+    setStreaming(false);
+    setGenerating(false);
+    setStreamText("");
+    setFailedAction(null);
+    setLastSendText("");
+  }, [convId]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+  }, [input]);
+
   const streamFromFetch = useCallback(async (url: string) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setStreaming(true);
     setStreamText("");
+    setFailedAction(null);
     try {
-      const res = await fetch(url, { method: "POST" });
+      const res = await fetch(url, { method: "POST", signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
+        setFailedAction("generate");
         setStreaming(false);
+        setGenerating(false);
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const reader = res.body?.getReader();
-      if (!reader) { setStreaming(false); return; }
+      if (!reader) { setStreaming(false); setGenerating(false); return; }
       const decoder = new TextDecoder();
       let buffer = "";
+      let assembled = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -69,12 +103,22 @@ export function ChatPanel({ convId }: Props) {
           if (line.startsWith("data: ")) {
             const chunk = line.slice(6);
             if (chunk === "[DONE]") continue;
-            setStreamText((prev) => prev + chunk);
+            assembled += chunk;
+            setStreamText(assembled);
           }
         }
       }
+      if (isStreamError(assembled)) setFailedAction("generate");
     } catch (e: any) {
+      if (e?.name === "AbortError") {
+        setStreamText("");
+        setFailedAction(null);
+        setStreaming(false);
+        setGenerating(false);
+        return;
+      }
       setStreamText(`Error: ${e.message}`);
+      setFailedAction("generate");
     }
     setStreaming(false);
     setGenerating(false);
@@ -88,24 +132,27 @@ export function ChatPanel({ convId }: Props) {
     await streamFromFetch(`/api/conversations/${convId}/generate`);
   }, [convId, streamFromFetch]);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  const sendMessage = useCallback(async (text: string) => {
     if (!text || streaming) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setInput("");
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-    }
+    setLastSendText(text);
     setStreaming(true);
     setStreamText("");
+    setFailedAction(null);
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
+        setFailedAction("send");
         setStreaming(false);
         return;
       }
@@ -114,6 +161,7 @@ export function ChatPanel({ convId }: Props) {
       if (!reader) { setStreaming(false); return; }
       const decoder = new TextDecoder();
       let buffer = "";
+      let assembled = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -124,39 +172,69 @@ export function ChatPanel({ convId }: Props) {
           if (line.startsWith("data: ")) {
             const chunk = line.slice(6);
             if (chunk === "[DONE]") continue;
-            setStreamText((prev) => prev + chunk);
+            assembled += chunk;
+            setStreamText(assembled);
           }
         }
       }
+      if (isStreamError(assembled)) setFailedAction("send");
     } catch (e: any) {
+      if (e?.name === "AbortError") {
+        setStreamText("");
+        setFailedAction(null);
+        if (restoreOnAbortRef.current) setInput(text);
+        restoreOnAbortRef.current = false;
+        setStreaming(false);
+        return;
+      }
       setStreamText(`Error: ${e.message}`);
+      setFailedAction("send");
     }
     setStreaming(false);
     queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
-  }, [input, streaming, convId, queryClient]);
+  }, [streaming, convId, queryClient]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    e.target.style.height = "auto";
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
-  };
+  const handleSend = useCallback(() => {
+    void sendMessage(input.trim());
+  }, [input, sendMessage]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+  const handleCancel = useCallback(() => {
+    restoreOnAbortRef.current = true;
+    abortRef.current?.abort();
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    if (failedAction === "send" && lastSendText) {
+      void sendMessage(lastSendText);
+      return;
     }
-  };
+    void handleGenerate();
+  }, [failedAction, lastSendText, sendMessage, handleGenerate]);
 
   const hasPhotos = (photos && (photos as any[]).length > 0);
   const hasMessages = messages && (messages as any[]).length > 0;
-  const photoCount = (photos as any[])?.length ?? 0;
+  const hasListingJson = Boolean(messages?.some((m: any) => {
+    const json = extractJson(m.text);
+    return Boolean(json && isJsonBlock(m.text));
+  }));
+  const streamFailed = isStreamError(streamText);
+  const busy = streaming || generating;
+  const canRetry = failedAction === "send" ? Boolean(lastSendText) : Boolean(hasPhotos);
+  const composerPlaceholder = !hasPhotos
+    ? "Upload photos to begin"
+    : hasMessages
+      ? "Refine the listing..."
+      : "Add a note, or generate the listing...";
 
   function renderMessage(m: any) {
     if (m.role === "user") {
-      return <div key={m.id} className="msg msg-user">{m.text}</div>;
+      return (
+        <div key={m.id} className="msg msg-user">
+          <ChatMarkdown text={m.text} lineBreaks />
+        </div>
+      );
     }
 
     if (m.role === "system" && isPhotoAnalysis(m.text)) {
@@ -171,7 +249,12 @@ export function ChatPanel({ convId }: Props) {
     }
 
     if (m.role === "system") {
-      return <div key={m.id} className="msg msg-system">{m.text}</div>;
+      return (
+        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-border-bright)", flexShrink: 0 }} />
+          <span className="msg-system" style={{ padding: 0, borderLeft: "none", maxWidth: "none" }}>{m.text}</span>
+        </div>
+      );
     }
 
     const json = extractJson(m.text);
@@ -189,53 +272,70 @@ export function ChatPanel({ convId }: Props) {
       );
     }
 
-    return <div key={m.id} className="msg msg-assistant">{m.text}</div>;
+    return (
+      <div key={m.id} className="msg msg-assistant">
+        <ChatMarkdown text={m.text} />
+      </div>
+    );
   }
 
-  const composerPlaceholder = hasMessages
-    ? "Refine the listing…"
-    : hasPhotos
-      ? "Ask about this item or generate from photos…"
-      : "Upload photos, then generate a listing…";
-
   return (
-    <div className="chat-panel-root">
+    <div className="chat-panel">
       <div ref={scrollRef} className="chat-scroll">
         {isLoading && !hasMessages && (
-          <div className="chat-empty"><p className="chat-empty-hint">Loading…</p></div>
+          <div className="empty-state" style={{ padding: "16px 0" }}><p className="text-xs text-muted">Loading...</p></div>
         )}
 
         {!isLoading && !hasMessages && (
-          <div className="chat-empty">
+          <div className="empty-state" style={{ padding: "32px 16px" }}>
+            <h3 style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 20, marginBottom: 4, lineHeight: 1.2 }}>Generate a Listing</h3>
             {hasPhotos ? (
               <>
-                <p className="chat-empty-hint">
-                  {photoCount} photo{photoCount !== 1 ? "s" : ""} uploaded
-                </p>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleGenerate}
-                  disabled={generating || streaming}
-                >
-                  {generating ? "Analyzing…" : "Generate Listing"}
+                <p className="text-xs font-mono text-muted">{(photos as any[]).length} photo{(photos as any[]).length !== 1 ? "s" : ""} uploaded</p>
+                <button className="btn btn-primary" onClick={handleGenerate} disabled={generating || streaming} style={{ marginTop: 12, padding: "9px 22px" }}>
+                  {generating ? "Analyzing..." : "Generate Listing"}
                 </button>
               </>
             ) : (
-              <p className="chat-empty-hint">Upload photos to begin</p>
+              <p className="text-xs font-mono text-muted">Upload photos to begin</p>
             )}
           </div>
         )}
 
         {messages?.map(renderMessage)}
 
-        {streamText && <div className="msg msg-assistant">{streamText}</div>}
+        {streamText && !streamFailed && (
+          <div className="msg msg-assistant">
+            <ChatMarkdown text={streamText} />
+          </div>
+        )}
+
+        {streamFailed && (
+          <div className="chat-error" role="alert">
+            <div className="chat-error-text">{streamText}</div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleRetry}
+              disabled={busy || !canRetry}
+            >
+              {busy ? "Retrying..." : "Retry"}
+            </button>
+          </div>
+        )}
+
+        {hasMessages && !hasListingJson && !streamFailed && !busy && hasPhotos && (
+          <div className="chat-error">
+            <div className="chat-error-text">Listing generation did not finish.</div>
+            <button className="btn btn-primary btn-sm" onClick={handleGenerate}>
+              Retry
+            </button>
+          </div>
+        )}
 
         {(streaming || generating) && !streamText && (
-          <div className="chat-thinking">
-            <span className="chat-thinking-dot" />
-            <span className="chat-thinking-label">
-              {generating ? "Analyzing photos…" : "MIMO is thinking…"}
-            </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-cobalt)", flexShrink: 0 }} />
+            <span className="text-xs font-mono text-muted">{generating ? "ANALYZING PHOTOS…" : "MIMO IS THINKING…"}</span>
           </div>
         )}
       </div>
@@ -243,26 +343,44 @@ export function ChatPanel({ convId }: Props) {
       <div className="chat-composer">
         <div className="chat-composer-pill">
           <textarea
-            ref={inputRef}
+            ref={textareaRef}
             className="chat-composer-input"
+            rows={1}
             value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
             placeholder={composerPlaceholder}
             disabled={streaming}
-            rows={1}
           />
-          <button
-            type="button"
-            className="chat-composer-send"
-            onClick={handleSend}
-            disabled={streaming || !input.trim()}
-            aria-label="Send message"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M7 12V2M7 2L3.5 5.5M7 2L10.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          {busy ? (
+            <button
+              type="button"
+              className="chat-send chat-send-cancel"
+              onClick={handleCancel}
+              aria-label="Cancel"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+                <rect x="1" y="1" width="8" height="8" rx="1" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="chat-send"
+              onClick={handleSend}
+              disabled={!input.trim()}
+              aria-label="Send"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 12.5V3.5M8 3.5L3.5 8M8 3.5L12.5 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>
