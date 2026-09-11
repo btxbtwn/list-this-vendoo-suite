@@ -282,7 +282,7 @@ function ListingRow({
   const status = String(listing.status || "draft");
   const statusClass = status.replace(/_/g, "-");
   const statusLabel = status.replace(/_/g, " ");
-  const meta = settled ? compactRelativeTime(listing.settled_at || listing.updated_at) : statusLabel;
+  const settledAt = settled ? compactRelativeTime(listing.settled_at || listing.updated_at) : "";
 
   return (
     <div className="nav-item">
@@ -292,7 +292,8 @@ function ListingRow({
       >
         <div className="nav-link-title">{title}</div>
         <div className="nav-link-meta">
-          <span className={`nav-status${settled ? "" : ` nav-status-${statusClass}`}`}>{meta}</span>
+          <span className={`nav-status nav-status-${statusClass}`}>{statusLabel}</span>
+          {settledAt ? <span className="nav-time">{settledAt}</span> : null}
         </div>
       </button>
       <div className="nav-actions">
