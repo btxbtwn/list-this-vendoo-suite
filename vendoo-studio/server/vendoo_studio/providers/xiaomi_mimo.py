@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import json
+
 import httpx
 
 MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
@@ -14,20 +16,62 @@ def _encode_image(path: str) -> str:
     return f"data:image/{mime};base64,{data}"
 
 
+def _error_message(payload: dict) -> str | None:
+    error = payload.get("error")
+    if error is None:
+        return None
+    if isinstance(error, dict):
+        return str(error.get("message") or error.get("code") or error)
+    return str(error)
+
+
+def chunk_text(payload: dict) -> str:
+    """Return visible assistant text from a chat-completion payload."""
+    error = _error_message(payload)
+    if error:
+        raise RuntimeError(error)
+
+    choices = payload.get("choices") or []
+    if not choices:
+        return ""
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    delta = choice.get("delta") or {}
+    content = delta.get("content")
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                parts.append(item.get("text") or "")
+        return "".join(parts)
+    if isinstance(content, str) and content:
+        return content
+
+    message = choice.get("message") or {}
+    message_content = message.get("content")
+    if isinstance(message_content, str):
+        return message_content
+    return ""
+
+
 class MiMoProvider:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = MIMO_BASE_URL
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
 
     async def test_connection(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(
                     f"{self.base_url}/models",
-                    headers={
-                        "api-key": self.api_key,
-                        "Content-Type": "application/json",
-                    },
+                    headers=self._headers(),
                 )
                 return resp.status_code == 200
         except Exception:
@@ -79,10 +123,7 @@ class MiMoProvider:
             async with httpx.AsyncClient(timeout=120) as client:
                 resp = await client.post(
                     f"{self.base_url}/chat/completions",
-                    headers={
-                        "api-key": self.api_key,
-                        "Content-Type": "application/json",
-                    },
+                    headers=self._headers(),
                     json={
                         "model": "mimo-v2.5",
                         "messages": messages,
@@ -102,58 +143,84 @@ class MiMoProvider:
         messages: list[dict],
         stream: bool = True,
     ):
+        if stream:
+            yielded = False
+            try:
+                async for content in self._stream_chat(messages):
+                    if content:
+                        yielded = True
+                        yield content
+            except Exception:
+                if yielded:
+                    raise
+                async for content in self._complete_chat(messages):
+                    yield content
+                return
+            if not yielded:
+                async for content in self._complete_chat(messages):
+                    yield content
+            return
+
+        async for content in self._complete_chat(messages):
+            yield content
+
+    async def _stream_chat(self, messages: list[dict]):
         async with httpx.AsyncClient(timeout=300) as client:
-            if stream:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/chat/completions",
-                    headers={
-                        "api-key": self.api_key,
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "mimo-v2.5-pro",
-                        "messages": messages,
-                        "max_tokens": 8192,
-                        "temperature": 0.7,
-                        "stream": True,
-                    },
-                ) as resp:
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-                            if data_str == "[DONE]":
-                                break
-                            import json
-                            try:
-                                chunk = json.loads(data_str)
-                                delta = chunk["choices"][0].get("delta", {})
-                                content = delta.get("content", "")
-                                if content:
-                                    yield content
-                            except (json.JSONDecodeError, KeyError, IndexError):
-                                continue
-            else:
-                resp = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers={
-                        "api-key": self.api_key,
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "mimo-v2.5-pro",
-                        "messages": messages,
-                        "max_tokens": 8192,
-                        "temperature": 0.7,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                yield data["choices"][0]["message"]["content"]
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json={
+                    "model": "mimo-v2.5-pro",
+                    "messages": messages,
+                    "max_tokens": 8192,
+                    "temperature": 0.7,
+                    "stream": True,
+                },
+            ) as resp:
+                if resp.status_code >= 400:
+                    await resp.aread()
+                    raise RuntimeError(f"MiMo HTTP {resp.status_code}: {resp.text[:500]}")
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        data_str = line[5:].strip()
+                    else:
+                        data_str = line.strip()
+                    if not data_str or data_str == "[DONE]":
+                        if data_str == "[DONE]":
+                            break
+                        continue
+                    try:
+                        payload = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    text = chunk_text(payload)
+                    if text:
+                        yield text
+
+    async def _complete_chat(self, messages: list[dict]):
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json={
+                    "model": "mimo-v2.5-pro",
+                    "messages": messages,
+                    "max_tokens": 8192,
+                    "temperature": 0.7,
+                },
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(f"MiMo HTTP {resp.status_code}: {resp.text[:500]}")
+            data = resp.json()
+            text = chunk_text(data)
+            if not text:
+                raise RuntimeError("MiMo returned an empty listing response")
+            yield text
 
     def _parse_json_response(self, content: str) -> dict:
-        import json
         import re
 
         try:

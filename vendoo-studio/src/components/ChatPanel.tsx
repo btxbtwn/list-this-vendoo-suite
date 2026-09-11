@@ -34,9 +34,11 @@ export function ChatPanel({ convId }: Props) {
   const [lastSendText, setLastSendText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const abortByConvRef = useRef<Record<string, AbortController>>({});
+  const convIdRef = useRef(convId);
   const restoreOnAbortRef = useRef(false);
   const queryClient = useQueryClient();
+  convIdRef.current = convId;
 
   const { data: messages, isLoading } = useQuery({
     queryKey: ["messages", convId],
@@ -54,7 +56,6 @@ export function ChatPanel({ convId }: Props) {
 
   useEffect(() => {
     restoreOnAbortRef.current = false;
-    abortRef.current?.abort();
     setInput("");
     setStreaming(false);
     setGenerating(false);
@@ -70,10 +71,12 @@ export function ChatPanel({ convId }: Props) {
     el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
   }, [input]);
 
+  const isCurrent = useCallback(() => convIdRef.current === convId, [convId]);
+
   const streamFromFetch = useCallback(async (url: string) => {
-    abortRef.current?.abort();
+    abortByConvRef.current[convId]?.abort();
     const controller = new AbortController();
-    abortRef.current = controller;
+    abortByConvRef.current[convId] = controller;
     setStreaming(true);
     setStreamText("");
     setFailedAction(null);
@@ -81,15 +84,23 @@ export function ChatPanel({ convId }: Props) {
       const res = await fetch(url, { method: "POST", signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
-        setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
-        setFailedAction("generate");
-        setStreaming(false);
-        setGenerating(false);
+        if (isCurrent()) {
+          setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
+          setFailedAction("generate");
+          setStreaming(false);
+          setGenerating(false);
+        }
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const reader = res.body?.getReader();
-      if (!reader) { setStreaming(false); setGenerating(false); return; }
+      if (!reader) {
+        if (isCurrent()) {
+          setStreaming(false);
+          setGenerating(false);
+        }
+        return;
+      }
       const decoder = new TextDecoder();
       let buffer = "";
       let assembled = "";
@@ -104,28 +115,40 @@ export function ChatPanel({ convId }: Props) {
             const chunk = line.slice(6);
             if (chunk === "[DONE]") continue;
             assembled += chunk;
-            setStreamText(assembled);
+            if (isCurrent()) setStreamText(assembled);
           }
         }
       }
-      if (isStreamError(assembled)) setFailedAction("generate");
+      if (isCurrent()) {
+        if (!assembled.trim()) {
+          assembled = "Error: Listing generation did not finish.";
+          setStreamText(assembled);
+        }
+        if (isStreamError(assembled)) setFailedAction("generate");
+      }
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        setStreamText("");
-        setFailedAction(null);
-        setStreaming(false);
-        setGenerating(false);
+        if (isCurrent()) {
+          setStreamText("");
+          setFailedAction(null);
+          setStreaming(false);
+          setGenerating(false);
+        }
         return;
       }
-      setStreamText(`Error: ${e.message}`);
-      setFailedAction("generate");
+      if (isCurrent()) {
+        setStreamText(`Error: ${e.message}`);
+        setFailedAction("generate");
+      }
     }
-    setStreaming(false);
-    setGenerating(false);
+    if (isCurrent()) {
+      setStreaming(false);
+      setGenerating(false);
+    }
     await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
-  }, [convId, queryClient]);
+  }, [convId, isCurrent, queryClient]);
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
@@ -134,9 +157,9 @@ export function ChatPanel({ convId }: Props) {
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text || streaming) return;
-    abortRef.current?.abort();
+    abortByConvRef.current[convId]?.abort();
     const controller = new AbortController();
-    abortRef.current = controller;
+    abortByConvRef.current[convId] = controller;
     setInput("");
     setLastSendText(text);
     setStreaming(true);
@@ -151,14 +174,19 @@ export function ChatPanel({ convId }: Props) {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
-        setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
-        setFailedAction("send");
-        setStreaming(false);
+        if (isCurrent()) {
+          setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
+          setFailedAction("send");
+          setStreaming(false);
+        }
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const reader = res.body?.getReader();
-      if (!reader) { setStreaming(false); return; }
+      if (!reader) {
+        if (isCurrent()) setStreaming(false);
+        return;
+      }
       const decoder = new TextDecoder();
       let buffer = "";
       let assembled = "";
@@ -173,28 +201,32 @@ export function ChatPanel({ convId }: Props) {
             const chunk = line.slice(6);
             if (chunk === "[DONE]") continue;
             assembled += chunk;
-            setStreamText(assembled);
+            if (isCurrent()) setStreamText(assembled);
           }
         }
       }
-      if (isStreamError(assembled)) setFailedAction("send");
+      if (isStreamError(assembled) && isCurrent()) setFailedAction("send");
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        setStreamText("");
-        setFailedAction(null);
-        if (restoreOnAbortRef.current) setInput(text);
-        restoreOnAbortRef.current = false;
-        setStreaming(false);
+        if (isCurrent()) {
+          setStreamText("");
+          setFailedAction(null);
+          if (restoreOnAbortRef.current) setInput(text);
+          restoreOnAbortRef.current = false;
+          setStreaming(false);
+        }
         return;
       }
-      setStreamText(`Error: ${e.message}`);
-      setFailedAction("send");
+      if (isCurrent()) {
+        setStreamText(`Error: ${e.message}`);
+        setFailedAction("send");
+      }
     }
-    setStreaming(false);
+    if (isCurrent()) setStreaming(false);
     queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
-  }, [streaming, convId, queryClient]);
+  }, [streaming, convId, isCurrent, queryClient]);
 
   const handleSend = useCallback(() => {
     void sendMessage(input.trim());
@@ -202,8 +234,8 @@ export function ChatPanel({ convId }: Props) {
 
   const handleCancel = useCallback(() => {
     restoreOnAbortRef.current = true;
-    abortRef.current?.abort();
-  }, []);
+    abortByConvRef.current[convId]?.abort();
+  }, [convId]);
 
   const handleRetry = useCallback(() => {
     if (failedAction === "send" && lastSendText) {
