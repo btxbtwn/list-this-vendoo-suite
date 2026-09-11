@@ -272,7 +272,6 @@ Depop: No title field → use Universal Description only
     "age": "Modern",
     "style": ["Streetwear", "Sportswear", "Graphic"],
     "material": "Cotton",
-    "size_grouping": "US",
     "occasion": ["Casual", "Sportswear", "Vacation"],
     "condition": "Used - Fair",
     "location": "New Orleans, LA",
