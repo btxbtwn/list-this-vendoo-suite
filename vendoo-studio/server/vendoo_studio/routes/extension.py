@@ -7,12 +7,11 @@ from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from vendoo_studio.config import PAIRING_FILE
 from vendoo_studio.models.protocol import ProtocolMessage
 from vendoo_studio.database import SessionLocal
 
 router = APIRouter(tags=["extension"])
-
-PAIRING_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "pairing_token.txt")
 
 
 class ExtensionManager:

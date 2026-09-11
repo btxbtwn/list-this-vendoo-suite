@@ -8,9 +8,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, BASE_DIR
+from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, frontend_dist_dir
 from vendoo_studio.database import init_db
-from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates
+from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop
 
 
 @asynccontextmanager
@@ -43,8 +43,9 @@ app.include_router(settings.router)
 app.include_router(extension.router)
 app.include_router(chat.router)
 app.include_router(updates.router)
+app.include_router(desktop.router)
 
-dist_dir = BASE_DIR / "dist"
+dist_dir = frontend_dist_dir()
 if dist_dir.exists():
     app.mount("/", StaticFiles(directory=str(dist_dir), html=True), name="static")
 

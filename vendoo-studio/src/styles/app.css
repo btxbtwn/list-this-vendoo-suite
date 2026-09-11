@@ -503,6 +503,35 @@ textarea.input {
   padding: 0 12px;
 }
 
+.workspace-drag-region {
+  display: none;
+}
+
+.pywebview-drag-region {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html.desktop-app {
+  --titlebar-height: 38px;
+  --traffic-light-inset: 76px;
+}
+
+html.desktop-app .sidebar-header {
+  height: var(--titlebar-height);
+  padding-left: var(--traffic-light-inset);
+}
+
+html.desktop-app .editor-header {
+  height: var(--titlebar-height);
+}
+
+html.desktop-app .workspace-drag-region {
+  display: block;
+  height: var(--titlebar-height);
+  flex-shrink: 0;
+}
+
 .sidebar-brand {
   display: flex;
   align-items: baseline;
@@ -2037,4 +2066,26 @@ details[open] .json-collapse-summary::before {
     padding-left: 12px;
     padding-right: 12px;
   }
+}
+
+.status-connect {
+  background: none;
+  border: 1px solid var(--color-border-bright);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.status-connect:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+
+.status-connect:disabled {
+  opacity: 0.55;
+  cursor: default;
 }

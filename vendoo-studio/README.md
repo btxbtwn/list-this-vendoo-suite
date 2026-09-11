@@ -1,8 +1,41 @@
 # Vendoo Listing Studio
 
-Local web application for generating and automating Vendoo marketplace listings through Xiaomi MiMo AI.
+Local application for generating and automating Vendoo marketplace listings through Xiaomi MiMo AI.
 
-## Quick Start
+## Share a Mac app
+
+Build a self-contained `.app` that someone else can unzip and open. They do not need Python, Node, or this git repo.
+
+```bash
+cd vendoo-studio
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[package]"
+./scripts/package-macos-app.sh
+```
+
+That writes `vendoo-studio/release/List This Studio.app` and `vendoo-studio/release/List-This-Studio-macos.zip`.
+
+Publish the zip as the rolling GitHub release (`studio-macos`):
+
+```bash
+./scripts/publish-macos-release.sh
+```
+
+Pushes to `main` that touch Studio, the extension, or listing skills also build and replace that release through `.github/workflows/studio-macos.yml`.
+
+The packaged app does not git-pull. **Check for updates** compares the stamped build SHA against the GitHub release and, if newer, downloads the zip, replaces the `.app`, and relaunches. Listing data stays in `~/Library/Application Support/List This Studio`.
+
+The recipient:
+
+1. Unzips the archive and moves **List This Studio** into Applications.
+2. Opens it. The first time, macOS may require right-click → Open because the build is ad-hoc signed, not notarized.
+3. Enters a Xiaomi MiMo API key in Settings.
+4. Clicks **Connect Chrome**. Studio opens a managed Chrome window with the Vendoo extension loaded. They sign in to Vendoo there once.
+
+They need macOS 13+ and Google Chrome. Listing photos and the SQLite database live in `~/Library/Application Support/List This Studio`.
+
+## Quick Start (development)
 
 ```bash
 cd vendoo-studio

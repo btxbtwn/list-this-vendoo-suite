@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from vendoo_studio.config import skills_dir
 from vendoo_studio.database import get_db
 from vendoo_studio.repositories.queries import ConversationRepo
 from vendoo_studio.services.keychain import get_api_key
@@ -19,12 +20,9 @@ class ChatMessage(BaseModel):
     text: str
 
 
-SKILLS_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "skills"
-
-
 def _load_skill_rules() -> str:
-    skill_md = SKILLS_DIR / "list-this" / "SKILL.md"
-    template_md = SKILLS_DIR / "list-this" / "references" / "vendoo_listing_template.md"
+    skill_md = skills_dir() / "list-this" / "SKILL.md"
+    template_md = skills_dir() / "list-this" / "references" / "vendoo_listing_template.md"
 
     parts = []
     if skill_md.exists():

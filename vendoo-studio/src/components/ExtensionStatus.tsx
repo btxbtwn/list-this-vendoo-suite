@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { ConnectChromeButton } from "./ConnectChromeButton";
 
 export function ExtensionStatus() {
   const { data } = useQuery({
@@ -12,6 +13,7 @@ export function ExtensionStatus() {
     <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <span className={`status-dot ${data?.connected ? "connected" : ""}`} />
       <span>{data?.connected ? "Extension connected" : "Extension offline"}</span>
+      {!data?.connected && <ConnectChromeButton compact />}
     </span>
   );
 }

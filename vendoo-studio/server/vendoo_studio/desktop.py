@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import multiprocessing
 import os
 import plistlib
 import shutil
@@ -14,7 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from vendoo_studio.config import BASE_DIR, HOST, PORT
+from vendoo_studio.config import BASE_DIR, HOST, PORT, frontend_dist_dir, is_frozen
 
 CHANNELS = {
     "production": {
@@ -43,6 +44,8 @@ APP_EXECUTABLE = CHANNEL["executable"]
 WINDOW_WIDTH = 1440
 WINDOW_HEIGHT = 900
 MIN_WINDOW_SIZE = (1024, 700)
+WINDOW_BACKGROUND = "#090909"
+TITLEBAR_HEIGHT_PX = 38
 HEALTH_URL = f"http://{HOST}:{PORT}/api/health"
 APP_URL = f"http://{HOST}:{PORT}"
 LOG_PATH = Path.home() / "Library" / "Logs" / CHANNEL["log"]
@@ -142,9 +145,16 @@ def splash_html(message: str = "Starting List This Studio…") -> str:
       min-height: 100vh;
       display: grid;
       place-items: center;
-      background: #090909;
+      background: {WINDOW_BACKGROUND};
       color: #E2E3E5;
       font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }}
+    .pywebview-drag-region {{
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: {TITLEBAR_HEIGHT_PX}px;
     }}
     main {{ text-align: center; max-width: 28rem; padding: 2rem; }}
     h1 {{ font-size: 1.15rem; font-weight: 600; color: #fff; margin: 0 0 .75rem; }}
@@ -152,6 +162,7 @@ def splash_html(message: str = "Starting List This Studio…") -> str:
   </style>
 </head>
 <body>
+  <div class="pywebview-drag-region" aria-hidden="true"></div>
   <main>
     <h1>{html.escape(APP_NAME)}</h1>
     <p>{html.escape(message)}</p>
@@ -213,7 +224,7 @@ def ensure_venv() -> Path:
         creator = pick_python()
         subprocess.run([creator, "-m", "venv", str(BASE_DIR / ".venv")], check=True)
         subprocess.run([str(python), "-m", "pip", "install", "--upgrade", "pip"], check=True)
-        subprocess.run([str(python), "-m", "pip", "install", "-e", str(BASE_DIR)], check=True)
+        subprocess.run([str(python), "-m", "pip", "install", "-e", ".[desktop]"], cwd=str(BASE_DIR), check=True)
         return python
     probe = subprocess.run(
         [str(python), "-c", "import fastapi, uvicorn, webview"],
@@ -222,7 +233,7 @@ def ensure_venv() -> Path:
     )
     if probe.returncode != 0:
         notify("Updating List This Studio Python packages…")
-        subprocess.run([str(python), "-m", "pip", "install", "-e", str(BASE_DIR)], check=True)
+        subprocess.run([str(python), "-m", "pip", "install", "-e", ".[desktop]"], cwd=str(BASE_DIR), check=True)
     return python
 
 
@@ -256,9 +267,11 @@ def ensure_on_channel_ref() -> None:
 
 
 def ensure_frontend() -> None:
-    index = BASE_DIR / "dist" / "index.html"
+    index = frontend_dist_dir() / "index.html"
     if index.exists():
         return
+    if is_frozen():
+        raise RuntimeError("The listing UI is missing from this app. Re-download List This Studio.")
     npm = require_command("npm")
     if not (BASE_DIR / "node_modules").exists():
         subprocess.run([npm, "install"], cwd=BASE_DIR, check=True)
@@ -398,6 +411,78 @@ def shlex_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def studio_window_kwargs() -> dict:
+    return {
+        "width": WINDOW_WIDTH,
+        "height": WINDOW_HEIGHT,
+        "min_size": MIN_WINDOW_SIZE,
+        "text_select": True,
+        "frameless": True,
+        "easy_drag": False,
+        "shadow": True,
+        "background_color": WINDOW_BACKGROUND,
+    }
+
+
+def _hex_to_srgb(color: str) -> tuple[float, float, float]:
+    value = color.removeprefix("#")
+    return (
+        int(value[0:2], 16) / 255.0,
+        int(value[2:4], 16) / 255.0,
+        int(value[4:6], 16) / 255.0,
+    )
+
+
+def apply_unified_macos_chrome(window) -> None:
+    """Paint the window like T3 Code: no grey title bar, traffic lights on the UI."""
+    if sys.platform != "darwin":
+        return
+    native = getattr(window, "native", None)
+    if native is None:
+        return
+    try:
+        import AppKit
+    except ImportError:
+        return
+
+    title_hidden = getattr(AppKit, "NSWindowTitleHidden", 1)
+    try:
+        native.setTitlebarAppearsTransparent_(True)
+        native.setTitleVisibility_(title_hidden)
+        red, green, blue = _hex_to_srgb(WINDOW_BACKGROUND)
+        native.setBackgroundColor_(
+            AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(red, green, blue, 1.0)
+        )
+        appearance = AppKit.NSAppearance.appearanceNamed_(AppKit.NSAppearanceNameDarkAqua)
+        native.setAppearance_(appearance)
+        titlebar = native.contentView().superview().subviews()[-1]
+        titlebar.setBackgroundColor_(AppKit.NSColor.clearColor())
+    except Exception:
+        pass
+
+    for button in (
+        AppKit.NSWindowCloseButton,
+        AppKit.NSWindowMiniaturizeButton,
+        AppKit.NSWindowZoomButton,
+    ):
+        try:
+            control = native.standardWindowButton_(button)
+            if control is not None:
+                control.setHidden_(False)
+        except Exception:
+            pass
+
+
+def create_studio_window(webview_module):
+    window = webview_module.create_window(
+        APP_NAME,
+        html=splash_html(),
+        **studio_window_kwargs(),
+    )
+    window.events.before_show += apply_unified_macos_chrome
+    return window
+
+
 def _set_macos_app_name() -> None:
     try:
         from Foundation import NSBundle
@@ -414,7 +499,8 @@ def _set_macos_app_name() -> None:
 def _boot_window(window) -> None:
     try:
         window.load_html(splash_html("Preparing the listing workspace…"))
-        ensure_on_channel_ref()
+        if not is_frozen():
+            ensure_on_channel_ref()
         ensure_frontend()
         window.load_html(splash_html("Starting the local studio server…"))
         start_owned_server()
@@ -427,21 +513,19 @@ def run_window() -> None:
     _set_macos_app_name()
     import webview
 
-    window = webview.create_window(
-        APP_NAME,
-        html=splash_html(),
-        width=WINDOW_WIDTH,
-        height=WINDOW_HEIGHT,
-        min_size=MIN_WINDOW_SIZE,
-        text_select=True,
-        easy_drag=False,
-    )
+    window = create_studio_window(webview)
     webview.start(lambda: _boot_window(window))
     stop_owned_server()
 
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    if is_frozen():
+        os.environ.setdefault("VENDOO_STUDIO_PACKAGED", "1")
+        setup_logging()
+        print(f"starting {APP_NAME}", flush=True)
+        run_window()
+        return 0
     augment_path()
     if "--install-staging" in args:
         path = install_macos_app(channel_name="staging")
@@ -460,4 +544,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     raise SystemExit(main())

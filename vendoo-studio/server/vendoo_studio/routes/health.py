@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from vendoo_studio.config import is_packaged
 from vendoo_studio.database import get_db
+from vendoo_studio.services.chrome_bridge import chrome_executable
 
 router = APIRouter(tags=["health"])
 
@@ -32,4 +34,6 @@ def status(db: Session = Depends(get_db)):
         "conversations": conversations,
         "active_jobs": len(active_jobs),
         "database_ok": True,
+        "packaged": is_packaged(),
+        "chrome_available": chrome_executable() is not None,
     }

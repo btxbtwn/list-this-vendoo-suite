@@ -22,7 +22,16 @@ function promptForUpdate(data: {
   behind?: number;
   summary?: string;
   commits?: string[];
+  packaged?: boolean;
+  short_sha?: string;
+  remote_sha?: string;
 }) {
+  if (data.packaged) {
+    const sha = data.short_sha || (data.remote_sha ? data.remote_sha.slice(0, 7) : "new");
+    return window.confirm(
+      `A new List This Studio Mac build is on GitHub (${sha}).\n\n${data.summary || ""}\n\nDownload and install it now? The app will quit and reopen.`,
+    );
+  }
   const n = data.behind || 0;
   const lines = (data.commits || []).slice(0, 5);
   const body = [

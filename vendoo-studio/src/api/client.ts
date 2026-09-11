@@ -41,6 +41,8 @@ export const api = {
       provider_configured: boolean;
       extension_connected: boolean;
       active_job_id: string | null;
+      packaged?: boolean;
+      chrome_available?: boolean;
     }>("/status"),
 
   conversations: {
@@ -117,10 +119,22 @@ export const api = {
     pairingToken: () => request<any>("/extension/pairing-token"),
   },
 
+  desktop: {
+    chrome: () =>
+      request<{
+        available: boolean;
+        browser: string | null;
+        extension_dir: string;
+        profile_dir: string;
+      }>("/desktop/chrome"),
+    connectChrome: () => request<{ ok: boolean }>("/desktop/chrome/connect", { method: "POST" }),
+  },
+
   updates: {
     status: () =>
       request<{
         available: boolean;
+        packaged?: boolean;
         behind?: number;
         ahead?: number;
         branch?: string;
@@ -129,6 +143,7 @@ export const api = {
         remote_ref?: string;
         summary?: string;
         commits?: string[];
+        short_sha?: string;
         dirty?: string[];
         error?: string | null;
       }>("/updates"),

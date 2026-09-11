@@ -1,0 +1,45 @@
+name: Studio macOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "vendoo-studio/**"
+      - "vendoo-extension/**"
+      - "skills/list-this/**"
+      - ".github/workflows/studio-macos.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: studio-macos
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: vendoo-studio/package-lock.json
+      - name: Package app
+        working-directory: vendoo-studio
+        env:
+          PYTHON: ${{ github.workspace }}/vendoo-studio/.venv/bin/python
+        run: |
+          python -m venv .venv
+          "$PYTHON" -m pip install -U pip
+          "$PYTHON" -m pip install -e ".[package]"
+          ./scripts/package-macos-app.sh
+      - name: Publish GitHub release
+        working-directory: vendoo-studio
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/publish-macos-release.sh
