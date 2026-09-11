@@ -531,7 +531,10 @@ Server-to-extension messages:
 - `job.start`
 - `job.retry`
 - `job.cancel`
+- `extension.reload`
 - `ping`
+
+After a Studio update, the backend copies the bundled extension over the installed copy and sends `extension.reload`. The service worker calls `chrome.runtime.reload()`, then refreshes open marketplace tabs so content scripts pick up the new code.
 
 Extension-to-server messages:
 

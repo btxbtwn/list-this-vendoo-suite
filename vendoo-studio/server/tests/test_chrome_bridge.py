@@ -44,6 +44,37 @@ class ChromeBridgeTest(unittest.TestCase):
         self.assertFalse((installed / ".playwright-mcp").exists())
         self.assertFalse((installed / "README.md").exists())
 
+    def test_install_is_idempotent_until_source_changes(self):
+        self.assertTrue(chrome_bridge.install_bundled_extension())
+        self.assertFalse(chrome_bridge.install_bundled_extension())
+        (self.extension / "background.js").write_text("console.log('updated')\n", encoding="utf-8")
+        self.assertTrue(chrome_bridge.install_bundled_extension())
+        installed = chrome_bridge.installed_extension_dir()
+        self.assertEqual(
+            (installed / "background.js").read_text(encoding="utf-8"),
+            "console.log('updated')\n",
+        )
+        (self.extension / "extra.js").write_text("gone\n", encoding="utf-8")
+        chrome_bridge.install_bundled_extension()
+        (self.extension / "extra.js").unlink()
+        self.assertTrue(chrome_bridge.install_bundled_extension())
+        self.assertFalse((installed / "extra.js").exists())
+
+    def test_pending_reload_token_round_trip(self):
+        self.assertIsNone(chrome_bridge.pending_extension_reload_token())
+        token = chrome_bridge.mark_extension_reload_pending()
+        self.assertEqual(chrome_bridge.pending_extension_reload_token(), token)
+        chrome_bridge.clear_extension_reload_pending()
+        self.assertIsNone(chrome_bridge.pending_extension_reload_token())
+
+    def test_needs_worker_reload(self):
+        self.assertTrue(chrome_bridge.needs_worker_reload(None, None, True))
+        self.assertTrue(chrome_bridge.needs_worker_reload("abc", None, False))
+        self.assertTrue(chrome_bridge.needs_worker_reload("abc", "xyz", False))
+        self.assertFalse(chrome_bridge.needs_worker_reload("abc", "abc", False))
+        self.assertFalse(chrome_bridge.needs_worker_reload(None, None, False))
+        self.assertTrue(chrome_bridge.needs_worker_reload("abc", "abc", True))
+
     def test_launch_args_load_extension_into_private_profile(self):
         args = chrome_bridge.launch_args(
             Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),

@@ -10,6 +10,14 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from vendoo_studio.config import PAIRING_FILE
 from vendoo_studio.models.protocol import ProtocolMessage
 from vendoo_studio.database import SessionLocal
+from vendoo_studio.services.chrome_bridge import (
+    ChromeBridgeError,
+    clear_extension_reload_pending,
+    install_bundled_extension,
+    mark_extension_reload_pending,
+    needs_worker_reload,
+    pending_extension_reload_token,
+)
 
 router = APIRouter(tags=["extension"])
 
@@ -83,6 +91,43 @@ class ExtensionManager:
 
 
 extension_manager = ExtensionManager()
+
+
+def _reported_reload_generation(payload: dict) -> str | None:
+    reported = payload.get("reload_generation")
+    if reported is None:
+        return None
+    token = str(reported).strip()
+    return token or None
+
+
+async def request_extension_reload(generation: str) -> bool:
+    return await extension_manager.send_message(ProtocolMessage(
+        type="extension.reload",
+        payload={"generation": generation},
+    ).model_dump(mode="json"))
+
+
+async def handshake_extension(ws: WebSocket, reported_generation: str | None) -> bool:
+    try:
+        files_changed = install_bundled_extension()
+    except ChromeBridgeError:
+        files_changed = False
+    pending = pending_extension_reload_token()
+    if needs_worker_reload(pending, reported_generation, files_changed):
+        token = pending or mark_extension_reload_pending()
+        await ws.send_json(ProtocolMessage(
+            type="extension.reload",
+            payload={"generation": token},
+        ).model_dump(mode="json"))
+        return False
+    if pending:
+        clear_extension_reload_pending()
+    await ws.send_json(ProtocolMessage(
+        type="connection.accepted",
+        payload={"paired": True},
+    ).model_dump(mode="json"))
+    return True
 
 
 async def dispatch_queued_jobs():
@@ -210,16 +255,15 @@ async def extension_websocket(ws: WebSocket):
             msg_type = message.get("type", "")
 
             if msg_type == "extension.ready":
-                token = message.get("payload", {}).get("token", "")
+                payload = message.get("payload", {}) or {}
+                token = payload.get("token", "")
                 if extension_manager.verify_token(token):
                     extension_manager.paired = True
-                    await ws.send_json(ProtocolMessage(
-                        type="connection.accepted",
-                        payload={"paired": True},
-                    ).model_dump(mode="json"))
-                    from vendoo_studio.repositories.queries import JobRepo
-                    JobRepo(db).requeue_interrupted()
-                    await dispatch_queued_jobs()
+                    accepted = await handshake_extension(ws, _reported_reload_generation(payload))
+                    if accepted:
+                        from vendoo_studio.repositories.queries import JobRepo
+                        JobRepo(db).requeue_interrupted()
+                        await dispatch_queued_jobs()
                 else:
                     await ws.send_json({"type": "error", "message": "Invalid pairing token"})
                 continue

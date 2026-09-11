@@ -3,7 +3,18 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
+const RELOAD_GENERATION_KEY = 'studio_reload_generation';
+const RELOAD_TABS_KEY = 'studio_reload_tabs';
 const CONTENT_SCRIPT_VERSION = '0.3.5';
+const EXTENSION_TAB_URLS = [
+  'https://app.vendoo.co/*',
+  'https://web.vendoo.co/*',
+  'https://www.ebay.com/*',
+  'https://poshmark.com/*',
+  'https://www.mercari.com/*',
+  'https://www.depop.com/*',
+  'https://www.etsy.com/*',
+];
 
 let ws = null;
 let reconnectTimer = null;
@@ -129,13 +140,41 @@ function connect() {
 
 async function sendIdent() {
   const token = await getPairingToken();
+  const stored = await chrome.storage.local.get(RELOAD_GENERATION_KEY);
   send({
     version: 1,
     type: 'extension.ready',
     message_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
     sent_at: new Date().toISOString(),
-    payload: { token: token || 'direct' },
+    payload: {
+      token: token || 'direct',
+      version: chrome.runtime.getManifest().version,
+      reload_generation: stored[RELOAD_GENERATION_KEY] || null,
+    },
   });
+}
+
+async function reloadMarketplaceTabs() {
+  const tabs = await chrome.tabs.query({ url: EXTENSION_TAB_URLS });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.tabs.reload(tab.id);
+    } catch (err) {
+      error(`Tab reload failed: ${err.message}`);
+    }
+  }
+}
+
+async function handleExtensionReload(generation) {
+  const stored = { [RELOAD_TABS_KEY]: true };
+  if (generation) {
+    stored[RELOAD_GENERATION_KEY] = generation;
+  }
+  await chrome.storage.local.set(stored);
+  await persistActiveJob(null);
+  log('Reloading extension after Studio update');
+  chrome.runtime.reload();
 }
 
 function scheduleReconnect() {
@@ -377,6 +416,10 @@ async function handleStudioMessage(msg) {
       }
       break;
     }
+
+    case 'extension.reload':
+      await handleExtensionReload(msg.payload?.generation);
+      break;
   }
 }
 
@@ -795,12 +838,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'IGNORE_PAIRING') {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      send({
-        version: 1,
-        type: 'extension.ready',
-        message_id: Date.now().toString(36),
-        sent_at: new Date().toISOString(),
-        payload: { token: 'direct' },
+      chrome.storage.local.get(RELOAD_GENERATION_KEY).then((stored) => {
+        send({
+          version: 1,
+          type: 'extension.ready',
+          message_id: Date.now().toString(36),
+          sent_at: new Date().toISOString(),
+          payload: {
+            token: 'direct',
+            version: chrome.runtime.getManifest().version,
+            reload_generation: stored[RELOAD_GENERATION_KEY] || null,
+          },
+        });
       });
     }
     sendResponse({ ok: true });
@@ -971,6 +1020,11 @@ async function runDiagnostic(targetTabId) {
 
 // Initialize
 (async () => {
+  const stored = await chrome.storage.local.get(RELOAD_TABS_KEY);
+  if (stored[RELOAD_TABS_KEY]) {
+    await chrome.storage.local.remove(RELOAD_TABS_KEY);
+    await reloadMarketplaceTabs();
+  }
   await restoreActiveJob();
   connect();
 })();
