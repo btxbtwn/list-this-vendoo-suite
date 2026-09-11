@@ -551,6 +551,29 @@ class RegistryRepo:
                 entry.known_selectors = selectors
                 self.db.commit()
 
+    def list_fields(
+        self,
+        marketplace: str | None = None,
+        category_path: str | None = None,
+        *,
+        all_categories: bool = False,
+    ) -> list[FieldRegistry]:
+        query = self.db.query(FieldRegistry)
+        if marketplace:
+            query = query.filter(FieldRegistry.marketplace == marketplace)
+        if category_path:
+            query = query.filter(
+                (FieldRegistry.category_path == category_path) |
+                (FieldRegistry.category_path == None)
+            )
+        elif not all_categories:
+            query = query.filter(FieldRegistry.category_path == None)
+        return query.order_by(
+            FieldRegistry.marketplace,
+            FieldRegistry.category_path,
+            FieldRegistry.normalized_label,
+        ).all()
+
     def get_registry_context(self, marketplace: str, category_path: str | None = None) -> str:
         query = self.db.query(FieldRegistry).filter(
             FieldRegistry.marketplace == marketplace

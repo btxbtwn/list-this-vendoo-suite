@@ -33,6 +33,28 @@ def _load_skill_rules() -> str:
     return "\n\n---\n\n".join(parts) if parts else ""
 
 
+def _learned_fields_prompt(db: Session, conv_id: str) -> str:
+    from vendoo_studio.repositories.queries import ListingRepo
+    from vendoo_studio.services.registry import RegistryService
+
+    category_path = None
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    if revisions and isinstance(revisions[0].listing_json, dict):
+        category_path = revisions[0].listing_json.get("category_path") or None
+    text = RegistryService(db).generation_context(category_path)
+    if not text:
+        return ""
+    return f"\n\n--- Learned fields ---\n\n{text}"
+
+
+def _stamp_learned_fields(db: Session, listing: dict) -> dict:
+    from vendoo_studio.services.registry import RegistryService
+
+    if isinstance(listing, dict):
+        RegistryService(db).merge_learned_fields(listing)
+    return listing
+
+
 async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[dict]:
     repo = ConversationRepo(db)
     history = repo.get_messages(conv_id)
@@ -116,7 +138,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             f"\n--- Listing Rules ---\n\n{skill_rules}"
             if skill_rules
             else ""
-        ),
+        ) + _learned_fields_prompt(db, conv_id),
     }
 
     messages = [system_prompt]
@@ -198,7 +220,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                                     target = target.get(k, {})
                                 if isinstance(target, dict) and keys[-1] in target:
                                     del target[keys[-1]]
-                        lr.save_revision(conv_id, updated, source="model_refinement",
+                        lr.save_revision(conv_id, _stamp_learned_fields(db, updated), source="model_refinement",
                                          parent_revision_id=revisions[0].id)
                         repo.add_message(conv_id, "system",
                                          "Listing updated automatically from refinement.",
@@ -208,7 +230,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                     lr = ListingRepo(db)
                     revisions = lr.get_revisions(conv_id)
                     parent_id = revisions[0].id if revisions else None
-                    lr.save_revision(conv_id, parsed, source="model_refinement",
+                    lr.save_revision(conv_id, _stamp_learned_fields(db, parsed), source="model_refinement",
                                      parent_revision_id=parent_id)
                     repo.add_message(conv_id, "system",
                                      "Listing updated automatically from refinement.",
@@ -373,6 +395,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         f"{item_details}\n\n"
         f"{analysis_text}\n\n"
         f"--- Listing Rules ---\n\n{skill_rules}"
+        f"{_learned_fields_prompt(db, conv_id)}"
     )
 
     messages = [{"role": "system", "content": system_content}]
@@ -401,7 +424,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     repo.add_message(conv_id, "system", "Listing extracted and ready for review.", provider="system", model="")
                     from vendoo_studio.repositories.queries import ListingRepo
                     lr = ListingRepo(db)
-                    lr.save_revision(conv_id, parsed, source="model")
+                    lr.save_revision(conv_id, _stamp_learned_fields(db, parsed), source="model")
                 except Exception:
                     pass
 

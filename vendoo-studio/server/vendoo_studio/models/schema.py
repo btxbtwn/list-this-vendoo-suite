@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 VALID_CONDITIONS = frozenset((
@@ -45,6 +45,7 @@ PACKAGE_DIMS_PATTERN = r"^\d+(\.\d+)?\s*x\s*\d+(\.\d+)?\s*x\s*\d+(\.\d+)?$"
 
 
 class EbaySpecifics(BaseModel):
+    model_config = ConfigDict(extra="allow")
     type: Optional[str] = None
     department: Optional[str] = None
     sizeType: Optional[str] = None
@@ -77,12 +78,17 @@ class EbaySpecifics(BaseModel):
     performanceActivity: Optional[str] = None
     yearManufactured: Optional[str] = None
     collarStyle: Optional[str] = None
+    strapType: Optional[str] = None
+    fabricWeight: Optional[str] = None
+    sleeveType: Optional[str] = None
+    accents: Optional[list[str] | str] = None
     rise: Optional[str] = None
     inseam: Optional[str] = None
     waist: Optional[str] = None
 
 
 class DepopSpecifics(BaseModel):
+    model_config = ConfigDict(extra="allow")
     source: Optional[str] = None
     age: Optional[str] = None
     style: Optional[list[str] | str] = None
@@ -92,6 +98,7 @@ class DepopSpecifics(BaseModel):
 
 
 class EtsySpecifics(BaseModel):
+    model_config = ConfigDict(extra="allow")
     who_made: Optional[str] = None
     what_is: Optional[str] = None
     when_made: Optional[str] = None
@@ -102,11 +109,13 @@ class EtsySpecifics(BaseModel):
 
 
 class PoshmarkSpecifics(BaseModel):
+    model_config = ConfigDict(extra="allow")
     categoryPath: list[str] = Field(default_factory=list)
     originalPrice: float = 0
 
 
 class MercariSpecifics(BaseModel):
+    model_config = ConfigDict(extra="allow")
     categoryPath: list[str] = Field(default_factory=list)
     shippingLabel: str = "USPS Ground Advantage"
 

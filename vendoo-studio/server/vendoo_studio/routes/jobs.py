@@ -83,6 +83,7 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
 
     from vendoo_studio.services.registry import RegistryService
     registry = RegistryService(db)
+    registry.merge_learned_fields(listing_snapshot)
     all_warnings = []
     for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
         mp_warnings = registry.validate_dropdown_fields(
@@ -243,6 +244,7 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
         _ensure_listing_defaults(job.listing_snapshot)
         from vendoo_studio.services.registry import RegistryService
         registry = RegistryService(db)
+        registry.merge_learned_fields(job.listing_snapshot)
         category_path = job.listing_snapshot.get("category_path", "")
         for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
             registry.validate_dropdown_fields(
