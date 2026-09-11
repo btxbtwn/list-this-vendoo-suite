@@ -3,7 +3,7 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
-const CONTENT_SCRIPT_VERSION = '0.3.4';
+const CONTENT_SCRIPT_VERSION = '0.3.5';
 
 let ws = null;
 let reconnectTimer = null;
@@ -595,7 +595,7 @@ async function openVendooListing(job) {
   try {
     const existingTab = await findNewItemTab();
     if (existingTab) {
-      log(`Reusing new-item tab ${existingTab.id} (${existingTab.url})`);
+      log(`Reloading new-item tab ${existingTab.id} -> ${NEW_ITEM_URL}`);
       activeJob.windowId = existingTab.windowId;
       activeJob.tabId = existingTab.id;
       await persistActiveJob(activeJob);
@@ -642,8 +642,8 @@ async function waitForContentScript(job) {
     const resp = await pingContentScript(tabId);
     if (resp && resp.ok) {
       if (resp.contentScriptVersion !== CONTENT_SCRIPT_VERSION) {
-        log(`Content script version mismatch: got ${resp.contentScriptVersion}, expected ${CONTENT_SCRIPT_VERSION}. Reload extension.`);
-        return { ok: false, error: `Content script version mismatch (${resp.contentScriptVersion} vs ${CONTENT_SCRIPT_VERSION}). Reload extension at chrome://extensions/.` };
+        log(`Content script version mismatch: got ${resp.contentScriptVersion}, expected ${CONTENT_SCRIPT_VERSION}. Reload extension and the Vendoo tab.`);
+        return { ok: false, error: `Content script is stale (${resp.contentScriptVersion} vs ${CONTENT_SCRIPT_VERSION}). Reload the extension at chrome://extensions/, then refresh the Vendoo tab.` };
       }
       log(`Content script ready on tab ${tabId} v${resp.contentScriptVersion}`);
       return { ok: true };
@@ -680,8 +680,17 @@ async function sendToVendoo(job, command) {
   if (!tabId) {
     return { ok: false, error: 'No job tab stored' };
   }
+  const timeoutMs = command.type === 'FILL_GENERAL' || command.type === 'FILL_MARKETPLACE'
+    ? 90000
+    : 45000;
   try {
-    const resp = await chrome.tabs.sendMessage(tabId, { ...command });
+    const resp = await Promise.race([
+      chrome.tabs.sendMessage(tabId, { ...command }),
+      sleep(timeoutMs).then(() => ({
+        ok: false,
+        error: `${command.type} timed out after ${timeoutMs / 1000}s`,
+      })),
+    ]);
     return resp || { ok: false, error: 'No response' };
   } catch (err) {
     return { ok: false, error: `sendMessage failed: ${err.message}` };

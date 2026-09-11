@@ -170,7 +170,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 
 ### Visual Direction
 
-- Purpose-built professional workspace.
+- Purpose-built local listing workbench for one operator. Photos in, marketplace draft out, human approval before Send to Vendoo.
 - Dense enough for daily operational use.
 - T3 Code-inspired information hierarchy, not an IDE clone.
 - T3 Code stock dark shell from `pingdotgg/t3code` `themePalette.ts`: `#000000` sidebar, `#0a0a0a` workspace, `#111111` surfaces, `#191919` borders, and `#346bf1` accent.
