@@ -3,7 +3,7 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
-const CONTENT_SCRIPT_VERSION = '0.3.5';
+const CONTENT_SCRIPT_VERSION = '0.3.6';
 
 let ws = null;
 let reconnectTimer = null;

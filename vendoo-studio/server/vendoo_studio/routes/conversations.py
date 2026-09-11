@@ -25,6 +25,8 @@ class ConversationResponse(BaseModel):
     title: Optional[str]
     notes: Optional[str]
     status: str
+    settled_at: Optional[str] = None
+    unsettled_at: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -88,10 +90,33 @@ class ConversationUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+BUSY_LISTING_STATUSES = ("in_progress", "listing")
+
+
 class DeleteConversationResponse(BaseModel):
     ok: bool
     deleted_jobs: int
     deleted_photos: int
+
+
+@router.post("/{conv_id}/settle", response_model=ConversationResponse)
+def settle_conversation(conv_id: str, db: Session = Depends(get_db)):
+    repo = ConversationRepo(db)
+    conv = repo.get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    if conv.status in BUSY_LISTING_STATUSES:
+        raise HTTPException(409, "Cannot settle a listing that is still in progress")
+    return _conv_response(repo.settle(conv_id))
+
+
+@router.post("/{conv_id}/unsettle", response_model=ConversationResponse)
+def unsettle_conversation(conv_id: str, db: Session = Depends(get_db)):
+    repo = ConversationRepo(db)
+    conv = repo.get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    return _conv_response(repo.unsettle(conv_id))
 
 
 @router.patch("/{conv_id}")
@@ -203,12 +228,18 @@ def _msg_response(msg) -> dict:
     }
 
 
+def _iso(value) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
 def _conv_response(conv) -> ConversationResponse:
     return ConversationResponse(
         id=conv.id,
         title=conv.title,
         notes=conv.notes,
         status=conv.status,
+        settled_at=_iso(conv.settled_at),
+        unsettled_at=_iso(conv.unsettled_at),
         created_at=conv.created_at.isoformat() if conv.created_at else "",
         updated_at=conv.updated_at.isoformat() if conv.updated_at else "",
     )

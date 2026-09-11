@@ -52,6 +52,10 @@ export const api = {
       request<any>("/conversations", { method: "POST", body: JSON.stringify(body || {}) }),
     update: (id: string, body: { notes?: string }) =>
       request<any>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    settle: (id: string) =>
+      request<any>(`/conversations/${id}/settle`, { method: "POST" }),
+    unsettle: (id: string) =>
+      request<any>(`/conversations/${id}/unsettle`, { method: "POST" }),
     messages: (id: string) => request<any[]>(`/conversations/${id}/messages`),
     photos: (id: string) => request<any[]>(`/conversations/${id}/photos`),
     deletePhoto: (convId: string, photoId: string) =>
