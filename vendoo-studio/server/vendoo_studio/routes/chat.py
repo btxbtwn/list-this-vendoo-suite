@@ -76,6 +76,27 @@ async def _iter_with_keepalives(source, timeout: float = 10.0):
         yield item
 
 
+def _learned_fields_prompt(db: Session, conv_id: str) -> str:
+    from vendoo_studio.services.registry import RegistryService
+
+    category_path = None
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    if revisions and isinstance(revisions[0].listing_json, dict):
+        category_path = revisions[0].listing_json.get("category_path") or None
+    text = RegistryService(db).generation_context(category_path)
+    if not text:
+        return ""
+    return f"\n\n--- Learned fields ---\n\n{text}"
+
+
+def _stamp_learned_fields(db: Session, listing: dict) -> dict:
+    from vendoo_studio.services.registry import RegistryService
+
+    if isinstance(listing, dict):
+        RegistryService(db).merge_learned_fields(listing)
+    return listing
+
+
 async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[dict]:
     repo = ConversationRepo(db)
     history = repo.get_messages(conv_id)
@@ -118,7 +139,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             f"\n--- Listing Rules ---\n\n{skill_rules}"
             if skill_rules
             else ""
-        ),
+        ) + _learned_fields_prompt(db, conv_id),
     }
 
     messages = [system_prompt]
@@ -138,7 +159,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
         lr = ListingRepo(db)
         revisions = lr.get_revisions(conv_id)
         parent_id = revisions[0].id if revisions else None
-        lr.save_revision(conv_id, parsed, source="model_refinement", parent_revision_id=parent_id)
+        lr.save_revision(conv_id, _stamp_learned_fields(db, parsed), source="model_refinement", parent_revision_id=parent_id)
         ConversationRepo(db).add_message(
             conv_id,
             "system",
@@ -189,7 +210,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
                 target = target.get(k, {})
             if isinstance(target, dict) and keys[-1] in target:
                 del target[keys[-1]]
-    lr.save_revision(conv_id, updated, source="model_refinement", parent_revision_id=revisions[0].id)
+    lr.save_revision(conv_id, _stamp_learned_fields(db, updated), source="model_refinement", parent_revision_id=revisions[0].id)
     ConversationRepo(db).add_message(
         conv_id,
         "system",
@@ -333,7 +354,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 stream_repo.add_message(conv_id, "system", analysis_text, provider="xiaomi-mimo", model="mimo-v2.5")
 
             item_details = seller_item_details(notes)
-            messages = _listing_messages(skill_rules, item_details, analysis_text)
+            messages = _listing_messages(skill_rules, item_details, analysis_text, stream_db, conv_id)
 
             async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
                 if item is None:
@@ -373,7 +394,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     return StreamingResponse(stream_response(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
-def _listing_messages(skill_rules: str, item_details: str, analysis_text: str) -> list[dict]:
+def _listing_messages(skill_rules: str, item_details: str, analysis_text: str, db: Session, conv_id: str) -> list[dict]:
     system_content = (
         "You are a product listing generator. Generate a COMPLETE, ready-to-use Vendoo listing JSON "
         "from the photo analysis and listing rules below.\n\n"
@@ -412,6 +433,7 @@ def _listing_messages(skill_rules: str, item_details: str, analysis_text: str) -
         f"{item_details}\n\n"
         f"{analysis_text}\n\n"
         f"--- Listing Rules ---\n\n{skill_rules}"
+        f"{_learned_fields_prompt(db, conv_id)}"
     )
     return [
         {"role": "system", "content": system_content},

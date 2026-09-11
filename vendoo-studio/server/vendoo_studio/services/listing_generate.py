@@ -5,7 +5,9 @@ import logging
 import re
 from typing import Any
 
+from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+from vendoo_studio.services.registry import RegistryService
 
 log = logging.getLogger("vendoo_studio.listing_generate")
 
@@ -113,5 +115,7 @@ def persist_generated_listing(db, conv_id: str, full_text: str, *, source: str =
         return None
 
     repo.add_message(conv_id, "system", "Listing extracted and ready for review.", provider="system", model="")
+    if isinstance(parsed, dict):
+        RegistryService(db).merge_learned_fields(parsed)
     ListingRepo(db).save_revision(conv_id, parsed, source=source)
     return parsed
