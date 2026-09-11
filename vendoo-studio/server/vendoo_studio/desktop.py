@@ -45,7 +45,10 @@ WINDOW_WIDTH = 1440
 WINDOW_HEIGHT = 900
 MIN_WINDOW_SIZE = (1024, 700)
 WINDOW_BACKGROUND = "#090909"
-TITLEBAR_HEIGHT_PX = 52
+TITLEBAR_HEIGHT_PX = 38
+TRAFFIC_LIGHT_SIZE_PX = 12.0
+TRAFFIC_LIGHT_GAP_PX = 8.0
+TRAFFIC_LIGHT_X_PX = 16.0
 HEALTH_URL = f"http://{HOST}:{PORT}/api/health"
 APP_URL = f"http://{HOST}:{PORT}"
 LOG_PATH = Path.home() / "Library" / "Logs" / CHANNEL["log"]
@@ -433,8 +436,58 @@ def _hex_to_srgb(color: str) -> tuple[float, float, float]:
     )
 
 
-def apply_unified_macos_chrome(window) -> None:
-    """Paint the window like T3 Code: no grey title bar, traffic lights on the UI."""
+def traffic_light_rect(index: int, container_height: float) -> tuple[float, float, float, float]:
+    """Electron hiddenInset geometry used by T3 Code: 12pt buttons, 8pt gap."""
+    size = TRAFFIC_LIGHT_SIZE_PX
+    x = TRAFFIC_LIGHT_X_PX + index * (size + TRAFFIC_LIGHT_GAP_PX)
+    y = max(0.0, float(container_height) - (TITLEBAR_HEIGHT_PX + size) / 2.0)
+    return (x, y, size, size)
+
+
+def _layout_t3_traffic_lights(native, AppKit) -> None:
+    buttons = (
+        AppKit.NSWindowCloseButton,
+        AppKit.NSWindowMiniaturizeButton,
+        AppKit.NSWindowZoomButton,
+    )
+    container_height = float(TITLEBAR_HEIGHT_PX)
+    try:
+        close = native.standardWindowButton_(buttons[0])
+        if close is not None:
+            superview = close.superview()
+            if superview is not None:
+                container_height = float(superview.frame().size.height)
+    except Exception:
+        pass
+
+    small = getattr(AppKit, "NSControlSizeSmall", 1)
+    make_rect = getattr(AppKit, "NSMakeRect", None)
+    for index, button in enumerate(buttons):
+        try:
+            control = native.standardWindowButton_(button)
+            if control is None:
+                continue
+            control.setHidden_(False)
+            try:
+                control.setControlSize_(small)
+            except Exception:
+                pass
+            x, y, width, height = traffic_light_rect(index, container_height)
+            if make_rect is not None:
+                control.setFrame_(make_rect(x, y, width, height))
+            else:
+                frame = control.frame()
+                frame.origin.x = x
+                frame.origin.y = y
+                frame.size.width = width
+                frame.size.height = height
+                control.setFrame_(frame)
+        except Exception:
+            pass
+
+
+def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
+    """Paint the window like T3 Code: no grey title bar, 12pt traffic lights on the UI."""
     if sys.platform != "darwin":
         return
     native = getattr(window, "native", None)
@@ -460,17 +513,7 @@ def apply_unified_macos_chrome(window) -> None:
     except Exception:
         pass
 
-    for button in (
-        AppKit.NSWindowCloseButton,
-        AppKit.NSWindowMiniaturizeButton,
-        AppKit.NSWindowZoomButton,
-    ):
-        try:
-            control = native.standardWindowButton_(button)
-            if control is not None:
-                control.setHidden_(False)
-        except Exception:
-            pass
+    _layout_t3_traffic_lights(native, AppKit)
 
 
 def create_studio_window(webview_module):
@@ -480,6 +523,11 @@ def create_studio_window(webview_module):
         **studio_window_kwargs(),
     )
     window.events.before_show += apply_unified_macos_chrome
+    events = window.events
+    if hasattr(events, "shown"):
+        events.shown += apply_unified_macos_chrome
+    if hasattr(events, "resized"):
+        events.resized += apply_unified_macos_chrome
     return window
 
 
