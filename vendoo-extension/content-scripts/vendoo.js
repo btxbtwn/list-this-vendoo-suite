@@ -10,7 +10,7 @@
   window.__vendooStudioBridge = true;
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.4';
+  const CONTENT_SCRIPT_VERSION = '0.3.6';
   const DEBUG = true;
   let statusBox;
 
@@ -135,12 +135,31 @@
     return summary;
   }
 
+  const FIELD_KEY_ALIASES = {
+    'listing price': 'price',
+    'buy it now price': 'price',
+    'pounds': 'weight (lbs)',
+    'ounces': 'weight (oz)',
+    'us size': 'size',
+    'vendoo labels': 'labels',
+    'vendoo internal notes': 'notes',
+    'internal notes': 'notes',
+    'who made it': 'who made',
+    'what is it': 'what is it',
+    'when was it made': 'when made',
+    'when made': 'when made',
+    'primary color': 'color',
+    'cost of goods': 'cost of goods',
+  };
+
   function normalizeFieldKey(value) {
-    return String(value || '')
+    const key = String(value || '')
       .replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, '')
+      .replace(/[*?]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
+    return FIELD_KEY_ALIASES[key] || key;
   }
 
   function selectorFor(el, fallback) {
@@ -184,15 +203,49 @@
   function isListingFormControl(el) {
     if (!el) return false;
     const id = el.id || '';
-    if (/generalDetails|listings\.|categoryV2|^labels$/i.test(id)) return true;
+    const name = el.name || '';
+    if (/generalDetails|listings\.|categoryV2|^labels$/i.test(id) || /generalDetails|listings\./i.test(name)) return true;
     if (el.getAttribute && el.getAttribute('role') === 'category-search-field') return true;
     const parent = el.closest('[id]');
     const parentId = parent ? parent.id : '';
     return /listings|generalDetails|category/i.test(parentId);
   }
 
+  function isCurrentMarketplaceControl(el) {
+    if (!isListingFormControl(el)) return false;
+    const id = el.id || '';
+    const name = el.name || '';
+    const parent = el.closest('[id]');
+    const parentId = parent ? parent.id : '';
+    const marketplace = String(currentFillMarketplace || 'general').toLowerCase();
+    if (marketplace === 'general') {
+      if (/^listings\./i.test(id) || /^listings\./i.test(name)) return false;
+      return /generalDetails|categoryV2|^labels$/i.test(`${id} ${name} ${parentId}`) ||
+        (el.getAttribute && el.getAttribute('role') === 'category-search-field');
+    }
+    const prefix = `listings.${marketplace}.`;
+    return id.startsWith(prefix) || name.startsWith(prefix) || parentId.startsWith(prefix);
+  }
+
+  function selectorMatchesControl(selector, el) {
+    if (!selector || !el) return false;
+    if (el.id) {
+      const raw = `#${el.id}`;
+      const escaped = `#${String(el.id).replace(/\./g, '\\.')}`;
+      if (selector === raw || selector === escaped) return true;
+    }
+    return false;
+  }
+
+  function controlAlreadyLogged(el, labelKey) {
+    for (const entry of fillLedger) {
+      if (normalizeFieldKey(entry.field) === labelKey) return true;
+      if (selectorMatchesControl(entry.selector, el)) return true;
+    }
+    return false;
+  }
+
   function appendUnmappedFields() {
-    const attempted = new Set(fillLedger.map((entry) => normalizeFieldKey(entry.field)));
     const seen = new Set();
     const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
 
@@ -204,18 +257,21 @@
       if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) === 0) continue;
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
-      if (!isListingFormControl(el)) continue;
+      if (!isCurrentMarketplaceControl(el)) continue;
 
       const label = fieldLabelForControl(el);
       const key = normalizeFieldKey(label);
-      if (!key || attempted.has(key) || seen.has(key)) continue;
+      if (!key || seen.has(key) || controlAlreadyLogged(el, key)) continue;
+      const currentValue = displayedFieldValue(el);
+      const placeholder = (el.getAttribute && el.getAttribute('placeholder')) || '';
+      if (currentValue && currentValue !== placeholder && !/^(select|choose)\b/i.test(currentValue)) continue;
       seen.add(key);
       recordFill({
         field: label,
         status: 'new',
         reason: 'Visible on form, not filled by automation',
         selector: selectorFor(el, ''),
-        value: el.value || '',
+        value: el.value || displayedFieldValue(el) || '',
       });
     }
   }
@@ -253,6 +309,7 @@
     tags: '#generalDetails\\.tags',
     quantity: '#generalDetails\\.quantity',
     size: '#generalDetails\\.size\\.option\\.value',
+    sizeType: '#generalDetails\\.size\\.scale\\.value',
     sku: '#generalDetails\\.sku',
     weightLb: '#generalDetails\\.weight\\.pounds',
     weightOz: '#generalDetails\\.weight\\.ounces',
@@ -268,6 +325,7 @@
 
   const CATEGORY_RESULT_SELECTORS = [
     '[role="option"]',
+    '[role="treeitem"]',
     '.MuiAutocomplete-option',
     '[role="listbox"] [role="option"]',
     'li[role="option"]',
@@ -565,6 +623,10 @@
           ['rockabilly', 'Pin-up & rockabilly'],
           ['rocker', 'Rocker'],
           ['grunge', 'Rocker'],
+          ['graphic', 'Streetwear'],
+          ['casual', 'Streetwear'],
+          ['streetwear', 'Streetwear'],
+          ['street', 'Streetwear'],
           ['menswear', 'Menswear'],
           ['tailored', 'Menswear'],
           ['suiting', 'Menswear']
@@ -690,6 +752,17 @@
 
   function normalizeEtsyCategorySpecificValue(fieldName, rawValue) {
       if (!rawValue) return rawValue;
+
+      const skipUnmapped = {
+          occasion: ['everyday', 'casual', 'n/a'],
+          graphic: ['graphic', 'n/a'],
+          fabric: ['cotton', 'cotton blend'],
+          pattern: ['graphic', 'graphic print'],
+      };
+      const skipValues = skipUnmapped[fieldName];
+      if (skipValues && skipValues.includes(normalizeText(rawValue))) {
+          return null;
+      }
 
       const mappings = ETSY_CATEGORY_VALUE_MAPS[fieldName];
       if (!mappings) {
@@ -835,11 +908,100 @@
       await sleep(CONFIG.SLEEP_SHORT);
   }
 
+  function displayedFieldValue(el) {
+      if (!el) return '';
+      const direct = (el.value || '').trim();
+      if (direct) return direct;
+      const selectShown = el.closest?.('.MuiSelect-root, .MuiInputBase-root, .MuiAutocomplete-root')
+          ?.querySelector('.MuiSelect-select, [class*="MuiSelect-select"]');
+      if (selectShown) {
+          const text = (selectShown.innerText || selectShown.textContent || '').replace(/\u200b/g, '').trim();
+          if (text) return text.split('\n')[0].trim();
+      }
+      const combo = (el.getAttribute && el.getAttribute('role') === 'combobox') ? el : el.closest?.('[role="combobox"]');
+      if (combo) {
+          const text = (combo.textContent || '').replace(/\u200b/g, '').trim().split('\n')[0].trim();
+          if (text && text.length < 80) return text;
+      }
+      return '';
+  }
+
   function fieldLooksFilled(el) {
       if (!el) return false;
-      const value = (el.value || '').trim();
+      const value = displayedFieldValue(el);
       if (!value) return false;
       return !/^(select|primary color|secondary color|condition|brand|shipping label)\b/i.test(value);
+  }
+
+  function normalizeOptionValue(text) {
+      return String(text || '')
+          .replace(/[–—]/g, '-')
+          .replace(/[*?]+/g, '')
+          .replace(/[_/]+/g, ' ')
+          .replace(/-/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+  }
+
+  function optionMatchesValue(optionText, value, isStrict) {
+      const got = normalizeOptionValue(optionText);
+      const want = normalizeOptionValue(value);
+      if (!got || !want || got === '----' || got === 'select') return false;
+      if (got === want) return true;
+      if (isStrict) return false;
+      return got.includes(want) || want.includes(got);
+  }
+
+  function isDropdownLike(el) {
+      if (!el) return false;
+      if (el instanceof HTMLSelectElement) return true;
+      const role = el.getAttribute && el.getAttribute('role');
+      if (role === 'combobox' || role === 'listbox') return true;
+      const popup = el.getAttribute && el.getAttribute('aria-haspopup');
+      if (popup === 'listbox' || popup === 'true' || popup === 'menu') return true;
+      return Boolean(el.closest?.('.MuiAutocomplete-root, .MuiSelect-root, .react-select__control, [class*="MuiSelect"]'));
+  }
+
+  function listOpenDropdownOptions() {
+      const roots = document.querySelectorAll(
+          '[role="listbox"], .MuiAutocomplete-popper, .MuiMenu-paper, .MuiPopover-paper, .react-select__menu, .react-select__menu-list, [role="presentation"]'
+      );
+      const seen = new Set();
+      const options = [];
+      for (const root of roots) {
+          if (!isVisibleElement(root)) continue;
+          const nodes = root.querySelectorAll('[role="option"], .MuiAutocomplete-option, .react-select__option, li[role="option"]');
+          for (const node of nodes) {
+              if (seen.has(node) || !isVisibleElement(node)) continue;
+              const text = optionMatchText(node);
+              const lower = (text || '').toLowerCase();
+              if (!text || lower.includes('create your description') || lower.includes('description with ai')) continue;
+              seen.add(node);
+              options.push({ el: node, text });
+          }
+      }
+      return options;
+  }
+
+  function findMatchingOption(value, isStrict) {
+      const options = listOpenDropdownOptions();
+      const exact = options.find((option) => optionMatchesValue(option.text, value, true));
+      if (exact) return exact.el;
+      if (isStrict) return null;
+      const fuzzy = options.find((option) => optionMatchesValue(option.text, value, false));
+      return fuzzy ? fuzzy.el : null;
+  }
+
+  async function clickDropdownOption(optionEl) {
+      if (!optionEl) return;
+      optionEl.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+      const mouseEventOptions = { bubbles: true, cancelable: true, view: window };
+      optionEl.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
+      optionEl.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
+      optionEl.dispatchEvent(new MouseEvent('click', mouseEventOptions));
+      if (typeof optionEl.click === 'function') optionEl.click();
+      await sleep(CONFIG.SLEEP_MEDIUM);
   }
 
   function uniqueStrings(values) {
@@ -917,6 +1079,7 @@
 
   async function clickRightEdge(el) {
       const clickTarget = el.closest?.('.react-select__control, [class*="MuiAutocomplete-root"], [class*="MuiInputBase-root"], [role="combobox"]') || el;
+      if (typeof el.focus === 'function') el.focus();
       const rect = clickTarget.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
       const x = Math.max(rect.left + 4, rect.right - Math.min(15, rect.width / 2));
@@ -936,6 +1099,7 @@
       finalTarget.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
       finalTarget.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
       finalTarget.dispatchEvent(new MouseEvent('click', mouseEventOptions));
+      if (typeof finalTarget.click === 'function') finalTarget.click();
 
       if (el !== finalTarget && typeof el.focus === 'function') {
           el.focus();
@@ -948,101 +1112,81 @@
 
   async function fillCombobox(el, value, isStrict = false, isMulti = false) {
       if (!value || !el) return { ok: false, method: 'skipped' };
-      
+
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
       await sleep(CONFIG.SLEEP_MEDIUM);
-      
-      // Handle native <select> elements
+
       if (el instanceof HTMLSelectElement) {
-          const searchValue = value.toLowerCase().trim();
-          const targetOption = Array.from(el.options).find(opt => {
-              const optText = opt.textContent.trim().toLowerCase();
-              return optText === searchValue || optText.includes(searchValue);
-          });
-          
+          const targetOption = Array.from(el.options).find((opt) =>
+              optionMatchesValue(opt.textContent, value, true) ||
+              (!isStrict && optionMatchesValue(opt.textContent, value, false))
+          );
           if (targetOption) {
               el.value = targetOption.value;
               el.dispatchEvent(new Event('change', { bubbles: true }));
               await sleep(CONFIG.SLEEP_SHORT);
               return { ok: true, method: 'option_click' };
           }
-          await clearInput(el);
-          setReactValue(el, value);
-          await sleep(CONFIG.SLEEP_LONG);
-          return { ok: true, method: 'typed_fallback' };
+          return { ok: false, method: 'no_option' };
       }
-      
-      // Click to open dropdown
+
+      const dropdownLike = isDropdownLike(el);
       await clickRightEdge(el);
       await sleep(CONFIG.SLEEP_LONG);
 
-      let targetOption = null;
-      let attempts = 0;
+      let targetOption = findMatchingOption(value, isStrict);
       const supportsSearch = el instanceof HTMLInputElement ||
           el.getAttribute('role') === 'combobox' ||
           el.classList.contains('react-select__input');
-      
-      while (!targetOption && attempts < CONFIG.MAX_RETRIES) {
-          attempts++;
-          const portals = document.querySelectorAll(
-              '[role="presentation"], .MuiAutocomplete-popper, [role="listbox"], .react-select__menu, .react-select__menu-list, [class*="menu"], [class*="popover"]'
-          );
-          
-          for (const portal of portals) {
-              if (portal.offsetParent === null) continue;
-              
-              let options = Array.from(portal.querySelectorAll('[role="option"], li, .MuiAutocomplete-option'));
-              options = options.filter(o => {
-                  const text = (o.innerText || '').toLowerCase();
-                  return !text.includes('create your description') && !text.includes('description with ai');
-              });
+      const maxAttempts = Math.max(CONFIG.MAX_RETRIES, 3);
 
-              const searchValue = value.toLowerCase().trim();
-              targetOption = options.find(o => optionMatchText(o).toLowerCase() === searchValue);
-
-              if (!targetOption && !isStrict) {
-                  targetOption = options.find(o => {
-                      const label = optionMatchText(o).toLowerCase();
-                      return label.includes(searchValue) || searchValue.includes(label);
-                  });
-              }
-              
-              if (targetOption) break;
-          }
-
-          if (!targetOption && supportsSearch) {
+      for (let attempt = 1; !targetOption && attempt <= maxAttempts; attempt++) {
+          if (supportsSearch) {
               el.focus();
               await clearInput(el);
               setReactValue(el, value);
+              el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
               await sleep(CONFIG.SLEEP_MEDIUM);
+              targetOption = findMatchingOption(value, isStrict);
           }
-          
-          if (!targetOption && attempts < CONFIG.MAX_RETRIES) {
+
+          if (!targetOption && listOpenDropdownOptions().length === 0) {
+              await clickRightEdge(el);
+              await sleep(CONFIG.SLEEP_LONG);
+              targetOption = findMatchingOption(value, isStrict);
+          } else if (!targetOption) {
               await sleep(CONFIG.SLEEP_RETRY);
+              targetOption = findMatchingOption(value, isStrict);
           }
       }
 
-      let method = 'typed_fallback';
       if (targetOption) {
-          const mouseEventOptions = { bubbles: true, cancelable: true, view: window };
-          targetOption.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
-          targetOption.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
-          targetOption.click();
-          await sleep(CONFIG.SLEEP_MEDIUM);
-          method = 'option_click';
-      } else {
+          await clickDropdownOption(targetOption);
+          if (isMulti && el.value) await clearInput(el);
+          return { ok: true, method: 'option_click' };
+      }
+
+      const openOptions = listOpenDropdownOptions();
+      if (dropdownLike && openOptions.length > 0) {
+          await closeOpenMenus();
+          if (isMulti && el.value) await clearInput(el);
+          return { ok: false, method: 'no_option' };
+      }
+
+      if (!dropdownLike) {
           await clearInput(el);
           setReactValue(el, value);
-          await sleep(CONFIG.SLEEP_LONG);
-          el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-          await sleep(CONFIG.SLEEP_MEDIUM);
+          await sleep(CONFIG.SLEEP_SHORT);
+          if (isMulti && el.value) await clearInput(el);
+          return { ok: true, method: 'option_click' };
       }
-      
-      if (isMulti) {
-          await sleep(CONFIG.SLEEP_MEDIUM);
-          if (el.value) await clearInput(el);
-      }
-      return { ok: true, method };
+
+      await clearInput(el);
+      setReactValue(el, value);
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      await sleep(CONFIG.SLEEP_MEDIUM);
+      if (isMulti && el.value) await clearInput(el);
+      return { ok: true, method: 'typed_fallback' };
   }
 
   // ============================================
@@ -1093,6 +1237,18 @@
           warn(`${fieldName}: Element not found`);
           recordFill({ field: fieldName, status: 'not_found', reason: 'Element not found', selector: selectorText, value });
           return { status: 'not_found' };
+      }
+
+      if (optionMatchesValue(displayedFieldValue(el), value, false)) {
+          log(`  ✓ ${fieldName} already set: "${displayedFieldValue(el)}"`);
+          recordFill({
+            field: fieldName,
+            status: 'filled',
+            reason: 'Already set',
+            selector: selectorFor(el, selectorText),
+            value,
+          });
+          return { status: 'filled' };
       }
       
       log(`Filling ${fieldName}...`);
@@ -1166,6 +1322,78 @@
   // CATEGORY SELECTION
   // ============================================
 
+  function listCategoryOptions() {
+      const seen = new Set();
+      const options = [];
+      for (const el of document.querySelectorAll(CATEGORY_RESULT_SELECTORS)) {
+          if (seen.has(el) || !isVisibleElement(el)) continue;
+          const text = optionMatchText(el);
+          if (!text) continue;
+          seen.add(el);
+          options.push({ el, text, lower: normalizeText(text) });
+      }
+      return options;
+  }
+
+  function scoreCategoryOption(option, segment) {
+      const needle = normalizeText(segment);
+      if (!needle || !option.lower) return 0;
+      if (option.lower === needle) return 4;
+      if (option.lower.startsWith(needle) || needle.startsWith(option.lower)) return 3;
+      if (option.lower.includes(needle) || needle.includes(option.lower)) return 1;
+      return 0;
+  }
+
+  function findCategoryOption(segment, options = listCategoryOptions()) {
+      let best = null;
+      let bestScore = 0;
+      for (const option of options) {
+          const score = scoreCategoryOption(option, segment);
+          if (score > bestScore) {
+              best = option;
+              bestScore = score;
+          }
+      }
+      return bestScore > 0 ? best : null;
+  }
+
+  function rankCategorySearchResults(options, segments) {
+      const needles = segments.map((segment) => normalizeText(segment)).filter(Boolean);
+      const leaf = needles[needles.length - 1] || '';
+      return options
+          .map((option) => {
+              let score = scoreCategoryOption(option, leaf);
+              for (const needle of needles.slice(0, -1)) {
+                  if (option.lower.includes(needle) || needle.includes(option.lower)) {
+                      score += 2;
+                  }
+              }
+              return { ...option, score };
+          })
+          .filter((option) => option.score > 0)
+          .sort((a, b) => b.score - a.score);
+  }
+
+  async function clickCategoryOption(option) {
+      log(`  Clicking: "${option.text}"`);
+      option.el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      await sleep(CONFIG.SLEEP_SHORT);
+      const mouseEventOptions = { bubbles: true, cancelable: true, view: window };
+      option.el.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
+      option.el.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
+      option.el.click();
+      await sleep(CONFIG.SLEEP_LONG * 2);
+  }
+
+  async function waitForCategorySearch() {
+      for (let attempt = 0; attempt < 8; attempt++) {
+          const el = document.querySelector('input[role="category-search-field"]');
+          if (el) return el;
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      return document.querySelector('input[role="category-search-field"]');
+  }
+
   async function fillCategoryPath(data) {
       const categoryPath = data.category_path || '';
       if (!categoryPath) return { ok: true, filled: false };
@@ -1193,55 +1421,62 @@
       catBtn.click();
       await sleep(CONFIG.SLEEP_LONG * 2);
 
-      for (let i = 0; i < segments.length; i++) {
-          const segment = segments[i];
-          log(`  Drilling into: "${segment}" (${i + 1}/${segments.length})`);
-
-          let targetOption = null;
-          const lowerSegment = segment.toLowerCase();
-
-          for (let attempt = 0; attempt < 10 && !targetOption; attempt++) {
-              await sleep(CONFIG.SLEEP_LONG);
-              const allOptions = document.querySelectorAll('[role="option"]');
-              for (const opt of allOptions) {
-                  if (opt.offsetParent === null) continue;
-                  const text = (opt.innerText || opt.textContent || '').trim();
-                  if (text.toLowerCase() === lowerSegment) {
-                      targetOption = opt;
-                      break;
-                  }
-              }
-          }
-
-          if (!targetOption) {
-              warn(`Category option "${segment}" not found`);
-              return { ok: false, filled: false, error: `Category option "${segment}" not found` };
-          }
-
-          log(`  Clicking: "${targetOption.innerText.trim()}"`);
-          targetOption.scrollIntoView({ block: 'center', behavior: 'instant' });
-          await sleep(CONFIG.SLEEP_SHORT);
-          targetOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          targetOption.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-          targetOption.click();
+      const searchInput = await waitForCategorySearch();
+      if (searchInput) {
+          const query = segments.slice(-2).join(' ');
+          log(`Searching categories for: "${query}"`);
+          searchInput.focus();
+          await clearInput(searchInput);
+          setReactValue(searchInput, query);
+          searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+          searchInput.dispatchEvent(new KeyboardEvent('input', { bubbles: true }));
+          searchInput.dispatchEvent(new Event('change', { bubbles: true }));
           await sleep(CONFIG.SLEEP_LONG * 2);
+
+          const ranked = rankCategorySearchResults(listCategoryOptions(), segments);
+          if (ranked.length > 0) {
+              await clickCategoryOption(ranked[0]);
+          } else {
+              const visible = listCategoryOptions().map((option) => option.text).slice(0, 20);
+              warn(`Category search had no match for "${query}". Visible: ${JSON.stringify(visible)}`);
+          }
+      }
+
+      const searchStillOpen = () => {
+          const el = document.querySelector('input[role="category-search-field"]');
+          return Boolean(el && document.contains(el));
+      };
+
+      if (searchStillOpen()) {
+          for (let i = 0; i < segments.length; i++) {
+              const segment = segments[i];
+              log(`  Drilling into: "${segment}" (${i + 1}/${segments.length})`);
+
+              let targetOption = null;
+              for (let attempt = 0; attempt < 8 && !targetOption; attempt++) {
+                  await sleep(CONFIG.SLEEP_LONG);
+                  targetOption = findCategoryOption(segment);
+              }
+
+              if (!targetOption) {
+                  const visible = listCategoryOptions().map((option) => option.text).slice(0, 20);
+                  warn(`Category option "${segment}" not found. Visible: ${JSON.stringify(visible)}`);
+                  return { ok: false, filled: false, error: `Category option "${segment}" not found` };
+              }
+
+              await clickCategoryOption(targetOption);
+          }
       }
 
       await sleep(CONFIG.SLEEP_LONG * 2);
 
-      const searchInput = document.querySelector('input[role="category-search-field"]');
-      if (searchInput && document.contains(searchInput)) {
+      const terminalSearch = document.querySelector('input[role="category-search-field"]');
+      if (terminalSearch && document.contains(terminalSearch)) {
           log('Category modal still open, searching for terminal child...');
 
-          const children = [];
-          const allOptions = document.querySelectorAll('[role="option"]');
-          for (const opt of allOptions) {
-              if (opt.offsetParent === null) continue;
-              const text = (opt.innerText || opt.textContent || '').trim();
-              if (text) children.push(text);
-          }
-
-          log(`  Visible children: ${JSON.stringify(children)}`);
+          const children = listCategoryOptions();
+          const childLabels = children.map((option) => option.text);
+          log(`  Visible children: ${JSON.stringify(childLabels)}`);
 
           if (children.length > 0) {
               const type = data.ebay_specifics?.type || data.type || '';
@@ -1270,49 +1505,16 @@
                   }
               }
 
-              let targetText = null;
-              if (targetType) {
-                  for (const child of children) {
-                      if (child.toLowerCase() === targetType) {
-                          targetText = child;
-                          break;
-                      }
-                  }
-              }
+              const rankedChildren = rankCategorySearchResults(children, [
+                  ...segments,
+                  targetType || type,
+              ].filter(Boolean));
+              const childOption = rankedChildren[0] || null;
 
-              if (!targetText) {
-                  for (const child of children) {
-                      if (typeLower && child.toLowerCase().includes(typeLower)) {
-                          targetText = child;
-                          break;
-                      }
-                  }
-              }
-
-              if (!targetText) {
-                  for (const child of children) {
-                      if (child.toLowerCase().includes('t-shirt') || child.toLowerCase().includes('shirt')) {
-                          targetText = child;
-                          break;
-                      }
-                  }
-              }
-
-              if (targetText) {
-                  log(`  Selecting terminal child: "${targetText}"`);
-                  const childOption = [...allOptions].find(o =>
-                      (o.innerText || o.textContent || '').trim() === targetText && o.offsetParent !== null
-                  );
-                  if (childOption) {
-                      childOption.scrollIntoView({ block: 'center', behavior: 'instant' });
-                      await sleep(CONFIG.SLEEP_SHORT);
-                      childOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                      childOption.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                      childOption.click();
-                      await sleep(CONFIG.SLEEP_LONG * 2);
-                  }
+              if (childOption) {
+                  await clickCategoryOption(childOption);
               } else {
-                  warn(`No terminal child match. Children: ${JSON.stringify(children)}`);
+                  warn(`No terminal child match. Children: ${JSON.stringify(childLabels)}`);
               }
           }
       }
@@ -1388,6 +1590,12 @@
       await fillDropdownField(VENDOO_SELECTORS.brand, data.brand, 'Brand');
       await fillDropdownField(VENDOO_SELECTORS.primaryColor, mapColor(data.primaryColor || data.color, 'vendoo'), 'Primary Color');
       await fillDropdownField(VENDOO_SELECTORS.secondaryColor, mapColor(data.secondaryColor, 'vendoo'), 'Secondary Color');
+      const sizeTypeValue = data.sizeType || data.ebay_specifics?.sizeType;
+      const sizeTypeEl = document.querySelector(VENDOO_SELECTORS.sizeType) ||
+          findInputByLabelPatterns(['size type'], (input) => String(input.id || '').startsWith('generalDetails'));
+      if (sizeTypeEl && sizeTypeValue) {
+          await fillDropdownField(sizeTypeEl, sizeTypeValue, 'Size Type');
+      }
       if (data.size) {
           const sizeEl = document.querySelector(VENDOO_SELECTORS.size);
           if (sizeEl) {
@@ -1535,6 +1743,37 @@
   // PLATFORM-SPECIFIC FILLERS - OPTIMIZED
   // ============================================
 
+  function normalizeEbaySpecificValue(key, value) {
+      if (value == null || value === '') return value;
+      const raw = Array.isArray(value) ? value.join(', ') : String(value).trim();
+      if (key === 'yearManufactured') {
+          const yearMatch = raw.match(/(?:19|20)\d{2}/);
+          if (!yearMatch) return raw;
+          const decade = Math.floor(Number(yearMatch[0]) / 10) * 10;
+          if (decade >= 2020) return '2020-2029';
+          if (decade >= 2010) return '2010-2019';
+          if (decade >= 2000) return '2000-2009';
+          if (decade >= 1990) return '1990-1999';
+          if (decade >= 1980) return '1980-1989';
+          if (decade >= 1970) return '1970-1979';
+          if (decade >= 1960) return '1960-1969';
+          if (decade >= 1950) return '1950-1959';
+          if (decade >= 1940) return '1940-1949';
+          if (decade >= 1930) return '1930-1939';
+          if (decade >= 1920) return '1920-1929';
+          if (decade >= 1910) return '1910-1919';
+          if (decade >= 1900) return '1900-1909';
+          return 'Pre-1900s';
+      }
+      if (key === 'type' && /t[\s-]?shirt/i.test(raw)) return 'T-Shirt';
+      if (key === 'season') {
+          const allowed = ['Fall', 'Spring', 'Summer', 'Winter'];
+          return allowed.find((item) => item.toLowerCase() === raw.toLowerCase()) || null;
+      }
+      if (key === 'countryOfOrigin' && /^unknown$/i.test(raw)) return null;
+      return value;
+  }
+
   async function fillEbayForm(data) {
       log('Filling eBay form...');
 
@@ -1618,17 +1857,35 @@
           }
           log(`Found ${allInputs.length} category specific fields`);
 
-          const specs = data.ebay_specifics;
+          const specs = { ...data.ebay_specifics };
+          const seasonRaw = specs.season;
+          if (/all seasons/i.test(String(seasonRaw || ''))) {
+              const features = Array.isArray(specs.features) ? specs.features.slice() : String(specs.features || '').split(',').map((item) => item.trim()).filter(Boolean);
+              if (!features.some((item) => /all seasons/i.test(item))) features.push('All Seasons');
+              specs.features = features;
+          }
           const fillOrder = [
               'sizeType', 'type', 'department', 'size',
               ...Object.keys(specs).filter(key => !['sizeType', 'type', 'department', 'size'].includes(key)),
           ];
 
           for (const key of fillOrder) {
-              const value = specs[key];
-              if (!value) continue;
-
+              const mapped = normalizeEbaySpecificValue(key, specs[key]);
               const fieldName = fieldNameMap[key] || key;
+              if (specs[key] && (mapped == null || mapped === '')) {
+                  recordFill({
+                    field: fieldName,
+                    status: 'skipped',
+                    reason: 'No matching eBay option',
+                    value: specs[key],
+                  });
+                  continue;
+              }
+              if (!mapped) continue;
+              if ((key === 'brand' || key === 'color') && fillLedger.some((entry) => normalizeFieldKey(entry.field) === key && entry.status === 'filled')) {
+                  continue;
+              }
+
               allInputs = collectEbayCategoryInputs();
               const foundEl = findEbaySpecificInput(fieldName, allInputs);
 
@@ -1636,24 +1893,24 @@
                   warn(`Could not find field for ${key}`);
                   recordFill({
                     field: fieldName,
-                    status: 'not_found',
-                    reason: 'Category specific field not found',
-                    value,
+                    status: 'skipped',
+                    reason: 'Not on this category form',
+                    value: mapped,
                   });
                   continue;
               }
 
-              let valuesToFill = Array.isArray(value) ? value :
-                  (typeof value === 'string' && value.includes(',')) ?
-                  value.split(',').map(v => v.trim()) : [value];
+              let valuesToFill = Array.isArray(mapped) ? mapped :
+                  (typeof mapped === 'string' && mapped.includes(',') && !['yearManufactured', 'mpn', 'upc'].includes(key)) ?
+                  mapped.split(',').map(v => v.trim()) : [mapped];
 
               if (key === 'color') {
                   valuesToFill = valuesToFill.map(item => mapColor(item, 'ebay')).filter(Boolean);
               }
               if (key === 'type') {
                   valuesToFill = uniqueStrings([
+                      ...(/t[\s-]?shirt/i.test(String(mapped)) ? ['T-Shirt'] : []),
                       ...valuesToFill,
-                      ...(/t[\s-]?shirt/i.test(String(value)) ? ['T-Shirt', 'T Shirt', 'Tee'] : []),
                   ]);
               }
 
@@ -1668,8 +1925,8 @@
               } else if (key === 'type') {
                   let filled = false;
                   for (const item of valuesToFill) {
-                      await fillDropdownField(foundEl, item, fieldName, false, false);
-                      if (fieldLooksFilled(foundEl)) {
+                      const result = await fillDropdownField(foundEl, item, fieldName, false, false);
+                      if (result && result.status === 'filled') {
                           filled = true;
                           break;
                       }
@@ -1694,7 +1951,7 @@
       );
 
       await fillDropdownField(
-          resolveMarketplaceField('etsy', ['primary color'], [
+          resolveMarketplaceField('etsy', ['primary color', 'color'], [
               '#listings\\.etsy\\.overrides\\.primaryColor',
               '#listings\\.etsy\\.marketplaceSpecifics\\.primaryColor',
           ]),
@@ -1719,13 +1976,10 @@
       if (data.etsy_specifics) {
           await expandOptionalFields();
           await sleep(CONFIG.SLEEP_LONG);
-          
-          // Marketplace specifics (parallel)
-          await Promise.all([
-              fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whoMade', specs.who_made || specs.whoMade, 'Who Made'),
-              fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whatIsIt', specs.what_is || specs.whatIsIt, 'What Is It'),
-              fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whenMade', normalizedWhenMade, 'When Made'),
-          ]);
+
+          await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whoMade', specs.who_made || specs.whoMade, 'Who Made');
+          await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whatIsIt', specs.what_is || specs.whatIsIt, 'What Is It');
+          await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whenMade', normalizedWhenMade, 'When Made');
           
           // Tags and materials
           if (specs.tags || specs.materials) {
@@ -1800,11 +2054,22 @@
               if (!rawValue) continue;
 
               const labelPatterns = etsyCategoryFieldMap[jsonField] || [normalizeText(jsonField)];
-              const valuesToFill = Array.isArray(rawValue)
+              const valuesToFill = (Array.isArray(rawValue)
                   ? rawValue.map(value => normalizeEtsyCategorySpecificValue(jsonField, value))
                   : (typeof rawValue === 'string' && rawValue.includes(','))
-                      ? rawValue.split(',').map(value => normalizeEtsyCategorySpecificValue(jsonField, value.trim())).filter(Boolean)
-                      : [normalizeEtsyCategorySpecificValue(jsonField, rawValue)];
+                      ? rawValue.split(',').map(value => normalizeEtsyCategorySpecificValue(jsonField, value.trim()))
+                      : [normalizeEtsyCategorySpecificValue(jsonField, rawValue)]
+              ).filter(Boolean);
+
+              if (valuesToFill.length === 0) {
+                  recordFill({
+                    field: jsonField,
+                    status: 'skipped',
+                    reason: 'No matching Etsy option',
+                    value: rawValue,
+                  });
+                  continue;
+              }
 
               const foundEl = findInputByLabelPatterns(labelPatterns, isEtsyCategorySpecificInput) ||
                   findInputByContext(etsyCategoryInputs, labelPatterns);
@@ -1813,11 +2078,18 @@
                   const isMulti = jsonField === 'materials' || valuesToFill.length > 1;
                   log(`  Filling Etsy ${jsonField}: ${valuesToFill.join(', ')}`);
                   for (const value of valuesToFill) {
+                      if (!value) continue;
                       await fillDropdownField(foundEl, value, jsonField, false, isMulti);
                       if (isMulti) await sleep(CONFIG.SLEEP_MEDIUM);
                   }
               } else {
                   warn(`  Could not find Etsy category field for ${jsonField}`);
+                  recordFill({
+                    field: jsonField,
+                    status: 'skipped',
+                    reason: 'Not on this category form',
+                    value: valuesToFill.join(', '),
+                  });
               }
           }
           
@@ -1937,6 +2209,13 @@
       }
       if (fieldLooksFilled(el)) {
           log(`Depop Brand already set: "${el.value}"`);
+          recordFill({
+            field: 'Depop Brand',
+            status: 'filled',
+            reason: 'Already set',
+            selector: selectorFor(el, ''),
+            value: el.value,
+          });
           return;
       }
 

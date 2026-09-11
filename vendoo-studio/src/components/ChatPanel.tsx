@@ -26,6 +26,7 @@ export function ChatPanel({ convId }: Props) {
   const [generating, setGenerating] = useState(false);
   const [streamText, setStreamText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
 
   const { data: messages, isLoading } = useQuery({
@@ -91,6 +92,9 @@ export function ChatPanel({ convId }: Props) {
     const text = input.trim();
     if (!text || streaming) return;
     setInput("");
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+    }
     setStreaming(true);
     setStreamText("");
     try {
@@ -133,8 +137,22 @@ export function ChatPanel({ convId }: Props) {
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
   }, [input, streaming, convId, queryClient]);
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    e.target.style.height = "auto";
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   const hasPhotos = (photos && (photos as any[]).length > 0);
   const hasMessages = messages && (messages as any[]).length > 0;
+  const photoCount = (photos as any[])?.length ?? 0;
 
   function renderMessage(m: any) {
     if (m.role === "user") {
@@ -153,12 +171,7 @@ export function ChatPanel({ convId }: Props) {
     }
 
     if (m.role === "system") {
-      return (
-        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
-          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-border-bright)", flexShrink: 0 }} />
-          <span className="msg-system" style={{ padding: 0, borderLeft: "none", maxWidth: "none" }}>{m.text}</span>
-        </div>
-      );
+      return <div key={m.id} className="msg msg-system">{m.text}</div>;
     }
 
     const json = extractJson(m.text);
@@ -179,25 +192,36 @@ export function ChatPanel({ convId }: Props) {
     return <div key={m.id} className="msg msg-assistant">{m.text}</div>;
   }
 
+  const composerPlaceholder = hasMessages
+    ? "Refine the listing…"
+    : hasPhotos
+      ? "Ask about this item or generate from photos…"
+      : "Upload photos, then generate a listing…";
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+    <div className="chat-panel-root">
       <div ref={scrollRef} className="chat-scroll">
         {isLoading && !hasMessages && (
-          <div className="empty-state" style={{ padding: "16px 0" }}><p className="text-xs text-muted">Loading...</p></div>
+          <div className="chat-empty"><p className="chat-empty-hint">Loading…</p></div>
         )}
 
         {!isLoading && !hasMessages && (
-          <div className="empty-state" style={{ padding: "32px 16px" }}>
-            <h3 style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 20, marginBottom: 4, lineHeight: 1.2 }}>Generate a Listing</h3>
+          <div className="chat-empty">
             {hasPhotos ? (
               <>
-                <p className="text-xs font-mono text-muted">{(photos as any[]).length} photo{(photos as any[]).length !== 1 ? "s" : ""} uploaded</p>
-                <button className="btn btn-primary" onClick={handleGenerate} disabled={generating || streaming} style={{ marginTop: 12, padding: "9px 22px" }}>
-                  {generating ? "Analyzing..." : "Generate Listing"}
+                <p className="chat-empty-hint">
+                  {photoCount} photo{photoCount !== 1 ? "s" : ""} uploaded
+                </p>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleGenerate}
+                  disabled={generating || streaming}
+                >
+                  {generating ? "Analyzing…" : "Generate Listing"}
                 </button>
               </>
             ) : (
-              <p className="text-xs font-mono text-muted">Upload photos to begin</p>
+              <p className="chat-empty-hint">Upload photos to begin</p>
             )}
           </div>
         )}
@@ -207,31 +231,40 @@ export function ChatPanel({ convId }: Props) {
         {streamText && <div className="msg msg-assistant">{streamText}</div>}
 
         {(streaming || generating) && !streamText && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-cobalt)", flexShrink: 0 }} />
-            <span className="text-xs font-mono text-muted">{generating ? "ANALYZING PHOTOS…" : "MIMO IS THINKING…"}</span>
+          <div className="chat-thinking">
+            <span className="chat-thinking-dot" />
+            <span className="chat-thinking-label">
+              {generating ? "Analyzing photos…" : "MIMO is thinking…"}
+            </span>
           </div>
         )}
       </div>
 
-      {hasMessages && (
-        <div className="chat-composer">
-          <div className="flex-row" style={{ width: "100%" }}>
-            <input
-              className="input"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder="Refine the listing..."
-              disabled={streaming}
-              style={{ flex: 1 }}
-            />
-            <button className="btn btn-primary" onClick={handleSend} disabled={streaming || !input.trim()}>
-              Send
-            </button>
-          </div>
+      <div className="chat-composer">
+        <div className="chat-composer-pill">
+          <textarea
+            ref={inputRef}
+            className="chat-composer-input"
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder={composerPlaceholder}
+            disabled={streaming}
+            rows={1}
+          />
+          <button
+            type="button"
+            className="chat-composer-send"
+            onClick={handleSend}
+            disabled={streaming || !input.trim()}
+            aria-label="Send message"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M7 12V2M7 2L3.5 5.5M7 2L10.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

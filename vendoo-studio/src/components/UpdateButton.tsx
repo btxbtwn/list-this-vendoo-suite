@@ -59,6 +59,8 @@ export function UpdateButton() {
       await waitForReload();
     },
     onError: (err: Error) => {
+      setWaiting(false);
+      queryClient.invalidateQueries({ queryKey: ["updates"] });
       window.alert(err.message || "Update failed.");
     },
   });

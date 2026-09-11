@@ -170,16 +170,17 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 
 ### Visual Direction
 
-- Purpose-built professional workspace.
+- Purpose-built local listing workbench for one operator. Photos in, marketplace draft out, human approval before Send to Vendoo.
 - Dense enough for daily operational use.
-- T3 Code-inspired information hierarchy, not a visual clone.
-- Linear-inspired dark shell using a `#090909` sidebar, `#0f0f11` workspace, and `#1c1e21` borders.
-- The main workspace is inset by 8px inside a 12px rounded frame; navigation remains 244px wide.
-- Sidebar, workspace, and inspector share the same 8px inset and aligned top/bottom frame.
-- Settings, chat composer, and automation status use a shared 88px footer row across all three columns.
-- Muted indigo marks primary actions, selection, and focus; marketplace colors remain sparing.
+- T3 Code-inspired chat chrome in the center column — not an IDE clone. No activity rail, editor tabs, model picker, glass, or gradients.
+- Dark shell using `#000000` sidebar, `#0a0a0a` workspace, `#111111` surfaces, `#191919` borders, and `#346bf1` accent.
+- Three persistent columns: 244px listing thread list, center workspace (photos + item details + chat), and always-visible listing inspector when a listing is selected.
+- The main workspace is inset by 8px inside a 12px rounded frame.
+- Column footers are independent: sidebar footer is Settings (and updates); inspector footer is Send to Vendoo; only the chat column uses a rounded pill composer on `#0a0a0a`.
+- Chat is the center canvas. Messages scroll; user messages align right, assistant left. No cards, avatars, or sparkle empty states. Composer stays visible before the first message.
+- Photos stay in a compact horizontal tray at the top of the center column. Item details stay under the tray in two rows of four cells — not moved into the inspector.
+- Browser preview is a bottom pane in the center column only while a listing job is queued or running; it collapses when idle.
 - Inter Variable handles navigation, controls, and content while IBM Plex Mono handles measurements, JSON, and technical status.
-- Avoid generic dashboard cards and excessive rounded containers.
 - Persistent status bar for extension and validation state.
 - Fully usable desktop and mobile layouts.
 

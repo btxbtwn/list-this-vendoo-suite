@@ -198,17 +198,30 @@ input, select, textarea {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #0a0a0a;
 }
 
 .browser-preview {
-  display: flex;
+  display: none;
   flex-direction: column;
-  flex: 0 0 42%;
-  min-height: 220px;
-  max-height: 52%;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-ink);
+  border-top: 1px solid #191919;
+  background: #000000;
+}
+
+.browser-preview.is-open {
+  display: flex;
+  flex: 0 0 38%;
+  min-height: 200px;
+  max-height: 48%;
 }
 
 .browser-preview-bar {
@@ -687,46 +700,89 @@ textarea.input {
 
 /* ── Chat ── */
 
+.chat-panel-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
 .chat-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
-  padding-bottom: 24px;
+  padding: 20px 20px 12px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
+}
+
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
+  padding: 8px 0 16px;
+}
+
+.chat-empty-hint {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.chat-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.chat-thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #346bf1;
+  flex-shrink: 0;
+}
+
+.chat-thinking-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .msg {
-  max-width: 82%;
-  padding: 10px 15px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  line-height: 1.55;
+  max-width: 88%;
+  padding: 0;
+  border-radius: 0;
+  font-size: var(--text-base);
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+  background: transparent;
+  border: none;
 }
 
 .msg-user {
   align-self: flex-end;
-  background: var(--color-cobalt);
-  color: var(--color-accent-ink);
+  color: var(--color-text);
+  text-align: right;
 }
 
 .msg-assistant {
   align-self: flex-start;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border-light);
+  color: var(--color-text-secondary);
 }
 
 .msg-system {
   align-self: flex-start;
   max-width: 92%;
-  padding: 8px 12px;
-  border-left: 2px solid var(--color-border-bright);
-  background: transparent;
+  padding: 0;
+  border: none;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -822,12 +878,64 @@ details[open] .json-collapse-summary::before {
 }
 
 .chat-composer {
+  flex-shrink: 0;
+  padding: 8px 16px 16px;
+  background: #0a0a0a;
+}
+
+.chat-composer-pill {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid #191919;
+  border-radius: 22px;
+  background: #111111;
+}
+
+.chat-composer-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 22px;
+  max-height: 120px;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+}
+
+.chat-composer-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.chat-composer-input:disabled {
+  opacity: 0.6;
+}
+
+.chat-composer-send {
   display: flex;
   align-items: center;
-  min-height: var(--column-footer-height);
-  padding: 10px 14px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #346bf1;
+  color: #ffffff;
+  transition: opacity 0.12s, background 0.12s;
+}
+
+.chat-composer-send:hover:not(:disabled) {
+  background: #4a7ef5;
+}
+
+.chat-composer-send:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ── Item Details ── */
@@ -1590,7 +1698,7 @@ details[open] .json-collapse-summary::before {
   }
 
   .app-content.mobile-pane-browser .listing-workspace,
-  .app-content.mobile-pane-browser .browser-preview {
+  .app-content.mobile-pane-browser .browser-preview.is-open {
     display: flex;
     flex: 1;
     min-height: 0;

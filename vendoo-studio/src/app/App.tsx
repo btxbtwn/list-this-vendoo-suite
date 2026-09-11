@@ -27,7 +27,11 @@ export function App() {
     queryFn: api.jobs.list,
     refetchInterval: 2000,
   });
-  const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
+  const ACTIVE_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
+  const listingJob = jobs?.find(
+    (job: any) => job.conversation_id === selectedConvId && ACTIVE_JOB_STATUSES.has(job.status),
+  );
+  const previewOpen = Boolean(listingJob);
 
   const createConv = useMutation({
     mutationFn: () => api.conversations.create({ title: "New Listing" }),
@@ -119,19 +123,21 @@ export function App() {
             {activeView === "settings" ? (
               <SettingsPage />
             ) : selectedConvId ? (
-              <div className="listing-workspace">
+              <div className={`listing-workspace${previewOpen ? " has-preview" : ""}`}>
                 <div className="listing-workspace-main">
                   <PhotoTray convId={selectedConvId} />
                   <ItemDetails convId={selectedConvId} />
-                  <div style={{ flex: 1, overflow: "hidden", minHeight: 200 }}>
+                  <div className="chat-panel">
                     <ChatPanel convId={selectedConvId} />
                   </div>
                 </div>
-                <BrowserPreview
-                  jobId={listingJob?.id ?? null}
-                  step={listingJob?.current_step}
-                  status={listingJob?.status}
-                />
+                {previewOpen && (
+                  <BrowserPreview
+                    jobId={listingJob!.id}
+                    step={listingJob!.current_step}
+                    status={listingJob!.status}
+                  />
+                )}
               </div>
             ) : (
               <div className="empty-state">
