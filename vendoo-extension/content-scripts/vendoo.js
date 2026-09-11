@@ -1824,6 +1824,7 @@
               'features': 'Features', 'theme': 'Theme', 'season': 'Season',
               'occasion': 'Occasion', 'strapType': 'Strap Type',
               'countryOfOrigin': 'Country of Origin', 'fabricType': 'Fabric Type',
+              'fabricWeight': 'Fabric Weight',
               'vintage': 'Vintage', 'handmade': 'Handmade', 'personalize': 'Personalize',
               'garmentCare': 'Garment Care', 'unitQuantity': 'Unit Quantity',
               'unitType': 'Unit Type', 'mpn': 'MPN', 'upc': 'UPC',
@@ -2024,7 +2025,8 @@
               'sustainability': ['sustainability'],
               'fabric': ['fabric', 'fabric type'],
               'graphic': ['graphic', 'print'],
-              'materials': ['materials', 'material']
+              'materials': ['materials', 'material'],
+              'size': ['size']
           };
           
           // Get all category specific inputs
@@ -2034,7 +2036,7 @@
           const categorySpecifics = { ...(specs.category_specifics || {}) };
           const rootLevelEtsyCategoryFields = [
               'sleeveLength', 'neckline', 'clothingStyle', 'closure', 'collarStyle',
-              'pattern', 'occasion', 'holiday', 'sustainability', 'fabric', 'graphic'
+              'pattern', 'occasion', 'holiday', 'sustainability', 'fabric', 'graphic', 'size'
           ];
 
           for (const fieldName of rootLevelEtsyCategoryFields) {
@@ -2046,6 +2048,11 @@
           const etsyFallbackCategoryFields = {
               closure: ebaySpecifics.closure,
               collarStyle: ebaySpecifics.collarStyle || ebaySpecifics.collar_style || ebaySpecifics.neckline,
+              sleeveLength: ebaySpecifics.sleeveLength,
+              neckline: ebaySpecifics.neckline,
+              occasion: ebaySpecifics.occasion,
+              pattern: ebaySpecifics.pattern,
+              size: data.size || ebaySpecifics.size,
           };
 
           for (const [fieldName, fallbackValue] of Object.entries(etsyFallbackCategoryFields)) {
@@ -2116,6 +2123,79 @@
       
   }
 
+  function listingSizeValue(data) {
+      const value = data?.size || data?.size_us || data?.ebay_specifics?.size;
+      return value == null ? '' : String(value).trim();
+  }
+
+  function listingTagValues(data) {
+      const raw = data?.tags;
+      if (!raw) return [];
+      return (Array.isArray(raw) ? raw : String(raw).split(','))
+          .map((tag) => String(tag).trim())
+          .filter(Boolean);
+  }
+
+  function marketplaceSizeSelectors(marketplace) {
+      return [
+          `#listings\\.${marketplace}\\.overrides\\.size\\.option\\.value`,
+          `#listings\\.${marketplace}\\.overrides\\.size`,
+          `#listings\\.${marketplace}\\.marketplaceSpecifics\\.size`,
+          `#listings\\.${marketplace}\\.categorySpecifics\\.size`,
+      ];
+  }
+
+  async function fillMarketplaceSize(marketplace, data) {
+      const size = listingSizeValue(data);
+      const selectors = marketplaceSizeSelectors(marketplace);
+      const attempts = size ? 8 : 1;
+      let el = null;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+          for (const sel of selectors) {
+              try {
+                  const candidate = document.querySelector(sel);
+                  if (candidate && isVisibleElement(candidate) && isEnabledField(candidate)) {
+                      el = candidate;
+                      break;
+                  }
+              } catch (_) {}
+          }
+          if (!el) {
+              el = findInputByExactLabel('Size', isMarketplaceInput(marketplace));
+          }
+          if (el && isEnabledField(el)) break;
+          el = null;
+          await sleep(CONFIG.SLEEP_RETRY);
+      }
+      await fillDropdownField(el, size, 'Size', true);
+  }
+
+  async function fillMarketplaceTagField(marketplace, data, fieldName, labelPatterns, selectors = []) {
+      const tags = listingTagValues(data);
+      const el = resolveMarketplaceField(marketplace, labelPatterns, selectors);
+      if (!tags.length) {
+          recordFill({
+            field: fieldName,
+            status: 'skipped',
+            reason: 'No value in listing',
+            selector: selectorFor(el, ''),
+            value: '',
+          });
+          return;
+      }
+      if (!el) {
+          recordFill({
+            field: fieldName,
+            status: 'not_found',
+            reason: `${fieldName} field not found`,
+            value: tags,
+          });
+          return;
+      }
+      for (const tag of tags) await fillCombobox(el, tag, false, true);
+      recordFill({ field: fieldName, status: 'filled', selector: selectorFor(el, ''), value: tags });
+  }
+
   async function fillPoshmarkForm(data) {
       log('Filling Poshmark form...');
       
@@ -2132,12 +2212,32 @@
           'Poshmark Color',
           true
       );
+      await fillDropdownField(
+          resolveMarketplaceField('poshmark', ['secondary color'], [
+              '#listings\\.poshmark\\.overrides\\.secondaryColor',
+              '#listings\\.poshmark\\.marketplaceSpecifics\\.secondaryColor',
+          ]),
+          mapColor(data.secondaryColor, 'poshmark'),
+          'Secondary Color'
+      );
 
       await Promise.all([
           fillTextField('#listings\\.poshmark\\.overrides\\.quantity', data.quantity, 'Poshmark Quantity'),
           fillTextField('#listings\\.poshmark\\.overrides\\.price', data.price, 'Poshmark Price'),
           fillTextField('#listings\\.poshmark\\.overrides\\.sku', data.sku, 'Poshmark SKU'),
       ]);
+
+      await fillMarketplaceSize('poshmark', data);
+      await fillMarketplaceTagField(
+          'poshmark',
+          data,
+          'Style Tags',
+          ['style tags', 'style tag'],
+          [
+              '#listings\\.poshmark\\.marketplaceSpecifics\\.styleTags',
+              '#listings\\.poshmark\\.overrides\\.styleTags',
+          ]
+      );
       
       if (data.poshmark_specifics) {
           await fillTextField('#listings\\.poshmark\\.marketplaceSpecifics\\.originalPrice', data.poshmark_specifics.originalPrice, 'Original Price');
@@ -2168,6 +2268,8 @@
           fillTextField('#listings\\.mercari\\.overrides\\.quantity', data.quantity, 'Mercari Quantity'),
           fillTextField('#listings\\.mercari\\.overrides\\.price', data.price, 'Mercari Price'),
       ]);
+
+      await fillMarketplaceSize('mercari', data);
 
       const shippingLabel = (data.mercari_specifics && data.mercari_specifics.shippingLabel) || 'USPS Ground Advantage';
       const shippingEl = await waitForMarketplaceField('mercari', ['shipping label'], [
@@ -2304,6 +2406,17 @@
       ]);
 
       await fillDepopBrand(data);
+      await fillMarketplaceSize('depop', data);
+      await fillMarketplaceTagField(
+          'depop',
+          data,
+          'Tags',
+          ['tags'],
+          [
+              '#listings\\.depop\\.marketplaceSpecifics\\.tags',
+              '#listings\\.depop\\.overrides\\.tags',
+          ]
+      );
       
       if (data.depop_specifics) {
           log('Expanding optional fields for Depop...');
@@ -2399,6 +2512,12 @@
                   status: 'skipped',
                   reason: 'Invalid or regular sizing — omit size grouping',
                   value: specs.size_grouping || specs.sizeGrouping,
+              });
+          } else {
+              recordFill({
+                  field: 'Size Grouping',
+                  status: 'skipped',
+                  reason: 'Regular sizing — omit size grouping',
               });
           }
 

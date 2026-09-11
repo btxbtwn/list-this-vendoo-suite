@@ -11,6 +11,7 @@ from vendoo_studio.database import Base
 from vendoo_studio.models.conversation import Conversation
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.job import Job
+from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.services.fill_log import (
     FillLogService,
@@ -96,6 +97,37 @@ class FillLogServiceTest(unittest.TestCase):
         self.assertEqual(occasion.marketplace, "general")
         size = self.db.query(FieldRegistry).filter(FieldRegistry.normalized_label == "size").one()
         self.assertEqual(size.known_selectors[0]["failure_count"], 1)
+
+    def test_save_step_backfills_learned_listing_fields(self):
+        from vendoo_studio.repositories.queries import ListingRepo
+
+        listing_repo = ListingRepo(self.db)
+        listing_repo.save_revision(self.conv.id, {
+            "title": "Nike tee",
+            "category_path": "Tops",
+            "size": "S",
+            "ebay_specifics": {"type": "T-Shirt"},
+        }, source="model")
+
+        service = FillLogService(self.db)
+        service.save_step(self.job, "filling_ebay", {
+            "marketplace": "ebay",
+            "entries": [
+                {"field": "Character", "status": "new", "selector": "#character"},
+                {"field": "Allow Best Offer", "status": "new", "selector": "#best-offer"},
+                {"field": "Size", "status": "new", "selector": "#size"},
+            ],
+        })
+
+        listing = listing_repo.get_revisions(self.conv.id)[0].listing_json
+        self.assertEqual(listing["ebay_specifics"]["type"], "T-Shirt")
+        self.assertEqual(listing["ebay_specifics"]["character"], "")
+        self.assertNotIn("allowBestOffer", listing["ebay_specifics"])
+        self.assertNotIn("size", listing["ebay_specifics"])
+        self.assertEqual(
+            self.db.query(FieldRegistry).filter(FieldRegistry.normalized_label == "character").one().marketplace,
+            "ebay",
+        )
 
     def test_retry_clears_previous_log(self):
         service = FillLogService(self.db)

@@ -152,6 +152,7 @@ class FillLogService:
         if isinstance(job.listing_snapshot, dict):
             category_path = job.listing_snapshot.get("category_path") or None
         self._update_registry(marketplace, category_path, entries)
+        self._backfill_listing(job)
         self.write_markdown(job)
         counts = summarize(saved)
         LOGGER.info(
@@ -229,6 +230,38 @@ class FillLogService:
                     success=status == "filled",
                     category_path=category_path,
                 )
+
+    def _backfill_listing(self, job: Job) -> None:
+        from copy import deepcopy
+
+        from vendoo_studio.repositories.queries import ListingRepo
+        from vendoo_studio.services.registry import RegistryService
+
+        listing_repo = ListingRepo(self._db)
+        revisions = listing_repo.get_revisions(job.conversation_id)
+        if revisions:
+            listing = deepcopy(revisions[0].listing_json or {})
+            parent_id = revisions[0].id
+        else:
+            listing = deepcopy(job.listing_snapshot or {})
+            parent_id = None
+
+        snapshot = job.listing_snapshot if isinstance(job.listing_snapshot, dict) else {}
+        if not listing.get("category_path") and snapshot.get("category_path"):
+            listing["category_path"] = snapshot.get("category_path")
+
+        added = RegistryService(self._db).merge_learned_fields(listing)
+        if not added:
+            return
+
+        listing_repo.save_revision(
+            job.conversation_id,
+            listing,
+            source="fill_learned_fields",
+            parent_revision_id=parent_id,
+        )
+        job.listing_snapshot = listing
+        self._db.commit()
 
 
 def _entry_dict(entry: FillLogEntry) -> dict:

@@ -170,7 +170,7 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
         { key: "category_path", label: "Category" },
       ];
     case "ebay":
-      return Object.keys(listing?.ebay_specifics || {}).map((k) => ({ key: `ebay_specifics.${k}`, label: k }));
+      return specificsFields(listing?.ebay_specifics, "ebay_specifics");
     case "poshmark":
       return [
         { key: "price", label: "Price", type: "number" },
@@ -179,6 +179,7 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
         { key: "brand", label: "Brand" },
         { key: "primaryColor", label: "Primary Color" },
         { key: "quantity", label: "Quantity", type: "number" },
+        ...specificsFields(listing?.poshmark_specifics, "poshmark_specifics", ["originalPrice"]),
       ];
     case "mercari":
       return [
@@ -187,14 +188,31 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
         { key: "brand", label: "Brand" },
         { key: "quantity", label: "Quantity", type: "number" },
         { key: "mercari_specifics.shippingLabel", label: "Shipping Label", defaultValue: "USPS Ground Advantage" },
+        ...specificsFields(listing?.mercari_specifics, "mercari_specifics", ["shippingLabel"]),
       ];
     case "depop":
-      return Object.keys(listing?.depop_specifics || {}).map((k) => ({ key: `depop_specifics.${k}`, label: k }));
+      return specificsFields(listing?.depop_specifics, "depop_specifics");
     case "etsy":
-      return Object.keys(listing?.etsy_specifics || {}).map((k) => ({ key: `etsy_specifics.${k}`, label: k }));
+      return specificsFields(listing?.etsy_specifics, "etsy_specifics");
     default:
       return [];
   }
+}
+
+function specificsFields(specs: Record<string, any> | undefined, prefix: string, skip: string[] = []): EditorField[] {
+  if (!specs || typeof specs !== "object") return [];
+  const fields: EditorField[] = [];
+  for (const [key, value] of Object.entries(specs)) {
+    if (skip.includes(key)) continue;
+    if (key === "category_specifics" && value && typeof value === "object" && !Array.isArray(value)) {
+      for (const nested of Object.keys(value)) {
+        fields.push({ key: `${prefix}.category_specifics.${nested}`, label: nested });
+      }
+      continue;
+    }
+    fields.push({ key: `${prefix}.${key}`, label: key });
+  }
+  return fields;
 }
 
 function getNestedValue(obj: any, path: string): any {
