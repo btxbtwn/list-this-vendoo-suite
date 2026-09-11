@@ -516,8 +516,13 @@ textarea.input {
 }
 
 html.desktop-app {
-  --titlebar-height: env(titlebar-area-height, var(--workspace-topbar-height));
+  --titlebar-height: 38px;
   --traffic-light-inset: 76px;
+}
+
+html.desktop-app .sidebar {
+  padding-top: 0;
+  padding-left: 0;
 }
 
 html.desktop-app .sidebar-header {
