@@ -950,7 +950,12 @@
       if (!got || !want || got === '----' || got === 'select') return false;
       if (got === want) return true;
       if (isStrict) return false;
-      return got.includes(want) || want.includes(got);
+      const shorter = got.length <= want.length ? got : want;
+      const longer = got.length <= want.length ? want : got;
+      // Require at least 3 chars on the shorter side so values like "US" do not
+      // fuzzy-match "Plus size" via the embedded "us" substring.
+      if (shorter.length < 3) return false;
+      return longer.includes(shorter);
   }
 
   function isDropdownLike(el) {
@@ -2198,6 +2203,41 @@
       
   }
 
+  const DEPOP_SIZE_GROUPINGS = {
+      maternity: 'Maternity',
+      petite: 'Petite',
+      'plus size': 'Plus size',
+      tall: 'Tall',
+  };
+
+  const SIZE_TYPE_TO_DEPOP_GROUPING = {
+      maternity: 'Maternity',
+      petite: 'Petite',
+      petites: 'Petite',
+      'plus size': 'Plus size',
+      plus: 'Plus size',
+      tall: 'Tall',
+  };
+
+  function resolveDepopSizeGrouping(specs, data) {
+      const raw = specs.size_grouping || specs.sizeGrouping;
+      if (raw) {
+          const normalized = normalizeOptionValue(raw);
+          if (DEPOP_SIZE_GROUPINGS[normalized]) {
+              return DEPOP_SIZE_GROUPINGS[normalized];
+          }
+          const canonical = Object.values(DEPOP_SIZE_GROUPINGS).find(
+              (value) => normalizeOptionValue(value) === normalized
+          );
+          if (canonical) return canonical;
+          return null;
+      }
+
+      const sizeType = normalizeOptionValue(data.sizeType || data.ebay_specifics?.sizeType);
+      if (!sizeType || sizeType === 'regular') return null;
+      return SIZE_TYPE_TO_DEPOP_GROUPING[sizeType] || null;
+  }
+
   async function fillDepopBrand(data) {
       const el = resolveMarketplaceField('depop', ['brand'], [
           '#listings\\.depop\\.overrides\\.brand',
@@ -2336,21 +2376,30 @@
 
           const materialData = specs.material || data.ebay_specifics?.material || data.ebay_specifics?.fabricType;
 
-          if (specs.size_grouping || materialData) {
+          if (resolveDepopSizeGrouping(specs, data) || materialData) {
               log('Filling Depop category specifics...');
           }
 
-          if (specs.size_grouping) {
+          const sizeGroupingValue = resolveDepopSizeGrouping(specs, data);
+          if (sizeGroupingValue) {
               const sizeGroupingEl = findDepopField(
                   ['size grouping', 'size group', 'body fit'],
                   '#listings\\.depop\\.categorySpecifics\\.sizeGrouping'
               );
               if (sizeGroupingEl) {
-                  await fillDropdownField(sizeGroupingEl, specs.size_grouping, 'Size Grouping');
+                  await fillDropdownField(sizeGroupingEl, sizeGroupingValue, 'Size Grouping', true);
               } else {
                   warn('Size Grouping field not found for Depop');
-                  recordFill({ field: 'Size Grouping', status: 'not_found', reason: 'Size Grouping field not found', value: specs.size_grouping });
+                  recordFill({ field: 'Size Grouping', status: 'not_found', reason: 'Size Grouping field not found', value: sizeGroupingValue });
               }
+          } else if (specs.size_grouping || specs.sizeGrouping) {
+              warn(`Skipping invalid Depop size grouping: "${specs.size_grouping || specs.sizeGrouping}"`);
+              recordFill({
+                  field: 'Size Grouping',
+                  status: 'skipped',
+                  reason: 'Invalid or regular sizing — omit size grouping',
+                  value: specs.size_grouping || specs.sizeGrouping,
+              });
           }
 
           if (materialData) {

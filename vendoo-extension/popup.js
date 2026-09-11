@@ -54,7 +54,6 @@ const SAMPLE_JSON = {
     "age": "90s",
     "style": "Streetwear",
     "material": "Cotton",
-    "size_grouping": "US",
     "occasion": "Casual"
   },
   "etsy_specifics": {

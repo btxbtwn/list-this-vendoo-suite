@@ -184,7 +184,7 @@ Apply pricing formula from MEMORY.md.
 - **Fit**
 - **Material**
 - **Occasion**
-- **Size grouping** when the item is petite, tall, maternity, or otherwise not plain regular sizing
+- **Size grouping** only when the item is petite, tall, maternity, or plus — use exactly `Maternity`, `Petite`, `Plus size`, or `Tall`. Omit this field entirely for regular sizing; never use values like `US` or `Regular`
 
 **eBay Fields — ALWAYS include ALL of these in `ebay_specifics`. Do not skip any.**
 
