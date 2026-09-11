@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from vendoo_studio.database import get_db
 from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
 from vendoo_studio.services import updates as update_service
+from vendoo_studio.services.chrome_bridge import ChromeBridgeError, install_bundled_extension, mark_extension_reload_pending
 from vendoo_studio.services.updates import UpdateBlocked
 
 router = APIRouter(prefix="/api/updates", tags=["updates"])
@@ -30,7 +31,7 @@ def update_status():
 
 
 @router.post("/apply")
-def apply_update(db: Session = Depends(get_db)):
+async def apply_update(db: Session = Depends(get_db)):
     cancelled_jobs = _cancel_leftover_jobs(db)
     try:
         result = update_service.apply_update()
@@ -40,6 +41,16 @@ def apply_update(db: Session = Depends(get_db)):
         raise HTTPException(500, str(exc)) from exc
 
     if result.get("updated"):
+        generation = mark_extension_reload_pending()
+        packaged = bool(result.get("packaged"))
+        if not packaged:
+            try:
+                install_bundled_extension()
+            except ChromeBridgeError:
+                pass
+            from vendoo_studio.routes.extension import request_extension_reload
+            await request_extension_reload(generation)
+        result["extension_reload"] = True
         update_service.schedule_restart()
         result["reloading"] = True
     if cancelled_jobs:

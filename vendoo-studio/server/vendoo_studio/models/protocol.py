@@ -13,6 +13,7 @@ class MessageType(str, enum.Enum):
     JOB_RETRY = "job.retry"
     JOB_CANCEL = "job.cancel"
     DIAGNOSTIC_ACK = "diagnostic.ack"
+    EXTENSION_RELOAD = "extension.reload"
     PING = "ping"
 
 

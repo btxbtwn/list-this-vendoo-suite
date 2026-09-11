@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 from vendoo_studio.config import extension_source_dir, user_data_root
@@ -45,25 +47,122 @@ def installed_extension_dir() -> Path:
     return user_data_root() / "vendoo-extension"
 
 
+def pending_reload_path() -> Path:
+    return user_data_root() / "extension-reload-pending"
+
+
+def _ignored_name(name: str) -> bool:
+    return name in EXTENSION_SKIP or name.startswith(".") or name.endswith(".log")
+
+
 def _ignore_extension(_directory: str, names: list[str]) -> list[str]:
-    ignored = []
-    for name in names:
-        if name in EXTENSION_SKIP or name.startswith(".") or name.endswith(".log"):
-            ignored.append(name)
-    return ignored
+    return [name for name in names if _ignored_name(name)]
 
 
-def sync_bundled_extension() -> Path:
+def _iter_extension_files(root: Path) -> list[Path]:
+    files: list[Path] = []
+    if not root.is_dir():
+        return files
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel_parts = path.relative_to(root).parts
+        if any(_ignored_name(part) for part in rel_parts):
+            continue
+        files.append(path)
+    return files
+
+
+def extension_fingerprint(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in _iter_extension_files(root):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _overlay_copy(source: Path, destination: Path) -> None:
+    wanted: set[str] = set()
+    for path in _iter_extension_files(source):
+        rel = path.relative_to(source)
+        wanted.add(rel.as_posix())
+        target = destination / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    for path in _iter_extension_files(destination):
+        rel = path.relative_to(destination).as_posix()
+        if rel not in wanted:
+            path.unlink(missing_ok=True)
+    for directory in sorted(
+        (p for p in destination.rglob("*") if p.is_dir()),
+        key=lambda p: len(p.parts),
+        reverse=True,
+    ):
+        try:
+            next(directory.iterdir())
+        except StopIteration:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
+def install_bundled_extension() -> bool:
+    """Copy the bundled extension into Chrome's load path. True when files changed."""
     source = extension_source_dir()
     if not (source / "manifest.json").is_file():
         raise ChromeBridgeError(
             "The Vendoo Chrome extension is missing from this app. Re-download List This Studio."
         )
     destination = installed_extension_dir()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    new_fingerprint = extension_fingerprint(source)
+    old_fingerprint = extension_fingerprint(destination) if destination.exists() else None
+    if old_fingerprint == new_fingerprint:
+        return False
+
+    staging = destination.parent / f".{destination.name}.staging"
+    if staging.exists():
+        shutil.rmtree(staging)
+    shutil.copytree(source, staging, ignore=_ignore_extension)
     if destination.exists():
-        shutil.rmtree(destination)
-    shutil.copytree(source, destination, ignore=_ignore_extension)
-    return destination
+        _overlay_copy(staging, destination)
+        shutil.rmtree(staging)
+    else:
+        staging.rename(destination)
+    return True
+
+
+def sync_bundled_extension() -> Path:
+    install_bundled_extension()
+    return installed_extension_dir()
+
+
+def mark_extension_reload_pending() -> str:
+    token = uuid.uuid4().hex
+    path = pending_reload_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(token, encoding="utf-8")
+    return token
+
+
+def pending_extension_reload_token() -> str | None:
+    try:
+        token = pending_reload_path().read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    return token or None
+
+
+def clear_extension_reload_pending() -> None:
+    pending_reload_path().unlink(missing_ok=True)
+
+
+def needs_worker_reload(pending: str | None, reported: str | None, files_changed: bool) -> bool:
+    if files_changed:
+        return True
+    return bool(pending) and pending != reported
 
 
 def launch_args(executable: Path, extension_dir: Path, profile_dir: Path) -> list[str]:
