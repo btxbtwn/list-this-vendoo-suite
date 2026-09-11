@@ -26,6 +26,8 @@ class Conversation(Base):
     title = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     status = Column(String, default="draft")
+    settled_at = Column(DateTime, nullable=True)
+    unsettled_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
