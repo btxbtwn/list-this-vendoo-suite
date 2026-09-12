@@ -15,8 +15,37 @@ from vendoo_studio.repositories.queries import FillLogRepo, RegistryRepo
 LOGGER = logging.getLogger("vendoo_studio.fill_log")
 
 STATUSES = ("filled", "skipped", "not_found", "failed", "uncertain", "new")
+FILLABLE_STATUSES = ("skipped", "new", "failed", "uncertain", "not_found")
 MAX_ENTRIES = 200
 MAX_PREVIEW = 80
+MAX_PATCH_FIELDS = 50
+MAX_PATCH_VALUE = 500
+
+GENERAL_LISTING_KEYS = {
+    "title": "title",
+    "description": "description",
+    "price": "price",
+    "listing price": "price",
+    "buy it now price": "price",
+    "cost": "cost",
+    "cost of goods": "cost",
+    "quantity": "quantity",
+    "brand": "brand",
+    "condition": "condition",
+    "primary color": "primaryColor",
+    "color": "primaryColor",
+    "secondary color": "secondaryColor",
+    "size": "size",
+    "us size": "size",
+    "sku": "sku",
+    "category": "category_path",
+    "tags": "tags",
+    "labels": "labels",
+    "vendoo labels": "labels",
+    "notes": "notes",
+    "internal notes": "notes",
+    "vendoo internal notes": "notes",
+}
 
 
 def preview_value(value: Any) -> str:
@@ -60,15 +89,70 @@ def sanitize_entries(payload: dict | None) -> list[dict]:
         status = str(item.get("status") or "").strip()
         if not field or status not in STATUSES:
             continue
-        cleaned.append({
+        cleaned_item = {
             "field": field[:120],
             "status": status,
             "reason": str(item.get("reason") or "")[:240],
             "selector": str(item.get("selector") or "")[:300],
             "value_preview": preview_value(item.get("value_preview") or item.get("value")),
             "marketplace": str(item.get("marketplace") or payload.get("marketplace") or "unknown")[:40],
-        })
+        }
+        entry_id = str(item.get("id") or "").strip()[:40]
+        if entry_id:
+            cleaned_item["id"] = entry_id
+        cleaned.append(cleaned_item)
     return cleaned
+
+
+def normalize_field_label(value: str) -> str:
+    key = str(value or "").strip()
+    key = re.sub(r"^(ebay|etsy|poshmark|mercari|depop)\s+", "", key, flags=re.IGNORECASE)
+    key = re.sub(r"[*?]+", " ", key)
+    key = re.sub(r"\s+", " ", key).strip().lower()
+    return key
+
+
+def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
+    updated = dict(listing or {})
+    for patch in patches:
+        marketplace = str(patch.get("marketplace") or "general").strip().lower()
+        field = str(patch.get("field") or "").strip()
+        value = patch.get("value")
+        if not field or value is None:
+            continue
+        key = normalize_field_label(field)
+        if marketplace in {"", "general", "unknown"}:
+            mapped = GENERAL_LISTING_KEYS.get(key)
+            if not mapped:
+                continue
+            updated[mapped] = _coerce_listing_value(mapped, value)
+            continue
+        specifics_key = f"{marketplace}_specifics"
+        specifics = dict(updated.get(specifics_key) or {})
+        existing = next(
+            (candidate for candidate in specifics if normalize_field_label(str(candidate)) == key),
+            None,
+        )
+        specifics[existing or field] = value
+        updated[specifics_key] = specifics
+    return updated
+
+
+def _coerce_listing_value(mapped: str, value: Any) -> Any:
+    text = str(value).strip()
+    if mapped in {"tags", "labels"}:
+        return [part.strip() for part in text.split(",") if part.strip()]
+    if mapped == "quantity":
+        try:
+            return int(float(text))
+        except ValueError:
+            return text
+    if mapped in {"price", "cost"}:
+        try:
+            return float(text)
+        except ValueError:
+            return text
+    return value
 
 
 def render_markdown(job: Job, grouped: dict[str, list[FillLogEntry]]) -> str:
@@ -168,6 +252,59 @@ class FillLogService:
             counts["new"],
         )
         return saved
+
+    def apply_field_results(self, job: Job, payload: dict | None) -> list[FillLogEntry]:
+        incoming = sanitize_entries(payload)
+        if not incoming:
+            return []
+
+        existing = self._repo.list_for_job(job.id)
+        by_id = {entry.id: entry for entry in existing}
+        used: set[str] = set()
+        updated: list[FillLogEntry] = []
+        for item in incoming:
+            row = None
+            item_id = item.get("id") or ""
+            if item_id and item_id in by_id:
+                row = by_id[item_id]
+            if row is None:
+                for candidate in existing:
+                    if candidate.id in used:
+                        continue
+                    if candidate.marketplace == item["marketplace"] and candidate.field == item["field"]:
+                        row = candidate
+                        break
+            if row is None:
+                continue
+            used.add(row.id)
+            row.status = item["status"]
+            row.reason = item.get("reason") or ""
+            if item.get("selector"):
+                row.selector = item["selector"]
+            row.value_preview = item.get("value_preview") or ""
+            updated.append(row)
+
+        if not updated:
+            return []
+
+        self._db.commit()
+        for row in updated:
+            self._db.refresh(row)
+
+        category_path = None
+        if isinstance(job.listing_snapshot, dict):
+            category_path = job.listing_snapshot.get("category_path") or None
+        grouped: dict[str, list[dict]] = {}
+        for row in updated:
+            grouped.setdefault(row.marketplace, []).append({
+                "field": row.field,
+                "status": row.status,
+                "selector": row.selector or "",
+            })
+        for marketplace, entries in grouped.items():
+            self._update_registry(marketplace, category_path, entries)
+        self.write_markdown(job)
+        return updated
 
     def clear_job(self, job_id: str) -> None:
         self._repo.delete_for_job(job_id)

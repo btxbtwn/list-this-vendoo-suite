@@ -250,23 +250,16 @@ def reexec_in_venv_if_needed() -> None:
 def ensure_on_channel_ref() -> None:
     from vendoo_studio.services.updates import (
         REF,
-        _is_dev,
         current_branch,
-        dirty_files,
         ensure_standalone_clone,
+        pin_to_remote,
         repo_root,
-        _run,
     )
 
     root = ensure_standalone_clone(repo_root())
-    branch = current_branch(root)
-    if branch == REF:
+    if current_branch(root) == REF:
         return
-    if _is_dev() and dirty_files(root):
-        raise RuntimeError(
-            f"{APP_NAME} must run on {REF}. This checkout is on {branch} with uncommitted changes."
-        )
-    _run(["git", "checkout", "--force", "-B", REF, f"origin/{REF}"], root)
+    pin_to_remote(root, f"origin/{REF}")
 
 
 def ensure_frontend() -> None:

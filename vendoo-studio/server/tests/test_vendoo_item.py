@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from vendoo_studio.database import Base, get_db
+from vendoo_studio.main import app
+from vendoo_studio.models.conversation import Conversation
+from vendoo_studio.models.job import Job
+from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
+from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
+from vendoo_studio.routes.extension import extension_manager
+
+
+class VendooItemRouteTest(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        self.db = Session()
+        self.conv = Conversation(title="Nike tee")
+        self.db.add(self.conv)
+        self.db.commit()
+        self.job = Job(
+            conversation_id=self.conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot={"title": "Nike tee"},
+            status="completed",
+            vendoo_url="https://web.vendoo.co/app/item/abc123",
+            vendoo_item_id="abc123",
+        )
+        self.db.add(self.job)
+        self.db.commit()
+
+        def override_get_db():
+            try:
+                yield self.db
+            finally:
+                pass
+
+        app.dependency_overrides[get_db] = override_get_db
+        self.client = TestClient(app)
+        extension_manager.connection = None
+        extension_manager.paired = False
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+        extension_manager.connection = None
+        extension_manager.paired = False
+        for request_id in list(extension_manager._waits):
+            extension_manager.cancel_wait(request_id)
+        self.db.close()
+
+    def _connect_chrome(self):
+        extension_manager.connection = MagicMock()
+        extension_manager.paired = True
+
+    def test_vendoo_item_returns_draft_json(self):
+        self._connect_chrome()
+
+        async def fake_dispatch(job, request_id):
+            extension_manager.resolve_wait(request_id, {
+                "ok": True,
+                "source": "api+form",
+                "item_id": "abc123",
+                "url": "https://web.vendoo.co/app/item/abc123",
+                "item": {"itemID": "abc123", "generalDetails": {"title": "Nike tee"}},
+                "form": {"generalDetails": {"title": "Nike tee"}},
+            })
+            return True
+
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=fake_dispatch)):
+            response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["source"], "api+form")
+        self.assertEqual(body["item"]["generalDetails"]["title"], "Nike tee")
+        self.assertEqual(body["form"]["generalDetails"]["title"], "Nike tee")
+
+    def test_vendoo_item_requires_connected_chrome(self):
+        response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Chrome is not connected", response.json()["detail"])
+
+    def test_vendoo_item_requires_draft(self):
+        self._connect_chrome()
+        self.job.vendoo_url = None
+        self.job.vendoo_item_id = None
+        self.db.commit()
+        response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("No Vendoo draft", response.json()["detail"])
+
+    def test_vendoo_item_job_not_found(self):
+        self._connect_chrome()
+        response = self.client.post("/api/jobs/missing/vendoo-item")
+        self.assertEqual(response.status_code, 404)
+
+    def test_vendoo_item_read_failure(self):
+        self._connect_chrome()
+
+        async def fake_dispatch(job, request_id):
+            extension_manager.resolve_wait(request_id, {
+                "ok": False,
+                "error": "GET /api/item returned 401",
+            })
+            return True
+
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=fake_dispatch)):
+            response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("401", response.json()["detail"])
+
+    def test_vendoo_item_times_out(self):
+        self._connect_chrome()
+
+        with patch("vendoo_studio.routes.extension.VENDOO_GET_TIMEOUT_SEC", 0.05), patch(
+            "vendoo_studio.routes.extension.dispatch_vendoo_get",
+            new=AsyncMock(return_value=True),
+        ):
+            response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
+
+        self.assertEqual(response.status_code, 504)
+        self.assertIn("did not return", response.json()["detail"])
+
+
+if __name__ == "__main__":
+    unittest.main()

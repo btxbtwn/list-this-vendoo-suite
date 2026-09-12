@@ -250,21 +250,11 @@ def apply_update() -> dict:
 def apply_update_at(root: Path) -> dict:
     if not _is_dev():
         root = ensure_standalone_clone(root)
-    else:
-        dirty = dirty_files(root)
-        if dirty:
-            raise UpdateBlocked("Uncommitted changes. Commit or stash before updating.")
-
     fetch(root)
     remote_ref = _remote_ref()
     if _in_sync_with_remote(root, remote_ref):
         return {"ok": True, "updated": False, "sha": rev_parse(root, "HEAD")}
-
-    if _is_dev():
-        _run(["git", "merge", "--ff-only", remote_ref], root)
-    else:
-        pin_to_remote(root, remote_ref)
-
+    pin_to_remote(root, remote_ref)
     sha = rev_parse(root, "HEAD")
     rebuilt = _rebuild_frontend_if_needed(root)
     return {"ok": True, "updated": True, "sha": sha, "rebuilt": rebuilt}

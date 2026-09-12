@@ -72,7 +72,15 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
       <div className="editor-body">
         {activeTab === "log" ? (
           listingJob ? (
-            <FillLogPanel jobId={listingJob.id} />
+            <FillLogPanel
+              jobId={listingJob.id}
+              jobStatus={listingJob.status}
+              jobStep={listingJob.current_step}
+              vendooItemId={listingJob.vendoo_item_id}
+              vendooUrl={listingJob.vendoo_url}
+              onFilled={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
+              onJobStarted={onJobStarted}
+            />
           ) : (
             <p className="text-xs text-muted">No fill log yet. Send this listing to Vendoo to record what gets filled, skipped, or newly seen.</p>
           )
@@ -99,6 +107,7 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
           canSend={data?.can_send ?? false}
           sendBlockers={data?.errors || []}
           onJobStarted={onJobStarted}
+          onOpenFillLog={() => setActiveTab("log")}
         />
       </div>
     </div>
@@ -244,11 +253,13 @@ function SendToVendooButton({
   canSend,
   sendBlockers,
   onJobStarted,
+  onOpenFillLog,
 }: {
   convId: string;
   canSend: boolean;
   sendBlockers: { field?: string; message?: string }[];
   onJobStarted?: () => void;
+  onOpenFillLog?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
@@ -319,7 +330,8 @@ function SendToVendooButton({
     const isDispatched = existingJob.status === "dispatched";
     const isCompleted = existingJob.status === "completed";
     const isQueued = existingJob.status === "queued" || existingJob.status === "awaiting_extension";
-    const canRestart = isFailed || isDispatched || isCompleted || isQueued;
+    const leftoverFilling = isDispatched && existingJob.current_step === "filling_fields";
+    const canRestart = (isFailed || isDispatched || isCompleted || isQueued) && !leftoverFilling;
     const canCancel = !isCompleted;
     const buttonLabel = retryMutation.isPending
       ? "Sending..."
@@ -336,7 +348,7 @@ function SendToVendooButton({
             {existingJob.status}: {existingJob.current_step || "queued"}
             {existingJob.last_error && <div className="mt-4 text-xs text-error">{existingJob.last_error}</div>}
           </div>
-          <FillLogSummary jobId={existingJob.id} />
+          <FillLogSummary jobId={existingJob.id} onOpenFillLog={onOpenFillLog} />
         </div>
         <div className="job-card-actions">
           {canRestart && (
