@@ -10,6 +10,9 @@ import { SettingsPage } from "../components/SettingsPage";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
 import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon } from "../components/ListingSidebar";
+import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
+import { ToastHost } from "../components/ToastHost";
+import { isConfirmDialogOpen } from "../ui/confirmDialog";
 
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
@@ -74,6 +77,24 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isMobile, mobileSidebarOpen]);
 
+  useEffect(() => {
+    if (activeView !== "settings") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || isConfirmDialogOpen()) return;
+      if (isMobile && mobileSidebarOpen) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        return;
+      }
+      setActiveView("listings");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeView, isMobile, mobileSidebarOpen]);
+
   const closeMobileSidebar = () => setMobileSidebarOpen(false);
   const showMailToolbar = isMobile && activeView === "listings" && mobileSidebarOpen;
 
@@ -129,6 +150,7 @@ export function App() {
           onCreate={() => createConv.mutate()}
           onDelete={(id) => deleteConv.mutate(id)}
           onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); closeMobileSidebar(); }}
+          onCloseSettings={() => setActiveView("listings")}
         />
 
         <div className="workspace-frame">
@@ -208,15 +230,17 @@ export function App() {
             )}
           </main>
 
-          <aside className="panel detail-panel">
-            {activeView === "listings" && selectedConvId ? (
-              <ListingEditor convId={selectedConvId} onJobStarted={() => setMobilePane("browser")} />
-            ) : (
-              <div className="empty-state">
-                <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
-              </div>
-            )}
-          </aside>
+          {activeView !== "settings" && (
+            <aside className="panel detail-panel">
+              {selectedConvId ? (
+                <ListingEditor convId={selectedConvId} onJobStarted={() => setMobilePane("browser")} />
+              ) : (
+                <div className="empty-state">
+                  <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
+                </div>
+              )}
+            </aside>
+          )}
         </div>
       </div>
 
@@ -261,6 +285,8 @@ export function App() {
         </div>
         <div>V 0.1.0</div>
       </footer>
+      <ToastHost />
+      <ConfirmDialogHost />
     </div>
   );
 }
