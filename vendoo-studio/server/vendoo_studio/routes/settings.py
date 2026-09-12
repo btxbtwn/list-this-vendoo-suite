@@ -6,6 +6,11 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
+class ChatGPTModelsConfig(BaseModel):
+    vision_model: str | None = None
+    listing_model: str | None = None
+
+
 class ProviderConfig(BaseModel):
     api_key: str | None = None
 
@@ -55,12 +60,15 @@ def get_provider():
         masked = key[:8] + "..." + key[-4:] if len(key) > 12 else "***"
 
     if chatgpt_signed_in():
+        from vendoo_studio.providers.chatgpt_codex import resolved_chatgpt_models
+
+        vision_model, listing_model = resolved_chatgpt_models()
         return ProviderStatus(
             provider="chatgpt",
             configured=True,
             masked_key=None,
-            vision_model="gpt-5.4",
-            listing_model="gpt-5.5",
+            vision_model=vision_model,
+            listing_model=listing_model,
             base_url="https://chatgpt.com/backend-api/codex",
             chatgpt=chatgpt,
         )
@@ -103,9 +111,59 @@ async def test_connection():
     if provider is None:
         raise HTTPException(400, "Sign in with ChatGPT in Settings, or add a MiMo API key.")
 
-    ok = await provider.test_connection()
     name = getattr(provider, "name", "xiaomi-mimo")
+    try:
+        ok = await provider.test_connection()
+    except Exception as exc:
+        return {"ok": False, "provider": name, "error": str(exc)}
     return {"ok": ok, "provider": name}
+
+
+@router.get("/chatgpt/models")
+async def chatgpt_models():
+    from vendoo_studio.providers.chatgpt_codex import fetch_codex_models, resolved_chatgpt_models
+    from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
+
+    if not chatgpt_signed_in():
+        raise HTTPException(400, "Sign in with ChatGPT first.")
+
+    vision_model, listing_model = resolved_chatgpt_models()
+    error = None
+    try:
+        slugs = await fetch_codex_models()
+    except Exception as exc:
+        slugs = []
+        error = str(exc)
+    for slug in (vision_model, listing_model):
+        if slug and slug not in slugs:
+            slugs.append(slug)
+    return {
+        "models": slugs,
+        "vision_model": vision_model,
+        "listing_model": listing_model,
+        "error": error,
+    }
+
+
+@router.put("/chatgpt/models")
+def set_chatgpt_models(config: ChatGPTModelsConfig):
+    from vendoo_studio.providers.chatgpt_codex import resolved_chatgpt_models
+    from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
+    from vendoo_studio.services.keychain import set_chatgpt_models as persist_chatgpt_models
+
+    if not chatgpt_signed_in():
+        raise HTTPException(400, "Sign in with ChatGPT first.")
+
+    vision = (config.vision_model or "").strip()
+    listing = (config.listing_model or "").strip()
+    if not vision and not listing:
+        raise HTTPException(400, "Choose a vision or listing model.")
+    persist_chatgpt_models(
+        vision_model=vision or None,
+        listing_model=listing or None,
+    )
+    vision_model, listing_model = resolved_chatgpt_models()
+    return {"ok": True, "vision_model": vision_model, "listing_model": listing_model}
 
 
 @router.post("/chatgpt/login")

@@ -103,7 +103,7 @@ export const api = {
     get: (id: string) => request<any>(`/jobs/${id}`),
     events: (id: string) => request<any[]>(`/jobs/${id}/events`),
     fillLog: (id: string) => request<any>(`/jobs/${id}/fill-log`),
-    fillFields: (id: string, fields: { id: string; value: string }[]) =>
+    fillFields: (id: string, fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
       request<any>(`/jobs/${id}/fill-fields`, {
         method: "POST",
         body: JSON.stringify({ fields }),
@@ -126,6 +126,18 @@ export const api = {
     chatgptLogin: () => request<any>("/settings/chatgpt/login", { method: "POST" }),
     chatgptCancelLogin: () => request<any>("/settings/chatgpt/login", { method: "DELETE" }),
     chatgptLogout: () => request<any>("/settings/chatgpt", { method: "DELETE" }),
+    chatgptModels: () =>
+      request<{
+        models: string[];
+        vision_model: string;
+        listing_model: string;
+        error?: string | null;
+      }>("/settings/chatgpt/models"),
+    setChatGPTModels: (models: { vision_model?: string; listing_model?: string }) =>
+      request<{ ok: boolean; vision_model: string; listing_model: string }>("/settings/chatgpt/models", {
+        method: "PUT",
+        body: JSON.stringify(models),
+      }),
   },
 
   extension: {

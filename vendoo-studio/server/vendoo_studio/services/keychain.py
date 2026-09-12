@@ -6,12 +6,15 @@ import threading
 KEYRING_SERVICE = "vendoo-studio"
 KEYRING_ACCOUNT = "xiaomi-mimo-api-key"
 CHATGPT_ACCOUNT = "chatgpt-codex-oauth"
+CHATGPT_MODELS_ACCOUNT = "chatgpt-models"
 
 _lock = threading.Lock()
 _loaded = False
 _cached_key: str | None = None
 _chatgpt_loaded = False
 _cached_chatgpt: dict | None = None
+_chatgpt_models_loaded = False
+_cached_chatgpt_models: dict | None = None
 
 
 def get_api_key() -> str | None:
@@ -86,3 +89,50 @@ def delete_chatgpt_tokens():
     with _lock:
         _cached_chatgpt = None
         _chatgpt_loaded = True
+
+
+def _clean_model_slug(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    slug = value.strip()
+    return slug or None
+
+
+def get_chatgpt_models() -> dict[str, str]:
+    global _chatgpt_models_loaded, _cached_chatgpt_models
+    with _lock:
+        if _chatgpt_models_loaded:
+            return dict(_cached_chatgpt_models or {})
+        try:
+            import keyring
+            raw = keyring.get_password(KEYRING_SERVICE, CHATGPT_MODELS_ACCOUNT)
+            payload = json.loads(raw) if raw else None
+        except Exception:
+            payload = None
+        models: dict[str, str] = {}
+        if isinstance(payload, dict):
+            vision = _clean_model_slug(payload.get("vision_model"))
+            listing = _clean_model_slug(payload.get("listing_model"))
+            if vision:
+                models["vision_model"] = vision
+            if listing:
+                models["listing_model"] = listing
+        _cached_chatgpt_models = models
+        _chatgpt_models_loaded = True
+        return dict(models)
+
+
+def set_chatgpt_models(*, vision_model: str | None = None, listing_model: str | None = None):
+    global _chatgpt_models_loaded, _cached_chatgpt_models
+    current = get_chatgpt_models()
+    vision = _clean_model_slug(vision_model)
+    listing = _clean_model_slug(listing_model)
+    if vision:
+        current["vision_model"] = vision
+    if listing:
+        current["listing_model"] = listing
+    import keyring
+    keyring.set_password(KEYRING_SERVICE, CHATGPT_MODELS_ACCOUNT, json.dumps(current))
+    with _lock:
+        _cached_chatgpt_models = dict(current)
+        _chatgpt_models_loaded = True

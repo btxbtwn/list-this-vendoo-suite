@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import logging
+import time
 
 import httpx
 
@@ -11,12 +11,72 @@ from vendoo_studio.services.chatgpt_oauth import (
     account_id_from_tokens,
     refresh_chatgpt_tokens,
 )
-
-log = logging.getLogger("vendoo_studio.chatgpt_codex")
+from vendoo_studio.services.keychain import get_chatgpt_models
 
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
-VISION_MODEL = "gpt-5.4"
+USER_AGENT = "VendooStudio/0.1.0"
+MODELS_CLIENT_VERSION = "1.0.0"
+VISION_MODEL = "gpt-5.5"
 LISTING_MODEL = "gpt-5.5"
+CATALOG_TTL_S = 60
+
+_catalog_cached_at = 0.0
+_catalog_slugs: list[str] = []
+
+
+def resolved_chatgpt_models() -> tuple[str, str]:
+    prefs = get_chatgpt_models()
+    vision = prefs.get("vision_model") or VISION_MODEL
+    listing = prefs.get("listing_model") or LISTING_MODEL
+    return vision, listing
+
+
+def visible_model_slugs(payload: object) -> list[str]:
+    entries = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return []
+    sortable: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        slug = item.get("slug")
+        if not isinstance(slug, str) or not slug.strip():
+            continue
+        slug = slug.strip()
+        visibility = item.get("visibility")
+        if isinstance(visibility, str) and visibility.strip().lower() in {"hide", "hidden"}:
+            continue
+        if slug in seen:
+            continue
+        seen.add(slug)
+        priority = item.get("priority")
+        rank = int(priority) if isinstance(priority, (int, float)) else 10_000
+        sortable.append((rank, slug))
+    sortable.sort()
+    return [slug for _, slug in sortable]
+
+
+def _http_error(resp: httpx.Response) -> str:
+    text = (resp.text or "").strip()
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = None
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        if isinstance(detail, str) and detail.strip():
+            text = detail.strip()
+        else:
+            error = payload.get("error")
+            if isinstance(error, dict):
+                text = str(error.get("message") or error.get("code") or error)
+            elif isinstance(error, str) and error:
+                text = error
+    text = " ".join(text.split())
+    if len(text) > 240:
+        text = text[:237] + "..."
+    return f"ChatGPT HTTP {resp.status_code}: {text}" if text else f"ChatGPT HTTP {resp.status_code}"
 
 
 def _responses_text(payload: dict) -> str:
@@ -89,38 +149,58 @@ def _messages_to_input(messages: list[dict]) -> tuple[str, list[dict]]:
     return "\n\n".join(instructions), items
 
 
+async def _codex_headers() -> dict[str, str]:
+    tokens = await refresh_chatgpt_tokens()
+    if not tokens:
+        raise RuntimeError("Not signed in with ChatGPT")
+    headers = {
+        "Authorization": f"Bearer {tokens['access_token']}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "User-Agent": USER_AGENT,
+        "originator": ORIGINATOR,
+        "OpenAI-Beta": "responses=experimental",
+    }
+    account_id = account_id_from_tokens(tokens)
+    if account_id:
+        headers["ChatGPT-Account-ID"] = account_id
+    return headers
+
+
+async def fetch_codex_models(*, force: bool = False) -> list[str]:
+    global _catalog_cached_at, _catalog_slugs
+    now = time.time()
+    if not force and _catalog_slugs and now - _catalog_cached_at < CATALOG_TTL_S:
+        return list(_catalog_slugs)
+    headers = await _codex_headers()
+    headers.pop("Accept", None)
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"{CODEX_BASE_URL}/models",
+            params={"client_version": MODELS_CLIENT_VERSION},
+            headers=headers,
+        )
+    if resp.status_code >= 400:
+        raise RuntimeError(_http_error(resp))
+    slugs = visible_model_slugs(resp.json())
+    _catalog_slugs = slugs
+    _catalog_cached_at = now
+    return list(slugs)
+
+
 class ChatGPTCodexProvider:
     name = "chatgpt"
-    vision_model = VISION_MODEL
-    listing_model = LISTING_MODEL
     base_url = CODEX_BASE_URL
 
+    def __init__(self):
+        self.vision_model, self.listing_model = resolved_chatgpt_models()
+
     async def _headers(self) -> dict[str, str]:
-        tokens = await refresh_chatgpt_tokens()
-        if not tokens:
-            raise RuntimeError("Not signed in with ChatGPT")
-        headers = {
-            "Authorization": f"Bearer {tokens['access_token']}",
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-            "originator": ORIGINATOR,
-            "OpenAI-Beta": "responses=experimental",
-        }
-        account_id = account_id_from_tokens(tokens)
-        if account_id:
-            headers["chatgpt-account-id"] = account_id
-        return headers
+        return await _codex_headers()
 
     async def test_connection(self) -> bool:
-        try:
-            headers = await self._headers()
-            headers.pop("Accept", None)
-            async with httpx.AsyncClient(timeout=20) as client:
-                resp = await client.get(f"{self.base_url}/models", headers=headers)
-                return resp.status_code < 400
-        except Exception:
-            log.debug("ChatGPT connection test failed", exc_info=True)
-            return False
+        await fetch_codex_models(force=True)
+        return True
 
     async def analyze_photos(
         self,
@@ -210,7 +290,7 @@ class ChatGPTCodexProvider:
             ) as resp:
                 if resp.status_code >= 400:
                     await resp.aread()
-                    raise RuntimeError(f"ChatGPT HTTP {resp.status_code}: {resp.text[:500]}")
+                    raise RuntimeError(_http_error(resp))
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
@@ -228,20 +308,12 @@ class ChatGPTCodexProvider:
                         yield text
 
     async def _complete(self, messages: list[dict], model: str):
-        headers = await self._headers()
-        headers["Accept"] = "application/json"
-        async with httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(
-                f"{self.base_url}/responses",
-                headers=headers,
-                json=self._payload(messages, model, False),
-            )
-            if resp.status_code >= 400:
-                raise RuntimeError(f"ChatGPT HTTP {resp.status_code}: {resp.text[:500]}")
-            text = _responses_text(resp.json())
-            if not text:
-                raise RuntimeError("ChatGPT returned an empty listing response")
-            yield text
+        text = ""
+        async for chunk in self._stream(messages, model):
+            text += chunk
+        if not text:
+            raise RuntimeError("ChatGPT returned an empty listing response")
+        yield text
 
     def _parse_json_response(self, content: str) -> dict:
         import re
