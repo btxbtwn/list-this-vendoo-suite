@@ -161,7 +161,11 @@ export function SettingsPage() {
             title="Sign in with ChatGPT"
             description="Uses your ChatGPT subscription to generate listings. Usage counts against Codex quota, not a Platform API key."
             status={
-              chatgpt?.error ? <span className="text-error">{chatgpt.error}</span> : null
+              chatgptSignedIn && testResult ? (
+                <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
+              ) : chatgpt?.error ? (
+                <span className="text-error">{chatgpt.error}</span>
+              ) : null
             }
             control={
               chatgptSignedIn ? (
@@ -257,21 +261,25 @@ export function SettingsPage() {
           <SettingsRow
             title="Status"
             description={
-              provider?.configured
-                ? `Configured · ${provider.masked_key}`
-                : "Not configured"
+              mimoConfigured
+                ? `Configured · ${provider?.masked_key}`
+                : chatgptSignedIn
+                  ? "Fallback when ChatGPT is signed out"
+                  : "Not configured"
             }
             status={
-              testResult ? (
+              !chatgptSignedIn && testResult ? (
                 <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
               ) : null
             }
             control={
-              provider?.configured ? (
+              mimoConfigured ? (
                 <>
-                  <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
-                    {testing ? "Testing…" : "Test"}
-                  </button>
+                  {!chatgptSignedIn ? (
+                    <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
+                      {testing ? "Testing…" : "Test"}
+                    </button>
+                  ) : null}
                   <button type="button" className="btn btn-sm btn-ghost settings-danger" onClick={() => deleteKeyMutation.mutate()}>
                     Remove
                   </button>

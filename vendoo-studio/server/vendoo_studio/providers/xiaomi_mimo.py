@@ -56,6 +56,10 @@ def chunk_text(payload: dict) -> str:
 
 
 class MiMoProvider:
+    name = "xiaomi-mimo"
+    vision_model = "mimo-v2.5"
+    listing_model = "mimo-v2.5-pro"
+
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = MIMO_BASE_URL
