@@ -12,6 +12,9 @@ data/photos/*
 !data/photos/.gitkeep
 data/fill-logs/*
 !data/fill-logs/.gitkeep
+data/vendoo-extension/
+data/extension-reload-pending
+data/Chrome/
 .vite/
 build/
 release/

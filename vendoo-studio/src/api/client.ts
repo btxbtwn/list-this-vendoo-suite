@@ -103,6 +103,13 @@ export const api = {
     get: (id: string) => request<any>(`/jobs/${id}`),
     events: (id: string) => request<any[]>(`/jobs/${id}/events`),
     fillLog: (id: string) => request<any>(`/jobs/${id}/fill-log`),
+    fillFields: (id: string, fields: { id: string; value: string }[]) =>
+      request<any>(`/jobs/${id}/fill-fields`, {
+        method: "POST",
+        body: JSON.stringify({ fields }),
+      }),
+    vendooItem: (id: string) =>
+      request<any>(`/jobs/${id}/vendoo-item`, { method: "POST" }),
     retry: (id: string) => request<any>(`/jobs/${id}/retry`, { method: "POST" }),
     cancel: (id: string) => request<any>(`/jobs/${id}/cancel`, { method: "POST" }),
   },
@@ -148,6 +155,7 @@ export const api = {
         summary?: string;
         commits?: string[];
         short_sha?: string;
+        on_ref?: boolean;
         dirty?: string[];
         error?: string | null;
       }>("/updates"),

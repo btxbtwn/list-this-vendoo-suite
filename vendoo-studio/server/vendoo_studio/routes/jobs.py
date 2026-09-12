@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from pathlib import Path
 
 from vendoo_studio.database import get_db
-from vendoo_studio.repositories.queries import JobRepo, ConversationRepo, ListingRepo
+from vendoo_studio.repositories.queries import JobRepo, ConversationRepo, ListingRepo, FillLogRepo
 from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.models.conversation import Photo
 
@@ -33,6 +33,15 @@ class JobResponse(BaseModel):
 
 class CreateJobRequest(BaseModel):
     conversation_id: str
+
+
+class FillFieldItem(BaseModel):
+    id: str
+    value: str
+
+
+class FillFieldsRequest(BaseModel):
+    fields: list[FillFieldItem]
 
 
 @router.post("", response_model=JobResponse)
@@ -200,6 +209,161 @@ def get_job_fill_log(job_id: str, db: Session = Depends(get_db)):
     return FillLogService(db).report_for_job(job)
 
 
+class VendooItemResponse(BaseModel):
+    ok: bool
+    source: str | None = None
+    item_id: str | None = None
+    url: str | None = None
+    error: str | None = None
+    api_error: str | None = None
+    item: dict | None = None
+    form: dict | None = None
+
+
+@router.post("/{job_id}/vendoo-item", response_model=VendooItemResponse)
+async def get_vendoo_item(job_id: str, db: Session = Depends(get_db)):
+    import uuid
+
+    from vendoo_studio.routes.extension import (
+        VENDOO_GET_TIMEOUT_SEC,
+        dispatch_vendoo_get,
+        extension_manager,
+    )
+
+    repo = JobRepo(db)
+    job = repo.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if not job.vendoo_url and not job.vendoo_item_id:
+        raise HTTPException(400, "No Vendoo draft is available yet. Send the listing first.")
+    if not extension_manager.connected:
+        raise HTTPException(400, "Chrome is not connected")
+
+    request_id = uuid.uuid4().hex[:12]
+    waiter = extension_manager.register_wait(request_id)
+    try:
+        sent = await dispatch_vendoo_get(job, request_id)
+        if not sent:
+            raise HTTPException(503, "Could not reach the Chrome extension")
+        try:
+            payload = await asyncio.wait_for(waiter, timeout=VENDOO_GET_TIMEOUT_SEC)
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                504,
+                "Chrome did not return the Vendoo draft in time. Open the listing tab and try again.",
+            )
+    finally:
+        extension_manager.cancel_wait(request_id)
+
+    if not payload.get("ok"):
+        raise HTTPException(502, payload.get("error") or "Could not read the Vendoo draft")
+
+    return VendooItemResponse(
+        ok=True,
+        source=payload.get("source"),
+        item_id=payload.get("item_id") or job.vendoo_item_id,
+        url=payload.get("url") or job.vendoo_url,
+        error=payload.get("error"),
+        api_error=payload.get("api_error"),
+        item=payload.get("item"),
+        form=payload.get("form"),
+    )
+
+
+@router.post("/{job_id}/fill-fields", response_model=JobResponse)
+async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = Depends(get_db)):
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
+    from vendoo_studio.services.fill_log import (
+        FILLABLE_STATUSES,
+        MAX_PATCH_FIELDS,
+        MAX_PATCH_VALUE,
+        FillLogService,
+        preview_value,
+        write_values_into_listing,
+    )
+
+    repo = JobRepo(db)
+    job = repo.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status in ACTIVE_JOB_STATUSES:
+        raise HTTPException(400, "Wait for the current fill to finish")
+    if job.status not in {"completed", "failed"}:
+        raise HTTPException(400, f"Job is {job.status}, cannot fill leftover fields")
+    if not job.vendoo_url and not job.vendoo_item_id:
+        raise HTTPException(400, "No Vendoo draft is available yet. Send the listing first.")
+    if not extension_manager.connected:
+        raise HTTPException(400, "Chrome is not connected")
+
+    requested = body.fields[:MAX_PATCH_FIELDS]
+    if not requested:
+        raise HTTPException(400, "Add at least one leftover field value")
+
+    values_by_id: dict[str, str] = {}
+    for item in requested:
+        value = str(item.value or "").strip()
+        if not value:
+            continue
+        if len(value) > MAX_PATCH_VALUE:
+            raise HTTPException(400, f"Value for {item.id} is too long")
+        values_by_id[item.id] = value
+    if not values_by_id:
+        raise HTTPException(400, "Add at least one leftover field value")
+
+    fill_repo = FillLogRepo(db)
+    entries = fill_repo.get_for_job_ids(job_id, list(values_by_id.keys()))
+    found_ids = {entry.id for entry in entries}
+    missing = [entry_id for entry_id in values_by_id if entry_id not in found_ids]
+    if missing:
+        raise HTTPException(400, "One or more leftover fields were not found on this job")
+
+    patches = []
+    for entry in entries:
+        if entry.status not in FILLABLE_STATUSES:
+            raise HTTPException(400, f"{entry.field} is already filled")
+        patches.append({
+            "id": entry.id,
+            "marketplace": entry.marketplace,
+            "field": entry.field,
+            "selector": entry.selector or "",
+            "value": values_by_id[entry.id],
+        })
+
+    snapshot = write_values_into_listing(dict(job.listing_snapshot or {}), patches)
+    job.listing_snapshot = snapshot
+    flag_modified(job, "listing_snapshot")
+    listing_repo = ListingRepo(db)
+    revisions = listing_repo.get_revisions(job.conversation_id)
+    parent_id = revisions[0].id if revisions else job.approved_revision_id
+    listing_repo.save_revision(
+        conv_id=job.conversation_id,
+        listing_json=snapshot,
+        source="fill_fields",
+        parent_revision_id=parent_id,
+    )
+    db.refresh(job)
+
+    sent = await dispatch_fill_fields(job, patches)
+    if not sent:
+        raise HTTPException(503, "Could not reach the Chrome extension")
+
+    job.status = "dispatched"
+    job.current_step = "filling_fields"
+    job.last_error = None
+    for entry in entries:
+        entry.value_preview = preview_value(values_by_id[entry.id])
+        entry.reason = "Waiting to fill leftover field"
+    db.commit()
+    db.refresh(job)
+    ConversationRepo(db).update_status(job.conversation_id, "listing")
+    repo.add_event(job_id, "fill_fields", "filling_fields", {"count": len(patches)})
+    FillLogService(db).write_markdown(job)
+    return _job_response(job)
+
+
 @router.post("/{job_id}/retry")
 async def retry_job(job_id: str, db: Session = Depends(get_db)):
     repo = JobRepo(db)
@@ -208,6 +372,8 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Job not found")
     if job.status not in {"failed", "dispatched", "completed", "queued", "awaiting_extension"}:
         raise HTTPException(400, f"Job is {job.status}, cannot retry")
+    if job.status == "dispatched" and job.current_step == "filling_fields":
+        raise HTTPException(400, "Leftover field fill is already running")
 
     job.status = "queued"
     job.current_step = "queued"

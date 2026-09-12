@@ -70,7 +70,7 @@ class ProductionUpdateTest(unittest.TestCase):
         self.assertEqual((self.local / "README.md").read_text(encoding="utf-8"), "one\n")
         self.assertFalse(updates.dirty_files(self.local))
 
-    def test_dev_update_still_blocks_on_dirty_files(self):
+    def test_dev_update_pins_main_and_discards_dirty_files(self):
         os.environ["VENDOO_STUDIO_DEV"] = "1"
         _git(self.remote, "commit", "--allow-empty", "-m", "second")
         (self.local / "README.md").write_text("local dirt\n", encoding="utf-8")
@@ -79,8 +79,29 @@ class ProductionUpdateTest(unittest.TestCase):
         self.assertTrue(status["available"])
         self.assertIn("README.md", status["dirty"])
 
-        with self.assertRaises(updates.UpdateBlocked):
-            updates.apply_update_at(self.local)
+        result = updates.apply_update_at(self.local)
+        self.assertTrue(result["updated"])
+        self.assertEqual(updates.current_branch(self.local), "main")
+        self.assertEqual(result["sha"], updates.rev_parse(self.local, "origin/main"))
+        self.assertEqual((self.local / "README.md").read_text(encoding="utf-8"), "one\n")
+        self.assertFalse(updates.dirty_files(self.local))
+
+    def test_dev_update_pins_main_from_feature_branch(self):
+        os.environ["VENDOO_STUDIO_DEV"] = "1"
+        _git(self.local, "checkout", "-b", "feature")
+        _git(self.local, "commit", "--allow-empty", "-m", "feature work")
+        _git(self.remote, "commit", "--allow-empty", "-m", "second")
+        (self.local / "README.md").write_text("local dirt\n", encoding="utf-8")
+
+        status = updates.check_for_updates_at(self.local)
+        self.assertTrue(status["available"])
+        self.assertEqual(status["branch"], "feature")
+
+        result = updates.apply_update_at(self.local)
+        self.assertTrue(result["updated"])
+        self.assertEqual(updates.current_branch(self.local), "main")
+        self.assertEqual(result["sha"], updates.rev_parse(self.local, "origin/main"))
+        self.assertFalse(updates.dirty_files(self.local))
 
     def test_production_fetches_configured_remote_url_not_origin(self):
         github = Path(self.tmp.name) / "github"

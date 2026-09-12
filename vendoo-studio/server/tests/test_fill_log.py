@@ -18,6 +18,7 @@ from vendoo_studio.services.fill_log import (
     preview_value,
     sanitize_entries,
     summarize,
+    write_values_into_listing,
 )
 
 
@@ -139,6 +140,43 @@ class FillLogServiceTest(unittest.TestCase):
         report = service.report_for_job(self.job)
         self.assertEqual(sum(report["summary"].values()), 0)
         self.assertFalse(Path(self.tmp.name).joinpath(f"{self.job.id}.md").exists())
+
+    def test_write_values_into_listing_maps_general_and_specifics(self):
+        listing = write_values_into_listing(
+            {"title": "Old", "ebay_specifics": {"Season": "Fall"}},
+            [
+                {"marketplace": "general", "field": "Title", "value": "Nike tee"},
+                {"marketplace": "general", "field": "Quantity", "value": "2"},
+                {"marketplace": "ebay", "field": "Occasion", "value": "Casual"},
+                {"marketplace": "ebay", "field": "eBay Season", "value": "Summer"},
+            ],
+        )
+        self.assertEqual(listing["title"], "Nike tee")
+        self.assertEqual(listing["quantity"], 2)
+        self.assertEqual(listing["ebay_specifics"]["Occasion"], "Casual")
+        self.assertEqual(listing["ebay_specifics"]["Season"], "Summer")
+
+    def test_apply_field_results_updates_existing_rows_by_id(self):
+        service = FillLogService(self.db)
+        saved = service.save_step(self.job, "filling_ebay", {
+            "marketplace": "ebay",
+            "entries": [
+                {"field": "Occasion", "status": "skipped", "reason": "No value in listing", "selector": "#occasion"},
+                {"field": "Title", "status": "filled", "selector": "#title", "value_preview": "Nike tee"},
+            ],
+        })
+        leftover = next(entry for entry in saved if entry.field == "Occasion")
+        updated = service.apply_field_results(self.job, {
+            "entries": [
+                {"id": leftover.id, "marketplace": "ebay", "field": "Occasion", "status": "filled", "selector": "#occasion", "value": "Casual"},
+            ],
+        })
+        self.assertEqual(len(updated), 1)
+        self.assertEqual(updated[0].status, "filled")
+        self.assertEqual(updated[0].value_preview, "Casual")
+        report = service.report_for_job(self.job)
+        self.assertEqual(report["summary"]["filled"], 2)
+        self.assertEqual(report["summary"]["skipped"], 0)
 
 
 class FillLogRouteTest(unittest.TestCase):

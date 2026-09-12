@@ -10,7 +10,7 @@
   window.__vendooStudioBridge = true;
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.6';
+  const CONTENT_SCRIPT_VERSION = '0.3.8';
   const DEBUG = true;
   let statusBox;
 
@@ -99,6 +99,7 @@
 
   let currentFillMarketplace = 'general';
   const fillLedger = [];
+  let currentPatchEntryId = '';
 
   function previewValue(value) {
     if (value == null) return '';
@@ -116,6 +117,7 @@
     const field = String(entry.field || '').trim();
     if (!field) return;
     fillLedger.push({
+      id: entry.id || currentPatchEntryId || undefined,
       marketplace: currentFillMarketplace,
       field,
       status: entry.status,
@@ -276,8 +278,10 @@
     }
   }
 
-  function finishFillLog() {
-    appendUnmappedFields();
+  function finishFillLog(options) {
+    if (!options || !options.skipUnmapped) {
+      appendUnmappedFields();
+    }
     const summary = summarizeFillLog(fillLedger);
     log(`=== FILL LOG ${currentFillMarketplace} ===`);
     log(`filled ${summary.filled} · skipped ${summary.skipped} · not found ${summary.not_found} · failed ${summary.failed} · uncertain ${summary.uncertain} · new ${summary.new}`);
@@ -2868,6 +2872,184 @@
       return null;
   }
 
+  function controlValue(selector) {
+      const el = document.querySelector(selector);
+      if (!el) return '';
+      if ('value' in el && el.value != null && String(el.value).trim()) return String(el.value).trim();
+      const text = (el.innerText || el.textContent || '').trim();
+      return text;
+  }
+
+  function scrapeVendooItem() {
+      const itemId = extractItemId();
+      if (itemId === 'new') {
+          return { ok: false, error: 'This is a new item, not a saved draft', url: window.location.href, item_id: null };
+      }
+      const form = {
+          itemID: itemId,
+          generalDetails: {
+              title: controlValue(VENDOO_SELECTORS.title),
+              description: controlValue(VENDOO_SELECTORS.description),
+              brand: controlValue(VENDOO_SELECTORS.brand),
+              condition: controlValue(VENDOO_SELECTORS.condition),
+              primaryColor: controlValue(VENDOO_SELECTORS.primaryColor),
+              secondaryColor: controlValue(VENDOO_SELECTORS.secondaryColor),
+              zipCode: controlValue(VENDOO_SELECTORS.zipCode),
+              tags: controlValue(VENDOO_SELECTORS.tags),
+              quantity: controlValue(VENDOO_SELECTORS.quantity),
+              size: controlValue(VENDOO_SELECTORS.size),
+              sku: controlValue(VENDOO_SELECTORS.sku),
+              price: controlValue(VENDOO_SELECTORS.price),
+              cost: controlValue(VENDOO_SELECTORS.cost),
+              notes: controlValue(VENDOO_SELECTORS.notes),
+              categoryV2: controlValue(VENDOO_SELECTORS.category),
+              weight: {
+                  pounds: controlValue(VENDOO_SELECTORS.weightLb),
+                  ounces: controlValue(VENDOO_SELECTORS.weightOz),
+              },
+              dimensions: {
+                  length: controlValue(VENDOO_SELECTORS.length),
+                  width: controlValue(VENDOO_SELECTORS.width),
+                  height: controlValue(VENDOO_SELECTORS.height),
+              },
+          },
+      };
+      const filled = Object.values(form.generalDetails).some((value) => {
+          if (value && typeof value === 'object') return Object.values(value).some(Boolean);
+          return Boolean(value);
+      });
+      return {
+          ok: filled || Boolean(itemId),
+          source: 'form',
+          item_id: itemId,
+          url: window.location.href,
+          form,
+      };
+  }
+
+  function queryByRecordedSelector(selector) {
+      if (!selector) return null;
+      try {
+          const el = document.querySelector(selector);
+          if (el) return el;
+      } catch (_) { /* invalid selector */ }
+      if (selector.charAt(0) === '#') {
+          const rawId = selector.slice(1).replace(/\\./g, '.');
+          const byId = document.getElementById(rawId);
+          if (byId) return byId;
+          if (window.CSS && typeof window.CSS.escape === 'function') {
+              try {
+                  return document.querySelector(`#${window.CSS.escape(rawId)}`);
+              } catch (_) { /* ignore */ }
+          }
+      }
+      return null;
+  }
+
+  function findControlForPatch(item) {
+      const bySelector = queryByRecordedSelector(item.selector);
+      if (bySelector) return bySelector;
+      const want = normalizeFieldKey(item.field);
+      if (!want) return null;
+      const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
+      for (const el of controls) {
+          if (!isListingFormControl(el)) continue;
+          if (normalizeFieldKey(fieldLabelForControl(el)) === want) return el;
+      }
+      return null;
+  }
+
+  async function fillTextFieldByElement(el, value, fieldName) {
+      const selectorText = selectorFor(el, '');
+      if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+          recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
+          return { status: 'skipped' };
+      }
+      el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      await clearInput(el);
+      setReactValue(el, value);
+      await sleep(CONFIG.SLEEP_SHORT);
+      log(`  ✓ ${fieldName}: "${value}"`);
+      recordFill({ field: fieldName, status: 'filled', selector: selectorText, value });
+      return { status: 'filled' };
+  }
+
+  async function fillSelectedFields(fields) {
+      const items = Array.isArray(fields) ? fields : [];
+      const grouped = new Map();
+      for (const item of items) {
+          const marketplace = String(item.marketplace || 'general').toLowerCase();
+          if (!grouped.has(marketplace)) grouped.set(marketplace, []);
+          grouped.get(marketplace).push(item);
+      }
+
+      const allEntries = [];
+      try {
+          for (const [marketplace, group] of grouped) {
+              beginFillLog(marketplace);
+              if (marketplace && marketplace !== 'general' && marketplace !== 'unknown') {
+                  await activateMarketplaceSection(marketplace);
+              }
+              await expandOptionalFields();
+              await sleep(CONFIG.SLEEP_LONG);
+              for (const item of group) {
+                  currentPatchEntryId = item.id || '';
+                  const value = item.value;
+                  const fieldName = item.field || 'Field';
+                  const el = findControlForPatch(item);
+                  if (!el) {
+                      recordFill({
+                          id: item.id,
+                          field: fieldName,
+                          status: 'not_found',
+                          reason: 'Element not found',
+                          selector: item.selector || '',
+                          value,
+                      });
+                      continue;
+                  }
+                  if (isDropdownLike(el)) {
+                      await fillDropdownField(el, value, fieldName);
+                  } else {
+                      await fillTextFieldByElement(el, value, fieldName);
+                  }
+              }
+              currentPatchEntryId = '';
+              const log = finishFillLog({ skipUnmapped: true });
+              allEntries.push(...log.entries);
+          }
+          await clickSave();
+          return {
+              ok: true,
+              fill_log: {
+                  marketplace: allEntries[0]?.marketplace || 'general',
+                  summary: summarizeFillLog(allEntries),
+                  entries: allEntries,
+              },
+          };
+      } catch (err) {
+          currentPatchEntryId = '';
+          error(`Leftover fill error: ${err.message}`);
+          allEntries.push({
+              marketplace: currentFillMarketplace,
+              field: 'form',
+              status: 'failed',
+              reason: err.message,
+              selector: '',
+              value_preview: '',
+          });
+          return {
+              ok: false,
+              error: err.message,
+              fill_log: {
+                  marketplace: allEntries[0]?.marketplace || 'general',
+                  summary: summarizeFillLog(allEntries),
+                  entries: allEntries,
+              },
+          };
+      }
+  }
+
   // ============================================
   // INIT
   // ============================================
@@ -2929,6 +3111,22 @@
               auditMarketplaceForm(msg.data, msg.platform)
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'FILL_FIELDS') {
+              fillSelectedFields(msg.fields || [])
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'GET_VENDOO_ITEM') {
+              try {
+                  sendResponse(scrapeVendooItem());
+              } catch (err) {
+                  sendResponse({ ok: false, error: err.message });
+              }
               return true;
           }
 

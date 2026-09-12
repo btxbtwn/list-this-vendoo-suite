@@ -12,8 +12,10 @@ from vendoo_studio.models.fill_log import FillLogEntry
 BUSY_LISTING_STATUSES = ("in_progress", "listing")
 
 
-def _settle(conv: Conversation, when, *, backfill: bool = False) -> bool:
+def _settle(conv: Conversation, when, *, backfill: bool = False, force: bool = False) -> bool:
     if conv.settled_at is not None:
+        return False
+    if not force and conv.unsettled_at is not None:
         return False
     conv.settled_at = conv.updated_at if backfill and conv.updated_at else when
     conv.unsettled_at = None
@@ -33,7 +35,7 @@ def _sync_settlement(conv: Conversation, status: str, *, backfill: bool = False)
     if status in BUSY_LISTING_STATUSES:
         return _unsettle(conv, now)
     if status == "completed":
-        return _settle(conv, now, backfill=backfill)
+        return _settle(conv, now, backfill=backfill, force=not backfill)
     return False
 
 
@@ -68,7 +70,7 @@ class ConversationRepo:
         conv = self.get(conv_id)
         if not conv:
             return None
-        _settle(conv, utcnow())
+        _settle(conv, utcnow(), force=True)
         self.db.commit()
         self.db.refresh(conv)
         return conv
@@ -631,6 +633,14 @@ class FillLogRepo:
         for entry in saved:
             self.db.refresh(entry)
         return saved
+
+    def get_for_job_ids(self, job_id: str, ids: list[str]) -> list[FillLogEntry]:
+        if not ids:
+            return []
+        return self.db.query(FillLogEntry).filter(
+            FillLogEntry.job_id == job_id,
+            FillLogEntry.id.in_(ids),
+        ).all()
 
     def list_for_job(self, job_id: str) -> list[FillLogEntry]:
         return self.db.query(FillLogEntry).filter(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -21,12 +22,31 @@ from vendoo_studio.services.chrome_bridge import (
 
 router = APIRouter(tags=["extension"])
 
+VENDOO_GET_TIMEOUT_SEC = 30
+
 
 class ExtensionManager:
     def __init__(self):
         self.connection: Optional[WebSocket] = None
         self.paired = False
         self._pairing_token: Optional[str] = None
+        self._waits: dict[str, asyncio.Future] = {}
+
+    def register_wait(self, request_id: str) -> asyncio.Future:
+        self.cancel_wait(request_id)
+        fut = asyncio.get_running_loop().create_future()
+        self._waits[request_id] = fut
+        return fut
+
+    def resolve_wait(self, request_id: str, payload: dict) -> None:
+        fut = self._waits.pop(request_id, None)
+        if fut and not fut.done():
+            fut.set_result(payload)
+
+    def cancel_wait(self, request_id: str) -> None:
+        fut = self._waits.pop(request_id, None)
+        if fut and not fut.done():
+            fut.cancel()
 
     @property
     def connected(self) -> bool:
@@ -170,6 +190,38 @@ async def dispatch_queued_jobs():
         db.close()
 
 
+async def dispatch_fill_fields(job, fields: list[dict]) -> bool:
+    if not extension_manager.connected:
+        return False
+    return await extension_manager.send_message(ProtocolMessage(
+        type="job.fill_fields",
+        job_id=job.id,
+        message_id=uuid.uuid4().hex[:12],
+        payload={
+            "job_id": job.id,
+            "vendoo_item_id": job.vendoo_item_id,
+            "vendoo_url": job.vendoo_url,
+            "fields": fields,
+        },
+    ).model_dump(mode="json"))
+
+
+async def dispatch_vendoo_get(job, request_id: str) -> bool:
+    if not extension_manager.connected:
+        return False
+    return await extension_manager.send_message(ProtocolMessage(
+        type="job.vendoo_get",
+        job_id=job.id,
+        message_id=request_id,
+        payload={
+            "job_id": job.id,
+            "request_id": request_id,
+            "vendoo_item_id": job.vendoo_item_id,
+            "vendoo_url": job.vendoo_url,
+        },
+    ).model_dump(mode="json"))
+
+
 def _build_photo_list(conv_id: str, db) -> list[dict]:
     from vendoo_studio.repositories.queries import ConversationRepo
     repo = ConversationRepo(db)
@@ -302,12 +354,21 @@ async def extension_websocket(ws: WebSocket):
                     step = payload.get("step", "")
                     vid = payload.get("vendoo_item_id")
                     vurl = payload.get("vendoo_url")
-                    repo.update_status(job_id, "dispatched", step, vendoo_item_id=vid, vendoo_url=vurl)
-                    repo.add_event(job_id, "step_completed", step, payload)
                     job = repo.get(job_id)
-                    if job and payload.get("fill_log"):
-                        FillLogService(db).save_step(job, step, payload.get("fill_log"))
-                    _set_conversation_status(db, job_id, "listing")
+                    if step == "filling_fields":
+                        repo.update_status(job_id, "completed", step, vendoo_item_id=vid, vendoo_url=vurl)
+                        repo.add_event(job_id, "step_completed", step, payload)
+                        job = repo.get(job_id)
+                        if job and payload.get("fill_log"):
+                            FillLogService(db).apply_field_results(job, payload.get("fill_log"))
+                        _set_conversation_status(db, job_id, "completed")
+                    else:
+                        repo.update_status(job_id, "dispatched", step, vendoo_item_id=vid, vendoo_url=vurl)
+                        repo.add_event(job_id, "step_completed", step, payload)
+                        job = repo.get(job_id)
+                        if job and payload.get("fill_log"):
+                            FillLogService(db).save_step(job, step, payload.get("fill_log"))
+                        _set_conversation_status(db, job_id, "listing")
 
             elif msg_type == "job.step_failed":
                 payload = message.get("payload", {})
@@ -318,12 +379,38 @@ async def extension_websocket(ws: WebSocket):
                     repo = JobRepo(db)
                     err = payload.get("error", "Unknown error")
                     step = payload.get("step", "")
-                    repo.update_status(job_id, "failed", step, error=err)
-                    repo.add_event(job_id, "step_failed", step, payload)
                     job = repo.get(job_id)
-                    if job and payload.get("fill_log"):
-                        FillLogService(db).save_step(job, step, payload.get("fill_log"))
-                    _set_conversation_status(db, job_id, "failed")
+                    if step == "filling_fields":
+                        restore = "completed" if (job and (job.vendoo_url or job.vendoo_item_id)) else "failed"
+                        repo.update_status(job_id, restore, step, error=err)
+                        repo.add_event(job_id, "step_failed", step, payload)
+                        job = repo.get(job_id)
+                        if job and payload.get("fill_log"):
+                            FillLogService(db).apply_field_results(job, payload.get("fill_log"))
+                        _set_conversation_status(db, job_id, restore)
+                    else:
+                        repo.update_status(job_id, "failed", step, error=err)
+                        repo.add_event(job_id, "step_failed", step, payload)
+                        job = repo.get(job_id)
+                        if job and payload.get("fill_log"):
+                            FillLogService(db).save_step(job, step, payload.get("fill_log"))
+                        _set_conversation_status(db, job_id, "failed")
+
+            elif msg_type == "job.vendoo_item":
+                payload = message.get("payload") or {}
+                request_id = payload.get("request_id") or message.get("message_id")
+                if request_id:
+                    extension_manager.resolve_wait(str(request_id), payload)
+                job_id = message.get("job_id")
+                if job_id:
+                    from vendoo_studio.repositories.queries import JobRepo
+                    repo = JobRepo(db)
+                    repo.add_event(job_id, "vendoo_get", None, {
+                        "ok": bool(payload.get("ok")),
+                        "source": payload.get("source"),
+                        "item_id": payload.get("item_id"),
+                        "error": payload.get("error") or payload.get("api_error"),
+                    })
 
             elif msg_type == "job.completed":
                 job_id = message.get("job_id")

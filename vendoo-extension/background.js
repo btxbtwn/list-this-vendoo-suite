@@ -5,7 +5,7 @@ const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
 const RELOAD_GENERATION_KEY = 'studio_reload_generation';
 const RELOAD_TABS_KEY = 'studio_reload_tabs';
-const CONTENT_SCRIPT_VERSION = '0.3.6';
+const CONTENT_SCRIPT_VERSION = '0.3.8';
 const EXTENSION_TAB_URLS = [
   'https://app.vendoo.co/*',
   'https://web.vendoo.co/*',
@@ -21,6 +21,7 @@ let reconnectTimer = null;
 let heartbeatTimer = null;
 let paired = false;
 let activeJob = null;
+let activePatch = null;
 let reconnectAttempt = 0;
 
 importScripts('diagnostic-collector.js');
@@ -365,6 +366,28 @@ async function handleStudioMessage(msg) {
       break;
     }
 
+    case 'job.fill_fields': {
+      const payload = msg.payload || {};
+      const jobId = msg.job_id || payload.job_id;
+      if (!jobId) {
+        log('job.fill_fields missing job_id');
+        return;
+      }
+      await runFillFields(jobId, payload);
+      break;
+    }
+
+    case 'job.vendoo_get': {
+      const payload = msg.payload || {};
+      const jobId = msg.job_id || payload.job_id;
+      if (!payload.request_id) {
+        log('job.vendoo_get missing request_id');
+        return;
+      }
+      await runVendooGet(jobId, payload);
+      break;
+    }
+
     case 'job.retry': {
       const jobId = msg.job_id || msg.payload?.job_id;
       if (!jobId) return;
@@ -380,6 +403,20 @@ async function handleStudioMessage(msg) {
     case 'job.cancel': {
       const jobId = msg.job_id || msg.payload?.job_id;
       if (!jobId) return;
+
+      if (activePatch && activePatch.job_id === jobId) {
+        activePatch = null;
+        await stopJobPreview();
+        send({
+          version: 1,
+          type: 'job.cancelled',
+          job_id: jobId,
+          message_id: Date.now().toString(36),
+          sent_at: new Date().toISOString(),
+          payload: { cancelled_at: 'filling_fields' },
+        });
+        return;
+      }
 
       if (activeJob && activeJob.job_id === jobId) {
         const csJob = activeJob;
@@ -634,6 +671,309 @@ async function findNewItemTab() {
   return [...webTabs, ...appTabs].find(t => isNewItemUrl(t.url)) || null;
 }
 
+function extractItemIdFromUrl(url) {
+  try {
+    const match = new URL(url).pathname.match(/\/item\/([^/?]+)/);
+    return match && match[1] !== 'new' ? match[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+async function findTabByDraft(vendooUrl, itemId) {
+  const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*' });
+  const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*' });
+  const tabs = [...webTabs, ...appTabs];
+  if (vendooUrl) {
+    try {
+      const wantPath = new URL(vendooUrl).pathname;
+      const match = tabs.find((tab) => {
+        try { return new URL(tab.url).pathname === wantPath; } catch { return false; }
+      });
+      if (match) return match;
+    } catch {
+      /* ignore malformed draft URLs */
+    }
+  }
+  if (itemId) {
+    const match = tabs.find((tab) => tab.url && tab.url.includes(`/item/${itemId}`));
+    if (match) return match;
+  }
+  return null;
+}
+
+async function openListingForPatch(payload, { reload = true, preview = true } = {}) {
+  const url = payload.vendoo_url || (payload.vendoo_item_id
+    ? `https://web.vendoo.co/app/item/${payload.vendoo_item_id}`
+    : null);
+  if (!url) {
+    return { ok: false, error: 'No Vendoo draft URL. Send the listing first.' };
+  }
+  const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
+  const existing = await findTabByDraft(url, itemId);
+  const tabId = existing ? existing.id : (await chrome.tabs.create({ url, active: true })).id;
+  if (existing) {
+    await chrome.tabs.update(tabId, reload ? { url, active: true } : { active: true });
+  }
+  const loaded = await waitForTabComplete(tabId);
+  if (preview && payload.job_id) {
+    await startJobPreview(tabId, payload.job_id);
+  }
+  if (!isTabReady(loaded)) {
+    return { ok: false, error: `Vendoo draft did not finish loading (${loaded?.url || 'unknown url'})` };
+  }
+  return { ok: true, tabId };
+}
+
+async function runFillFields(jobId, payload) {
+  if (activeJob) {
+    send({
+      version: 1,
+      type: 'job.step_failed',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: { step: 'filling_fields', error: 'Another fill is already running' },
+    });
+    return;
+  }
+
+  const opened = await openListingForPatch({ ...payload, job_id: jobId });
+  if (!opened.ok) {
+    send({
+      version: 1,
+      type: 'job.step_failed',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: { step: 'filling_fields', error: opened.error },
+    });
+    return;
+  }
+
+  const job = { job_id: jobId, tabId: opened.tabId };
+  activePatch = job;
+  send({
+    version: 1,
+    type: 'job.progress',
+    job_id: jobId,
+    message_id: Date.now().toString(36),
+    sent_at: new Date().toISOString(),
+    payload: { step: 'filling_fields' },
+  });
+
+  const ready = await waitForContentScript(job);
+  if (!ready.ok) {
+    activePatch = null;
+    await stopJobPreview();
+    send({
+      version: 1,
+      type: 'job.step_failed',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: { step: 'filling_fields', error: ready.error },
+    });
+    return;
+  }
+
+  const result = await sendToVendoo(job, {
+    type: 'FILL_FIELDS',
+    fields: payload.fields || [],
+  });
+  activePatch = null;
+  await stopJobPreview();
+
+  if (!result.ok) {
+    send({
+      version: 1,
+      type: 'job.step_failed',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: {
+        step: 'filling_fields',
+        error: result.error || 'Leftover field fill failed',
+        fill_log: result.fill_log || null,
+      },
+    });
+    return;
+  }
+
+  send({
+    version: 1,
+    type: 'job.step_completed',
+    job_id: jobId,
+    message_id: Date.now().toString(36),
+    sent_at: new Date().toISOString(),
+    payload: {
+      step: 'filling_fields',
+      fill_log: result.fill_log || null,
+    },
+  });
+}
+
+function compactVendooValue(value, depth) {
+  if (value == null) return value;
+  if (typeof value === 'string') {
+    if (value.startsWith('data:') && value.length > 200) return `[data-url ${value.length} chars]`;
+    if (value.length > 8000) return `${value.slice(0, 4000)}…[truncated ${value.length} chars]`;
+    return value;
+  }
+  if (typeof value !== 'object' || depth > 8) return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 40).map((item) => compactVendooValue(item, depth + 1));
+  }
+  const out = {};
+  const keys = Object.keys(value);
+  const priority = ['generalDetails', 'listings', 'images', 'overrides', 'marketplaceSpecifics', 'categorySpecifics'];
+  const ordered = [
+    ...priority.filter((key) => keys.includes(key)),
+    ...keys.filter((key) => !priority.includes(key)),
+  ].slice(0, 120);
+  for (const key of ordered) {
+    out[key] = compactVendooValue(value[key], depth + 1);
+  }
+  return out;
+}
+
+async function readVendooItemInPage(wantedId) {
+  const fromUrl = (location.pathname.match(/\/item\/([^/?]+)/) || [])[1] || '';
+  const itemId = wantedId && wantedId !== 'new' ? wantedId : (fromUrl && fromUrl !== 'new' ? fromUrl : '');
+  if (!itemId) {
+    return { ok: false, error: 'No Vendoo item id', url: location.href };
+  }
+  let userId = '';
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith('firebase:authUser:')) continue;
+      const raw = JSON.parse(localStorage.getItem(key) || 'null');
+      if (raw && raw.uid) {
+        userId = String(raw.uid);
+        break;
+      }
+    }
+  } catch (err) {
+    /* ignore */
+  }
+  const params = new URLSearchParams({
+    useMarketplaceImages: 'true',
+    isMultiQuantityItemsEnabled: 'true',
+  });
+  if (userId) params.set('userId', userId);
+  const res = await fetch(`https://api.web.vendoo.co/api/item/${itemId}?${params.toString()}`, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  let data = null;
+  try {
+    data = JSON.parse(await res.text());
+  } catch (err) {
+    data = null;
+  }
+  if (!res.ok) {
+    return {
+      ok: false,
+      source: 'api',
+      item_id: itemId,
+      status: res.status,
+      error: `GET /api/item returned ${res.status}`,
+      url: location.href,
+    };
+  }
+  const item = (data && (data.item || data.data || data)) || null;
+  return {
+    ok: true,
+    source: 'api',
+    item_id: itemId,
+    status: res.status,
+    url: location.href,
+    item,
+  };
+}
+
+async function readItemFromPage(tabId, itemId) {
+  try {
+    const [execution] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: readVendooItemInPage,
+      args: [itemId || ''],
+    });
+    return execution?.result || { ok: false, error: 'No result from the Vendoo page' };
+  } catch (err) {
+    return { ok: false, error: `Page read failed: ${err.message}` };
+  }
+}
+
+function replyVendooItem(jobId, requestId, payload) {
+  send({
+    version: 1,
+    type: 'job.vendoo_item',
+    job_id: jobId || undefined,
+    message_id: requestId,
+    sent_at: new Date().toISOString(),
+    payload: { request_id: requestId, ...payload },
+  });
+}
+
+async function runVendooGet(jobId, payload) {
+  const requestId = payload.request_id;
+  const reply = (body) => replyVendooItem(jobId, requestId, body);
+
+  let tabId = null;
+  const existingTabId = activePatch?.tabId || activeJob?.tabId || null;
+  if (existingTabId) {
+    try {
+      const tab = await chrome.tabs.get(existingTabId);
+      const currentId = extractItemIdFromUrl(tab.url || '');
+      const wantId = payload.vendoo_item_id || extractItemIdFromUrl(payload.vendoo_url || '');
+      if (wantId && currentId === wantId) tabId = existingTabId;
+    } catch (err) {
+      /* tab closed */
+    }
+  }
+  if (!tabId) {
+    const opened = await openListingForPatch(
+      { ...payload, job_id: jobId },
+      { reload: false, preview: false },
+    );
+    if (!opened.ok) {
+      reply({ ok: false, error: opened.error });
+      return;
+    }
+    tabId = opened.tabId;
+  }
+
+  const job = { job_id: jobId, tabId };
+  const ready = await waitForContentScript(job);
+  if (!ready.ok) {
+    reply({ ok: false, error: ready.error });
+    return;
+  }
+
+  const itemId = payload.vendoo_item_id || extractItemIdFromUrl(payload.vendoo_url || '');
+  const apiRead = await readItemFromPage(tabId, itemId);
+  const formRead = await sendToVendoo(job, { type: 'GET_VENDOO_ITEM' });
+  const item = apiRead.ok ? compactVendooValue(apiRead.item, 0) : null;
+  const form = formRead?.ok ? compactVendooValue(formRead.form || formRead.item, 0) : null;
+  const ok = Boolean(item || form);
+  const sources = [];
+  if (item) sources.push('api');
+  if (form) sources.push('form');
+
+  reply({
+    ok,
+    source: sources.join('+') || (apiRead.source || 'none'),
+    item_id: apiRead.item_id || formRead?.item_id || itemId || null,
+    url: apiRead.url || formRead?.url || payload.vendoo_url || null,
+    item,
+    form,
+    api_error: apiRead.ok ? null : (apiRead.error || null),
+    error: ok ? null : (apiRead.error || formRead?.error || 'Could not read the Vendoo draft'),
+  });
+}
+
 async function openVendooListing(job) {
   try {
     const existingTab = await findNewItemTab();
@@ -723,9 +1063,11 @@ async function sendToVendoo(job, command) {
   if (!tabId) {
     return { ok: false, error: 'No job tab stored' };
   }
-  const timeoutMs = command.type === 'FILL_GENERAL' || command.type === 'FILL_MARKETPLACE'
+  const timeoutMs = command.type === 'FILL_GENERAL' || command.type === 'FILL_MARKETPLACE' || command.type === 'FILL_FIELDS'
     ? 90000
-    : 45000;
+    : command.type === 'GET_VENDOO_ITEM'
+      ? 20000
+      : 45000;
   try {
     const resp = await Promise.race([
       chrome.tabs.sendMessage(tabId, { ...command }),

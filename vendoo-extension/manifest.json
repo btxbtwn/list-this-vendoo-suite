@@ -14,6 +14,7 @@
   "host_permissions": [
     "https://app.vendoo.co/*",
     "https://web.vendoo.co/*",
+    "https://api.web.vendoo.co/*",
     "https://www.ebay.com/*",
     "https://poshmark.com/*",
     "https://www.mercari.com/*",
