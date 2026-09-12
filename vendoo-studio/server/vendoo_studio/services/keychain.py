@@ -91,6 +91,25 @@ def delete_chatgpt_tokens():
         _chatgpt_loaded = True
 
 
+REASONING_LADDER = ("none", "low", "medium", "high", "xhigh", "max")
+DEFAULT_REASONING_EFFORT = "medium"
+
+
+def _clean_reasoning_effort(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    effort = value.strip().lower().replace("_", "-").replace(" ", "-")
+    aliases = {
+        "off": "none",
+        "disabled": "none",
+        "minimal": "low",
+        "extra-high": "xhigh",
+        "extrahigh": "xhigh",
+    }
+    effort = aliases.get(effort, effort)
+    return effort if effort in REASONING_LADDER else None
+
+
 def _clean_model_slug(value: object) -> str | None:
     if not isinstance(value, str):
         return None
@@ -113,24 +132,35 @@ def get_chatgpt_models() -> dict[str, str]:
         if isinstance(payload, dict):
             vision = _clean_model_slug(payload.get("vision_model"))
             listing = _clean_model_slug(payload.get("listing_model"))
+            reasoning = _clean_reasoning_effort(payload.get("reasoning_effort"))
             if vision:
                 models["vision_model"] = vision
             if listing:
                 models["listing_model"] = listing
+            if reasoning:
+                models["reasoning_effort"] = reasoning
         _cached_chatgpt_models = models
         _chatgpt_models_loaded = True
         return dict(models)
 
 
-def set_chatgpt_models(*, vision_model: str | None = None, listing_model: str | None = None):
+def set_chatgpt_models(
+    *,
+    vision_model: str | None = None,
+    listing_model: str | None = None,
+    reasoning_effort: str | None = None,
+):
     global _chatgpt_models_loaded, _cached_chatgpt_models
     current = get_chatgpt_models()
     vision = _clean_model_slug(vision_model)
     listing = _clean_model_slug(listing_model)
+    reasoning = _clean_reasoning_effort(reasoning_effort)
     if vision:
         current["vision_model"] = vision
     if listing:
         current["listing_model"] = listing
+    if reasoning:
+        current["reasoning_effort"] = reasoning
     import keyring
     keyring.set_password(KEYRING_SERVICE, CHATGPT_MODELS_ACCOUNT, json.dumps(current))
     with _lock:

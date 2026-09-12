@@ -18,6 +18,8 @@ USER_AGENT = "VendooStudio/0.1.0"
 MODELS_CLIENT_VERSION = "1.0.0"
 VISION_MODEL = "gpt-5.5"
 LISTING_MODEL = "gpt-5.5"
+DEFAULT_REASONING_EFFORT = "medium"
+REASONING_LADDER = ("none", "low", "medium", "high", "xhigh", "max")
 CATALOG_TTL_S = 60
 
 _catalog_cached_at = 0.0
@@ -29,6 +31,37 @@ def resolved_chatgpt_models() -> tuple[str, str]:
     vision = prefs.get("vision_model") or VISION_MODEL
     listing = prefs.get("listing_model") or LISTING_MODEL
     return vision, listing
+
+
+def resolved_chatgpt_reasoning() -> str:
+    prefs = get_chatgpt_models()
+    return prefs.get("reasoning_effort") or DEFAULT_REASONING_EFFORT
+
+
+def supported_reasoning_efforts(model: str) -> tuple[str, ...]:
+    slug = (model or "").strip().lower().rsplit("/", 1)[-1]
+    if "astra" in slug:
+        return ("low", "medium", "high", "xhigh", "max")
+    if "gpt-5.6" in slug:
+        return ("none", "low", "medium", "high", "xhigh", "max")
+    return ("none", "low", "medium", "high", "xhigh")
+
+
+def clamp_reasoning_effort(effort: str, model: str) -> str:
+    supported = supported_reasoning_efforts(model)
+    requested = (effort or "").strip().lower()
+    if requested == "minimal":
+        requested = "low"
+    if requested in supported:
+        return requested
+    try:
+        index = REASONING_LADDER.index(requested)
+    except ValueError:
+        return DEFAULT_REASONING_EFFORT if DEFAULT_REASONING_EFFORT in supported else supported[0]
+    for candidate in reversed(REASONING_LADDER[:index]):
+        if candidate in supported:
+            return candidate
+    return supported[0]
 
 
 def visible_model_slugs(payload: object) -> list[str]:
@@ -194,6 +227,7 @@ class ChatGPTCodexProvider:
 
     def __init__(self):
         self.vision_model, self.listing_model = resolved_chatgpt_models()
+        self.reasoning_effort = resolved_chatgpt_reasoning()
 
     async def _headers(self) -> dict[str, str]:
         return await _codex_headers()
@@ -274,7 +308,10 @@ class ChatGPTCodexProvider:
             "input": items or [{"role": "user", "content": [{"type": "input_text", "text": "Continue."}], "type": "message"}],
             "store": False,
             "stream": stream,
+            "reasoning": {"effort": clamp_reasoning_effort(self.reasoning_effort, model)},
         }
+        if payload["reasoning"]["effort"] != "none":
+            payload["reasoning"]["summary"] = "auto"
         if instructions:
             payload["instructions"] = instructions
         return payload

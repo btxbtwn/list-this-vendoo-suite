@@ -131,13 +131,18 @@ export const api = {
         models: string[];
         vision_model: string;
         listing_model: string;
+        reasoning_effort: string;
+        reasoning_efforts: string[];
         error?: string | null;
       }>("/settings/chatgpt/models"),
-    setChatGPTModels: (models: { vision_model?: string; listing_model?: string }) =>
-      request<{ ok: boolean; vision_model: string; listing_model: string }>("/settings/chatgpt/models", {
-        method: "PUT",
-        body: JSON.stringify(models),
-      }),
+    setChatGPTModels: (models: { vision_model?: string; listing_model?: string; reasoning_effort?: string }) =>
+      request<{ ok: boolean; vision_model: string; listing_model: string; reasoning_effort: string }>(
+        "/settings/chatgpt/models",
+        {
+          method: "PUT",
+          body: JSON.stringify(models),
+        },
+      ),
   },
 
   extension: {

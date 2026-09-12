@@ -128,7 +128,7 @@ export function SettingsPage() {
     onSuccess: refreshProvider,
   });
   const setChatGPTModelsMutation = useMutation({
-    mutationFn: (models: { vision_model?: string; listing_model?: string }) =>
+    mutationFn: (models: { vision_model?: string; listing_model?: string; reasoning_effort?: string }) =>
       api.settings.setChatGPTModels(models),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
@@ -143,6 +143,18 @@ export function SettingsPage() {
   const mimoConfigured = Boolean(provider?.masked_key);
   const visionModel = chatgptModels?.vision_model || provider?.vision_model || "mimo-v2.5";
   const listingModel = chatgptModels?.listing_model || provider?.listing_model || "mimo-v2.5-pro";
+  const reasoningEffort = chatgptModels?.reasoning_effort || "medium";
+  const reasoningOptions = chatgptModels?.reasoning_efforts?.length
+    ? chatgptModels.reasoning_efforts
+    : ["none", "low", "medium", "high", "xhigh"];
+  const reasoningLabels: Record<string, string> = {
+    none: "Off",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    xhigh: "Extra high",
+    max: "Max",
+  };
   const modelOptions = (() => {
     const slugs = [...(chatgptModels?.models || [])];
     for (const slug of [visionModel, listingModel]) {
@@ -291,6 +303,29 @@ export function SettingsPage() {
                 </select>
               ) : (
                 <span className="settings-row-value">{listingModel}</span>
+              )
+            }
+          />
+          <SettingsRow
+            title="Reasoning"
+            description="Higher uses more Codex quota and takes longer. Applied to listing generation and photo analysis."
+            control={
+              chatgptSignedIn ? (
+                <select
+                  className="input settings-model-select"
+                  aria-label="Reasoning"
+                  value={reasoningOptions.includes(reasoningEffort) ? reasoningEffort : reasoningOptions[0]}
+                  disabled={setChatGPTModelsMutation.isPending}
+                  onChange={(event) => setChatGPTModelsMutation.mutate({ reasoning_effort: event.target.value })}
+                >
+                  {reasoningOptions.map((effort) => (
+                    <option key={`reasoning-${effort}`} value={effort}>
+                      {reasoningLabels[effort] || effort}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="settings-row-value">Not used with MiMo</span>
               )
             }
           />

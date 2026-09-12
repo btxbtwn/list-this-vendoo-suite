@@ -9,6 +9,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 class ChatGPTModelsConfig(BaseModel):
     vision_model: str | None = None
     listing_model: str | None = None
+    reasoning_effort: str | None = None
 
 
 class ProviderConfig(BaseModel):
@@ -121,7 +122,13 @@ async def test_connection():
 
 @router.get("/chatgpt/models")
 async def chatgpt_models():
-    from vendoo_studio.providers.chatgpt_codex import fetch_codex_models, resolved_chatgpt_models
+    from vendoo_studio.providers.chatgpt_codex import (
+        clamp_reasoning_effort,
+        fetch_codex_models,
+        resolved_chatgpt_models,
+        resolved_chatgpt_reasoning,
+        supported_reasoning_efforts,
+    )
     from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
 
     if not chatgpt_signed_in():
@@ -137,10 +144,14 @@ async def chatgpt_models():
     for slug in (vision_model, listing_model):
         if slug and slug not in slugs:
             slugs.append(slug)
+    reasoning_efforts = list(supported_reasoning_efforts(listing_model))
+    reasoning_effort = clamp_reasoning_effort(resolved_chatgpt_reasoning(), listing_model)
     return {
         "models": slugs,
         "vision_model": vision_model,
         "listing_model": listing_model,
+        "reasoning_effort": reasoning_effort,
+        "reasoning_efforts": reasoning_efforts,
         "error": error,
     }
 
@@ -156,14 +167,23 @@ def set_chatgpt_models(config: ChatGPTModelsConfig):
 
     vision = (config.vision_model or "").strip()
     listing = (config.listing_model or "").strip()
-    if not vision and not listing:
-        raise HTTPException(400, "Choose a vision or listing model.")
+    reasoning = (config.reasoning_effort or "").strip()
+    if not vision and not listing and not reasoning:
+        raise HTTPException(400, "Choose a vision model, listing model, or reasoning mode.")
     persist_chatgpt_models(
         vision_model=vision or None,
         listing_model=listing or None,
+        reasoning_effort=reasoning or None,
     )
     vision_model, listing_model = resolved_chatgpt_models()
-    return {"ok": True, "vision_model": vision_model, "listing_model": listing_model}
+    from vendoo_studio.providers.chatgpt_codex import clamp_reasoning_effort, resolved_chatgpt_reasoning
+
+    return {
+        "ok": True,
+        "vision_model": vision_model,
+        "listing_model": listing_model,
+        "reasoning_effort": clamp_reasoning_effort(resolved_chatgpt_reasoning(), listing_model),
+    }
 
 
 @router.post("/chatgpt/login")
