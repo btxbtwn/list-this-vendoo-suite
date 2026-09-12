@@ -10,6 +10,9 @@ import { SettingsPage } from "../components/SettingsPage";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
 import { ListingSidebar } from "../components/ListingSidebar";
+import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
+import { ToastHost } from "../components/ToastHost";
+import { isConfirmDialogOpen } from "../ui/confirmDialog";
 
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 
@@ -39,6 +42,23 @@ export function App() {
     }
     wasPreviewOpen.current = previewOpen;
   }, [previewOpen, mobilePane]);
+
+  useEffect(() => {
+    if (activeView !== "settings") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || isConfirmDialogOpen()) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        return;
+      }
+      setActiveView("listings");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeView]);
 
   const createConv = useMutation({
     mutationFn: () => api.conversations.create({ title: "New Listing" }),
@@ -82,6 +102,7 @@ export function App() {
           onCreate={() => createConv.mutate()}
           onDelete={(id) => deleteConv.mutate(id)}
           onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); }}
+          onCloseSettings={() => setActiveView("listings")}
         />
 
         <div className="workspace-frame">
@@ -119,15 +140,17 @@ export function App() {
             )}
           </main>
 
-          <aside className="panel detail-panel">
-            {activeView === "listings" && selectedConvId ? (
-              <ListingEditor convId={selectedConvId} onJobStarted={() => setMobilePane("browser")} />
-            ) : (
-              <div className="empty-state">
-                <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
-              </div>
-            )}
-          </aside>
+          {activeView !== "settings" && (
+            <aside className="panel detail-panel">
+              {selectedConvId ? (
+                <ListingEditor convId={selectedConvId} onJobStarted={() => setMobilePane("browser")} />
+              ) : (
+                <div className="empty-state">
+                  <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
+                </div>
+              )}
+            </aside>
+          )}
         </div>
       </div>
 
@@ -156,6 +179,8 @@ export function App() {
         </div>
         <div>V 0.1.0</div>
       </footer>
+      <ToastHost />
+      <ConfirmDialogHost />
     </div>
   );
 }
