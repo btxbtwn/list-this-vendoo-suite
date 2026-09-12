@@ -418,7 +418,13 @@ export function FillLogSummary({ jobId, onOpenFillLog }: { jobId: string; onOpen
   const report = useFillLog(jobId);
   if (!report) return null;
   const total = Object.values(report.summary).reduce((sum, n) => sum + n, 0);
-  if (total === 0) return <div className="fill-log-empty">Waiting for fill results…</div>;
+  if (total === 0) {
+    return onOpenFillLog ? (
+      <button type="button" className="fill-log-open" onClick={onOpenFillLog}>
+        Review marketplace files
+      </button>
+    ) : null;
+  }
   const leftover = leftoverCount(report.summary);
   return (
     <div className="fill-log-chips" aria-label="Fill log summary">
@@ -462,11 +468,11 @@ export function FillLogPanel({
   const [query, setQuery] = React.useState("");
   const [missingOnly, setMissingOnly] = React.useState(false);
   const [showJson, setShowJson] = React.useState(false);
-  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [selected, setSelected] = React.useState<string | null>(null);
   const [values, setValues] = React.useState<Record<string, string>>({});
   const filling = jobStatus === "dispatched" && jobStep === "filling_fields";
   const hasDraft = Boolean(vendooItemId || vendooUrl);
+  const didRead = React.useRef<string | null>(null);
 
   const { data: cachedDraft } = useQuery({
     queryKey: ["vendoo-item", jobId],
@@ -485,8 +491,19 @@ export function FillLogPanel({
   const item = mergeDraftItem(draft);
   const draftForms = item ? formsFromDraft(item, report) : [];
   const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
-  const forms = filterForms(draftForms.length ? draftForms : fillForms, query, missingOnly);
+  const sourceForms = draftForms.length ? draftForms : fillForms;
+  const sourceKey = sourceForms.map((form) => form.id).join("|");
+  const forms = filterForms(sourceForms, query, missingOnly);
   const leftovers = report ? leftoverEntries(report) : [];
+  const selectedForm = forms.find((form) => form.id === selected) || forms[0];
+  const filledTotal = forms.reduce((sum, form) => sum + form.filled, 0);
+  const missingTotal = forms.reduce((sum, form) => sum + form.missing, 0);
+
+  React.useEffect(() => {
+    if (!hasDraft || didRead.current === jobId) return;
+    didRead.current = jobId;
+    readMutation.mutate();
+  }, [hasDraft, jobId]);
 
   React.useEffect(() => {
     if (!report) return;
@@ -500,15 +517,14 @@ export function FillLogPanel({
   }, [report]);
 
   React.useEffect(() => {
-    const source = draftForms.length ? draftForms : fillForms;
-    if (!source.length) return;
-    setExpanded((prev) => {
-      if (Object.keys(prev).length) return prev;
-      const firstMissing = source.find((form) => form.missing > 0) || source[0];
-      return { [firstMissing.id]: true };
+    if (!sourceKey) return;
+    const source = sourceKey.split("|");
+    setSelected((current) => {
+      if (current && source.includes(current)) return current;
+      const firstMissing = sourceForms.find((form) => form.missing > 0) || sourceForms[0];
+      return firstMissing?.id || null;
     });
-    setSelected((current) => current || (source.find((form) => form.missing > 0) || source[0]).id);
-  }, [draftForms, fillForms]);
+  }, [sourceKey]);
 
   const fillMutation = useMutation({
     mutationFn: (fields: { id: string; value: string }[]) => api.jobs.fillFields(jobId, fields),
@@ -523,15 +539,10 @@ export function FillLogPanel({
 
   const pending = leftovers.filter((entry) => String(values[entry.id] || "").trim());
   const visiblePending = pending.filter((entry) => {
-    if (selected && entry.marketplace.toLowerCase() !== selected) return false;
+    if (selectedForm && entry.marketplace.toLowerCase() !== selectedForm.id) return false;
     const form = forms.find((item) => item.id === entry.marketplace.toLowerCase());
     return !form || form.fields.some((field) => field.leftover?.id === entry.id);
   });
-
-  const toggleForm = (id: string) => {
-    setSelected(id);
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
 
   return (
     <div className="fill-log-pr">
@@ -577,71 +588,76 @@ export function FillLogPanel({
       )}
       {draft?.api_error && <div className="pr-meta">API: {draft.api_error}</div>}
 
-      {!forms.length && (
+      {!forms.length ? (
         <p className="pr-empty">
-          {hasDraft
-            ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red."
-            : "Send this listing to Vendoo to review each marketplace form."}
+          {readMutation.isPending
+            ? "Reading Vendoo draft…"
+            : hasDraft
+              ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red."
+              : "Send this listing to Vendoo to review each marketplace form."}
         </p>
-      )}
-
-      <div className="pr-tree" role="tree">
-        {forms.map((form) => {
-          const open = Boolean(expanded[form.id]) || Boolean(query);
-          return (
-            <div key={form.id} className="pr-form">
-              <button
-                type="button"
-                role="treeitem"
-                aria-expanded={open}
-                className={`pr-row pr-folder${selected === form.id ? " is-active" : ""}${form.missing ? " has-missing" : ""}`}
-                onClick={() => toggleForm(form.id)}
-              >
-                <svg className={`pr-chevron${open ? " is-open" : ""}`} width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M6 4l5 4-5 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span className="pr-name">{form.label}</span>
-                <span className="pr-counts">
-                  {form.filled > 0 && <span className="pr-add">+{form.filled}</span>}
-                  {form.missing > 0 && <span className="pr-del">-{form.missing}</span>}
-                </span>
-              </button>
-              {open && form.fields.map((field) => {
-                const leftover = field.leftover;
-                const fieldId = `${form.id}:${field.key}`;
-                return (
-                  <div
-                    key={field.key}
-                    role="treeitem"
-                    className={`pr-row pr-file${field.missing ? " is-missing" : ""}${selected === fieldId ? " is-active" : ""}`}
-                    onClick={() => setSelected(fieldId)}
-                  >
-                    <span className="pr-name" title={field.value || field.label}>{field.label}</span>
-                    {field.missing
-                      ? <span className="pr-value is-empty">{field.value || "Empty"}</span>
-                      : field.value
-                        ? <span className="pr-value" title={field.value}>{field.value}</span>
-                        : null}
-                    <span className="pr-counts">
-                      {field.missing ? <span className="pr-del">-1</span> : <span className="pr-add">+1</span>}
-                    </span>
-                    {leftover && (
-                      <input
-                        className="pr-input"
-                        value={values[leftover.id] || ""}
-                        disabled={fillMutation.isPending || filling}
-                        placeholder={STATUS_LABELS[leftover.status] || leftover.status}
-                        onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+      ) : (
+        <div className="pr-split">
+          <div className="pr-files">
+            <div className="pr-files-head">
+              <span>Files</span>
+              <span className="pr-files-count">
+                {filledTotal > 0 && <span className="pr-add">+{filledTotal}</span>}
+                {missingTotal > 0 && <span className="pr-del">-{missingTotal}</span>}
+              </span>
             </div>
-          );
-        })}
-      </div>
+            <div className="pr-tree" role="list">
+              {forms.map((form) => (
+                <button
+                  key={form.id}
+                  type="button"
+                  role="listitem"
+                  className={`pr-row${selectedForm?.id === form.id ? " is-active" : ""}`}
+                  onClick={() => setSelected(form.id)}
+                >
+                  <span className="pr-name">{form.label}</span>
+                  <span className="pr-counts">
+                    {form.filled > 0 && <span className="pr-add">+{form.filled}</span>}
+                    {form.missing > 0 && <span className="pr-del">-{form.missing}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {selectedForm && (
+            <div className="pr-diff">
+              <div className="pr-diff-head">
+                <span className="pr-diff-path">{selectedForm.label}</span>
+                <span className="pr-files-count">
+                  {selectedForm.filled > 0 && <span className="pr-add">+{selectedForm.filled}</span>}
+                  {selectedForm.missing > 0 && <span className="pr-del">-{selectedForm.missing}</span>}
+                </span>
+              </div>
+              <div className="pr-diff-body">
+                {selectedForm.fields.map((field) => {
+                  const leftover = field.leftover;
+                  return (
+                    <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
+                      <span className="pr-diff-gutter">{field.missing ? "-" : "+"}</span>
+                      <span className="pr-diff-name">{field.label}</span>
+                      <span className="pr-diff-value" title={field.value}>{field.value}</span>
+                      {leftover && (
+                        <input
+                          className="pr-input"
+                          value={values[leftover.id] || ""}
+                          disabled={fillMutation.isPending || filling}
+                          placeholder={STATUS_LABELS[leftover.status] || leftover.status}
+                          onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {visiblePending.length > 0 && (
         <button

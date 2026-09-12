@@ -123,6 +123,9 @@ export const api = {
       }),
     deleteKey: () => request<any>("/settings/provider/key", { method: "DELETE" }),
     testConnection: () => request<any>("/settings/provider/test", { method: "POST" }),
+    chatgptLogin: () => request<any>("/settings/chatgpt/login", { method: "POST" }),
+    chatgptCancelLogin: () => request<any>("/settings/chatgpt/login", { method: "DELETE" }),
+    chatgptLogout: () => request<any>("/settings/chatgpt", { method: "DELETE" }),
   },
 
   extension: {

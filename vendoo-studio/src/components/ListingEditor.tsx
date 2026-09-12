@@ -1,3 +1,4 @@
+import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { FillLogPanel, FillLogSummary } from "./FillLogPanel";
@@ -17,7 +18,8 @@ interface EditorField {
 
 export function ListingEditor({ convId, onJobStarted }: Props) {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = React.useState("general");
+  const [reviewTab, setReviewTab] = React.useState<"summary" | "timeline" | "code">("summary");
+  const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
 
   const { data } = useQuery({
@@ -41,7 +43,7 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
     if (data?.listing) setJsonText(JSON.stringify(data.listing, null, 2));
   }, [data?.listing]);
 
-  const tabs = ["general", "ebay", "poshmark", "mercari", "depop", "etsy", "json", "log"];
+  const tabs = ["general", "ebay", "poshmark", "mercari", "depop", "etsy", "json"];
 
   const applyJsonEdit = () => {
     try {
@@ -53,24 +55,38 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
   };
 
   const listing = data?.listing || {};
+  const listingTitle = String(listing.title || "Listing");
 
   return (
     <div className="listing-editor">
-      <div className="editor-header pywebview-drag-region">
-        <span className="editor-title">Listing</span>
-        {data?.can_send && <span className="editor-ready">Ready</span>}
+      <div className="pr-review-header pywebview-drag-region">
+        <div className="pr-review-title-row">
+          <h2 className="pr-review-title" title={listingTitle}>{listingTitle}</h2>
+          {data?.can_send && <span className="editor-ready">Ready</span>}
+        </div>
+        <div className="pr-review-meta">
+          {listingJob?.vendoo_item_id
+            ? <span className="pr-review-branch">vendoo ← {listingJob.vendoo_item_id.slice(0, 8)}</span>
+            : <span className="pr-review-branch">Draft</span>}
+        </div>
+        <div className="pr-pills" role="tablist" aria-label="Listing review">
+          {(["summary", "timeline", "code"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={reviewTab === tab}
+              className={`pr-pill${reviewTab === tab ? " is-active" : ""}`}
+              onClick={() => setReviewTab(tab)}
+            >
+              {tab === "summary" ? "Summary" : tab === "timeline" ? "Timeline" : "Code"}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="tab-group">
-        {tabs.map((tab) => (
-          <button key={tab} className={`tab-btn${activeTab === tab ? " active" : ""}`} onClick={() => setActiveTab(tab)}>
-            {tab === "json" ? "JSON" : tab === "log" ? "Fill log" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      <div className="editor-body">
-        {activeTab === "log" ? (
+      <div className={`editor-body${reviewTab === "code" || reviewTab === "timeline" ? " is-files" : ""}`}>
+        {reviewTab === "code" ? (
           listingJob ? (
             <FillLogPanel
               jobId={listingJob.id}
@@ -82,22 +98,39 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
               onJobStarted={onJobStarted}
             />
           ) : (
-            <p className="text-xs text-muted">No fill log yet. Send this listing to Vendoo to record what gets filled, skipped, or newly seen.</p>
+            <p className="pr-empty">Send this listing to Vendoo, then open Code to review each marketplace form like a file diff.</p>
           )
-        ) : activeTab === "json" ? (
-          <div>
-            <textarea
-              className="input"
-              value={jsonText}
-              onChange={(e) => setJsonText(e.target.value)}
-              style={{ height: 340, fontFamily: "var(--font-mono)", fontSize: 11.5 }}
-            />
-            <button className="btn btn-primary btn-sm" style={{ marginTop: 8, width: "100%" }} onClick={applyJsonEdit}>
-              Apply JSON
-            </button>
-          </div>
+        ) : reviewTab === "timeline" ? (
+          listingJob ? (
+            <JobTimeline jobId={listingJob.id} />
+          ) : (
+            <p className="pr-empty">No activity yet. Sending to Vendoo writes the timeline.</p>
+          )
         ) : (
-          <StructuredEditor listing={listing} tab={activeTab} onChange={(updated) => updateMutation.mutate(updated)} />
+          <>
+            <div className="tab-group">
+              {tabs.map((tab) => (
+                <button key={tab} className={`tab-btn${editTab === tab ? " active" : ""}`} onClick={() => setEditTab(tab)}>
+                  {tab === "json" ? "JSON" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+            {editTab === "json" ? (
+              <div>
+                <textarea
+                  className="input"
+                  value={jsonText}
+                  onChange={(e) => setJsonText(e.target.value)}
+                  style={{ height: 340, fontFamily: "var(--font-mono)", fontSize: 11.5 }}
+                />
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 8, width: "100%" }} onClick={applyJsonEdit}>
+                  Apply JSON
+                </button>
+              </div>
+            ) : (
+              <StructuredEditor listing={listing} tab={editTab} onChange={(updated) => updateMutation.mutate(updated)} />
+            )}
+          </>
         )}
       </div>
 
@@ -107,7 +140,7 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
           canSend={data?.can_send ?? false}
           sendBlockers={data?.errors || []}
           onJobStarted={onJobStarted}
-          onOpenFillLog={() => setActiveTab("log")}
+          onOpenFillLog={() => setReviewTab("code")}
         />
       </div>
     </div>
@@ -240,13 +273,32 @@ function setNestedValue(obj: any, path: string, value: any): any {
   return obj;
 }
 
+function JobTimeline({ jobId }: { jobId: string }) {
+  const { data: events } = useQuery({
+    queryKey: ["job-events", jobId],
+    queryFn: () => api.jobs.events(jobId),
+    refetchInterval: 2000,
+  });
+  if (!events?.length) {
+    return <p className="pr-empty">No activity yet.</p>;
+  }
+  return (
+    <ol className="pr-timeline">
+      {events.map((event: { id: string; step?: string; event_type?: string; created_at?: string }) => (
+        <li key={event.id} className="pr-timeline-item">
+          <div className="pr-timeline-step">{event.step || event.event_type || "event"}</div>
+          {event.created_at && <div className="pr-timeline-time">{event.created_at.replace("T", " ").slice(0, 19)}</div>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function coerce(val: string): any {
   if (val === "") return null;
   if (!isNaN(Number(val)) && val.trim() !== "") return Number(val);
   return val;
 }
-
-import React from "react";
 
 function SendToVendooButton({
   convId,

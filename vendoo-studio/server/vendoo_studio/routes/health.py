@@ -20,7 +20,7 @@ def status(db: Session = Depends(get_db)):
     from vendoo_studio.models.conversation import Conversation
     from vendoo_studio.models.job import Job
     from vendoo_studio.routes.extension import extension_manager
-    from vendoo_studio.services.keychain import get_api_key
+    from vendoo_studio.services.listing_provider import provider_is_configured
 
     conversations = db.query(Conversation).count()
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
@@ -28,7 +28,7 @@ def status(db: Session = Depends(get_db)):
 
     return {
         "version": "0.1.0",
-        "provider_configured": bool(get_api_key()),
+        "provider_configured": provider_is_configured(),
         "extension_connected": extension_manager.connected,
         "active_job_id": active_jobs[0].id if active_jobs else None,
         "conversations": conversations,

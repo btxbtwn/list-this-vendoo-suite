@@ -174,8 +174,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         db.close()
 
         self.patches = [
-            patch("vendoo_studio.routes.chat.get_api_key", return_value="test-key"),
-            patch("vendoo_studio.routes.chat.MiMoProvider", return_value=self.provider),
+            patch("vendoo_studio.routes.chat.get_listing_provider", return_value=self.provider),
             patch("vendoo_studio.routes.chat._load_skill_rules", return_value="rules"),
         ]
         for p in self.patches:

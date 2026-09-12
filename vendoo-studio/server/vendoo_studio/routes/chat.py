@@ -11,9 +11,7 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.config import PHOTOS_DIR, skills_dir
 from vendoo_studio.database import SessionLocal, get_db
-from vendoo_studio.providers.xiaomi_mimo import MiMoProvider
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
-from vendoo_studio.services.keychain import get_api_key
 from vendoo_studio.services.listing_generate import (
     extract_listing_json,
     format_photo_analysis,
@@ -21,6 +19,31 @@ from vendoo_studio.services.listing_generate import (
     persist_generated_listing,
     seller_item_details,
 )
+from vendoo_studio.services.listing_provider import get_listing_provider
+
+
+def _require_provider():
+    provider = get_listing_provider()
+    if provider is None:
+        raise HTTPException(
+            400,
+            "Sign in with ChatGPT in Settings, or add a MiMo API key.",
+        )
+    return provider
+
+
+def _provider_meta(provider) -> tuple[str, str]:
+    name = getattr(provider, "name", None)
+    if name == "chatgpt":
+        return "chatgpt", getattr(provider, "listing_model", "gpt-5.5")
+    return "xiaomi-mimo", "mimo-v2.5-pro"
+
+
+def _vision_meta(provider) -> tuple[str, str]:
+    name = getattr(provider, "name", None)
+    if name == "chatgpt":
+        return "chatgpt", getattr(provider, "vision_model", "gpt-5.4")
+    return "xiaomi-mimo", "mimo-v2.5"
 
 log = logging.getLogger("vendoo_studio.chat")
 
@@ -106,10 +129,9 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
 
     photo_analysis_text = ""
     if photos and len(history) <= 2:
-        key = get_api_key()
-        if key:
+        provider = get_listing_provider()
+        if provider:
             paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
-            provider = MiMoProvider(api_key=key)
             result = await provider.analyze_photos(paths, notes="", listing_rules=skill_rules[:8000])
             evidence = result.get("evidence", {}) or {}
 
@@ -227,15 +249,13 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    key = get_api_key()
-    if not key:
-        raise HTTPException(400, "No API key configured. Add your MiMo key in Settings first.")
+    provider = _require_provider()
+    provider_name, provider_model = _provider_meta(provider)
 
     repo.update_status(conv_id, "in_progress")
     repo.add_message(conv_id, "user", body.text)
 
     messages = await _build_messages(conv_id, db, body.text)
-    provider = MiMoProvider(api_key=key)
 
     async def stream_response():
         stream_db = SessionLocal()
@@ -256,7 +276,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
         stream_repo = ConversationRepo(stream_db)
         try:
             if full_text and not full_text.lstrip().lower().startswith("error:"):
-                stream_repo.add_message(conv_id, "assistant", full_text, provider="xiaomi-mimo", model="mimo-v2.5-pro")
+                stream_repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=provider_model)
                 _apply_listing_payload(stream_db, conv_id, full_text)
             stream_repo.update_status(conv_id, "draft")
         except Exception:
@@ -278,9 +298,8 @@ async def analyze_photos(conv_id: str, db: Session = Depends(get_db)):
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    key = get_api_key()
-    if not key:
-        raise HTTPException(400, "No API key configured")
+    provider = _require_provider()
+    vision_name, vision_model = _vision_meta(provider)
 
     photos = repo.get_photos(conv_id)
     if not photos:
@@ -288,15 +307,14 @@ async def analyze_photos(conv_id: str, db: Session = Depends(get_db)):
 
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
 
-    provider = MiMoProvider(api_key=key)
     result = await provider.analyze_photos(paths, notes=conv.notes or "")
 
     repo.add_message(
         conv_id,
         "system",
         f"Photo analysis complete. Found: {len(photos)} photos analyzed.",
-        provider="xiaomi-mimo",
-        model="mimo-v2.5",
+        provider=vision_name,
+        model=vision_model,
     )
 
     return result
@@ -309,9 +327,8 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    key = get_api_key()
-    if not key:
-        raise HTTPException(400, "No API key configured")
+    provider = _require_provider()
+    vision_name, vision_model = _vision_meta(provider)
 
     photos = repo.get_photos(conv_id)
     if not photos:
@@ -321,7 +338,6 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     skill_rules = _load_skill_rules()
     notes = conv.notes or ""
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
-    provider = MiMoProvider(api_key=key)
 
     async def stream_response():
         yield KEEPALIVE
@@ -351,7 +367,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                         analysis_text = format_photo_analysis(evidence)
                 except Exception as e:
                     analysis_text = f"Photo analysis unavailable ({e}). Use contextual knowledge."
-                stream_repo.add_message(conv_id, "system", analysis_text, provider="xiaomi-mimo", model="mimo-v2.5")
+                stream_repo.add_message(conv_id, "system", analysis_text, provider=vision_name, model=vision_model)
 
             item_details = seller_item_details(notes)
             messages = _listing_messages(skill_rules, item_details, analysis_text, stream_db, conv_id)

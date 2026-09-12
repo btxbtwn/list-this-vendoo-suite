@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ConnectChromeButton } from "./ConnectChromeButton";
@@ -103,6 +103,39 @@ export function SettingsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings-provider"] }),
   });
 
+  const refreshProvider = () => {
+    queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+    queryClient.invalidateQueries({ queryKey: ["status"] });
+  };
+
+  const chatgptLoginMutation = useMutation({
+    mutationFn: () => api.settings.chatgptLogin(),
+    onSuccess: refreshProvider,
+  });
+  const chatgptCancelMutation = useMutation({
+    mutationFn: () => api.settings.chatgptCancelLogin(),
+    onSuccess: refreshProvider,
+  });
+  const chatgptLogoutMutation = useMutation({
+    mutationFn: () => api.settings.chatgptLogout(),
+    onSuccess: refreshProvider,
+  });
+
+  const chatgpt = provider?.chatgpt;
+  const chatgptPending = chatgpt?.pending;
+  const pendingCode = chatgptPending?.user_code;
+  const chatgptSignedIn = Boolean(chatgpt?.signed_in);
+  const mimoConfigured = Boolean(provider?.masked_key);
+
+  useEffect(() => {
+    if (!pendingCode) return;
+    const id = window.setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [pendingCode, queryClient]);
+
   const handleTest = async () => {
     setTesting(true);
     setTestResult(null);
@@ -123,6 +156,68 @@ export function SettingsPage() {
   return (
     <div className="settings-page">
       <div className="settings-page-inner">
+        <SettingsSection id="chatgpt" title="ChatGPT">
+          <SettingsRow
+            title="Sign in with ChatGPT"
+            description="Uses your ChatGPT subscription to generate listings. Usage counts against Codex quota, not a Platform API key."
+            status={
+              chatgpt?.error ? <span className="text-error">{chatgpt.error}</span> : null
+            }
+            control={
+              chatgptSignedIn ? (
+                <>
+                  <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
+                    {testing ? "Testing…" : "Test"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost settings-danger"
+                    onClick={() => chatgptLogoutMutation.mutate()}
+                    disabled={chatgptLogoutMutation.isPending}
+                  >
+                    Sign out
+                  </button>
+                </>
+              ) : chatgptPending ? (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  onClick={() => chatgptCancelMutation.mutate()}
+                  disabled={chatgptCancelMutation.isPending}
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={() => chatgptLoginMutation.mutate()}
+                  disabled={chatgptLoginMutation.isPending}
+                >
+                  {chatgptLoginMutation.isPending ? "Starting…" : "Sign in"}
+                </button>
+              )
+            }
+          >
+            {chatgptSignedIn ? (
+              <p className="settings-row-desc">
+                Signed in{chatgpt.email ? ` as ${chatgpt.email}` : ""}
+                {chatgpt.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
+              </p>
+            ) : chatgptPending ? (
+              <p className="settings-row-desc">
+                Open{" "}
+                <a href={chatgptPending.verification_url} target="_blank" rel="noreferrer">
+                  {chatgptPending.verification_url}
+                </a>{" "}
+                and enter code <code className="settings-row-code">{chatgptPending.user_code}</code>
+              </p>
+            ) : chatgptLoginMutation.isError ? (
+              <p className="settings-row-desc text-error">{(chatgptLoginMutation.error as Error).message}</p>
+            ) : null}
+          </SettingsRow>
+        </SettingsSection>
+
         <SettingsSection id="models" title="Models">
           <SettingsRow
             title="Vision model"
