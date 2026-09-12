@@ -23,11 +23,48 @@ interface Props {
   selectedConvId: string | null;
   activeView: "listings" | "settings";
   creating?: boolean;
+  mobileOpen?: boolean;
+  listingQuery: string;
+  onSearchQueryChange: (query: string) => void;
   onSelect: (id: string) => void;
   onCreate: () => void;
   onDelete: (id: string, title: string) => void;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
+}
+
+export function HamburgerIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.5 4.25h11M2.5 8h8.5M2.5 11.75h6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function BackIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M10.25 3.25 5.5 8l4.75 4.75" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function ComposeIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M18.375 2.625a2.121 2.121 0 013 3L8.5 18.5 4 20l1.5-4.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function SearchIcon() {
+  return (
+    <svg className="sidebar-search-icon" width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function readSettledExpanded(): boolean {
@@ -84,6 +121,9 @@ export function ListingSidebar({
   selectedConvId,
   activeView,
   creating,
+  mobileOpen,
+  listingQuery,
+  onSearchQueryChange,
   onSelect,
   onCreate,
   onDelete,
@@ -91,7 +131,6 @@ export function ListingSidebar({
   onCloseSettings,
 }: Props) {
   const queryClient = useQueryClient();
-  const [listingQuery, setListingQuery] = useState("");
   const [settledExpanded, setSettledExpanded] = useState(readSettledExpanded);
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
 
@@ -137,30 +176,45 @@ export function ListingSidebar({
   }, []);
 
   const handleSearchChange = (value: string) => {
-    setListingQuery(value);
+    onSearchQueryChange(value);
     setSettledVisibleCount(SETTLED_TAIL_INITIAL_COUNT);
   };
 
   return (
-    <aside className="panel sidebar">
+    <aside
+      id="listings-sidebar"
+      className="panel sidebar"
+      aria-label="Listings"
+      aria-hidden={mobileOpen === false ? true : undefined}
+    >
       <div className="sidebar-header pywebview-drag-region">
         <div className="sidebar-brand">
           <span className="sidebar-wordmark">Vendoo</span>
           <span className="sidebar-product">Studio</span>
         </div>
+        <button
+          type="button"
+          className={`sidebar-icon-btn sidebar-header-settings${activeView === "settings" ? " selected" : ""}`}
+          title="Settings"
+          aria-label="Settings"
+          onClick={onOpenSettings}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="3.5" cy="8" r="1.15" fill="currentColor" />
+            <circle cx="8" cy="8" r="1.15" fill="currentColor" />
+            <circle cx="12.5" cy="8" r="1.15" fill="currentColor" />
+          </svg>
+        </button>
       </div>
 
       <div className="sidebar-toolbar">
         <label className="sidebar-search">
-          <svg className="sidebar-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
+          <SearchIcon />
           <input
             type="search"
             value={listingQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search listings"
+            placeholder="Search"
             aria-label="Search listings"
           />
         </label>
@@ -171,9 +225,7 @@ export function ListingSidebar({
           disabled={creating}
           onClick={onCreate}
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
+          <ComposeIcon />
         </button>
       </div>
 

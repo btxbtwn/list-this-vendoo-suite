@@ -9,18 +9,34 @@ import { PhotoTray } from "../components/PhotoTray";
 import { SettingsPage } from "../components/SettingsPage";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
-import { ListingSidebar } from "../components/ListingSidebar";
+import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon } from "../components/ListingSidebar";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ToastHost } from "../components/ToastHost";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
+const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
+
+function useMobileLayout() {
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
+  useEffect(() => {
+    const media = window.matchMedia(MOBILE_LAYOUT_QUERY);
+    const onChange = () => setIsMobile(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  return isMobile;
+}
 
 export function App() {
   const queryClient = useQueryClient();
+  const isMobile = useMobileLayout();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
-  const [mobilePane, setMobilePane] = useState<"listings" | "workspace" | "editor" | "browser">("listings");
+  const [mobilePane, setMobilePane] = useState<"workspace" | "editor" | "browser">("workspace");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
+  const [listingQuery, setListingQuery] = useState("");
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -36,6 +52,11 @@ export function App() {
   const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
 
+  const selectedListing = conversations?.find((listing: { id: string }) => listing.id === selectedConvId);
+  const workspaceTitle = activeView === "settings"
+    ? "Settings"
+    : String(selectedListing?.title || "Vendoo Studio");
+
   useEffect(() => {
     if (wasPreviewOpen.current && !previewOpen && mobilePane === "browser") {
       setMobilePane("workspace");
@@ -44,9 +65,23 @@ export function App() {
   }, [previewOpen, mobilePane]);
 
   useEffect(() => {
+    if (!isMobile) setMobileSidebarOpen(false);
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!isMobile || !mobileSidebarOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile, mobileSidebarOpen]);
+
+  useEffect(() => {
     if (activeView !== "settings") return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || isConfirmDialogOpen()) return;
+      if (isMobile && mobileSidebarOpen) return;
       const target = event.target;
       if (
         target instanceof HTMLElement &&
@@ -58,7 +93,15 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeView]);
+  }, [activeView, isMobile, mobileSidebarOpen]);
+
+  const closeMobileSidebar = () => setMobileSidebarOpen(false);
+  const showMailToolbar = isMobile && activeView === "listings" && mobileSidebarOpen;
+
+  const handleListingSearch = (value: string) => {
+    setListingQuery(value);
+    if (isMobile) setMobileSidebarOpen(true);
+  };
 
   const createConv = useMutation({
     mutationFn: () => api.conversations.create({ title: "New Listing" }),
@@ -67,6 +110,7 @@ export function App() {
       setSelectedConvId(conv.id);
       setActiveView("listings");
       setMobilePane("workspace");
+      setMobileSidebarOpen(false);
     },
   });
 
@@ -83,7 +127,8 @@ export function App() {
     onSuccess: (_data, convId) => {
       if (selectedConvId === convId) {
         setSelectedConvId(null);
-        setMobilePane("listings");
+        setMobilePane("workspace");
+        if (isMobile) setMobileSidebarOpen(true);
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
@@ -92,20 +137,65 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <div className={`app-content mobile-pane-${mobilePane}`}>
+      <div className={`app-content mobile-pane-${mobilePane}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}`}>
         <ListingSidebar
           conversations={conversations}
           selectedConvId={selectedConvId}
           activeView={activeView}
           creating={createConv.isPending}
-          onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); }}
+          mobileOpen={!isMobile || mobileSidebarOpen}
+          listingQuery={listingQuery}
+          onSearchQueryChange={handleListingSearch}
+          onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
           onCreate={() => createConv.mutate()}
           onDelete={(id) => deleteConv.mutate(id)}
-          onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); }}
+          onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); closeMobileSidebar(); }}
           onCloseSettings={() => setActiveView("listings")}
         />
 
         <div className="workspace-frame">
+          <header className="mobile-workspace-bar">
+            <button
+              type="button"
+              className="sidebar-icon-btn sidebar-toggle"
+              aria-label="Back to listings"
+              onClick={() => setMobileSidebarOpen(true)}
+            >
+              <BackIcon />
+            </button>
+            <div className="mobile-workspace-title">{workspaceTitle}</div>
+            <div className="mobile-workspace-panes" role="tablist" aria-label="Workspace views">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === "workspace"}
+                className={mobilePane === "workspace" ? "selected" : ""}
+                onClick={() => setMobilePane("workspace")}
+              >
+                Workspace
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === "editor"}
+                className={mobilePane === "editor" ? "selected" : ""}
+                disabled={activeView !== "listings" || !selectedConvId}
+                onClick={() => setMobilePane("editor")}
+              >
+                Listing
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === "browser"}
+                className={mobilePane === "browser" ? "selected" : ""}
+                disabled={activeView !== "listings" || !selectedConvId || !previewOpen}
+                onClick={() => setMobilePane("browser")}
+              >
+                Browser
+              </button>
+            </div>
+          </header>
           <main className="panel main-panel">
             <div className="workspace-drag-region pywebview-drag-region" aria-hidden="true" />
             {activeView === "settings" ? (
@@ -154,24 +244,40 @@ export function App() {
         </div>
       </div>
 
-      <nav className="mobile-nav" aria-label="Dashboard views">
-        <button className={mobilePane === "listings" ? "selected" : ""} onClick={() => setMobilePane("listings")}>Listings</button>
-        <button className={mobilePane === "workspace" ? "selected" : ""} onClick={() => setMobilePane("workspace")}>Workspace</button>
-        <button
-          className={mobilePane === "editor" ? "selected" : ""}
-          onClick={() => setMobilePane("editor")}
-          disabled={activeView !== "listings" || !selectedConvId}
-        >
-          Editor
-        </button>
-        <button
-          className={mobilePane === "browser" ? "selected" : ""}
-          onClick={() => setMobilePane("browser")}
-          disabled={activeView !== "listings" || !selectedConvId || !previewOpen}
-        >
-          Browser
-        </button>
-      </nav>
+      {showMailToolbar && (
+        <nav className="mobile-mail-toolbar" aria-label="Search and create listings">
+          <button
+            type="button"
+            className="mobile-mail-btn"
+            aria-label={mobileSidebarOpen ? "Close listings" : "Open listings"}
+            aria-expanded={mobileSidebarOpen}
+            aria-controls="listings-sidebar"
+            onClick={() => setMobileSidebarOpen((open) => !open)}
+          >
+            <HamburgerIcon />
+          </button>
+          <label className="mobile-mail-search">
+            <SearchIcon />
+            <input
+              type="search"
+              value={listingQuery}
+              onChange={(e) => handleListingSearch(e.target.value)}
+              placeholder="Search"
+              aria-label="Search listings"
+            />
+          </label>
+          <button
+            type="button"
+            className="mobile-mail-btn"
+            title="New listing"
+            aria-label="New listing"
+            disabled={createConv.isPending}
+            onClick={() => createConv.mutate()}
+          >
+            <ComposeIcon />
+          </button>
+        </nav>
+      )}
       <footer className="status-bar">
         <div className="status-left">
           <ExtensionStatus />
