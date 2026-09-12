@@ -90,23 +90,23 @@ export function SettingsPage() {
     queryFn: api.settings.provider,
   });
 
+  const refreshProvider = () => {
+    queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+    queryClient.invalidateQueries({ queryKey: ["status"] });
+  };
+
   const setKeyMutation = useMutation({
     mutationFn: (key: string) => api.settings.setProvider(key),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+      refreshProvider();
       setApiKey("");
     },
   });
 
   const deleteKeyMutation = useMutation({
     mutationFn: () => api.settings.deleteKey(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings-provider"] }),
+    onSuccess: refreshProvider,
   });
-
-  const refreshProvider = () => {
-    queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
-    queryClient.invalidateQueries({ queryKey: ["status"] });
-  };
 
   const chatgptLoginMutation = useMutation({
     mutationFn: () => api.settings.chatgptLogin(),
@@ -205,8 +205,8 @@ export function SettingsPage() {
           >
             {chatgptSignedIn ? (
               <p className="settings-row-desc">
-                Signed in{chatgpt.email ? ` as ${chatgpt.email}` : ""}
-                {chatgpt.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
+                Signed in{chatgpt?.email ? ` as ${chatgpt.email}` : ""}
+                {chatgpt?.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
               </p>
             ) : chatgptPending ? (
               <p className="settings-row-desc">

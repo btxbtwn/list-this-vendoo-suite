@@ -58,7 +58,7 @@ def get_provider():
         return ProviderStatus(
             provider="chatgpt",
             configured=True,
-            masked_key=None,
+            masked_key=masked,
             vision_model="gpt-5.4",
             listing_model="gpt-5.5",
             base_url="https://chatgpt.com/backend-api/codex",

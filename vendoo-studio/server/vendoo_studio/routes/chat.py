@@ -33,17 +33,17 @@ def _require_provider():
 
 
 def _provider_meta(provider) -> tuple[str, str]:
-    name = getattr(provider, "name", None)
-    if name == "chatgpt":
-        return "chatgpt", getattr(provider, "listing_model", "gpt-5.5")
-    return "xiaomi-mimo", "mimo-v2.5-pro"
+    return (
+        getattr(provider, "name", "xiaomi-mimo"),
+        getattr(provider, "listing_model", "mimo-v2.5-pro"),
+    )
 
 
 def _vision_meta(provider) -> tuple[str, str]:
-    name = getattr(provider, "name", None)
-    if name == "chatgpt":
-        return "chatgpt", getattr(provider, "vision_model", "gpt-5.4")
-    return "xiaomi-mimo", "mimo-v2.5"
+    return (
+        getattr(provider, "name", "xiaomi-mimo"),
+        getattr(provider, "vision_model", "mimo-v2.5"),
+    )
 
 log = logging.getLogger("vendoo_studio.chat")
 
