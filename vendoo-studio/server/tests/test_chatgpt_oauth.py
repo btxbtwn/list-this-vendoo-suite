@@ -11,7 +11,9 @@ from vendoo_studio.providers.chatgpt_codex import (
     ChatGPTCodexProvider,
     _messages_to_input,
     _responses_text,
+    clamp_reasoning_effort,
     resolved_chatgpt_models,
+    resolved_chatgpt_reasoning,
     visible_model_slugs,
 )
 from vendoo_studio.services.chatgpt_oauth import jwt_auth_claims, profile_from_tokens
@@ -67,12 +69,17 @@ class ChatGPTModelChoiceTest(unittest.TestCase):
     def test_resolved_models_use_saved_prefs(self):
         with patch(
             "vendoo_studio.providers.chatgpt_codex.get_chatgpt_models",
-            return_value={"vision_model": "gpt-5.6-sol", "listing_model": "gpt-6-astra"},
+            return_value={"vision_model": "gpt-5.6-sol", "listing_model": "gpt-6-astra", "reasoning_effort": "high"},
         ):
             self.assertEqual(resolved_chatgpt_models(), ("gpt-5.6-sol", "gpt-6-astra"))
+            self.assertEqual(resolved_chatgpt_reasoning(), "high")
             provider = ChatGPTCodexProvider()
         self.assertEqual(provider.vision_model, "gpt-5.6-sol")
         self.assertEqual(provider.listing_model, "gpt-6-astra")
+        self.assertEqual(provider.reasoning_effort, "high")
+        self.assertEqual(provider._payload([{"role": "user", "content": "hi"}], "gpt-5.5", True)["reasoning"]["effort"], "high")
+        self.assertEqual(clamp_reasoning_effort("none", "gpt-6-astra"), "low")
+        self.assertEqual(clamp_reasoning_effort("max", "gpt-5.5"), "xhigh")
 
 
 class ChatGPTCatalogFetchTest(unittest.IsolatedAsyncioTestCase):
