@@ -42,7 +42,7 @@ def _provider_meta(provider) -> tuple[str, str]:
 def _vision_meta(provider) -> tuple[str, str]:
     name = getattr(provider, "name", None)
     if name == "chatgpt":
-        return "chatgpt", getattr(provider, "vision_model", "gpt-5.4")
+        return "chatgpt", getattr(provider, "vision_model", "gpt-5.5")
     return "xiaomi-mimo", "mimo-v2.5"
 
 log = logging.getLogger("vendoo_studio.chat")

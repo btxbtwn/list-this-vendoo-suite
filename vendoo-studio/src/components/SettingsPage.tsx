@@ -89,6 +89,12 @@ export function SettingsPage() {
     queryKey: ["settings-provider"],
     queryFn: api.settings.provider,
   });
+  const chatgptSignedIn = Boolean(provider?.chatgpt?.signed_in);
+  const { data: chatgptModels } = useQuery({
+    queryKey: ["chatgpt-models"],
+    queryFn: api.settings.chatgptModels,
+    enabled: chatgptSignedIn,
+  });
 
   const setKeyMutation = useMutation({
     mutationFn: (key: string) => api.settings.setProvider(key),
@@ -105,6 +111,7 @@ export function SettingsPage() {
 
   const refreshProvider = () => {
     queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+    queryClient.invalidateQueries({ queryKey: ["chatgpt-models"] });
     queryClient.invalidateQueries({ queryKey: ["status"] });
   };
 
@@ -120,12 +127,29 @@ export function SettingsPage() {
     mutationFn: () => api.settings.chatgptLogout(),
     onSuccess: refreshProvider,
   });
+  const setChatGPTModelsMutation = useMutation({
+    mutationFn: (models: { vision_model?: string; listing_model?: string }) =>
+      api.settings.setChatGPTModels(models),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+      queryClient.invalidateQueries({ queryKey: ["chatgpt-models"] });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
 
   const chatgpt = provider?.chatgpt;
   const chatgptPending = chatgpt?.pending;
   const pendingCode = chatgptPending?.user_code;
-  const chatgptSignedIn = Boolean(chatgpt?.signed_in);
   const mimoConfigured = Boolean(provider?.masked_key);
+  const visionModel = chatgptModels?.vision_model || provider?.vision_model || "mimo-v2.5";
+  const listingModel = chatgptModels?.listing_model || provider?.listing_model || "mimo-v2.5-pro";
+  const modelOptions = (() => {
+    const slugs = [...(chatgptModels?.models || [])];
+    for (const slug of [visionModel, listingModel]) {
+      if (slug && !slugs.includes(slug)) slugs.push(slug);
+    }
+    return slugs;
+  })();
 
   useEffect(() => {
     if (!pendingCode) return;
@@ -141,7 +165,7 @@ export function SettingsPage() {
     setTestResult(null);
     try {
       const result = await api.settings.testConnection();
-      setTestResult(result.ok ? "Connection successful" : "Connection failed");
+      setTestResult(result.ok ? "Connection successful" : (result.error || "Connection failed"));
     } catch (err: any) {
       setTestResult(`Error: ${err.message}`);
     }
@@ -226,12 +250,49 @@ export function SettingsPage() {
           <SettingsRow
             title="Vision model"
             description="Used to read product photos."
-            control={<span className="settings-row-value">{provider?.vision_model || "mimo-v2.5"}</span>}
+            status={chatgptSignedIn && chatgptModels?.error ? <span className="text-error">{chatgptModels.error}</span> : null}
+            control={
+              chatgptSignedIn ? (
+                <select
+                  className="input settings-model-select"
+                  aria-label="Vision model"
+                  value={visionModel}
+                  disabled={setChatGPTModelsMutation.isPending || modelOptions.length === 0}
+                  onChange={(event) => setChatGPTModelsMutation.mutate({ vision_model: event.target.value })}
+                >
+                  {modelOptions.map((slug) => (
+                    <option key={`vision-${slug}`} value={slug}>
+                      {slug}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="settings-row-value">{visionModel}</span>
+              )
+            }
           />
           <SettingsRow
             title="Listing model"
             description="Used to write marketplace copy."
-            control={<span className="settings-row-value">{provider?.listing_model || "mimo-v2.5-pro"}</span>}
+            control={
+              chatgptSignedIn ? (
+                <select
+                  className="input settings-model-select"
+                  aria-label="Listing model"
+                  value={listingModel}
+                  disabled={setChatGPTModelsMutation.isPending || modelOptions.length === 0}
+                  onChange={(event) => setChatGPTModelsMutation.mutate({ listing_model: event.target.value })}
+                >
+                  {modelOptions.map((slug) => (
+                    <option key={`listing-${slug}`} value={slug}>
+                      {slug}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="settings-row-value">{listingModel}</span>
+              )
+            }
           />
         </SettingsSection>
 
