@@ -744,9 +744,14 @@ html.desktop-app .workspace-drag-region {
 .sidebar-footer {
   display: flex;
   align-items: center;
-  gap: 4px;
   flex-shrink: 0;
   padding: var(--sidebar-content-inset);
+}
+
+.sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .sidebar-back-btn {
@@ -894,10 +899,10 @@ html.desktop-app .workspace-drag-region {
   justify-content: center;
   width: 32px;
   height: 32px;
-  margin-left: auto;
+  margin-left: 0;
   flex-shrink: 0;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-ink-muted);
 }
