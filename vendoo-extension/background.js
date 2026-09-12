@@ -3,10 +3,9 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
-<<<<<<< Updated upstream
 const RELOAD_GENERATION_KEY = 'studio_reload_generation';
 const RELOAD_TABS_KEY = 'studio_reload_tabs';
-const CONTENT_SCRIPT_VERSION = '0.3.6';
+const CONTENT_SCRIPT_VERSION = '0.3.8';
 const EXTENSION_TAB_URLS = [
   'https://app.vendoo.co/*',
   'https://web.vendoo.co/*',
@@ -16,9 +15,6 @@ const EXTENSION_TAB_URLS = [
   'https://www.depop.com/*',
   'https://www.etsy.com/*',
 ];
-=======
-const CONTENT_SCRIPT_VERSION = '0.3.8';
->>>>>>> Stashed changes
 
 let ws = null;
 let reconnectTimer = null;

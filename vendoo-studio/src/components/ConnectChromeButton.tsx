@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 
-export function ConnectChromeButton({ compact = false }: { compact?: boolean }) {
+export function ConnectChromeButton({ compact = false, className }: { compact?: boolean; className?: string }) {
   const queryClient = useQueryClient();
   const connect = useMutation({
     mutationFn: api.desktop.connectChrome,
@@ -17,7 +17,7 @@ export function ConnectChromeButton({ compact = false }: { compact?: boolean }) 
   return (
     <button
       type="button"
-      className={compact ? "status-connect" : "btn btn-secondary btn-sm"}
+      className={compact ? "status-connect" : className || "btn btn-secondary btn-sm"}
       disabled={connect.isPending}
       onClick={() => connect.mutate()}
     >
