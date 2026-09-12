@@ -2100,7 +2100,6 @@ details[open] .json-collapse-summary::before {
 
 .pr-split {
   display: flex;
-  flex-direction: column;
   min-height: 0;
   flex: 1;
   border: 1px solid var(--color-border);
@@ -2111,9 +2110,11 @@ details[open] .json-collapse-summary::before {
 .pr-files {
   display: flex;
   flex-direction: column;
-  max-height: 38%;
-  min-height: 120px;
-  border-bottom: 1px solid var(--color-border);
+  flex: 0 0 158px;
+  width: 158px;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--color-border);
 }
 
 .pr-files-head,
@@ -2224,12 +2225,11 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-diff-line {
-  display: grid;
-  grid-template-columns: 16px minmax(72px, 0.9fr) minmax(0, 1.4fr) auto;
-  align-items: start;
+  display: flex;
+  align-items: center;
   gap: 8px;
   min-height: 22px;
-  padding: 3px 8px;
+  padding: 2px 8px;
   line-height: 1.45;
 }
 
@@ -2242,6 +2242,7 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-diff-gutter {
+  flex: 0 0 12px;
   font-weight: 600;
 }
 
@@ -2257,6 +2258,7 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-diff-name {
+  flex: 0 0 92px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2264,10 +2266,12 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-diff-value {
+  flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-text);
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .pr-input {

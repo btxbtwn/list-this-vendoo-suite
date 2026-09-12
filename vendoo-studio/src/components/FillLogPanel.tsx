@@ -496,8 +496,6 @@ export function FillLogPanel({
   const forms = filterForms(sourceForms, query, missingOnly);
   const leftovers = report ? leftoverEntries(report) : [];
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
-  const filledTotal = forms.reduce((sum, form) => sum + form.filled, 0);
-  const missingTotal = forms.reduce((sum, form) => sum + form.missing, 0);
 
   React.useEffect(() => {
     if (!hasDraft || didRead.current === jobId) return;
@@ -581,6 +579,11 @@ export function FillLogPanel({
             {readMutation.isPending ? "Reading…" : draft ? "Refresh" : "Read draft"}
           </button>
         )}
+        {draft?.ok && (
+          <button type="button" className="pr-icon-btn pr-read" onClick={() => setShowJson((value) => !value)}>
+            {showJson ? "Hide JSON" : "JSON"}
+          </button>
+        )}
       </div>
 
       {readMutation.error && (
@@ -601,10 +604,7 @@ export function FillLogPanel({
           <div className="pr-files">
             <div className="pr-files-head">
               <span>Files</span>
-              <span className="pr-files-count">
-                {filledTotal > 0 && <span className="pr-add">+{filledTotal}</span>}
-                {missingTotal > 0 && <span className="pr-del">-{missingTotal}</span>}
-              </span>
+              <span className="pr-files-count">{forms.length}</span>
             </div>
             <div className="pr-tree" role="list">
               {forms.map((form) => (
@@ -678,11 +678,6 @@ export function FillLogPanel({
         <div className="text-xs text-error">{(fillMutation.error as Error).message || "Failed to fill leftover fields"}</div>
       )}
 
-      {draft?.ok && (
-        <button type="button" className="fill-log-open" onClick={() => setShowJson((value) => !value)}>
-          {showJson ? "Hide JSON" : "Show JSON"}
-        </button>
-      )}
       {showJson && draft?.ok && (
         <pre className="fill-log-vendoo-json">
           {JSON.stringify({ source: draft.source, item_id: draft.item_id, url: draft.url, item: draft.item, form: draft.form }, null, 2)}
