@@ -316,7 +316,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
     from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
     from vendoo_studio.services.fill_log import (
         FILLABLE_STATUSES,
-        MAX_PATCH_FIELDS,
+        MAX_FILL_FIELDS,
         MAX_PATCH_VALUE,
         FillLogService,
         listing_value_for_field,
@@ -338,7 +338,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
     if not extension_manager.connected:
         raise HTTPException(400, "Chrome is not connected")
 
-    requested = body.fields[:MAX_PATCH_FIELDS]
+    requested = body.fields[:MAX_FILL_FIELDS]
     if not requested:
         raise HTTPException(400, "Add at least one field to fill")
 

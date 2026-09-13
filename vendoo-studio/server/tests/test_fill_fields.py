@@ -152,6 +152,49 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Ask chat", response.json()["detail"])
 
+    @patch("vendoo_studio.routes.extension.dispatch_fill_fields", new_callable=AsyncMock)
+    @patch("vendoo_studio.routes.extension.extension_manager")
+    def test_fill_fields_resolves_marketplace_values_from_listing(self, manager, dispatch):
+        manager.connected = True
+        dispatch.return_value = True
+        ListingRepo(self.db).save_revision(
+            self.conv.id,
+            {
+                "title": "Nike tee",
+                "size": "S",
+                "ebay_specifics": {
+                    "department": "Women",
+                    "type": "Blouse",
+                    "countryOfOrigin": "United States",
+                },
+                "etsy_specifics": {"when_made": "2010s"},
+            },
+            source="model_refinement",
+        )
+        leftovers = FillLogService(self.db).save_step(self.job, "filling_fields", {
+            "marketplace": "ebay",
+            "entries": [
+                {"field": "Size", "status": "new", "marketplace": "poshmark", "selector": "#posh-size"},
+                {"field": "When Was It Made?", "status": "new", "marketplace": "etsy", "selector": "#whenMade"},
+                {"field": "Department", "status": "new", "marketplace": "ebay", "selector": "#department"},
+                {"field": "Type", "status": "new", "marketplace": "ebay", "selector": "#type"},
+                {"field": "Country of Origin", "status": "new", "marketplace": "ebay", "selector": "#origin"},
+            ],
+        })
+
+        response = self.client.post(
+            f"/api/jobs/{self.job.id}/fill-fields",
+            json={"fields": [{"id": entry.id} for entry in leftovers]},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        sent = {item["field"]: item["value"] for item in dispatch.await_args.args[1]}
+        self.assertEqual(sent["Size"], "S")
+        self.assertEqual(sent["When Was It Made?"], "2010s")
+        self.assertEqual(sent["Department"], "Women")
+        self.assertEqual(sent["Type"], "Blouse")
+        self.assertEqual(sent["Country of Origin"], "United States")
+
 
 if __name__ == "__main__":
     unittest.main()

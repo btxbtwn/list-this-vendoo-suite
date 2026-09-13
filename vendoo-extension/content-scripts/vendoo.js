@@ -10,7 +10,7 @@
   window.__vendooStudioBridge = true;
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.11';
+  const CONTENT_SCRIPT_VERSION = '0.3.12';
   const DEBUG = true;
   let statusBox;
 
@@ -157,7 +157,9 @@
   function normalizeFieldKey(value) {
     const key = String(value || '')
       .replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, '')
-      .replace(/[*?]+/g, ' ')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/[_*?-]+/g, ' ')
+      .replace(/[^\w\s]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
@@ -620,6 +622,15 @@
       if (/\bcondition\b/.test(key)) {
           return mapCondition(value, mp);
       }
+      if (key === 'when made') {
+          return normalizeEtsyWhenMade(value);
+      }
+      if (mp === 'ebay' && key === 'type') {
+          return normalizeEbaySpecificValue('type', value);
+      }
+      if (mp === 'ebay' && key === 'year manufactured') {
+          return normalizeEbaySpecificValue('yearManufactured', value) || value;
+      }
       return value;
   }
 
@@ -740,7 +751,11 @@
           ['1900', '1900 - 1909 (Vintage)'],
           ['1800s', '1800s (Vintage)'],
           ['1700s', '1700s (Vintage)'],
-          ['before 1700', 'Before 1700 (Vintage)']
+          ['before 1700', 'Before 1700 (Vintage)'],
+          ['unknown', '2020 - 2026 (Recently)'],
+          ['does not apply', '2020 - 2026 (Recently)'],
+          ['n/a', '2020 - 2026 (Recently)'],
+          ['not sure', '2020 - 2026 (Recently)']
       ];
 
       for (const [needle, mappedValue] of explicitMappings) {
@@ -798,6 +813,10 @@
 
   function isVisibleElement(el) {
       return Boolean(el) && (el.offsetParent !== null || el.getClientRects().length > 0);
+  }
+
+  function isAttachedElement(el) {
+      return Boolean(el) && el.isConnected !== false;
   }
 
   function isEtsyCategorySpecificInput(input) {
@@ -973,6 +992,11 @@
       const want = normalizeOptionValue(value);
       if (!got || !want || got === '----' || got === 'select') return false;
       if (got === want) return true;
+      const sizeWant = want.replace(/\s+/g, '');
+      if (/^(xxs|xs|s|m|l|xl|xxl|xxxl|os|onesize)$/.test(sizeWant)) {
+          const sizeGot = got.split(' ')[0].replace(/\s+/g, '');
+          if (sizeGot === sizeWant) return true;
+      }
       if (isStrict) return false;
       const shorter = got.length <= want.length ? got : want;
       const longer = got.length <= want.length ? want : got;
@@ -999,7 +1023,7 @@
       return Boolean(inputRoot?.querySelector('.MuiSelect-select, [class*="MuiSelect-icon"], [class*="MuiAutocomplete-endAdornment"], [class*="MuiArrowDropDown"]'));
   }
 
-  const DROPDOWN_FIELD_HINT = /\b(condition|brand|color|size|category|shipping|occasion|style|department|who made|when made|source|scale|material|pattern|features|sleeve|neckline|fit|rise|inseam|wash|closure)\b/i;
+  const DROPDOWN_FIELD_HINT = /\b(condition|brand|color|size|category|shipping|occasion|style|department|type|who made|when made|source|scale|material|pattern|features|sleeve|neckline|fit|rise|inseam|wash|closure)\b/i;
 
   function shouldFillAsDropdown(el, fieldName) {
       return isDropdownLike(el) || DROPDOWN_FIELD_HINT.test(String(fieldName || ''));
@@ -1018,24 +1042,29 @@
       const roots = document.querySelectorAll(
           '[role="listbox"], .MuiAutocomplete-popper, .MuiMenu-paper, .MuiPopover-paper, .react-select__menu, .react-select__menu-list, [role="presentation"]'
       );
-      const seen = new Set();
-      const options = [];
-      const addNode = (node) => {
-          if (seen.has(node) || !isVisibleElement(node)) return;
-          const text = optionMatchText(node);
-          const lower = (text || '').toLowerCase();
-          if (!text || lower.includes('create your description') || lower.includes('description with ai')) return;
-          seen.add(node);
-          options.push({ el: node, text });
+      const collect = (requireVisible) => {
+          const seen = new Set();
+          const options = [];
+          const usable = requireVisible ? isVisibleElement : isAttachedElement;
+          const addNode = (node) => {
+              if (seen.has(node) || !usable(node)) return;
+              const text = optionMatchText(node);
+              const lower = (text || '').toLowerCase();
+              if (!text || lower.includes('create your description') || lower.includes('description with ai')) return;
+              seen.add(node);
+              options.push({ el: node, text });
+          };
+          for (const root of roots) {
+              if (!usable(root)) continue;
+              root.querySelectorAll(DROPDOWN_OPTION_SELECTOR).forEach(addNode);
+          }
+          if (options.length === 0) {
+              document.querySelectorAll(DROPDOWN_OPTION_SELECTOR).forEach(addNode);
+          }
+          return options;
       };
-      for (const root of roots) {
-          if (!isVisibleElement(root)) continue;
-          root.querySelectorAll(DROPDOWN_OPTION_SELECTOR).forEach(addNode);
-      }
-      if (options.length === 0) {
-          document.querySelectorAll(DROPDOWN_OPTION_SELECTOR).forEach(addNode);
-      }
-      return options;
+      const visible = collect(true);
+      return visible.length ? visible : collect(false);
   }
 
   function findMatchingOption(value, isStrict) {
@@ -1977,10 +2006,11 @@
               return normalizeText(afterDot.replace(/^\d+_/, ''));
           }
 
-          function collectEbayCategoryInputs() {
+          function collectEbayCategoryInputs(requireVisible = true) {
+              const usable = requireVisible ? isVisibleElement : isAttachedElement;
               return Array.from(document.querySelectorAll(
                   'input[id^="listings.ebay.categorySpecifics."], select[id^="listings.ebay.categorySpecifics."], [id^="listings.ebay.categorySpecifics."][role="combobox"], input[name^="listings.ebay.categorySpecifics."], select[name^="listings.ebay.categorySpecifics."]'
-              )).filter(isVisibleElement);
+              )).filter(usable);
           }
 
           function findEbaySpecificInput(fieldName, inputs) {
@@ -1998,6 +2028,9 @@
                   await sleep(CONFIG.SLEEP_RETRY);
                   allInputs = collectEbayCategoryInputs();
               }
+          }
+          if (allInputs.length === 0) {
+              allInputs = collectEbayCategoryInputs(false);
           }
           log(`Found ${allInputs.length} category specific fields`);
 
@@ -2292,9 +2325,9 @@
           for (const sel of selectors) {
               try {
                   const candidate = document.querySelector(sel);
-                  if (candidate && isVisibleElement(candidate) && isEnabledField(candidate)) {
+                  if (candidate && isEnabledField(candidate) && (isVisibleElement(candidate) || isAttachedElement(candidate))) {
                       el = candidate;
-                      break;
+                      if (isVisibleElement(candidate)) break;
                   }
               } catch (_) {}
           }
@@ -3128,12 +3161,32 @@
       if (bySelector) return bySelector;
       const want = normalizeFieldKey(item.field);
       if (!want) return null;
+      const marketplace = String(currentFillMarketplace || 'general').toLowerCase();
+      const inMarketplace = marketplace && marketplace !== 'general' && marketplace !== 'unknown'
+          ? isMarketplaceInput(marketplace)
+          : (el) => isCurrentMarketplaceControl(el);
       const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
       for (const el of controls) {
-          if (!isListingFormControl(el)) continue;
+          if (!inMarketplace(el)) continue;
+          if (want === 'size' && /size\.scale|sizeType|size type/i.test(`${el.id || ''} ${el.name || ''}`)) continue;
           if (normalizeFieldKey(fieldLabelForControl(el)) === want) return el;
+          const idToken = String(el.id || el.name || '').split('.').pop() || '';
+          const token = normalizeFieldKey(idToken.replace(/^[0-9a-f]{8,}_/i, '').replace(/^\d+_/, ''));
+          if (token === want) return el;
+      }
+      if (marketplace && marketplace !== 'general' && marketplace !== 'unknown') {
+          return findInputByExactLabel(item.field, isMarketplaceInput(marketplace));
       }
       return null;
+  }
+
+  async function waitForPatchControl(item) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+          const el = findControlForPatch(item);
+          if (el && isEnabledField(el) && (isVisibleElement(el) || isAttachedElement(el))) return el;
+          await sleep(CONFIG.SLEEP_RETRY);
+      }
+      return findControlForPatch(item);
   }
 
   async function fillTextFieldByElement(el, value, fieldName) {
@@ -3204,13 +3257,18 @@
                   await activateMarketplaceSection(marketplace);
               }
               await expandOptionalFields();
-              await sleep(CONFIG.SLEEP_LONG);
+              await sleep(CONFIG.SLEEP_LONG * 2);
               for (const item of group) {
                   currentPatchEntryId = item.id || '';
                   const fieldName = item.field || 'Field';
                   const value = mapPatchValue(marketplace, fieldName, item.value);
                   item.value = value;
-                  const el = findControlForPatch(item);
+                  const fieldKey = normalizeFieldKey(fieldName);
+                  if (fieldKey === 'size' && marketplace !== 'general' && marketplace !== 'unknown') {
+                      await fillMarketplaceSize(marketplace, { size: value });
+                      continue;
+                  }
+                  const el = await waitForPatchControl(item);
                   if (!el) {
                       recordFill({
                           id: item.id,
