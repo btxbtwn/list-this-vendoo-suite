@@ -665,7 +665,8 @@ Required changes:
 - Fetch authorized job photos from the backend.
 - Preserve photo ordering and verify visible upload count.
 - Fill category path.
-- After General category is committed, align each marketplace category, scrape the live field schema, and register discovered fields before marketplace fill.
+- After listing generation persists a category, kick off a schema-probe job that selects the Vendoo category, aligns marketplace categories, and scrapes live fields into the listing without filling marketplace values.
+- After General category is committed during Send to Vendoo, align each marketplace category, scrape the live field schema, and register discovered fields before marketplace fill.
 - Fill SKU only when explicitly supplied.
 - Return structured field results.
 - Separate filling, saving, and auditing.

@@ -639,6 +639,20 @@ async function runJob(jobId) {
 }
 
 function buildJobSteps(job) {
+  const platforms = job.options?.platforms || [];
+  if (job.options?.mode === 'schema_probe') {
+    const steps = [
+      { step: 'opening_vendoo', fn: openVendooListing },
+      { step: 'waiting_ready', fn: waitForContentScript },
+      { step: 'selecting_category', fn: selectGeneralCategoryOnly },
+      { step: 'saving_general', fn: saveGeneral },
+    ];
+    if (platforms.length) {
+      steps.push({ step: 'discovering_schema', fn: discoverSchema });
+    }
+    return steps;
+  }
+
   const steps = [];
   const clearBeforeFill = Boolean(job.options?.clearBeforeFill);
 
@@ -654,7 +668,6 @@ function buildJobSteps(job) {
   steps.push({ step: 'saving_general', fn: saveGeneral });
   steps.push({ step: 'auditing_general', fn: auditGeneral });
 
-  const platforms = job.options?.platforms || [];
   // After General category is committed, align each marketplace category and
   // scrape the live field schema before filling values.
   if (platforms.length) {
@@ -1162,6 +1175,9 @@ function commandTimeoutMs(command) {
   if (command.type === 'DISCOVER_SCHEMA') {
     const count = Array.isArray(command.platforms) ? command.platforms.length : 5;
     return Math.min(180000, Math.max(120000, 30000 + count * 25000));
+  }
+  if (command.type === 'SET_GENERAL_CATEGORY') {
+    return 90000;
   }
   if (command.type === 'GET_VENDOO_ITEM') {
     return 120000;
@@ -1689,6 +1705,13 @@ async function fillGeneral(job) {
     type: 'FILL_GENERAL',
     data: job.listing,
     registry_selectors: job.registry_selectors || {},
+  });
+}
+
+async function selectGeneralCategoryOnly(job) {
+  return sendToVendoo(job, {
+    type: 'SET_GENERAL_CATEGORY',
+    data: job.listing,
   });
 }
 
