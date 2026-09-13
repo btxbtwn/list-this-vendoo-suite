@@ -360,7 +360,8 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
       return { ...field, value: match.value, missing: false };
     });
     // Listing-only values (chat-filled optionals) are missing from the Vendoo API
-    // draft until written — still show them under Item specifics.
+    // draft until written — still show them under the marketplace extras section.
+    const extrasSection = form.id === "ebay" || form.id === "etsy" ? "Category" : "Item specifics";
     const extras: DraftField[] = [];
     for (const field of listingForm.fields) {
       const key = fieldMatchKey(field);
@@ -368,14 +369,14 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
       seen.add(key);
       extras.push({
         ...field,
-        section: "Item specifics",
+        section: extrasSection,
         missing: false,
       });
     }
     if (extras.length) {
       let insertAt = fields.length;
       for (let i = 0; i < fields.length; i += 1) {
-        if (fields[i].section === "Item specifics") insertAt = i + 1;
+        if (fields[i].section === extrasSection) insertAt = i + 1;
       }
       fields.splice(insertAt, 0, ...extras);
     }
@@ -579,18 +580,33 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
     { label: "More fields", extras: true },
   ],
   ebay: [
-    { label: "Item Details", fields: SHARED_ITEM_FIELDS },
+    {
+      label: "Item Details",
+      fields: [
+        { keys: ["title"], label: "Title" },
+        { keys: ["description"], label: "Description" },
+        { keys: ["brand"], label: "Brand" },
+        { keys: ["primary color"], label: "Primary Color" },
+        { keys: ["secondary color"], label: "Secondary Color" },
+        { keys: ["quantity"], label: "Quantity" },
+        { keys: ["sku"], label: "SKU" },
+        { keys: ["price"], label: "Price" },
+      ],
+    },
     {
       label: "Category",
       fields: [
-        { keys: ["category"], label: "Category" },
-        { keys: ["size"], label: "Size" },
-        { keys: ["size type"], label: "Size Type" },
-        { keys: ["type"], label: "Type" },
-        { keys: ["department"], label: "Department" },
+        { keys: ["category"], label: "Category", always: true },
+        { keys: ["department"], label: "Department", always: true },
+        { keys: ["size"], label: "Size", always: true },
+        { keys: ["size type"], label: "Size Type", always: true },
+        { keys: ["type"], label: "Type", always: true },
+        { keys: ["condition"], label: "Condition", always: true },
+        { keys: ["condition description"], label: "Condition Description", always: true },
+        ...EBAY_OPTIONAL_FIELDS,
       ],
+      extras: true,
     },
-    { label: "Item specifics", fields: EBAY_OPTIONAL_FIELDS, extras: true },
     { label: "Package Details", fields: PACKAGE_FIELDS },
     {
       label: "Shipping & returns",
@@ -598,10 +614,6 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
         { keys: ["shipping"], label: "Shipping" },
         { keys: ["returns"], label: "Returns" },
       ],
-    },
-    {
-      label: "Additional Details",
-      fields: [{ keys: ["condition description"], label: "Condition Description" }],
     },
   ],
   etsy: [
@@ -614,7 +626,15 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
         { keys: ["when made"], label: "When was it made" },
       ],
     },
-    { label: "Category", fields: [{ keys: ["category"], label: "Category" }, { keys: ["size"], label: "Size" }] },
+    {
+      label: "Category",
+      fields: [
+        { keys: ["category"], label: "Category", always: true },
+        { keys: ["size"], label: "Size", always: true },
+        ...ETSY_OPTIONAL_FIELDS,
+      ],
+      extras: true,
+    },
     {
       label: "Tags & materials",
       fields: [
@@ -622,7 +642,6 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
         { keys: ["materials"], label: "Materials" },
       ],
     },
-    { label: "Item specifics", fields: ETSY_OPTIONAL_FIELDS, extras: true },
   ],
   poshmark: [
     { label: "Item Details", fields: SHARED_ITEM_FIELDS },
