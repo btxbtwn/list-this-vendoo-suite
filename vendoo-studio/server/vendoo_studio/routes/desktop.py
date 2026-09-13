@@ -22,17 +22,8 @@ def chrome_status():
 
 @router.post("/chrome/connect")
 async def connect_chrome():
-    from vendoo_studio.routes.extension import dispatch_show_vendoo, extension_manager
-    from vendoo_studio.services.chrome_bridge import extension_build_status
+    from vendoo_studio.routes.extension import extension_manager
 
-    status = extension_build_status(
-        extension_manager.version,
-        extension_manager.reload_generation,
-    )
-    if extension_manager.connected and status.get("up_to_date"):
-        sent = await dispatch_show_vendoo()
-        if sent:
-            return {"ok": True, "via": "extension", "visible": True}
     await extension_manager.disconnect()
     extension_manager.version = None
     extension_manager.reload_generation = None
