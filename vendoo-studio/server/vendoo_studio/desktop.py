@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from vendoo_studio.config import BASE_DIR, HOST, PORT, frontend_dist_dir, is_frozen
+from vendoo_studio.config import BASE_DIR, HOST, PORT, extension_source_dir, frontend_dist_dir, is_frozen
 
 CHANNELS = {
     "production": {
@@ -352,6 +352,9 @@ def install_macos_app(destination: Path | None = None, channel_name: str = "prod
         "LSApplicationCategoryType": "public.app-category.productivity",
         "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
     }
+    icon_name = install_bundle_icon(resources)
+    if icon_name:
+        plist["CFBundleIconFile"] = icon_name
     with (app_path / "Contents" / "Info.plist").open("wb") as handle:
         plistlib.dump(plist, handle)
     launcher = macos / channel["executable"]
@@ -407,6 +410,34 @@ def shlex_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def extension_app_icon_path() -> Path | None:
+    path = extension_source_dir() / "icons" / "icon128.png"
+    return path if path.is_file() else None
+
+
+def install_bundle_icon(resources: Path) -> str | None:
+    source = extension_app_icon_path()
+    if source is None:
+        return None
+    resources.mkdir(parents=True, exist_ok=True)
+    shutil.copy(source, resources / "AppIcon.png")
+    icns = resources / "AppIcon.icns"
+    try:
+        from importlib.util import module_from_spec, spec_from_file_location
+
+        make_icon_path = Path(__file__).resolve().parent.parent.parent / "desktop" / "make_icon.py"
+        spec = spec_from_file_location("make_icon", make_icon_path)
+        if spec is not None and spec.loader is not None:
+            module = module_from_spec(spec)
+            spec.loader.exec_module(module)
+            module.write_icns(icns)
+    except Exception:
+        pass
+    if icns.is_file():
+        return "AppIcon"
+    return "AppIcon.png"
+
+
 def studio_window_kwargs() -> dict:
     return {
         "width": WINDOW_WIDTH,
@@ -418,6 +449,11 @@ def studio_window_kwargs() -> dict:
         "shadow": True,
         "background_color": WINDOW_BACKGROUND,
     }
+
+
+def studio_start_kwargs() -> dict:
+    icon = extension_app_icon_path()
+    return {"icon": str(icon)} if icon is not None else {}
 
 
 def _hex_to_srgb(color: str) -> tuple[float, float, float]:
@@ -509,6 +545,7 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
     """Paint the window like T3 Code: no grey title bar, 12pt traffic lights on the UI."""
     if sys.platform != "darwin":
         return
+    _set_macos_app_icon()
     native = getattr(window, "native", None)
     if native is None:
         return
@@ -571,6 +608,20 @@ def _set_macos_app_name() -> None:
     info["CFBundleDisplayName"] = APP_NAME
 
 
+def _set_macos_app_icon() -> None:
+    icon = extension_app_icon_path()
+    if icon is None:
+        return
+    try:
+        from AppKit import NSApplication, NSImage
+    except Exception:
+        return
+    image = NSImage.alloc().initWithContentsOfFile_(str(icon))
+    if image is None:
+        return
+    NSApplication.sharedApplication().setApplicationIconImage_(image)
+
+
 def _boot_window(window) -> None:
     try:
         window.load_html(splash_html("Preparing the listing workspace…"))
@@ -586,10 +637,11 @@ def _boot_window(window) -> None:
 
 def run_window() -> None:
     _set_macos_app_name()
+    _set_macos_app_icon()
     import webview
 
     window = create_studio_window(webview)
-    webview.start(lambda: _boot_window(window))
+    webview.start(lambda: _boot_window(window), **studio_start_kwargs())
     stop_owned_server()
 
 
