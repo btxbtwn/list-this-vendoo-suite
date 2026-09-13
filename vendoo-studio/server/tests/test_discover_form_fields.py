@@ -86,6 +86,15 @@ const auditMarketplace = async () => ({ ok: true });
         discover_end = content.index("async function discoverMarketplaceSchema")
         discover_body = content[discover_start:discover_end]
         self.assertNotIn("await fillMarketplaceCategory", discover_body)
+        # Refresh must wait for the marketplace form to actually mount. Trusting
+        # aria-selected alone skips eBay when the nav still looks selected.
+        self.assertIn("marketplaceFormMounted(platform)", discover_body)
+        self.assertIn("waitForMarketplaceFormMounted", content)
+        activate_start = content.index("async function activateMarketplaceSection")
+        activate_end = content.index("async function auditMarketplaceForm")
+        activate_body = content[activate_start:activate_end]
+        self.assertIn("marketplaceFormMounted(platform)", activate_body)
+        self.assertIn("force: true", activate_body)
         scrape_start = content.index("async function scrapeVendooItem")
         scrape_end = content.index("async function clearChipContainer")
         scrape_body = content[scrape_start:scrape_end]

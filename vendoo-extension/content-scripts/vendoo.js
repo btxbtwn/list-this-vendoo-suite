@@ -4075,10 +4075,33 @@
   function marketplaceSectionButtonMatches(btn, platform) {
       const wanted = normalizeText(platform);
       if (!wanted) return false;
-      const firstLine = normalizeText((btn.innerText || btn.textContent || '').split('\n')[0]);
-      if (!firstLine || firstLine.length > 24) return false;
-      if (wanted === 'general') return firstLine === 'general' || firstLine === 'vendoo';
-      return firstLine === wanted || firstLine.includes(wanted);
+      const labelled = (btn.getAttribute && (btn.getAttribute('aria-label') || btn.getAttribute('title'))) || '';
+      const firstLine = normalizeText((btn.innerText || btn.textContent || labelled || '').split('\n')[0]);
+      if (!firstLine || firstLine.length > 32) return false;
+      // Strip product badges so "eBay BETA" still matches ebay.
+      const bare = firstLine.replace(/\b(beta|new|alpha)\b/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!bare) return false;
+      if (wanted === 'general') return bare === 'general' || bare === 'vendoo';
+      return bare === wanted || bare.includes(wanted);
+  }
+
+  function marketplaceFormMounted(marketplace) {
+      const mp = String(marketplace || '').toLowerCase();
+      if (!mp || mp === 'general') {
+          return Boolean(document.querySelector(
+              '[id^="generalDetails."], [name^="generalDetails."], #categoryV2, [role="category-input"]'
+          ));
+      }
+      const prefix = `listings.${mp}.`;
+      return Boolean(document.querySelector(`[id^="${prefix}"], [name^="${prefix}"]`));
+  }
+
+  async function waitForMarketplaceFormMounted(marketplace, attempts = 12) {
+      for (let attempt = 0; attempt < attempts; attempt++) {
+          if (marketplaceFormMounted(marketplace)) return true;
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      return marketplaceFormMounted(marketplace);
   }
 
   function marketplaceNameToId(name) {
@@ -4143,7 +4166,7 @@
   async function activateMarketplaceSection(platform) {
       log(`Activating ${platform} marketplace section...`);
 
-      const clickMatching = async () => {
+      const clickMatching = async ({ force = false } = {}) => {
           const buttons = Array.from(document.querySelectorAll(
               '[role="tab"], button, [role="button"], a, span[role="button"]'
           ));
@@ -4151,12 +4174,15 @@
           if (!match) return false;
           const expanded = match.getAttribute('aria-expanded');
           const selected = match.getAttribute('aria-selected');
-          if (expanded === 'true' || selected === 'true') {
+          // aria-selected alone is not enough — eBay often stays "selected" in the
+          // nav while generalDetails is showing, so Refresh would scrape no ebay fields.
+          if (!force && (expanded === 'true' || selected === 'true') && marketplaceFormMounted(platform)) {
               log(`  ${platform} section already expanded`);
               await sleep(CONFIG.SLEEP_LONG);
               return true;
           }
-          log(`  Clicking "${(match.innerText || '').trim()}" to activate ${platform}`);
+          const label = (match.innerText || match.textContent || match.getAttribute?.('aria-label') || '').trim().split('\n')[0];
+          log(`  Clicking "${label}" to activate ${platform}${force ? ' (force)' : ''}`);
           match.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_SHORT);
           match.click();
@@ -4164,10 +4190,20 @@
           return true;
       };
 
-      if (await clickMatching()) return;
+      if (await clickMatching()) {
+          if (await waitForMarketplaceFormMounted(platform)) return;
+          // Selected/expanded lied — force another click and wait again.
+          if (await clickMatching({ force: true }) && await waitForMarketplaceFormMounted(platform)) return;
+          warn(`${platform} nav activated but form fields did not mount`);
+          return;
+      }
       await expandOptionalFields();
       await sleep(CONFIG.SLEEP_LONG);
-      if (await clickMatching()) return;
+      if (await clickMatching({ force: true })) {
+          if (await waitForMarketplaceFormMounted(platform)) return;
+          warn(`${platform} nav activated but form fields did not mount`);
+          return;
+      }
       warn(`Could not find activation button for ${platform}`);
   }
 
@@ -4374,8 +4410,20 @@
               log(`Reading ${platform} form fields (including empty optionals)...`);
               await activateMarketplaceSection(platform);
               await sleep(CONFIG.SLEEP_LONG);
+              if (!marketplaceFormMounted(platform)) {
+                  warn(`  ${platform}: form did not mount after activate; skipping scrape`);
+                  continue;
+              }
               if (platform === 'ebay') {
-                  await waitForEbayOptionalCategoryFields();
+                  // Only wait for optionals when a category is already on the draft.
+                  // Re-selecting category is forbidden on refresh (remounts empties).
+                  const categoryShown = marketplaceCategoryDisplay('ebay');
+                  if (categoryShown) {
+                      await waitForEbayOptionalCategoryFields();
+                  } else {
+                      await expandOptionalFields();
+                      await sleep(CONFIG.SLEEP_LONG);
+                  }
               } else {
                   await expandOptionalFields();
                   await sleep(CONFIG.SLEEP_LONG);
