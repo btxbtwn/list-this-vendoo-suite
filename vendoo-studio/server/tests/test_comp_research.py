@@ -79,6 +79,24 @@ class FormatChatGPTCompsTest(unittest.TestCase):
         self.assertIn("$22 · eBay", text)
         self.assertIn("https://www.ebay.com/itm/1", text)
 
+    def test_keeps_markdown_research_when_no_listings(self):
+        text = format_chatgpt_comps(
+            "Sauza tee sold comps",
+            "## Research note — Sauza Tequila T-shirt\n"
+            "**Typical sold-price range:** **$10–$25 USD** for a standard tee.",
+            [],
+        )
+        self.assertIn("Source: ChatGPT web search", text)
+        self.assertIn("Market: $10–$25", text)
+        self.assertIn("Typical sold-price range", text)
+        self.assertNotIn("No sold listings found", text)
+        self.assertFalse(comps_usable(text))
+
+    def test_empty_json_does_not_become_the_note(self):
+        text = format_chatgpt_comps("Nike tee sold comps", '{"market":"","comps":[]}', [])
+        self.assertIn("No sold listings found", text)
+        self.assertNotIn('"comps":[]', text)
+
 
 class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
     async def test_chatgpt_success_skips_brave(self):
