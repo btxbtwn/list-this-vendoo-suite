@@ -598,13 +598,20 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
     if job.status == "dispatched" and job.current_step == "filling_fields":
         raise HTTPException(400, "Leftover field fill is already running")
 
+    resume_from = _resume_step_for_retry(job)
+    failed_step = job.current_step
+
     job.status = "queued"
     job.current_step = "queued"
     job.attempt_count += 1
     job.last_error = None
 
     from vendoo_studio.services.fill_log import FillLogService
-    FillLogService(db).clear_job(job_id)
+    fill_logs = FillLogService(db)
+    if resume_from:
+        fill_logs.clear_step(job_id, resume_from)
+    else:
+        fill_logs.clear_job(job_id)
 
     from sqlalchemy.orm.attributes import flag_modified
     conv = ConversationRepo(db).get(job.conversation_id)
@@ -620,7 +627,10 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
 
     db.commit()
     ConversationRepo(db).update_status(job.conversation_id, "listing")
-    repo.add_event(job_id, "retried", job.current_step)
+    repo.add_event(job_id, "retried", resume_from or "queued", {
+        "resume_from": resume_from,
+        "failed_step": failed_step,
+    })
 
     from vendoo_studio.routes.extension import dispatch_queued_jobs
     await dispatch_queued_jobs()
@@ -668,6 +678,46 @@ def _generate_sku(listing: dict) -> str:
     if size:
         parts.append(slug(size))
     return "-".join(parts) if parts else "ITEM"
+
+
+_NON_RESUMABLE_STEPS = frozenset({
+    "",
+    "queued",
+    "accepted",
+    "awaiting_extension",
+    "filling_fields",
+    "imported",
+    "completed",
+    "cancelled",
+})
+
+
+def _resume_step_for_retry(job) -> str | None:
+    """Return the pipeline step a failed job should resume from, if any."""
+    if getattr(job, "status", None) != "failed":
+        return None
+    step = str(getattr(job, "current_step", None) or "").strip()
+    if step in _NON_RESUMABLE_STEPS:
+        return None
+
+    has_draft = bool(getattr(job, "vendoo_item_id", None) or getattr(job, "vendoo_url", None))
+    general_steps = {
+        "opening_vendoo",
+        "waiting_ready",
+        "uploading_photos",
+        "clearing_general",
+        "filling_general",
+        "saving_general",
+        "auditing_general",
+    }
+    if step in general_steps:
+        return step
+
+    marketplace_prefixes = ("clearing_", "filling_", "saving_", "auditing_")
+    if step == "discovering_schema" or step.startswith(marketplace_prefixes):
+        return step if has_draft else None
+
+    return None
 
 
 def _validation_error_detail(validation) -> str:
