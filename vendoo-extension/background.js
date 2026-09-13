@@ -5,7 +5,6 @@ const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
 const RELOAD_GENERATION_KEY = 'studio_reload_generation';
 const RELOAD_TABS_KEY = 'studio_reload_tabs';
-const CONTENT_SCRIPT_VERSION = '0.3.12';
 const EXTENSION_TAB_URLS = [
   'https://app.vendoo.co/*',
   'https://web.vendoo.co/*',
@@ -24,6 +23,7 @@ let activeJob = null;
 let activePatch = null;
 let reconnectAttempt = 0;
 
+importScripts('content-script-version.js');
 importScripts('diagnostic-collector.js');
 importScripts('preview-screencast.js');
 
@@ -681,7 +681,37 @@ async function pingContentScript(tabId) {
 async function injectVendooContentScript(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ['content-scripts/vendoo.js'],
+    files: ['content-script-version.js', 'content-scripts/vendoo.js'],
+  });
+}
+
+async function reloadTabAndWait(tabId, timeoutMs = 30000) {
+  return new Promise((resolve) => {
+    let seenLoading = false;
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.tabs.get(tabId).then(resolve).catch(() => resolve(null));
+    }, timeoutMs);
+
+    function finish(tab) {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(tab);
+    }
+
+    function onUpdated(id, info, tab) {
+      if (id !== tabId) return;
+      if (info.status === 'loading') seenLoading = true;
+      if (seenLoading && isTabReady(tab)) finish(tab);
+    }
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.reload(tabId).catch((err) => {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      log(`Tab reload failed: ${err.message}`);
+      resolve(null);
+    });
   });
 }
 
@@ -1112,15 +1142,28 @@ async function waitForContentScript(job) {
   }
 
   let injected = false;
+  let reloaded = false;
   let lastUrl = tab.url;
   for (let i = 0; i < 20; i++) {
     const resp = await pingContentScript(tabId);
     if (resp && resp.ok) {
-      if (resp.contentScriptVersion !== CONTENT_SCRIPT_VERSION) {
-        log(`Content script version mismatch: got ${resp.contentScriptVersion}, expected ${CONTENT_SCRIPT_VERSION}. Reload extension and the Vendoo tab.`);
-        return { ok: false, error: `Content script is stale (${resp.contentScriptVersion} vs ${CONTENT_SCRIPT_VERSION}). Reload the extension at chrome://extensions/, then refresh the Vendoo tab.` };
+      if (resp.contentScriptVersion === CONTENT_SCRIPT_VERSION) {
+        log(`Content script ready on tab ${tabId} v${resp.contentScriptVersion}`);
+        return { ok: true };
       }
-      log(`Content script ready on tab ${tabId} v${resp.contentScriptVersion}`);
+      log(`Content script version mismatch: got ${resp.contentScriptVersion}, expected ${CONTENT_SCRIPT_VERSION}`);
+      if (!reloaded) {
+        log(`Reloading Vendoo tab ${tabId} to pick up the current content script`);
+        const reloadedTab = await reloadTabAndWait(tabId);
+        reloaded = true;
+        injected = false;
+        if (!isTabReady(reloadedTab)) {
+          return { ok: false, error: `Vendoo tab did not finish reloading (${reloadedTab?.url || 'unknown url'})` };
+        }
+        lastUrl = reloadedTab.url;
+        continue;
+      }
+      log(`Content script still at v${resp.contentScriptVersion} after reload; continuing`);
       return { ok: true };
     }
 

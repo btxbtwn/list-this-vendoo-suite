@@ -4,15 +4,33 @@
 (function() {
   'use strict';
 
-  if (window.__vendooStudioBridge) {
+  const PLATFORM = 'VENDOO';
+  const CONTENT_SCRIPT_VERSION = String(globalThis.CONTENT_SCRIPT_VERSION || '');
+
+  if (CONTENT_SCRIPT_VERSION && window.__vendooStudioBridgeVersion === CONTENT_SCRIPT_VERSION) {
     return;
   }
-  window.__vendooStudioBridge = true;
 
-  const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.12';
+  if (typeof window.__vendooStudioBridgeCleanup === 'function') {
+    try { window.__vendooStudioBridgeCleanup(); } catch (_) {}
+  }
+
+  window.__vendooStudioBridge = true;
+  window.__vendooStudioBridgeVersion = CONTENT_SCRIPT_VERSION;
+
   const DEBUG = true;
   let statusBox;
+  let runtimeListener = null;
+
+  window.__vendooStudioBridgeCleanup = function cleanupStudioBridge() {
+    if (runtimeListener) {
+      chrome.runtime.onMessage.removeListener(runtimeListener);
+      runtimeListener = null;
+    }
+    window.__vendooStudioBridge = false;
+    window.__vendooStudioBridgeVersion = '';
+    window.__vendooStudioBridgeCleanup = null;
+  };
 
   // Configuration for speed
   const CONFIG = {
@@ -3331,7 +3349,7 @@
   function init() {
       log(`✓ Content script loaded on ${window.location.hostname}`);
       
-      chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      runtimeListener = (msg, sender, sendResponse) => {
           if (msg.type === 'PING') {
               sendResponse({ ok: true, platform: PLATFORM, contentScriptVersion: CONTENT_SCRIPT_VERSION });
               return true;
@@ -3445,7 +3463,8 @@
               sendResponse({ ok: true });
               return true;
           }
-      });
+      };
+      chrome.runtime.onMessage.addListener(runtimeListener);
   }
 
   if (document.readyState === 'loading') {
