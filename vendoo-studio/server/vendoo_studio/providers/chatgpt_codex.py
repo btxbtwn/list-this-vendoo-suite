@@ -5,7 +5,7 @@ import time
 
 import httpx
 
-from vendoo_studio.providers.xiaomi_mimo import _encode_image, chunk_text
+from vendoo_studio.providers.xiaomi_mimo import StreamChunk, _encode_image, chunk_text, unpack_stream_item
 from vendoo_studio.services.chatgpt_oauth import (
     ORIGINATOR,
     account_id_from_tokens,
@@ -110,6 +110,26 @@ def _http_error(resp: httpx.Response) -> str:
     if len(text) > 240:
         text = text[:237] + "..."
     return f"ChatGPT HTTP {resp.status_code}: {text}" if text else f"ChatGPT HTTP {resp.status_code}"
+
+
+def _delta_text(value) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        text = value.get("text") or value.get("content") or ""
+        return text if isinstance(text, str) else ""
+    return ""
+
+
+def _responses_thinking(payload: dict) -> str:
+    event_type = str(payload.get("type") or "")
+    if any(marker in event_type for marker in (
+        "reasoning_summary_text.delta",
+        "reasoning_text.delta",
+        "reasoning.delta",
+    )):
+        return _delta_text(payload.get("delta"))
+    return ""
 
 
 def _responses_text(payload: dict) -> str:
@@ -345,14 +365,19 @@ class ChatGPTCodexProvider:
                         payload = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
+                    thinking = _responses_thinking(payload)
+                    if thinking:
+                        yield StreamChunk(thinking, "thinking")
                     text = _responses_text(payload)
                     if text:
-                        yield text
+                        yield StreamChunk(text, "content")
 
     async def _complete(self, messages: list[dict], model: str):
         text = ""
         async for chunk in self._stream(messages, model):
-            text += chunk
+            kind, piece = unpack_stream_item(chunk)
+            if kind != "thinking":
+                text += piece
         if not text:
             raise RuntimeError("ChatGPT returned an empty listing response")
         yield text

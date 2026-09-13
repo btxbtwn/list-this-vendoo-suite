@@ -183,7 +183,11 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
             )
         if value is None:
             value = _value_from_record(source, key)
-    return _stringify_listing_value(value)
+    result = _stringify_listing_value(value)
+    if marketplace == "poshmark" and key == "category":
+        from vendoo_studio.services.registry import map_poshmark_category_path
+        return map_poshmark_category_path(result or str(source.get("category_path") or ""), source)
+    return result
 
 
 def extract_missing_fields(text: str) -> list[dict] | None:

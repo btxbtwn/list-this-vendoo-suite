@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.config import PHOTOS_DIR, skills_dir
 from vendoo_studio.database import SessionLocal, get_db
+from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.listing_generate import (
     extract_listing_json,
@@ -19,6 +20,7 @@ from vendoo_studio.services.listing_generate import (
     persist_generated_listing,
     seller_item_details,
 )
+from vendoo_studio.services.listing_patch import apply_json_patch, extract_json_patch
 from vendoo_studio.services.listing_provider import get_listing_provider
 
 
@@ -67,6 +69,19 @@ def _sse_encode(text: str) -> str:
 
 def _sse_data(text: str) -> str:
     return f"data: {_sse_encode(text)}\n\n"
+
+
+def _sse_event(event: str, text: str) -> str:
+    return f"event: {event}\n{_sse_data(text)}"
+
+
+def _sse_for_stream_item(item) -> tuple[str | None, str]:
+    kind, text = unpack_stream_item(item)
+    if not text:
+        return None, ""
+    if kind == "thinking":
+        return _sse_event("thinking", text), ""
+    return _sse_data(text), text
 
 
 def _load_skill_rules() -> str:
@@ -145,15 +160,25 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
     system_prompt = {
         "role": "system",
         "content": (
-            "You are a product listing assistant. Your ONLY output is valid JSON. No explanations, no markdown, no code fences.\n\n"
-            "You use the listing rules below to generate accurate, formula-compliant marketplace listings.\n\n"
-            "When the user asks you to revise a listing, output ONLY a JSON Patch array:\n"
-            '[{"op": "replace", "path": "/title", "value": "New Title"}, ...]\n\n'
-            "When generating a complete listing from scratch, output ONLY the full listing JSON object.\n\n"
+            "You are a product listing assistant talking to a seller. Write in plain English.\n"
+            "Never reply with JSON-only output, status objects, or a bare JSON Patch array.\n\n"
+            "When the user asks you to change an existing listing:\n"
+            "1. Write a short confirmation of what you changed (department, category, marketplace fields).\n"
+            "2. Then include a JSON Patch array in a fenced json code block so the listing can be saved. "
+            "The seller will not see that block.\n"
+            'Example confirmation: "This is a men\'s T-shirt. I moved it to Men > Men\'s Clothing > Shirts > T-Shirts."\n'
+            "Example patch:\n"
+            "```json\n"
+            '[{"op": "replace", "path": "/department", "value": "Men"}]\n'
+            "```\n\n"
+            "When generating a complete listing from scratch, write one sentence that the listing is ready, "
+            "then the full listing JSON in a fenced json code block.\n\n"
+            "If you are not changing the listing, reply in plain English only. "
+            "If asked whether the listing was updated, say yes or no in a sentence after checking the latest listing JSON in this conversation.\n\n"
             "Key rules:\n"
             "- Never publish. Stop at saved drafts.\n"
             "- Be conservative with brand and size. Ask when uncertain instead of guessing.\n"
-            "- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at Women > Women's Clothing > Tops, never Shirts & Blouses.\n"
+            "- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at Women > Women's Clothing > Tops, never Shirts & Blouses. Men's T-shirts use Men > Men's Clothing > Shirts > T-Shirts.\n"
             "- Follow the title and description formulas EXACTLY from the rules below.\n"
             "- Always fill ALL eBay specifics when generating a complete listing.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
@@ -193,11 +218,33 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
             ConversationRepo(db).add_message(
                 conv_id,
                 "system",
-                "Listing updated with generated field values.",
+                "Filled leftover marketplace fields and saved them to the listing.",
                 provider="system",
                 model="",
             )
             return
+
+    parsed_ops = extract_json_patch(full_text)
+    if parsed_ops:
+        lr = ListingRepo(db)
+        revisions = lr.get_revisions(conv_id)
+        if not revisions:
+            return
+        updated = apply_json_patch(dict(revisions[0].listing_json), parsed_ops)
+        lr.save_revision(
+            conv_id,
+            _stamp_learned_fields(db, updated),
+            source="model_refinement",
+            parent_revision_id=revisions[0].id,
+        )
+        ConversationRepo(db).add_message(
+            conv_id,
+            "system",
+            "Saved those changes to the listing.",
+            provider="system",
+            model="",
+        )
+        return
 
     parsed = extract_listing_json(full_text)
     if parsed:
@@ -208,61 +255,10 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
         ConversationRepo(db).add_message(
             conv_id,
             "system",
-            "Listing updated automatically from refinement.",
+            "Listing generated. Review the fields on the right.",
             provider="system",
             model="",
         )
-        return
-
-    try:
-        import json as _json
-        text = full_text.strip()
-        if text.startswith("```"):
-            import re as _re
-            match = _re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-            if match:
-                text = match.group(1).strip()
-        parsed_ops = _json.loads(text)
-    except Exception:
-        return
-
-    if not (isinstance(parsed_ops, list) and parsed_ops and all(isinstance(op, dict) and op.get("op") for op in parsed_ops)):
-        return
-
-    import copy
-
-    lr = ListingRepo(db)
-    revisions = lr.get_revisions(conv_id)
-    if not revisions:
-        return
-    updated = copy.deepcopy(dict(revisions[0].listing_json))
-    for op in parsed_ops:
-        op_type = op.get("op")
-        path = (op.get("path") or "").lstrip("/")
-        value = op.get("value")
-        if op_type == "replace" or op_type == "add":
-            keys = path.split("/")
-            target = updated
-            for k in keys[:-1]:
-                if k not in target:
-                    target[k] = {}
-                target = target[k]
-            target[keys[-1]] = value
-        elif op_type == "remove":
-            keys = path.split("/")
-            target = updated
-            for k in keys[:-1]:
-                target = target.get(k, {})
-            if isinstance(target, dict) and keys[-1] in target:
-                del target[keys[-1]]
-    lr.save_revision(conv_id, _stamp_learned_fields(db, updated), source="model_refinement", parent_revision_id=revisions[0].id)
-    ConversationRepo(db).add_message(
-        conv_id,
-        "system",
-        "Listing updated automatically from refinement.",
-        provider="system",
-        model="",
-    )
 
 
 @router.post("/api/conversations/{conv_id}/messages")
@@ -288,8 +284,11 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                 if item is None:
                     yield KEEPALIVE
                     continue
-                full_text += item
-                yield _sse_data(item)
+                payload, content = _sse_for_stream_item(item)
+                if content:
+                    full_text += content
+                if payload:
+                    yield payload
             yield "data: [DONE]\n\n"
         except Exception as e:
             log.exception("chat stream failed for %s", conv_id)
@@ -394,13 +393,17 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
 
             item_details = seller_item_details(notes)
             messages = _listing_messages(skill_rules, item_details, analysis_text, stream_db, conv_id)
+            yield _sse_event("status", "thinking")
 
             async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
                 if item is None:
                     yield KEEPALIVE
                     continue
-                full_text += item
-                yield _sse_data(item)
+                payload, content = _sse_for_stream_item(item)
+                if content:
+                    full_text += content
+                if payload:
+                    yield payload
 
             if not full_text.strip() or full_text.lstrip().lower().startswith("error:"):
                 raise RuntimeError(full_text.strip() or "Listing generation returned no text")

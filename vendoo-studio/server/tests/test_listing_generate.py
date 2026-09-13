@@ -14,7 +14,7 @@ from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
 from vendoo_studio.models.conversation import Conversation, Message
 from vendoo_studio.models.listing import ListingRevision
-from vendoo_studio.providers.xiaomi_mimo import chunk_text
+from vendoo_studio.providers.xiaomi_mimo import StreamChunk, chunk_text, chunk_thinking
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.routes import chat as chat_routes
 from vendoo_studio.services.listing_generate import (
@@ -117,6 +117,13 @@ class ListingGenerateHelpersTest(unittest.TestCase):
             "",
         )
 
+    def test_chunk_thinking_reads_reasoning_content(self):
+        self.assertEqual(
+            chunk_thinking({"choices": [{"delta": {"reasoning_content": "looking at the photos"}}]}),
+            "looking at the photos",
+        )
+        self.assertEqual(chunk_thinking({"choices": [{"delta": {"content": "Hello"}}]}), "")
+
 
 class PersistListingTest(unittest.TestCase):
     def setUp(self):
@@ -143,6 +150,32 @@ class PersistListingTest(unittest.TestCase):
         messages = ConversationRepo(self.db).get_messages(self.conv.id)
         self.assertTrue(any(m.role == "assistant" for m in messages))
         self.assertTrue(any("Listing extracted" in m.text for m in messages))
+
+    def test_apply_payload_saves_mixed_json_patch_with_list_indexes(self):
+        listing_repo = ListingRepo(self.db)
+        listing_repo.save_revision(self.conv.id, {
+            "title": "Casa San Bord M Graphic T-Shirt",
+            "department": "Women",
+            "category_path": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+            "ebay_specifics": {"department": "Women", "Primary Store Category": "Women's Clothing"},
+            "poshmark_specifics": {"styleTags": ["Graphic Tee", "Casual", "Cotton"]},
+        }, source="model")
+        chat_routes._apply_listing_payload(self.db, self.conv.id, (
+            "This is a men's t-shirt, not women's.\n"
+            "```json\n"
+            '[{"op":"replace","path":"/department","value":"Men"},'
+            '{"op":"replace","path":"/ebay_specifics/primaryStoreCategory","value":"Men\'s Clothing"},'
+            '{"op":"replace","path":"/poshmark_specifics/styleTags/0","value":"Casual"},'
+            '{"op":"replace","path":"/poshmark_specifics/styleTags/1","value":"Streetwear"},'
+            '{"op":"replace","path":"/poshmark_specifics/styleTags/2","value":"Embroidered"}]\n'
+            "```"
+        ))
+        saved = listing_repo.get_revisions(self.conv.id)[0].listing_json
+        self.assertEqual(saved["department"], "Men")
+        self.assertEqual(saved["ebay_specifics"]["Primary Store Category"], "Men's Clothing")
+        self.assertEqual(saved["poshmark_specifics"]["styleTags"], ["Casual", "Streetwear", "Embroidered"])
+        messages = ConversationRepo(self.db).get_messages(self.conv.id)
+        self.assertTrue(any("Saved those changes to the listing." in (m.text or "") for m in messages))
 
 
 class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
@@ -195,6 +228,29 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 body = "".join([chunk async for chunk in resp.aiter_text()])
         self.assertIn(": keepalive", body)
         self.assertIn(LISTING_JSON["title"], body)
+
+    async def test_generate_stream_forwards_thinking_without_persisting(self):
+        self.provider.chunks = [
+            StreamChunk("looking at the photos", "thinking"),
+            "```json\n",
+            json.dumps(LISTING_JSON),
+            "\n```",
+        ]
+        transport = ASGITransport(app=app)
+        body = ""
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                self.assertEqual(resp.status_code, 200)
+                body = "".join([chunk async for chunk in resp.aiter_text()])
+        self.assertIn("event: thinking", body)
+        self.assertIn("looking at the photos", body)
+        db = self.Session()
+        messages = ConversationRepo(db).get_messages(self.conv_id)
+        assistant = [m for m in messages if m.role == "assistant"]
+        db.close()
+        self.assertTrue(assistant)
+        self.assertNotIn("looking at the photos", assistant[0].text)
+        self.assertIn(LISTING_JSON["title"], assistant[0].text)
 
     async def test_generate_persists_listing_and_skips_repeat_analysis(self):
         transport = ASGITransport(app=app)

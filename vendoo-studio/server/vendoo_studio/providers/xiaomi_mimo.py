@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+from typing import NamedTuple
 
 import httpx
 
@@ -23,6 +24,35 @@ def _error_message(payload: dict) -> str | None:
     if isinstance(error, dict):
         return str(error.get("message") or error.get("code") or error)
     return str(error)
+
+
+class StreamChunk(NamedTuple):
+    text: str
+    kind: str = "content"
+
+
+def unpack_stream_item(item) -> tuple[str, str]:
+    if isinstance(item, StreamChunk):
+        return item.kind, item.text
+    if isinstance(item, str):
+        return "content", item
+    return "content", str(item)
+
+
+def chunk_thinking(payload: dict) -> str:
+    """Return reasoning tokens from a chat-completion payload."""
+    choices = payload.get("choices") or []
+    if not choices:
+        return ""
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    for source in (choice.get("delta") or {}, choice.get("message") or {}):
+        if not isinstance(source, dict):
+            continue
+        for key in ("reasoning_content", "reasoning"):
+            value = source.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return ""
 
 
 def chunk_text(payload: dict) -> str:
@@ -200,9 +230,12 @@ class MiMoProvider:
                         payload = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
+                    thinking = chunk_thinking(payload)
+                    if thinking:
+                        yield StreamChunk(thinking, "thinking")
                     text = chunk_text(payload)
                     if text:
-                        yield text
+                        yield StreamChunk(text, "content")
 
     async def _complete_chat(self, messages: list[dict]):
         async with httpx.AsyncClient(timeout=300) as client:

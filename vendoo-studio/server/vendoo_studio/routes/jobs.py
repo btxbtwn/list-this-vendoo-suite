@@ -319,6 +319,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         MAX_FILL_FIELDS,
         MAX_PATCH_VALUE,
         FillLogService,
+        field_lookup_key,
         listing_value_for_field,
         normalize_field_label,
         preview_value,
@@ -376,6 +377,11 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
             marketplace = "general"
         if not value:
             value = listing_value_for_field(listing, marketplace, field)
+        if marketplace == "poshmark" and field_lookup_key(field) == "category":
+            from vendoo_studio.services.registry import map_poshmark_category_path
+            mapped = map_poshmark_category_path(listing.get("category_path") or value, listing)
+            if mapped:
+                value = mapped
         if not value:
             continue
         if len(value) > MAX_PATCH_VALUE:

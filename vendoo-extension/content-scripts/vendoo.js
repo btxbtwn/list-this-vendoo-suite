@@ -1595,14 +1595,53 @@
       women: ["Women's Clothing", 'Women'],
       men: ["Men's Clothing", 'Men'],
       "shirts & blouses": ['Tops', 'Shirts'],
-      't-shirts': ['T-Shirts', 'Tops'],
-      't shirts': ['T-Shirts', 'Tops'],
+      't-shirts': ['T-Shirts', 'Tops', 'Tees - Short Sleeve', 'Tees - Long Sleeve'],
+      't shirts': ['T-Shirts', 'Tops', 'Tees - Short Sleeve', 'Tees - Long Sleeve'],
+      shirts: ['Shirts', 'Tops'],
+      tees: ['Tees - Short Sleeve', 'Tees - Long Sleeve'],
+      'tees - short sleeve': ['Tees - Short Sleeve'],
+      'tees - long sleeve': ['Tees - Long Sleeve'],
   };
 
   function categoryHaystack(data, categoryPath) {
       const department = data.department || data.ebay_specifics?.department || '';
       const type = data.ebay_specifics?.type || data.type || '';
-      return `${categoryPath} ${department} ${type} ${data.title || ''}`;
+      const sleeve = data.sleeveLength || data.ebay_specifics?.sleeveLength || '';
+      return `${categoryPath} ${department} ${type} ${sleeve} ${data.title || ''}`;
+  }
+
+  function explicitPoshmarkCategoryPath(data) {
+      const specs = data?.poshmark_specifics;
+      if (!specs || typeof specs !== 'object') return '';
+      const explicit = specs.category_path || specs.categoryPath;
+      if (Array.isArray(explicit)) {
+          return explicit.map((part) => String(part || '').trim()).filter(Boolean).join(' > ');
+      }
+      return String(explicit || '').trim();
+  }
+
+  function normalizePoshmarkCategoryPath(data) {
+      const explicit = explicitPoshmarkCategoryPath(data);
+      const categoryPath = String(data?.category_path || '').trim();
+      const hay = categoryHaystack(data, categoryPath);
+      const hayLower = normalizeText(hay);
+      const isWomen = /\bwomen/.test(hayLower);
+      const isMen = /\bmen/.test(hayLower) && !/\bwomen/.test(hayLower);
+      if (explicit) {
+          const explicitLower = normalizeText(explicit);
+          const staleWomen = isMen && /\bwomen/.test(explicitLower);
+          const staleMen = isWomen && /\bmen/.test(explicitLower) && !/\bwomen/.test(explicitLower);
+          if (!staleWomen && !staleMen) return explicit;
+      }
+      if (/^(men|women|kids|pets|home|electronics)\s*>/i.test(categoryPath)) return categoryPath;
+      const isTee = /t-?shirts?|\btees?\b|graphic tee/.test(hayLower);
+      const isBlouse = /\bblouses?\b/.test(hayLower) && !isTee;
+      const longSleeve = /long\s*sleeve/.test(hayLower);
+      const teeLeaf = longSleeve ? 'Tees - Long Sleeve' : 'Tees - Short Sleeve';
+      if (isMen && isTee) return `Men > Shirts > ${teeLeaf}`;
+      if (isWomen && isTee) return `Women > Tops > ${teeLeaf}`;
+      if (isWomen && isBlouse) return 'Women > Tops > Blouses';
+      return categoryPath;
   }
 
   function normalizeVendooCategoryPath(data) {
@@ -1671,9 +1710,42 @@
       return document.querySelector('input[role="category-search-field"]');
   }
 
-  async function fillCategoryPath(data) {
+  async function resetCategoryPickerToRoot() {
+      const search = document.querySelector('input[role="category-search-field"]');
+      if (!search) return;
+      const scope = search.getAttribute('placeholder') || '';
+      if (!/under|children/i.test(scope)) return;
+      const root = search.closest('[role="dialog"], [class*="Popover"], [class*="Modal"], [class*="paper"]') || search.parentElement;
+      const allEl = Array.from((root || document).querySelectorAll('button, a, span, div, p')).find((el) => {
+          if (!isVisibleElement(el)) return false;
+          const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+          return text === 'All';
+      });
+      if (!allEl) return;
+      log('Resetting category picker to All');
+      allEl.click();
+      await sleep(CONFIG.SLEEP_LONG);
+  }
+
+  function categoryDisplayMatches(shown, path) {
+      const shownNorm = normalizeText(String(shown || '').replace(/[▸▶]/g, ' '));
+      const segs = String(path || '').split('>').map((part) => normalizeText(part)).filter(Boolean);
+      return segs.length > 0 && segs.every((seg) => shownNorm.includes(seg));
+  }
+
+  function findMarketplaceCategoryControl(marketplace) {
+      const labeled = findInputByExactLabel('Category', isMarketplaceInput(marketplace));
+      if (labeled) return labeled;
+      return resolveMarketplaceField(marketplace, ['category'], [
+          `#listings\\.${marketplace}\\.overrides\\.category`,
+          `#listings\\.${marketplace}\\.overrides\\.categoryV2`,
+          `#listings\\.${marketplace}\\.category`,
+      ]);
+  }
+
+  async function fillCategoryPath(data, options = {}) {
       const originalPath = data.category_path || '';
-      const categoryPath = normalizeVendooCategoryPath(data);
+      const categoryPath = options.categoryPath || normalizeVendooCategoryPath(data);
       if (!categoryPath) return { ok: true, filled: false };
       if (categoryPath !== originalPath) {
           log(`Mapped category "${originalPath}" → "${categoryPath}"`);
@@ -1684,19 +1756,28 @@
       const segments = categoryPath.split('>').map(s => s.trim()).filter(Boolean);
       if (segments.length === 0) return { ok: true, filled: false };
 
-      const catBtn = document.querySelector('#categoryV2, [role="category-input"]');
+      const catBtn = options.catBtn || document.querySelector('#categoryV2, [role="category-input"]');
       if (!catBtn) {
           warn('Category button #categoryV2 not found');
           return { ok: false, filled: false, error: 'Category button not found' };
       }
 
-      log('Opening category selector...');
+      const alreadyShown = displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '';
+      if (categoryDisplayMatches(alreadyShown, categoryPath)) {
+          log(`Category already set: "${alreadyShown}"`);
+          return { ok: true, filled: true, result: alreadyShown };
+      }
+
+      await closeOpenMenus();
       catBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
       await sleep(CONFIG.SLEEP_MEDIUM);
+      log('Opening category selector...');
       catBtn.click();
       await sleep(CONFIG.SLEEP_LONG * 2);
 
-      const searchInput = await waitForCategorySearch();
+      let searchInput = await waitForCategorySearch();
+      await resetCategoryPickerToRoot();
+      searchInput = document.querySelector('input[role="category-search-field"]') || searchInput;
       if (searchInput) {
           const query = segments.slice(-2).join(' ');
           log(`Searching categories for: "${query}"`);
@@ -1810,14 +1891,48 @@
           return { ok: false, filled: false, error: 'Category modal did not close after selection' };
       }
 
-      const catBtnText = (catBtn.innerText || catBtn.textContent || '').trim();
+      const catBtnText = (displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '')
+          .trim().split('\n')[0].trim();
       log(`Category selected. Button text: "${catBtnText}"`);
 
       if (!catBtnText || catBtnText.toLowerCase().includes('click to select')) {
           return { ok: false, filled: false, error: 'Category button not updated after selection' };
       }
+      if (!categoryDisplayMatches(catBtnText, categoryPath)) {
+          return { ok: false, filled: false, error: `Category stayed "${catBtnText}" instead of "${categoryPath}"` };
+      }
 
       return { ok: true, filled: true, result: catBtnText };
+  }
+
+  async function fillMarketplaceCategory(marketplace, data) {
+      const categoryPath = marketplace === 'poshmark'
+          ? normalizePoshmarkCategoryPath(data)
+          : String(data?.category_path || '').trim();
+      if (!categoryPath) {
+          recordFill({ field: 'Category', status: 'skipped', reason: 'No value in listing' });
+          return { status: 'skipped' };
+      }
+      const catBtn = findMarketplaceCategoryControl(marketplace);
+      if (!catBtn) {
+          warn(`${marketplace} category field not found`);
+          recordFill({
+            field: 'Category',
+            status: 'not_found',
+            reason: 'Category field not found',
+            value: categoryPath,
+          });
+          return { status: 'not_found' };
+      }
+      const result = await fillCategoryPath(data, { catBtn, categoryPath });
+      recordFill({
+        field: 'Category',
+        status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed',
+        reason: result.error || '',
+        selector: selectorFor(catBtn, ''),
+        value: categoryPath,
+      });
+      return { status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed' };
   }
 
   // ============================================
@@ -2547,7 +2662,9 @@
 
   async function fillPoshmarkForm(data) {
       log('Filling Poshmark form...');
-      
+      await fillMarketplaceCategory('poshmark', data);
+      await sleep(CONFIG.SLEEP_LONG);
+
       await fillDropdownField(
           '#listings\\.poshmark\\.overrides\\.condition',
           mapCondition(data.condition, 'poshmark'),
@@ -2594,6 +2711,106 @@
       
   }
 
+  async function setMercariNoBrandChecked(checked, reason = '') {
+      const el = resolveMarketplaceField('mercari', ['no brand', 'not sure', 'no brand/not sure'], [
+          '#listings\\.mercari\\.overrides\\.noBrand',
+          'input[name="listings.mercari.overrides.noBrand"]',
+      ]);
+      if (!el) {
+          if (checked) {
+              warn('No Brand/Not Sure: Element not found');
+              recordFill({
+                field: 'No Brand/Not Sure',
+                status: 'not_found',
+                reason: 'Element not found',
+                selector: '#listings.mercari.overrides.noBrand',
+              });
+          }
+          return { status: 'not_found' };
+      }
+
+      const want = Boolean(checked);
+      if (Boolean(el.checked) === want) {
+          if (want) {
+              recordFill({
+                field: 'No Brand/Not Sure',
+                status: 'filled',
+                reason: reason || 'Already set',
+                selector: selectorFor(el, ''),
+                value: true,
+              });
+          }
+          return { status: 'filled' };
+      }
+
+      const label = el.id ? document.querySelector(`label[for="${el.id}"]`) : null;
+      const clickTarget = label || el.closest('label') || el;
+      clickTarget.click();
+      await sleep(CONFIG.SLEEP_SHORT);
+      if (Boolean(el.checked) !== want) {
+          el.click();
+          await sleep(CONFIG.SLEEP_SHORT);
+      }
+      if (Boolean(el.checked) !== want) {
+          el.checked = want;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      if (!want) return { status: Boolean(el.checked) === want ? 'filled' : 'failed' };
+
+      const ok = Boolean(el.checked) === want;
+      if (ok) log(`Mercari brand missing from list. Checking No Brand/Not Sure.`);
+      else warn('No Brand/Not Sure: checkbox did not toggle');
+      recordFill({
+        field: 'No Brand/Not Sure',
+        status: ok ? 'filled' : 'failed',
+        reason: ok ? (reason || 'Brand not in Mercari list') : 'Checkbox did not toggle',
+        selector: selectorFor(el, ''),
+        value: true,
+      });
+      return { status: ok ? 'filled' : 'failed' };
+  }
+
+  async function fillMercariBrand(data) {
+      const el = resolveMarketplaceField('mercari', ['brand'], [
+          '#listings\\.mercari\\.overrides\\.brand',
+      ]);
+      if (!el) {
+          warn('Mercari Brand: Element not found');
+          recordFill({ field: 'Mercari Brand', status: 'not_found', reason: 'Element not found' });
+          await setMercariNoBrandChecked(true, 'Brand field not found');
+          return;
+      }
+      if (fieldLooksFilled(el)) await clearInput(el);
+
+      const candidates = brandFillCandidates(data.brand).filter(
+          (candidate) => normalizeOptionValue(candidate) !== 'other'
+      );
+      if (candidates.length === 0) {
+          recordFill({
+            field: 'Mercari Brand',
+            status: 'skipped',
+            reason: 'No value in listing',
+            selector: selectorFor(el, ''),
+          });
+          await setMercariNoBrandChecked(true, 'No brand in listing');
+          return;
+      }
+      for (const candidate of candidates) {
+          log(`Trying Mercari Brand: "${candidate}"`);
+          const result = await fillDropdownField(el, candidate, 'Mercari Brand', true);
+          if (result.status === 'filled') {
+              log(`  ✓ Mercari Brand: "${el.value || candidate}"`);
+              await setMercariNoBrandChecked(false);
+              return;
+          }
+      }
+
+      if (fieldLooksFilled(el)) await clearInput(el);
+      await setMercariNoBrandChecked(true, 'Brand not in Mercari list');
+  }
+
   async function fillMercariForm(data) {
       log('Filling Mercari form...');
 
@@ -2605,13 +2822,7 @@
           'Mercari Condition',
           true
       );
-      await fillDropdownField(
-          resolveMarketplaceField('mercari', ['brand'], [
-              '#listings\\.mercari\\.overrides\\.brand',
-          ]),
-          data.brand,
-          'Mercari Brand'
-      );
+      await fillMercariBrand(data);
 
       await Promise.all([
           fillTextField('#listings\\.mercari\\.overrides\\.quantity', data.quantity, 'Mercari Quantity'),
@@ -2698,27 +2909,24 @@
           recordFill({ field: 'Depop Brand', status: 'not_found', reason: 'Element not found' });
           return;
       }
-      if (fieldLooksFilled(el)) {
-          log(`Depop Brand already set: "${el.value}"`);
-          recordFill({
-            field: 'Depop Brand',
-            status: 'filled',
-            reason: 'Already set',
-            selector: selectorFor(el, ''),
-            value: el.value,
-          });
-          return;
-      }
+      if (fieldLooksFilled(el)) await clearInput(el);
 
       for (const candidate of brandFillCandidates(data.brand)) {
           log(`Trying Depop Brand: "${candidate}"`);
-          await fillDropdownField(el, candidate, 'Depop Brand', false);
-          if (fieldLooksFilled(el)) {
+          const result = await fillDropdownField(el, candidate, 'Depop Brand', true);
+          if (result.status === 'filled') {
               log(`  ✓ Depop Brand: "${el.value || candidate}"`);
               return;
           }
       }
-      warn('Depop Brand: could not select a list brand');
+      if (optionMatchesValue(displayedFieldValue(el), 'Other', true)) return;
+      log('Depop brand missing from list. Selecting Other.');
+      const fallback = await fillDropdownField(el, 'Other', 'Depop Brand', true);
+      if (fallback.status === 'filled') {
+          log(`  ✓ Depop Brand: "Other"`);
+          return;
+      }
+      warn('Depop Brand: could not select a list brand or Other');
   }
 
   async function fillDepopForm(data) {
@@ -3442,12 +3650,36 @@
               }
               await expandOptionalFields();
               await sleep(CONFIG.SLEEP_LONG * 2);
+              group.sort((left, right) => {
+                  const leftKey = normalizeFieldKey(left.field);
+                  const rightKey = normalizeFieldKey(right.field);
+                  if (leftKey === 'category' && rightKey !== 'category') return -1;
+                  if (rightKey === 'category' && leftKey !== 'category') return 1;
+                  if (leftKey === 'size' && rightKey !== 'size') return 1;
+                  if (rightKey === 'size' && leftKey !== 'size') return -1;
+                  return 0;
+              });
               for (const item of group) {
                   currentPatchEntryId = item.id || '';
                   const fieldName = item.field || 'Field';
                   const value = mapPatchValue(marketplace, fieldName, item.value);
                   item.value = value;
                   const fieldKey = normalizeFieldKey(fieldName);
+                  if (fieldKey === 'category') {
+                      if (marketplace === 'general' || marketplace === 'unknown') {
+                          const result = await fillCategoryPath({ category_path: value });
+                          recordFill({
+                              field: fieldName,
+                              status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed',
+                              reason: result.error || '',
+                              selector: item.selector || VENDOO_SELECTORS.category,
+                              value,
+                          });
+                      } else {
+                          await fillMarketplaceCategory(marketplace, { category_path: value });
+                      }
+                      continue;
+                  }
                   if (fieldKey === 'size' && marketplace !== 'general' && marketplace !== 'unknown') {
                       await fillMarketplaceSize(marketplace, { size: value }, item.selector);
                       continue;

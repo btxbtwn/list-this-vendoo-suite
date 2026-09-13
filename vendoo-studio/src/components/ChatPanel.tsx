@@ -31,6 +31,15 @@ function extractJson(text: string): string | null {
   } catch {
     /* fall through */
   }
+  const embeddedArray = stripped.match(/\[[\s\S]*\]/);
+  if (embeddedArray) {
+    try {
+      const parsed = JSON.parse(embeddedArray[0]);
+      if (Array.isArray(parsed) && parsed[0]?.op) return embeddedArray[0];
+    } catch {
+      /* fall through */
+    }
+  }
   const embedded = stripped.match(/\{[\s\S]*\}/);
   if (!embedded) return null;
   try {
@@ -41,70 +50,91 @@ function extractJson(text: string): string | null {
   }
 }
 
-function missingFieldsCount(json: string): number | null {
+const PATCH_LABELS: Record<string, string> = {
+  category_path: "Category",
+  department: "Department",
+  styleTags: "Style tags",
+  primaryStoreCategory: "Store category",
+  secondaryStoreCategory: "Secondary store category",
+  primaryColor: "Primary color",
+  secondaryColor: "Secondary color",
+};
+
+function humanKey(token: string): string {
+  return token
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/-/g, " ")
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function pathLabel(path: string): string {
+  const parts = (path || "").replace(/^\//, "").split("/").filter((part) => part && part !== "-" && !/^\d+$/.test(part));
+  if (!parts.length) return "Field";
+  let prefix = "";
+  if (parts[0].endsWith("_specifics")) {
+    const market = parts[0].slice(0, -"_specifics".length);
+    prefix = market === "ebay" ? "eBay" : market.charAt(0).toUpperCase() + market.slice(1);
+    parts.shift();
+  }
+  const key = parts[parts.length - 1] || "";
+  const label = PATCH_LABELS[key] || humanKey(key);
+  return prefix ? `${prefix} ${label}` : label;
+}
+
+function displayValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(String).join(", ");
+  if (value == null) return "";
+  return String(value);
+}
+
+function summarizeJsonPatch(ops: { op?: string; path?: string; value?: unknown }[]): string {
+  const lines = ops.flatMap((op) => {
+    const label = pathLabel(op.path || "");
+    if (op.op === "remove") return [`Removed ${label}`];
+    if (op.op === "replace" || op.op === "add") return [`${label}: ${displayValue(op.value)}`];
+    return [];
+  });
+  if (!lines.length) return "Saved those changes to the listing.";
+  if (lines.length === 1) return `Updated the listing — ${lines[0]}.`;
+  return `Updated the listing:\n${lines.map((line) => `- ${line}`).join("\n")}`;
+}
+
+function stripJsonPayloads(text: string): string {
+  let visible = text.replace(/```(?:json)?\s*[\s\S]*?(```|$)/gi, "\n");
+  visible = visible.replace(/\n\s*\[[\s\S]*$/, "\n").replace(/\n\s*\{[\s\S]*$/, "\n").trim();
+  if (/^[\[{]/.test(visible)) return "";
+  return visible;
+}
+
+function looksLikeJsonStream(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.startsWith("[") || trimmed.startsWith("{") || /```json/i.test(text);
+}
+
+function assistantDisplayText(text: string): string {
+  const prose = stripJsonPayloads(text);
+  if (prose) return prose;
+
+  const json = extractJson(text);
+  if (!json) return looksLikeJsonStream(text) ? "" : text.trim();
   try {
     const parsed = JSON.parse(json);
+    if (Array.isArray(parsed) && parsed[0]?.op) return summarizeJsonPatch(parsed);
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.missing_fields)) {
-      return parsed.missing_fields.length;
+      return `Filled ${parsed.missing_fields.length} leftover fields.`;
+    }
+    if (parsed && typeof parsed === "object" && typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message.trim();
+    }
+    if (isListingJson(json) || isListingJson(text)) {
+      return "Listing generated. Review the fields on the right.";
     }
   } catch {
     /* ignore */
   }
-  return null;
-}
-
-function prettyJson(json: string): string {
-  try {
-    return JSON.stringify(JSON.parse(json), null, 2);
-  } catch {
-    return json;
-  }
-}
-
-function JsonCollapse({
-  json,
-  label,
-  fieldCount,
-}: {
-  json: string;
-  label: string;
-  fieldCount: number;
-}) {
-  return (
-    <details className="json-collapse">
-      <summary className="json-collapse-summary">
-        <span className="json-badge">{fieldCount} FIELDS</span>
-        {label}
-        <span className="text-2xs text-muted font-mono" style={{ marginLeft: "auto" }}>RAW JSON</span>
-      </summary>
-      <div className="json-collapse-body">{json}</div>
-    </details>
-  );
-}
-
-function renderJsonCard(text: string) {
-  const json = extractJson(text);
-  if (!json) return null;
-  const missingCount = missingFieldsCount(json);
-  if (missingCount !== null) {
-    return (
-      <JsonCollapse
-        json={prettyJson(json)}
-        label="Field values generated"
-        fieldCount={missingCount}
-      />
-    );
-  }
-  if (isListingJson(json) || isListingJson(text)) {
-    return (
-      <JsonCollapse
-        json={json}
-        label="Listing generated"
-        fieldCount={(json.match(/"\w+":/g) || []).length}
-      />
-    );
-  }
-  return null;
+  return looksLikeJsonStream(text) ? "" : text.trim();
 }
 
 function isPhotoAnalysis(text: string): boolean {
@@ -115,14 +145,58 @@ function isStreamError(text: string): boolean {
   return text.startsWith("Error:");
 }
 
+type SseParts = { content: string; thinking: string };
+
+async function consumeSse(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onEvent: (event: string, parts: SseParts) => void,
+): Promise<SseParts> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventType = "message";
+  const parts: SseParts = { content: "", thinking: "" };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const raw of lines) {
+      const line = raw.replace(/\r$/, "");
+      if (!line) {
+        eventType = "message";
+        continue;
+      }
+      if (line.startsWith(":")) continue;
+      if (line.startsWith("event:")) {
+        eventType = line.slice(6).trim() || "message";
+        continue;
+      }
+      if (!line.startsWith("data:")) continue;
+      const chunk = line.startsWith("data: ") ? line.slice(6) : line.slice(5);
+      if (chunk === "[DONE]") {
+        eventType = "message";
+        continue;
+      }
+      if (eventType === "thinking") parts.thinking += chunk;
+      else if (eventType !== "status") parts.content += chunk;
+      onEvent(eventType, parts);
+    }
+  }
+  return parts;
+}
+
 export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Props) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [streamText, setStreamText] = useState("");
+  const [streamThinking, setStreamThinking] = useState("");
+  const [thinkingStarted, setThinkingStarted] = useState(false);
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(null);
   const [lastSendText, setLastSendText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const thinkingBodyRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortByConvRef = useRef<Record<string, AbortController>>({});
   const convIdRef = useRef(convId);
@@ -142,7 +216,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
-  }, [messages, streamText]);
+  }, [messages, streamText, streamThinking]);
+
+  useEffect(() => {
+    const el = thinkingBodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [streamThinking]);
 
   useEffect(() => {
     restoreOnAbortRef.current = false;
@@ -150,6 +229,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     setStreaming(false);
     setGenerating(false);
     setStreamText("");
+    setStreamThinking("");
+    setThinkingStarted(false);
     setFailedAction(null);
     setLastSendText("");
   }, [convId]);
@@ -163,12 +244,21 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
 
   const isCurrent = useCallback(() => convIdRef.current === convId, [convId]);
 
+  const applySseParts = useCallback((event: string, parts: SseParts) => {
+    if (!isCurrent()) return;
+    if (event === "thinking" || event === "status") setThinkingStarted(true);
+    if (event === "thinking") setStreamThinking(parts.thinking);
+    if (event !== "thinking" && event !== "status") setStreamText(parts.content);
+  }, [isCurrent]);
+
   const streamFromFetch = useCallback(async (url: string) => {
     abortByConvRef.current[convId]?.abort();
     const controller = new AbortController();
     abortByConvRef.current[convId] = controller;
     setStreaming(true);
     setStreamText("");
+    setStreamThinking("");
+    setThinkingStarted(false);
     setFailedAction(null);
     let assembled = "";
     try {
@@ -177,6 +267,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         if (isCurrent()) {
           setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
+          setStreamThinking("");
           setFailedAction("generate");
           setStreaming(false);
           setGenerating(false);
@@ -192,23 +283,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         }
         return;
       }
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const chunk = line.slice(6);
-            if (chunk === "[DONE]") continue;
-            assembled += chunk;
-            if (isCurrent()) setStreamText(assembled);
-          }
-        }
-      }
+      const parts = await consumeSse(reader, applySseParts);
+      assembled = parts.content;
       if (isCurrent()) {
         if (!assembled.trim()) {
           assembled = "Error: Listing generation did not finish.";
@@ -220,6 +296,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (e?.name === "AbortError") {
         if (isCurrent()) {
           setStreamText("");
+          setStreamThinking("");
+          setThinkingStarted(false);
           setFailedAction(null);
           setStreaming(false);
           setGenerating(false);
@@ -229,6 +307,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (isCurrent()) {
         assembled = `Error: ${e.message}`;
         setStreamText(assembled);
+        setStreamThinking("");
         setFailedAction("generate");
       }
     }
@@ -240,8 +319,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    if (isCurrent() && !failed) setStreamText("");
-  }, [convId, isCurrent, queryClient]);
+    if (isCurrent() && !failed) {
+      setStreamText("");
+      setStreamThinking("");
+      setThinkingStarted(false);
+    }
+  }, [applySseParts, convId, isCurrent, queryClient]);
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
@@ -257,6 +340,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     setLastSendText(text);
     setStreaming(true);
     setStreamText("");
+    setStreamThinking("");
+    setThinkingStarted(true);
     setFailedAction(null);
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`, {
@@ -269,6 +354,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         if (isCurrent()) {
           setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
+          setStreamThinking("");
           setFailedAction("send");
           setStreaming(false);
         }
@@ -280,35 +366,25 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         if (isCurrent()) setStreaming(false);
         return;
       }
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let assembled = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const chunk = line.slice(6);
-            if (chunk === "[DONE]") continue;
-            assembled += chunk;
-            if (isCurrent()) setStreamText(assembled);
-          }
-        }
-      }
+      const parts = await consumeSse(reader, applySseParts);
+      const assembled = parts.content;
       if (isStreamError(assembled) && isCurrent()) setFailedAction("send");
       if (isCurrent()) setStreaming(false);
       await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      if (isCurrent() && !isStreamError(assembled)) setStreamText("");
+      if (isCurrent() && !isStreamError(assembled)) {
+        setStreamText("");
+        setStreamThinking("");
+        setThinkingStarted(false);
+      }
       return;
     } catch (e: any) {
       if (e?.name === "AbortError") {
         if (isCurrent()) {
           setStreamText("");
+          setStreamThinking("");
+          setThinkingStarted(false);
           setFailedAction(null);
           if (restoreOnAbortRef.current) setInput(text);
           restoreOnAbortRef.current = false;
@@ -318,12 +394,13 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       }
       if (isCurrent()) {
         setStreamText(`Error: ${e.message}`);
+        setStreamThinking("");
         setFailedAction("send");
         setStreaming(false);
       }
       return;
     }
-  }, [streaming, convId, isCurrent, queryClient]);
+  }, [applySseParts, streaming, convId, isCurrent, queryClient]);
 
   useEffect(() => {
     if (!queuedMessage || streaming) return;
@@ -353,7 +430,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   const hasMessages = messages && (messages as any[]).length > 0;
   const hasListingJson = Boolean(messages?.some((m: any) => {
     const json = extractJson(m.text);
-    return Boolean(json && missingFieldsCount(json) === null && isListingJson(json));
+    return Boolean(json && isListingJson(json));
   }));
   const streamFailed = isStreamError(streamText);
   const busy = streaming || generating;
@@ -386,21 +463,18 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
 
     if (m.role === "system") {
       return (
-        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
-          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-border-bright)", flexShrink: 0 }} />
-          <span className="msg-system" style={{ padding: 0, borderLeft: "none", maxWidth: "none" }}>{m.text}</span>
+        <div key={m.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "4px 0" }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-border-bright)", flexShrink: 0, marginTop: 6 }} />
+          <span className="msg-system" style={{ padding: 0, borderLeft: "none", maxWidth: "none", whiteSpace: "pre-wrap" }}>{m.text}</span>
         </div>
       );
     }
 
-    const jsonCard = renderJsonCard(m.text);
-    if (jsonCard) {
-      return <React.Fragment key={m.id}>{jsonCard}</React.Fragment>;
-    }
-
+    const visible = assistantDisplayText(m.text);
+    if (!visible) return null;
     return (
       <div key={m.id} className="msg msg-assistant">
-        <ChatMarkdown text={m.text} />
+        <ChatMarkdown text={visible} />
       </div>
     );
   }
@@ -430,10 +504,29 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
 
         {messages?.map(renderMessage)}
 
+        {(streaming || generating) && !streamFailed && (streamThinking || !streamText) && (
+          <div className="thinking-block">
+            <div className="thinking-header">
+              <div className="thinking-dot" />
+              <span className="text-xs font-mono text-muted">
+                {generating && !thinkingStarted && !streamThinking ? "Analyzing photos…" : "Thinking"}
+              </span>
+            </div>
+            {streamThinking ? (
+              <div ref={thinkingBodyRef} className={`thinking-body${streamText ? "" : " live"}`}>{streamThinking}</div>
+            ) : null}
+          </div>
+        )}
+
         {streamText && !streamFailed && (
-          renderJsonCard(streamText) || (
+          assistantDisplayText(streamText) ? (
             <div className="msg msg-assistant">
-              <ChatMarkdown text={streamText} />
+              <ChatMarkdown text={assistantDisplayText(streamText)} />
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-cobalt)", flexShrink: 0 }} />
+              <span className="text-xs font-mono text-muted">UPDATING LISTING…</span>
             </div>
           )
         )}
@@ -457,13 +550,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
             <button className="btn btn-primary btn-sm" onClick={handleGenerate}>
               Retry
             </button>
-          </div>
-        )}
-
-        {(streaming || generating) && !streamText && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-cobalt)", flexShrink: 0 }} />
-            <span className="text-xs font-mono text-muted">{generating ? "ANALYZING PHOTOS…" : "MIMO IS THINKING…"}</span>
           </div>
         )}
       </div>
