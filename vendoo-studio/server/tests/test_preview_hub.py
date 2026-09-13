@@ -74,8 +74,8 @@ class PreviewRouteTest(unittest.TestCase):
     def test_preview_route_returns_job_not_found(self):
         from vendoo_studio.main import app
 
-        client = TestClient(app)
-        response = client.get("/api/jobs/missing/preview")
+        with TestClient(app) as client:
+            response = client.get("/api/jobs/missing/preview")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Job not found")
 

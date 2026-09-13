@@ -55,6 +55,24 @@ class ExtensionManagerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(manager.connection, socket)
         self.assertEqual(socket.sent[0]["type"], "job.start")
 
+    def test_verify_token_rejects_direct_bypass(self):
+        manager = ExtensionManager()
+        manager._pairing_token = "secret-token"
+        with patch.object(manager, "get_persistent_token", return_value="secret-token"):
+            self.assertTrue(manager.verify_token("secret-token"))
+            self.assertFalse(manager.verify_token("direct"))
+            self.assertFalse(manager.verify_token(""))
+            self.assertFalse(manager.verify_token("other"))
+
+    def test_generate_pairing_token_is_full_uuid(self):
+        manager = ExtensionManager()
+        with patch.object(manager, "get_persistent_token", return_value=None), patch.object(
+            manager, "save_persistent_token"
+        ):
+            token = manager.generate_pairing_token()
+        self.assertEqual(len(token), 32)
+        self.assertTrue(all(ch in "0123456789abcdef" for ch in token))
+
 
 class JobRepoActiveTest(unittest.TestCase):
     def setUp(self):
@@ -106,6 +124,16 @@ class JobRepoActiveTest(unittest.TestCase):
         self.assertEqual(requeued[0].id, job.id)
         self.assertEqual(requeued[0].status, "queued")
 
+    def test_requeue_interrupted_keeps_reported_active_job(self):
+        running = self._job("dispatched")
+        stale = self._job("dispatched")
+        requeued = JobRepo(self.db).requeue_interrupted(keep_job_id=running.id)
+        self.assertEqual([job.id for job in requeued], [stale.id])
+        self.db.refresh(running)
+        self.db.refresh(stale)
+        self.assertEqual(running.status, "dispatched")
+        self.assertEqual(stale.status, "queued")
+
     def test_add_event_persists_without_refresh(self):
         job = self._job("dispatched")
         event = JobRepo(self.db).add_event(job.id, "cancelled")
@@ -145,6 +173,7 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         db.commit()
         db.refresh(self.job)
         self.job_id = self.job.id
+        self.conv_id = self.conv.id
         db.close()
 
     def _job(self) -> Job:
@@ -223,6 +252,30 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options["vendoo_item_id"], "abc123")
         self.assertEqual(socket.sent[0]["payload"]["vendoo_item_id"], "abc123")
         self.assertFalse(options["publish"])
+
+    async def test_dispatch_skips_when_another_job_is_dispatched(self):
+        db = self.Session()
+        running = Job(
+            conversation_id=self.conv_id,
+            approved_revision_id="rev1",
+            listing_snapshot={"title": "Running"},
+            status="dispatched",
+        )
+        db.add(running)
+        db.commit()
+        db.close()
+
+        manager = ExtensionManager()
+        socket = FakeSocket()
+        manager.connection = socket
+        manager.paired = True
+        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ):
+            await dispatch_queued_jobs()
+
+        self.assertEqual(socket.sent, [])
+        self.assertEqual(self._job().status, "queued")
 
 
 class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):

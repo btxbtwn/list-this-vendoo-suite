@@ -3194,16 +3194,30 @@
       const fileObjects = [];
       for (const photo of photos) {
           try {
-              const url = `${studioUrl}/api/jobs/${jobId}/photos/${photo.id || photo.stored_filename || photo.name}`;
-              const response = await fetch(url);
-              if (!response.ok) {
-                  warn(`Failed to fetch photo: ${url} status=${response.status}`);
+              const resp = await new Promise((resolve, reject) => {
+                  chrome.runtime.sendMessage({
+                      type: 'FETCH_STUDIO_PHOTO',
+                      jobId,
+                      photoId: photo.id || photo.stored_filename || photo.name,
+                      name: photo.name || photo.original_filename || 'photo.jpg',
+                  }, (result) => {
+                      if (chrome.runtime.lastError) {
+                          reject(new Error(chrome.runtime.lastError.message));
+                          return;
+                      }
+                      resolve(result);
+                  });
+              });
+              if (!resp?.ok || !resp.base64) {
+                  warn(`Failed to fetch photo: ${resp?.error || 'unknown error'}`);
                   continue;
               }
-              const blob = await response.blob();
-              const name = photo.name || photo.original_filename || 'photo.jpg';
-              const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
-              fileObjects.push(file);
+              const binary = atob(resp.base64);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              const blob = new Blob([bytes], { type: resp.mime || 'image/jpeg' });
+              const name = resp.name || photo.name || photo.original_filename || 'photo.jpg';
+              fileObjects.push(new File([blob], name, { type: blob.type }));
           } catch (e) {
               warn(`Photo fetch error: ${e.message}`);
           }

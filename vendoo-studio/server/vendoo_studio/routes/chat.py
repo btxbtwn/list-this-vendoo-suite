@@ -87,12 +87,15 @@ def _sse_for_stream_item(item) -> tuple[str | None, str]:
 def _load_skill_rules() -> str:
     skill_md = skills_dir() / "list-this" / "SKILL.md"
     template_md = skills_dir() / "list-this" / "references" / "vendoo_listing_template.md"
+    dropdown_md = skills_dir() / "list-this" / "references" / "vendoo-dropdown-options.md"
 
     parts = []
     if skill_md.exists():
         parts.append(skill_md.read_text())
     if template_md.exists():
         parts.append(template_md.read_text())
+    if dropdown_md.exists():
+        parts.append(dropdown_md.read_text())
 
     return "\n\n---\n\n".join(parts) if parts else ""
 

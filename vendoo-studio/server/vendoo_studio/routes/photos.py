@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from vendoo_studio.database import get_db
-from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.repositories.queries import ConversationRepo
-from vendoo_studio.services.photos import process_upload
+from vendoo_studio.services.photos import process_upload, stored_photo_path
 
 router = APIRouter(tags=["photos"])
 
@@ -48,7 +46,7 @@ async def upload_photos(
                 height=meta["height"],
             )
         except Exception:
-            filepath = Path(PHOTOS_DIR) / meta["stored_filename"]
+            filepath = stored_photo_path(meta["stored_filename"])
             if filepath.exists():
                 os.remove(filepath)
             raise HTTPException(500, "Failed to persist photo record")
@@ -85,7 +83,10 @@ def serve_photo(photo_id: str, db: Session = Depends(get_db)):
     if not photo:
         raise HTTPException(404, "Photo not found")
 
-    filepath = Path(PHOTOS_DIR) / photo.stored_filename
+    try:
+        filepath = stored_photo_path(photo.stored_filename)
+    except ValueError:
+        raise HTTPException(404, "Photo file not found")
     if not filepath.exists():
         raise HTTPException(404, "Photo file not found")
 

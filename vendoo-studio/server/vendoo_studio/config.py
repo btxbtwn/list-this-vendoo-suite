@@ -86,21 +86,24 @@ def ensure_user_data_dirs() -> None:
 
 ensure_user_data_dirs()
 
-HOST = os.environ.get("VENDOO_STUDIO_HOST", "127.0.0.1")
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 PORT = int(os.environ.get("VENDOO_STUDIO_PORT", "4318"))
+
+
+def bind_host() -> str:
+    raw = (os.environ.get("VENDOO_STUDIO_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+    return raw if raw in LOOPBACK_HOSTS else "127.0.0.1"
+
+
+HOST = bind_host()
 
 MAX_PHOTO_COUNT = 20
 MAX_PHOTO_SIZE_MB = 20
 ALLOWED_PHOTO_MIME = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
 
 CORS_ORIGINS = [
-    f"http://{HOST}:{PORT}",
-    f"http://{HOST}:5173",
-    "https://web.vendoo.co",
-    "https://app.vendoo.co",
-    "https://www.ebay.com",
-    "https://poshmark.com",
-    "https://www.mercari.com",
-    "https://www.depop.com",
-    "https://www.etsy.com",
+    f"http://127.0.0.1:{PORT}",
+    f"http://localhost:{PORT}",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
 ]

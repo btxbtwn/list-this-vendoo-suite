@@ -19,6 +19,16 @@ MIME_EXTENSIONS = {
 }
 
 
+def stored_photo_path(stored_filename: str) -> Path:
+    root = Path(PHOTOS_DIR).resolve()
+    path = (root / Path(stored_filename).name).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("Invalid photo path") from exc
+    return path
+
+
 def _normalize_mime(content_type: str | None, contents: bytes) -> str:
     raw = (content_type or "").split(";")[0].strip().lower()
     if raw == "image/jpg":
@@ -45,7 +55,7 @@ def process_bytes(contents: bytes, filename: str | None = None, content_type: st
         ext = MIME_EXTENSIONS.get(mime_type, ".jpg")
 
     stored_name = f"{uuid.uuid4().hex}{ext}"
-    filepath = Path(PHOTOS_DIR) / stored_name
+    filepath = stored_photo_path(stored_name)
     filepath.write_bytes(contents)
 
     checksum = hashlib.sha256(contents).hexdigest()

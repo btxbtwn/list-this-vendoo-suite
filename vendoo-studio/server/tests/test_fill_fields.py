@@ -195,6 +195,20 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.assertEqual(sent["Type"], "Blouse")
         self.assertEqual(sent["Country of Origin"], "United States")
 
+    def test_retry_blocks_when_another_job_is_active(self):
+        other = Job(
+            conversation_id=self.conv.id,
+            approved_revision_id="rev2",
+            listing_snapshot={"title": "Other"},
+            status="dispatched",
+        )
+        self.db.add(other)
+        self.db.commit()
+
+        response = self.client.post(f"/api/jobs/{self.job.id}/retry")
+
+        self.assertEqual(response.status_code, 409, response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

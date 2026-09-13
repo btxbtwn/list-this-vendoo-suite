@@ -66,23 +66,24 @@ class ExtensionManager:
         os.makedirs(os.path.dirname(PAIRING_FILE), exist_ok=True)
         with open(PAIRING_FILE, "w") as f:
             f.write(token)
+        os.chmod(PAIRING_FILE, 0o600)
 
     def generate_pairing_token(self) -> str:
         existing = self.get_persistent_token()
         if existing:
             self._pairing_token = existing
             return existing
-        self._pairing_token = uuid.uuid4().hex[:8]
+        self._pairing_token = uuid.uuid4().hex
         self.save_persistent_token(self._pairing_token)
         return self._pairing_token
 
     def verify_token(self, token: str) -> bool:
+        if not token:
+            return False
         persisted = self.get_persistent_token()
         if persisted and persisted == token:
             return True
-        if self._pairing_token and self._pairing_token == token:
-            return True
-        return token == "direct"
+        return bool(self._pairing_token and self._pairing_token == token)
 
     async def send_message(self, message: dict) -> bool:
         connection = self.connection
@@ -173,6 +174,8 @@ async def dispatch_queued_jobs():
             for job in jobs:
                 if job.status != "awaiting_extension":
                     repo.update_status(job.id, "awaiting_extension", "awaiting_extension")
+            return
+        if any(job.status == "dispatched" for job in repo.get_active()):
             return
         job = jobs[0]
         photos_list = _build_photo_list(job.conversation_id, db)
@@ -384,7 +387,8 @@ async def extension_websocket(ws: WebSocket):
                     accepted = await handshake_extension(ws, _reported_reload_generation(payload))
                     if accepted:
                         from vendoo_studio.repositories.queries import JobRepo
-                        JobRepo(db).requeue_interrupted()
+                        keep_job_id = str(payload.get("active_job_id") or "").strip() or None
+                        JobRepo(db).requeue_interrupted(keep_job_id=keep_job_id)
                         await dispatch_queued_jobs()
                 else:
                     await ws.send_json({"type": "error", "message": "Invalid pairing token"})

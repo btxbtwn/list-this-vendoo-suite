@@ -15,32 +15,6 @@ VALID_CONDITIONS = frozenset((
     "Poor (Major flaws)",
 ))
 
-VALID_DEPOP_SOURCE = frozenset((
-    "Vintage", "Preloved", "Reworked", "Custom", "Handmade", "Deadstock",
-    "Designer", "Repaired",
-))
-VALID_DEPOP_AGE = frozenset(("Modern", "y2k", "90s", "80s", "70s", "60s", "50s", "Antique"))
-VALID_DEPOP_STYLE = frozenset((
-    "Streetwear", "Sportswear", "Loungewear", "Goth", "Retro", "Boho",
-    "Western", "Indie", "Skater", "Rave", "Costume", "Cosplay", "Grunge",
-    "Emo", "Minimalist", "Preppy", "Avant Garde", "Punk", "Glam", "Regency",
-    "Casual", "Utility", "Futuristic", "Cottage", "Fairy", "Kidcore", "Y2K",
-    "Biker", "Gorpcore", "Twee", "Coquette", "Whimsygoth",
-))
-VALID_DEPOP_OCCASION = frozenset((
-    "Casual", "Festival", "Gifting", "Going out", "Outdoors", "Party",
-    "Relaxation", "School", "Ski", "Special Occasion", "Summer", "Vacation",
-    "Winter", "Work", "Workout",
-))
-VALID_DEPOP_MATERIAL = frozenset((
-    "Acrylic", "Canvas", "Cashmere", "Corduroy", "Cotton", "Cotton - Organic",
-    "Cotton - Recycled", "Crochet", "Denim", "Elastane / Lycra / Spandex",
-    "Embellished", "Faux fur", "Faux leather", "Fleece", "Hemp", "Jersey",
-    "Knitted", "Lace", "Leather", "Linen", "Lyocell", "Modal", "Nylon",
-    "Polyester", "Polyester - Recycled", "Rayon", "Rubber", "Silk", "Suede",
-    "Tweed", "Velvet", "Viscose", "Wool",
-))
-
 PACKAGE_DIMS_PATTERN = r"^\d+(\.\d+)?\s*x\s*\d+(\.\d+)?\s*x\s*\d+(\.\d+)?$"
 
 

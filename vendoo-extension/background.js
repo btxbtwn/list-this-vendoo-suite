@@ -44,6 +44,31 @@ async function setPairingToken(token) {
   await chrome.storage.local.set({ studio_pairing_token: token });
 }
 
+const SAFE_PHOTO_ID = /^[A-Za-z0-9._-]+$/;
+
+async function fetchStudioPhoto(jobId, photoId, name) {
+  if (!SAFE_PHOTO_ID.test(String(jobId || '')) || !SAFE_PHOTO_ID.test(String(photoId || ''))) {
+    return { ok: false, error: 'Invalid photo request' };
+  }
+  const url = `${STUDIO_URL}/api/jobs/${encodeURIComponent(jobId)}/photos/${encodeURIComponent(photoId)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    return { ok: false, error: `Photo HTTP ${res.status}` };
+  }
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return {
+    ok: true,
+    name: name || 'photo.jpg',
+    mime: res.headers.get('content-type') || 'image/jpeg',
+    base64: btoa(binary),
+  };
+}
+
 async function persistActiveJob(job) {
   activeJob = job;
   if (job) {
@@ -139,8 +164,30 @@ function connect() {
   };
 }
 
+async function ensurePairingToken() {
+  const stored = await getPairingToken();
+  if (stored) return stored;
+  const res = await fetch(`${STUDIO_URL}/api/extension/pairing-token`);
+  if (!res.ok) {
+    throw new Error(`pairing token HTTP ${res.status}`);
+  }
+  const body = await res.json();
+  const token = String(body?.token || '').trim();
+  if (!token) {
+    throw new Error('pairing token missing');
+  }
+  await setPairingToken(token);
+  return token;
+}
+
 async function sendIdent() {
-  const token = await getPairingToken();
+  let token;
+  try {
+    token = await ensurePairingToken();
+  } catch (err) {
+    error(`Pairing token unavailable: ${err.message}`);
+    return;
+  }
   const stored = await chrome.storage.local.get(RELOAD_GENERATION_KEY);
   send({
     version: 1,
@@ -148,9 +195,10 @@ async function sendIdent() {
     message_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
     sent_at: new Date().toISOString(),
     payload: {
-      token: token || 'direct',
+      token,
       version: chrome.runtime.getManifest().version,
       reload_generation: stored[RELOAD_GENERATION_KEY] || null,
+      active_job_id: activeJob?.job_id || null,
     },
   });
 }
@@ -1523,23 +1571,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg.type === 'IGNORE_PAIRING') {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      chrome.storage.local.get(RELOAD_GENERATION_KEY).then((stored) => {
-        send({
-          version: 1,
-          type: 'extension.ready',
-          message_id: Date.now().toString(36),
-          sent_at: new Date().toISOString(),
-          payload: {
-            token: 'direct',
-            version: chrome.runtime.getManifest().version,
-            reload_generation: stored[RELOAD_GENERATION_KEY] || null,
-          },
-        });
-      });
-    }
-    sendResponse({ ok: true });
+  if (msg.type === 'FETCH_STUDIO_PHOTO') {
+    fetchStudioPhoto(msg.jobId, msg.photoId, msg.name).then(sendResponse).catch((err) => {
+      sendResponse({ ok: false, error: err.message });
+    });
     return true;
   }
 

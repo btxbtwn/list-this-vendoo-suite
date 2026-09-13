@@ -1,6 +1,12 @@
 name: Studio macOS
 
 on:
+  pull_request:
+    paths:
+      - "vendoo-studio/**"
+      - "vendoo-extension/**"
+      - "skills/list-this/**"
+      - ".github/workflows/studio-macos.yml"
   push:
     branches: [main]
     paths:
@@ -11,11 +17,28 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: studio-macos
+  group: studio-macos-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run Studio backend tests
+        working-directory: vendoo-studio
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -U pip
+          .venv/bin/python -m pip install -e .
+          .venv/bin/python -m unittest discover -s server/tests -q
+
   package:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: test
     runs-on: macos-15
     permissions:
       contents: write

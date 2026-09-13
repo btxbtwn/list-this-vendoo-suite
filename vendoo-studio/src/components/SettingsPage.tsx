@@ -223,7 +223,7 @@ export function SettingsPage() {
   const chatgpt = provider?.chatgpt;
   const chatgptPending = chatgpt?.pending;
   const pendingCode = chatgptPending?.user_code;
-  const mimoConfigured = Boolean(provider?.masked_key);
+  const mimoConfigured = Boolean(provider?.mimo_configured);
   const visionModel = chatgptModels?.vision_model || provider?.vision_model || "mimo-v2.5";
   const listingModel = chatgptModels?.listing_model || provider?.listing_model || "mimo-v2.5-pro";
   const reasoningEffort = chatgptModels?.reasoning_effort || "medium";
@@ -441,7 +441,7 @@ export function SettingsPage() {
             title="Status"
             description={
               mimoConfigured
-                ? `Configured · ${provider?.masked_key}`
+                ? "Configured in Keychain"
                 : chatgptSignedIn
                   ? "Fallback when ChatGPT is signed out"
                   : "Not configured"
