@@ -288,5 +288,46 @@ class ExtensionStatusRouteTest(unittest.TestCase):
         self.assertEqual(payload["version"], "0.2.5")
 
 
+class PrepareListingSnapshotRetryTest(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        self.db = sessionmaker(bind=engine)()
+        self.conv = Conversation(title="Casa tee")
+        self.db.add(self.conv)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_retry_keeps_refined_mens_category_over_stale_override(self):
+        import json
+
+        from vendoo_studio.routes.jobs import _prepare_listing_snapshot
+        from vendoo_studio.services.registry import MEN_TSHIRT_PATH
+
+        self.conv.notes = json.dumps({
+            "categoryOverride": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+        })
+        self.db.commit()
+        snapshot = _prepare_listing_snapshot(
+            self.db,
+            self.conv,
+            {
+                "title": "Casa San Bord M Graphic T-Shirt",
+                "department": "Men",
+                "category_path": MEN_TSHIRT_PATH,
+                "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+            },
+            prefer_listing_category=True,
+        )
+        self.assertEqual(snapshot["category_path"], MEN_TSHIRT_PATH)
+        self.assertNotIn("Women", snapshot["category_path"])
+
+
 if __name__ == "__main__":
     unittest.main()
