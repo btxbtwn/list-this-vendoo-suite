@@ -123,6 +123,7 @@ class ChromeBridgeTest(unittest.TestCase):
         self.assertIn("--disable-renderer-backgrounding", args)
         self.assertIn("--disable-background-timer-throttling", args)
         self.assertIn("--no-startup-window", args)
+        self.assertNotIn("--new-window", args)
         self.assertNotIn("https://web.vendoo.co", args)
 
     def test_launch_args_visible_opens_vendoo(self):
@@ -133,6 +134,9 @@ class ChromeBridgeTest(unittest.TestCase):
             visible=True,
         )
         self.assertEqual(args[-1], "https://web.vendoo.co")
+        self.assertIn("--new-window", args)
+        self.assertIn("--window-position=80,80", args)
+        self.assertIn("--window-size=1280,900", args)
         self.assertNotIn("--no-startup-window", args)
 
     def test_launch_args_open_listing_url(self):

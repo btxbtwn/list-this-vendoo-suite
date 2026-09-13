@@ -752,34 +752,60 @@ async function findTabByDraft(vendooUrl, itemId) {
   return null;
 }
 
+async function findVisibleVendooTab() {
+  const engineId = await rememberedEngineWindowId();
+  const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*' });
+  const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*' });
+  return [...webTabs, ...appTabs].find((tab) => tab.windowId && tab.windowId !== engineId) || null;
+}
+
+async function openVisibleVendooWindow(url, existingTab) {
+  const bounds = {
+    focused: true,
+    type: 'normal',
+    left: SHOW_LEFT,
+    top: SHOW_TOP,
+    width: ENGINE_WIDTH,
+    height: ENGINE_HEIGHT,
+  };
+  if (existingTab?.id) {
+    const created = await chrome.windows.create({ ...bounds, tabId: existingTab.id });
+    await showWindow(created.id);
+    return { ok: true, tabId: existingTab.id, windowId: created.id };
+  }
+  const created = await chrome.windows.create({ ...bounds, url });
+  const tabId = created.tabs && created.tabs[0] && created.tabs[0].id;
+  await showWindow(created.id);
+  return { ok: true, tabId, windowId: created.id };
+}
+
 async function focusVendooListing(payload) {
-  const url = payload.vendoo_url || (payload.vendoo_item_id
+  const itemUrl = payload.vendoo_url || (payload.vendoo_item_id
     ? `https://web.vendoo.co/app/item/${payload.vendoo_item_id}`
-    : null);
-  if (!url) {
-    return { ok: false, error: 'No Vendoo draft URL. Send the listing first.' };
-  }
+    : '');
+  const url = itemUrl || 'https://web.vendoo.co';
   const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
-  const existing = await findTabByDraft(url, itemId);
-  let tabId;
-  let windowId;
-  if (existing) {
-    tabId = existing.id;
-    windowId = existing.windowId;
-    await chrome.tabs.update(tabId, { active: true });
-  } else {
-    const created = await chrome.tabs.create({ url, active: true });
-    tabId = created.id;
-    windowId = created.windowId;
-  }
-  if (windowId != null) {
-    try {
-      await chrome.windows.update(windowId, { focused: true, state: 'normal' });
-    } catch (err) {
-      log(`job.open_listing could not focus window: ${err.message}`);
+  const existing = itemId ? await findTabByDraft(url, itemId) : await findVisibleVendooTab();
+  const engineId = await rememberedEngineWindowId();
+
+  try {
+    if (existing?.id && engineId != null && existing.windowId === engineId) {
+      return await openVisibleVendooWindow(url, existing);
     }
+    if (existing?.id) {
+      await chrome.tabs.update(existing.id, { active: true });
+      await showWindow(existing.windowId);
+      return { ok: true, tabId: existing.id, windowId: existing.windowId };
+    }
+    return await openVisibleVendooWindow(url);
+  } catch (err) {
+    log(`job.open_listing could not show window: ${err.message}`);
+    const created = await chrome.tabs.create({ url, active: true });
+    if (created.windowId != null) {
+      await showWindow(created.windowId);
+    }
+    return { ok: true, tabId: created.id, windowId: created.windowId };
   }
-  return { ok: true, tabId };
 }
 
 async function openListingForPatch(payload, { reload = true, preview = true } = {}) {
@@ -791,9 +817,20 @@ async function openListingForPatch(payload, { reload = true, preview = true } = 
   }
   const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
   const existing = await findTabByDraft(url, itemId);
+  if (existing?.id && !reload) {
+    try {
+      const current = await chrome.tabs.get(existing.id);
+      if (isTabReady(current)) {
+        if (preview && payload.job_id) {
+          await startJobPreview(current.id, payload.job_id);
+        }
+        return { ok: true, tabId: current.id };
+      }
+    } catch (_) {}
+  }
   const tab = await openTabInHiddenWindow(existing && !reload ? null : url, existing);
   const tabId = tab.id;
-  const loaded = await waitForTabComplete(tabId);
+  const loaded = await waitForTabComplete(tabId, 15000);
   if (preview && payload.job_id) {
     await startJobPreview(tabId, payload.job_id);
   }
@@ -982,7 +1019,7 @@ function commandTimeoutMs(command) {
     return 90000;
   }
   if (command.type === 'GET_VENDOO_ITEM') {
-    return 20000;
+    return 8000;
   }
   return 45000;
 }
@@ -1120,15 +1157,28 @@ async function runVendooGet(jobId, payload) {
   }
 
   const job = { job_id: jobId, tabId };
-  const ready = await waitForContentScript(job);
-  if (!ready.ok) {
-    reply({ ok: false, error: ready.error });
-    return;
-  }
-
   const itemId = payload.vendoo_item_id || extractItemIdFromUrl(payload.vendoo_url || '');
-  const apiRead = await readItemFromPage(tabId, itemId);
-  const formRead = await sendToVendoo(job, { type: 'GET_VENDOO_ITEM' });
+  const apiRead = await Promise.race([
+    readItemFromPage(tabId, itemId),
+    sleep(8000).then(() => ({
+      ok: false,
+      source: 'api',
+      item_id: itemId,
+      error: 'Vendoo API read timed out',
+    })),
+  ]);
+
+  let formRead = { ok: false };
+  const ping = await pingContentScript(tabId);
+  if (!ping?.ok) {
+    try {
+      await injectVendooContentScript(tabId);
+      await sleep(400);
+    } catch (err) {
+      log(`Content script inject failed on tab ${tabId}: ${err.message}`);
+    }
+  }
+  formRead = await sendToVendoo(job, { type: 'GET_VENDOO_ITEM' });
   const item = apiRead.ok ? compactVendooValue(apiRead.item, 0) : null;
   const form = formRead?.ok ? compactVendooValue(formRead.form || formRead.item, 0) : null;
   const ok = Boolean(item || form);

@@ -260,7 +260,14 @@ def launch_args(
         "--disable-background-timer-throttling",
     ]
     if visible:
-        args.append(url if is_vendoo_url(url) else DEFAULT_VENDOO_URL)
+        args.extend(
+            [
+                "--new-window",
+                "--window-position=80,80",
+                "--window-size=1280,900",
+                url if is_vendoo_url(url) else DEFAULT_VENDOO_URL,
+            ]
+        )
     else:
         args.append("--no-startup-window")
     return args
