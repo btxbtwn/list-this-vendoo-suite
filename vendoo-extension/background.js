@@ -893,8 +893,11 @@ async function openListingForPatch(payload, { reload = true, preview = true, mar
     } catch (_) {}
   }
   const samePage = Boolean(existing?.id) && listingUrlsMatch(currentUrl, url);
-  const opened = await openVisibleVendooWindow(samePage ? null : url, existing);
-  const tabId = opened.tabId;
+  const tab = await openTabInHiddenWindow(samePage ? null : url, existing);
+  const tabId = tab?.id;
+  if (!tabId) {
+    return { ok: false, error: 'Could not open the Vendoo draft.' };
+  }
   let loaded;
   if (reload && samePage) {
     log(`Reloading Vendoo draft tab ${tabId} -> ${url}`);

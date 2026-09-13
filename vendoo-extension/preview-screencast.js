@@ -561,7 +561,9 @@ async function startJobPreview(tabId, jobId) {
   try {
     const tab = await chrome.tabs.get(tabId);
     if (tab?.windowId) {
-      await showWindow(tab.windowId);
+      // Keep Chrome behind Studio. Preview capture works on an unfocused
+      // on-screen window; focusing would steal the desktop.
+      await hideWindow(tab.windowId);
     }
   } catch (_) {}
   if (previewTabId === tabId && previewJobId === jobId && (previewAttached || previewPollTimer)) {
