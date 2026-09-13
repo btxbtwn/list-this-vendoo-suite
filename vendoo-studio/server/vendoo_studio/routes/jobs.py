@@ -242,6 +242,8 @@ async def get_vendoo_item(
         )
 
     if not extension_manager.connected:
+        if refresh:
+            raise HTTPException(400, "Chrome is not connected")
         if cached:
             return VendooItemResponse(
                 ok=True,
@@ -273,6 +275,10 @@ async def get_vendoo_item(
         extension_manager.cancel_wait(request_id)
 
     if not payload.get("ok"):
+        # Explicit refresh must not silently re-serve a stale draft — that makes
+        # Fields keep showing empty counts after Fill / Refresh.
+        if refresh:
+            raise HTTPException(502, payload.get("error") or "Could not refresh the Vendoo draft")
         if cached:
             return VendooItemResponse(
                 ok=True,

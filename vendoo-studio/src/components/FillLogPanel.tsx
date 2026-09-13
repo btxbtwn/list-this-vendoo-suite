@@ -765,7 +765,12 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
         // Only the live Vendoo value counts as filled. Leftover previews are
         // proposed fill values and must stay in the red/missing column.
         const value = fieldDisplayValue(found.value, spec.label);
-        const pendingLeftover = leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : found.leftover;
+        const pendingLeftover =
+          value
+            ? undefined
+            : leftover && FILLABLE_STATUSES.has(leftover.status)
+              ? leftover
+              : found.leftover;
         rows.push({
           ...found,
           label: spec.label,
@@ -795,7 +800,12 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
   const extraRows: DraftField[] = [...unused.values()].flat().map((field) => {
     const leftover = attachLeftover(field);
     const value = fieldDisplayValue(field.value, field.label);
-    const pendingLeftover = leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : field.leftover;
+    const pendingLeftover =
+      value
+        ? undefined
+        : leftover && FILLABLE_STATUSES.has(leftover.status)
+          ? leftover
+          : field.leftover;
     return {
       ...field,
       leftover: pendingLeftover && FILLABLE_STATUSES.has(pendingLeftover.status) ? pendingLeftover : undefined,
@@ -1053,9 +1063,12 @@ function deepMergeRecords(
       !Array.isArray(prev)
     ) {
       out[key] = deepMergeRecords(prev as Record<string, unknown>, value as Record<string, unknown>);
-    } else {
-      out[key] = value;
+      continue;
     }
+    // Prefer a real value over an empty scrape/API placeholder so Refresh does
+    // not wipe fields that are already present on either side.
+    if (isEmptyValue(value) && !isEmptyValue(prev)) continue;
+    out[key] = value;
   }
   return out;
 }
@@ -1463,30 +1476,36 @@ export function FillLogPanel({
     };
   }, [openMenu]);
 
-  const rereadDraft = () => {
-    awaitingFill.current = false;
-    sawFilling.current = false;
-    queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
-    queryClient.invalidateQueries({ queryKey: ["listing"] });
-    if (hasDraft) {
-      setShowJson(false);
-      draftQuery.refetch();
-    }
-    onFilled?.();
-  };
-
   const refreshDraftLive = async () => {
     if (!hasDraft) return;
     setShowJson(false);
     setRefreshingDraft(true);
     try {
+      // Always hit Chrome with refresh=true. A plain refetch returns the server
+      // cache from before Fill, so empty-field counts never drop.
       const fresh = await api.jobs.vendooItem(jobId, { refresh: true });
       queryClient.setQueryData(["vendoo-item", jobId], fresh);
+      if (fresh?.error || fresh?.api_error) {
+        addToast({
+          type: "error",
+          title: "Could not fully refresh Vendoo draft",
+          description: String(fresh.error || fresh.api_error),
+        });
+      }
     } catch (error) {
       addToast({ type: "error", title: (error as Error).message || "Could not refresh Vendoo draft" });
     } finally {
       setRefreshingDraft(false);
     }
+  };
+
+  const rereadDraft = () => {
+    awaitingFill.current = false;
+    sawFilling.current = false;
+    queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
+    queryClient.invalidateQueries({ queryKey: ["listing"] });
+    if (hasDraft) void refreshDraftLive();
+    onFilled?.();
   };
 
   const fillMutation = useMutation({
@@ -1638,6 +1657,13 @@ export function FillLogPanel({
   const leftovers = (report ? leftoverEntries(report) : []).filter(
     (entry) => !hiddenKeys.has(hiddenFieldKey(entry.marketplace.toLowerCase(), normalizeFieldName(entry.field))),
   );
+  const filledOnDraft = new Set(
+    visibleSourceForms.flatMap((form) =>
+      form.fields
+        .filter((field) => !field.missing)
+        .map((field) => `${form.id}:${fieldMatchKey(field)}`),
+    ),
+  );
   const fillableEmpty = fromVendooDraft ? patchableEmptyFields(visibleSourceForms, listing, values) : [];
   const fillPayload = (() => {
     const payload = [...fillableEmpty];
@@ -1645,7 +1671,11 @@ export function FillLogPanel({
       payload.map((item) => `${(item.marketplace || "").toLowerCase()}:${(item.field || "").toLowerCase()}`),
     );
     for (const entry of leftovers) {
-      const key = `${entry.marketplace.toLowerCase()}:${entry.field.toLowerCase()}`;
+      const market = entry.marketplace.toLowerCase();
+      const fieldKey = normalizeFieldName(entry.field);
+      // Already present on the live Vendoo draft — do not keep offering Fill.
+      if (filledOnDraft.has(`${market}:${fieldKey}`)) continue;
+      const key = `${market}:${entry.field.toLowerCase()}`;
       if (seen.has(key)) continue;
       const typed = String(values[entry.id] || "").trim();
       const value = typed || listingValueForField(listing, entry.marketplace, {

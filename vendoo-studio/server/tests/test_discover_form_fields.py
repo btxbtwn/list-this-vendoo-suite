@@ -79,7 +79,18 @@ const auditMarketplace = async () => ({ ok: true });
         self.assertIn("waitForEbayOptionalCategoryFields", content)
         self.assertIn("discoverAllMarketplaceListings(", content)
         self.assertIn("DISCOVER_SCHEMA", content)
-        self.assertIn("fillMarketplaceCategory(platform, data)", content)
+        # Schema discovery still selects categories so optionals mount.
+        self.assertIn("fillMarketplaceCategory(platform, listing)", content)
+        # Refresh/read must stay read-only — re-filling category remounts empties.
+        discover_start = content.index("async function discoverAllMarketplaceListings")
+        discover_end = content.index("async function discoverMarketplaceSchema")
+        discover_body = content[discover_start:discover_end]
+        self.assertNotIn("await fillMarketplaceCategory", discover_body)
+        scrape_start = content.index("async function scrapeVendooItem")
+        scrape_end = content.index("async function clearChipContainer")
+        scrape_body = content[scrape_start:scrape_end]
+        self.assertNotIn("category_path", scrape_body)
+        self.assertNotIn("await fillMarketplaceCategory", scrape_body)
         for platform in ("ebay", "etsy", "poshmark", "mercari", "depop"):
             self.assertIn(f"'{platform}'", content)
             self.assertIn(f"await fillMarketplaceCategory('{platform}'", content)
