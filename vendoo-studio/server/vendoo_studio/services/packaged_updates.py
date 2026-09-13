@@ -171,23 +171,30 @@ def _prepare_app_bundle(app_path: Path) -> None:
         for path in macos.iterdir():
             if path.is_file():
                 path.chmod(path.stat().st_mode | 0o111)
-    subprocess.run(
-        ["/usr/bin/xattr", "-cr", str(app_path)],
-        check=False,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(
+            ["/usr/bin/xattr", "-cr", str(app_path)],
+            check=False,
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        pass
 
 
 def _extract_app(archive: Path, destination: Path) -> Path:
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    extracted = subprocess.run(
-        ["/usr/bin/ditto", "-xk", str(archive), str(destination)],
-        capture_output=True,
-        text=True,
-    )
-    if extracted.returncode != 0:
+    try:
+        extracted = subprocess.run(
+            ["/usr/bin/ditto", "-xk", str(archive), str(destination)],
+            capture_output=True,
+            text=True,
+        )
+        ditto_ok = extracted.returncode == 0
+    except FileNotFoundError:
+        ditto_ok = False
+    if not ditto_ok:
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(destination)
     matches = [path for path in destination.rglob(APP_BUNDLE_NAME) if path.is_dir()]

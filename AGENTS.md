@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, Vendoo Listing Studio, and Background Studio. The skills generate marketplace-ready listings from product photos; the extension fills six platforms from a single JSON payload; Vendoo Studio provides a local interface for listing creation and automation; Background Studio removes photo backgrounds locally.
+Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, and Vendoo Listing Studio. The skills generate marketplace-ready listings from product photos; the extension fills six platforms from a single JSON payload; Vendoo Studio provides a local interface for listing creation and automation.
 
 **Invariant:** Automation must never publish listings. Stop at saved drafts and require human approval before sending.
 
@@ -29,15 +29,12 @@ Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, Ve
 - **`skills/`** — Agent skills for listing generation (`list-this`).
 - **`vendoo-extension/`** — Chrome MV3 extension that consumes listing JSON and fills marketplace forms. Content scripts under `content-scripts/` handle Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy. `background.js` routes messages; `popup.html`/`popup.js` provide the manual paste-and-fill UI.
 - **`vendoo-studio/`** — React + TypeScript frontend (`src/`) and FastAPI Python backend (`server/vendoo_studio/`). Frontend API clients live under `src/api/`. Backend routes live under `server/vendoo_studio/routes/`; domain behavior lives in `server/vendoo_studio/services/` and `server/vendoo_studio/repositories/`.
-- **`background-studio/`** — Standalone React + Vite frontend and Python 3.11 FastAPI backend for local photo background removal. Keep it separate from `vendoo-studio/`.
 
 ## Development Commands
 
 - **Studio frontend dev:** `cd vendoo-studio && npm run dev`
 - **Studio frontend build:** `cd vendoo-studio && npm run build`
 - **Studio backend:** Python 3.12+ required. Package entry point defined in `vendoo-studio/pyproject.toml`.
-- **Background Studio backend:** `cd background-studio && source .venv/bin/activate && uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --workers 1`
-- **Background Studio frontend:** `cd background-studio/frontend && npm run dev -- --host 127.0.0.1`
 - **Extension:** Load unpacked from Chrome extensions page (`chrome://extensions/`) with Developer mode enabled.
 
 ## Coding Conventions
@@ -53,8 +50,6 @@ CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `ma
 
 - **Studio frontend:** `cd vendoo-studio && npm ci && npm run build`
 - **Studio backend:** `cd vendoo-studio && python -m pytest -q` (install with `pip install -e ".[dev]"`)
-- **Background Studio backend:** `cd background-studio && pytest -q backend/tests` (CI uses `backend/requirements-test.txt` so the job does not pull Torch)
-- **Background Studio frontend:** `cd background-studio/frontend && npm ci && npm test && npm run build`
 - **Extension:** `node --check` on changed JS files and `python -m json.tool vendoo-extension/manifest.json`. Then reload the unpacked extension and test affected marketplace flows manually. Use platform-prefixed console logs (`[EBAY]`, `[POSHMARK]`, etc.), the **Diagnose Page** button for live form structure, and the debug overlay (bottom-left) for per-field fill results.
 - **Skills:** Confirm `skills/list-this/SKILL.md` exists and `python -m json.tool skills/list-this/references/vendoo-dropdown-options.json` succeeds.
 - **Secrets:** Do not track `.env`, key files, photos, or private exports. CI scans the working tree with gitleaks.
@@ -64,7 +59,6 @@ CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `ma
 - Never commit API keys, OAuth credentials, listing photos, generated diagnostics, or private exports.
 - API keys remain in macOS Keychain and never enter SQLite, logs, frontend responses, or extension messages.
 - Bind Studio only to `127.0.0.1`.
-- Bind both Background Studio processes only to `127.0.0.1` and run one Uvicorn worker. Private access uses Tailscale Serve only; never enable Funnel.
 - Require human approval before sending to Vendoo.
 - Allow one automation job at a time.
 - Do not introduce Redis, MongoDB, Celery, Docker, cloud hosting, or provider substitutions unless explicitly requested.
