@@ -107,6 +107,17 @@ class VendooItemRouteTest(unittest.TestCase):
         self.assertEqual(cached.status_code, 200, cached.text)
         self.assertEqual(cached.json()["statuses"]["ebay"], "LISTED")
 
+    def test_vendoo_item_cache_only_skips_live_read(self):
+        self._connect_chrome()
+        dispatch = AsyncMock(return_value=True)
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=dispatch):
+            response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item?cache_only=true")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertIn("No cached", body["error"] or "")
+        dispatch.assert_not_called()
+
     def test_vendoo_item_requires_connected_chrome(self):
         response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
         self.assertEqual(response.status_code, 400)

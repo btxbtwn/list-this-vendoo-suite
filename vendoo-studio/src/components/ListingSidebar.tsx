@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { UpdateButton } from "./UpdateButton";
 import {
@@ -14,6 +14,21 @@ const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 const BUSY_STATUSES = new Set(["in_progress", "listing"]);
+const HOVER_STATUS_DELAY_MS = 280;
+const MARKETPLACE_STATUS_ORDER = ["general", "ebay", "etsy", "poshmark", "mercari", "depop"];
+const MARKETPLACE_STATUS_LABELS: Record<string, string> = {
+  general: "Vendoo",
+  ebay: "eBay",
+  etsy: "Etsy",
+  poshmark: "Poshmark",
+  mercari: "Mercari",
+  depop: "Depop",
+  facebook: "Facebook",
+  shopify: "Shopify",
+  vinted: "Vinted",
+  whatnot: "Whatnot",
+  grailed: "Grailed",
+};
 
 type Listing = {
   id: string;
@@ -199,6 +214,20 @@ export function ListingSidebar({
     mutationFn: (id: string) => api.conversations.unsettle(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["conversations"] }),
   });
+  const { data: jobs } = useQuery({
+    queryKey: ["jobs"],
+    queryFn: api.jobs.list,
+    refetchInterval: 2000,
+  });
+  const jobIdByConversation = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const job of jobs || []) {
+      if (!job?.conversation_id || job.status === "cancelled") continue;
+      if (!job.vendoo_item_id && !job.vendoo_url) continue;
+      if (!map.has(job.conversation_id)) map.set(job.conversation_id, job.id);
+    }
+    return map;
+  }, [jobs]);
 
   const needle = listingQuery.trim().toLowerCase();
   const { activeListings, settledListings } = useMemo(() => {
@@ -460,6 +489,7 @@ export function ListingSidebar({
                 settled={false}
                 busy={BUSY_STATUSES.has(String(listing.status || "draft"))}
                 settling={settleListing.isPending}
+                jobId={jobIdByConversation.get(listing.id)}
                 onSelect={onSelect}
                 onDelete={onDelete}
                 onSettle={(id) => settleListing.mutate(id)}
@@ -490,6 +520,7 @@ export function ListingSidebar({
                     settled
                     busy={false}
                     settling={unsettleListing.isPending}
+                    jobId={jobIdByConversation.get(listing.id)}
                     onSelect={onSelect}
                     onDelete={onDelete}
                     onUnsettle={(id) => unsettleListing.mutate(id)}
@@ -558,12 +589,77 @@ export function ListingSidebar({
 }
 
 
+function marketplaceLabel(id: string): string {
+  return MARKETPLACE_STATUS_LABELS[id] || id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+function normalizeLiveStatus(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const cleaned = raw.replace(/\s+/g, " ").trim().toUpperCase();
+  return cleaned || undefined;
+}
+
+function liveStatusClass(status?: string): string {
+  const key = (status || "").toLowerCase().replace(/\s+/g, "-");
+  if (key === "listed" || key === "complete" || key === "sold") return "is-listed";
+  if (key === "not-listed" || key === "draft" || key === "incomplete") return "is-not-listed";
+  if (key === "failed") return "is-failed";
+  return "";
+}
+
+function marketplaceStatusesFromDraft(draft: Record<string, unknown> | undefined | null): {
+  id: string;
+  label: string;
+  status: string;
+}[] {
+  if (!draft) return [];
+  const scrapedRaw = draft.statuses && typeof draft.statuses === "object" && !Array.isArray(draft.statuses)
+    ? draft.statuses as Record<string, unknown>
+    : undefined;
+  const form = draft.form && typeof draft.form === "object" && !Array.isArray(draft.form)
+    ? draft.form as Record<string, unknown>
+    : undefined;
+  const formStatuses = form?.statuses && typeof form.statuses === "object" && !Array.isArray(form.statuses)
+    ? form.statuses as Record<string, unknown>
+    : undefined;
+  const scraped = scrapedRaw || formStatuses || {};
+  const item = draft.item && typeof draft.item === "object" && !Array.isArray(draft.item)
+    ? draft.item as Record<string, unknown>
+    : undefined;
+  const listings = item?.listings && typeof item.listings === "object" && !Array.isArray(item.listings)
+    ? item.listings as Record<string, unknown>
+    : {};
+
+  const ids = [
+    ...MARKETPLACE_STATUS_ORDER,
+    ...Object.keys(scraped).filter((id) => !MARKETPLACE_STATUS_ORDER.includes(id)),
+    ...Object.keys(listings).filter(
+      (id) => id !== "validate" && !MARKETPLACE_STATUS_ORDER.includes(id) && !(id in scraped),
+    ),
+  ];
+
+  const rows: { id: string; label: string; status: string }[] = [];
+  for (const id of ids) {
+    let status = normalizeLiveStatus(scraped[id]);
+    if (!status && id !== "general") {
+      const listing = listings[id] as Record<string, unknown> | undefined;
+      const listed = (listing?.status as Record<string, unknown> | undefined)?.listed;
+      if (listed === true) status = "LISTED";
+      else if (listed === false) status = "NOT LISTED";
+    }
+    if (!status) continue;
+    rows.push({ id, label: marketplaceLabel(id), status });
+  }
+  return rows;
+}
+
 function ListingRow({
   listing,
   selected,
   settled,
   busy,
   settling,
+  jobId,
   onSelect,
   onDelete,
   onSettle,
@@ -574,6 +670,7 @@ function ListingRow({
   settled: boolean;
   busy: boolean;
   settling: boolean;
+  jobId?: string;
   onSelect: (id: string) => void;
   onDelete: (id: string, title: string) => void;
   onSettle?: (id: string) => void;
@@ -584,9 +681,95 @@ function ListingRow({
   const statusClass = status.replace(/_/g, "-");
   const statusLabel = status.replace(/_/g, " ");
   const settledAt = settled ? compactRelativeTime(listing.settled_at || listing.updated_at) : "";
+  const queryClient = useQueryClient();
+  const itemRef = useRef<HTMLDivElement>(null);
+  const hoverTimer = useRef<number | null>(null);
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Observe Fields-panel cache without fetching.
+  const cachedDraftQuery = useQuery({
+    queryKey: ["vendoo-item", jobId || ""],
+    queryFn: () => api.jobs.vendooItem(jobId || ""),
+    enabled: false,
+  });
+
+  const peekQuery = useQuery({
+    queryKey: ["vendoo-item-peek", jobId],
+    queryFn: async () => {
+      const data = await api.jobs.vendooItem(jobId || "", { cacheOnly: true });
+      if (data?.ok && (data.item || data.form || data.statuses)) {
+        queryClient.setQueryData(["vendoo-item", jobId], data);
+      }
+      return data;
+    },
+    enabled: Boolean(hoverOpen && jobId && !cachedDraftQuery.data),
+    staleTime: Infinity,
+    retry: 0,
+  });
+
+  const draft = (cachedDraftQuery.data || peekQuery.data) as Record<string, unknown> | undefined;
+  const marketplaceStatuses = useMemo(() => marketplaceStatusesFromDraft(draft), [draft]);
+  const loadingStatus = Boolean(hoverOpen && jobId && !draft && peekQuery.isFetching);
+  const missingStatus = Boolean(
+    hoverOpen && jobId && !draft && peekQuery.isFetched && !peekQuery.isFetching,
+  );
+
+  const clearHoverTimer = () => {
+    if (hoverTimer.current != null) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  };
+
+  const updatePopupPos = useCallback(() => {
+    const el = itemRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPopupPos({
+      top: Math.max(8, Math.min(rect.top, window.innerHeight - 220)),
+      left: Math.min(rect.right + 8, window.innerWidth - 220),
+    });
+  }, []);
+
+  const openHover = () => {
+    if (!jobId) return;
+    clearHoverTimer();
+    hoverTimer.current = window.setTimeout(() => {
+      updatePopupPos();
+      setHoverOpen(true);
+    }, HOVER_STATUS_DELAY_MS);
+  };
+
+  const closeHover = () => {
+    clearHoverTimer();
+    setHoverOpen(false);
+  };
+
+  useEffect(() => () => clearHoverTimer(), []);
+
+  useEffect(() => {
+    if (!hoverOpen) return;
+    const onScroll = () => updatePopupPos();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [hoverOpen, updatePopupPos]);
 
   return (
-    <div className="nav-item">
+    <div
+      className="nav-item"
+      ref={itemRef}
+      onMouseEnter={openHover}
+      onMouseLeave={closeHover}
+      onFocus={openHover}
+      onBlur={(event) => {
+        if (!itemRef.current?.contains(event.relatedTarget as Node | null)) closeHover();
+      }}
+    >
       <button
         className={`nav-link${selected ? " selected" : ""}${settled ? " settled" : ""}`}
         onClick={() => onSelect(listing.id)}
@@ -645,6 +828,33 @@ function ListingRow({
           </svg>
         </button>
       </div>
+      {hoverOpen && jobId && popupPos ? (
+        <div
+          className="nav-vendoo-status-popup"
+          style={{ top: popupPos.top, left: popupPos.left }}
+          role="tooltip"
+        >
+          <div className="nav-vendoo-status-title">Vendoo status</div>
+          {loadingStatus ? (
+            <div className="nav-vendoo-status-empty">Reading…</div>
+          ) : marketplaceStatuses.length ? (
+            <ul className="nav-vendoo-status-list">
+              {marketplaceStatuses.map((row) => (
+                <li key={row.id} className="nav-vendoo-status-row">
+                  <span className="nav-vendoo-status-market">{row.label}</span>
+                  <span className={`pr-live-status ${liveStatusClass(row.status)}`}>{row.status}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="nav-vendoo-status-empty">
+              {missingStatus
+                ? "Open Fields and refresh the draft to load live status."
+                : "No marketplace status yet."}
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
