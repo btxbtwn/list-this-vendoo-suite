@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import signal
 import shutil
 import subprocess
+import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
@@ -298,3 +301,68 @@ def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = False
         "profile_dir": str(profile_dir),
         "visible": visible,
     }
+
+
+def studio_chrome_pids() -> list[int]:
+    """PIDs for the Studio-managed Chrome profile only, never the user's main Chrome."""
+    profile = str(chrome_profile_dir().resolve())
+    marker = f"--user-data-dir={profile}"
+    try:
+        output = subprocess.check_output(["ps", "-axww", "-o", "pid=,command="], text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    pids: list[int] = []
+    for raw in output.splitlines():
+        line = raw.strip()
+        if marker not in line:
+            continue
+        pid_s = line.split(None, 1)[0]
+        try:
+            pids.append(int(pid_s))
+        except ValueError:
+            continue
+    return pids
+
+
+def _pid_is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def quit_studio_chrome(timeout_sec: float = 5.0) -> None:
+    pids = set(studio_chrome_pids())
+    if not pids:
+        return
+    for pid in list(pids):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pids.discard(pid)
+        except PermissionError:
+            pass
+    deadline = time.monotonic() + timeout_sec
+    while pids and time.monotonic() < deadline:
+        pids = {pid for pid in pids if _pid_is_running(pid)}
+        if pids:
+            time.sleep(0.1)
+    for pid in studio_chrome_pids():
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    leftover_deadline = time.monotonic() + 1.0
+    while studio_chrome_pids() and time.monotonic() < leftover_deadline:
+        time.sleep(0.05)
+
+
+def relaunch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = True) -> dict:
+    """Replace the Studio Chrome process so --load-extension re-reads current files."""
+    sync_bundled_extension()
+    clear_extension_reload_pending()
+    quit_studio_chrome()
+    return launch_studio_chrome(url, visible=visible)
