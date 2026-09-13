@@ -284,9 +284,7 @@
       const label = fieldLabelForControl(el);
       const key = normalizeFieldKey(label);
       if (!key || seen.has(key) || controlAlreadyLogged(el, key)) continue;
-      const currentValue = displayedFieldValue(el);
-      const placeholder = (el.getAttribute && el.getAttribute('placeholder')) || '';
-      if (currentValue && currentValue !== placeholder && !/^(select|choose)\b/i.test(currentValue)) continue;
+      if (fieldLooksFilled(el)) continue;
       seen.add(key);
       recordFill({
         field: label,
@@ -856,14 +854,14 @@
       return id.startsWith('listings.depop.') || name.startsWith('listings.depop.');
   }
 
-  function findInputNearLabel(labelEl, filterFn = () => true) {
-      if (!labelEl) return null;
+  function findInputsNearLabel(labelEl, filterFn = () => true) {
+      if (!labelEl) return [];
 
       const forId = labelEl.getAttribute?.('for');
       if (forId) {
           const directInput = document.getElementById(forId);
           if (isVisibleElement(directInput) && filterFn(directInput)) {
-              return directInput;
+              return [directInput];
           }
       }
 
@@ -873,14 +871,16 @@
               container.querySelectorAll('input:not([type="hidden"]), textarea, select, [role="combobox"]')
           ).filter(candidate => isVisibleElement(candidate) && filterFn(candidate));
 
-          if (candidates.length > 0) {
-              return candidates[0];
-          }
+          if (candidates.length > 0) return candidates;
 
           container = container.parentElement;
       }
 
-      return null;
+      return [];
+  }
+
+  function findInputNearLabel(labelEl, filterFn = () => true) {
+      return findInputsNearLabel(labelEl, filterFn)[0] || null;
   }
 
   function findInputByLabelPatterns(labelPatterns, filterFn = () => true) {
@@ -973,6 +973,8 @@
       if (!el) return '';
       const direct = (el.value || '').trim();
       if (direct) return direct;
+      const chips = listedChipValues(el);
+      if (chips.length) return chips.join(', ');
       const selectShown = el.closest?.('.MuiSelect-root, .MuiInputBase-root, .MuiAutocomplete-root')
           ?.querySelector('.MuiSelect-select, [class*="MuiSelect-select"]');
       if (selectShown) {
@@ -987,11 +989,27 @@
       return '';
   }
 
+  function listedChipValues(el) {
+      const root = el?.closest?.('.MuiAutocomplete-root, .MuiFormControl-root') || el?.parentElement;
+      if (!root) return [];
+      return uniqueStrings(Array.from(root.querySelectorAll('.MuiChip-label')).map((chip) =>
+          (chip.textContent || '').replace(/\u00a0/g, ' ').trim()
+      ));
+  }
+
+  function fieldHasChip(el, value) {
+      const want = normalizeOptionValue(value);
+      if (!want) return false;
+      return listedChipValues(el).some((chip) => normalizeOptionValue(chip) === want);
+  }
+
   function fieldLooksFilled(el) {
       if (!el) return false;
       const value = displayedFieldValue(el);
       if (!value) return false;
-      return !/^(select|primary color|secondary color|condition|brand|shipping label)\b/i.test(value);
+      const placeholder = (el.getAttribute && el.getAttribute('placeholder')) || '';
+      if (placeholder && normalizeOptionValue(value) === normalizeOptionValue(placeholder)) return false;
+      return !/^(select|choose|size|primary color|secondary color|condition|brand|shipping label)\b/i.test(value);
   }
 
   function normalizeOptionValue(text) {
@@ -1042,9 +1060,21 @@
   }
 
   const DROPDOWN_FIELD_HINT = /\b(condition|brand|color|size|category|shipping|occasion|style|department|type|who made|when made|source|scale|material|pattern|features|sleeve|neckline|fit|rise|inseam|wash|closure)\b/i;
+  const MULTI_CHIP_FIELD_HINT = /\b(tags?|labels?|materials?|features?|accents?|occasions?|seasons?|themes?)\b/i;
 
   function shouldFillAsDropdown(el, fieldName) {
       return isDropdownLike(el) || DROPDOWN_FIELD_HINT.test(String(fieldName || ''));
+  }
+
+  function isMultiChipField(fieldName) {
+      return MULTI_CHIP_FIELD_HINT.test(String(fieldName || ''));
+  }
+
+  function splitChipValues(value) {
+      const parts = Array.isArray(value) ? value : [value];
+      return uniqueStrings(parts.flatMap((part) =>
+          String(part == null ? '' : part).split(',').map((item) => item.trim()).filter(Boolean)
+      ));
   }
 
   const DROPDOWN_OPTION_SELECTOR = [
@@ -1111,10 +1141,26 @@
 
   function dispatchKey(el, key) {
       if (!el) return;
-      const keyCode = key === 'Enter' ? 13 : key === 'Escape' ? 27 : key === 'ArrowDown' ? 40 : 0;
-      const opts = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true };
+      const keyCode = key === 'Enter' ? 13 : key === 'Escape' ? 27 : key === 'ArrowDown' ? 40 : key === ',' ? 188 : 0;
+      const code = key === ',' ? 'Comma' : key;
+      const opts = { key, code, keyCode, which: keyCode, bubbles: true, cancelable: true };
       el.dispatchEvent(new KeyboardEvent('keydown', opts));
       el.dispatchEvent(new KeyboardEvent('keyup', opts));
+  }
+
+  async function commitChipValue(el, value) {
+      if (!el || value == null || String(value).trim() === '') return;
+      el.focus();
+      await clearInput(el);
+      setReactValue(el, String(value).trim());
+      await sleep(CONFIG.SLEEP_SHORT);
+      dispatchKey(el, ',');
+      await sleep(CONFIG.SLEEP_SHORT);
+      if ((el.value || '').trim()) {
+          dispatchKey(el, 'Enter');
+          await sleep(CONFIG.SLEEP_SHORT);
+      }
+      if (el.value) await clearInput(el);
   }
 
   async function clickDropdownOption(optionEl) {
@@ -1298,26 +1344,26 @@
       }
 
       const openOptions = listOpenDropdownOptions();
-      if (dropdownLike && openOptions.length > 0) {
+      if (dropdownLike && openOptions.length > 0 && !isMulti) {
           await closeOpenMenus();
           if (el.value) await clearInput(el);
           return { ok: false, method: 'no_option' };
       }
+      if (openOptions.length > 0) await closeOpenMenus();
 
       if (!dropdownLike) {
+          if (isMulti) {
+              await commitChipValue(el, value);
+              return { ok: true, method: 'typed_fallback' };
+          }
           await clearInput(el);
           setReactValue(el, value);
           await sleep(CONFIG.SLEEP_SHORT);
-          if (isMulti && el.value) await clearInput(el);
           return { ok: true, method: 'option_click' };
       }
 
       if (isMulti) {
-          await clearInput(el);
-          setReactValue(el, value);
-          dispatchKey(el, 'Enter');
-          await sleep(CONFIG.SLEEP_MEDIUM);
-          if (el.value) await clearInput(el);
+          await commitChipValue(el, value);
           return { ok: true, method: 'typed_fallback' };
       }
 
@@ -1375,6 +1421,53 @@
           warn(`${fieldName}: Element not found`);
           recordFill({ field: fieldName, status: 'not_found', reason: 'Element not found', selector: selectorText, value });
           return { status: 'not_found' };
+      }
+
+      const chipField = isMulti || isMultiChipField(fieldName);
+      const values = chipField ? splitChipValues(value) : [value];
+      if (chipField && values.length === 0) {
+          recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
+          return { status: 'skipped' };
+      }
+
+      if (chipField) {
+          log(`Filling ${fieldName}...`);
+          if (values.length > 1) await clearChipContainer(el);
+          let filledCount = 0;
+          let lastMethod = '';
+          for (const item of values) {
+              if (fieldHasChip(el, item) || optionMatchesValue(displayedFieldValue(el), item, true)) {
+                  filledCount += 1;
+                  continue;
+              }
+              const result = await fillCombobox(el, item, true, true);
+              lastMethod = result && result.method;
+              if ((result && result.ok) || fieldHasChip(el, item)) filledCount += 1;
+              await sleep(CONFIG.SLEEP_MEDIUM);
+          }
+          const filledValue = values.length > 1 ? values : values[0];
+          if (filledCount > 0) {
+              recordFill({ field: fieldName, status: 'filled', selector: selectorFor(el, selectorText), value: filledValue });
+              return { status: 'filled' };
+          }
+          if (lastMethod === 'typed_fallback' || fieldLooksFilled(el)) {
+              recordFill({
+                field: fieldName,
+                status: 'uncertain',
+                reason: 'Typed fallback; dropdown option was not clicked',
+                selector: selectorFor(el, selectorText),
+                value: filledValue,
+              });
+              return { status: 'uncertain' };
+          }
+          recordFill({
+            field: fieldName,
+            status: 'failed',
+            reason: 'Option not found and value did not stick',
+            selector: selectorFor(el, selectorText),
+            value: filledValue,
+          });
+          return { status: 'failed' };
       }
 
       if (optionMatchesValue(displayedFieldValue(el), value, false)) {
@@ -2095,7 +2188,9 @@
                   continue;
               }
 
-              let valuesToFill = Array.isArray(mapped) ? mapped :
+              let valuesToFill = isMultiChipField(fieldName)
+                  ? splitChipValues(mapped)
+                  : Array.isArray(mapped) ? mapped :
                   (typeof mapped === 'string' && mapped.includes(',') && !['yearManufactured', 'mpn', 'upc'].includes(key)) ?
                   mapped.split(',').map(v => v.trim()) : [mapped];
 
@@ -2112,7 +2207,9 @@
               const isSizeField = key.toLowerCase() === 'size';
               log(`  Filling eBay ${fieldName}: ${valuesToFill.join(', ')}`);
 
-              if (valuesToFill.length > 1 && key !== 'type') {
+              if (isMultiChipField(fieldName)) {
+                  await fillDropdownField(foundEl, valuesToFill, fieldName, isSizeField, true);
+              } else if (valuesToFill.length > 1 && key !== 'type') {
                   for (const item of valuesToFill) {
                       await fillDropdownField(foundEl, item, fieldName, isSizeField, true);
                       await sleep(CONFIG.SLEEP_MEDIUM);
@@ -2334,24 +2431,87 @@
       ];
   }
 
-  async function fillMarketplaceSize(marketplace, data) {
+  function isSizeScaleControl(el) {
+      if (!el) return false;
+      const hay = `${el.id || ''} ${el.name || ''}`;
+      if (/size\.scale|sizeType|size[_-]?scale|size[_-]?system/i.test(hay)) return true;
+      const shown = displayedFieldValue(el);
+      return /^(us standard|numeric|alpha|uk|eu|au)$/i.test(shown.trim());
+  }
+
+  function sizeControlToken(el) {
+      const idToken = String(el?.id || el?.name || '').split('.').pop() || '';
+      return normalizeFieldKey(idToken.replace(/^[0-9a-f]{8,}_/i, '').replace(/^\d+_/, ''));
+  }
+
+  function isMarketplaceSizeValueControl(el, marketplace) {
+      if (!el || !isMarketplaceInput(marketplace)(el) || isSizeScaleControl(el)) return false;
+      const id = String(el.id || '');
+      if (sizeControlToken(el) === 'size') return true;
+      return /(?:^|[._])size(?:\.option(?:\.value)?)?$/i.test(id) || /_size$/i.test(id);
+  }
+
+  function pickSizeValueControl(candidates) {
+      const usable = (candidates || []).filter((el) =>
+          el && isEnabledField(el) && !isSizeScaleControl(el) && (isVisibleElement(el) || isAttachedElement(el))
+      );
+      const visible = usable.filter(isVisibleElement);
+      const pool = visible.length ? visible : usable;
+      const empty = pool.filter((el) => !fieldLooksFilled(el));
+      return empty[0] || pool[pool.length - 1] || null;
+  }
+
+  function queryMarketplaceSizeControls(marketplace) {
+      const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
+      return Array.from(controls).filter((el) => isMarketplaceSizeValueControl(el, marketplace));
+  }
+
+  function findSizeControlsNearLabel(marketplace) {
+      const labels = Array.from(document.querySelectorAll(
+          'label, legend, div[class*="Label"], span[class*="Label"], span[class*="label"], div[class*="label"], h3, h4, p, span[class*="title"], div[class*="title"]'
+      ));
+      const inMarketplace = isMarketplaceInput(marketplace);
+      for (const labelEl of labels) {
+          if (!isVisibleElement(labelEl)) continue;
+          const text = normalizeText(labelEl.innerText || labelEl.textContent || '').replace(/\s*\*$/, '');
+          if (text !== 'size') continue;
+          let container = labelEl;
+          for (let depth = 0; depth < 6 && container; depth++) {
+              const candidates = Array.from(
+                  container.querySelectorAll('input:not([type="hidden"]), textarea, select, [role="combobox"]')
+              ).filter((candidate) => isVisibleElement(candidate) && inMarketplace(candidate) && !isSizeScaleControl(candidate));
+              if (candidates.length > 0) return candidates;
+              container = container.parentElement;
+          }
+      }
+      return [];
+  }
+
+  function findMarketplaceSizeControl(marketplace, preferredSelector = '') {
+      if (preferredSelector) {
+          const preferred = queryByRecordedSelector(preferredSelector);
+          if (preferred && isEnabledField(preferred) && !isSizeScaleControl(preferred)) return preferred;
+      }
+      const hashed = pickSizeValueControl(queryMarketplaceSizeControls(marketplace));
+      if (hashed) return hashed;
+      for (const sel of marketplaceSizeSelectors(marketplace)) {
+          try {
+              const candidate = document.querySelector(sel);
+              if (candidate && isEnabledField(candidate) && !isSizeScaleControl(candidate)
+                  && (isVisibleElement(candidate) || isAttachedElement(candidate))) {
+                  return candidate;
+              }
+          } catch (_) {}
+      }
+      return pickSizeValueControl(findSizeControlsNearLabel(marketplace));
+  }
+
+  async function fillMarketplaceSize(marketplace, data, preferredSelector = '') {
       const size = listingSizeValue(data);
-      const selectors = marketplaceSizeSelectors(marketplace);
       const attempts = size ? 8 : 1;
       let el = null;
       for (let attempt = 0; attempt < attempts; attempt++) {
-          for (const sel of selectors) {
-              try {
-                  const candidate = document.querySelector(sel);
-                  if (candidate && isEnabledField(candidate) && (isVisibleElement(candidate) || isAttachedElement(candidate))) {
-                      el = candidate;
-                      if (isVisibleElement(candidate)) break;
-                  }
-              } catch (_) {}
-          }
-          if (!el) {
-              el = findInputByExactLabel('Size', isMarketplaceInput(marketplace));
-          }
+          el = findMarketplaceSizeControl(marketplace, preferredSelector);
           if (el && isEnabledField(el)) break;
           el = null;
           await sleep(CONFIG.SLEEP_RETRY);
@@ -3186,7 +3346,7 @@
       const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
       for (const el of controls) {
           if (!inMarketplace(el)) continue;
-          if (want === 'size' && /size\.scale|sizeType|size type/i.test(`${el.id || ''} ${el.name || ''}`)) continue;
+          if (want === 'size' && isSizeScaleControl(el)) continue;
           if (normalizeFieldKey(fieldLabelForControl(el)) === want) return el;
           const idToken = String(el.id || el.name || '').split('.').pop() || '';
           const token = normalizeFieldKey(idToken.replace(/^[0-9a-f]{8,}_/i, '').replace(/^\d+_/, ''));
@@ -3289,7 +3449,7 @@
                   item.value = value;
                   const fieldKey = normalizeFieldKey(fieldName);
                   if (fieldKey === 'size' && marketplace !== 'general' && marketplace !== 'unknown') {
-                      await fillMarketplaceSize(marketplace, { size: value });
+                      await fillMarketplaceSize(marketplace, { size: value }, item.selector);
                       continue;
                   }
                   const el = await waitForPatchControl(item);
@@ -3304,9 +3464,8 @@
                       });
                       continue;
                   }
-                  if (shouldFillAsDropdown(el, fieldName)) {
-                      const isMulti = /\b(tags?|labels?|materials?|features?)\b/i.test(fieldName);
-                      await fillDropdownField(el, value, fieldName, false, isMulti);
+                  if (shouldFillAsDropdown(el, fieldName) || isMultiChipField(fieldName)) {
+                      await fillDropdownField(el, value, fieldName, false, isMultiChipField(fieldName));
                   } else {
                       await fillTextFieldByElement(el, value, fieldName);
                   }
