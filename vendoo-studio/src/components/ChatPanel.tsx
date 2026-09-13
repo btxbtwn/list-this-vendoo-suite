@@ -140,7 +140,10 @@ function assistantDisplayText(text: string): string {
 }
 
 function isPhotoAnalysis(text: string): boolean {
-  return text.startsWith("Photo analysis") && (text.includes("Brand:") || text.includes("Size:"));
+  return (
+    text.startsWith("Photo analysis") &&
+    (/-\s*brand:/i.test(text) || /-\s*size:/i.test(text) || /-\s*color:/i.test(text))
+  );
 }
 
 function isCompResearch(text: string): boolean {

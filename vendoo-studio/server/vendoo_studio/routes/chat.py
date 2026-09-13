@@ -15,10 +15,13 @@ from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.comp_research import comps_search_available, research_sold_comps
 from vendoo_studio.services.listing_generate import (
+    analysis_with_photo_count,
     extract_listing_json,
     format_photo_analysis,
     latest_photo_analysis,
+    normalize_evidence,
     persist_generated_listing,
+    photo_analysis_usable,
     seller_item_details,
 )
 from vendoo_studio.services.listing_patch import apply_json_patch, extract_json_patch
@@ -303,22 +306,32 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
 
     photo_analysis_text = ""
     comps_text = ""
-    if photos and len(history) <= 2:
+    evidence: dict = {}
+    existing_analysis = latest_photo_analysis(history)
+    if photos and existing_analysis:
+        photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
+    elif photos and len(history) <= 2:
         provider = get_listing_provider()
         if provider:
             paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
             result = await provider.analyze_photos(paths, notes="", listing_rules=skill_rules[:8000])
-            evidence = result.get("evidence", {}) or {}
+            evidence = normalize_evidence(result.get("evidence", {}) or {})
 
-            if evidence:
-                analysis_note = format_photo_analysis(evidence).replace("Photo analysis:\n", "Photo analysis of the uploaded product images:\n", 1)
-                repo.add_message(conv_id, "system", "Photo analysis complete:\n" + analysis_note)
-                photo_analysis_text = "\n\n" + analysis_note
+            if photo_analysis_usable(format_photo_analysis(evidence)):
+                analysis_note = format_photo_analysis(evidence).replace(
+                    "Photo analysis:",
+                    "Photo analysis of the uploaded product images:",
+                    1,
+                )
+                repo.add_message(conv_id, "system", analysis_note)
+                photo_analysis_text = analysis_with_photo_count(len(photos), analysis_note)
             else:
-                photo_analysis_text = f"\n\nThe user uploaded {len(photos)} product photos. Use the list-this workflow to generate a listing based on contextual understanding."
+                photo_analysis_text = analysis_with_photo_count(len(photos))
             comps_text = await research_sold_comps(photo_analysis_text, evidence)
             if comps_text:
                 repo.add_message(conv_id, "system", comps_text, provider="brave", model="web-search")
+    elif photos:
+        photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
 
     comps_block = f"\n\n--- Sold comps ---\n\n{comps_text}\n" if comps_text else ""
 
@@ -344,6 +357,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             "If asked whether the listing was updated, say yes or no in a sentence after checking the latest listing JSON in this conversation.\n\n"
             "Key rules:\n"
             "- Never publish. Stop at saved drafts.\n"
+            "- Never ask the seller to upload or attach photos when product photos are already present.\n"
             "- Be conservative with brand and size. Ask when uncertain instead of guessing.\n"
             f"- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at {WOMEN_TOPS_PATH}, never Shirts & Blouses. Men's T-shirts use {MEN_TSHIRT_PATH}.\n"
             "- Follow the title and description formulas EXACTLY from the rules below.\n"
@@ -518,7 +532,9 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     repo.update_status(conv_id, "in_progress")
     skill_rules = _load_skill_rules()
     notes = conv.notes or ""
+    item_details = seller_item_details(notes)
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
+    photo_count = len(photos)
     # Release the request-scoped session before background work opens its own.
     db.close()
 
@@ -535,26 +551,45 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 analysis_text = existing
             else:
                 analysis_task = asyncio.create_task(
-                    provider.analyze_photos(paths, notes=notes, listing_rules=skill_rules[:8000])
+                    provider.analyze_photos(
+                        paths,
+                        notes=item_details,
+                        listing_rules=skill_rules[:8000],
+                    )
                 )
                 child_tasks.append(analysis_task)
                 async for _ in _wait_task_keepalives(analysis_task):
                     run.publish(KEEPALIVE)
                 try:
                     result = analysis_task.result()
-                    evidence = result.get("evidence", {}) or {}
+                    evidence = normalize_evidence(result.get("evidence", {}) or {})
                     if result.get("error") and not evidence:
-                        analysis_text = f"Photo analysis unavailable ({result['error']}). Use contextual knowledge."
+                        analysis_text = (
+                            f"Photo analysis unavailable ({result['error']}). "
+                            "Use seller details and contextual knowledge."
+                        )
                     else:
                         analysis_text = format_photo_analysis(evidence)
+                        if not photo_analysis_usable(analysis_text):
+                            raw = str(result.get("raw") or "").strip()
+                            detail = f" Raw model output: {raw[:500]}" if raw else ""
+                            analysis_text = (
+                                f"Photo analysis unavailable (no structured fields).{detail} "
+                                "Use seller details and contextual knowledge."
+                            )
                 except Exception as e:
-                    analysis_text = f"Photo analysis unavailable ({e}). Use contextual knowledge."
+                    analysis_text = (
+                        f"Photo analysis unavailable ({e}). "
+                        "Use seller details and contextual knowledge."
+                    )
                 stream_repo.add_message(conv_id, "system", analysis_text, provider=vision_name, model=vision_model)
+
+            prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
 
             comps_text = ""
             if comps_search_available():
                 run.publish(_sse_event("status", "Looking up sold comps…"))
-                comps_task = asyncio.create_task(research_sold_comps(analysis_text, evidence))
+                comps_task = asyncio.create_task(research_sold_comps(prompt_analysis, evidence))
                 child_tasks.append(comps_task)
                 async for _ in _wait_task_keepalives(comps_task):
                     run.publish(KEEPALIVE)
@@ -563,8 +598,15 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     source = "chatgpt" if "Source: ChatGPT" in comps_text else "brave"
                     stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
 
-            item_details = seller_item_details(notes)
-            messages = _listing_messages(skill_rules, item_details, analysis_text, stream_db, conv_id, comps_text)
+            messages = _listing_messages(
+                skill_rules,
+                item_details,
+                prompt_analysis,
+                stream_db,
+                conv_id,
+                comps_text,
+                photo_count=photo_count,
+            )
             run.publish(_sse_event("status", "thinking"))
 
             async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
@@ -634,11 +676,19 @@ def _listing_messages(
     db: Session,
     conv_id: str,
     comps_text: str = "",
+    photo_count: int = 0,
 ) -> list[dict]:
     comps_block = f"\n\n--- Sold comps ---\n\n{comps_text}" if comps_text else ""
+    photo_line = (
+        f"The seller already uploaded {photo_count} product photo(s). "
+        "Never ask them to attach or re-upload photos — generate the listing now.\n\n"
+        if photo_count
+        else ""
+    )
     system_content = (
         "You are a product listing generator. Generate a COMPLETE, ready-to-use Vendoo listing JSON "
         "from the photo analysis and listing rules below.\n\n"
+        f"{photo_line}"
         "Use Vendoo's General taxonomy for category_path. Women's shirts and T-shirts must use "
         f'"{WOMEN_TOPS_PATH}", not "Shirts & Blouses". Men\'s T-shirts must use "{MEN_TSHIRT_PATH}".\n\n'
         "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
@@ -681,5 +731,12 @@ def _listing_messages(
     )
     return [
         {"role": "system", "content": system_content},
-        {"role": "user", "content": "Generate a complete listing from these product photos."},
+        {
+            "role": "user",
+            "content": (
+                f"Generate a complete listing from the {photo_count} uploaded product photos."
+                if photo_count
+                else "Generate a complete listing from these product photos."
+            ),
+        },
     ]

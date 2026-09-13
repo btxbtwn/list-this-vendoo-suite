@@ -18,10 +18,12 @@ from vendoo_studio.providers.xiaomi_mimo import StreamChunk, chunk_text, chunk_t
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.routes import chat as chat_routes
 from vendoo_studio.services.listing_generate import (
+    analysis_with_photo_count,
     extract_listing_json,
     format_photo_analysis,
     latest_photo_analysis,
     persist_generated_listing,
+    photo_analysis_usable,
     seller_item_details,
 )
 from vendoo_studio.services.registry import MEN_TSHIRT_PATH
@@ -110,6 +112,19 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         ]
         self.assertTrue(latest_photo_analysis(messages).startswith("Photo analysis:"))
 
+    def test_latest_photo_analysis_skips_empty_header(self):
+        class Msg:
+            def __init__(self, role, text):
+                self.role = role
+                self.text = text
+
+        messages = [
+            Msg("system", "Photo analysis:\n"),
+            Msg("assistant", "I need the photos"),
+        ]
+        self.assertIsNone(latest_photo_analysis(messages))
+        self.assertFalse(photo_analysis_usable("Photo analysis:\n"))
+
     def test_format_photo_analysis(self):
         text = format_photo_analysis({
             "brand": {"value": "M&O Gold"},
@@ -117,6 +132,28 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         })
         self.assertIn("brand: M&O Gold", text)
         self.assertIn("source: tag", text)
+
+    def test_format_photo_analysis_accepts_string_fields(self):
+        text = format_photo_analysis({"brand": "Fruit of the Loom", "size": "M"})
+        self.assertIn("brand: Fruit of the Loom", text)
+        self.assertIn("size: M", text)
+        self.assertTrue(photo_analysis_usable(text))
+
+    def test_analysis_with_photo_count_never_asks_for_uploads(self):
+        text = analysis_with_photo_count(7, "Photo analysis:\n")
+        self.assertIn("already uploaded 7 product photo", text)
+        self.assertIn("Do not ask", text)
+
+    def test_seller_item_details_includes_category_and_labels(self):
+        notes = json.dumps({
+            "condition": "Good",
+            "categoryOverride": "Clothing > Women > Tops",
+            "vendooLabels": "A19, DomStaleInventory",
+            "cog": "1.72",
+        })
+        details = seller_item_details(notes)
+        self.assertIn("Category: Clothing > Women > Tops", details)
+        self.assertIn("Labels: A19, DomStaleInventory", details)
 
     def test_chunk_text_reads_delta_content(self):
         self.assertEqual(chunk_text({"choices": [{"delta": {"content": "Hello"}}]}), "Hello")
@@ -291,6 +328,9 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                     pass
         self.assertEqual(self.provider.analyze_calls, 1)
         self.assertEqual(self.provider.chat_calls, 2)
+        prompt = self.provider.chat_messages[0]["content"]
+        self.assertIn("already uploaded 1 product photo", prompt)
+        self.assertIn("Never ask them to attach", prompt)
         db = self.Session()
         revisions = ListingRepo(db).get_revisions(self.conv_id)
         conv = ConversationRepo(db).get(self.conv_id)
@@ -298,6 +338,20 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(revisions[0].listing_json["title"], LISTING_JSON["title"])
         self.assertEqual(conv.status, "draft")
         db.close()
+
+    async def test_generate_reanalyzes_when_prior_analysis_was_empty(self):
+        db = self.Session()
+        ConversationRepo(db).add_message(self.conv_id, "system", "Photo analysis:\n")
+        db.close()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                async for _ in resp.aiter_text():
+                    pass
+        self.assertEqual(self.provider.analyze_calls, 1)
+        prompt = self.provider.chat_messages[0]["content"]
+        self.assertIn("already uploaded 1 product photo", prompt)
+        self.assertIn("brand: M&O Gold", prompt)
 
     async def test_generate_injects_sold_comps_into_prompt(self):
         comps = (
