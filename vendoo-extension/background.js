@@ -948,6 +948,7 @@ async function runFillFields(jobId, payload) {
 
   const batches = groupFillFieldBatches(payload.fields || []);
   const batchResults = [];
+  let lastSaved = null;
   log(`Filling leftover fields in ${batches.length} batch(es)`);
 
   for (let i = 0; i < batches.length; i++) {
@@ -972,7 +973,10 @@ async function runFillFields(jobId, payload) {
       fields,
     });
     batchResults.push(result);
-    if (!result.ok) {
+    log(`Saving leftover ${marketplace} form`);
+    const saved = await sendToVendoo(job, saveCommandForMarketplace(marketplace));
+    lastSaved = saved;
+    if (!result.ok || !saved.ok) {
       activePatch = null;
       await stopJobPreview();
       send({
@@ -983,7 +987,9 @@ async function runFillFields(jobId, payload) {
         sent_at: new Date().toISOString(),
         payload: {
           step: 'filling_fields',
-          error: result.error || 'Leftover field fill failed',
+          error: !result.ok
+            ? (result.error || 'Leftover field fill failed')
+            : (saved.error || 'Filled fields, but Vendoo did not save the draft'),
           fill_log: mergeFillLogs(batchResults),
         },
       });
@@ -992,26 +998,8 @@ async function runFillFields(jobId, payload) {
   }
 
   const fillLog = mergeFillLogs(batchResults);
-  const saved = await sendToVendoo(job, { type: 'SAVE_GENERAL' });
   activePatch = null;
   await stopJobPreview();
-
-  if (!saved.ok) {
-    send({
-      version: 1,
-      type: 'job.step_failed',
-      job_id: jobId,
-      message_id: Date.now().toString(36),
-      sent_at: new Date().toISOString(),
-      payload: {
-        step: 'filling_fields',
-        error: saved.error || 'Filled fields, but Vendoo did not save the draft',
-        fill_log: fillLog,
-      },
-    });
-    return;
-  }
-
   await sleep(1500);
 
   send({
@@ -1022,8 +1010,8 @@ async function runFillFields(jobId, payload) {
     sent_at: new Date().toISOString(),
     payload: {
       step: 'filling_fields',
-      vendoo_item_id: saved.vendoo_item_id || payload.vendoo_item_id || null,
-      vendoo_url: saved.vendoo_url || payload.vendoo_url || null,
+      vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id || null,
+      vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url || null,
       fill_log: fillLog,
     },
   });
@@ -1058,6 +1046,14 @@ function mergeFillLogs(results) {
     marketplace: entries[0].marketplace || 'general',
     entries,
   };
+}
+
+function saveCommandForMarketplace(marketplace) {
+  const platform = String(marketplace || 'general').toLowerCase();
+  if (platform && platform !== 'general' && platform !== 'unknown') {
+    return { type: 'SAVE_MARKETPLACE', platform };
+  }
+  return { type: 'SAVE_GENERAL' };
 }
 
 function commandTimeoutMs(command) {
