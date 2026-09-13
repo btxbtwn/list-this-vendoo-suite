@@ -169,6 +169,89 @@ def _responses_text(payload: dict) -> str:
         return ""
 
 
+def _output_items(payload: dict) -> list[dict]:
+    event_type = str(payload.get("type") or "")
+    if event_type == "response.completed":
+        response = payload.get("response")
+        if isinstance(response, dict) and isinstance(response.get("output"), list):
+            return [item for item in response["output"] if isinstance(item, dict)]
+    if event_type.endswith("output_item.done"):
+        item = payload.get("item")
+        if isinstance(item, dict):
+            return [item]
+    output = payload.get("output")
+    if isinstance(output, list):
+        return [item for item in output if isinstance(item, dict)]
+    return []
+
+
+def web_search_answer(output: list[dict]) -> str:
+    parts: list[str] = []
+    for item in output:
+        if item.get("type") != "message":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text") or part.get("output_text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+    return "\n".join(parts).strip()
+
+
+def web_search_sources(output: list[dict]) -> list[dict]:
+    sources: list[dict] = []
+    seen: set[str] = set()
+
+    def add(url: object, title: object, snippet: object = "") -> None:
+        href = str(url or "").strip()
+        if not href or href in seen:
+            return
+        seen.add(href)
+        sources.append({
+            "url": href,
+            "title": str(title or "").strip(),
+            "description": str(snippet or "").strip(),
+        })
+
+    for item in output:
+        if item.get("type") == "message":
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                annotations = part.get("annotations")
+                if not isinstance(annotations, list):
+                    continue
+                for annotation in annotations:
+                    if not isinstance(annotation, dict):
+                        continue
+                    if annotation.get("type") != "url_citation":
+                        continue
+                    add(annotation.get("url"), annotation.get("title"))
+            continue
+        if item.get("type") != "web_search_call":
+            continue
+        action = item.get("action") if isinstance(item.get("action"), dict) else {}
+        for group in (action.get("sources"), item.get("sources"), item.get("results")):
+            if not isinstance(group, list):
+                continue
+            for source in group:
+                if not isinstance(source, dict):
+                    continue
+                add(
+                    source.get("url") or source.get("source_website_url"),
+                    source.get("title") or source.get("caption"),
+                    source.get("description") or source.get("snippet"),
+                )
+    return sources
+
+
 def _content_type_for_role(role: str) -> str:
     return "output_text" if role in {"assistant", "model"} else "input_text"
 
@@ -326,29 +409,46 @@ class ChatGPTCodexProvider:
         async for content in self._complete(messages, model=self.listing_model):
             yield content
 
-    def _payload(self, messages: list[dict], model: str, stream: bool) -> dict:
+    def _payload(
+        self,
+        messages: list[dict],
+        model: str,
+        stream: bool,
+        *,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        include: list[str] | None = None,
+        reasoning_effort: str | None = None,
+    ) -> dict:
         instructions, items = _messages_to_input(messages)
+        effort = clamp_reasoning_effort(reasoning_effort or self.reasoning_effort, model)
         payload: dict = {
             "model": model,
             "input": items or [{"role": "user", "content": [{"type": "input_text", "text": "Continue."}], "type": "message"}],
             "store": False,
             "stream": stream,
-            "reasoning": {"effort": clamp_reasoning_effort(self.reasoning_effort, model)},
+            "reasoning": {"effort": effort},
         }
         if payload["reasoning"]["effort"] != "none":
             payload["reasoning"]["summary"] = "auto"
         if instructions:
             payload["instructions"] = instructions
+        if tools:
+            payload["tools"] = tools
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
+        if include:
+            payload["include"] = include
         return payload
 
-    async def _stream(self, messages: list[dict], model: str):
+    async def _stream(self, messages: list[dict], model: str, **payload_kwargs):
         headers = await self._headers()
         async with httpx.AsyncClient(timeout=300) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/responses",
                 headers=headers,
-                json=self._payload(messages, model, True),
+                json=self._payload(messages, model, True, **payload_kwargs),
             ) as resp:
                 if resp.status_code >= 400:
                     await resp.aread()
@@ -381,6 +481,98 @@ class ChatGPTCodexProvider:
         if not text:
             raise RuntimeError("ChatGPT returned an empty listing response")
         yield text
+
+    async def web_search(self, query: str) -> dict:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are researching sold prices for a secondhand marketplace listing. "
+                    "Search the live web for recently sold comps on eBay, Poshmark, Mercari, Depop, and Etsy. "
+                    "Return only a research note with a typical sold price range in USD, 3-8 specific comps "
+                    "with price, marketplace, condition, and URL when available, and whether this item sits "
+                    "at the high or low end. Do not write a listing. Do not invent prices. "
+                    "If you cannot find sold comps, say so."
+                ),
+            },
+            {"role": "user", "content": f"Find recently sold marketplace comps for: {query}"},
+        ]
+        errors: list[str] = []
+        attempts = (
+            {"external_web_access": True, "tool_choice": "required"},
+            {"tool_choice": "required"},
+        )
+        for attempt in attempts:
+            tool: dict = {"type": "web_search"}
+            if attempt.get("external_web_access"):
+                tool["external_web_access"] = True
+            try:
+                return await self._web_search_once(
+                    messages,
+                    tools=[tool],
+                    tool_choice=str(attempt["tool_choice"]),
+                )
+            except Exception as exc:
+                errors.append(str(exc))
+        raise RuntimeError(errors[-1] if errors else "ChatGPT web search failed")
+
+    async def _web_search_once(self, messages: list[dict], *, tools: list[dict], tool_choice: str) -> dict:
+        answer = ""
+        output: list[dict] = []
+        async for chunk in self._stream_search(
+            messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            include=["web_search_call.action.sources"],
+            reasoning_effort="low",
+        ):
+            kind, piece = unpack_stream_item(chunk)
+            if kind == "content":
+                answer += piece
+            elif kind == "output":
+                try:
+                    items = json.loads(piece)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(items, list):
+                    output.extend(item for item in items if isinstance(item, dict))
+        sources = web_search_sources(output)
+        completed = web_search_answer(output)
+        text = completed or answer.strip()
+        if not text and not sources:
+            raise RuntimeError("ChatGPT web search returned no results")
+        return {"answer": text, "sources": sources}
+
+    async def _stream_search(self, messages: list[dict], **payload_kwargs):
+        headers = await self._headers()
+        async with httpx.AsyncClient(timeout=120) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/responses",
+                headers=headers,
+                json=self._payload(messages, self.listing_model, True, **payload_kwargs),
+            ) as resp:
+                if resp.status_code >= 400:
+                    await resp.aread()
+                    raise RuntimeError(_http_error(resp))
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    data_str = line[5:].strip() if line.startswith("data:") else line.strip()
+                    if not data_str or data_str == "[DONE]":
+                        if data_str == "[DONE]":
+                            break
+                        continue
+                    try:
+                        payload = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    text = _responses_text(payload)
+                    if text:
+                        yield StreamChunk(text, "content")
+                    items = _output_items(payload)
+                    if items:
+                        yield StreamChunk(json.dumps(items), "output")
 
     def _parse_json_response(self, content: str) -> dict:
         import re

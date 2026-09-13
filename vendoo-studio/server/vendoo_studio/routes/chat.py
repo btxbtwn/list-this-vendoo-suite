@@ -13,6 +13,7 @@ from vendoo_studio.config import PHOTOS_DIR, skills_dir
 from vendoo_studio.database import SessionLocal, get_db
 from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+from vendoo_studio.services.comp_research import comps_search_available, research_sold_comps
 from vendoo_studio.services.listing_generate import (
     extract_listing_json,
     format_photo_analysis,
@@ -191,6 +192,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
     skill_rules = _load_skill_rules()
 
     photo_analysis_text = ""
+    comps_text = ""
     if photos and len(history) <= 2:
         provider = get_listing_provider()
         if provider:
@@ -204,6 +206,11 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
                 photo_analysis_text = "\n\n" + analysis_note
             else:
                 photo_analysis_text = f"\n\nThe user uploaded {len(photos)} product photos. Use the list-this workflow to generate a listing based on contextual understanding."
+            comps_text = await research_sold_comps(photo_analysis_text, evidence)
+            if comps_text:
+                repo.add_message(conv_id, "system", comps_text, provider="brave", model="web-search")
+
+    comps_block = f"\n\n--- Sold comps ---\n\n{comps_text}\n" if comps_text else ""
 
     system_prompt = {
         "role": "system",
@@ -233,6 +240,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             "- Always fill ALL eBay specifics when generating a complete listing.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
             + (f"\n{photo_analysis_text}\n\n" if photo_analysis_text else "") +
+            comps_block +
             f"\n--- Listing Rules ---\n\n{skill_rules}"
             if skill_rules
             else ""
@@ -404,6 +412,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         stream_repo = ConversationRepo(stream_db)
         full_text = ""
         try:
+            evidence: dict = {}
             existing = latest_photo_analysis(stream_repo.get_messages(conv_id))
             if existing:
                 analysis_text = existing
@@ -428,8 +437,23 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     analysis_text = f"Photo analysis unavailable ({e}). Use contextual knowledge."
                 stream_repo.add_message(conv_id, "system", analysis_text, provider=vision_name, model=vision_model)
 
+            comps_text = ""
+            if comps_search_available():
+                yield _sse_event("status", "Looking up sold comps…")
+                comps_task = asyncio.create_task(research_sold_comps(analysis_text, evidence))
+                while not comps_task.done():
+                    yield KEEPALIVE
+                    try:
+                        await asyncio.wait_for(asyncio.shield(comps_task), timeout=10)
+                    except asyncio.TimeoutError:
+                        continue
+                comps_text = comps_task.result()
+                if comps_text:
+                    source = "chatgpt" if "Source: ChatGPT" in comps_text else "brave"
+                    stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
+
             item_details = seller_item_details(notes)
-            messages = _listing_messages(skill_rules, item_details, analysis_text, stream_db, conv_id)
+            messages = _listing_messages(skill_rules, item_details, analysis_text, stream_db, conv_id, comps_text)
             yield _sse_event("status", "thinking")
 
             async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
@@ -473,7 +497,15 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     return StreamingResponse(stream_response(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
-def _listing_messages(skill_rules: str, item_details: str, analysis_text: str, db: Session, conv_id: str) -> list[dict]:
+def _listing_messages(
+    skill_rules: str,
+    item_details: str,
+    analysis_text: str,
+    db: Session,
+    conv_id: str,
+    comps_text: str = "",
+) -> list[dict]:
+    comps_block = f"\n\n--- Sold comps ---\n\n{comps_text}" if comps_text else ""
     system_content = (
         "You are a product listing generator. Generate a COMPLETE, ready-to-use Vendoo listing JSON "
         "from the photo analysis and listing rules below.\n\n"
@@ -484,7 +516,9 @@ def _listing_messages(skill_rules: str, item_details: str, analysis_text: str, d
         '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
         "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
         "If seller-provided measurements (Pit to pit, Length) are given, use them exactly as-is in the description.\n"
-        "Do not modify, estimate, or replace seller-provided measurements.\n\n"
+        "Do not modify, estimate, or replace seller-provided measurements.\n"
+        "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
+        "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
         "Output the full listing JSON inside a fenced code block:\n\n"
         "```json\n"
         "{\n"
@@ -510,7 +544,8 @@ def _listing_messages(skill_rules: str, item_details: str, analysis_text: str, d
         "}\n"
         "```\n\n"
         f"{item_details}\n\n"
-        f"{analysis_text}\n\n"
+        f"{analysis_text}"
+        f"{comps_block}\n\n"
         f"--- Listing Rules ---\n\n{skill_rules}"
         f"{_learned_fields_prompt(db, conv_id)}"
     )

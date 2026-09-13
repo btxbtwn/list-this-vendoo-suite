@@ -56,13 +56,11 @@ def _chatgpt_status() -> ChatGPTStatus:
 @router.get("/provider")
 def get_provider():
     from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
-    from vendoo_studio.services.keychain import get_api_key
+    from vendoo_studio.services.keychain import get_api_key, mask_secret
 
     chatgpt = _chatgpt_status()
     key = get_api_key()
-    masked = None
-    if key:
-        masked = key[:8] + "..." + key[-4:] if len(key) > 12 else "***"
+    masked = mask_secret(key)
 
     if chatgpt_signed_in():
         from vendoo_studio.providers.chatgpt_codex import resolved_chatgpt_models
@@ -244,3 +242,46 @@ async def chatgpt_logout():
     await chatgpt_oauth.cancel_login()
     chatgpt_oauth.logout()
     return {"ok": True}
+
+
+class BraveConfig(BaseModel):
+    api_key: str | None = None
+
+
+def _brave_payload() -> dict:
+    from vendoo_studio.services.keychain import get_brave_api_key, mask_secret
+
+    key = get_brave_api_key()
+    return {"configured": bool(key), "masked_key": mask_secret(key)}
+
+
+@router.get("/brave")
+def get_brave():
+    return _brave_payload()
+
+
+@router.put("/brave")
+def set_brave(config: BraveConfig):
+    from vendoo_studio.services.keychain import set_brave_api_key
+
+    key = (config.api_key or "").strip()
+    if not key:
+        raise HTTPException(400, "API key is required")
+    set_brave_api_key(key)
+    return {"ok": True, **_brave_payload()}
+
+
+@router.delete("/brave")
+def delete_brave():
+    from vendoo_studio.services.keychain import delete_brave_api_key
+
+    delete_brave_api_key()
+    return {"ok": True, **_brave_payload()}
+
+
+@router.post("/brave/test")
+async def test_brave():
+    from vendoo_studio.services.brave_search import test_brave_connection
+
+    ok, error = await test_brave_connection()
+    return {"ok": ok, "error": error}

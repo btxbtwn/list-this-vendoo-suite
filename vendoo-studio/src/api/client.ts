@@ -124,6 +124,17 @@ export const api = {
       }),
     deleteKey: () => request<any>("/settings/provider/key", { method: "DELETE" }),
     testConnection: () => request<any>("/settings/provider/test", { method: "POST" }),
+    brave: () => request<{ configured: boolean; masked_key: string | null }>("/settings/brave"),
+    setBrave: (apiKey: string) =>
+      request<{ ok: boolean; configured: boolean; masked_key: string | null }>("/settings/brave", {
+        method: "PUT",
+        body: JSON.stringify({ api_key: apiKey }),
+      }),
+    deleteBrave: () =>
+      request<{ ok: boolean; configured: boolean; masked_key: string | null }>("/settings/brave", {
+        method: "DELETE",
+      }),
+    testBrave: () => request<{ ok: boolean; error?: string | null }>("/settings/brave/test", { method: "POST" }),
     chatgptLogin: () => request<any>("/settings/chatgpt/login", { method: "POST" }),
     chatgptCancelLogin: () => request<any>("/settings/chatgpt/login", { method: "DELETE" }),
     chatgptLogout: () => request<any>("/settings/chatgpt", { method: "DELETE" }),

@@ -5,16 +5,27 @@ import threading
 
 KEYRING_SERVICE = "vendoo-studio"
 KEYRING_ACCOUNT = "xiaomi-mimo-api-key"
+BRAVE_ACCOUNT = "brave-search-api-key"
 CHATGPT_ACCOUNT = "chatgpt-codex-oauth"
 CHATGPT_MODELS_ACCOUNT = "chatgpt-models"
 
 _lock = threading.Lock()
 _loaded = False
 _cached_key: str | None = None
+_brave_loaded = False
+_cached_brave_key: str | None = None
 _chatgpt_loaded = False
 _cached_chatgpt: dict | None = None
 _chatgpt_models_loaded = False
 _cached_chatgpt_models: dict | None = None
+
+
+def mask_secret(value: str | None) -> str | None:
+    if not value:
+        return None
+    if len(value) > 12:
+        return value[:8] + "..." + value[-4:]
+    return "***"
 
 
 def get_api_key() -> str | None:
@@ -50,6 +61,41 @@ def delete_api_key():
     with _lock:
         _cached_key = None
         _loaded = True
+
+
+def get_brave_api_key() -> str | None:
+    global _brave_loaded, _cached_brave_key
+    with _lock:
+        if _brave_loaded:
+            return _cached_brave_key
+        try:
+            import keyring
+            _cached_brave_key = keyring.get_password(KEYRING_SERVICE, BRAVE_ACCOUNT)
+        except Exception:
+            _cached_brave_key = None
+        _brave_loaded = True
+        return _cached_brave_key
+
+
+def set_brave_api_key(key: str):
+    global _brave_loaded, _cached_brave_key
+    import keyring
+    keyring.set_password(KEYRING_SERVICE, BRAVE_ACCOUNT, key)
+    with _lock:
+        _cached_brave_key = key
+        _brave_loaded = True
+
+
+def delete_brave_api_key():
+    global _brave_loaded, _cached_brave_key
+    try:
+        import keyring
+        keyring.delete_password(KEYRING_SERVICE, BRAVE_ACCOUNT)
+    except Exception:
+        pass
+    with _lock:
+        _cached_brave_key = None
+        _brave_loaded = True
 
 
 def get_chatgpt_tokens() -> dict | None:

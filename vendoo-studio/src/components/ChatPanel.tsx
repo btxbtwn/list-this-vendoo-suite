@@ -142,11 +142,15 @@ function isPhotoAnalysis(text: string): boolean {
   return text.startsWith("Photo analysis") && (text.includes("Brand:") || text.includes("Size:"));
 }
 
+function isCompResearch(text: string): boolean {
+  return text.startsWith("Sold comps:");
+}
+
 function isStreamError(text: string): boolean {
   return text.startsWith("Error:");
 }
 
-type SseParts = { content: string; thinking: string };
+type SseParts = { content: string; thinking: string; status: string };
 
 async function consumeSse(
   reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -155,7 +159,7 @@ async function consumeSse(
   const decoder = new TextDecoder();
   let buffer = "";
   let eventType = "message";
-  const parts: SseParts = { content: "", thinking: "" };
+  const parts: SseParts = { content: "", thinking: "", status: "" };
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -180,7 +184,8 @@ async function consumeSse(
         continue;
       }
       if (eventType === "thinking") parts.thinking += chunk;
-      else if (eventType !== "status") parts.content += chunk;
+      else if (eventType === "status") parts.status = chunk;
+      else parts.content += chunk;
       onEvent(eventType, parts);
     }
   }
@@ -193,6 +198,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   const [generating, setGenerating] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [streamThinking, setStreamThinking] = useState("");
+  const [streamStatus, setStreamStatus] = useState("");
   const [thinkingStarted, setThinkingStarted] = useState(false);
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(null);
   const [lastSendText, setLastSendText] = useState("");
@@ -231,6 +237,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     setGenerating(false);
     setStreamText("");
     setStreamThinking("");
+    setStreamStatus("");
     setThinkingStarted(false);
     setFailedAction(null);
     setLastSendText("");
@@ -249,6 +256,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     if (!isCurrent()) return;
     if (event === "thinking" || event === "status") setThinkingStarted(true);
     if (event === "thinking") setStreamThinking(parts.thinking);
+    if (event === "status") setStreamStatus(parts.status);
     if (event !== "thinking" && event !== "status") setStreamText(parts.content);
   }, [isCurrent]);
 
@@ -259,6 +267,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     setStreaming(true);
     setStreamText("");
     setStreamThinking("");
+    setStreamStatus("");
     setThinkingStarted(false);
     setFailedAction(null);
     let assembled = "";
@@ -269,6 +278,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         if (isCurrent()) {
           setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
           setStreamThinking("");
+    setStreamStatus("");
           setFailedAction("generate");
           setStreaming(false);
           setGenerating(false);
@@ -298,6 +308,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         if (isCurrent()) {
           setStreamText("");
           setStreamThinking("");
+    setStreamStatus("");
           setThinkingStarted(false);
           setFailedAction(null);
           setStreaming(false);
@@ -309,6 +320,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         assembled = `Error: ${e.message}`;
         setStreamText(assembled);
         setStreamThinking("");
+    setStreamStatus("");
         setFailedAction("generate");
       }
     }
@@ -324,6 +336,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     if (isCurrent() && !failed) {
       setStreamText("");
       setStreamThinking("");
+    setStreamStatus("");
       setThinkingStarted(false);
     }
   }, [applySseParts, convId, isCurrent, queryClient]);
@@ -343,6 +356,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     setStreaming(true);
     setStreamText("");
     setStreamThinking("");
+    setStreamStatus("");
     setThinkingStarted(true);
     setFailedAction(null);
     try {
@@ -357,6 +371,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         if (isCurrent()) {
           setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
           setStreamThinking("");
+    setStreamStatus("");
           setFailedAction("send");
           setStreaming(false);
         }
@@ -379,6 +394,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (isCurrent() && !isStreamError(assembled)) {
         setStreamText("");
         setStreamThinking("");
+    setStreamStatus("");
         setThinkingStarted(false);
       }
       return;
@@ -387,6 +403,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         if (isCurrent()) {
           setStreamText("");
           setStreamThinking("");
+    setStreamStatus("");
           setThinkingStarted(false);
           setFailedAction(null);
           if (restoreOnAbortRef.current) setInput(text);
@@ -398,6 +415,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (isCurrent()) {
         setStreamText(`Error: ${e.message}`);
         setStreamThinking("");
+    setStreamStatus("");
         setFailedAction("send");
         setStreaming(false);
       }
@@ -464,6 +482,17 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       );
     }
 
+    if (m.role === "system" && isCompResearch(m.text)) {
+      const lines = m.text.split("\n").filter((l: string) => l.trim());
+      const body = lines.slice(1).join("\n");
+      return (
+        <div key={m.id} className="evidence-card">
+          <div className="evidence-header">SOLD COMPS</div>
+          <div className="evidence-body">{body || m.text}</div>
+        </div>
+      );
+    }
+
     if (m.role === "system") {
       return (
         <div key={m.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "4px 0" }}>
@@ -512,7 +541,11 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
             <div className="thinking-header">
               <div className="thinking-dot" />
               <span className="text-xs font-mono text-muted">
-                {generating && !thinkingStarted && !streamThinking ? "Analyzing photos…" : "Thinking"}
+                {generating && !streamThinking
+                  ? streamStatus && streamStatus !== "thinking"
+                    ? streamStatus
+                    : "Analyzing photos…"
+                  : "Thinking"}
               </span>
             </div>
             {streamThinking ? (

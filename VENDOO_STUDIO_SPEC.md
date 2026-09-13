@@ -308,6 +308,11 @@ PUT    /api/settings/provider
 POST   /api/settings/provider/test
 DELETE /api/settings/provider/key
 
+GET    /api/settings/brave
+PUT    /api/settings/brave
+POST   /api/settings/brave/test
+DELETE /api/settings/brave
+
 POST   /api/conversations
 GET    /api/conversations
 GET    /api/conversations/{conversation_id}
@@ -900,7 +905,6 @@ Live Vendoo smoke test:
 - Multiple simultaneous automation jobs.
 - LibreChat or T3 Code integration.
 - Direct automation of native marketplace sites.
-- Automatic comp research without a separately selected search provider.
 - Native Messaging unless browser-based photo upload fails.
 - A generalized provider framework beyond the small MiMo boundary.
 
