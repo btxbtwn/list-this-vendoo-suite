@@ -2311,6 +2311,22 @@ details[open] .json-collapse-summary::before {
   font-size: 12px;
 }
 
+.pr-section-block + .pr-section-block {
+  margin-top: 2px;
+}
+
+.pr-section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 8px 4px;
+  background: var(--color-ink-hover);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+}
+
 .pr-diff-line {
   display: flex;
   align-items: center;
@@ -2345,7 +2361,7 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-diff-name {
-  flex: 0 0 92px;
+  flex: 0 0 148px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
