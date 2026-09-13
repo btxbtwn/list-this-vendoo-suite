@@ -75,6 +75,41 @@ class ChromeBridgeTest(unittest.TestCase):
         self.assertFalse(chrome_bridge.needs_worker_reload(None, None, False))
         self.assertTrue(chrome_bridge.needs_worker_reload("abc", "abc", True))
 
+    def test_build_status_matches_bundled_version(self):
+        (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
+        chrome_bridge.install_bundled_extension()
+        status = chrome_bridge.extension_build_status("0.2.6", None)
+        self.assertTrue(status["up_to_date"])
+        self.assertFalse(status["reload_pending"])
+        self.assertEqual(status["expected_version"], "0.2.6")
+        self.assertEqual(status["version"], "0.2.6")
+
+    def test_build_status_reports_version_mismatch(self):
+        (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
+        chrome_bridge.install_bundled_extension()
+        status = chrome_bridge.extension_build_status("0.2.5", None)
+        self.assertFalse(status["up_to_date"])
+        self.assertEqual(status["expected_version"], "0.2.6")
+        self.assertEqual(status["version"], "0.2.5")
+
+    def test_build_status_stale_when_source_changed(self):
+        (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
+        chrome_bridge.install_bundled_extension()
+        (self.extension / "background.js").write_text("console.log('new')\n", encoding="utf-8")
+        status = chrome_bridge.extension_build_status("0.2.6", None)
+        self.assertFalse(status["up_to_date"])
+        self.assertTrue(status["reload_pending"])
+        self.assertFalse(status["files_in_sync"])
+
+    def test_build_status_stale_until_reload_generation_matches(self):
+        (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
+        chrome_bridge.install_bundled_extension()
+        token = chrome_bridge.mark_extension_reload_pending()
+        stale = chrome_bridge.extension_build_status("0.2.6", None)
+        self.assertFalse(stale["up_to_date"])
+        current = chrome_bridge.extension_build_status("0.2.6", token)
+        self.assertTrue(current["up_to_date"])
+
     def test_launch_args_load_extension_into_private_profile(self):
         args = chrome_bridge.launch_args(
             Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),

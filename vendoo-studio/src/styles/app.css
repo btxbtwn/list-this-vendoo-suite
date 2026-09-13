@@ -386,6 +386,14 @@ input, select, textarea {
   background: var(--color-success);
 }
 
+.status-dot.outdated {
+  background: var(--color-draft);
+}
+
+.status-outdated {
+  color: var(--color-draft);
+}
+
 /* ── Buttons ── */
 
 .btn {

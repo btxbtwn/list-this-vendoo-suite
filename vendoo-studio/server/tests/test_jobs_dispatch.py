@@ -13,7 +13,7 @@ from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.job import Job
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import JobRepo
-from vendoo_studio.routes.extension import ExtensionManager, dispatch_queued_jobs, handshake_extension
+from vendoo_studio.routes.extension import ExtensionManager, dispatch_queued_jobs, extension_status, handshake_extension
 
 
 class FakeSocket:
@@ -262,6 +262,30 @@ class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(accepted)
         self.assertEqual(socket.sent[0]["type"], "connection.accepted")
         clear.assert_called_once()
+
+
+class ExtensionStatusRouteTest(unittest.TestCase):
+    def test_status_includes_build_fields(self):
+        manager = ExtensionManager()
+        manager.version = "0.2.5"
+        manager.reload_generation = None
+        with patch("vendoo_studio.routes.extension.extension_manager", manager), patch(
+            "vendoo_studio.routes.extension.extension_build_status",
+            return_value={
+                "expected_version": "0.2.6",
+                "version": "0.2.5",
+                "up_to_date": False,
+                "reload_pending": False,
+                "files_in_sync": True,
+            },
+        ) as build:
+            payload = extension_status()
+
+        build.assert_called_once_with("0.2.5", None)
+        self.assertFalse(payload["connected"])
+        self.assertFalse(payload["up_to_date"])
+        self.assertEqual(payload["expected_version"], "0.2.6")
+        self.assertEqual(payload["version"], "0.2.5")
 
 
 if __name__ == "__main__":
