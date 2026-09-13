@@ -101,6 +101,11 @@ async function showWindow(windowId) {
     return;
   }
   try {
+    const win = await chrome.windows.get(windowId);
+    if (win && !isOffscreenEngineWindow(win) && win.state !== 'minimized') {
+      await chrome.windows.update(windowId, { focused: true, state: 'normal' });
+      return;
+    }
     await chrome.windows.update(windowId, {
       focused: true,
       state: 'normal',
@@ -232,12 +237,7 @@ async function preparePageForCapture(tabId) {
     });
   } catch (_) {}
   try {
-    await chrome.debugger.sendCommand({ tabId }, 'Emulation.setDeviceMetricsOverride', {
-      width: ENGINE_WIDTH,
-      height: ENGINE_HEIGHT,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
+    await chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride');
   } catch (_) {}
 }
 
@@ -288,15 +288,21 @@ function armPreviewWatchdog(tabId, jobId) {
   if (previewWatchdogTimer) {
     clearTimeout(previewWatchdogTimer);
   }
-  previewWatchdogTimer = setTimeout(() => {
+  previewWatchdogTimer = setTimeout(async () => {
     previewWatchdogTimer = null;
     if (previewJobId !== jobId || previewTabId !== tabId || lastPreviewSentAt) {
       return;
     }
-    log('Preview screencast produced no frames; polling screenshots');
-    if (previewAttached) {
+    log('Visible-tab preview produced no frames; polling debugger screenshots');
+    try {
+      await chrome.debugger.attach({ tabId }, PREVIEW_PROTOCOL);
+      previewAttached = true;
+      await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
+      await preparePageForCapture(tabId);
       startDebuggerScreenshotPoll(tabId, jobId);
-    } else {
+    } catch (err) {
+      previewAttached = false;
+      log(`Preview debugger unavailable (${err.message}); keeping visible-tab capture`);
       startVisibleTabPoll(tabId, jobId);
     }
   }, PREVIEW_WATCHDOG_MS);
@@ -313,6 +319,9 @@ async function stopJobPreview() {
   if (attached && tabId != null) {
     try {
       await chrome.debugger.sendCommand({ tabId }, 'Page.stopScreencast');
+    } catch (_) {}
+    try {
+      await chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride');
     } catch (_) {}
     try {
       await chrome.debugger.detach({ tabId });
@@ -336,29 +345,10 @@ async function startJobPreview(tabId, jobId) {
   await stopJobPreview();
   previewTabId = tabId;
   previewJobId = jobId;
-  try {
-    await chrome.debugger.attach({ tabId }, PREVIEW_PROTOCOL);
-    previewAttached = true;
-    await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
-    await preparePageForCapture(tabId);
-    try {
-      await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
-        format: 'jpeg',
-        quality: PREVIEW_QUALITY,
-        maxWidth: PREVIEW_MAX_WIDTH,
-        maxHeight: PREVIEW_MAX_HEIGHT,
-        everyNthFrame: 2,
-      });
-      log(`Preview screencast started on tab ${tabId}`);
-    } catch (screencastErr) {
-      log(`Preview screencast failed (${screencastErr.message}); polling screenshots`);
-    }
-    startDebuggerScreenshotPoll(tabId, jobId);
-  } catch (err) {
-    previewAttached = false;
-    log(`Preview debugger unavailable (${err.message}); using visible-tab capture fallback`);
-    startVisibleTabPoll(tabId, jobId);
-  }
+  // Visible window: snapshot the real tab. Screencast + device-metrics
+  // override fight the OS scale and make Vendoo's layout pulse.
+  startVisibleTabPoll(tabId, jobId);
+  armPreviewWatchdog(tabId, jobId);
 }
 
 try {
