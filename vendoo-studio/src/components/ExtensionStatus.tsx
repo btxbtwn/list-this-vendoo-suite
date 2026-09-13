@@ -10,7 +10,7 @@ export function ExtensionStatus() {
   });
 
   const connected = Boolean(data?.connected);
-  const outdated = data?.up_to_date === false;
+  const outdated = connected && data?.up_to_date === false;
   const expected = data?.expected_version || null;
   const running = data?.version || null;
 
@@ -22,6 +22,7 @@ export function ExtensionStatus() {
     ? [
         expected ? `This Studio build expects extension ${expected}.` : "This Studio build has a newer extension.",
         running ? `Chrome is running ${running}.` : "Connect Chrome again so it matches this build.",
+        "Reload the unpacked extension on chrome://extensions if the version does not update.",
       ].join(" ")
     : undefined;
 

@@ -31,6 +31,8 @@ EXTENSION_SKIP = {
     "IMPROVEMENTS.md",
     "README.md",
     "TROUBLESHOOTING.md",
+    "__pycache__",
+    "node_modules",
     "sample-listing.json",
     "skills",
     "test-script.js",
@@ -67,7 +69,12 @@ def pending_reload_path() -> Path:
 
 
 def _ignored_name(name: str) -> bool:
-    return name in EXTENSION_SKIP or name.startswith(".") or name.endswith(".log")
+    return (
+        name in EXTENSION_SKIP
+        or name.startswith(".")
+        or name.startswith("_")
+        or name.endswith(".log")
+    )
 
 
 def _ignore_extension(_directory: str, names: list[str]) -> list[str]:
@@ -212,14 +219,17 @@ def extension_build_status(
     expected_version = bundled_extension_version()
     files_in_sync = extension_files_in_sync()
     pending = pending_extension_reload_token()
-    reload_pending = needs_worker_reload(pending, reported_generation, not files_in_sync)
+    # Everyday Chrome loads the unpacked folder the user chose, not Studio's
+    # Application Support copy. A leftover shadow copy, Chrome _metadata, or an
+    # uncleared reload token must not mark the running extension outdated.
+    reload_pending = needs_worker_reload(pending, reported_generation, False)
     version_mismatch = bool(
         reported_version and expected_version and reported_version != expected_version
     )
     return {
         "expected_version": expected_version,
         "version": reported_version,
-        "up_to_date": (not reload_pending) and (not version_mismatch),
+        "up_to_date": not version_mismatch,
         "reload_pending": reload_pending,
         "files_in_sync": files_in_sync,
     }

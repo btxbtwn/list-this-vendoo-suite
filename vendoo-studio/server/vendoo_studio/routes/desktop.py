@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from vendoo_studio.services.chrome_bridge import ChromeBridgeError, chrome_executable, launch_studio_chrome
+from vendoo_studio.services.chrome_bridge import ChromeBridgeError, chrome_executable, relaunch_studio_chrome
 
 router = APIRouter(prefix="/api/desktop", tags=["desktop"])
 
@@ -23,7 +23,7 @@ def chrome_status():
 @router.post("/chrome/connect")
 async def connect_chrome():
     try:
-        result = launch_studio_chrome(visible=True)
+        result = relaunch_studio_chrome(visible=True)
         result.setdefault("via", "chrome")
         return result
     except ChromeBridgeError as exc:
