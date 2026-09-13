@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { OpenListingButton } from "./OpenListingButton";
 
 interface PreviewFrame {
   mime: string;
@@ -13,11 +14,21 @@ interface Props {
   jobId: string | null;
   step?: string | null;
   status?: string | null;
+  vendooItemId?: string | null;
+  vendooUrl?: string | null;
   onCancel?: () => void;
   cancelling?: boolean;
 }
 
-export function BrowserPreview({ jobId, step, status, onCancel, cancelling }: Props) {
+export function BrowserPreview({
+  jobId,
+  step,
+  status,
+  vendooItemId,
+  vendooUrl,
+  onCancel,
+  cancelling,
+}: Props) {
   const [frame, setFrame] = useState<PreviewFrame | null>(null);
   const [live, setLive] = useState(false);
 
@@ -62,16 +73,26 @@ export function BrowserPreview({ jobId, step, status, onCancel, cancelling }: Pr
           {live && frame ? "Live" : live ? "Connecting" : "Standby"}
         </span>
         <span className="browser-preview-step">{label.replace(/_/g, " ")}</span>
-        {onCancel && (
-          <button
-            type="button"
-            className="browser-preview-cancel"
-            onClick={onCancel}
-            disabled={cancelling}
-          >
-            {cancelling ? "Cancelling…" : "Cancel"}
-          </button>
-        )}
+        <div className="browser-preview-actions">
+          {jobId && (vendooItemId || vendooUrl) ? (
+            <OpenListingButton
+              jobId={jobId}
+              vendooItemId={vendooItemId}
+              vendooUrl={vendooUrl}
+              className="browser-preview-open"
+            />
+          ) : null}
+          {onCancel && (
+            <button
+              type="button"
+              className="browser-preview-cancel"
+              onClick={onCancel}
+              disabled={cancelling}
+            >
+              {cancelling ? "Cancelling…" : "Cancel"}
+            </button>
+          )}
+        </div>
       </div>
       <div className="browser-preview-stage">
         {frame ? (
@@ -83,7 +104,7 @@ export function BrowserPreview({ jobId, step, status, onCancel, cancelling }: Pr
         ) : (
           <div className="browser-preview-empty">
             <p>{live ? "Connecting to the Vendoo tab…" : "Starting live view…"}</p>
-            <p className="text-xs text-muted">This panel shows the actual listing page as it fills. Stay in Studio.</p>
+            <p className="text-xs text-muted">Chrome stays in the background. Watch the listing fill here.</p>
           </div>
         )}
       </div>

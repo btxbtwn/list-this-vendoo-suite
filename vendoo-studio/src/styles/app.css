@@ -278,9 +278,16 @@ input, select, textarea {
   color: var(--color-text-secondary);
 }
 
+.browser-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.browser-preview-open,
 .browser-preview-cancel {
   flex-shrink: 0;
-  margin-left: auto;
   height: 22px;
   padding: 0 8px;
   border-radius: var(--radius-xs);
@@ -294,6 +301,7 @@ input, select, textarea {
   text-transform: none;
 }
 
+.browser-preview-open:hover:not(:disabled),
 .browser-preview-cancel:hover:not(:disabled) {
   background: var(--color-surface);
   color: var(--color-text);

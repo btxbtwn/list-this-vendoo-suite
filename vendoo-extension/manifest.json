@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vendoo Listing Studio Bridge",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Connect Vendoo Listing Studio to automate marketplace listing drafts",
   "permissions": [
     "activeTab",

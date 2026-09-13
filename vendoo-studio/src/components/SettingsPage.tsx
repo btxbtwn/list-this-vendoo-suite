@@ -471,7 +471,7 @@ export function SettingsPage() {
         <SettingsSection id="connections" title="Connections">
           <SettingsRow
             title="Vendoo in Chrome"
-            description="Send to Vendoo opens a Studio-managed Chrome window with the listing extension already loaded. Sign in to Vendoo there once."
+            description="Send to Vendoo runs Chrome in the background with the listing extension loaded. Watch the fill in Studio. Sign in to Vendoo in Chrome once, then use Open listing when you need the real window."
             control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
           />
         </SettingsSection>

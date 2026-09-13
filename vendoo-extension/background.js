@@ -761,10 +761,11 @@ async function openListingForPatch(payload, { reload = true, preview = true } = 
   }
   const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
   const existing = await findTabByDraft(url, itemId);
-  const tabId = existing ? existing.id : (await chrome.tabs.create({ url, active: true })).id;
-  if (existing) {
-    await chrome.tabs.update(tabId, reload ? { url, active: true } : { active: true });
-  }
+  const tab = existing
+    ? (reload ? await chrome.tabs.update(existing.id, { url }) : existing)
+    : await chrome.tabs.create({ url, active: false });
+  const tabId = tab.id;
+  await parkJobTab(tabId);
   const loaded = await waitForTabComplete(tabId);
   if (preview && payload.job_id) {
     await startJobPreview(tabId, payload.job_id);
@@ -1080,6 +1081,7 @@ async function openVendooListing(job) {
       activeJob.windowId = existingTab.windowId;
       activeJob.tabId = existingTab.id;
       await persistActiveJob(activeJob);
+      await parkJobTab(existingTab.id);
       await waitForTabComplete(existingTab.id);
       await startJobPreview(existingTab.id, job.job_id);
       return { ok: true };
@@ -1089,13 +1091,14 @@ async function openVendooListing(job) {
     const tab = await chrome.tabs.create({
       windowId: existing?.id,
       url: NEW_ITEM_URL,
-      active: true,
+      active: false,
     });
     log(`Created Vendoo tab ${tab.id} in window ${tab.windowId}`);
 
     activeJob.windowId = tab.windowId;
     activeJob.tabId = tab.id;
     await persistActiveJob(activeJob);
+    await parkJobTab(tab.id);
 
     const loaded = await waitForTabComplete(tab.id);
     await startJobPreview(tab.id, job.job_id);

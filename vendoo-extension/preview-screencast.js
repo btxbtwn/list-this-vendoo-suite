@@ -64,14 +64,34 @@ function stopPreviewPolling() {
   }
 }
 
-async function revealPreviewTab(tabId) {
+async function parkJobTab(tabId) {
   try {
-    await chrome.tabs.update(tabId, { active: true });
+    const tab = await chrome.tabs.update(tabId, { active: true });
+    if (tab?.windowId == null) {
+      return;
+    }
+    await chrome.windows.update(tab.windowId, { focused: false, state: 'minimized' });
+  } catch (err) {
+    log(`Could not keep Chrome in the background (${err.message})`);
+  }
+}
+
+async function restoreJobTabForCapture(tabId) {
+  try {
+    const tab = await chrome.tabs.update(tabId, { active: true });
+    if (tab?.windowId == null) {
+      return;
+    }
+    const win = await chrome.windows.get(tab.windowId);
+    if (win.state === 'minimized') {
+      await chrome.windows.update(tab.windowId, { focused: false, state: 'normal' });
+    }
   } catch (_) {}
 }
 
 function startVisibleTabPoll(tabId, jobId) {
   stopPreviewPolling();
+  restoreJobTabForCapture(tabId);
   previewPollTimer = setInterval(async () => {
     if (!previewJobId || previewJobId !== jobId || previewTabId !== tabId) {
       return;
@@ -82,7 +102,7 @@ function startVisibleTabPoll(tabId, jobId) {
         return;
       }
       if (!tab.active) {
-        await revealPreviewTab(tabId);
+        await chrome.tabs.update(tabId, { active: true });
       }
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: 'jpeg',
@@ -165,13 +185,13 @@ async function startJobPreview(tabId, jobId) {
   if (!tabId || !jobId) {
     return;
   }
+  await parkJobTab(tabId);
   if (previewTabId === tabId && previewJobId === jobId && (previewAttached || previewPollTimer)) {
     return;
   }
   await stopJobPreview();
   previewTabId = tabId;
   previewJobId = jobId;
-  await revealPreviewTab(tabId);
   try {
     await chrome.debugger.attach({ tabId }, PREVIEW_PROTOCOL);
     previewAttached = true;
