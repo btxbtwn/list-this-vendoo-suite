@@ -9,14 +9,102 @@ interface Props {
   onQueuedMessageConsumed?: () => void;
 }
 
-function isJsonBlock(text: string): boolean {
+function isListingJson(text: string): boolean {
   return text.includes('"title"') && (text.includes('"description"') || text.includes('"price"'));
 }
 
 function extractJson(text: string): string | null {
-  const match = text.match(/```json\s*([\s\S]*?)```/);
-  if (match) return match[1].trim();
-  try { JSON.parse(text); return text; } catch { return null; }
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    const inner = fenced[1].trim();
+    try {
+      JSON.parse(inner);
+      return inner;
+    } catch {
+      /* fall through */
+    }
+  }
+  const stripped = text.trim();
+  try {
+    JSON.parse(stripped);
+    return stripped;
+  } catch {
+    /* fall through */
+  }
+  const embedded = stripped.match(/\{[\s\S]*\}/);
+  if (!embedded) return null;
+  try {
+    JSON.parse(embedded[0]);
+    return embedded[0];
+  } catch {
+    return null;
+  }
+}
+
+function missingFieldsCount(json: string): number | null {
+  try {
+    const parsed = JSON.parse(json);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.missing_fields)) {
+      return parsed.missing_fields.length;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function prettyJson(json: string): string {
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2);
+  } catch {
+    return json;
+  }
+}
+
+function JsonCollapse({
+  json,
+  label,
+  fieldCount,
+}: {
+  json: string;
+  label: string;
+  fieldCount: number;
+}) {
+  return (
+    <details className="json-collapse">
+      <summary className="json-collapse-summary">
+        <span className="json-badge">{fieldCount} FIELDS</span>
+        {label}
+        <span className="text-2xs text-muted font-mono" style={{ marginLeft: "auto" }}>RAW JSON</span>
+      </summary>
+      <div className="json-collapse-body">{json}</div>
+    </details>
+  );
+}
+
+function renderJsonCard(text: string) {
+  const json = extractJson(text);
+  if (!json) return null;
+  const missingCount = missingFieldsCount(json);
+  if (missingCount !== null) {
+    return (
+      <JsonCollapse
+        json={prettyJson(json)}
+        label="Field values generated"
+        fieldCount={missingCount}
+      />
+    );
+  }
+  if (isListingJson(json) || isListingJson(text)) {
+    return (
+      <JsonCollapse
+        json={json}
+        label="Listing generated"
+        fieldCount={(json.match(/"\w+":/g) || []).length}
+      />
+    );
+  }
+  return null;
 }
 
 function isPhotoAnalysis(text: string): boolean {
@@ -82,6 +170,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     setStreaming(true);
     setStreamText("");
     setFailedAction(null);
+    let assembled = "";
     try {
       const res = await fetch(url, { method: "POST", signal: controller.signal });
       if (!res.ok) {
@@ -105,7 +194,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       }
       const decoder = new TextDecoder();
       let buffer = "";
-      let assembled = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -139,10 +227,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         return;
       }
       if (isCurrent()) {
-        setStreamText(`Error: ${e.message}`);
+        assembled = `Error: ${e.message}`;
+        setStreamText(assembled);
         setFailedAction("generate");
       }
     }
+    const failed = isStreamError(assembled);
     if (isCurrent()) {
       setStreaming(false);
       setGenerating(false);
@@ -150,6 +240,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    if (isCurrent() && !failed) setStreamText("");
   }, [convId, isCurrent, queryClient]);
 
   const handleGenerate = useCallback(async () => {
@@ -208,6 +299,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         }
       }
       if (isStreamError(assembled) && isCurrent()) setFailedAction("send");
+      if (isCurrent()) setStreaming(false);
+      await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
+      queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      if (isCurrent() && !isStreamError(assembled)) setStreamText("");
+      return;
     } catch (e: any) {
       if (e?.name === "AbortError") {
         if (isCurrent()) {
@@ -222,12 +319,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (isCurrent()) {
         setStreamText(`Error: ${e.message}`);
         setFailedAction("send");
+        setStreaming(false);
       }
+      return;
     }
-    if (isCurrent()) setStreaming(false);
-    queryClient.invalidateQueries({ queryKey: ["messages", convId] });
-    queryClient.invalidateQueries({ queryKey: ["listing", convId] });
-    queryClient.invalidateQueries({ queryKey: ["conversations"] });
   }, [streaming, convId, isCurrent, queryClient]);
 
   useEffect(() => {
@@ -258,7 +353,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   const hasMessages = messages && (messages as any[]).length > 0;
   const hasListingJson = Boolean(messages?.some((m: any) => {
     const json = extractJson(m.text);
-    return Boolean(json && isJsonBlock(m.text));
+    return Boolean(json && missingFieldsCount(json) === null && isListingJson(json));
   }));
   const streamFailed = isStreamError(streamText);
   const busy = streaming || generating;
@@ -298,19 +393,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       );
     }
 
-    const json = extractJson(m.text);
-    if (json && isJsonBlock(m.text)) {
-      const fieldCount = (json.match(/"\w+":/g) || []).length;
-      return (
-        <details key={m.id} className="json-collapse">
-          <summary className="json-collapse-summary">
-            <span className="json-badge">{fieldCount} FIELDS</span>
-            Listing generated
-            <span className="text-2xs text-muted font-mono" style={{ marginLeft: "auto" }}>RAW JSON</span>
-          </summary>
-          <div className="json-collapse-body">{json}</div>
-        </details>
-      );
+    const jsonCard = renderJsonCard(m.text);
+    if (jsonCard) {
+      return <React.Fragment key={m.id}>{jsonCard}</React.Fragment>;
     }
 
     return (
@@ -346,9 +431,11 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         {messages?.map(renderMessage)}
 
         {streamText && !streamFailed && (
-          <div className="msg msg-assistant">
-            <ChatMarkdown text={streamText} />
-          </div>
+          renderJsonCard(streamText) || (
+            <div className="msg msg-assistant">
+              <ChatMarkdown text={streamText} />
+            </div>
+          )
         )}
 
         {streamFailed && (
