@@ -109,8 +109,13 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ fields }),
       }),
-    vendooItem: (id: string, opts?: { refresh?: boolean }) =>
-      request<any>(`/jobs/${id}/vendoo-item${opts?.refresh ? "?refresh=true" : ""}`, { method: "POST" }),
+    vendooItem: (id: string, opts?: { refresh?: boolean; cacheOnly?: boolean }) => {
+      const params = new URLSearchParams();
+      if (opts?.refresh) params.set("refresh", "true");
+      if (opts?.cacheOnly) params.set("cache_only", "true");
+      const query = params.toString();
+      return request<any>(`/jobs/${id}/vendoo-item${query ? `?${query}` : ""}`, { method: "POST" });
+    },
     resolveCategory: (id: string, query?: string) =>
       request<{ ok: boolean; query?: string; path?: string; matches?: { text?: string; path?: string; score?: number }[]; error?: string }>(
         `/jobs/${id}/resolve-category`,

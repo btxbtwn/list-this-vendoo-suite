@@ -196,6 +196,7 @@ class VendooItemResponse(BaseModel):
 async def get_vendoo_item(
     job_id: str,
     refresh: bool = False,
+    cache_only: bool = False,
     db: Session = Depends(get_db),
 ):
     import uuid
@@ -239,6 +240,19 @@ async def get_vendoo_item(
             item=cached.get("item"),
             form=cached.get("form"),
             statuses=cached.get("statuses"),
+        )
+
+    if cache_only:
+        return VendooItemResponse(
+            ok=False,
+            source="cache",
+            item_id=job.vendoo_item_id,
+            url=job.vendoo_url,
+            error="No cached Vendoo draft",
+            api_error=None,
+            item=None,
+            form=None,
+            statuses=None,
         )
 
     if not extension_manager.connected:
