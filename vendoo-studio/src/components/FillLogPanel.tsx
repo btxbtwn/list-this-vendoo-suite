@@ -176,25 +176,6 @@ function isAccountSettingField(field: DraftField | string): boolean {
   );
 }
 
-/** Cascade fields that must stay visible so optionals can mount on Vendoo. */
-const PROTECTED_EBAY_CORE_NAMES = new Set(
-  EBAY_CATEGORY_CORE.filter((field) =>
-    ["department", "size", "sizeType", "type"].includes(field.key),
-  ).map((field) => normalizeFieldName(field.label)),
-);
-
-const EBAY_CATEGORY_FIELD_NAMES = new Set([
-  ...EBAY_CATEGORY_CORE.map((field) => normalizeFieldName(field.label)),
-  ...EBAY_CATEGORY_OPTIONALS.map((field) => normalizeFieldName(field.label)),
-]);
-
-function isProtectedEbayField(marketplace: string, field: DraftField | string): boolean {
-  if (marketplace.toLowerCase() !== "ebay") return false;
-  const name =
-    typeof field === "string" ? normalizeFieldName(field) : fieldMatchKey(field) || normalizeFieldName(field.label);
-  return PROTECTED_EBAY_CORE_NAMES.has(name);
-}
-
 function isUnfillableField(field: DraftField): boolean {
   return (
     UNFILLABLE_FIELDS.has(field.label.toLowerCase()) ||
@@ -511,6 +492,25 @@ function normalizeFieldName(value: string): string {
 
 function fieldMatchKey(field: DraftField): string {
   return normalizeFieldName(field.label) || normalizeFieldName(field.key.split(".").pop() || field.key);
+}
+
+/** Cascade fields that must stay visible so optionals can mount on Vendoo. */
+const PROTECTED_EBAY_CORE_NAMES = new Set(
+  EBAY_CATEGORY_CORE.filter((field) =>
+    ["department", "size", "sizeType", "type"].includes(field.key),
+  ).map((field) => normalizeFieldName(field.label)),
+);
+
+const EBAY_CATEGORY_FIELD_NAMES = new Set([
+  ...EBAY_CATEGORY_CORE.map((field) => normalizeFieldName(field.label)),
+  ...EBAY_CATEGORY_OPTIONALS.map((field) => normalizeFieldName(field.label)),
+]);
+
+function isProtectedEbayField(marketplace: string, field: DraftField | string): boolean {
+  if (marketplace.toLowerCase() !== "ebay") return false;
+  const name =
+    typeof field === "string" ? normalizeFieldName(field) : fieldMatchKey(field) || normalizeFieldName(field.label);
+  return PROTECTED_EBAY_CORE_NAMES.has(name);
 }
 
 const SHARED_ITEM_FIELDS: FieldSpec[] = [
