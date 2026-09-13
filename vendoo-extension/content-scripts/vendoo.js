@@ -3811,12 +3811,21 @@
   // STUDIO AUTOMATION COMMANDS
   // ============================================
 
-  async function uploadStudioPhotos(photos, studioUrl, jobId) {
-      if (!photos || photos.length === 0) {
+  function base64ToUint8Array(data) {
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+  }
+
+  async function uploadStudioPhotos(files) {
+      if (!files || files.length === 0) {
           return { ok: true, count: 0 };
       }
 
-      log(`Uploading ${photos.length} photos from Studio...`);
+      log(`Uploading ${files.length} photos from Studio...`);
 
       let imageInput = null;
       for (let attempt = 0; attempt < 15; attempt++) {
@@ -3834,25 +3843,18 @@
       }
 
       const fileObjects = [];
-      for (const photo of photos) {
+      for (const file of files) {
           try {
-              const url = `${studioUrl}/api/jobs/${jobId}/photos/${photo.id || photo.stored_filename || photo.name}`;
-              const response = await fetch(url);
-              if (!response.ok) {
-                  warn(`Failed to fetch photo: ${url} status=${response.status}`);
-                  continue;
-              }
-              const blob = await response.blob();
-              const name = photo.name || photo.original_filename || 'photo.jpg';
-              const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
-              fileObjects.push(file);
+              const bytes = base64ToUint8Array(file.data);
+              const name = file.name || 'photo.jpg';
+              fileObjects.push(new File([bytes], name, { type: file.type || 'image/jpeg' }));
           } catch (e) {
-              warn(`Photo fetch error: ${e.message}`);
+              warn(`Photo decode error: ${e.message}`);
           }
       }
 
       if (fileObjects.length === 0) {
-          return { ok: false, error: 'No photos could be fetched' };
+          return { ok: false, error: 'No photos could be decoded' };
       }
 
       const dt = new DataTransfer();
@@ -4477,7 +4479,7 @@
           }
 
           if (msg.type === 'UPLOAD_PHOTOS') {
-              uploadStudioPhotos(msg.photos || [], msg.studio_url, msg.job_id)
+              uploadStudioPhotos(msg.files || [])
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
               return true;
