@@ -164,21 +164,44 @@ def check_for_packaged_update() -> dict:
     }
 
 
+def _prepare_app_bundle(app_path: Path) -> None:
+    """Restore execute bits and drop Gatekeeper quarantine after a zip extract."""
+    macos = app_path / "Contents" / "MacOS"
+    if macos.is_dir():
+        for path in macos.iterdir():
+            if path.is_file():
+                path.chmod(path.stat().st_mode | 0o111)
+    subprocess.run(
+        ["/usr/bin/xattr", "-cr", str(app_path)],
+        check=False,
+        capture_output=True,
+    )
+
+
 def _extract_app(archive: Path, destination: Path) -> Path:
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(archive) as bundle:
-        bundle.extractall(destination)
-    matches = list(destination.rglob(APP_BUNDLE_NAME))
+    extracted = subprocess.run(
+        ["/usr/bin/ditto", "-xk", str(archive), str(destination)],
+        capture_output=True,
+        text=True,
+    )
+    if extracted.returncode != 0:
+        with zipfile.ZipFile(archive) as bundle:
+            bundle.extractall(destination)
+    matches = [path for path in destination.rglob(APP_BUNDLE_NAME) if path.is_dir()]
     if not matches:
         raise PackagedUpdateError("The downloaded zip did not contain List This Studio.app.")
-    return matches[0]
+    app = min(matches, key=lambda path: len(path.parts))
+    _prepare_app_bundle(app)
+    return app
 
 
 def _write_replacer(app_path: Path, new_app: Path, pid: int) -> Path:
     script = user_data_root() / "updates" / "replace-app.sh"
     script.parent.mkdir(parents=True, exist_ok=True)
+    macos = app_path / "Contents" / "MacOS"
     script.write_text(
         "\n".join(
             [
@@ -187,6 +210,8 @@ def _write_replacer(app_path: Path, new_app: Path, pid: int) -> Path:
                 f"while /bin/kill -0 {pid} 2>/dev/null; do sleep 0.2; done",
                 "sleep 0.4",
                 f"/usr/bin/ditto {shlex.quote(str(new_app))} {shlex.quote(str(app_path))}",
+                f"/usr/bin/xattr -cr {shlex.quote(str(app_path))} || true",
+                f"/bin/chmod -R u+x {shlex.quote(str(macos))} || true",
                 f"/usr/bin/open {shlex.quote(str(app_path))}",
                 "",
             ]
