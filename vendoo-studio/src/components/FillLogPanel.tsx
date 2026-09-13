@@ -1,6 +1,7 @@
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { addToast } from "../ui/toast";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 
 interface FillLogEntry {
@@ -149,6 +150,8 @@ function normalizeLookupKey(value: string): string {
     "primary color": "color",
     "when was it made": "when made",
     "who made it": "who made",
+    "starting price": "starting price",
+    "return payed by": "return paid by",
   };
   const key = String(value || "")
     .replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, "")
@@ -188,6 +191,15 @@ function valueFromRecord(record: Record<string, unknown> | undefined, key: strin
   }
   if (jsonKey && jsonKey in record) return record[jsonKey];
   if (mapped && mapped in record) return record[mapped];
+  const nestedCategory = record.category_specifics;
+  if (nestedCategory && typeof nestedCategory === "object" && !Array.isArray(nestedCategory) && nestedCategory !== record) {
+    const found = valueFromRecord(nestedCategory as Record<string, unknown>, key);
+    if (found != null) return found;
+  }
+  const nestedMarket = record.marketplaceSpecifics || record.marketplace_specifics;
+  if (nestedMarket && typeof nestedMarket === "object" && !Array.isArray(nestedMarket) && nestedMarket !== record) {
+    return valueFromRecord(nestedMarket as Record<string, unknown>, key);
+  }
   return undefined;
 }
 
@@ -216,9 +228,29 @@ function listingValueForField(
     }
     if (raw == null) raw = valueFromRecord(listing, key);
   }
+  if (raw == null && marketplace === "ebay") {
+    if (key === "starting price") raw = listing.price;
+    if (raw == null) {
+      const defaults: Record<string, string> = {
+        "return within": "30 Days",
+        "return paid by": "Buyer",
+        "return refund method": "Money Back",
+        "accept returns": "Yes",
+      };
+      raw = defaults[key];
+    }
+  }
   if (raw == null) return "";
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean).join(", ").trim();
-  return String(raw).trim();
+  const text = String(raw).trim();
+  if (
+    marketplace === "ebay" &&
+    key === "year manufactured" &&
+    /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i.test(text)
+  ) {
+    return "";
+  }
+  return text;
 }
 
 function emptyFieldsPrompt(forms: DraftForm[], fromDraft: boolean): string {
@@ -464,8 +496,12 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
       label: "Shipping & returns",
       fields: [
         { keys: ["accept returns"], label: "Accept Returns" },
+        { keys: ["return within"], label: "Return Within" },
+        { keys: ["return refund method"], label: "Return Refund Method" },
+        { keys: ["return paid by", "return payed by"], label: "Return Paid By" },
         { keys: ["payment method"], label: "Payment Method" },
         { keys: ["shipping"], label: "Shipping" },
+        { keys: ["starting price"], label: "Starting Price" },
         { keys: ["returns"], label: "Returns" },
       ],
     },
@@ -990,12 +1026,50 @@ function formsFromListing(listing?: Record<string, unknown>): DraftForm[] {
   return forms;
 }
 
-function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): DraftForm[] {
+type FillFilter = "all" | "empty" | "filled";
+type HiddenField = { marketplace: string; field: string; label: string };
+type HiddenFieldsState = { always: HiddenField[]; listing: HiddenField[] };
+type OpenMenu = { kind: "filter" } | { kind: "hidden" } | { kind: "field"; key: string } | null;
+
+const FILL_FILTERS: { id: FillFilter; label: string }[] = [
+  { id: "all", label: "All fields" },
+  { id: "empty", label: "Empty only" },
+  { id: "filled", label: "Filled only" },
+];
+
+function emptyHiddenFields(): HiddenFieldsState {
+  return { always: [], listing: [] };
+}
+
+function hiddenFieldKey(marketplace: string, field: string): string {
+  return `${marketplace}:${field}`;
+}
+
+function hiddenKeySet(hidden: HiddenFieldsState): Set<string> {
+  return new Set(
+    [...hidden.always, ...hidden.listing].map((item) => hiddenFieldKey(item.marketplace, item.field)),
+  );
+}
+
+function isFieldHidden(hidden: Set<string>, marketplace: string, field: DraftField): boolean {
+  return hidden.has(hiddenFieldKey(marketplace, fieldMatchKey(field)));
+}
+
+function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsState): DraftForm[] {
+  const keys = hiddenKeySet(hidden);
+  return forms
+    .map((form) => toForm(form.id, form.fields.filter((field) => !isFieldHidden(keys, form.id, field))))
+    .filter((form) => form.fields.length > 0);
+}
+
+function filterForms(forms: DraftForm[], query: string, fillFilter: FillFilter): DraftForm[] {
   const needle = query.trim().toLowerCase();
+  const filtered = fillFilter !== "all" || Boolean(needle);
   return forms
     .map((form) => {
       const fields = form.fields.filter((field) => {
-        if (missingOnly && !field.missing) return false;
+        if (fillFilter === "empty" && !field.missing) return false;
+        if (fillFilter === "filled" && field.missing) return false;
         if (!needle) return true;
         return (
           form.label.toLowerCase().includes(needle) ||
@@ -1005,15 +1079,16 @@ function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): D
         );
       });
       if (needle && !fields.length && !form.label.toLowerCase().includes(needle)) return null;
-      const visible = needle || missingOnly ? fields : form.fields;
-      if (!visible.length && (needle || missingOnly)) return null;
-      return { ...form, fields: visible };
+      const visible = filtered ? fields : form.fields;
+      if (!visible.length && filtered) return null;
+      return toForm(form.id, visible);
     })
     .filter((form): form is DraftForm => Boolean(form));
 }
 
 export function FillLogPanel({
   jobId,
+  conversationId,
   jobStatus,
   jobStep,
   vendooItemId,
@@ -1024,6 +1099,7 @@ export function FillLogPanel({
   onJobStarted,
 }: {
   jobId: string;
+  conversationId?: string;
   jobStatus?: string;
   jobStep?: string | null;
   vendooItemId?: string | null;
@@ -1044,11 +1120,17 @@ export function FillLogPanel({
     queryKey: ["settings-marketplaces"],
     queryFn: api.settings.marketplaces,
   });
+  const hiddenQueryKey = ["settings-hidden-fields", conversationId] as const;
+  const { data: hiddenData } = useQuery({
+    queryKey: hiddenQueryKey,
+    queryFn: () => api.settings.hiddenFields(conversationId),
+  });
   const [query, setQuery] = React.useState("");
-  const [missingOnly, setMissingOnly] = React.useState(false);
+  const [fillFilter, setFillFilter] = React.useState<FillFilter>("all");
   const [showJson, setShowJson] = React.useState(false);
   const [selected, setSelected] = React.useState<string | null>(null);
   const [values, setValues] = React.useState<Record<string, string>>({});
+  const [openMenu, setOpenMenu] = React.useState<OpenMenu>(null);
   const filling = jobStatus === "dispatched" && jobStep === "filling_fields";
   const hasDraft = Boolean(vendooItemId || vendooUrl);
   const chromeConnected = Boolean(extStatus?.connected);
@@ -1065,8 +1147,11 @@ export function FillLogPanel({
     listing,
     marketplaceSettings?.selected,
   );
-  const sourceKey = sourceForms.map((form) => form.id).join("|");
-  const forms = filterForms(sourceForms, query, missingOnly);
+  const hidden = hiddenData || emptyHiddenFields();
+  const visibleSourceForms = withoutHiddenFields(sourceForms, hidden);
+  const hiddenCount = hidden.always.length + hidden.listing.length;
+  const sourceKey = visibleSourceForms.map((form) => form.id).join("|");
+  const forms = filterForms(visibleSourceForms, query, fillFilter);
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
 
   React.useEffect(() => {
@@ -1085,10 +1170,28 @@ export function FillLogPanel({
     const source = sourceKey.split("|");
     setSelected((current) => {
       if (current && source.includes(current)) return current;
-      const firstMissing = sourceForms.find((form) => form.missing > 0) || sourceForms[0];
+      const firstMissing = visibleSourceForms.find((form) => form.missing > 0) || visibleSourceForms[0];
       return firstMissing?.id || null;
     });
   }, [sourceKey]);
+
+  React.useEffect(() => {
+    if (!openMenu) return;
+    const onPointer = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".pr-menu-wrap, .pr-hide-choices, .pr-hide-btn")) return;
+      setOpenMenu(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenMenu(null);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openMenu]);
 
   const rereadDraft = () => {
     awaitingFill.current = false;
@@ -1119,6 +1222,43 @@ export function FillLogPanel({
     },
   });
 
+  const hideMutation = useMutation({
+    mutationFn: (body: {
+      marketplace: string;
+      field: string;
+      label?: string;
+      scope: "always" | "listing";
+      conversation_id?: string;
+    }) => api.settings.hideField(body),
+    onSuccess: (payload, body) => {
+      queryClient.setQueryData(hiddenQueryKey, { always: payload.always, listing: payload.listing });
+      setOpenMenu(null);
+      addToast({
+        type: "success",
+        title: body.scope === "always" ? "Hidden on every listing" : "Hidden on this listing",
+      });
+    },
+    onError: (error) => {
+      addToast({ type: "error", title: (error as Error).message || "Could not hide field" });
+    },
+  });
+
+  const showMutation = useMutation({
+    mutationFn: (body: {
+      marketplace: string;
+      field: string;
+      scope: "always" | "listing";
+      conversation_id?: string;
+    }) => api.settings.showField(body),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(hiddenQueryKey, { always: payload.always, listing: payload.listing });
+      if (payload.always.length + payload.listing.length === 0) setOpenMenu(null);
+    },
+    onError: (error) => {
+      addToast({ type: "error", title: (error as Error).message || "Could not show field" });
+    },
+  });
+
   React.useEffect(() => {
     if (!awaitingFill.current) return;
     if (filling) {
@@ -1128,13 +1268,16 @@ export function FillLogPanel({
     if (sawFilling.current) rereadDraft();
   }, [filling]);
 
-  const emptyFields = sourceForms.flatMap((form) =>
+  const emptyFields = visibleSourceForms.flatMap((form) =>
     form.fields
       .filter((field) => field.missing && !isUnfillableField(field))
       .map((field) => ({ form, field })),
   );
-  const leftovers = report ? leftoverEntries(report) : [];
-  const fillableEmpty = fromVendooDraft ? patchableEmptyFields(sourceForms, listing, values) : [];
+  const hiddenKeys = hiddenKeySet(hidden);
+  const leftovers = (report ? leftoverEntries(report) : []).filter(
+    (entry) => !hiddenKeys.has(hiddenFieldKey(entry.marketplace.toLowerCase(), normalizeFieldName(entry.field))),
+  );
+  const fillableEmpty = fromVendooDraft ? patchableEmptyFields(visibleSourceForms, listing, values) : [];
   const fillPayload = (() => {
     const payload = [...fillableEmpty];
     const seen = new Set(
@@ -1156,6 +1299,17 @@ export function FillLogPanel({
     }
     return payload;
   })();
+  const filterLabel = FILL_FILTERS.find((item) => item.id === fillFilter)?.label || "All fields";
+  const hideField = (formId: string, field: DraftField, scope: "always" | "listing") => {
+    if (scope === "listing" && !conversationId) return;
+    hideMutation.mutate({
+      marketplace: formId,
+      field: fieldMatchKey(field),
+      label: field.label,
+      scope,
+      conversation_id: conversationId,
+    });
+  };
 
   return (
     <div className="fill-log-pr">
@@ -1173,17 +1327,86 @@ export function FillLogPanel({
             aria-label="Search marketplace fields"
           />
         </label>
-        <button
-          type="button"
-          className={`pr-icon-btn${missingOnly ? " is-on" : ""}`}
-          title={missingOnly ? "Show all fields" : "Show missing fields only"}
-          aria-pressed={missingOnly}
-          onClick={() => setMissingOnly((value) => !value)}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M2 3h12L9.5 8.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-          </svg>
-        </button>
+        <div className="pr-menu-wrap">
+          <button
+            type="button"
+            className={`pr-icon-btn${fillFilter === "empty" ? " is-on" : fillFilter === "filled" ? " is-on-filled" : ""}`}
+            title={filterLabel}
+            aria-haspopup="menu"
+            aria-expanded={openMenu?.kind === "filter"}
+            aria-label={`Filter fields: ${filterLabel}`}
+            onClick={() => setOpenMenu((current) => (current?.kind === "filter" ? null : { kind: "filter" }))}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M2 3h12L9.5 8.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {openMenu?.kind === "filter" && (
+            <div className="pr-menu" role="menu">
+              {FILL_FILTERS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={fillFilter === item.id}
+                  className={`pr-menu-item${fillFilter === item.id ? " is-active" : ""}`}
+                  onClick={() => {
+                    setFillFilter(item.id);
+                    setOpenMenu(null);
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {hiddenCount > 0 && (
+          <div className="pr-menu-wrap">
+            <button
+              type="button"
+              className={`pr-icon-btn pr-read${openMenu?.kind === "hidden" ? " is-on" : ""}`}
+              title="Show hidden fields"
+              aria-haspopup="menu"
+              aria-expanded={openMenu?.kind === "hidden"}
+              onClick={() => setOpenMenu((current) => (current?.kind === "hidden" ? null : { kind: "hidden" }))}
+            >
+              {hiddenCount} hidden
+            </button>
+            {openMenu?.kind === "hidden" && (
+              <div className="pr-menu pr-menu-wide" role="menu">
+                {[
+                  ...hidden.always.map((item) => ({ ...item, scope: "always" as const })),
+                  ...hidden.listing.map((item) => ({ ...item, scope: "listing" as const })),
+                ].map((item) => (
+                  <div key={`${item.scope}:${item.marketplace}:${item.field}`} className="pr-hidden-row">
+                    <div className="pr-hidden-copy">
+                      <span className="pr-hidden-name">{item.label || item.field}</span>
+                      <span className="pr-hidden-meta">
+                        {marketplaceLabel(item.marketplace)} · {item.scope === "always" ? "Always" : "This listing"}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="pr-menu-item-action"
+                      disabled={showMutation.isPending || (item.scope === "listing" && !conversationId)}
+                      onClick={() =>
+                        showMutation.mutate({
+                          marketplace: item.marketplace,
+                          field: item.field,
+                          scope: item.scope,
+                          conversation_id: conversationId,
+                        })
+                      }
+                    >
+                      Show
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {hasDraft && (
           <button
             type="button"
@@ -1211,7 +1434,7 @@ export function FillLogPanel({
               type="button"
               className="btn btn-sm"
               disabled={fillMutation.isPending || filling || emptyFields.length === 0}
-              onClick={() => onAskChat(emptyFieldsPrompt(sourceForms, fromVendooDraft))}
+              onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft))}
             >
               {emptyFields.length
                 ? `Ask chat to fill ${emptyFields.length} empty ${emptyFields.length === 1 ? "field" : "fields"}`
@@ -1253,7 +1476,7 @@ export function FillLogPanel({
       )}
       {draft?.api_error && <div className="pr-meta">API: {draft.api_error}</div>}
 
-      {!forms.length ? (
+      {!sourceForms.length ? (
         <div className="pr-empty">
           <p>
             {draftQuery.isFetching
@@ -1265,6 +1488,18 @@ export function FillLogPanel({
                   : "Send this listing to Vendoo to review each marketplace form."}
           </p>
           {!chromeConnected && hasDraft && <ConnectChromeButton />}
+        </div>
+      ) : !forms.length ? (
+        <div className="pr-empty">
+          <p>
+            {!visibleSourceForms.length
+              ? "Every field is hidden. Restore hidden fields to see them here."
+              : fillFilter === "empty"
+                ? "No empty fields match this filter."
+                : fillFilter === "filled"
+                  ? "No filled fields match this filter."
+                  : "No fields match this search."}
+          </p>
         </div>
       ) : (
         <div className="pr-split">
@@ -1306,20 +1541,56 @@ export function FillLogPanel({
                     {group.label ? <div className="pr-section">{group.label}</div> : null}
                     {group.fields.map((field) => {
                       const leftover = field.leftover;
+                      const menuKey = `${selectedForm.id}:${field.key}`;
+                      const menuOpen = openMenu?.kind === "field" && openMenu.key === menuKey;
                       return (
                         <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
                           <span className="pr-diff-gutter">{field.missing ? "-" : "+"}</span>
-                          <span className="pr-diff-name">{field.label}</span>
-                          <span className="pr-diff-value" title={field.value}>{field.value}</span>
-                          {leftover && (
-                            <input
-                              className="pr-input"
-                              value={values[leftover.id] || ""}
-                              disabled={fillMutation.isPending || filling}
-                              placeholder={STATUS_LABELS[leftover.status] || leftover.status}
-                              onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
-                            />
-                          )}
+                          <div className="pr-diff-main">
+                            <span className="pr-diff-name">{field.label}</span>
+                            {field.value ? <span className="pr-diff-value">{field.value}</span> : null}
+                            {leftover && (
+                              <input
+                                className="pr-input"
+                                value={values[leftover.id] || ""}
+                                disabled={fillMutation.isPending || filling}
+                                placeholder={STATUS_LABELS[leftover.status] || leftover.status}
+                                onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
+                              />
+                            )}
+                            {menuOpen && (
+                              <div className="pr-hide-choices">
+                                <button
+                                  type="button"
+                                  disabled={!conversationId || hideMutation.isPending}
+                                  onClick={() => hideField(selectedForm.id, field, "listing")}
+                                >
+                                  This listing
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={hideMutation.isPending}
+                                  onClick={() => hideField(selectedForm.id, field, "always")}
+                                >
+                                  Always
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <div className="pr-field-actions">
+                            <button
+                              type="button"
+                              className="pr-hide-btn"
+                              aria-label={menuOpen ? `Cancel hiding ${field.label}` : `Hide ${field.label}`}
+                              aria-expanded={menuOpen}
+                              title="Hide this field"
+                              onClick={() => setOpenMenu(menuOpen ? null : { kind: "field", key: menuKey })}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       );
                     })}

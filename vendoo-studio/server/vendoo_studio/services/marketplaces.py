@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import json
-import threading
-from pathlib import Path
-
-from vendoo_studio.config import user_data_root
+from vendoo_studio.services.user_settings import read_settings, update_settings
 
 # Order used when filling Vendoo marketplace forms.
 FILLABLE_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
@@ -24,12 +20,6 @@ MARKETPLACE_CATALOG: tuple[tuple[str, str, bool], ...] = (
 
 KNOWN_MARKETPLACES = tuple(item[0] for item in MARKETPLACE_CATALOG)
 DEFAULT_SELECTED = list(FILLABLE_MARKETPLACES)
-
-_lock = threading.Lock()
-
-
-def settings_path() -> Path:
-    return user_data_root() / "settings.json"
 
 
 def marketplace_label(marketplace_id: str) -> str:
@@ -56,28 +46,8 @@ def normalize_selected(raw: object) -> list[str]:
     return [item_id for item_id in KNOWN_MARKETPLACES if item_id in chosen]
 
 
-def _read_settings() -> dict:
-    path = settings_path()
-    try:
-        payload = json.loads(path.read_text())
-    except FileNotFoundError:
-        return {}
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _write_settings(payload: dict) -> None:
-    path = settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    tmp.replace(path)
-
-
 def get_selected_marketplaces() -> list[str]:
-    with _lock:
-        payload = _read_settings()
+    payload = read_settings()
     if "marketplaces" not in payload:
         return list(DEFAULT_SELECTED)
     try:
@@ -88,10 +58,7 @@ def get_selected_marketplaces() -> list[str]:
 
 def set_selected_marketplaces(selected: object) -> list[str]:
     normalized = normalize_selected(selected)
-    with _lock:
-        payload = _read_settings()
-        payload["marketplaces"] = normalized
-        _write_settings(payload)
+    update_settings(lambda payload: payload.__setitem__("marketplaces", normalized))
     return normalized
 
 

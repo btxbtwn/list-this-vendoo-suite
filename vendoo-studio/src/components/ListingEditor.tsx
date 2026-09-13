@@ -117,6 +117,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
           listingJob ? (
             <FillLogPanel
               jobId={listingJob.id}
+              conversationId={convId}
               jobStatus={listingJob.status}
               jobStep={listingJob.current_step}
               vendooItemId={listingJob.vendoo_item_id}

@@ -170,6 +170,8 @@
     'when made': 'when made',
     'primary color': 'color',
     'cost of goods': 'cost of goods',
+    'return payed by': 'return paid by',
+    'starting price': 'starting price',
   };
 
   function normalizeFieldKey(value) {
@@ -283,6 +285,7 @@
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
       if (!isCurrentMarketplaceControl(el)) continue;
+      if (!isEnabledField(el)) continue;
 
       const label = fieldLabelForControl(el);
       const key = normalizeFieldKey(label);
@@ -666,7 +669,10 @@
           return normalizeEbaySpecificValue('type', value);
       }
       if (mp === 'ebay' && key === 'year manufactured') {
-          return normalizeEbaySpecificValue('yearManufactured', value) || value;
+          return normalizeEbaySpecificValue('yearManufactured', value);
+      }
+      if (mp === 'ebay' && isDoesNotApplyValue(value) && key !== 'year manufactured') {
+          return 'Does Not Apply';
       }
       return value;
   }
@@ -1303,15 +1309,11 @@
   }
 
   function listedChipValues(el) {
-      let root = chipFieldRoot(el);
-      for (let depth = 0; depth < 4 && root; depth++) {
-          const chips = uniqueStrings(Array.from(root.querySelectorAll('.MuiChip-label')).map((chip) =>
-              (chip.textContent || '').replace(/\u00a0/g, ' ').trim()
-          ));
-          if (chips.length) return chips;
-          root = root.parentElement;
-      }
-      return [];
+      const root = chipFieldRoot(el);
+      if (!root) return [];
+      return uniqueStrings(Array.from(root.querySelectorAll('.MuiChip-label')).map((chip) =>
+          (chip.textContent || '').replace(/\u00a0/g, ' ').trim()
+      ));
   }
 
   function fieldHasChip(el, value) {
@@ -1376,15 +1378,25 @@
       return Boolean(inputRoot?.querySelector('.MuiSelect-select, [class*="MuiSelect-icon"], [class*="MuiAutocomplete-endAdornment"], [class*="MuiArrowDropDown"]'));
   }
 
-  const DROPDOWN_FIELD_HINT = /\b(condition|brand|color|size|category|shipping|occasion|style|department|type|who made|when made|source|scale|material|pattern|features|sleeve|neckline|fit|rise|inseam|wash|closure)\b/i;
-  const MULTI_CHIP_FIELD_HINT = /\b(tags?|labels?|materials?|features?|accents?|occasions?|seasons?|themes?)\b/i;
+  const DROPDOWN_FIELD_HINT = /\b(condition|brand|color|size|category|shipping|occasion|style|department|type|who made|when made|source|scale|material|pattern|features|sleeve|neckline|fit|rise|inseam|wash|closure|vintage|theme|season|waist|strap|year|return|refund)\b/i;
 
   function shouldFillAsDropdown(el, fieldName) {
       return isDropdownLike(el) || DROPDOWN_FIELD_HINT.test(String(fieldName || ''));
   }
 
-  function isMultiChipField(fieldName) {
-      return MULTI_CHIP_FIELD_HINT.test(String(fieldName || ''));
+  function isChipControl(el) {
+      if (!el) return false;
+      const root = el.closest?.('.MuiAutocomplete-root, [class*="MuiAutocomplete"]');
+      if (!root) return false;
+      if (el.getAttribute('aria-multiselectable') === 'true') return true;
+      return Boolean(root.querySelector('.MuiChip-root, [class*="MuiChip"], [class*="chip"]'));
+  }
+
+  function isMultiChipField(fieldName, el) {
+      const name = String(fieldName || '');
+      if (/\b(tags?|labels?)\b/i.test(name)) return true;
+      if (/\b(materials?|features?|accents?)\b/i.test(name)) return true;
+      return Boolean(el && isChipControl(el) && /\b(seasons?|themes?|occasions?)\b/i.test(name));
   }
 
   function splitChipValues(value) {
@@ -1743,7 +1755,7 @@
           return { status: 'not_found' };
       }
 
-      const chipField = isMulti || isMultiChipField(fieldName);
+      const chipField = isMulti || isMultiChipField(fieldName, el);
       const values = chipField ? splitChipValues(value) : [value];
       if (chipField && values.length === 0) {
           recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
@@ -2557,10 +2569,18 @@
   // PLATFORM-SPECIFIC FILLERS - OPTIMIZED
   // ============================================
 
+  function isDoesNotApplyValue(value) {
+      return /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i.test(String(value || '').trim());
+  }
+
   function normalizeEbaySpecificValue(key, value) {
       if (value == null || value === '') return value;
       const raw = Array.isArray(value) ? value.join(', ') : String(value).trim();
       if (key === 'yearManufactured') {
+          if (isDoesNotApplyValue(raw)) return null;
+          if (/pre-?1900s/i.test(raw)) return 'Pre-1900s';
+          const years = raw.match(/(?:19|20)\d{2}/g);
+          if (years && years.length >= 2) return `${years[0]}-${years[1]}`;
           const yearMatch = raw.match(/(?:19|20)\d{2}/);
           if (!yearMatch) return raw;
           const decade = Math.floor(Number(yearMatch[0]) / 10) * 10;
@@ -2590,6 +2610,7 @@
           return allowed.find((item) => item.toLowerCase() === raw.toLowerCase()) || null;
       }
       if (key === 'countryOfOrigin' && /^unknown$/i.test(raw)) return null;
+      if (isDoesNotApplyValue(raw) && key !== 'yearManufactured') return 'Does Not Apply';
       return value;
   }
 
@@ -2628,7 +2649,15 @@
               if (specs[key] == null) specs[key] = value;
           }
       }
+      const nestedMarket = specs.marketplaceSpecifics || specs.marketplace_specifics;
+      if (nestedMarket && typeof nestedMarket === 'object' && !Array.isArray(nestedMarket)) {
+          for (const [key, value] of Object.entries(nestedMarket)) {
+              if (specs[key] == null) specs[key] = value;
+          }
+      }
       delete specs.category_specifics;
+      delete specs.marketplaceSpecifics;
+      delete specs.marketplace_specifics;
       if (!specs.department && (data.department || specs.Department)) {
           specs.department = data.department || specs.Department;
       }
@@ -2684,9 +2713,13 @@
           ];
           let optionalsReady = false;
 
+          let filledNames = new Set();
+
           for (const key of fillOrder) {
               const mapped = normalizeEbaySpecificValue(key, specs[key]);
               const fieldName = fieldNameMap[key] || key;
+              const fieldKey = normalizeFieldKey(fieldName);
+              if (filledNames.has(fieldKey)) continue;
               const isCascade = EBAY_CASCADE_SPECIFIC_KEYS.includes(key);
               if (mapped && typeof mapped === 'object' && !Array.isArray(mapped)) continue;
               if (specs[key] && (mapped == null || mapped === '')) {
@@ -2696,6 +2729,7 @@
                     reason: 'No matching eBay option',
                     value: specs[key],
                   });
+                  filledNames.add(fieldKey);
                   continue;
               }
               if (!mapped) continue;
@@ -2727,6 +2761,9 @@
               }
 
               if (!foundEl) {
+                  foundEl = findInputByExactLabel(fieldName, isMarketplaceInput('ebay'));
+              }
+              if (!foundEl) {
                   warn(`Could not find field for ${key}`);
                   recordFill({
                     field: fieldName,
@@ -2734,10 +2771,12 @@
                     reason: 'Not on this category form',
                     value: mapped,
                   });
+                  filledNames.add(fieldKey);
                   continue;
               }
+              filledNames.add(fieldKey);
 
-              let valuesToFill = isMultiChipField(fieldName)
+              let valuesToFill = isMultiChipField(fieldName, foundEl)
                   ? splitChipValues(mapped)
                   : Array.isArray(mapped) ? mapped :
                   (typeof mapped === 'string' && mapped.includes(',') && !['yearManufactured', 'mpn', 'upc'].includes(key)) ?
@@ -2765,7 +2804,7 @@
               const isSizeField = key.toLowerCase() === 'size';
               log(`  Filling eBay ${fieldName}: ${valuesToFill.join(', ')}`);
 
-              if (isMultiChipField(fieldName)) {
+              if (isMultiChipField(fieldName, foundEl)) {
                   await fillDropdownField(foundEl, valuesToFill, fieldName, isSizeField, true);
               } else if (key === 'type' || key === 'department') {
                   let filled = false;
@@ -2790,6 +2829,85 @@
               if (key === 'department' || key === 'type') await sleep(CONFIG.SLEEP_LONG * 2);
           }
       }
+      await fillEbayPolicyAndPriceFields(data, specs);
+  }
+
+  function findEbayMarketplaceControl(label, idNeedles = []) {
+      for (const needle of idNeedles) {
+          if (!needle) continue;
+          const nodes = document.querySelectorAll(`[id*="${needle}"]`);
+          for (const node of nodes) {
+              if (!String(node.id || '').startsWith('listings.ebay.')) continue;
+              const control = visibleDropdownControl(node) || node;
+              if (isAttachedElement(control) && (isVisibleElement(control) || isDropdownLike(control))) {
+                  return control;
+              }
+          }
+      }
+      return findEbaySpecificInput(label) || findInputByExactLabel(label, isMarketplaceInput('ebay'));
+  }
+
+  function ebaySpecValue(specs, keys) {
+      for (const key of keys) {
+          const value = specs && specs[key];
+          if (value != null && String(value).trim() !== '') return String(value).trim();
+      }
+      return '';
+  }
+
+  async function fillEbayLabeledField(label, value, idNeedles = []) {
+      if (value == null || (typeof value === 'string' && value.trim() === '')) return { status: 'skipped' };
+      const values = (Array.isArray(value) ? value : [value]).map((item) => String(item).trim()).filter(Boolean);
+      if (!values.length) return { status: 'skipped' };
+      let el = findEbayMarketplaceControl(label, idNeedles);
+      if (!el) {
+          el = await waitForPatchControl({ field: label, selector: '', marketplace: 'ebay' });
+      }
+      if (!el) {
+          recordFill({ field: label, status: 'not_found', reason: 'Element not found', value: values[0] });
+          return { status: 'not_found' };
+      }
+      const control = visibleDropdownControl(el) || el;
+      let last = { status: 'failed' };
+      for (const item of values) {
+          if (shouldFillAsDropdown(control, label) || isMultiChipField(label, control)) {
+              last = await fillDropdownField(control, item, label, false, isMultiChipField(label, control));
+          } else {
+              last = await fillTextFieldByElement(control, item, label);
+          }
+          if (last && last.status === 'filled') return last;
+      }
+      return last;
+  }
+
+  async function fillEbayPolicyAndPriceFields(data, specs) {
+      const price = data && data.price != null && String(data.price).trim() !== '' ? String(data.price) : '';
+      await expandOptionalFields();
+      await fillEbayLabeledField(
+          'Starting Price',
+          ebaySpecValue(specs, ['startingPrice', 'startPrice', 'starting_price']) || price,
+          ['startPrice', 'startingPrice'],
+      );
+      const acceptReturns = ebaySpecValue(specs, ['acceptReturns', 'returnsAccepted', 'accept_returns']) || 'Yes';
+      await fillEbayLabeledField(
+          'Accept Returns',
+          uniqueStrings([acceptReturns, 'Yes', 'Returns Accepted', 'Accept Returns']),
+          ['returnsAccepted', 'acceptReturns'],
+      );
+      await sleep(CONFIG.SLEEP_MEDIUM);
+      await fillEbayLabeledField(
+          'Return Within',
+          ebaySpecValue(specs, ['returnWithin', 'returnsWithin', 'return_within']) || '30 Days',
+          ['returnWithin', 'returnsWithin'],
+      );
+      await fillEbayLabeledField(
+          'Return Refund Method',
+          ebaySpecValue(specs, ['returnRefundMethod', 'refundMethod', 'return_refund_method']) || 'Money Back',
+          ['returnRefund', 'refundMethod'],
+      );
+      const paidBy = ebaySpecValue(specs, ['returnPaidBy', 'returnPayedBy', 'returnsPaidBy', 'return_paid_by', 'return_payed_by']) || 'Buyer';
+      await fillEbayLabeledField('Return Payed By', paidBy, ['PaidBy', 'PayedBy', 'paidBy']);
+      await fillEbayLabeledField('Return Paid By', paidBy, ['PaidBy', 'PayedBy', 'paidBy']);
   }
 
   async function fillEtsyForm(data) {
@@ -4044,10 +4162,11 @@
   }
 
   function findControlForPatch(item) {
-      const bySelector = queryByRecordedSelector(item.selector);
-      if (bySelector) return bySelector;
+      const raw = queryByRecordedSelector(item.selector);
+      const bySelector = visibleDropdownControl(raw) || (raw && isVisibleElement(raw) ? raw : null);
+      if (bySelector && isEnabledField(bySelector)) return bySelector;
       const want = normalizeFieldKey(item.field);
-      if (!want) return null;
+      if (!want) return bySelector;
       const marketplace = String(currentFillMarketplace || 'general').toLowerCase();
       const inMarketplace = marketplace && marketplace !== 'general' && marketplace !== 'unknown'
           ? isMarketplaceInput(marketplace)
@@ -4056,25 +4175,27 @@
       for (const el of controls) {
           if (!inMarketplace(el)) continue;
           const control = visibleDropdownControl(el) || el;
+          if (!isEnabledField(control)) continue;
           if (want === 'size' && isSizeScaleControl(control)) continue;
           if (normalizeFieldKey(fieldLabelForControl(control)) === want) return control;
           const token = normalizeFieldKey(controlFieldToken(control) || specificFieldToken(control.id) || specificFieldToken(control.name));
           if (token === want) return control;
       }
       if (marketplace && marketplace !== 'general' && marketplace !== 'unknown') {
-          return findInputByExactLabel(item.field, isMarketplaceInput(marketplace));
+          return findInputByExactLabel(item.field, isMarketplaceInput(marketplace)) || bySelector;
       }
-      return null;
+      return bySelector;
   }
 
   async function waitForPatchControl(item) {
       let seen = false;
-      for (let attempt = 0; attempt < 6; attempt++) {
+      for (let attempt = 0; attempt < 8; attempt++) {
+          if (attempt === 1 || attempt === 3 || attempt === 5) await expandOptionalFields();
           const el = findControlForPatch(item);
           if (el) {
               seen = true;
               if (isEnabledField(el) && (isVisibleElement(el) || isAttachedElement(el))) return el;
-          } else if (!seen && attempt >= 2) {
+          } else if (!seen && attempt >= 3) {
               break;
           }
           await sleep(CONFIG.SLEEP_RETRY);
@@ -4154,6 +4275,11 @@
               await expandOptionalFields();
               await sleep(CONFIG.SLEEP_LONG * 2);
               let ebayOptionalsReady = marketplace !== 'ebay';
+              if (marketplace === 'ebay' && group.some((item) => /\breturn/i.test(item.field || ''))) {
+                  if (!group.some((item) => normalizeFieldKey(item.field) === 'accept returns')) {
+                      group.unshift({ marketplace: 'ebay', field: 'Accept Returns', value: 'Yes' });
+                  }
+              }
               group.sort((left, right) => {
                   const fillPriority = (key) => {
                       if (key === 'category') return 0;
@@ -4161,6 +4287,8 @@
                       if (key === 'department') return 2;
                       if (key === 'type') return 3;
                       if (key === 'size') return 4;
+                      if (key === 'accept returns' || key === 'returns') return 5;
+                      if (key.startsWith('return')) return 6;
                       return 10;
                   };
                   return fillPriority(normalizeFieldKey(left.field)) - fillPriority(normalizeFieldKey(right.field));
@@ -4211,8 +4339,8 @@
                       });
                       continue;
                   }
-                  if (shouldFillAsDropdown(el, fieldName) || isMultiChipField(fieldName)) {
-                      await fillDropdownField(el, value, fieldName, false, isMultiChipField(fieldName));
+                  if (shouldFillAsDropdown(el, fieldName) || isMultiChipField(fieldName, el)) {
+                      await fillDropdownField(el, value, fieldName, false, isMultiChipField(fieldName, el));
                   } else {
                       await fillTextFieldByElement(el, value, fieldName);
                   }

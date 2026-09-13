@@ -12,6 +12,7 @@ server/tests/test_extension_version.py
 server/tests/test_fill_field_batches.py
 server/tests/test_fill_fields.py
 server/tests/test_fill_log.py
+server/tests/test_hidden_fields.py
 server/tests/test_jobs_dispatch.py
 server/tests/test_listing_generate.py
 server/tests/test_listing_patch.py
@@ -24,6 +25,7 @@ server/tests/test_sold_comps.py
 server/tests/test_updates.py
 server/tests/test_vendoo_import.py
 server/tests/test_vendoo_item.py
+server/tests/test_vendoo_retry_general.py
 server/vendoo_studio/__init__.py
 server/vendoo_studio/config.py
 server/vendoo_studio/database.py
@@ -68,6 +70,7 @@ server/vendoo_studio/services/chatgpt_oauth.py
 server/vendoo_studio/services/chrome_bridge.py
 server/vendoo_studio/services/comp_research.py
 server/vendoo_studio/services/fill_log.py
+server/vendoo_studio/services/hidden_fields.py
 server/vendoo_studio/services/keychain.py
 server/vendoo_studio/services/listing_generate.py
 server/vendoo_studio/services/listing_patch.py
@@ -79,4 +82,5 @@ server/vendoo_studio/services/preview_hub.py
 server/vendoo_studio/services/registry.py
 server/vendoo_studio/services/sold_comps.py
 server/vendoo_studio/services/updates.py
+server/vendoo_studio/services/user_settings.py
 server/vendoo_studio/services/vendoo_import.py

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -18,6 +20,14 @@ class ProviderConfig(BaseModel):
 
 class MarketplacesConfig(BaseModel):
     selected: list[str]
+
+
+class HiddenFieldConfig(BaseModel):
+    marketplace: str
+    field: str
+    label: str | None = None
+    scope: Literal["always", "listing"]
+    conversation_id: str | None = None
 
 
 class ChatGPTStatus(BaseModel):
@@ -214,6 +224,50 @@ def set_marketplaces(config: MarketplacesConfig):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, **_marketplaces_payload(selected)}
+
+
+@router.get("/hidden-fields")
+def get_hidden_fields(conversation_id: str | None = None):
+    from vendoo_studio.services.hidden_fields import hidden_fields
+
+    return hidden_fields(conversation_id)
+
+
+@router.put("/hidden-fields")
+def hide_hidden_field(config: HiddenFieldConfig):
+    from vendoo_studio.services.hidden_fields import hide_field
+
+    try:
+        return {
+            "ok": True,
+            **hide_field(
+                marketplace=config.marketplace,
+                field=config.field,
+                scope=config.scope,
+                conversation_id=config.conversation_id,
+                label=config.label,
+            ),
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.delete("/hidden-fields")
+def restore_hidden_field(config: HiddenFieldConfig):
+    from vendoo_studio.services.hidden_fields import restore_field
+
+    try:
+        return {
+            "ok": True,
+            **restore_field(
+                marketplace=config.marketplace,
+                field=config.field,
+                scope=config.scope,
+                conversation_id=config.conversation_id,
+            ),
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/chatgpt/login")

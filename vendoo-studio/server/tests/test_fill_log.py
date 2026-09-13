@@ -74,6 +74,12 @@ class FillLogHelpersTest(unittest.TestCase):
         self.assertEqual(listing_value_for_field(listing, "ebay", "Department"), "Women")
         self.assertEqual(listing_value_for_field(listing, "ebay", "Type"), "Blouse")
         self.assertEqual(listing_value_for_field(listing, "ebay", "Country of Origin"), "United States")
+        self.assertEqual(listing_value_for_field({"price": 20}, "ebay", "Starting Price"), "20")
+        self.assertEqual(listing_value_for_field({}, "ebay", "Return Payed By"), "Buyer")
+        self.assertEqual(listing_value_for_field({}, "ebay", "Return Within"), "30 Days")
+        self.assertEqual(listing_value_for_field({}, "ebay", "Return Refund Method"), "Money Back")
+        self.assertEqual(listing_value_for_field({"ebay_specifics": {"yearManufactured": "D"}}, "ebay", "Year Manufactured"), "")
+        self.assertEqual(listing_value_for_field({}, "ebay", "Accept Returns"), "Yes")
 
     def test_listing_value_for_field_maps_poshmark_category(self):
         listing = {

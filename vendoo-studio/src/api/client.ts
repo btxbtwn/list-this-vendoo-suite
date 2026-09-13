@@ -171,6 +171,40 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ selected }),
       }),
+    hiddenFields: (conversationId?: string) =>
+      request<{
+        always: { marketplace: string; field: string; label: string }[];
+        listing: { marketplace: string; field: string; label: string }[];
+      }>(`/settings/hidden-fields${conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ""}`),
+    hideField: (body: {
+      marketplace: string;
+      field: string;
+      label?: string;
+      scope: "always" | "listing";
+      conversation_id?: string;
+    }) =>
+      request<{
+        ok: boolean;
+        always: { marketplace: string; field: string; label: string }[];
+        listing: { marketplace: string; field: string; label: string }[];
+      }>("/settings/hidden-fields", {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    showField: (body: {
+      marketplace: string;
+      field: string;
+      scope: "always" | "listing";
+      conversation_id?: string;
+    }) =>
+      request<{
+        ok: boolean;
+        always: { marketplace: string; field: string; label: string }[];
+        listing: { marketplace: string; field: string; label: string }[];
+      }>("/settings/hidden-fields", {
+        method: "DELETE",
+        body: JSON.stringify(body),
+      }),
   },
 
   extension: {
