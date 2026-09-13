@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from vendoo_studio.config import is_packaged
 from vendoo_studio.database import get_db
 from vendoo_studio.services.chrome_bridge import chrome_executable
+from vendoo_studio.services.user_settings import setup_guide_dismissed
 
 router = APIRouter(tags=["health"])
 
@@ -36,4 +37,5 @@ def status(db: Session = Depends(get_db)):
         "database_ok": True,
         "packaged": is_packaged(),
         "chrome_available": chrome_executable() is not None,
+        "setup_guide_dismissed": setup_guide_dismissed(),
     }

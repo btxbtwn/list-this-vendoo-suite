@@ -339,3 +339,10 @@ async def test_brave():
 
     ok, error = await test_brave_connection()
     return {"ok": ok, "error": error}
+
+
+@router.post("/setup-guide/dismiss")
+def dismiss_setup_guide():
+    from vendoo_studio.services.user_settings import dismiss_setup_guide as persist_setup_guide_dismissed
+
+    return persist_setup_guide_dismissed()

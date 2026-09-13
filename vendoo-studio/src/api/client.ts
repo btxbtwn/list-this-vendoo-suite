@@ -43,6 +43,8 @@ export const api = {
       active_job_id: string | null;
       packaged?: boolean;
       chrome_available?: boolean;
+      conversations?: number;
+      setup_guide_dismissed?: boolean;
     }>("/status"),
 
   conversations: {
@@ -213,6 +215,8 @@ export const api = {
         method: "DELETE",
         body: JSON.stringify(body),
       }),
+    dismissSetupGuide: () =>
+      request<{ ok: boolean; dismissed: boolean }>("/settings/setup-guide/dismiss", { method: "POST" }),
   },
 
   extension: {

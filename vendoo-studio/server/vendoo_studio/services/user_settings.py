@@ -7,6 +7,7 @@ from pathlib import Path
 from vendoo_studio.config import user_data_root
 
 _lock = threading.Lock()
+SETUP_GUIDE_DISMISSED_KEY = "setup_guide_dismissed"
 
 
 def settings_path() -> Path:
@@ -48,3 +49,15 @@ def update_settings(mutator) -> dict:
         mutator(payload)
         _write_unlocked(payload)
         return payload
+
+
+def setup_guide_dismissed() -> bool:
+    return bool(read_settings().get(SETUP_GUIDE_DISMISSED_KEY))
+
+
+def dismiss_setup_guide() -> dict:
+    def mutator(payload: dict) -> None:
+        payload[SETUP_GUIDE_DISMISSED_KEY] = True
+
+    update_settings(mutator)
+    return {"ok": True, "dismissed": True}

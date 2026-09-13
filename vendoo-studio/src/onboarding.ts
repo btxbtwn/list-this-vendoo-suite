@@ -1,3 +1,5 @@
+import { api } from "./api/client";
+
 const SETUP_GUIDE_KEY = "vendoo-studio.setup-guide";
 
 export function isSetupGuideDismissed(): boolean {
@@ -14,4 +16,7 @@ export function dismissSetupGuide(): void {
   } catch {
     /* ignore quota / private-mode failures */
   }
+  void api.settings.dismissSetupGuide().catch(() => {
+    /* status on the next launch can still hide the auto-prompt */
+  });
 }
