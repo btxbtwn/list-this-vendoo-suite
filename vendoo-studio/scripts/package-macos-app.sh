@@ -48,7 +48,7 @@ path.write_text(json.dumps({
 print(path)
 PY
 
-"$PYTHON" "$ROOT/desktop/make_icon.py" "$ROOT/desktop/AppIcon.icns" "$REPO/vendoo-extension/icons"
+"$PYTHON" "$ROOT/desktop/make_icon.py" "$ROOT/desktop/AppIcon.icns"
 rm -rf "$RELEASE" "$ROOT/build/pyinstaller"
 mkdir -p "$RELEASE"
 "$PYTHON" -m PyInstaller \

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,6 +19,23 @@ class StudioWindowChromeTest(unittest.TestCase):
         self.assertTrue(kwargs["shadow"])
         self.assertEqual(kwargs["background_color"], desktop.WINDOW_BACKGROUND)
         self.assertEqual(kwargs["min_size"], desktop.MIN_WINDOW_SIZE)
+
+    def test_window_kwargs_use_chrome_extension_icon(self):
+        kwargs = desktop.studio_window_kwargs()
+        icon = desktop.extension_app_icon_path()
+        self.assertIsNotNone(icon)
+        self.assertEqual(kwargs["icon"], str(icon))
+        self.assertEqual(icon.name, "icon128.png")
+
+    def test_install_bundle_icon_copies_chrome_extension_png(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resources = Path(tmp) / "Resources"
+            name = desktop.install_bundle_icon(resources)
+            self.assertEqual(name, "AppIcon.png")
+            copied = resources / "AppIcon.png"
+            source = desktop.extension_app_icon_path()
+            self.assertTrue(copied.is_file())
+            self.assertEqual(copied.read_bytes(), source.read_bytes())
 
     def test_titlebar_matches_t3_code(self):
         self.assertEqual(desktop.TITLEBAR_HEIGHT_PX, 38)
