@@ -855,29 +855,52 @@ async function runFillFields(jobId, payload) {
     return;
   }
 
-  const result = await sendToVendoo(job, {
-    type: 'FILL_FIELDS',
-    fields: payload.fields || [],
-  });
+  const batches = groupFillFieldBatches(payload.fields || []);
+  const batchResults = [];
+  log(`Filling leftover fields in ${batches.length} batch(es)`);
 
-  if (!result.ok) {
-    activePatch = null;
-    await stopJobPreview();
+  for (let i = 0; i < batches.length; i++) {
+    const fields = batches[i];
+    const marketplace = fields[0]?.marketplace || 'general';
     send({
       version: 1,
-      type: 'job.step_failed',
+      type: 'job.progress',
       job_id: jobId,
       message_id: Date.now().toString(36),
       sent_at: new Date().toISOString(),
       payload: {
         step: 'filling_fields',
-        error: result.error || 'Leftover field fill failed',
-        fill_log: result.fill_log || null,
+        marketplace,
+        batch: i + 1,
+        batch_count: batches.length,
+        field_count: fields.length,
       },
     });
-    return;
+    const result = await sendToVendoo(job, {
+      type: 'FILL_FIELDS',
+      fields,
+    });
+    batchResults.push(result);
+    if (!result.ok) {
+      activePatch = null;
+      await stopJobPreview();
+      send({
+        version: 1,
+        type: 'job.step_failed',
+        job_id: jobId,
+        message_id: Date.now().toString(36),
+        sent_at: new Date().toISOString(),
+        payload: {
+          step: 'filling_fields',
+          error: result.error || 'Leftover field fill failed',
+          fill_log: mergeFillLogs(batchResults),
+        },
+      });
+      return;
+    }
   }
 
+  const fillLog = mergeFillLogs(batchResults);
   const saved = await sendToVendoo(job, { type: 'SAVE_GENERAL' });
   activePatch = null;
   await stopJobPreview();
@@ -892,7 +915,7 @@ async function runFillFields(jobId, payload) {
       payload: {
         step: 'filling_fields',
         error: saved.error || 'Filled fields, but Vendoo did not save the draft',
-        fill_log: result.fill_log || null,
+        fill_log: fillLog,
       },
     });
     return;
@@ -910,9 +933,58 @@ async function runFillFields(jobId, payload) {
       step: 'filling_fields',
       vendoo_item_id: saved.vendoo_item_id || payload.vendoo_item_id || null,
       vendoo_url: saved.vendoo_url || payload.vendoo_url || null,
-      fill_log: result.fill_log || null,
+      fill_log: fillLog,
     },
   });
+}
+
+function groupFillFieldBatches(fields) {
+  const grouped = new Map();
+  for (const item of Array.isArray(fields) ? fields : []) {
+    const marketplace = String(item?.marketplace || 'general').toLowerCase();
+    if (!grouped.has(marketplace)) grouped.set(marketplace, []);
+    grouped.get(marketplace).push(item);
+  }
+  const batches = [];
+  const chunkSize = 25;
+  for (const group of grouped.values()) {
+    for (let i = 0; i < group.length; i += chunkSize) {
+      batches.push(group.slice(i, i + chunkSize));
+    }
+  }
+  return batches.length ? batches : [[]];
+}
+
+function mergeFillLogs(results) {
+  const entries = [];
+  for (const result of results) {
+    const log = result && result.fill_log;
+    if (log && Array.isArray(log.entries)) entries.push(...log.entries);
+  }
+  if (!entries.length) return null;
+  return {
+    marketplace: entries[0].marketplace || 'general',
+    entries,
+  };
+}
+
+function commandTimeoutMs(command) {
+  if (command.type === 'FILL_FIELDS') {
+    const count = Array.isArray(command.fields) ? command.fields.length : 0;
+    return Math.min(300000, Math.max(90000, 30000 + count * 5000));
+  }
+  if (
+    command.type === 'FILL_GENERAL' ||
+    command.type === 'FILL_MARKETPLACE' ||
+    command.type === 'CLEAR_GENERAL' ||
+    command.type === 'CLEAR_MARKETPLACE'
+  ) {
+    return 90000;
+  }
+  if (command.type === 'GET_VENDOO_ITEM') {
+    return 20000;
+  }
+  return 45000;
 }
 
 function compactVendooValue(value, depth) {
@@ -1198,11 +1270,7 @@ async function sendToVendoo(job, command) {
   if (!tabId) {
     return { ok: false, error: 'No job tab stored' };
   }
-  const timeoutMs = command.type === 'FILL_GENERAL' || command.type === 'FILL_MARKETPLACE' || command.type === 'FILL_FIELDS' || command.type === 'CLEAR_GENERAL' || command.type === 'CLEAR_MARKETPLACE'
-    ? 90000
-    : command.type === 'GET_VENDOO_ITEM'
-      ? 20000
-      : 45000;
+  const timeoutMs = commandTimeoutMs(command);
   try {
     const resp = await Promise.race([
       chrome.tabs.sendMessage(tabId, { ...command }),
