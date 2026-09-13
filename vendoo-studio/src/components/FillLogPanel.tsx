@@ -1571,7 +1571,7 @@ export function FillLogPanel({
               draftQuery.refetch();
             }}
           >
-            {draftQuery.isFetching ? "Reading…" : draft ? "Refresh" : "Read draft"}
+            {draftQuery.isFetching ? "Discovering…" : draft ? "Refresh" : "Read draft"}
           </button>
         )}
         {draft?.ok && (
@@ -1580,6 +1580,12 @@ export function FillLogPanel({
           </button>
         )}
       </div>
+
+      {draftQuery.isFetching && (
+        <p className="pr-notice">
+          Opening each marketplace form and expanding optional fields so Studio can list every empty field…
+        </p>
+      )}
 
       {(onAskChat || hasDraft) && (
         <div className="pr-actions">
@@ -1645,7 +1651,7 @@ export function FillLogPanel({
         <div className="pr-empty">
           <p>
             {draftQuery.isFetching
-              ? "Reading Vendoo draft…"
+              ? "Discovering every marketplace form and optional field…"
               : !chromeConnected && hasDraft
                 ? "Connect Chrome to read empty Vendoo fields. Ask chat can still generate values, then Fill on Vendoo patches only those fields."
                 : hasDraft

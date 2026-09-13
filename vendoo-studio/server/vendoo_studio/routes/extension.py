@@ -22,7 +22,7 @@ from vendoo_studio.services.chrome_bridge import (
 
 router = APIRouter(tags=["extension"])
 
-VENDOO_GET_TIMEOUT_SEC = 30
+VENDOO_GET_TIMEOUT_SEC = 120
 
 
 class ExtensionManager:
