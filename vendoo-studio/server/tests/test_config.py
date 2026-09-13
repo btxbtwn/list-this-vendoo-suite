@@ -16,6 +16,7 @@ class ConfigPathTest(unittest.TestCase):
             "VENDOO_STUDIO_PACKAGED",
             "VENDOO_STUDIO_SKILLS_DIR",
             "VENDOO_STUDIO_EXTENSION_DIR",
+            "VENDOO_STUDIO_HOST",
         )
         self.saved = {key: os.environ.get(key) for key in self.keys}
 
@@ -49,3 +50,19 @@ class ConfigPathTest(unittest.TestCase):
         os.environ.pop("VENDOO_STUDIO_SKILLS_DIR", None)
         skill = config.skills_dir() / "list-this" / "SKILL.md"
         self.assertTrue(skill.is_file(), skill)
+
+    def test_bind_host_rejects_non_loopback(self):
+        os.environ["VENDOO_STUDIO_HOST"] = "0.0.0.0"
+        self.assertEqual(config.bind_host(), "127.0.0.1")
+        os.environ["VENDOO_STUDIO_HOST"] = "127.0.0.1"
+        self.assertEqual(config.bind_host(), "127.0.0.1")
+
+    def test_cors_origins_are_loopback_only(self):
+        joined = " ".join(config.CORS_ORIGINS)
+        self.assertNotIn("vendoo.co", joined)
+        self.assertNotIn("ebay.com", joined)
+        for origin in config.CORS_ORIGINS:
+            self.assertTrue(
+                origin.startswith("http://127.0.0.1:") or origin.startswith("http://localhost:"),
+                origin,
+            )

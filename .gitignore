@@ -1,0 +1,11 @@
+.DS_Store
+.playwright-mcp/
+.mp/
+logs/
+*.log
+.env
+.env.*
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/

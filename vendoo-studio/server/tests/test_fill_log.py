@@ -231,8 +231,8 @@ class FillLogRouteTest(unittest.TestCase):
         from fastapi.testclient import TestClient
         from vendoo_studio.main import app
 
-        client = TestClient(app)
-        response = client.get("/api/jobs/missing/fill-log")
+        with TestClient(app) as client:
+            response = client.get("/api/jobs/missing/fill-log")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Job not found")
 

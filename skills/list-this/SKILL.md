@@ -90,20 +90,11 @@ When made: {when_made}
 | Missing required photos | No tag/label photo | Request additional photos |
 | Invalid local path | Provided path does not resolve to an item photo folder | Tell user the path could not be used and return JSON or copy-paste text in chat only |
 | Unwritable local folder | Folder exists but the output file cannot be written | Surface the write failure explicitly and do not claim the save succeeded |
-| Vision tool returns "no image attached" | vision_analyze fails on local file paths | Switch immediately to mcp_minimax_token_plan_understand_image as fallback — do not retry the failing tool |
+| Vision tool returns "no image attached" | vision_analyze fails on local file paths | Read the image bytes from the local path yourself, or ask the user to attach the photos in chat. Do not invent details. |
 
 ## Image Analysis Tools (Critical)
 
-When analyzing product photos, `vision_analyze` (built-in) may fail on local file paths with "I don't have access to the image / no image attached." If this occurs, use `mcp_minimax_token_plan_understand_image` as the reliable fallback:
-
-```
-mcp_minimax_token_plan_understand_image(
-  image_source: "<local_absolute_path>",
-  prompt: "Describe this garment in detail for resale listing: brand, size tag text, color, style, material, neckline, any holes/damage, and other visible details."
-)
-```
-
-This pattern has been verified across macOS session image caches. Use it immediately on first vision failure — do not retry the failing tool.
+When analyzing product photos, `vision_analyze` (built-in) may fail on local file paths with "I don't have access to the image / no image attached." If this occurs, open the files from the provided local path and describe what is actually visible. If the photos still cannot be read, ask the user to attach them in chat. Do not guess brand, size, or condition.
 
 ## Workflow (MANDATORY)
 
@@ -136,7 +127,10 @@ Measurement fallback rules:
 
 ### Step 4: Comp Checker
 Use `web_search` with query pattern: `"{brand} {item type} sold comps"`
-Apply pricing formula from MEMORY.md.
+Pricing formula:
+- After you determine market price from sold comps, apply a 35% markup to create the listing price.
+- Offers: Auto-accept = Listing Price minus 2; Minimum offer = Listing Price minus 4.
+- Pricing format: eBay/Etsy use .99; Poshmark/Depop use whole dollars.
 
 ### Step 5: Synthesis (You)
 - Enforce title formula EXACTLY
@@ -168,13 +162,8 @@ Apply pricing formula from MEMORY.md.
 - Record the fallback clearly in the description measurements line when helpful.
 - If later browser automation requires a forced dropdown choice that does not support the exact measurement expression, choose the closest reasonable marketplace value and preserve the measurement truth in the description and notes.
 
-**Valid Depop Values (MUST use only these):**
-- **Style:** Casual, Streetwear, Vintage, Y2K, Minimalist, Sporty, Bohemian, Grunge, Preppy, Athleisure, Retro
-- **Occasion:** Casual, Streetwear, Formal, Sporty, Vintage, Y2K, Bohemian, Minimalist, Retro, Summer, Workwear
-- **Material:** Cotton, Cotton - Organic, Cotton - Recycled, Polyester, Denim, Leather, Wool, Silk, Linen, Fleece, Velvet, Satin
-- **Fit:** Skinny, Slim, Straight, Bootcut, Relaxed, Oversized, Loose, Regular, High Rise, Mid Rise, Low Rise
-- **Source:** Preloved, Deadstock, Vintage, New with tags, New without tags
-- **Age:** Modern, Vintage, Y2K
+**Valid dropdown values (MUST use only these):**
+Use `references/vendoo-dropdown-options.md` (machine-readable: `references/vendoo-dropdown-options.json`) as the only allowed-value list for Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy dropdowns. Do not invent Depop style, occasion, material, source, or age values.
 
 **Depop Specifics (ALWAYS include when supportable):**
 - **Source**

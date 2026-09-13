@@ -7,12 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from pathlib import Path
 
 from vendoo_studio.database import get_db
 from vendoo_studio.repositories.queries import JobRepo, ConversationRepo, ListingRepo, FillLogRepo
-from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.models.conversation import Photo
+from vendoo_studio.services.photos import stored_photo_path
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -292,6 +291,9 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         raise HTTPException(404, "Job not found")
     if job.status in ACTIVE_JOB_STATUSES:
         raise HTTPException(400, "Wait for the current fill to finish")
+    other_active = [active for active in JobRepo(db).get_active() if active.id != job_id]
+    if other_active:
+        raise HTTPException(409, "Another job is already in progress")
     if job.status not in {"completed", "failed"}:
         raise HTTPException(400, f"Job is {job.status}, cannot fill leftover fields")
     if not job.vendoo_url and not job.vendoo_item_id:
@@ -439,6 +441,9 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(400, f"Job is {job.status}, cannot retry")
     if job.status == "dispatched" and job.current_step == "filling_fields":
         raise HTTPException(400, "Leftover field fill is already running")
+    other_active = [active for active in repo.get_active() if active.id != job_id]
+    if other_active:
+        raise HTTPException(409, "Another job is already in progress")
 
     job.status = "queued"
     job.current_step = "queued"
@@ -612,7 +617,10 @@ def serve_job_photo(job_id: str, photo_id: str, db: Session = Depends(get_db)):
     if not photo:
         raise HTTPException(404, "Photo not found for this job")
 
-    filepath = Path(PHOTOS_DIR) / photo.stored_filename
+    try:
+        filepath = stored_photo_path(photo.stored_filename)
+    except ValueError:
+        raise HTTPException(404, "Photo file not found")
     if not filepath.exists():
         raise HTTPException(404, "Photo file not found")
 

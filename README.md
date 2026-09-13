@@ -1,13 +1,12 @@
 # List This Vendoo Suite
 
-Monorepo combining the `list-this` skill family, Vendoo Listing Studio, Background Studio, and the Vendoo Chrome extension. The skills generate marketplace-ready listings from product photos; Vendoo Studio provides a local web interface for chat-driven listing creation and extension automation; Background Studio is a standalone local FastAPI + React photo background-removal app; the extension fills six platforms (Vendoo, eBay, Poshmark, Mercari, Depop, Etsy) from a single JSON payload.
+Monorepo combining the `list-this` skill family, Vendoo Listing Studio, and the Vendoo Chrome extension. The skills generate marketplace-ready listings from product photos; Vendoo Studio provides a local web interface for chat-driven listing creation and extension automation; the extension fills six platforms (Vendoo, eBay, Poshmark, Mercari, Depop, Etsy) from a single JSON payload.
 
 ## Source of truth
 
 - **`skills/`** — Canonical source of truth for listing rules, templates, research loops, and optimizer tooling.
 - **`vendoo-extension/`** — Chrome extension that consumes listing JSON and fills marketplace forms.
-- **`vendoo-studio/`** — Local web app (FastAPI + React) for MiMo-powered listing generation with automated Vendoo draft creation.
-- **`background-studio/`** — Standalone local FastAPI + React app for photo background removal. See [`background-studio/README.md`](background-studio/README.md) for setup.
+- **`vendoo-studio/`** — Local web app (FastAPI + React) for listing generation with automated Vendoo draft creation.
 - **`VENDOO_STUDIO_SPEC.md`** — Product and architecture specification for Vendoo Listing Studio.
 - `vendoo-extension/skills/list-this/` is a legacy compatibility wrapper only.
 
@@ -87,9 +86,9 @@ The extension expects this structure. All `ebay_specifics` keys must use the exa
   "price": 45.00,
   "brand": "Levi's",
   "size": "M",
-  "condition": "Good",
-  "category": "Clothing > Jackets",
-  "color": "Blue",
+  "condition": "Pre-Owned - Good",
+  "category_path": "Clothing, Shoes & Accessories > Men > Men's Clothing > Coats, Jackets & Vests",
+  "primaryColor": "Blue",
   "sku": "DENIM-001",
   "quantity": 1,
   "weight_lb": 0,

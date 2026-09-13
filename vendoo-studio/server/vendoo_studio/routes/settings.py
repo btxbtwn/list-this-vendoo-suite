@@ -31,7 +31,7 @@ class ChatGPTStatus(BaseModel):
 class ProviderStatus(BaseModel):
     provider: str
     configured: bool
-    masked_key: str | None
+    mimo_configured: bool
     vision_model: str
     listing_model: str
     base_url: str
@@ -60,9 +60,7 @@ def get_provider():
 
     chatgpt = _chatgpt_status()
     key = get_api_key()
-    masked = None
-    if key:
-        masked = key[:8] + "..." + key[-4:] if len(key) > 12 else "***"
+    mimo_configured = bool(key)
 
     if chatgpt_signed_in():
         from vendoo_studio.providers.chatgpt_codex import resolved_chatgpt_models
@@ -71,7 +69,7 @@ def get_provider():
         return ProviderStatus(
             provider="chatgpt",
             configured=True,
-            masked_key=None,
+            mimo_configured=mimo_configured,
             vision_model=vision_model,
             listing_model=listing_model,
             base_url="https://chatgpt.com/backend-api/codex",
@@ -80,8 +78,8 @@ def get_provider():
 
     return ProviderStatus(
         provider="xiaomi-mimo",
-        configured=bool(key),
-        masked_key=masked,
+        configured=mimo_configured,
+        mimo_configured=mimo_configured,
         vision_model="mimo-v2.5",
         listing_model="mimo-v2.5-pro",
         base_url="https://api.xiaomimimo.com/v1",

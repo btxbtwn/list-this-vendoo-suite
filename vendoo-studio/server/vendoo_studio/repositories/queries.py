@@ -267,17 +267,21 @@ class JobRepo:
             .all()
         )
 
-    def requeue_interrupted(self) -> list[Job]:
+    def requeue_interrupted(self, keep_job_id: str | None = None) -> list[Job]:
         jobs = self.db.query(Job).filter(Job.status == "dispatched").all()
+        requeued: list[Job] = []
         for job in jobs:
+            if keep_job_id and job.id == keep_job_id:
+                continue
             job.status = "queued"
             job.current_step = "queued"
             job.last_error = None
-        if jobs:
+            requeued.append(job)
+        if requeued:
             self.db.commit()
-            for job in jobs:
+            for job in requeued:
                 self.db.refresh(job)
-        return jobs
+        return requeued
 
     def list_all(self) -> list[Job]:
         return self.db.query(Job).order_by(Job.created_at.desc()).limit(50).all()
