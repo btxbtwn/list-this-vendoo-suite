@@ -140,7 +140,14 @@ class EverydayListingTabTest(unittest.TestCase):
         start = preview.index("async function startJobPreview")
         start_fn = preview[start:]
         self.assertNotIn("showWindow", start_fn.split("chrome.debugger.onEvent", 1)[0])
+        self.assertNotIn("hideWindow", start_fn.split("chrome.debugger.onEvent", 1)[0])
         self.assertIn("tabIsInFront", start_fn)
         self.assertIn("attachDebuggerPreview", start_fn)
         self.assertIn("foreground: true", background)
         self.assertIn("{ foreground }", background)
+        patch_start = background.index("async function openListingForPatch")
+        patch_end = background.index("async function runFillFields")
+        patch = background[patch_start:patch_end]
+        self.assertIn("openVisibleVendooWindow", patch)
+        self.assertIn("function focusVendooListing", background)
+        self.assertIn("await showWindow", background)

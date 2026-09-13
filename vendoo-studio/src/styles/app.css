@@ -1228,7 +1228,12 @@ html.desktop-app .workspace-drag-region {
 
 .evidence-card {
   align-self: flex-start;
+  width: 100%;
   max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -1238,6 +1243,7 @@ html.desktop-app .workspace-drag-region {
 .evidence-header {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 8px;
   padding: 9px 14px;
   background: var(--color-cobalt-tint);
@@ -1248,6 +1254,10 @@ html.desktop-app .workspace-drag-region {
 }
 
 .evidence-body {
+  min-height: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 14px;
   font-size: var(--text-sm);
   line-height: 1.6;
@@ -1258,6 +1268,10 @@ html.desktop-app .workspace-drag-region {
 .sold-comps-body {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   gap: 8px;
   padding: 10px 14px 12px;
 }
@@ -1336,8 +1350,39 @@ a.sold-comps-row:hover .sold-comps-title {
 .sold-comps-empty {
   font-size: var(--text-sm);
   line-height: 1.6;
-  color: var(--color-text-muted);
-  white-space: pre-wrap;
+  color: var(--color-text-secondary);
+}
+
+.sold-comps-card .sold-comps-empty .chat-markdown {
+  color: var(--color-text-secondary);
+}
+
+.sold-comps-card .sold-comps-empty .chat-markdown p,
+.sold-comps-card .sold-comps-empty .chat-markdown ul,
+.sold-comps-card .sold-comps-empty .chat-markdown ol,
+.sold-comps-card .sold-comps-empty .chat-markdown blockquote {
+  margin: 0.45rem 0;
+}
+
+.sold-comps-card .sold-comps-empty .chat-markdown h1,
+.sold-comps-card .sold-comps-empty .chat-markdown h2,
+.sold-comps-card .sold-comps-empty .chat-markdown h3,
+.sold-comps-card .sold-comps-empty .chat-markdown h4,
+.sold-comps-card .sold-comps-empty .chat-markdown h5,
+.sold-comps-card .sold-comps-empty .chat-markdown h6 {
+  margin: 0.7rem 0 0.3rem;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.sold-comps-card .sold-comps-empty .chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.sold-comps-card .sold-comps-empty .chat-markdown strong {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
 }
 
 .thinking-block {

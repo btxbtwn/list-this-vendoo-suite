@@ -1,4 +1,5 @@
 import React from "react";
+import { ChatMarkdown } from "./ChatMarkdown";
 
 export interface SoldComp {
   price: string;
@@ -19,6 +20,9 @@ export interface SoldCompsReport {
 const INSTRUCTION =
   "Use these live results to set market price, then listing price = market × 1.35 (whole dollars).";
 
+const RANGE_RE =
+  /\$\s*(\d{1,4}(?:\.\d{1,2})?)\s*(?:[-–—]|to)\s*\$?\s*(\d{1,4}(?:\.\d{1,2})?)/i;
+
 function marketplaceSlug(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z]/g, "");
   if (slug === "ebay" || slug === "poshmark" || slug === "mercari" || slug === "depop" || slug === "etsy") {
@@ -33,16 +37,52 @@ function sourceLabel(source: string): string {
   return source;
 }
 
+function formatMoney(value: string): string {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return `$${value}`;
+  return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(2)}`;
+}
+
+function marketFromText(text: string): string {
+  const match = text.match(RANGE_RE);
+  if (!match) return "";
+  const lo = Number(match[1]);
+  const hi = Number(match[2]);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return "";
+  return `${formatMoney(String(Math.min(lo, hi)))}–${formatMoney(String(Math.max(lo, hi)))}`;
+}
+
+function unwrapMarkdownFence(text: string): string {
+  const match = text.trim().match(/^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : text;
+}
+
+function isMetaLine(stripped: string): boolean {
+  return (
+    stripped === "Sold comps:" ||
+    stripped === INSTRUCTION ||
+    stripped.startsWith("Query:") ||
+    stripped.startsWith("Source:") ||
+    stripped.startsWith("Market:")
+  );
+}
+
 export function parseSoldComps(text: string): SoldCompsReport | null {
   const blob = (text || "").trim();
   if (!blob.startsWith("Sold comps:")) return null;
 
   const report: SoldCompsReport = { query: "", source: "", market: "", note: "", comps: [] };
   let pending: SoldComp | null = null;
+  const noteLines: string[] = [];
 
   const pushPending = () => {
     if (pending) report.comps.push(pending);
     pending = null;
+  };
+
+  const pushNote = (line: string) => {
+    if (!line.trim() && !noteLines.length) return;
+    noteLines.push(line.replace(/\s+$/, ""));
   };
 
   for (const raw of blob.split("\n").slice(1)) {
@@ -59,13 +99,13 @@ export function parseSoldComps(text: string): SoldCompsReport | null {
       report.market = stripped.slice(7).trim();
       continue;
     }
-    if (stripped === INSTRUCTION) continue;
+    if (isMetaLine(stripped)) continue;
     if (/^https?:\/\//i.test(stripped)) {
       if (pending) {
         pending.url = stripped;
         pushPending();
       } else if (!report.comps.length) {
-        report.note = report.note ? `${report.note}\n${stripped}` : stripped;
+        pushNote(stripped);
       }
       continue;
     }
@@ -81,11 +121,13 @@ export function parseSoldComps(text: string): SoldCompsReport | null {
       };
       continue;
     }
-    if (stripped && !report.comps.length && !pending) {
-      report.note = report.note ? `${report.note}\n${stripped}` : stripped;
+    if (!report.comps.length && !pending) {
+      pushNote(raw);
     }
   }
   pushPending();
+  report.note = unwrapMarkdownFence(noteLines.join("\n").trim());
+  if (!report.market) report.market = marketFromText(report.note);
   return report;
 }
 
@@ -112,29 +154,44 @@ function CompRow({ comp }: { comp: SoldComp }) {
   return <div className="sold-comps-row sold-comps-row-static">{inner}</div>;
 }
 
+function fallbackNote(text: string): string {
+  const lines = text.replace(/^Sold comps:\s*/i, "").split("\n");
+  return unwrapMarkdownFence(
+    lines
+      .filter((line) => !isMetaLine(line.trim()))
+      .join("\n")
+      .trim(),
+  );
+}
+
 export function SoldCompsCard({ text }: { text: string }) {
   const report = parseSoldComps(text);
-  const meta = [report?.market ? `${report.market} market` : "", sourceLabel(report?.source || "")]
+  const note = report ? report.note : fallbackNote(text);
+  const meta = [
+    report?.market ? `${report.market} market` : "",
+    sourceLabel(report?.source || ""),
+  ]
     .filter(Boolean)
     .join(" · ");
 
   return (
     <div className="evidence-card sold-comps-card">
       <div className="evidence-header">SOLD COMPS</div>
-      {report?.comps.length ? (
-        <div className="sold-comps-body">
-          {meta ? <div className="sold-comps-meta">{meta}</div> : null}
+      <div className="sold-comps-body">
+        {meta ? <div className="sold-comps-meta">{meta}</div> : null}
+        {report?.comps.length ? (
           <div className="sold-comps-list">
             {report.comps.map((comp, index) => (
               <CompRow key={`${comp.price}-${comp.title}-${index}`} comp={comp} />
             ))}
           </div>
-        </div>
-      ) : (
-        <div className="sold-comps-body">
-          <div className="sold-comps-empty">{report?.note || text.replace(/^Sold comps:\n?/i, "").trim()}</div>
-        </div>
-      )}
+        ) : null}
+        {note ? (
+          <div className="sold-comps-empty">
+            <ChatMarkdown text={note} />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
