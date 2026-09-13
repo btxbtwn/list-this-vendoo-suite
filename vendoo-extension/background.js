@@ -762,8 +762,12 @@ async function findVisibleVendooTab() {
   }
   const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*' });
   const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*' });
-  return [...webTabs, ...appTabs].find((tab) => (
-    tab.windowId && (!engineOffscreen || tab.windowId !== engineId)
+  const tabs = [...webTabs, ...appTabs];
+  return tabs.find((tab) => (
+    tab.windowId
+    && tab.status === 'complete'
+    && isVendooUrl(tab.url)
+    && (!engineOffscreen || tab.windowId !== engineId)
   )) || null;
 }
 
@@ -814,7 +818,7 @@ async function focusVendooListing(payload) {
   const itemUrl = payload.vendoo_url || (payload.vendoo_item_id
     ? `https://web.vendoo.co/app/item/${payload.vendoo_item_id}`
     : '');
-  const url = itemUrl || 'https://web.vendoo.co';
+  const url = itemUrl || 'https://web.vendoo.co/app';
   const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
   const existing = itemId ? await findTabByDraft(url, itemId) : await findVisibleVendooTab();
   const engineId = await rememberedEngineWindowId();

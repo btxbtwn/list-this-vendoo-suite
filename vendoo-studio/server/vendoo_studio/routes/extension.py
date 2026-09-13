@@ -13,12 +13,9 @@ from vendoo_studio.models.protocol import ProtocolMessage
 from vendoo_studio.database import SessionLocal
 from vendoo_studio.services.chrome_bridge import (
     ChromeBridgeError,
-    bundled_extension_version,
     clear_extension_reload_pending,
     extension_build_status,
     install_bundled_extension,
-    mark_extension_reload_pending,
-    pending_extension_reload_token,
     relaunch_studio_chrome,
 )
 
@@ -146,32 +143,13 @@ async def handshake_extension(
     reported_version: str | None = None,
 ) -> bool:
     try:
-        files_changed = install_bundled_extension()
+        install_bundled_extension()
     except ChromeBridgeError:
-        files_changed = False
-    pending = pending_extension_reload_token()
-    generation_matches = bool(pending) and pending == reported_generation
-    expected_version = bundled_extension_version()
-    version_matches = bool(
-        reported_version and expected_version and reported_version == expected_version
-    )
-
-    # One in-place worker reload is enough. Repeating it reloads every Vendoo
-    # tab forever and the page never finishes loading. A stale --load-extension
-    # worker needs a Chrome process relaunch from Connect Chrome instead.
-    if files_changed and not generation_matches:
-        if pending:
-            clear_extension_reload_pending()
-        else:
-            token = mark_extension_reload_pending()
-            await ws.send_json(ProtocolMessage(
-                type="extension.reload",
-                payload={"generation": token},
-            ).model_dump(mode="json"))
-            return False
-
-    if pending and (generation_matches or version_matches or not files_changed):
-        clear_extension_reload_pending()
+        pass
+    # Never chrome.runtime.reload() here. That reloads every Vendoo tab and
+    # leaves Connect Chrome on a white page. Connect Chrome relaunches the
+    # Chrome process instead.
+    clear_extension_reload_pending()
     await ws.send_json(ProtocolMessage(
         type="connection.accepted",
         payload={"paired": True},
@@ -287,7 +265,7 @@ async def dispatch_show_vendoo() -> bool:
     return await extension_manager.send_message(ProtocolMessage(
         type="job.open_listing",
         message_id=uuid.uuid4().hex[:12],
-        payload={"vendoo_url": "https://web.vendoo.co"},
+        payload={"vendoo_url": "https://web.vendoo.co/app"},
     ).model_dump(mode="json"))
 
 

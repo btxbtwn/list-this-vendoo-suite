@@ -6,6 +6,7 @@ import os
 import signal
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -13,7 +14,7 @@ from urllib.parse import urlparse
 
 from vendoo_studio.config import extension_source_dir, user_data_root
 
-DEFAULT_VENDOO_URL = "https://web.vendoo.co"
+DEFAULT_VENDOO_URL = "https://web.vendoo.co/app"
 VENDOO_HOSTS = frozenset({"web.vendoo.co", "app.vendoo.co"})
 
 CHROME_APP_BINARIES = (
@@ -254,6 +255,7 @@ def launch_args(
         str(executable),
         f"--user-data-dir={profile_dir}",
         "--disable-features=DisableLoadExtensionCommandLineSwitch,CalculateNativeWinOcclusion",
+        f"--disable-extensions-except={extension_dir}",
         f"--load-extension={extension_dir}",
         "--no-first-run",
         "--no-default-browser-check",
@@ -286,14 +288,24 @@ def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = False
             "Google Chrome is not installed. Install it from https://www.google.com/chrome, then click Connect Chrome again."
         )
     extension_dir = sync_bundled_extension()
-    profile_dir = chrome_profile_dir()
+    profile_dir = chrome_profile_dir().resolve()
     profile_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.Popen(
-        launch_args(executable, extension_dir, profile_dir, target, visible=visible),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    args = launch_args(executable, extension_dir, profile_dir, target, visible=visible)
+    if sys.platform == "darwin":
+        app = executable.parent.parent.parent
+        subprocess.Popen(
+            ["open", "-na", str(app), "--args", *args[1:]],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    else:
+        subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
     return {
         "ok": True,
         "browser": executable.parent.parent.parent.stem,
@@ -303,10 +315,23 @@ def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = False
     }
 
 
+def studio_chrome_profile_markers() -> tuple[str, ...]:
+    markers = []
+    for root in (chrome_profile_dir(), installed_extension_dir()):
+        for path in (root, root.resolve()):
+            text = str(path)
+            if not text:
+                continue
+            markers.append(f"--user-data-dir={text}")
+            markers.append(f'--user-data-dir="{text}"')
+            markers.append(f"--load-extension={text}")
+            markers.append(f'--load-extension="{text}"')
+    return tuple(dict.fromkeys(markers))
+
+
 def studio_chrome_pids() -> list[int]:
     """PIDs for the Studio-managed Chrome profile only, never the user's main Chrome."""
-    profile = str(chrome_profile_dir().resolve())
-    marker = f"--user-data-dir={profile}"
+    markers = studio_chrome_profile_markers()
     try:
         output = subprocess.check_output(["ps", "-axww", "-o", "pid=,command="], text=True)
     except (OSError, subprocess.CalledProcessError):
@@ -314,7 +339,7 @@ def studio_chrome_pids() -> list[int]:
     pids: list[int] = []
     for raw in output.splitlines():
         line = raw.strip()
-        if marker not in line:
+        if not any(marker in line for marker in markers):
             continue
         pid_s = line.split(None, 1)[0]
         try:
@@ -334,9 +359,28 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
+CHROME_LOCK_NAMES = ("SingletonLock", "SingletonSocket", "SingletonCookie")
+
+
+def clear_chrome_profile_locks() -> None:
+    root = chrome_profile_dir().resolve()
+    if not root.is_dir():
+        return
+    for name in CHROME_LOCK_NAMES:
+        path = root / name
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+        except OSError:
+            pass
+
+
 def quit_studio_chrome(timeout_sec: float = 5.0) -> None:
     pids = set(studio_chrome_pids())
     if not pids:
+        clear_chrome_profile_locks()
         return
     for pid in list(pids):
         try:
@@ -358,6 +402,17 @@ def quit_studio_chrome(timeout_sec: float = 5.0) -> None:
     leftover_deadline = time.monotonic() + 1.0
     while studio_chrome_pids() and time.monotonic() < leftover_deadline:
         time.sleep(0.05)
+    leftovers = studio_chrome_pids()
+    if leftovers:
+        for marker in studio_chrome_profile_markers():
+            subprocess.run(
+                ["pkill", "-f", marker],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    if not studio_chrome_pids():
+        clear_chrome_profile_locks()
 
 
 def relaunch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = True) -> dict:

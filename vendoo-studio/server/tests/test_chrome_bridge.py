@@ -118,6 +118,7 @@ class ChromeBridgeTest(unittest.TestCase):
             Path("/tmp/profile"),
         )
         self.assertIn("--load-extension=/tmp/ext", args)
+        self.assertIn("--disable-extensions-except=/tmp/ext", args)
         self.assertIn("--user-data-dir=/tmp/profile", args)
         self.assertIn("--disable-features=DisableLoadExtensionCommandLineSwitch,CalculateNativeWinOcclusion", args)
         self.assertIn("--disable-backgrounding-occluded-windows", args)
@@ -134,7 +135,7 @@ class ChromeBridgeTest(unittest.TestCase):
             Path("/tmp/profile"),
             visible=True,
         )
-        self.assertEqual(args[-1], "https://web.vendoo.co")
+        self.assertEqual(args[-1], "https://web.vendoo.co/app")
         self.assertIn("--new-window", args)
         self.assertIn("--window-position=80,80", args)
         self.assertIn("--window-size=1280,900", args)
@@ -158,7 +159,7 @@ class ChromeBridgeTest(unittest.TestCase):
             "https://evil.example/phishing",
             visible=True,
         )
-        self.assertEqual(args[-1], "https://web.vendoo.co")
+        self.assertEqual(args[-1], "https://web.vendoo.co/app")
 
     def test_listing_url_for_job(self):
         self.assertEqual(
@@ -220,6 +221,19 @@ class ChromeBridgeTest(unittest.TestCase):
         quit.assert_called_once()
         launch.assert_called_once_with(chrome_bridge.DEFAULT_VENDOO_URL, visible=True)
         self.assertTrue(result["ok"])
+
+    def test_launch_studio_chrome_uses_open_on_macos(self):
+        executable = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+        with patch.object(chrome_bridge, "chrome_executable", return_value=executable), patch.object(
+            chrome_bridge, "sync_bundled_extension", return_value=Path("/tmp/ext")
+        ), patch.object(chrome_bridge.sys, "platform", "darwin"), patch(
+            "vendoo_studio.services.chrome_bridge.subprocess.Popen"
+        ) as popen:
+            chrome_bridge.launch_studio_chrome(visible=True)
+        cmd = popen.call_args[0][0]
+        self.assertEqual(cmd[:4], ["open", "-na", "/Applications/Google Chrome.app", "--args"])
+        self.assertIn("--load-extension=/tmp/ext", cmd)
+        self.assertIn("https://web.vendoo.co/app", cmd)
 
     def test_chrome_executable_finds_home_applications(self):
         root = Path(self.tmp.name) / "Applications"
