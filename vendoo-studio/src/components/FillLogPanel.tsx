@@ -1156,16 +1156,9 @@ function formsFromListing(listing?: Record<string, unknown>): DraftForm[] {
   return forms;
 }
 
-type FillFilter = "all" | "empty" | "filled";
 type HiddenField = { marketplace: string; field: string; label: string };
 type HiddenFieldsState = { always: HiddenField[]; listing: HiddenField[] };
-type OpenMenu = { kind: "filter" } | { kind: "hidden" } | { kind: "field"; key: string } | null;
-
-const FILL_FILTERS: { id: FillFilter; label: string }[] = [
-  { id: "all", label: "All fields" },
-  { id: "empty", label: "Empty only" },
-  { id: "filled", label: "Filled only" },
-];
+type OpenMenu = { kind: "hidden" } | { kind: "field"; key: string } | null;
 
 function emptyHiddenFields(): HiddenFieldsState {
   return { always: [], listing: [] };
@@ -1197,14 +1190,13 @@ function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsState): Dra
     .filter((form) => form.fields.length > 0);
 }
 
-function filterForms(forms: DraftForm[], query: string, fillFilter: FillFilter): DraftForm[] {
+function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): DraftForm[] {
   const needle = query.trim().toLowerCase();
-  const filtered = fillFilter !== "all" || Boolean(needle);
+  const filtered = missingOnly || Boolean(needle);
   return forms
     .map((form) => {
       const fields = form.fields.filter((field) => {
-        if (fillFilter === "empty" && !field.missing) return false;
-        if (fillFilter === "filled" && field.missing) return false;
+        if (missingOnly && !field.missing) return false;
         if (!needle) return true;
         return (
           form.label.toLowerCase().includes(needle) ||
@@ -1261,7 +1253,7 @@ export function FillLogPanel({
     queryFn: () => api.settings.hiddenFields(conversationId),
   });
   const [query, setQuery] = React.useState("");
-  const [fillFilter, setFillFilter] = React.useState<FillFilter>("all");
+  const [missingOnly, setMissingOnly] = React.useState(false);
   const [showJson, setShowJson] = React.useState(false);
   const [selected, setSelected] = React.useState<string | null>(null);
   const [values, setValues] = React.useState<Record<string, string>>({});
@@ -1286,7 +1278,7 @@ export function FillLogPanel({
   const visibleSourceForms = withoutHiddenFields(sourceForms, hidden);
   const hiddenCount = hidden.always.length + hidden.listing.length;
   const sourceKey = visibleSourceForms.map((form) => form.id).join("|");
-  const forms = filterForms(visibleSourceForms, query, fillFilter);
+  const forms = filterForms(visibleSourceForms, query, missingOnly);
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
 
   React.useEffect(() => {
@@ -1453,7 +1445,6 @@ export function FillLogPanel({
     }
     return payload;
   })();
-  const filterLabel = FILL_FILTERS.find((item) => item.id === fillFilter)?.label || "All fields";
   const hideField = (formId: string, field: DraftField, scope: "always" | "listing") => {
     if (scope === "listing" && !conversationId) return;
     hideMutation.mutate({
@@ -1481,40 +1472,18 @@ export function FillLogPanel({
             aria-label="Search marketplace fields"
           />
         </label>
-        <div className="pr-menu-wrap">
-          <button
-            type="button"
-            className={`pr-icon-btn${fillFilter === "empty" ? " is-on" : fillFilter === "filled" ? " is-on-filled" : ""}`}
-            title={filterLabel}
-            aria-haspopup="menu"
-            aria-expanded={openMenu?.kind === "filter"}
-            aria-label={`Filter fields: ${filterLabel}`}
-            onClick={() => setOpenMenu((current) => (current?.kind === "filter" ? null : { kind: "filter" }))}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M2 3h12L9.5 8.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-            </svg>
-          </button>
-          {openMenu?.kind === "filter" && (
-            <div className="pr-menu" role="menu">
-              {FILL_FILTERS.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={fillFilter === item.id}
-                  className={`pr-menu-item${fillFilter === item.id ? " is-active" : ""}`}
-                  onClick={() => {
-                    setFillFilter(item.id);
-                    setOpenMenu(null);
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          className={`pr-icon-btn${missingOnly ? " is-on" : ""}`}
+          title={missingOnly ? "Show all fields" : "Show missing fields only"}
+          aria-pressed={missingOnly}
+          aria-label={missingOnly ? "Showing missing fields only" : "Showing all fields"}
+          onClick={() => setMissingOnly((value) => !value)}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M2 3h12L9.5 8.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+          </svg>
+        </button>
         {hiddenCount > 0 && (
           <div className="pr-menu-wrap">
             <button
@@ -1665,11 +1634,9 @@ export function FillLogPanel({
           <p>
             {!visibleSourceForms.length
               ? "Every field is hidden. Restore hidden fields to see them here."
-              : fillFilter === "empty"
-                ? "No empty fields match this filter."
-                : fillFilter === "filled"
-                  ? "No filled fields match this filter."
-                  : "No fields match this search."}
+              : missingOnly
+                ? "No missing fields match this filter."
+                : "No fields match this search."}
           </p>
         </div>
       ) : (
