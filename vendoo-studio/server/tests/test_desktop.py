@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from vendoo_studio import desktop
 from vendoo_studio.routes import desktop as desktop_routes
@@ -152,13 +152,34 @@ class StudioWindowChromeTest(unittest.TestCase):
         close.setFrame_.assert_not_called()
 
 
-class ConnectChromeRouteTest(unittest.TestCase):
-    def test_connect_chrome_opens_a_visible_window(self):
+class ConnectChromeRouteTest(unittest.IsolatedAsyncioTestCase):
+    async def test_connect_chrome_opens_a_visible_window(self):
         with patch.object(
             desktop_routes,
             "launch_studio_chrome",
             return_value={"ok": True, "visible": True},
-        ) as launch:
-            result = desktop_routes.connect_chrome()
+        ) as launch, patch(
+            "vendoo_studio.routes.extension.extension_manager"
+        ) as manager:
+            manager.connected = False
+            result = await desktop_routes.connect_chrome()
         launch.assert_called_once_with(visible=True)
         self.assertTrue(result["ok"])
+        self.assertEqual(result["via"], "chrome")
+
+    async def test_connect_chrome_shows_existing_extension_window(self):
+        with patch.object(
+            desktop_routes,
+            "launch_studio_chrome",
+        ) as launch, patch(
+            "vendoo_studio.routes.extension.extension_manager"
+        ) as manager, patch(
+            "vendoo_studio.routes.extension.dispatch_show_vendoo",
+            new=AsyncMock(return_value=True),
+        ) as show:
+            manager.connected = True
+            result = await desktop_routes.connect_chrome()
+        show.assert_awaited_once()
+        launch.assert_not_called()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["via"], "extension")

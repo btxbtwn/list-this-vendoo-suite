@@ -21,8 +21,16 @@ def chrome_status():
 
 
 @router.post("/chrome/connect")
-def connect_chrome():
+async def connect_chrome():
+    from vendoo_studio.routes.extension import dispatch_show_vendoo, extension_manager
+
+    if extension_manager.connected:
+        sent = await dispatch_show_vendoo()
+        if sent:
+            return {"ok": True, "via": "extension", "visible": True}
     try:
-        return launch_studio_chrome(visible=True)
+        result = launch_studio_chrome(visible=True)
+        result.setdefault("via", "chrome")
+        return result
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc

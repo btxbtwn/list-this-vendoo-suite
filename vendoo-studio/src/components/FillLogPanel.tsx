@@ -298,6 +298,7 @@ function useVendooDraft(jobId: string, enabled: boolean) {
     queryFn: () => api.jobs.vendooItem(jobId),
     enabled,
     staleTime: Infinity,
+    retry: 1,
   });
 }
 

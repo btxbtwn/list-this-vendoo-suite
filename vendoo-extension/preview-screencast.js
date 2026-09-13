@@ -58,6 +58,12 @@ const ENGINE_LEFT = -20000;
 const ENGINE_TOP = 0;
 const ENGINE_WIDTH = 1280;
 const ENGINE_HEIGHT = 900;
+const SHOW_LEFT = 80;
+const SHOW_TOP = 80;
+
+function isOffscreenEngineWindow(win) {
+  return Boolean(win && win.id != null && Number.isFinite(win.left) && win.left <= ENGINE_LEFT / 2);
+}
 
 function stopPreviewPolling() {
   if (previewPollTimer) {
@@ -90,16 +96,43 @@ async function hideWindow(windowId) {
   }
 }
 
-async function engineWindowId() {
+async function showWindow(windowId) {
+  if (windowId == null) {
+    return;
+  }
+  try {
+    await chrome.windows.update(windowId, {
+      focused: true,
+      state: 'normal',
+      left: SHOW_LEFT,
+      top: SHOW_TOP,
+      width: ENGINE_WIDTH,
+      height: ENGINE_HEIGHT,
+    });
+  } catch (err) {
+    log(`Could not show Chrome window (${err.message})`);
+  }
+}
+
+async function rememberedEngineWindowId() {
   const stored = await chrome.storage.local.get(ENGINE_WINDOW_KEY);
   const remembered = stored[ENGINE_WINDOW_KEY];
-  if (remembered != null) {
-    try {
-      const win = await chrome.windows.get(remembered);
-      if (win?.id != null) {
-        return win.id;
-      }
-    } catch (_) {}
+  if (remembered == null) {
+    return null;
+  }
+  try {
+    const win = await chrome.windows.get(remembered);
+    if (isOffscreenEngineWindow(win)) {
+      return win.id;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function engineWindowId() {
+  const existing = await rememberedEngineWindowId();
+  if (existing != null) {
+    return existing;
   }
   const created = await chrome.windows.create({
     url: 'about:blank',
