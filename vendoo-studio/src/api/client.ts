@@ -101,7 +101,6 @@ export const api = {
       request<any>("/jobs", { method: "POST", body: JSON.stringify({ conversation_id: conversationId }) }),
     list: () => request<any[]>("/jobs"),
     get: (id: string) => request<any>(`/jobs/${id}`),
-    events: (id: string) => request<any[]>(`/jobs/${id}/events`),
     fillLog: (id: string) => request<any>(`/jobs/${id}/fill-log`),
     fillFields: (id: string, fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
       request<any>(`/jobs/${id}/fill-fields`, {

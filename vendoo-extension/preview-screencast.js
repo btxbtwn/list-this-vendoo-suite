@@ -75,6 +75,8 @@ async function hideWindow(windowId) {
     return;
   }
   try {
+    // Stay off-screen at state 'normal'. Minimized Chrome windows stop
+    // compositing, so Studio's preview stays blank until the window is restored.
     await chrome.windows.update(windowId, {
       focused: false,
       left: ENGINE_LEFT,
@@ -83,9 +85,6 @@ async function hideWindow(windowId) {
       height: ENGINE_HEIGHT,
       state: 'normal',
     });
-  } catch (_) {}
-  try {
-    await chrome.windows.update(windowId, { focused: false, state: 'minimized' });
   } catch (err) {
     log(`Could not hide Chrome window (${err.message})`);
   }
@@ -101,11 +100,6 @@ async function engineWindowId() {
         return win.id;
       }
     } catch (_) {}
-  }
-  const windows = await chrome.windows.getAll();
-  if (windows[0]?.id != null) {
-    await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: windows[0].id });
-    return windows[0].id;
   }
   const created = await chrome.windows.create({
     url: 'about:blank',
