@@ -19,6 +19,7 @@ class PackagedUpdateTest(unittest.TestCase):
         self.info.write_text(json.dumps({"version": "0.1.0", "sha": "aaa1111", "short_sha": "aaa1111", "ref": "main"}), encoding="utf-8")
         self._packaged = os.environ.get("VENDOO_STUDIO_PACKAGED")
         self._info = os.environ.get("VENDOO_STUDIO_BUILD_INFO")
+        self._data = os.environ.get("VENDOO_STUDIO_DATA_DIR")
         os.environ["VENDOO_STUDIO_PACKAGED"] = "1"
         os.environ["VENDOO_STUDIO_BUILD_INFO"] = str(self.info)
 
@@ -31,6 +32,10 @@ class PackagedUpdateTest(unittest.TestCase):
             os.environ.pop("VENDOO_STUDIO_BUILD_INFO", None)
         else:
             os.environ["VENDOO_STUDIO_BUILD_INFO"] = self._info
+        if self._data is None:
+            os.environ.pop("VENDOO_STUDIO_DATA_DIR", None)
+        else:
+            os.environ["VENDOO_STUDIO_DATA_DIR"] = self._data
         self.tmp.cleanup()
 
     def test_local_build_info_reads_stamp(self):
@@ -83,3 +88,24 @@ class PackagedUpdateTest(unittest.TestCase):
         extracted = packaged_updates._extract_app(archive, Path(self.tmp.name) / "unpacked")
         self.assertTrue(extracted.is_dir())
         self.assertEqual(extracted.name, "List This Studio.app")
+
+    def test_prepare_app_bundle_makes_launcher_executable(self):
+        app = Path(self.tmp.name) / "List This Studio.app"
+        launcher = app / "Contents" / "MacOS" / "ListThisStudio"
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+        launcher.chmod(0o644)
+        packaged_updates._prepare_app_bundle(app)
+        self.assertTrue(os.access(launcher, os.X_OK))
+
+    def test_replacer_clears_quarantine_before_relaunch(self):
+        root = Path(self.tmp.name)
+        app = root / "List This Studio.app"
+        new_app = root / "new" / "List This Studio.app"
+        (app / "Contents" / "MacOS").mkdir(parents=True)
+        os.environ["VENDOO_STUDIO_DATA_DIR"] = str(root / "data")
+        script = packaged_updates._write_replacer(app, new_app, 12345)
+        text = script.read_text(encoding="utf-8")
+        self.assertIn("xattr -cr", text)
+        self.assertIn("chmod -R u+x", text)
+        self.assertIn("/usr/bin/open", text)
