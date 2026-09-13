@@ -3,17 +3,33 @@ import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 
+const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
+
 interface Props {
   convId: string;
+}
+
+function moveItem<T>(items: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {
+    return items;
+  }
+  const next = items.slice();
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
 }
 
 export function PhotoTray({ convId }: Props) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lightboxRef = useRef<HTMLDivElement>(null);
+  const suppressClickRef = useRef(false);
+  const dragIdRef = useRef<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropId, setDropId] = useState<string | null>(null);
 
   const { data: photos } = useQuery({
     queryKey: ["photos", convId],
@@ -25,11 +41,36 @@ export function PhotoTray({ convId }: Props) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["photos", convId] }),
   });
 
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds: string[]) => api.conversations.reorderPhotos(convId, orderedIds),
+    onMutate: async (orderedIds) => {
+      await queryClient.cancelQueries({ queryKey: ["photos", convId] });
+      const previous = queryClient.getQueryData<any[]>(["photos", convId]);
+      if (previous) {
+        const byId = new Map(previous.map((photo) => [photo.id, photo]));
+        queryClient.setQueryData(
+          ["photos", convId],
+          orderedIds.map((id) => byId.get(id)).filter(Boolean),
+        );
+      }
+      return { previous };
+    },
+    onError: (err: any, _orderedIds, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["photos", convId], context.previous);
+      }
+      setUploadError(err.message || "Reorder failed");
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["photos", convId] }),
+  });
+
   const previewIndex = photos?.findIndex((p: any) => p.id === previewId) ?? -1;
   const previewPhoto = photos && previewIndex >= 0 ? photos[previewIndex] : null;
 
   useEffect(() => {
     setPreviewId(null);
+    setDragId(null);
+    setDropId(null);
   }, [convId]);
 
   useEffect(() => {
@@ -70,6 +111,58 @@ export function PhotoTray({ convId }: Props) {
     }
   };
 
+  const canReorder = (photos?.length || 0) > 1;
+
+  const resetDrag = () => {
+    dragIdRef.current = null;
+    setDragId(null);
+    setDropId(null);
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 150);
+  };
+
+  const onThumbDragStart = (event: React.DragEvent<HTMLDivElement>, photoId: string) => {
+    if (!canReorder) {
+      event.preventDefault();
+      return;
+    }
+    suppressClickRef.current = true;
+    dragIdRef.current = photoId;
+    setDragId(photoId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(PHOTO_DRAG_TYPE, photoId);
+    event.dataTransfer.setData("text/plain", photoId);
+  };
+
+  const onThumbDragOver = (event: React.DragEvent<HTMLDivElement>, photoId: string) => {
+    const sourceId = dragIdRef.current;
+    if (!sourceId || sourceId === photoId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    if (dropId !== photoId) setDropId(photoId);
+  };
+
+  const onThumbDrop = (event: React.DragEvent<HTMLDivElement>, photoId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const sourceId = dragIdRef.current || event.dataTransfer.getData(PHOTO_DRAG_TYPE) || event.dataTransfer.getData("text/plain");
+    resetDrag();
+    if (!photos || !sourceId || sourceId === photoId) return;
+    const from = photos.findIndex((photo: any) => photo.id === sourceId);
+    const to = photos.findIndex((photo: any) => photo.id === photoId);
+    const next = moveItem(photos, from, to);
+    if (next === photos) return;
+    setUploadError(null);
+    reorderMutation.mutate(next.map((photo: any) => photo.id));
+  };
+
+  const openPreview = (photoId: string) => {
+    if (suppressClickRef.current) return;
+    setPreviewId(photoId);
+  };
+
   const doUpload = async (fileList: FileList) => {
     if (!fileList || fileList.length === 0) return;
     setUploading(true);
@@ -92,27 +185,53 @@ export function PhotoTray({ convId }: Props) {
           {uploading ? "Uploading..." : "Add Photos"}
         </button>
         <input ref={fileInputRef} type="file" multiple accept="image/*" style={{ display: "none" }} onChange={(e) => { if (e.target.files) doUpload(e.target.files); }} />
-        <span className="photo-tray-meta">{photos?.length || 0} photos</span>
+        <span className="photo-tray-meta">
+          {photos?.length || 0} photos{canReorder ? " · drag to reorder" : ""}
+        </span>
         {uploadError && <span className="text-2xs text-error font-mono">{uploadError}</span>}
       </div>
       {photos && photos.length > 0 && (
         <div className="photo-strip">
           {photos.map((p: any, i: number) => (
-            <div key={p.id} className="photo-thumb">
-              <button
-                type="button"
+            <div
+              key={p.id}
+              className={[
+                "photo-thumb",
+                canReorder ? "photo-thumb-reorderable" : "",
+                dragId === p.id ? "is-dragging" : "",
+                dropId === p.id ? "is-drop-target" : "",
+              ].filter(Boolean).join(" ")}
+              draggable={canReorder}
+              onDragStart={(event) => onThumbDragStart(event, p.id)}
+              onDragOver={(event) => onThumbDragOver(event, p.id)}
+              onDrop={(event) => onThumbDrop(event, p.id)}
+              onDragEnd={resetDrag}
+              title={canReorder ? "Drag to set upload order" : undefined}
+            >
+              <div
                 className="photo-thumb-open"
-                onClick={() => setPreviewId(p.id)}
+                role="button"
+                tabIndex={0}
+                onClick={() => openPreview(p.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openPreview(p.id);
+                  }
+                }}
                 aria-label={`View photo ${i + 1} enlarged`}
               >
-                <img src={p.url} alt="" />
-              </button>
+                <img src={p.url} alt="" draggable={false} />
+              </div>
               <div className="photo-thumb-num">{String(i + 1).padStart(2, "0")}</div>
               <button
                 type="button"
                 className="photo-thumb-delete"
                 aria-label={`Delete photo ${i + 1}`}
-                onClick={() => deleteMutation.mutate(p.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  deleteMutation.mutate(p.id);
+                }}
               >
                 x
               </button>
