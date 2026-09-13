@@ -4178,6 +4178,8 @@
           let value = '';
           if ('value' in el && el.value != null) value = String(el.value).trim();
           if (!value) value = (el.innerText || el.textContent || '').trim();
+          // MUI empty selects often display the field label as text ("Department").
+          if (value && !fieldLooksFilled(el)) value = '';
           // Keep empty strings so Studio Fields can show unfilled optional keys.
           if (!(fieldKey in listings[marketplace][bucket]) || value) {
               listings[marketplace][bucket][fieldKey] = value;
@@ -4223,6 +4225,7 @@
           let value = '';
           if ('value' in el && el.value != null) value = String(el.value).trim();
           if (!value) value = (el.innerText || el.textContent || '').trim();
+          if (value && !fieldLooksFilled(el)) value = '';
           const parts = path.split('.');
           let cursor = details;
           for (let i = 0; i < parts.length - 1; i += 1) {
