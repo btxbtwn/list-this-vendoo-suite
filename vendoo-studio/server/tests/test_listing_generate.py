@@ -240,6 +240,8 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(resp.status_code, 200)
                 body = "".join([chunk async for chunk in resp.aiter_text()])
         self.assertIn(": keepalive", body)
+        self.assertIn("event: status", body)
+        self.assertIn("Analyzing photos", body)
         self.assertIn(LISTING_JSON["title"], body)
 
     async def test_generate_stream_forwards_thinking_without_persisting(self):

@@ -407,6 +407,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
 
     async def stream_response():
+        yield _sse_event("status", "Analyzing photos…")
         yield KEEPALIVE
         stream_db = SessionLocal()
         stream_repo = ConversationRepo(stream_db)
