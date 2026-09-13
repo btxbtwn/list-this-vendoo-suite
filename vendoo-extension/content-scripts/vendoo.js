@@ -1030,6 +1030,22 @@
       return Boolean(el) && (el.offsetParent !== null || el.getClientRects().length > 0);
   }
 
+  function isEffectivelyVisible(el) {
+      if (!isVisibleElement(el)) return false;
+      if (el.closest?.('[aria-hidden="true"], [hidden], template')) return false;
+      const style = window.getComputedStyle(el);
+      if (!style || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) === 0) {
+          return false;
+      }
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) return false;
+      // Inactive Vendoo marketplace panels stay mounted off-screen or behind the
+      // active sheet; treat those as not active so we still click the nav tab.
+      if (rect.bottom < 0 || rect.top > (window.innerHeight || 0) + 80) return false;
+      if (rect.right < 0 || rect.left > (window.innerWidth || 0) + 80) return false;
+      return true;
+  }
+
   function isAttachedElement(el) {
       return Boolean(el) && el.isConnected !== false;
   }
@@ -4041,7 +4057,12 @@
       log(`Filling ${platform} marketplace...`);
 
       try {
-      await activateMarketplaceSection(platform);
+      const activated = await activateMarketplaceSection(platform);
+      if (!activated || !marketplaceSectionLooksActive(platform)) {
+          const error = `Could not activate ${platform} marketplace section`;
+          recordFill({ field: 'marketplace', status: 'failed', reason: error });
+          return { ok: false, error, fill_log: finishFillLog() };
+      }
 
       switch (platform.toLowerCase()) {
           case 'ebay':
@@ -4078,7 +4099,28 @@
       const firstLine = normalizeText((btn.innerText || btn.textContent || '').split('\n')[0]);
       if (!firstLine || firstLine.length > 24) return false;
       if (wanted === 'general') return firstLine === 'general' || firstLine === 'vendoo';
-      return firstLine === wanted || firstLine.includes(wanted);
+      // Exact / prefix only — firstLine.includes('ebay') must not match random copy,
+      // and we must not confuse adjacent marketplace tabs after discovery.
+      return firstLine === wanted || firstLine.startsWith(`${wanted} `);
+  }
+
+  function marketplaceSectionLooksActive(platform) {
+      const mp = String(platform || '').toLowerCase();
+      if (!mp) return false;
+      if (mp === 'general' || mp === 'vendoo') {
+          const general = document.querySelector(
+              '#categoryV2, [role="category-input"], [id^="generalDetails."], [name^="generalDetails."]'
+          );
+          return Boolean(general && isEffectivelyVisible(general));
+      }
+      const prefix = `listings.${mp}.`;
+      const nodes = document.querySelectorAll(`[id^="${prefix}"], [name^="${prefix}"]`);
+      for (const node of nodes) {
+          const control = visibleDropdownControl(node) || (isEffectivelyVisible(node) ? node : null);
+          if (control && isEffectivelyVisible(control)) return true;
+      }
+      const catBtn = findMarketplaceCategoryControl(mp);
+      return Boolean(catBtn && isEffectivelyVisible(catBtn));
   }
 
   function marketplaceNameToId(name) {
@@ -4142,6 +4184,11 @@
 
   async function activateMarketplaceSection(platform) {
       log(`Activating ${platform} marketplace section...`);
+      // Always click the marketplace nav control. After schema discovery, sibling
+      // marketplace forms (eBay included) stay mounted and can look "visible"
+      // while Depop is still the active panel — skipping the click makes
+      // filling_ebay a no-op and the job races ahead to Etsy.
+      await closeOpenMenus();
 
       const clickMatching = async () => {
           const buttons = Array.from(document.querySelectorAll(
@@ -4149,26 +4196,25 @@
           ));
           const match = buttons.find((btn) => isVisibleElement(btn) && marketplaceSectionButtonMatches(btn, platform));
           if (!match) return false;
-          const expanded = match.getAttribute('aria-expanded');
-          const selected = match.getAttribute('aria-selected');
-          if (expanded === 'true' || selected === 'true') {
-              log(`  ${platform} section already expanded`);
-              await sleep(CONFIG.SLEEP_LONG);
-              return true;
-          }
           log(`  Clicking "${(match.innerText || '').trim()}" to activate ${platform}`);
           match.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_SHORT);
           match.click();
           await sleep(CONFIG.SLEEP_LONG * 2);
-          return true;
+          for (let attempt = 0; attempt < 8; attempt++) {
+              if (marketplaceSectionLooksActive(platform)) return true;
+              await sleep(CONFIG.SLEEP_RETRY);
+          }
+          return marketplaceSectionLooksActive(platform);
       };
 
-      if (await clickMatching()) return;
+      if (await clickMatching()) return true;
       await expandOptionalFields();
       await sleep(CONFIG.SLEEP_LONG);
-      if (await clickMatching()) return;
-      warn(`Could not find activation button for ${platform}`);
+      await closeOpenMenus();
+      if (await clickMatching()) return true;
+      warn(`Could not activate ${platform} marketplace section`);
+      return false;
   }
 
   async function auditMarketplaceForm(data, platform) {
@@ -4506,6 +4552,18 @@
           }
           const logResult = finishFillLog({ skipUnmapped: true });
           allEntries.push(...logResult.entries);
+      }
+
+      // Persist category alignments and dismiss overlays so filling_ebay (etc.)
+      // can leave the last discovered marketplace (often Depop).
+      await closeOpenMenus();
+      try {
+          const saved = await saveGeneralForm();
+          if (!saved?.ok) {
+              warn(`Schema discovery save: ${saved?.error || 'failed'}`);
+          }
+      } catch (err) {
+          warn(`Schema discovery save failed: ${err.message}`);
       }
 
       return {

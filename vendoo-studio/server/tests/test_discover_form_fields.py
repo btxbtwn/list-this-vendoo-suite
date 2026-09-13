@@ -95,6 +95,24 @@ const auditMarketplace = async () => ({ ok: true });
             self.assertIn(f"'{platform}'", content)
             self.assertIn(f"await fillMarketplaceCategory('{platform}'", content)
 
+    def test_activate_marketplace_checks_visible_panel_not_aria(self) -> None:
+        content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
+        activate_start = content.index("async function activateMarketplaceSection")
+        activate_end = content.index("async function auditMarketplaceForm")
+        activate_body = content[activate_start:activate_end]
+        self.assertIn("marketplaceSectionLooksActive", activate_body)
+        self.assertNotIn("getAttribute('aria-selected')", activate_body)
+        self.assertNotIn("getAttribute('aria-expanded')", activate_body)
+        self.assertNotIn("already expanded", activate_body)
+        self.assertNotIn("section already active", activate_body)
+        self.assertIn("Always click the marketplace nav control", activate_body)
+        self.assertIn("isEffectivelyVisible", content)
+        schema_start = content.index("async function discoverMarketplaceSchema")
+        schema_end = content.index("async function scrapeVendooItem")
+        schema_body = content[schema_start:schema_end]
+        self.assertIn("await saveGeneralForm()", schema_body)
+        self.assertIn("await closeOpenMenus()", schema_body)
+
 
 if __name__ == "__main__":
     unittest.main()
