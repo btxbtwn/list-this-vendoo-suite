@@ -109,3 +109,19 @@ console.log(JSON.stringify(result));
         self.assertIn("system.display", Path(EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
         self.assertRegex(preview, r"focused:\s*false,\s*state:\s*'normal'")
         self.assertTrue(re.search(r"pickOnscreenBounds", preview))
+
+    def test_listing_keeps_chrome_in_the_background(self) -> None:
+        preview = PREVIEW.read_text(encoding="utf-8")
+        background = BACKGROUND.read_text(encoding="utf-8")
+        start = preview.index("async function startJobPreview")
+        end = preview.index("\ntry {", start)
+        start_preview = preview[start:end]
+        self.assertIn("await hideWindow(tab.windowId)", start_preview)
+        self.assertNotIn("showWindow", start_preview)
+        patch_start = background.index("async function openListingForPatch")
+        patch_end = background.index("async function runFillFields")
+        patch = background[patch_start:patch_end]
+        self.assertIn("openTabInHiddenWindow", patch)
+        self.assertNotIn("openVisibleVendooWindow", patch)
+        self.assertIn("function focusVendooListing", background)
+        self.assertIn("await showWindow", background)
