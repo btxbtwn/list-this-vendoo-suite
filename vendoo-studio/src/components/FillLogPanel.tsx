@@ -3,6 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { addToast } from "../ui/toast";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import {
+  EBAY_CATEGORY_CORE,
+  EBAY_CATEGORY_OPTIONALS,
+  ETSY_CATEGORY_OPTIONALS,
+} from "../marketplaceFields";
 
 interface FillLogEntry {
   id: string;
@@ -109,9 +114,6 @@ const ACCOUNT_SETTING_FIELDS = new Set([
   "auto accept",
   "minimum offer",
   "minimum price",
-  "primary store category",
-  "secondary store category",
-  "personalization instructions",
   "exclude sku from listing",
   "no brand/not sure",
   "worldwide shipping",
@@ -509,32 +511,26 @@ const PACKAGE_FIELDS: FieldSpec[] = [
 ];
 
 /** Empty optional category fields Vendoo keeps off the API until filled. */
-const EBAY_OPTIONAL_FIELDS: FieldSpec[] = [
-  { keys: ["accents"], label: "Accents", always: true },
-  { keys: ["character"], label: "Character", always: true },
-  { keys: ["closure"], label: "Closure", always: true },
-  { keys: ["country of origin"], label: "Country of Origin", always: true },
-  { keys: ["fabric type"], label: "Fabric Type", always: true },
-  { keys: ["fabric weight"], label: "Fabric Weight", always: true },
-  { keys: ["features"], label: "Features", always: true },
-  { keys: ["fit"], label: "Fit", always: true },
-  { keys: ["garment care"], label: "Garment Care", always: true },
-  { keys: ["handmade"], label: "Handmade", always: true },
-  { keys: ["material"], label: "Material", always: true },
-  { keys: ["mpn"], label: "MPN", always: true },
-  { keys: ["neckline"], label: "Neckline", always: true },
-  { keys: ["occasion"], label: "Occasion", always: true },
-  { keys: ["pattern"], label: "Pattern", always: true },
+const EBAY_OPTIONAL_FIELDS: FieldSpec[] = EBAY_CATEGORY_OPTIONALS.map((field) => ({
+  keys: [normalizeFieldName(field.label), normalizeFieldName(field.key)],
+  label: field.label,
+  always: true,
+}));
+
+const EBAY_CATEGORY_CORE_FIELDS: FieldSpec[] = [
+  { keys: ["category"], label: "Category", always: true },
+  ...EBAY_CATEGORY_CORE.map((field) => ({
+    keys: [normalizeFieldName(field.label), normalizeFieldName(field.key)],
+    label: field.label,
+    always: true,
+  })),
 ];
 
-const ETSY_OPTIONAL_FIELDS: FieldSpec[] = [
-  { keys: ["graphic"], label: "Graphic", always: true },
-  { keys: ["collar style"], label: "Collar style", always: true },
-  { keys: ["holiday"], label: "Holiday", always: true },
-  { keys: ["occasion"], label: "Occasion", always: true },
-  { keys: ["pattern", "fabric pattern"], label: "Pattern", always: true },
-  { keys: ["sustainability"], label: "Sustainability", always: true },
-];
+const ETSY_OPTIONAL_FIELDS: FieldSpec[] = ETSY_CATEGORY_OPTIONALS.map((field) => ({
+  keys: [normalizeFieldName(field.label), normalizeFieldName(field.key), ...(field.key === "pattern" ? ["fabric pattern"] : [])],
+  label: field.label,
+  always: true,
+}));
 
 const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
   general: [
@@ -596,13 +592,7 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
     {
       label: "Category",
       fields: [
-        { keys: ["category"], label: "Category", always: true },
-        { keys: ["department"], label: "Department", always: true },
-        { keys: ["size"], label: "Size", always: true },
-        { keys: ["size type"], label: "Size Type", always: true },
-        { keys: ["type"], label: "Type", always: true },
-        { keys: ["condition"], label: "Condition", always: true },
-        { keys: ["condition description"], label: "Condition Description", always: true },
+        ...EBAY_CATEGORY_CORE_FIELDS,
         ...EBAY_OPTIONAL_FIELDS,
       ],
       extras: true,
@@ -1051,8 +1041,10 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
     ? item.listings as Record<string, unknown>
     : {};
   const leftoverMarkets = new Set(leftovers.map((entry) => entry.marketplace.toLowerCase()));
+  // Always include the standard marketplaces so empty Category optionals still
+  // appear even when the Vendoo API omits an empty listings.ebay object.
   const listingIds = [
-    ...MARKETPLACE_ORDER.filter((id) => id !== "general" && (listings[id] != null || leftoverMarkets.has(id))),
+    ...MARKETPLACE_ORDER.filter((id) => id !== "general"),
     ...Object.keys(listings).filter((id) => {
       if (MARKETPLACE_ORDER.includes(id) || id === "validate") return false;
       const listing = listings[id] as Record<string, unknown> | undefined;

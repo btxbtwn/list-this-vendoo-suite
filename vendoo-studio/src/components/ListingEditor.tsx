@@ -4,6 +4,10 @@ import { api } from "../api/client";
 import { FillLogPanel } from "./FillLogPanel";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { OpenListingButton } from "./OpenListingButton";
+import {
+  EBAY_CATEGORY_OPTIONALS,
+  ETSY_CATEGORY_OPTIONALS,
+} from "../marketplaceFields";
 import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
 
@@ -299,7 +303,17 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
         { key: "category_path", label: "Category" },
       ];
     case "ebay":
-      return specificsFields(listing?.ebay_specifics, "ebay_specifics");
+      return mergeSpecificsWithDefaults(listing?.ebay_specifics, "ebay_specifics", [
+        { key: "ebay_specifics.department", label: "Department" },
+        { key: "ebay_specifics.size", label: "Size" },
+        { key: "ebay_specifics.sizeType", label: "Size Type" },
+        { key: "ebay_specifics.type", label: "Type" },
+        { key: "ebay_specifics.conditionDescription", label: "Condition Description" },
+        ...EBAY_CATEGORY_OPTIONALS.map((field) => ({
+          key: `ebay_specifics.category_specifics.${field.key}`,
+          label: field.label,
+        })),
+      ]);
     case "poshmark":
       return [
         { key: "price", label: "Price", type: "number" },
@@ -322,10 +336,30 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
     case "depop":
       return specificsFields(listing?.depop_specifics, "depop_specifics");
     case "etsy":
-      return specificsFields(listing?.etsy_specifics, "etsy_specifics");
+      return mergeSpecificsWithDefaults(
+        listing?.etsy_specifics,
+        "etsy_specifics",
+        ETSY_CATEGORY_OPTIONALS.map((field) => ({
+          key: `etsy_specifics.category_specifics.${field.key}`,
+          label: field.label,
+        })),
+      );
     default:
       return [];
   }
+}
+
+function mergeSpecificsWithDefaults(
+  specs: Record<string, any> | undefined,
+  prefix: string,
+  defaults: EditorField[],
+): EditorField[] {
+  const existing = specificsFields(specs, prefix);
+  const byKey = new Map(existing.map((field) => [field.key.toLowerCase(), field]));
+  const ordered = defaults.map((field) => byKey.get(field.key.toLowerCase()) || field);
+  const seen = new Set(ordered.map((field) => field.key.toLowerCase()));
+  const extras = existing.filter((field) => !seen.has(field.key.toLowerCase()));
+  return [...ordered, ...extras];
 }
 
 function specificsFields(specs: Record<string, any> | undefined, prefix: string, skip: string[] = []): EditorField[] {
