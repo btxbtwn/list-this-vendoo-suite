@@ -382,17 +382,9 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
   const merged = forms.map((form) => {
     const listingForm = byId.get(form.id);
     if (!listingForm) return form;
-    const listingFields = new Map(listingForm.fields.map((field) => [fieldMatchKey(field), field]));
-    const seen = new Set<string>();
-    const fields = form.fields.map((field) => {
-      const key = fieldMatchKey(field);
-      if (key) seen.add(key);
-      const match = listingFields.get(key);
-      if (!match || fieldIsMissing(match.value, match.label || field.label)) return field;
-      return { ...field, value: match.value, missing: false };
-    });
-    // Listing-only values (chat-filled optionals) are missing from the Vendoo API
-    // draft until written — still show them under the marketplace extras section.
+    // Keep Vendoo draft emptiness authoritative. Listing/chat values are only
+    // candidates for Fill — never paint them as already filled on Vendoo.
+    const seen = new Set(form.fields.map((field) => fieldMatchKey(field)).filter(Boolean));
     const extrasSection = form.id === "ebay" || form.id === "etsy" ? "Category" : "Item specifics";
     const extras: DraftField[] = [];
     for (const field of listingForm.fields) {
@@ -401,17 +393,18 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
       seen.add(key);
       extras.push({
         ...field,
+        value: "",
         section: extrasSection,
-        missing: false,
+        missing: true,
       });
     }
-    if (extras.length) {
-      let insertAt = fields.length;
-      for (let i = 0; i < fields.length; i += 1) {
-        if (fields[i].section === extrasSection) insertAt = i + 1;
-      }
-      fields.splice(insertAt, 0, ...extras);
+    if (!extras.length) return form;
+    const fields = [...form.fields];
+    let insertAt = fields.length;
+    for (let i = 0; i < fields.length; i += 1) {
+      if (fields[i].section === extrasSection) insertAt = i + 1;
     }
+    fields.splice(insertAt, 0, ...extras);
     return toForm(form.id, fields);
   });
   for (const listingForm of listingForms) {
@@ -750,27 +743,28 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
         ? attachLeftover(found) || takeLeftover([...spec.keys, normalizeFieldName(spec.label)])
         : takeLeftover([...spec.keys, normalizeFieldName(spec.label)]);
       if (found) {
-        const cleaned = fieldDisplayValue(found.value, spec.label);
-        const leftoverPreview = fieldDisplayValue(leftover?.value_preview || "", spec.label);
-        const value = cleaned || leftoverPreview || "";
+        // Only the live Vendoo value counts as filled. Leftover previews are
+        // proposed fill values and must stay in the red/missing column.
+        const value = fieldDisplayValue(found.value, spec.label);
+        const pendingLeftover = leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : found.leftover;
         rows.push({
           ...found,
           label: spec.label,
           section: section.label,
-          leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : found.leftover,
-          missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
+          leftover: pendingLeftover && FILLABLE_STATUSES.has(pendingLeftover.status) ? pendingLeftover : undefined,
+          missing: !value,
           value,
         });
         continue;
       }
       if (spec.always || leftover) {
-        const value = fieldDisplayValue(leftover?.value_preview || "", spec.label);
+        const pendingLeftover = leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : undefined;
         rows.push({
           key: leftover?.id || `${marketplace}.${spec.keys[0]}`,
           label: spec.label,
-          value,
-          missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
-          leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : undefined,
+          value: "",
+          missing: true,
+          leftover: pendingLeftover,
           section: section.label,
         });
       }
@@ -781,13 +775,12 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
   const namedExtras = placed.get(extrasSection) || [];
   const extraRows: DraftField[] = [...unused.values()].flat().map((field) => {
     const leftover = attachLeftover(field);
-    const cleaned = fieldDisplayValue(field.value, field.label);
-    const leftoverPreview = fieldDisplayValue(leftover?.value_preview || "", field.label);
-    const value = cleaned || leftoverPreview || "";
+    const value = fieldDisplayValue(field.value, field.label);
+    const pendingLeftover = leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : field.leftover;
     return {
       ...field,
-      leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : field.leftover,
-      missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
+      leftover: pendingLeftover && FILLABLE_STATUSES.has(pendingLeftover.status) ? pendingLeftover : undefined,
+      missing: !value,
       value,
       section: extrasSection,
     };
@@ -798,13 +791,13 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
     if (key && seenExtras.has(key)) return [];
     if (key) seenExtras.add(key);
     const label = entry.field.replace(/^(ebay|etsy|poshmark|mercari|depop|vendoo)\s+/i, "").trim() || entry.field;
-    const value = fieldDisplayValue(entry.value_preview || "", label);
+    const pending = FILLABLE_STATUSES.has(entry.status);
     return [{
       key: entry.id,
       label,
-      value,
-      missing: value ? false : FILLABLE_STATUSES.has(entry.status),
-      leftover: FILLABLE_STATUSES.has(entry.status) ? entry : undefined,
+      value: "",
+      missing: pending || !fieldDisplayValue(entry.value_preview || "", label),
+      leftover: pending ? entry : undefined,
       section: extrasSection,
     }];
   }));
@@ -1145,13 +1138,17 @@ function formsFromFillLog(report: FillLogReport): DraftForm[] {
   ];
   return ids.map((id) => {
     const group = report.by_marketplace[id];
-    const fields: DraftField[] = group.entries.map((entry) => ({
-      key: entry.id,
-      label: entry.field,
-      value: entry.value_preview || "",
-      missing: FILLABLE_STATUSES.has(entry.status),
-      leftover: FILLABLE_STATUSES.has(entry.status) ? entry : undefined,
-    }));
+    const fields: DraftField[] = group.entries.map((entry) => {
+      const pending = FILLABLE_STATUSES.has(entry.status);
+      return {
+        key: entry.id,
+        label: entry.field,
+        // Pending leftovers keep their proposed value only in the leftover input.
+        value: pending ? "" : entry.value_preview || "",
+        missing: pending,
+        leftover: pending ? entry : undefined,
+      };
+    });
     return toForm(id, organizeFields(id, fields, group.entries));
   });
 }
