@@ -151,6 +151,49 @@ function isStreamError(text: string): boolean {
 }
 
 type SseParts = { content: string; thinking: string; status: string };
+type SseParseState = { eventType: string; parts: SseParts };
+
+const SSE_FETCH: RequestInit = {
+  method: "POST",
+  headers: { Accept: "text/event-stream" },
+  cache: "no-store",
+};
+
+function applySseLine(
+  raw: string,
+  state: SseParseState,
+  onEvent: (event: string, parts: SseParts) => void,
+) {
+  const line = raw.replace(/\r$/, "");
+  if (!line) {
+    state.eventType = "message";
+    return;
+  }
+  if (line.startsWith(":")) return;
+  if (line.startsWith("event:")) {
+    state.eventType = line.slice(6).trim() || "message";
+    return;
+  }
+  if (!line.startsWith("data:")) return;
+  const chunk = line.startsWith("data: ") ? line.slice(6) : line.slice(5);
+  if (chunk === "[DONE]") {
+    state.eventType = "message";
+    return;
+  }
+  if (state.eventType === "thinking") state.parts.thinking += chunk;
+  else if (state.eventType === "status") state.parts.status = chunk;
+  else state.parts.content += chunk;
+  onEvent(state.eventType, state.parts);
+}
+
+function consumeSseText(
+  text: string,
+  onEvent: (event: string, parts: SseParts) => void,
+): SseParts {
+  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" } };
+  for (const line of text.split("\n")) applySseLine(line, state, onEvent);
+  return state.parts;
+}
 
 async function consumeSse(
   reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -158,38 +201,31 @@ async function consumeSse(
 ): Promise<SseParts> {
   const decoder = new TextDecoder();
   let buffer = "";
-  let eventType = "message";
-  const parts: SseParts = { content: "", thinking: "", status: "" };
+  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" } };
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.pop() || "";
-    for (const raw of lines) {
-      const line = raw.replace(/\r$/, "");
-      if (!line) {
-        eventType = "message";
-        continue;
-      }
-      if (line.startsWith(":")) continue;
-      if (line.startsWith("event:")) {
-        eventType = line.slice(6).trim() || "message";
-        continue;
-      }
-      if (!line.startsWith("data:")) continue;
-      const chunk = line.startsWith("data: ") ? line.slice(6) : line.slice(5);
-      if (chunk === "[DONE]") {
-        eventType = "message";
-        continue;
-      }
-      if (eventType === "thinking") parts.thinking += chunk;
-      else if (eventType === "status") parts.status = chunk;
-      else parts.content += chunk;
-      onEvent(eventType, parts);
-    }
+    for (const raw of lines) applySseLine(raw, state, onEvent);
   }
-  return parts;
+  if (buffer) applySseLine(buffer, state, onEvent);
+  return state.parts;
+}
+
+async function consumeResponseSse(
+  res: Response,
+  onEvent: (event: string, parts: SseParts) => void,
+): Promise<SseParts> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    reader = res.body?.getReader();
+  } catch {
+    reader = undefined;
+  }
+  if (reader) return consumeSse(reader, onEvent);
+  return consumeSseText(await res.text(), onEvent);
 }
 
 export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Props) {
@@ -241,6 +277,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     setThinkingStarted(false);
     setFailedAction(null);
     setLastSendText("");
+    return () => {
+      abortByConvRef.current[convId]?.abort();
+    };
   }, [convId]);
 
   useEffect(() => {
@@ -260,25 +299,26 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     if (event !== "thinking" && event !== "status") setStreamText(parts.content);
   }, [isCurrent]);
 
-  const streamFromFetch = useCallback(async (url: string) => {
+  const streamFromFetch = useCallback(async (url: string, initialStatus = "") => {
     abortByConvRef.current[convId]?.abort();
     const controller = new AbortController();
     abortByConvRef.current[convId] = controller;
+    const stillMine = () => abortByConvRef.current[convId] === controller && convIdRef.current === convId;
     setStreaming(true);
     setStreamText("");
     setStreamThinking("");
-    setStreamStatus("");
-    setThinkingStarted(false);
+    setStreamStatus(initialStatus);
+    setThinkingStarted(Boolean(initialStatus));
     setFailedAction(null);
     let assembled = "";
     try {
-      const res = await fetch(url, { method: "POST", signal: controller.signal });
+      const res = await fetch(url, { ...SSE_FETCH, signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
-        if (isCurrent()) {
+        if (stillMine()) {
           setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
           setStreamThinking("");
-    setStreamStatus("");
+          setStreamStatus("");
           setFailedAction("generate");
           setStreaming(false);
           setGenerating(false);
@@ -286,17 +326,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      const reader = res.body?.getReader();
-      if (!reader) {
-        if (isCurrent()) {
-          setStreaming(false);
-          setGenerating(false);
-        }
-        return;
-      }
-      const parts = await consumeSse(reader, applySseParts);
+      const parts = await consumeResponseSse(res, applySseParts);
       assembled = parts.content;
-      if (isCurrent()) {
+      if (stillMine()) {
         if (!assembled.trim()) {
           assembled = "Error: Listing generation did not finish.";
           setStreamText(assembled);
@@ -305,10 +337,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       }
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        if (isCurrent()) {
+        if (stillMine()) {
           setStreamText("");
           setStreamThinking("");
-    setStreamStatus("");
+          setStreamStatus("");
           setThinkingStarted(false);
           setFailedAction(null);
           setStreaming(false);
@@ -316,16 +348,16 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         }
         return;
       }
-      if (isCurrent()) {
+      if (stillMine()) {
         assembled = `Error: ${e.message}`;
         setStreamText(assembled);
         setStreamThinking("");
-    setStreamStatus("");
+        setStreamStatus("");
         setFailedAction("generate");
       }
     }
     const failed = isStreamError(assembled);
-    if (isCurrent()) {
+    if (stillMine()) {
       setStreaming(false);
       setGenerating(false);
     }
@@ -333,17 +365,19 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    if (isCurrent() && !failed) {
+    if (stillMine() && !failed) {
       setStreamText("");
       setStreamThinking("");
-    setStreamStatus("");
+      setStreamStatus("");
       setThinkingStarted(false);
     }
-  }, [applySseParts, convId, isCurrent, queryClient]);
+  }, [applySseParts, convId, queryClient]);
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
-    await streamFromFetch(`/api/conversations/${convId}/generate`);
+    setStreamStatus("Analyzing photos…");
+    setThinkingStarted(true);
+    await streamFromFetch(`/api/conversations/${convId}/generate`, "Analyzing photos…");
   }, [convId, streamFromFetch]);
 
   const sendMessage = useCallback(async (text: string) => {
@@ -351,6 +385,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     abortByConvRef.current[convId]?.abort();
     const controller = new AbortController();
     abortByConvRef.current[convId] = controller;
+    const stillMine = () => abortByConvRef.current[convId] === controller && convIdRef.current === convId;
     setInput("");
     setLastSendText(text);
     setStreaming(true);
@@ -362,48 +397,44 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
         body: JSON.stringify({ text }),
+        cache: "no-store",
         signal: controller.signal,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
-        if (isCurrent()) {
+        if (stillMine()) {
           setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
           setStreamThinking("");
-    setStreamStatus("");
+          setStreamStatus("");
           setFailedAction("send");
           setStreaming(false);
         }
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      const reader = res.body?.getReader();
-      if (!reader) {
-        if (isCurrent()) setStreaming(false);
-        return;
-      }
-      const parts = await consumeSse(reader, applySseParts);
+      const parts = await consumeResponseSse(res, applySseParts);
       const assembled = parts.content;
-      if (isStreamError(assembled) && isCurrent()) setFailedAction("send");
-      if (isCurrent()) setStreaming(false);
+      if (isStreamError(assembled) && stillMine()) setFailedAction("send");
+      if (stillMine()) setStreaming(false);
       await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      if (isCurrent() && !isStreamError(assembled)) {
+      if (stillMine() && !isStreamError(assembled)) {
         setStreamText("");
         setStreamThinking("");
-    setStreamStatus("");
+        setStreamStatus("");
         setThinkingStarted(false);
       }
       return;
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        if (isCurrent()) {
+        if (stillMine()) {
           setStreamText("");
           setStreamThinking("");
-    setStreamStatus("");
+          setStreamStatus("");
           setThinkingStarted(false);
           setFailedAction(null);
           if (restoreOnAbortRef.current) setInput(text);
@@ -412,16 +443,16 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         }
         return;
       }
-      if (isCurrent()) {
+      if (stillMine()) {
         setStreamText(`Error: ${e.message}`);
         setStreamThinking("");
-    setStreamStatus("");
+        setStreamStatus("");
         setFailedAction("send");
         setStreaming(false);
       }
       return;
     }
-  }, [applySseParts, streaming, convId, isCurrent, queryClient]);
+  }, [applySseParts, streaming, convId, queryClient]);
 
   useEffect(() => {
     if (!queuedMessage || streaming) return;
@@ -518,14 +549,14 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
           <div className="empty-state" style={{ padding: "16px 0" }}><p className="text-xs text-muted">Loading...</p></div>
         )}
 
-        {!isLoading && !hasMessages && (
+        {!isLoading && !hasMessages && !busy && !streamFailed && (
           <div className="empty-state" style={{ padding: "32px 16px" }}>
             <h3 style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 20, marginBottom: 4, lineHeight: 1.2 }}>Generate a Listing</h3>
             {hasPhotos ? (
               <>
                 <p className="text-xs font-mono text-muted">{(photos as any[]).length} photo{(photos as any[]).length !== 1 ? "s" : ""} uploaded</p>
-                <button className="btn btn-primary" onClick={handleGenerate} disabled={generating || streaming} style={{ marginTop: 12, padding: "9px 22px" }}>
-                  {generating ? "Analyzing..." : "Generate Listing"}
+                <button type="button" className="btn btn-primary" onClick={handleGenerate} disabled={generating || streaming} style={{ marginTop: 12, padding: "9px 22px" }}>
+                  Generate Listing
                 </button>
               </>
             ) : (

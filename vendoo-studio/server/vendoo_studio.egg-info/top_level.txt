@@ -1,0 +1,2 @@
+tests
+vendoo_studio
