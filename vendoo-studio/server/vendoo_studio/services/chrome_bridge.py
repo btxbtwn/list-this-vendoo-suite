@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import subprocess
 import uuid
@@ -167,6 +168,51 @@ def needs_worker_reload(pending: str | None, reported: str | None, files_changed
     if files_changed:
         return True
     return bool(pending) and pending != reported
+
+
+def bundled_extension_version() -> str | None:
+    path = extension_source_dir() / "manifest.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    version = payload.get("version")
+    if version is None:
+        return None
+    text = str(version).strip()
+    return text or None
+
+
+def extension_files_in_sync() -> bool:
+    source = extension_source_dir()
+    if not (source / "manifest.json").is_file():
+        return False
+    destination = installed_extension_dir()
+    if not destination.is_dir():
+        return True
+    return extension_fingerprint(source) == extension_fingerprint(destination)
+
+
+def extension_build_status(
+    reported_version: str | None,
+    reported_generation: str | None,
+) -> dict:
+    expected_version = bundled_extension_version()
+    files_in_sync = extension_files_in_sync()
+    pending = pending_extension_reload_token()
+    reload_pending = needs_worker_reload(pending, reported_generation, not files_in_sync)
+    version_mismatch = bool(
+        reported_version and expected_version and reported_version != expected_version
+    )
+    return {
+        "expected_version": expected_version,
+        "version": reported_version,
+        "up_to_date": (not reload_pending) and (not version_mismatch),
+        "reload_pending": reload_pending,
+        "files_in_sync": files_in_sync,
+    }
 
 
 def is_vendoo_url(url: str) -> bool:

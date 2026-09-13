@@ -6,7 +6,7 @@ import os
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from vendoo_studio.config import PAIRING_FILE
 from vendoo_studio.models.protocol import ProtocolMessage
@@ -14,6 +14,7 @@ from vendoo_studio.database import SessionLocal
 from vendoo_studio.services.chrome_bridge import (
     ChromeBridgeError,
     clear_extension_reload_pending,
+    extension_build_status,
     install_bundled_extension,
     mark_extension_reload_pending,
     needs_worker_reload,
@@ -29,6 +30,8 @@ class ExtensionManager:
     def __init__(self):
         self.connection: Optional[WebSocket] = None
         self.paired = False
+        self.version: Optional[str] = None
+        self.reload_generation: Optional[str] = None
         self._pairing_token: Optional[str] = None
         self._waits: dict[str, asyncio.Future] = {}
 
@@ -119,6 +122,14 @@ def _reported_reload_generation(payload: dict) -> str | None:
         return None
     token = str(reported).strip()
     return token or None
+
+
+def _reported_version(payload: dict) -> str | None:
+    version = payload.get("version")
+    if version is None:
+        return None
+    text = str(version).strip()
+    return text or None
 
 
 async def request_extension_reload(generation: str) -> bool:
@@ -312,7 +323,22 @@ def extension_status():
     return {
         "connected": extension_manager.connected,
         "paired": extension_manager.paired,
+        **extension_build_status(
+            extension_manager.version,
+            extension_manager.reload_generation,
+        ),
     }
+
+
+@router.post("/api/extension/reload")
+async def reload_extension():
+    try:
+        install_bundled_extension()
+    except ChromeBridgeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    token = pending_extension_reload_token() or mark_extension_reload_pending()
+    sent = await request_extension_reload(token)
+    return {"ok": True, "sent": sent}
 
 
 @router.websocket("/api/extension/ws")
@@ -340,6 +366,8 @@ async def extension_websocket(ws: WebSocket):
 
             if msg_type == "extension.ready":
                 payload = message.get("payload", {}) or {}
+                extension_manager.version = _reported_version(payload)
+                extension_manager.reload_generation = _reported_reload_generation(payload)
                 token = payload.get("token", "")
                 if extension_manager.verify_token(token):
                     extension_manager.paired = True

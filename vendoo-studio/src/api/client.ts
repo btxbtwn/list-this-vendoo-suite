@@ -164,8 +164,18 @@ export const api = {
   },
 
   extension: {
-    status: () => request<any>("/extension/status"),
+    status: () =>
+      request<{
+        connected: boolean;
+        paired: boolean;
+        version?: string | null;
+        expected_version?: string | null;
+        up_to_date?: boolean;
+        reload_pending?: boolean;
+        files_in_sync?: boolean;
+      }>("/extension/status"),
     pairingToken: () => request<any>("/extension/pairing-token"),
+    reload: () => request<{ ok: boolean; sent: boolean }>("/extension/reload", { method: "POST" }),
   },
 
   desktop: {
