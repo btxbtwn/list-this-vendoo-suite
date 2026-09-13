@@ -238,11 +238,6 @@ Empty fields:
 ${lines.join("\n")}`;
 }
 
-function leftoverCount(summary?: Record<string, number>): number {
-  if (!summary) return 0;
-  return [...FILLABLE_STATUSES].reduce((sum, status) => sum + (summary[status] || 0), 0);
-}
-
 function allowedMarketplaceIds(selected?: string[]): Set<string> {
   const chosen = selected ?? DEFAULT_SELECTED_MARKETPLACES;
   return new Set(["general", ...chosen]);
@@ -259,6 +254,50 @@ function leftoverEntries(report: FillLogReport): FillLogEntry[] {
     const statusDelta = STATUS_ORDER.indexOf(left.status) - STATUS_ORDER.indexOf(right.status);
     if (statusDelta !== 0) return statusDelta;
     return `${left.marketplace} ${left.field}`.localeCompare(`${right.marketplace} ${right.field}`);
+  });
+}
+
+function patchableEmptyFields(
+  forms: DraftForm[],
+  listing: Record<string, unknown> | undefined,
+  values: Record<string, string> = {},
+): { id?: string; marketplace: string; field: string; value: string }[] {
+  return forms.flatMap((form) =>
+    form.fields
+      .filter((field) => field.missing && !isUnfillableField(field))
+      .map((field) => {
+        const leftover = field.leftover;
+        const typed = leftover ? String(values[leftover.id] || "").trim() : "";
+        const value = typed || listingValueForField(listing, form.id, field);
+        if (!value) return null;
+        return leftover
+          ? { id: leftover.id, marketplace: form.id, field: field.label, value }
+          : { marketplace: form.id, field: field.label, value };
+      })
+      .filter((item): item is { id?: string; marketplace: string; field: string; value: string } => Boolean(item)),
+  );
+}
+
+function sourceFormsForJob(
+  item: Record<string, unknown> | undefined,
+  report: FillLogReport | undefined,
+  listing: Record<string, unknown> | undefined,
+  selectedMarketplaces?: string[],
+): { sourceForms: DraftForm[]; fromVendooDraft: boolean } {
+  const enabled = allowedMarketplaceIds(selectedMarketplaces);
+  const draftForms = item ? formsFromDraft(item, report) : [];
+  const listingForms = formsFromListing(listing);
+  const sourceForms = (draftForms.length ? draftForms : listingForms)
+    .filter((form) => enabled.has(form.id));
+  return { sourceForms, fromVendooDraft: draftForms.length > 0 };
+}
+
+function useVendooDraft(jobId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["vendoo-item", jobId],
+    queryFn: () => api.jobs.vendooItem(jobId),
+    enabled,
+    staleTime: Infinity,
   });
 }
 
@@ -507,37 +546,6 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
   return forms;
 }
 
-function formsFromFillLog(report: FillLogReport): DraftForm[] {
-  const ids = [
-    ...MARKETPLACE_ORDER.filter((id) => report.by_marketplace[id]),
-    ...Object.keys(report.by_marketplace).filter((id) => !MARKETPLACE_ORDER.includes(id)),
-  ];
-  return ids.map((id) => {
-    const group = report.by_marketplace[id];
-    const fields: DraftField[] = [...group.entries]
-      .sort((left, right) => {
-        const leftMissing = FILLABLE_STATUSES.has(left.status) ? 0 : 1;
-        const rightMissing = FILLABLE_STATUSES.has(right.status) ? 0 : 1;
-        if (leftMissing !== rightMissing) return leftMissing - rightMissing;
-        return left.field.localeCompare(right.field);
-      })
-      .map((entry) => ({
-        key: entry.id,
-        label: entry.field,
-        value: entry.value_preview || "",
-        missing: FILLABLE_STATUSES.has(entry.status),
-        leftover: FILLABLE_STATUSES.has(entry.status) ? entry : undefined,
-      }));
-    return {
-      id,
-      label: marketplaceLabel(id),
-      fields,
-      filled: group.summary.filled || 0,
-      missing: leftoverCount(group.summary),
-    };
-  });
-}
-
 const LISTING_GENERAL_FIELDS: { key: string; label: string }[] = [
   { key: "title", label: "Title" },
   { key: "description", label: "Description" },
@@ -642,38 +650,6 @@ function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): D
     .filter((form): form is DraftForm => Boolean(form));
 }
 
-export function FillLogSummary({ jobId, onOpenFillLog }: { jobId: string; onOpenFillLog?: () => void }) {
-  const report = useFillLog(jobId);
-  if (!report) return null;
-  const total = Object.values(report.summary).reduce((sum, n) => sum + n, 0);
-  if (total === 0) {
-    return onOpenFillLog ? (
-      <button type="button" className="fill-log-open" onClick={onOpenFillLog}>
-        Review fields
-      </button>
-    ) : null;
-  }
-  const leftover = leftoverCount(report.summary);
-  return (
-    <div className="fill-log-chips" aria-label="Fill log summary">
-      {STATUS_ORDER.map((status) => {
-        const count = report.summary[status] || 0;
-        if (!count) return null;
-        return (
-          <span key={status} className={`fill-log-chip fill-log-chip-${status}`}>
-            {count} {STATUS_LABELS[status]}
-          </span>
-        );
-      })}
-      {leftover > 0 && onOpenFillLog && (
-        <button type="button" className="fill-log-open" onClick={onOpenFillLog}>
-          Fill {leftover} leftover {leftover === 1 ? "field" : "fields"}
-        </button>
-      )}
-    </div>
-  );
-}
-
 export function FillLogPanel({
   jobId,
   jobStatus,
@@ -714,46 +690,22 @@ export function FillLogPanel({
   const filling = jobStatus === "dispatched" && jobStep === "filling_fields";
   const hasDraft = Boolean(vendooItemId || vendooUrl);
   const chromeConnected = Boolean(extStatus?.connected);
-  const didRead = React.useRef<string | null>(null);
   const awaitingFill = React.useRef(false);
   const sawFilling = React.useRef(false);
   const fillingRef = React.useRef(filling);
   fillingRef.current = filling;
 
-  const { data: cachedDraft } = useQuery({
-    queryKey: ["vendoo-item", jobId],
-    queryFn: () => api.jobs.vendooItem(jobId),
-    enabled: false,
-    staleTime: Infinity,
-  });
-  const readMutation = useMutation({
-    mutationFn: () => api.jobs.vendooItem(jobId),
-    onSuccess: (payload) => {
-      setShowJson(false);
-      queryClient.setQueryData(["vendoo-item", jobId], payload);
-    },
-  });
-  const draft = readMutation.data || cachedDraft;
-  const item = mergeDraftItem(draft);
-  const enabledMarketplaces = allowedMarketplaceIds(marketplaceSettings?.selected);
-  const draftForms = item ? formsFromDraft(item, report) : [];
-  const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
-  const listingForms = formsFromListing(listing);
-  const sourceForms = (draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms)
-    .filter((form) => enabledMarketplaces.has(form.id));
-  const fromVendooDraft = draftForms.length > 0;
+  const draftQuery = useVendooDraft(jobId, hasDraft && chromeConnected);
+  const draft = draftQuery.data;
+  const { sourceForms, fromVendooDraft } = sourceFormsForJob(
+    mergeDraftItem(draft),
+    report,
+    listing,
+    marketplaceSettings?.selected,
+  );
   const sourceKey = sourceForms.map((form) => form.id).join("|");
   const forms = filterForms(sourceForms, query, missingOnly);
-  const leftovers = report
-    ? leftoverEntries(report).filter((entry) => enabledMarketplaces.has(entry.marketplace.toLowerCase()))
-    : [];
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
-
-  React.useEffect(() => {
-    if (!hasDraft || !chromeConnected || didRead.current === jobId) return;
-    didRead.current = jobId;
-    readMutation.mutate();
-  }, [hasDraft, jobId, chromeConnected]);
 
   React.useEffect(() => {
     if (!report) return;
@@ -781,7 +733,10 @@ export function FillLogPanel({
     sawFilling.current = false;
     queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
     queryClient.invalidateQueries({ queryKey: ["listing"] });
-    if (hasDraft && chromeConnected) readMutation.mutate();
+    if (hasDraft && chromeConnected) {
+      setShowJson(false);
+      draftQuery.refetch();
+    }
     onFilled?.();
   };
 
@@ -816,18 +771,8 @@ export function FillLogPanel({
       .filter((field) => field.missing && !isUnfillableField(field))
       .map((field) => ({ form, field })),
   );
-  const fillableEmpty = emptyFields
-    .map(({ form, field }) => {
-      const leftover = field.leftover;
-      const typed = leftover ? String(values[leftover.id] || "").trim() : "";
-      const value = typed || listingValueForField(listing, form.id, field);
-      if (!value) return null;
-      return leftover
-        ? { id: leftover.id, marketplace: form.id, field: field.label, value }
-        : { marketplace: form.id, field: field.label, value };
-    })
-    .filter((item): item is { id?: string; marketplace: string; field: string; value: string } => Boolean(item));
-
+  const leftovers = report ? leftoverEntries(report) : [];
+  const fillableEmpty = fromVendooDraft ? patchableEmptyFields(sourceForms, listing, values) : [];
   const fillPayload = (() => {
     const payload = [...fillableEmpty];
     const seen = new Set(
@@ -881,10 +826,13 @@ export function FillLogPanel({
           <button
             type="button"
             className="pr-icon-btn pr-read"
-            disabled={readMutation.isPending}
-            onClick={() => readMutation.mutate()}
+            disabled={draftQuery.isFetching}
+            onClick={() => {
+              setShowJson(false);
+              draftQuery.refetch();
+            }}
           >
-            {readMutation.isPending ? "Reading…" : draft ? "Refresh" : "Read draft"}
+            {draftQuery.isFetching ? "Reading…" : draft ? "Refresh" : "Read draft"}
           </button>
         )}
         {draft?.ok && (
@@ -930,7 +878,7 @@ export function FillLogPanel({
         </div>
       )}
 
-      {hasDraft && !fromVendooDraft && !readMutation.isPending && (
+      {hasDraft && !fromVendooDraft && !draftQuery.isFetching && (
         <p className="pr-notice">
           {chromeConnected
             ? "Showing blank listing fields. Read the Vendoo draft to send only the empty Vendoo form fields to chat."
@@ -938,15 +886,15 @@ export function FillLogPanel({
         </p>
       )}
 
-      {readMutation.error && (
-        <div className="text-xs text-error">{(readMutation.error as Error).message || "Could not read the Vendoo draft"}</div>
+      {draftQuery.error && (
+        <div className="text-xs text-error">{(draftQuery.error as Error).message || "Could not read the Vendoo draft"}</div>
       )}
       {draft?.api_error && <div className="pr-meta">API: {draft.api_error}</div>}
 
       {!forms.length ? (
         <div className="pr-empty">
           <p>
-            {readMutation.isPending
+            {draftQuery.isFetching
               ? "Reading Vendoo draft…"
               : !chromeConnected && hasDraft
                 ? "Connect Chrome to read empty Vendoo fields. Ask chat can still generate values, then Fill on Vendoo patches only those fields."
