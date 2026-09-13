@@ -31,7 +31,7 @@ The recipient:
 1. Unzips the archive and moves **List This Studio** into Applications.
 2. Opens it. The first time, macOS may require right-click → Open because the build is ad-hoc signed, not notarized.
 3. Enters a Xiaomi MiMo API key in Settings.
-4. Clicks **Connect Chrome**. Studio opens a managed Chrome window with the Vendoo extension loaded. They sign in to Vendoo there once.
+4. Clicks **Connect Chrome**. Studio opens Vendoo in the user's everyday Chrome. Load the unpacked listing extension there once (`vendoo-extension/`), then sign in to Vendoo.
 
 They need macOS 13+ and Google Chrome. Listing photos and the SQLite database live in `~/Library/Application Support/List This Studio`.
 

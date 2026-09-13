@@ -194,7 +194,8 @@ export const api = {
         available: boolean;
         browser: string | null;
         extension_dir: string;
-        profile_dir: string;
+        profile?: string;
+        profile_dir?: string;
       }>("/desktop/chrome"),
     connectChrome: () => request<{ ok: boolean }>("/desktop/chrome/connect", { method: "POST" }),
   },

@@ -111,54 +111,25 @@ class ChromeBridgeTest(unittest.TestCase):
         current = chrome_bridge.extension_build_status("0.2.6", token)
         self.assertTrue(current["up_to_date"])
 
-    def test_launch_args_load_extension_into_private_profile(self):
-        args = chrome_bridge.launch_args(
-            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            Path("/tmp/ext"),
-            Path("/tmp/profile"),
+    def test_launch_args_open_everyday_chrome_on_macos(self):
+        executable = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+        with patch.object(chrome_bridge.sys, "platform", "darwin"):
+            args = chrome_bridge.launch_args(executable)
+        self.assertEqual(
+            args,
+            ["open", "-a", "/Applications/Google Chrome.app", "https://web.vendoo.co/app"],
         )
-        self.assertIn("--load-extension=/tmp/ext", args)
-        self.assertIn("--disable-extensions-except=/tmp/ext", args)
-        self.assertIn("--user-data-dir=/tmp/profile", args)
-        self.assertIn("--disable-features=DisableLoadExtensionCommandLineSwitch,CalculateNativeWinOcclusion", args)
-        self.assertIn("--disable-backgrounding-occluded-windows", args)
-        self.assertIn("--disable-renderer-backgrounding", args)
-        self.assertIn("--disable-background-timer-throttling", args)
-        self.assertIn("--no-startup-window", args)
-        self.assertNotIn("--new-window", args)
-        self.assertNotIn("https://web.vendoo.co", args)
-
-    def test_launch_args_visible_opens_vendoo(self):
-        args = chrome_bridge.launch_args(
-            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            Path("/tmp/ext"),
-            Path("/tmp/profile"),
-            visible=True,
-        )
-        self.assertEqual(args[-1], "https://web.vendoo.co/app")
-        self.assertIn("--new-window", args)
-        self.assertIn("--window-position=80,80", args)
-        self.assertIn("--window-size=1280,900", args)
-        self.assertNotIn("--no-startup-window", args)
 
     def test_launch_args_open_listing_url(self):
-        args = chrome_bridge.launch_args(
-            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            Path("/tmp/ext"),
-            Path("/tmp/profile"),
-            "https://web.vendoo.co/app/item/abc123",
-            visible=True,
-        )
+        executable = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+        with patch.object(chrome_bridge.sys, "platform", "darwin"):
+            args = chrome_bridge.launch_args(executable, "https://web.vendoo.co/app/item/abc123")
         self.assertEqual(args[-1], "https://web.vendoo.co/app/item/abc123")
 
     def test_launch_args_reject_non_vendoo_url(self):
-        args = chrome_bridge.launch_args(
-            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            Path("/tmp/ext"),
-            Path("/tmp/profile"),
-            "https://evil.example/phishing",
-            visible=True,
-        )
+        executable = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+        with patch.object(chrome_bridge.sys, "platform", "darwin"):
+            args = chrome_bridge.launch_args(executable, "https://evil.example/phishing")
         self.assertEqual(args[-1], "https://web.vendoo.co/app")
 
     def test_listing_url_for_job(self):
@@ -209,31 +180,22 @@ class ChromeBridgeTest(unittest.TestCase):
             chrome_bridge.quit_studio_chrome()
         kill.assert_called_once_with(99, signal.SIGTERM)
 
-    def test_relaunch_quits_then_launches(self):
-        with patch.object(chrome_bridge, "sync_bundled_extension") as sync, patch.object(
-            chrome_bridge, "clear_extension_reload_pending"
-        ) as clear, patch.object(chrome_bridge, "quit_studio_chrome") as quit, patch.object(
-            chrome_bridge, "launch_studio_chrome", return_value={"ok": True, "visible": True}
-        ) as launch:
-            result = chrome_bridge.relaunch_studio_chrome(visible=True)
-        sync.assert_called_once()
-        clear.assert_called_once()
-        quit.assert_called_once()
-        launch.assert_called_once_with(chrome_bridge.DEFAULT_VENDOO_URL, visible=True)
-        self.assertTrue(result["ok"])
-
-    def test_launch_studio_chrome_uses_open_on_macos(self):
+    def test_launch_studio_chrome_uses_everyday_chrome_on_macos(self):
         executable = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
         with patch.object(chrome_bridge, "chrome_executable", return_value=executable), patch.object(
             chrome_bridge, "sync_bundled_extension", return_value=Path("/tmp/ext")
-        ), patch.object(chrome_bridge.sys, "platform", "darwin"), patch(
-            "vendoo_studio.services.chrome_bridge.subprocess.Popen"
-        ) as popen:
-            chrome_bridge.launch_studio_chrome(visible=True)
+        ), patch.object(chrome_bridge, "quit_studio_chrome") as quit, patch.object(
+            chrome_bridge.sys, "platform", "darwin"
+        ), patch("vendoo_studio.services.chrome_bridge.subprocess.Popen") as popen:
+            result = chrome_bridge.launch_studio_chrome(visible=True)
+        quit.assert_called_once()
         cmd = popen.call_args[0][0]
-        self.assertEqual(cmd[:4], ["open", "-na", "/Applications/Google Chrome.app", "--args"])
-        self.assertIn("--load-extension=/tmp/ext", cmd)
-        self.assertIn("https://web.vendoo.co/app", cmd)
+        self.assertEqual(cmd[:3], ["open", "-a", "/Applications/Google Chrome.app"])
+        self.assertEqual(cmd[-1], "https://web.vendoo.co/app")
+        self.assertNotIn("-n", cmd)
+        self.assertNotIn("--user-data-dir", " ".join(cmd))
+        self.assertNotIn("--load-extension", " ".join(cmd))
+        self.assertEqual(result["profile"], "default")
 
     def test_chrome_executable_finds_home_applications(self):
         root = Path(self.tmp.name) / "Applications"

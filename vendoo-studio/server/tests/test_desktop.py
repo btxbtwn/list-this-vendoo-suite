@@ -153,46 +153,13 @@ class StudioWindowChromeTest(unittest.TestCase):
 
 
 class ConnectChromeRouteTest(unittest.IsolatedAsyncioTestCase):
-    async def test_connect_chrome_opens_a_visible_window(self):
-        manager = MagicMock()
-        manager.connected = False
-        manager.version = None
-        manager.reload_generation = None
-        manager.disconnect = AsyncMock()
+    async def test_connect_chrome_opens_everyday_chrome(self):
         with patch.object(
             desktop_routes,
-            "relaunch_studio_chrome",
+            "launch_studio_chrome",
             return_value={"ok": True, "visible": True},
-        ) as launch, patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
-        ):
+        ) as launch:
             result = await desktop_routes.connect_chrome()
         launch.assert_called_once_with(visible=True)
-        manager.disconnect.assert_awaited_once()
         self.assertTrue(result["ok"])
-        self.assertEqual(result["via"], "chrome")
-        self.assertTrue(result["relaunched"])
-
-    async def test_connect_chrome_relaunches_even_when_extension_is_connected(self):
-        manager = MagicMock()
-        manager.connected = True
-        manager.version = "0.2.15"
-        manager.reload_generation = None
-        manager.disconnect = AsyncMock()
-        with patch.object(
-            desktop_routes,
-            "relaunch_studio_chrome",
-            return_value={"ok": True, "visible": True},
-        ) as launch, patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
-        ), patch(
-            "vendoo_studio.routes.extension.dispatch_show_vendoo",
-            new=AsyncMock(return_value=True),
-        ) as show:
-            result = await desktop_routes.connect_chrome()
-        show.assert_not_called()
-        launch.assert_called_once_with(visible=True)
-        manager.disconnect.assert_awaited_once()
-        self.assertTrue(result["ok"])
-        self.assertTrue(result["relaunched"])
         self.assertEqual(result["via"], "chrome")
