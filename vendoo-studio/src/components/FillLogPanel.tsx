@@ -1601,6 +1601,28 @@ export function FillLogPanel({
   const hiddenEbayCategoryCount = [...hidden.always, ...hidden.listing].filter(
     (item) => item.marketplace === "ebay" && EBAY_CATEGORY_FIELD_NAMES.has(normalizeFieldName(item.field)),
   ).length;
+  const hiddenEbayCount = [...hidden.always, ...hidden.listing].filter(
+    (item) => item.marketplace === "ebay",
+  ).length;
+  const hiddenByMarketplace = (() => {
+    const rows = [
+      ...hidden.always.map((item) => ({ ...item, scope: "always" as const })),
+      ...hidden.listing.map((item) => ({ ...item, scope: "listing" as const })),
+    ];
+    const order = ["ebay", "etsy", "poshmark", "mercari", "depop", "general"];
+    const groups = new Map<string, typeof rows>();
+    for (const item of rows) {
+      const key = item.marketplace || "other";
+      const bucket = groups.get(key) || [];
+      bucket.push(item);
+      groups.set(key, bucket);
+    }
+    return [...groups.entries()].sort((left, right) => {
+      const li = order.indexOf(left[0]);
+      const ri = order.indexOf(right[0]);
+      return (li < 0 ? 99 : li) - (ri < 0 ? 99 : ri) || left[0].localeCompare(right[0]);
+    });
+  })();
 
   return (
     <div className="fill-log-pr">
@@ -1635,12 +1657,16 @@ export function FillLogPanel({
             <button
               type="button"
               className={`pr-icon-btn pr-read${openMenu?.kind === "hidden" ? " is-on" : ""}`}
-              title="Show hidden fields"
+              title={
+                hiddenEbayCount
+                  ? `${hiddenCount} hidden fields (${hiddenEbayCount} eBay)`
+                  : "Show hidden fields"
+              }
               aria-haspopup="menu"
               aria-expanded={openMenu?.kind === "hidden"}
               onClick={() => setOpenMenu((current) => (current?.kind === "hidden" ? null : { kind: "hidden" }))}
             >
-              {hiddenCount} hidden
+              {hiddenCount} hidden{hiddenEbayCount ? ` · ${hiddenEbayCount} eBay` : ""}
             </button>
             {openMenu?.kind === "hidden" && (
               <div className="pr-menu pr-menu-wide" role="menu">
@@ -1653,32 +1679,36 @@ export function FillLogPanel({
                 >
                   {restoreAllMutation.isPending ? "Restoring…" : "Show all"}
                 </button>
-                {[
-                  ...hidden.always.map((item) => ({ ...item, scope: "always" as const })),
-                  ...hidden.listing.map((item) => ({ ...item, scope: "listing" as const })),
-                ].map((item) => (
-                  <div key={`${item.scope}:${item.marketplace}:${item.field}`} className="pr-hidden-row">
-                    <div className="pr-hidden-copy">
-                      <span className="pr-hidden-name">{item.label || item.field}</span>
-                      <span className="pr-hidden-meta">
-                        {marketplaceLabel(item.marketplace)} · {item.scope === "always" ? "Always" : "This listing"}
-                      </span>
+                {hiddenByMarketplace.map(([market, items]) => (
+                  <div key={market} className="pr-section-block">
+                    <div className="pr-section">
+                      {marketplaceLabel(market)} · {items.length}
                     </div>
-                    <button
-                      type="button"
-                      className="pr-menu-item-action"
-                      disabled={showMutation.isPending || (item.scope === "listing" && !conversationId)}
-                      onClick={() =>
-                        showMutation.mutate({
-                          marketplace: item.marketplace,
-                          field: item.field,
-                          scope: item.scope,
-                          conversation_id: conversationId,
-                        })
-                      }
-                    >
-                      Show
-                    </button>
+                    {items.map((item) => (
+                      <div key={`${item.scope}:${item.marketplace}:${item.field}`} className="pr-hidden-row">
+                        <div className="pr-hidden-copy">
+                          <span className="pr-hidden-name">{item.label || item.field}</span>
+                          <span className="pr-hidden-meta">
+                            {item.scope === "always" ? "Always" : "This listing"}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="pr-menu-item-action"
+                          disabled={showMutation.isPending || (item.scope === "listing" && !conversationId)}
+                          onClick={() =>
+                            showMutation.mutate({
+                              marketplace: item.marketplace,
+                              field: item.field,
+                              scope: item.scope,
+                              conversation_id: conversationId,
+                            })
+                          }
+                        >
+                          Show
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
