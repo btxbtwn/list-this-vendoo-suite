@@ -1,7 +1,7 @@
 import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { FillLogPanel, FillLogSummary } from "./FillLogPanel";
+import { FillLogPanel } from "./FillLogPanel";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { OpenListingButton } from "./OpenListingButton";
 import { confirmDialog } from "../ui/confirmDialog";
@@ -170,7 +170,6 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
           sendBlockers={data?.errors || []}
           vendooItemId={importedItemId}
           onJobStarted={onJobStarted}
-          onOpenFillLog={() => setReviewTab("fields")}
         />
       </div>
     </div>
@@ -347,14 +346,12 @@ function SendToVendooButton({
   sendBlockers,
   vendooItemId,
   onJobStarted,
-  onOpenFillLog,
 }: {
   convId: string;
   canSend: boolean;
   sendBlockers: { field?: string; message?: string }[];
   vendooItemId?: string | null;
   onJobStarted?: () => void;
-  onOpenFillLog?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
@@ -452,7 +449,6 @@ function SendToVendooButton({
             {existingJob.status}: {existingJob.current_step || "queued"}
             {existingJob.last_error && <div className="mt-4 text-xs text-error">{existingJob.last_error}</div>}
           </div>
-          <FillLogSummary jobId={existingJob.id} onOpenFillLog={onOpenFillLog} />
         </div>
         <div className="job-card-actions">
           <OpenListingButton
