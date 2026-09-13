@@ -37,7 +37,7 @@ LISTING_JSON = {
 
 
 class FakeProvider:
-    def __init__(self, chunks=None, analysis=None, analyze_delay=0.0, chat_delay=0.0):
+    def __init__(self, chunks=None, analysis=None, analyze_delay=0.0, chat_delay=0.0, analyze_gate=None):
         self.chunks = chunks or [
             "```json\n",
             json.dumps(LISTING_JSON),
@@ -51,12 +51,15 @@ class FakeProvider:
         }
         self.analyze_delay = analyze_delay
         self.chat_delay = chat_delay
+        self.analyze_gate = analyze_gate
         self.analyze_calls = 0
         self.chat_calls = 0
         self.chat_messages = None
 
     async def analyze_photos(self, *args, **kwargs):
         self.analyze_calls += 1
+        if self.analyze_gate is not None:
+            await self.analyze_gate.wait()
         if self.analyze_delay:
             await asyncio.sleep(self.analyze_delay)
         return self.analysis
@@ -272,6 +275,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
             p.start()
 
     async def asyncTearDown(self):
+        await chat_routes.reset_generations()
         for p in self.patches:
             p.stop()
         app.dependency_overrides.pop(get_db, None)
@@ -400,6 +404,94 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(conv.status, "draft")
         self.assertEqual(ListingRepo(db).get_revisions(self.conv_id), [])
         db.close()
+
+    async def _wait_until_generating(self, timeout: float = 5.0):
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if chat_routes._active_generation(self.conv_id) is not None:
+                return
+            await asyncio.sleep(0.05)
+        self.fail("listing generation did not start")
+
+    async def test_generate_finishes_after_client_disconnect(self):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async def read_stream():
+                async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                    self.assertEqual(resp.status_code, 200)
+                    async for _ in resp.aiter_text():
+                        pass
+
+            reader = asyncio.create_task(read_stream())
+            await self._wait_until_generating()
+            reader.cancel()
+            try:
+                await reader
+            except asyncio.CancelledError:
+                pass
+            self.assertIsNotNone(chat_routes._active_generation(self.conv_id))
+        await chat_routes.wait_generation(self.conv_id)
+        db = self.Session()
+        revisions = ListingRepo(db).get_revisions(self.conv_id)
+        conv = ConversationRepo(db).get(self.conv_id)
+        db.close()
+        self.assertEqual(len(revisions), 1)
+        self.assertEqual(revisions[0].listing_json["title"], LISTING_JSON["title"])
+        self.assertEqual(conv.status, "draft")
+
+    async def test_generate_reattach_reuses_in_flight_run(self):
+        gate = asyncio.Event()
+        self.provider.analyze_gate = gate
+        body = ""
+        first_body = ""
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client1,
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client2,
+        ):
+            async def first_stream():
+                async with client1.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                    return "".join([chunk async for chunk in resp.aiter_text()])
+
+            first = asyncio.create_task(first_stream())
+            await self._wait_until_generating()
+            gate.set()
+            async with client2.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                self.assertEqual(resp.status_code, 200)
+                body = "".join([chunk async for chunk in resp.aiter_text()])
+            first_body = await first
+        self.assertEqual(self.provider.analyze_calls, 1)
+        self.assertEqual(self.provider.chat_calls, 1)
+        self.assertIn(LISTING_JSON["title"], body)
+        self.assertIn(LISTING_JSON["title"], first_body)
+
+    async def test_generate_cancel_stops_run(self):
+        gate = asyncio.Event()
+        self.provider.analyze_gate = gate
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async def read_stream():
+                async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                    async for _ in resp.aiter_text():
+                        pass
+
+            reader = asyncio.create_task(read_stream())
+            await self._wait_until_generating()
+            cancel = await client.post(f"/api/conversations/{self.conv_id}/generate/cancel")
+            self.assertEqual(cancel.status_code, 200)
+            await chat_routes.wait_generation(self.conv_id)
+            reader.cancel()
+            try:
+                await reader
+            except asyncio.CancelledError:
+                pass
+        gate.set()
+        db = self.Session()
+        conv = ConversationRepo(db).get(self.conv_id)
+        revisions = ListingRepo(db).get_revisions(self.conv_id)
+        db.close()
+        self.assertEqual(conv.status, "draft")
+        self.assertEqual(revisions, [])
+        self.assertIsNone(chat_routes._active_generation(self.conv_id))
 
 
 if __name__ == "__main__":

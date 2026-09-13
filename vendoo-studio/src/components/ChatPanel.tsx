@@ -232,34 +232,114 @@ async function consumeResponseSse(
   return consumeSseText(await res.text(), onEvent);
 }
 
+type LiveStream = {
+  controller: AbortController | null;
+  streaming: boolean;
+  generating: boolean;
+  streamText: string;
+  streamThinking: string;
+  streamStatus: string;
+  thinkingStarted: boolean;
+  failedAction: "generate" | "send" | null;
+  lastSendText: string;
+  userCancelled: boolean;
+  restoreInputOnAbort: boolean;
+  listeners: Set<() => void>;
+};
+
+const liveStreams: Record<string, LiveStream> = {};
+
+function emptyLive(): Omit<LiveStream, "listeners"> {
+  return {
+    controller: null,
+    streaming: false,
+    generating: false,
+    streamText: "",
+    streamThinking: "",
+    streamStatus: "",
+    thinkingStarted: false,
+    failedAction: null,
+    lastSendText: "",
+    userCancelled: false,
+    restoreInputOnAbort: false,
+  };
+}
+
+function getLive(convId: string): LiveStream {
+  if (!liveStreams[convId]) liveStreams[convId] = { ...emptyLive(), listeners: new Set() };
+  return liveStreams[convId];
+}
+
+function emitLive(convId: string) {
+  getLive(convId).listeners.forEach((listener) => listener());
+}
+
+function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>) {
+  Object.assign(getLive(convId), patch);
+  emitLive(convId);
+}
+
+function applySseToLive(convId: string, event: string, parts: SseParts) {
+  const live = getLive(convId);
+  if (event === "thinking" || event === "status") live.thinkingStarted = true;
+  if (event === "thinking") live.streamThinking = parts.thinking;
+  if (event === "status") live.streamStatus = parts.status;
+  if (event !== "thinking" && event !== "status") live.streamText = parts.content;
+  emitLive(convId);
+}
+
 export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Props) {
+  const live = getLive(convId);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [streamText, setStreamText] = useState("");
-  const [streamThinking, setStreamThinking] = useState("");
-  const [streamStatus, setStreamStatus] = useState("");
-  const [thinkingStarted, setThinkingStarted] = useState(false);
-  const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(null);
-  const [lastSendText, setLastSendText] = useState("");
+  const [streaming, setStreaming] = useState(live.streaming);
+  const [generating, setGenerating] = useState(live.generating);
+  const [streamText, setStreamText] = useState(live.streamText);
+  const [streamThinking, setStreamThinking] = useState(live.streamThinking);
+  const [streamStatus, setStreamStatus] = useState(live.streamStatus);
+  const [thinkingStarted, setThinkingStarted] = useState(live.thinkingStarted);
+  const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(live.failedAction);
+  const [lastSendText, setLastSendText] = useState(live.lastSendText);
   const scrollRef = useRef<HTMLDivElement>(null);
   const thinkingBodyRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const abortByConvRef = useRef<Record<string, AbortController>>({});
-  const convIdRef = useRef(convId);
-  const restoreOnAbortRef = useRef(false);
   const queryClient = useQueryClient();
-  convIdRef.current = convId;
 
   const { data: messages, isLoading } = useQuery({
     queryKey: ["messages", convId],
     queryFn: () => api.conversations.messages(convId),
+    refetchInterval: streaming || generating ? 2000 : false,
   });
 
   const { data: photos } = useQuery({
     queryKey: ["photos", convId],
     queryFn: () => api.conversations.photos(convId),
   });
+
+  const { data: listing } = useQuery({
+    queryKey: ["listing", convId],
+    queryFn: () => api.listings.get(convId),
+    refetchInterval: streaming || generating ? 2000 : false,
+  });
+
+  useEffect(() => {
+    const sync = () => {
+      const next = getLive(convId);
+      setStreaming(next.streaming);
+      setGenerating(next.generating);
+      setStreamText(next.streamText);
+      setStreamThinking(next.streamThinking);
+      setStreamStatus(next.streamStatus);
+      setThinkingStarted(next.thinkingStarted);
+      setFailedAction(next.failedAction);
+      setLastSendText(next.lastSendText);
+    };
+    setInput("");
+    sync();
+    getLive(convId).listeners.add(sync);
+    return () => {
+      getLive(convId).listeners.delete(sync);
+    };
+  }, [convId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
@@ -271,133 +351,138 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   }, [streamThinking]);
 
   useEffect(() => {
-    restoreOnAbortRef.current = false;
-    setInput("");
-    setStreaming(false);
-    setGenerating(false);
-    setStreamText("");
-    setStreamThinking("");
-    setStreamStatus("");
-    setThinkingStarted(false);
-    setFailedAction(null);
-    setLastSendText("");
-    return () => {
-      abortByConvRef.current[convId]?.abort();
-    };
-  }, [convId]);
-
-  useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
   }, [input]);
 
-  const isCurrent = useCallback(() => convIdRef.current === convId, [convId]);
-
-  const applySseParts = useCallback((event: string, parts: SseParts) => {
-    if (!isCurrent()) return;
-    if (event === "thinking" || event === "status") setThinkingStarted(true);
-    if (event === "thinking") setStreamThinking(parts.thinking);
-    if (event === "status") setStreamStatus(parts.status);
-    if (event !== "thinking" && event !== "status") setStreamText(parts.content);
-  }, [isCurrent]);
-
   const streamFromFetch = useCallback(async (url: string, initialStatus = "") => {
-    abortByConvRef.current[convId]?.abort();
+    const liveState = getLive(convId);
+    liveState.controller?.abort();
     const controller = new AbortController();
-    abortByConvRef.current[convId] = controller;
-    const stillMine = () => abortByConvRef.current[convId] === controller && convIdRef.current === convId;
-    setStreaming(true);
-    setStreamText("");
-    setStreamThinking("");
-    setStreamStatus(initialStatus);
-    setThinkingStarted(Boolean(initialStatus));
-    setFailedAction(null);
+    patchLive(convId, {
+      controller,
+      streaming: true,
+      generating: url.endsWith("/generate") ? true : liveState.generating,
+      streamText: "",
+      streamThinking: "",
+      streamStatus: initialStatus,
+      thinkingStarted: Boolean(initialStatus),
+      failedAction: null,
+      userCancelled: false,
+    });
+    const stillMine = () => getLive(convId).controller === controller;
     let assembled = "";
     try {
       const res = await fetch(url, { ...SSE_FETCH, signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         if (stillMine()) {
-          setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
-          setStreamThinking("");
-          setStreamStatus("");
-          setFailedAction("generate");
-          setStreaming(false);
-          setGenerating(false);
+          patchLive(convId, {
+            streamText: `Error: ${err.detail || err.message || "Failed"}`,
+            streamThinking: "",
+            streamStatus: "",
+            failedAction: "generate",
+            streaming: false,
+            generating: false,
+            controller: null,
+          });
         }
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      const parts = await consumeResponseSse(res, applySseParts);
+      const parts = await consumeResponseSse(res, (event, nextParts) => applySseToLive(convId, event, nextParts));
       assembled = parts.content;
       if (stillMine()) {
         if (!assembled.trim()) {
           assembled = "Error: Listing generation did not finish.";
-          setStreamText(assembled);
+          patchLive(convId, { streamText: assembled });
         }
-        if (isStreamError(assembled)) setFailedAction("generate");
+        if (isStreamError(assembled)) patchLive(convId, { failedAction: "generate" });
       }
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        if (stillMine()) {
-          setStreamText("");
-          setStreamThinking("");
-          setStreamStatus("");
-          setThinkingStarted(false);
-          setFailedAction(null);
-          setStreaming(false);
-          setGenerating(false);
+        if (!stillMine()) return;
+        if (getLive(convId).userCancelled) {
+          const restoreText = getLive(convId).lastSendText;
+          const restore = getLive(convId).restoreInputOnAbort;
+          patchLive(convId, {
+            streamText: "",
+            streamThinking: "",
+            streamStatus: "",
+            thinkingStarted: false,
+            failedAction: null,
+            streaming: false,
+            generating: false,
+            controller: null,
+            userCancelled: false,
+            restoreInputOnAbort: false,
+          });
+          if (restore && restoreText) setInput(restoreText);
+          return;
         }
+        patchLive(convId, { controller: null });
         return;
       }
       if (stillMine()) {
         assembled = `Error: ${e.message}`;
-        setStreamText(assembled);
-        setStreamThinking("");
-        setStreamStatus("");
-        setFailedAction("generate");
+        patchLive(convId, {
+          streamText: assembled,
+          streamThinking: "",
+          streamStatus: "",
+          failedAction: "generate",
+        });
       }
     }
     const failed = isStreamError(assembled);
     if (stillMine()) {
-      setStreaming(false);
-      setGenerating(false);
+      patchLive(convId, { streaming: false, generating: false, controller: null });
     }
     await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
     if (stillMine() && !failed) {
-      setStreamText("");
-      setStreamThinking("");
-      setStreamStatus("");
-      setThinkingStarted(false);
+      patchLive(convId, {
+        streamText: "",
+        streamThinking: "",
+        streamStatus: "",
+        thinkingStarted: false,
+      });
     }
-  }, [applySseParts, convId, queryClient]);
+  }, [convId, queryClient]);
 
   const handleGenerate = useCallback(async () => {
-    setGenerating(true);
-    setStreamStatus("Analyzing photos…");
-    setThinkingStarted(true);
+    patchLive(convId, {
+      generating: true,
+      streamStatus: "Analyzing photos…",
+      thinkingStarted: true,
+      userCancelled: false,
+    });
     await streamFromFetch(`/api/conversations/${convId}/generate`, "Analyzing photos…");
   }, [convId, streamFromFetch]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text || streaming) return;
-    abortByConvRef.current[convId]?.abort();
+    if (!text || getLive(convId).streaming) return;
+    const liveState = getLive(convId);
+    liveState.controller?.abort();
     const controller = new AbortController();
-    abortByConvRef.current[convId] = controller;
-    const stillMine = () => abortByConvRef.current[convId] === controller && convIdRef.current === convId;
+    patchLive(convId, {
+      controller,
+      lastSendText: text,
+      streaming: true,
+      generating: false,
+      streamText: "",
+      streamThinking: "",
+      streamStatus: "",
+      thinkingStarted: true,
+      failedAction: null,
+      userCancelled: false,
+      restoreInputOnAbort: false,
+    });
     setInput("");
-    setLastSendText(text);
-    setStreaming(true);
-    setStreamText("");
-    setStreamThinking("");
-    setStreamStatus("");
-    setThinkingStarted(true);
-    setFailedAction(null);
+    const stillMine = () => getLive(convId).controller === controller;
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`, {
         method: "POST",
@@ -409,54 +494,70 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         if (stillMine()) {
-          setStreamText(`Error: ${err.detail || err.message || "Failed"}`);
-          setStreamThinking("");
-          setStreamStatus("");
-          setFailedAction("send");
-          setStreaming(false);
+          patchLive(convId, {
+            streamText: `Error: ${err.detail || err.message || "Failed"}`,
+            streamThinking: "",
+            streamStatus: "",
+            failedAction: "send",
+            streaming: false,
+            controller: null,
+          });
         }
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      const parts = await consumeResponseSse(res, applySseParts);
+      const parts = await consumeResponseSse(res, (event, nextParts) => applySseToLive(convId, event, nextParts));
       const assembled = parts.content;
-      if (isStreamError(assembled) && stillMine()) setFailedAction("send");
-      if (stillMine()) setStreaming(false);
+      if (stillMine() && isStreamError(assembled)) patchLive(convId, { failedAction: "send" });
+      if (stillMine()) patchLive(convId, { streaming: false, controller: null });
       await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       if (stillMine() && !isStreamError(assembled)) {
-        setStreamText("");
-        setStreamThinking("");
-        setStreamStatus("");
-        setThinkingStarted(false);
+        patchLive(convId, {
+          streamText: "",
+          streamThinking: "",
+          streamStatus: "",
+          thinkingStarted: false,
+        });
       }
       return;
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        if (stillMine()) {
-          setStreamText("");
-          setStreamThinking("");
-          setStreamStatus("");
-          setThinkingStarted(false);
-          setFailedAction(null);
-          if (restoreOnAbortRef.current) setInput(text);
-          restoreOnAbortRef.current = false;
-          setStreaming(false);
+        if (!stillMine()) return;
+        if (getLive(convId).userCancelled) {
+          const restore = getLive(convId).restoreInputOnAbort;
+          patchLive(convId, {
+            streamText: "",
+            streamThinking: "",
+            streamStatus: "",
+            thinkingStarted: false,
+            failedAction: null,
+            streaming: false,
+            generating: false,
+            controller: null,
+            userCancelled: false,
+            restoreInputOnAbort: false,
+          });
+          if (restore) setInput(text);
+          return;
         }
+        patchLive(convId, { controller: null, streaming: false });
         return;
       }
       if (stillMine()) {
-        setStreamText(`Error: ${e.message}`);
-        setStreamThinking("");
-        setStreamStatus("");
-        setFailedAction("send");
-        setStreaming(false);
+        patchLive(convId, {
+          streamText: `Error: ${e.message}`,
+          streamThinking: "",
+          streamStatus: "",
+          failedAction: "send",
+          streaming: false,
+          controller: null,
+        });
       }
-      return;
     }
-  }, [applySseParts, streaming, convId, queryClient]);
+  }, [convId, queryClient]);
 
   useEffect(() => {
     if (!queuedMessage || streaming) return;
@@ -470,8 +571,13 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   }, [input, sendMessage]);
 
   const handleCancel = useCallback(() => {
-    restoreOnAbortRef.current = true;
-    abortByConvRef.current[convId]?.abort();
+    const liveState = getLive(convId);
+    const wasGenerating = liveState.generating;
+    patchLive(convId, { userCancelled: true, restoreInputOnAbort: true });
+    liveState.controller?.abort();
+    if (wasGenerating) {
+      void fetch(`/api/conversations/${convId}/generate/cancel`, { method: "POST" });
+    }
   }, [convId]);
 
   const handleRetry = useCallback(() => {
@@ -487,7 +593,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   const hasListingJson = Boolean(messages?.some((m: any) => {
     const json = extractJson(m.text);
     return Boolean(json && isListingJson(json));
-  }));
+  }) || (listing?.listing && isListingJson(JSON.stringify(listing.listing))));
   const streamFailed = isStreamError(streamText);
   const busy = streaming || generating;
   const canRetry = failedAction === "send" ? Boolean(lastSendText) : Boolean(hasPhotos);
@@ -496,6 +602,35 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     : hasMessages
       ? "Refine the listing..."
       : "Add a note, or generate the listing...";
+
+  useEffect(() => {
+    const reattach = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      const liveState = getLive(convId);
+      if (liveState.controller || liveState.userCancelled || !liveState.generating) return;
+      void streamFromFetch(
+        `/api/conversations/${convId}/generate`,
+        liveState.streamStatus || "Analyzing photos…",
+      );
+    };
+    document.addEventListener("visibilitychange", reattach);
+    reattach();
+    return () => document.removeEventListener("visibilitychange", reattach);
+  }, [convId, generating, streamFromFetch]);
+
+  useEffect(() => {
+    const liveState = getLive(convId);
+    if (!liveState.generating || liveState.controller) return;
+    if (!hasListingJson) return;
+    patchLive(convId, {
+      generating: false,
+      streaming: false,
+      streamText: "",
+      streamThinking: "",
+      streamStatus: "",
+      thinkingStarted: false,
+    });
+  }, [convId, hasListingJson]);
 
   function renderMessage(m: any) {
     if (m.role === "user") {
