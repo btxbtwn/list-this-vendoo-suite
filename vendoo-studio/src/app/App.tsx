@@ -231,6 +231,8 @@ export function App() {
                     jobId={listingJob?.id ?? null}
                     step={listingJob?.current_step}
                     status={listingJob?.status}
+                    vendooItemId={listingJob?.vendoo_item_id}
+                    vendooUrl={listingJob?.vendoo_url}
                     cancelling={cancelJob.isPending}
                     onCancel={listingJob?.id ? () => cancelJob.mutate(listingJob.id) : undefined}
                   />

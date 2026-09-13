@@ -83,7 +83,10 @@ class ChromeBridgeTest(unittest.TestCase):
         )
         self.assertIn("--load-extension=/tmp/ext", args)
         self.assertIn("--user-data-dir=/tmp/profile", args)
-        self.assertIn("--disable-features=DisableLoadExtensionCommandLineSwitch", args)
+        self.assertIn("--disable-features=DisableLoadExtensionCommandLineSwitch,CalculateNativeWinOcclusion", args)
+        self.assertIn("--disable-backgrounding-occluded-windows", args)
+        self.assertIn("--disable-renderer-backgrounding", args)
+        self.assertIn("--disable-background-timer-throttling", args)
         self.assertEqual(args[-1], "https://web.vendoo.co")
 
     def test_launch_args_open_listing_url(self):

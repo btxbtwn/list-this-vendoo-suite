@@ -197,11 +197,14 @@ def launch_args(
     return [
         str(executable),
         f"--user-data-dir={profile_dir}",
-        "--disable-features=DisableLoadExtensionCommandLineSwitch",
+        "--disable-features=DisableLoadExtensionCommandLineSwitch,CalculateNativeWinOcclusion",
         f"--load-extension={extension_dir}",
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-sync",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--disable-background-timer-throttling",
         target,
     ]
 
