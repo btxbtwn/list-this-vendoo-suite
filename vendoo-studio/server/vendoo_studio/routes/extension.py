@@ -16,7 +16,7 @@ from vendoo_studio.services.chrome_bridge import (
     clear_extension_reload_pending,
     extension_build_status,
     install_bundled_extension,
-    launch_studio_chrome,
+    relaunch_studio_chrome,
 )
 
 router = APIRouter(tags=["extension"])
@@ -48,6 +48,12 @@ class ExtensionManager:
         fut = self._waits.pop(request_id, None)
         if fut and not fut.done():
             fut.cancel()
+
+    def _mark_disconnected(self) -> None:
+        self.connection = None
+        self.paired = False
+        self.version = None
+        self.reload_generation = None
 
     @property
     def connected(self) -> bool:
@@ -91,24 +97,21 @@ class ExtensionManager:
             return True
         except Exception:
             if self.connection is connection:
-                self.connection = None
-                self.paired = False
+                self._mark_disconnected()
             return False
 
     async def disconnect(self, ws: WebSocket | None = None):
         connection = self.connection if ws is None else ws
         if connection is None:
             if ws is None:
-                self.connection = None
-                self.paired = False
+                self._mark_disconnected()
             return
         try:
             await connection.close()
         except Exception:
             pass
         if self.connection is connection:
-            self.connection = None
-            self.paired = False
+            self._mark_disconnected()
 
 
 extension_manager = ExtensionManager()
@@ -339,7 +342,7 @@ def extension_status():
 @router.post("/api/extension/reload")
 async def reload_extension():
     try:
-        result = launch_studio_chrome(visible=True)
+        result = relaunch_studio_chrome(visible=True)
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc
     result["sent"] = True
@@ -352,8 +355,7 @@ async def extension_websocket(ws: WebSocket):
 
     old = extension_manager.connection
     if old is not None and old is not ws:
-        extension_manager.connection = None
-        extension_manager.paired = False
+        extension_manager._mark_disconnected()
         try:
             await old.close()
         except Exception:
@@ -529,6 +531,5 @@ async def extension_websocket(ws: WebSocket):
         pass
     finally:
         if extension_manager.connection is ws:
-            extension_manager.connection = None
-            extension_manager.paired = False
+            extension_manager._mark_disconnected()
         db.close()

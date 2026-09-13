@@ -156,7 +156,7 @@ class ConnectChromeRouteTest(unittest.IsolatedAsyncioTestCase):
     async def test_connect_chrome_opens_everyday_chrome(self):
         with patch.object(
             desktop_routes,
-            "launch_studio_chrome",
+            "relaunch_studio_chrome",
             return_value={"ok": True, "visible": True},
         ) as launch:
             result = await desktop_routes.connect_chrome()
