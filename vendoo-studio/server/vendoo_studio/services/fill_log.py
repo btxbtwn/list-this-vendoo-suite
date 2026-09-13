@@ -19,6 +19,7 @@ FILLABLE_STATUSES = ("skipped", "new", "failed", "uncertain", "not_found")
 MAX_ENTRIES = 200
 MAX_PREVIEW = 80
 MAX_PATCH_FIELDS = 50
+MAX_FILL_FIELDS = 200
 MAX_PATCH_VALUE = 500
 
 GENERAL_LISTING_KEYS = {
@@ -45,6 +46,19 @@ GENERAL_LISTING_KEYS = {
     "notes": "notes",
     "internal notes": "notes",
     "vendoo internal notes": "notes",
+}
+
+FIELD_LOOKUP_ALIASES = {
+    "listing price": "price",
+    "buy it now price": "price",
+    "cost of goods": "cost",
+    "us size": "size",
+    "vendoo labels": "labels",
+    "internal notes": "notes",
+    "vendoo internal notes": "notes",
+    "primary color": "color",
+    "when was it made": "when made",
+    "who made it": "who made",
 }
 
 
@@ -112,36 +126,64 @@ def normalize_field_label(value: str) -> str:
     return key
 
 
-def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
-    source = listing if isinstance(listing, dict) else {}
-    marketplace = str(marketplace or "general").strip().lower()
-    key = normalize_field_label(field)
-    value: Any = None
-    if marketplace in {"", "general", "unknown"}:
-        mapped = GENERAL_LISTING_KEYS.get(key)
-        if mapped and mapped in source:
-            value = source.get(mapped)
-        elif field in source:
-            value = source.get(field)
-        else:
-            value = next(
-                (source[candidate] for candidate in source if normalize_field_label(str(candidate)) == key),
-                None,
-            )
-    else:
-        specifics = source.get(f"{marketplace}_specifics") or {}
-        if isinstance(specifics, dict):
-            value = next(
-                (specifics[candidate] for candidate in specifics if normalize_field_label(str(candidate)) == key),
-                None,
-            )
+def field_lookup_key(value: str) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"^(ebay|etsy|poshmark|mercari|depop)\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    text = text.replace("_", " ").replace("-", " ")
+    text = re.sub(r"[^a-zA-Z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return FIELD_LOOKUP_ALIASES.get(text, text)
+
+
+def _stringify_listing_value(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, (list, tuple)):
-        text = ", ".join(str(item).strip() for item in value if str(item).strip())
+        return ", ".join(str(item).strip() for item in value if str(item).strip())
+    return str(value).strip()
+
+
+def _value_from_record(record: dict | None, key: str) -> Any:
+    if not isinstance(record, dict) or not key:
+        return None
+    from vendoo_studio.services.registry import label_to_json_key
+
+    json_key = label_to_json_key(key)
+    mapped = GENERAL_LISTING_KEYS.get(key)
+    color_keys = {"color", "primary color"}
+    for candidate, value in record.items():
+        candidate_key = field_lookup_key(str(candidate))
+        if candidate_key == key or (key in color_keys and candidate_key in color_keys):
+            return value
+        if str(candidate) == json_key or (mapped and str(candidate) == mapped):
+            return value
+    if json_key and json_key in record:
+        return record.get(json_key)
+    if mapped and mapped in record:
+        return record.get(mapped)
+    return None
+
+
+def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
+    source = listing if isinstance(listing, dict) else {}
+    marketplace = str(marketplace or "general").strip().lower()
+    key = field_lookup_key(field)
+    value: Any = None
+    if marketplace in {"", "general", "unknown"}:
+        value = _value_from_record(source, key)
     else:
-        text = str(value).strip()
-    return text
+        specifics = source.get(f"{marketplace}_specifics")
+        value = _value_from_record(specifics if isinstance(specifics, dict) else {}, key)
+        if value is None and key == "when made":
+            ebay_specifics = source.get("ebay_specifics")
+            value = _value_from_record(
+                ebay_specifics if isinstance(ebay_specifics, dict) else {},
+                "year manufactured",
+            )
+        if value is None:
+            value = _value_from_record(source, key)
+    return _stringify_listing_value(value)
 
 
 def extract_missing_fields(text: str) -> list[dict] | None:

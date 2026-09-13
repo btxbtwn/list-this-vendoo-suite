@@ -90,7 +90,6 @@ const SKIP_KEYS = new Set([
   "marketplaceid",
   "sales",
   "status",
-  "type",
   "origin",
   "version",
   "validate",
@@ -128,35 +127,84 @@ function isUnfillableField(field: DraftField): boolean {
   return UNFILLABLE_FIELDS.has(field.label.toLowerCase()) || UNFILLABLE_FIELDS.has(field.key.toLowerCase());
 }
 
+function normalizeLookupKey(value: string): string {
+  const aliases: Record<string, string> = {
+    "listing price": "price",
+    "buy it now price": "price",
+    "cost of goods": "cost",
+    "us size": "size",
+    "vendoo labels": "labels",
+    "internal notes": "notes",
+    "vendoo internal notes": "notes",
+    "primary color": "color",
+    "when was it made": "when made",
+    "who made it": "who made",
+  };
+  const key = String(value || "")
+    .replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_*?-]+/g, " ")
+    .replace(/[^\w\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return aliases[key] || key;
+}
+
+function lookupToJsonKey(key: string): string {
+  const mapped: Record<string, string> = {
+    "when made": "when_made",
+    "who made": "who_made",
+    "what is it": "what_is",
+    "size type": "sizeType",
+    "country of origin": "countryOfOrigin",
+    "year manufactured": "yearManufactured",
+  };
+  if (mapped[key]) return mapped[key];
+  const parts = key.split(" ").filter(Boolean);
+  if (!parts.length) return "";
+  return parts[0] + parts.slice(1).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
+}
+
+function valueFromRecord(record: Record<string, unknown> | undefined, key: string): unknown {
+  if (!record || !key) return undefined;
+  const jsonKey = lookupToJsonKey(key);
+  const mapped = GENERAL_LISTING_KEYS[key];
+  const colorKeys = new Set(["color", "primary color"]);
+  for (const [candidate, value] of Object.entries(record)) {
+    const candidateKey = normalizeLookupKey(candidate);
+    if (candidateKey === key || (colorKeys.has(key) && colorKeys.has(candidateKey))) return value;
+    if (candidate === jsonKey || (mapped && candidate === mapped)) return value;
+  }
+  if (jsonKey && jsonKey in record) return record[jsonKey];
+  if (mapped && mapped in record) return record[mapped];
+  return undefined;
+}
+
 function listingValueForField(
   listing: Record<string, unknown> | undefined,
   marketplace: string,
   field: DraftField,
 ): string {
   if (!listing) return "";
-  const key = field.label.toLowerCase().replace(/\s+/g, " ").trim();
-  const rawKey = field.key.toLowerCase();
+  const key = normalizeLookupKey(field.label || field.key);
   let raw: unknown;
   if (marketplace === "general") {
-    const mapped = GENERAL_LISTING_KEYS[key];
-    raw = (mapped ? listing[mapped] : undefined) ?? listing[field.key] ?? listing[field.label];
-    if (raw == null) {
-      const hit = Object.keys(listing).find((candidate) => {
-        const normalized = candidate.toLowerCase().replace(/_/g, " ");
-        return normalized === key || candidate.toLowerCase() === rawKey;
-      });
-      raw = hit ? listing[hit] : undefined;
-    }
+    raw = valueFromRecord(listing, key);
   } else {
     const specifics = listing[`${marketplace}_specifics`];
     const record = specifics && typeof specifics === "object" && !Array.isArray(specifics)
       ? specifics as Record<string, unknown>
       : {};
-    const hit = Object.keys(record).find((candidate) => {
-      const normalized = candidate.toLowerCase().replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, "").trim();
-      return normalized === key || candidate.toLowerCase() === rawKey;
-    });
-    raw = hit ? record[hit] : record[field.label] ?? record[field.key];
+    raw = valueFromRecord(record, key);
+    if (raw == null && key === "when made") {
+      const ebay = listing.ebay_specifics;
+      raw = valueFromRecord(
+        ebay && typeof ebay === "object" && !Array.isArray(ebay) ? ebay as Record<string, unknown> : {},
+        "year manufactured",
+      );
+    }
+    if (raw == null) raw = valueFromRecord(listing, key);
   }
   if (raw == null) return "";
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean).join(", ").trim();
@@ -350,6 +398,7 @@ function listingSection(listing: Record<string, unknown> | undefined): unknown {
   delete rest.overrides;
   delete rest.marketplaceSpecifics;
   delete rest.categorySpecifics;
+  delete rest.type;
   return {
     ...rest,
     ...(overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides as object : {}),
@@ -779,16 +828,27 @@ export function FillLogPanel({
     })
     .filter((item): item is { id?: string; marketplace: string; field: string; value: string } => Boolean(item));
 
-  const pending = leftovers.filter((entry) => String(values[entry.id] || "").trim());
-  const visiblePending = pending.filter((entry) => {
-    if (selectedForm && entry.marketplace.toLowerCase() !== selectedForm.id) return false;
-    const form = forms.find((item) => item.id === entry.marketplace.toLowerCase());
-    return !form || form.fields.some((field) => field.leftover?.id === entry.id);
-  });
-  const fillPayload = fillableEmpty.length ? fillableEmpty : visiblePending.map((entry) => ({
-    id: entry.id,
-    value: String(values[entry.id] || "").trim(),
-  }));
+  const fillPayload = (() => {
+    const payload = [...fillableEmpty];
+    const seen = new Set(
+      payload.map((item) => `${(item.marketplace || "").toLowerCase()}:${(item.field || "").toLowerCase()}`),
+    );
+    for (const entry of leftovers) {
+      const key = `${entry.marketplace.toLowerCase()}:${entry.field.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      const typed = String(values[entry.id] || "").trim();
+      const value = typed || listingValueForField(listing, entry.marketplace, {
+        key: entry.field,
+        label: entry.field,
+        value: "",
+        missing: true,
+      });
+      if (!value) continue;
+      seen.add(key);
+      payload.push({ id: entry.id, marketplace: entry.marketplace, field: entry.field, value });
+    }
+    return payload;
+  })();
 
   return (
     <div className="fill-log-pr">
