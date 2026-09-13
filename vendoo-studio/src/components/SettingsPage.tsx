@@ -246,6 +246,64 @@ function MarketplacesSection() {
   );
 }
 
+function HiddenFieldsSection() {
+  const queryClient = useQueryClient();
+  const { data, isPending, isError, error } = useQuery({
+    queryKey: ["settings-hidden-fields"],
+    queryFn: () => api.settings.hiddenFields(),
+  });
+  const restoreMutation = useMutation({
+    mutationFn: (item: { marketplace: string; field: string }) =>
+      api.settings.showField({ ...item, scope: "always" }),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["settings-hidden-fields"], payload);
+      queryClient.invalidateQueries({ queryKey: ["settings-hidden-fields"] });
+    },
+  });
+  const always = data?.always || [];
+
+  return (
+    <SettingsSection id="hidden-fields" title="Fields">
+      <SettingsRow
+        title="Always hidden"
+        description="These marketplace fields stay off the Fields tab on every listing. Hide more from a field’s × menu, or restore them here."
+      >
+        {isPending ? (
+          <p className="settings-row-desc">Loading hidden fields…</p>
+        ) : isError ? (
+          <p className="settings-row-desc text-error">{(error as Error).message || "Could not load hidden fields"}</p>
+        ) : always.length === 0 ? (
+          <p className="settings-row-desc">None yet. On Fields, open a field’s × menu and choose Always hide.</p>
+        ) : (
+          <div className="settings-hidden-list">
+            {always.map((item) => (
+              <div key={`${item.marketplace}:${item.field}`} className="settings-hidden-row">
+                <div className="settings-hidden-copy">
+                  <span className="settings-hidden-name">{item.label || item.field}</span>
+                  <span className="settings-hidden-meta">
+                    {item.marketplace === "general" ? "Vendoo" : item.marketplace}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  disabled={restoreMutation.isPending}
+                  onClick={() => restoreMutation.mutate({ marketplace: item.marketplace, field: item.field })}
+                >
+                  Show
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {restoreMutation.isError ? (
+          <p className="settings-row-desc text-error">{(restoreMutation.error as Error).message}</p>
+        ) : null}
+      </SettingsRow>
+    </SettingsSection>
+  );
+}
+
 function AboutVersionRow({ version }: { version: string }) {
   const { available, busy, description, iconTooltip, onClick, settingsLabel } = useStudioUpdate();
   return (
@@ -280,6 +338,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   return (
     <>
       <MarketplacesSection />
+      <HiddenFieldsSection />
       <SettingsSection id="setup-guide" title="Setup guide">
         <SettingsRow
           title="First-run tutorial"

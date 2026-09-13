@@ -340,6 +340,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         preview_value,
         write_values_into_listing,
     )
+    from vendoo_studio.services.registry import SELLER_SETTING_LABELS
 
     repo = JobRepo(db)
     job = repo.get(job_id)
@@ -390,6 +391,8 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
             raise HTTPException(400, "Each field needs a name")
         if not marketplace:
             marketplace = "general"
+        if field_lookup_key(field) in SELLER_SETTING_LABELS:
+            continue
         if not value:
             value = listing_value_for_field(listing, marketplace, field)
         if marketplace == "poshmark" and field_lookup_key(field) == "category":

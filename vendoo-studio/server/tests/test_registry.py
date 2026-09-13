@@ -36,6 +36,9 @@ class LabelHelpersTest(unittest.TestCase):
 
     def test_seller_settings_and_size_are_not_listing_fields(self):
         self.assertFalse(is_learned_listing_field("ebay", "Allow Best Offer"))
+        self.assertFalse(is_learned_listing_field("ebay", "Return Within"))
+        self.assertFalse(is_learned_listing_field("ebay", "Return Payed By"))
+        self.assertFalse(is_learned_listing_field("ebay", "Starting Price"))
         self.assertFalse(is_learned_listing_field("poshmark", "Size"))
         self.assertFalse(is_learned_listing_field("etsy", "Worldwide Shipping"))
         self.assertTrue(is_learned_listing_field("ebay", "Character"))

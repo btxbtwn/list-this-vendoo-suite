@@ -170,7 +170,36 @@
     'when made': 'when made',
     'primary color': 'color',
     'cost of goods': 'cost of goods',
+    'return payed by': 'return paid by',
+    'starting price': 'starting price',
   };
+
+  const ACCOUNT_SETTING_FIELDS = new Set([
+    'allow best offer',
+    'auto accept',
+    'minimum offer',
+    'minimum price',
+    'primary store category',
+    'secondary store category',
+    'personalization instructions',
+    'exclude sku from listing',
+    'no brand not sure',
+    'worldwide shipping',
+    'custom property',
+    'other info',
+    'size grouping',
+    'accept returns',
+    'return within',
+    'return refund method',
+    'return paid by',
+    'returns',
+    'starting price',
+    'payment method',
+  ]);
+
+  function isAccountSettingField(value) {
+    return ACCOUNT_SETTING_FIELDS.has(normalizeFieldKey(value));
+  }
 
   function normalizeFieldKey(value) {
     const key = String(value || '')
@@ -283,10 +312,12 @@
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
       if (!isCurrentMarketplaceControl(el)) continue;
+      if (!isEnabledField(el)) continue;
 
       const label = fieldLabelForControl(el);
       const key = normalizeFieldKey(label);
       if (!key || seen.has(key) || controlAlreadyLogged(el, key)) continue;
+      if (isAccountSettingField(key) || isAccountSettingField(label)) continue;
       if (fieldLooksFilled(el)) continue;
       seen.add(key);
       recordFill({
@@ -666,7 +697,10 @@
           return normalizeEbaySpecificValue('type', value);
       }
       if (mp === 'ebay' && key === 'year manufactured') {
-          return normalizeEbaySpecificValue('yearManufactured', value) || value;
+          return normalizeEbaySpecificValue('yearManufactured', value);
+      }
+      if (mp === 'ebay' && isDoesNotApplyValue(value) && key !== 'year manufactured') {
+          return 'Does Not Apply';
       }
       return value;
   }
@@ -1303,15 +1337,11 @@
   }
 
   function listedChipValues(el) {
-      let root = chipFieldRoot(el);
-      for (let depth = 0; depth < 4 && root; depth++) {
-          const chips = uniqueStrings(Array.from(root.querySelectorAll('.MuiChip-label')).map((chip) =>
-              (chip.textContent || '').replace(/\u00a0/g, ' ').trim()
-          ));
-          if (chips.length) return chips;
-          root = root.parentElement;
-      }
-      return [];
+      const root = chipFieldRoot(el);
+      if (!root) return [];
+      return uniqueStrings(Array.from(root.querySelectorAll('.MuiChip-label')).map((chip) =>
+          (chip.textContent || '').replace(/\u00a0/g, ' ').trim()
+      ));
   }
 
   function fieldHasChip(el, value) {
@@ -1376,15 +1406,25 @@
       return Boolean(inputRoot?.querySelector('.MuiSelect-select, [class*="MuiSelect-icon"], [class*="MuiAutocomplete-endAdornment"], [class*="MuiArrowDropDown"]'));
   }
 
-  const DROPDOWN_FIELD_HINT = /\b(condition|brand|color|size|category|shipping|occasion|style|department|type|who made|when made|source|scale|material|pattern|features|sleeve|neckline|fit|rise|inseam|wash|closure)\b/i;
-  const MULTI_CHIP_FIELD_HINT = /\b(tags?|labels?|materials?|features?|accents?|occasions?|seasons?|themes?)\b/i;
+  const DROPDOWN_FIELD_HINT = /\b(condition|brand|color|size|category|shipping|occasion|style|department|type|who made|when made|source|scale|material|pattern|features|sleeve|neckline|fit|rise|inseam|wash|closure|vintage|theme|season|waist|strap|year|return|refund)\b/i;
 
   function shouldFillAsDropdown(el, fieldName) {
       return isDropdownLike(el) || DROPDOWN_FIELD_HINT.test(String(fieldName || ''));
   }
 
-  function isMultiChipField(fieldName) {
-      return MULTI_CHIP_FIELD_HINT.test(String(fieldName || ''));
+  function isChipControl(el) {
+      if (!el) return false;
+      const root = el.closest?.('.MuiAutocomplete-root, [class*="MuiAutocomplete"]');
+      if (!root) return false;
+      if (el.getAttribute('aria-multiselectable') === 'true') return true;
+      return Boolean(root.querySelector('.MuiChip-root, [class*="MuiChip"], [class*="chip"]'));
+  }
+
+  function isMultiChipField(fieldName, el) {
+      const name = String(fieldName || '');
+      if (/\b(tags?|labels?)\b/i.test(name)) return true;
+      if (/\b(materials?|features?|accents?)\b/i.test(name)) return true;
+      return Boolean(el && isChipControl(el) && /\b(seasons?|themes?|occasions?)\b/i.test(name));
   }
 
   function splitChipValues(value) {
@@ -1743,7 +1783,7 @@
           return { status: 'not_found' };
       }
 
-      const chipField = isMulti || isMultiChipField(fieldName);
+      const chipField = isMulti || isMultiChipField(fieldName, el);
       const values = chipField ? splitChipValues(value) : [value];
       if (chipField && values.length === 0) {
           recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
@@ -2665,10 +2705,18 @@
   // PLATFORM-SPECIFIC FILLERS - OPTIMIZED
   // ============================================
 
+  function isDoesNotApplyValue(value) {
+      return /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i.test(String(value || '').trim());
+  }
+
   function normalizeEbaySpecificValue(key, value) {
       if (value == null || value === '') return value;
       const raw = Array.isArray(value) ? value.join(', ') : String(value).trim();
       if (key === 'yearManufactured') {
+          if (isDoesNotApplyValue(raw)) return null;
+          if (/pre-?1900s/i.test(raw)) return 'Pre-1900s';
+          const years = raw.match(/(?:19|20)\d{2}/g);
+          if (years && years.length >= 2) return `${years[0]}-${years[1]}`;
           const yearMatch = raw.match(/(?:19|20)\d{2}/);
           if (!yearMatch) return raw;
           const decade = Math.floor(Number(yearMatch[0]) / 10) * 10;
@@ -2698,6 +2746,7 @@
           return allowed.find((item) => item.toLowerCase() === raw.toLowerCase()) || null;
       }
       if (key === 'countryOfOrigin' && /^unknown$/i.test(raw)) return null;
+      if (isDoesNotApplyValue(raw) && key !== 'yearManufactured') return 'Does Not Apply';
       return value;
   }
 
@@ -2736,7 +2785,15 @@
               if (specs[key] == null) specs[key] = value;
           }
       }
+      const nestedMarket = specs.marketplaceSpecifics || specs.marketplace_specifics;
+      if (nestedMarket && typeof nestedMarket === 'object' && !Array.isArray(nestedMarket)) {
+          for (const [key, value] of Object.entries(nestedMarket)) {
+              if (specs[key] == null) specs[key] = value;
+          }
+      }
       delete specs.category_specifics;
+      delete specs.marketplaceSpecifics;
+      delete specs.marketplace_specifics;
       if (!specs.department && (data.department || specs.Department)) {
           specs.department = data.department || specs.Department;
       }
@@ -2792,9 +2849,14 @@
           ];
           let optionalsReady = false;
 
+          let filledNames = new Set();
+
           for (const key of fillOrder) {
               const mapped = normalizeEbaySpecificValue(key, specs[key]);
               const fieldName = fieldNameMap[key] || key;
+              const fieldKey = normalizeFieldKey(fieldName);
+              if (filledNames.has(fieldKey)) continue;
+              if (isAccountSettingField(fieldName) || isAccountSettingField(key)) continue;
               const isCascade = EBAY_CASCADE_SPECIFIC_KEYS.includes(key);
               if (mapped && typeof mapped === 'object' && !Array.isArray(mapped)) continue;
               if (specs[key] && (mapped == null || mapped === '')) {
@@ -2804,6 +2866,7 @@
                     reason: 'No matching eBay option',
                     value: specs[key],
                   });
+                  filledNames.add(fieldKey);
                   continue;
               }
               if (!mapped) continue;
@@ -2835,6 +2898,9 @@
               }
 
               if (!foundEl) {
+                  foundEl = findInputByExactLabel(fieldName, isMarketplaceInput('ebay'));
+              }
+              if (!foundEl) {
                   warn(`Could not find field for ${key}`);
                   recordFill({
                     field: fieldName,
@@ -2842,10 +2908,12 @@
                     reason: 'Not on this category form',
                     value: mapped,
                   });
+                  filledNames.add(fieldKey);
                   continue;
               }
+              filledNames.add(fieldKey);
 
-              let valuesToFill = isMultiChipField(fieldName)
+              let valuesToFill = isMultiChipField(fieldName, foundEl)
                   ? splitChipValues(mapped)
                   : Array.isArray(mapped) ? mapped :
                   (typeof mapped === 'string' && mapped.includes(',') && !['yearManufactured', 'mpn', 'upc'].includes(key)) ?
@@ -2873,7 +2941,7 @@
               const isSizeField = key.toLowerCase() === 'size';
               log(`  Filling eBay ${fieldName}: ${valuesToFill.join(', ')}`);
 
-              if (isMultiChipField(fieldName)) {
+              if (isMultiChipField(fieldName, foundEl)) {
                   await fillDropdownField(foundEl, valuesToFill, fieldName, isSizeField, true);
               } else if (key === 'type' || key === 'department') {
                   let filled = false;
@@ -4177,10 +4245,11 @@
   }
 
   function findControlForPatch(item) {
-      const bySelector = queryByRecordedSelector(item.selector);
-      if (bySelector) return bySelector;
+      const raw = queryByRecordedSelector(item.selector);
+      const bySelector = visibleDropdownControl(raw) || (raw && isVisibleElement(raw) ? raw : null);
+      if (bySelector && isEnabledField(bySelector)) return bySelector;
       const want = normalizeFieldKey(item.field);
-      if (!want) return null;
+      if (!want) return bySelector;
       const marketplace = String(currentFillMarketplace || 'general').toLowerCase();
       const inMarketplace = marketplace && marketplace !== 'general' && marketplace !== 'unknown'
           ? isMarketplaceInput(marketplace)
@@ -4189,25 +4258,27 @@
       for (const el of controls) {
           if (!inMarketplace(el)) continue;
           const control = visibleDropdownControl(el) || el;
+          if (!isEnabledField(control)) continue;
           if (want === 'size' && isSizeScaleControl(control)) continue;
           if (normalizeFieldKey(fieldLabelForControl(control)) === want) return control;
           const token = normalizeFieldKey(controlFieldToken(control) || specificFieldToken(control.id) || specificFieldToken(control.name));
           if (token === want) return control;
       }
       if (marketplace && marketplace !== 'general' && marketplace !== 'unknown') {
-          return findInputByExactLabel(item.field, isMarketplaceInput(marketplace));
+          return findInputByExactLabel(item.field, isMarketplaceInput(marketplace)) || bySelector;
       }
-      return null;
+      return bySelector;
   }
 
   async function waitForPatchControl(item) {
       let seen = false;
-      for (let attempt = 0; attempt < 6; attempt++) {
+      for (let attempt = 0; attempt < 8; attempt++) {
+          if (attempt === 1 || attempt === 3 || attempt === 5) await expandOptionalFields();
           const el = findControlForPatch(item);
           if (el) {
               seen = true;
               if (isEnabledField(el) && (isVisibleElement(el) || isAttachedElement(el))) return el;
-          } else if (!seen && attempt >= 2) {
+          } else if (!seen && attempt >= 3) {
               break;
           }
           await sleep(CONFIG.SLEEP_RETRY);
@@ -4287,7 +4358,8 @@
               await expandOptionalFields();
               await sleep(CONFIG.SLEEP_LONG * 2);
               let ebayOptionalsReady = marketplace !== 'ebay';
-              group.sort((left, right) => {
+              const pending = group.filter((item) => !isAccountSettingField(item.field));
+              pending.sort((left, right) => {
                   const fillPriority = (key) => {
                       if (key === 'category') return 0;
                       if (key === 'size type') return 1;
@@ -4298,7 +4370,7 @@
                   };
                   return fillPriority(normalizeFieldKey(left.field)) - fillPriority(normalizeFieldKey(right.field));
               });
-              for (const item of group) {
+              for (const item of pending) {
                   currentPatchEntryId = item.id || '';
                   const fieldName = item.field || 'Field';
                   const value = mapPatchValue(marketplace, fieldName, item.value);
@@ -4344,8 +4416,8 @@
                       });
                       continue;
                   }
-                  if (shouldFillAsDropdown(el, fieldName) || isMultiChipField(fieldName)) {
-                      await fillDropdownField(el, value, fieldName, false, isMultiChipField(fieldName));
+                  if (shouldFillAsDropdown(el, fieldName) || isMultiChipField(fieldName, el)) {
+                      await fillDropdownField(el, value, fieldName, false, isMultiChipField(fieldName, el));
                   } else {
                       await fillTextFieldByElement(el, value, fieldName);
                   }
@@ -4355,7 +4427,7 @@
                   }
               }
               currentPatchEntryId = '';
-              reverifyPatchedFields(group);
+              reverifyPatchedFields(pending);
               const log = finishFillLog({ skipUnmapped: true });
               allEntries.push(...log.entries);
           }

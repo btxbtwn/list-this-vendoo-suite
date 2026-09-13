@@ -42,6 +42,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["list to", "ebay", "poshmark", "mercari", "depop", "etsy"],
   },
   {
+    id: "hidden-fields",
+    title: "Always hidden fields",
+    section: "general",
+    targetId: "hidden-fields",
+    searchTerms: ["exclude", "hide fields", "fields tab"],
+  },
+  {
     id: "setup-guide",
     title: "Setup guide",
     section: "general",

@@ -59,6 +59,8 @@ FIELD_LOOKUP_ALIASES = {
     "primary color": "color",
     "when was it made": "when made",
     "who made it": "who made",
+    "starting price": "starting price",
+    "return payed by": "return paid by",
 }
 
 
@@ -164,6 +166,11 @@ def _value_from_record(record: dict | None, key: str) -> Any:
         return record.get(mapped)
     nested = record.get("category_specifics")
     if isinstance(nested, dict) and nested is not record:
+        found = _value_from_record(nested, key)
+        if found is not None:
+            return found
+    nested = record.get("marketplaceSpecifics") or record.get("marketplace_specifics")
+    if isinstance(nested, dict) and nested is not record:
         return _value_from_record(nested, key)
     return None
 
@@ -190,7 +197,15 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     if marketplace == "poshmark" and key == "category":
         from vendoo_studio.services.registry import map_poshmark_category_path
         return map_poshmark_category_path(result or str(source.get("category_path") or ""), source)
-    return result
+    if result:
+        if marketplace == "ebay" and key == "year manufactured" and re.match(
+            r"^(d|n/?a|n\.a\.?|does not apply|none|unknown|-+)$",
+            result,
+            flags=re.I,
+        ):
+            return ""
+        return result
+    return ""
 
 
 def extract_missing_fields(text: str) -> list[dict] | None:
