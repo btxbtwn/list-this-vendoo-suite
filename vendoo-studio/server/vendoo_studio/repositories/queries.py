@@ -103,7 +103,9 @@ class ConversationRepo:
     def reconcile_job_statuses(self) -> None:
         status_map = {
             "queued": "listing",
+            "awaiting_extension": "listing",
             "dispatched": "listing",
+            "imported": "listing",
             "completed": "completed",
             "failed": "failed",
             "cancelled": "draft",
@@ -235,6 +237,9 @@ class JobRepo:
         listing_snapshot: dict,
         vendoo_item_id: str | None = None,
         vendoo_url: str | None = None,
+        *,
+        status: str = "queued",
+        current_step: str | None = None,
     ) -> Job:
         job = Job(
             conversation_id=conv_id,
@@ -242,6 +247,8 @@ class JobRepo:
             listing_snapshot=listing_snapshot,
             vendoo_item_id=vendoo_item_id,
             vendoo_url=vendoo_url,
+            status=status,
+            current_step=current_step if current_step is not None else ("queued" if status == "queued" else status),
         )
         self.db.add(job)
         self.db.commit()
@@ -318,6 +325,48 @@ class JobRepo:
 
     def get_events(self, job_id: str) -> list[JobEvent]:
         return self.db.query(JobEvent).filter(JobEvent.job_id == job_id).order_by(JobEvent.sequence).all()
+
+    def latest_event(self, job_id: str, event_type: str) -> JobEvent | None:
+        return (
+            self.db.query(JobEvent)
+            .filter(JobEvent.job_id == job_id, JobEvent.event_type == event_type)
+            .order_by(JobEvent.sequence.desc())
+            .first()
+        )
+
+    def save_vendoo_draft(
+        self,
+        job_id: str,
+        *,
+        item: dict | None = None,
+        form: dict | None = None,
+        item_id: str | None = None,
+        url: str | None = None,
+        source: str | None = None,
+        step: str | None = None,
+    ) -> JobEvent:
+        return self.add_event(
+            job_id,
+            "vendoo_draft",
+            step,
+            {
+                "ok": True,
+                "source": source or "cache",
+                "item_id": item_id,
+                "url": url,
+                "item": item,
+                "form": form,
+            },
+        )
+
+    def get_vendoo_draft(self, job_id: str) -> dict | None:
+        event = self.latest_event(job_id, "vendoo_draft")
+        if not event or not isinstance(event.payload, dict):
+            return None
+        payload = event.payload
+        if not payload.get("item") and not payload.get("form"):
+            return None
+        return payload
 
 
 class DiagnosticRepo:

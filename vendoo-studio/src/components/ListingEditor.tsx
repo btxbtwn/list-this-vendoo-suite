@@ -80,6 +80,22 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
   const listing = data?.listing || {};
   const listingTitle = String(listing.title || "Listing");
   const importedItemId = listingJob?.vendoo_item_id || notesVendooItemId(conversation?.notes);
+  const importedUrl = listingJob?.vendoo_url || notesVendooUrl(conversation?.notes);
+
+  React.useEffect(() => {
+    if (!listingJob?.id || !(listingJob.vendoo_item_id || importedItemId)) return;
+    void queryClient.prefetchQuery({
+      queryKey: ["vendoo-item", listingJob.id],
+      queryFn: () => api.jobs.vendooItem(listingJob.id),
+      staleTime: Infinity,
+    });
+  }, [listingJob?.id, listingJob?.vendoo_item_id, importedItemId, queryClient]);
+
+  React.useEffect(() => {
+    if (importedItemId && listingJob?.status === "imported") {
+      setReviewTab("fields");
+    }
+  }, [importedItemId, listingJob?.status, listingJob?.id]);
 
   return (
     <div className="listing-editor">
@@ -91,7 +107,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
             <OpenListingButton
               jobId={listingJob.id}
               vendooItemId={listingJob.vendoo_item_id || importedItemId}
-              vendooUrl={listingJob.vendoo_url}
+              vendooUrl={listingJob.vendoo_url || importedUrl}
               className="pr-review-open"
             />
           )}
@@ -125,15 +141,19 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
               conversationId={convId}
               jobStatus={listingJob.status}
               jobStep={listingJob.current_step}
-              vendooItemId={listingJob.vendoo_item_id}
-              vendooUrl={listingJob.vendoo_url}
+              vendooItemId={listingJob.vendoo_item_id || importedItemId}
+              vendooUrl={listingJob.vendoo_url || importedUrl}
               listing={listing}
               onAskChat={onAskChat}
               onFilled={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
               onJobStarted={onJobStarted}
             />
           ) : (
-            <p className="pr-empty">Send this listing to Vendoo, then open Fields to review each marketplace and fill empty fields.</p>
+            <p className="pr-empty">
+              {importedItemId
+                ? "Import is still loading. Fields will appear once the Vendoo draft is ready."
+                : "Send this listing to Vendoo, then open Fields to review each marketplace and fill empty fields."}
+            </p>
           )
         ) : (
           <>
@@ -413,6 +433,17 @@ function notesVendooItemId(notes?: string | null): string | null {
   }
 }
 
+function notesVendooUrl(notes?: string | null): string | null {
+  if (!notes) return null;
+  try {
+    const parsed = JSON.parse(notes);
+    const url = String(parsed?.vendooUrl || "").trim();
+    return url || null;
+  } catch {
+    return null;
+  }
+}
+
 function coerce(val: string): any {
   if (val === "") return null;
   if (!isNaN(Number(val)) && val.trim() !== "") return Number(val);
@@ -489,7 +520,9 @@ function SendToVendooButton({
     onError: (err: any) => setError(err.message || "Failed to cancel"),
   });
 
-  const existingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
+  const existingJob = jobs?.find(
+    (j: any) => j.conversation_id === convId && j.status !== "cancelled" && j.status !== "imported",
+  );
   const extensionConnected = extStatus?.connected ?? false;
   const overwriteItemId = vendooItemId || existingJob?.vendoo_item_id || null;
   const sendLabel = overwriteItemId ? "Update Vendoo listing" : "Send to Vendoo";

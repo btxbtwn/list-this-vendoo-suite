@@ -223,12 +223,20 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertFalse(body["reused"])
         self.assertEqual(body["photo_count"], 1)
+        self.assertTrue(body.get("job_id"))
         conv = ConversationRepo(self.db).get(body["conversation_id"])
         self.assertIsNotNone(conv)
         self.assertEqual(vendoo_binding(conv.notes)["vendooItemId"], "abc123")
         listing = ListingRepo(self.db).get_revisions(conv.id)[0].listing_json
         self.assertEqual(listing["title"], "Nike Air Tee")
         self.assertEqual(listing["ebay_specifics"]["type"], "T-Shirt")
+        job = JobRepo(self.db).get(body["job_id"])
+        self.assertIsNotNone(job)
+        self.assertEqual(job.status, "imported")
+        self.assertEqual(job.vendoo_item_id, "abc123")
+        draft = JobRepo(self.db).get_vendoo_draft(job.id)
+        self.assertIsNotNone(draft)
+        self.assertTrue(draft.get("item") or draft.get("form"))
 
     @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
     def test_import_same_item_updates_existing_conversation(self, download):
@@ -261,6 +269,20 @@ class VendooImportRouteTest(unittest.TestCase):
     def test_import_requires_item_id(self):
         response = self.client.post("/api/imports/vendoo", json={"item_id": "new", "item": VENDOO_ITEM})
         self.assertEqual(response.status_code, 400)
+
+    @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
+    def test_import_draft_available_without_chrome(self, download):
+        download.return_value = []
+        imported = self._import().json()
+        job_id = imported["job_id"]
+        with patch("vendoo_studio.routes.extension.extension_manager") as manager:
+            manager.connected = False
+            response = self.client.post(f"/api/jobs/{job_id}/vendoo-item")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(body.get("item") or body.get("form"))
+        self.assertEqual(body.get("item_id"), "abc123")
 
     @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
     def test_create_job_copies_vendoo_binding(self, download):

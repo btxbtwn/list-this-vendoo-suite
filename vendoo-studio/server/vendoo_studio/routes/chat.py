@@ -441,7 +441,11 @@ async def _maybe_resolve_vendoo_category(
 
 
 def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[dict] | None:
-    from vendoo_studio.services.fill_log import extract_missing_fields, write_values_into_listing
+    from vendoo_studio.services.fill_log import (
+        extract_missing_fields,
+        summarize_missing_fields,
+        write_values_into_listing,
+    )
 
     missing_fields = extract_missing_fields(full_text)
     if missing_fields:
@@ -453,7 +457,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[di
             ConversationRepo(db).add_message(
                 conv_id,
                 "system",
-                "Filled leftover marketplace fields and saved them to the listing.",
+                summarize_missing_fields(missing_fields),
                 provider="system",
                 model="",
             )

@@ -1370,6 +1370,47 @@
           .toLowerCase();
   }
 
+  function normalizeComparableText(text) {
+      return String(text || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function fieldValuesEqual(current, intended) {
+      const got = normalizeComparableText(current);
+      const want = normalizeComparableText(intended);
+      if (!got || !want) return false;
+      if (got === want) return true;
+      if (normalizeOptionValue(got) === normalizeOptionValue(want)) return true;
+      const cleanGot = got.replace(/[$,]/g, '');
+      const cleanWant = want.replace(/[$,]/g, '');
+      if (/^-?\d+(\.\d+)?$/.test(cleanGot) && /^-?\d+(\.\d+)?$/.test(cleanWant)) {
+          return Number(cleanGot) === Number(cleanWant);
+      }
+      return false;
+  }
+
+  function chipsMatchValues(el, values) {
+      const want = (Array.isArray(values) ? values : [values])
+          .map(normalizeOptionValue)
+          .filter(Boolean)
+          .sort();
+      const have = listedChipValues(el).map(normalizeOptionValue).filter(Boolean).sort();
+      if (!want.length || have.length !== want.length) return false;
+      return have.every((chip, index) => chip === want[index]);
+  }
+
+  function recordAlreadySet(fieldName, el, selectorText, value) {
+      const shown = displayedFieldValue(el) || value;
+      log(`  ✓ ${fieldName} already set: "${shown}"`);
+      recordFill({
+          field: fieldName,
+          status: 'filled',
+          reason: 'Already set',
+          selector: selectorFor(el, selectorText),
+          value,
+      });
+      return { status: 'filled' };
+  }
+
   function optionMatchesValue(optionText, value, isStrict) {
       const got = normalizeOptionValue(optionText);
       const want = normalizeOptionValue(value);
@@ -1749,6 +1790,10 @@
           recordFill({ field: fieldName, status: 'not_found', reason: 'Element not found', selector: selectorText, value });
           return { status: 'not_found' };
       }
+
+      if (fieldValuesEqual(displayedFieldValue(el), value)) {
+          return recordAlreadySet(fieldName, el, selectorText, value);
+      }
       
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
       await clearInput(el);
@@ -1791,6 +1836,10 @@
       }
 
       if (chipField) {
+          const filledValue = values.length > 1 ? values : values[0];
+          if (chipsMatchValues(el, values)) {
+              return recordAlreadySet(fieldName, el, selectorText, filledValue);
+          }
           log(`Filling ${fieldName}...`);
           const replaceChips = values.length > 1 || normalizeFieldKey(fieldName) === 'tags';
           if (replaceChips) await clearChipContainer(el);
@@ -1806,7 +1855,6 @@
               if ((result && result.ok) || fieldHasChip(el, item)) filledCount += 1;
               await sleep(CONFIG.SLEEP_MEDIUM);
           }
-          const filledValue = values.length > 1 ? values : values[0];
           if (filledCount > 0) {
               recordFill({ field: fieldName, status: 'filled', selector: selectorFor(el, selectorText), value: filledValue });
               return { status: 'filled' };
@@ -1832,15 +1880,7 @@
       }
 
       if (optionMatchesValue(displayedFieldValue(el), value, false)) {
-          log(`  ✓ ${fieldName} already set: "${displayedFieldValue(el)}"`);
-          recordFill({
-            field: fieldName,
-            status: 'filled',
-            reason: 'Already set',
-            selector: selectorFor(el, selectorText),
-            value,
-          });
-          return { status: 'filled' };
+          return recordAlreadySet(fieldName, el, selectorText, value);
       }
       
       log(`Filling ${fieldName}...`);
@@ -2208,7 +2248,7 @@
       const alreadyShown = displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '';
       if (categoryDisplayMatches(alreadyShown, categoryPath)) {
           log(`Category already set: "${alreadyShown}"`);
-          return { ok: true, filled: true, result: alreadyShown };
+          return { ok: true, filled: true, already: true, result: alreadyShown };
       }
 
       await clearExistingCategorySelection(catBtn);
@@ -2463,7 +2503,7 @@
       recordFill({
         field: 'Category',
         status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed',
-        reason: result.error || '',
+        reason: result.error || (result.already ? 'Already set' : ''),
         selector: selectorFor(catBtn, ''),
         value: categoryPath,
       });
@@ -2497,6 +2537,7 @@
           recordFill({
             field: 'Category',
             status: catResult.filled ? 'filled' : 'skipped',
+            reason: catResult.already ? 'Already set' : '',
             selector: VENDOO_SELECTORS.category,
             value: data.category_path,
           });
@@ -2560,9 +2601,13 @@
       if (data.labels) {
           const labelsEl = document.querySelector(VENDOO_SELECTORS.labels);
           if (labelsEl) {
-              const labels = Array.isArray(data.labels) ? data.labels : data.labels.split(',').map(l => l.trim());
-              for (const label of labels) await fillCombobox(labelsEl, label, false, true);
-              recordFill({ field: 'Labels', status: 'filled', selector: VENDOO_SELECTORS.labels, value: labels });
+              const labels = Array.isArray(data.labels) ? data.labels : data.labels.split(',').map(l => l.trim()).filter(Boolean);
+              if (chipsMatchValues(labelsEl, labels)) {
+                  recordAlreadySet('Labels', labelsEl, VENDOO_SELECTORS.labels, labels);
+              } else {
+                  for (const label of labels) await fillCombobox(labelsEl, label, false, true);
+                  recordFill({ field: 'Labels', status: 'filled', selector: VENDOO_SELECTORS.labels, value: labels });
+              }
           } else {
               recordFill({ field: 'Labels', status: 'not_found', reason: 'Labels input not found', selector: VENDOO_SELECTORS.labels, value: data.labels });
           }
@@ -4415,6 +4460,9 @@
           recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
           return { status: 'skipped' };
       }
+      if (fieldValuesEqual(displayedFieldValue(el), value)) {
+          return recordAlreadySet(fieldName, el, selectorText, value);
+      }
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
       await clearInput(el);
       setReactValue(el, value);
@@ -4510,7 +4558,7 @@
                           recordFill({
                               field: fieldName,
                               status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed',
-                              reason: result.error || '',
+                              reason: result.error || (result.already ? 'Already set' : ''),
                               selector: item.selector || VENDOO_SELECTORS.category,
                               value,
                           });

@@ -219,7 +219,7 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         options = socket.sent[0]["payload"]["options"]
         self.assertTrue(options["reuseExistingItem"])
         self.assertTrue(options["skipPhotos"])
-        self.assertTrue(options["clearBeforeFill"])
+        self.assertFalse(options["clearBeforeFill"])
         self.assertEqual(options["vendoo_item_id"], "abc123")
         self.assertEqual(socket.sent[0]["payload"]["vendoo_item_id"], "abc123")
         self.assertFalse(options["publish"])

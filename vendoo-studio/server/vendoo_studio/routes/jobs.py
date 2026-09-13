@@ -192,7 +192,11 @@ class VendooItemResponse(BaseModel):
 
 
 @router.post("/{job_id}/vendoo-item", response_model=VendooItemResponse)
-async def get_vendoo_item(job_id: str, db: Session = Depends(get_db)):
+async def get_vendoo_item(
+    job_id: str,
+    refresh: bool = False,
+    db: Session = Depends(get_db),
+):
     import uuid
 
     from vendoo_studio.routes.extension import (
@@ -206,8 +210,47 @@ async def get_vendoo_item(job_id: str, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(404, "Job not found")
     if not job.vendoo_url and not job.vendoo_item_id:
-        raise HTTPException(400, "No Vendoo draft is available yet. Send the listing first.")
+        binding_id = None
+        binding_url = None
+        from vendoo_studio.services.vendoo_import import vendoo_binding
+        conv = ConversationRepo(db).get(job.conversation_id)
+        if conv:
+            binding = vendoo_binding(conv.notes)
+            binding_id = binding.get("vendooItemId")
+            binding_url = binding.get("vendooUrl")
+        if binding_id or binding_url:
+            job.vendoo_item_id = binding_id or job.vendoo_item_id
+            job.vendoo_url = binding_url or job.vendoo_url
+            db.commit()
+            db.refresh(job)
+        else:
+            raise HTTPException(400, "No Vendoo draft is available yet. Import or send the listing first.")
+
+    cached = repo.get_vendoo_draft(job_id)
+    if cached and not refresh:
+        return VendooItemResponse(
+            ok=True,
+            source=cached.get("source") or "cache",
+            item_id=cached.get("item_id") or job.vendoo_item_id,
+            url=cached.get("url") or job.vendoo_url,
+            error=None,
+            api_error=None,
+            item=cached.get("item"),
+            form=cached.get("form"),
+        )
+
     if not extension_manager.connected:
+        if cached:
+            return VendooItemResponse(
+                ok=True,
+                source=cached.get("source") or "cache",
+                item_id=cached.get("item_id") or job.vendoo_item_id,
+                url=cached.get("url") or job.vendoo_url,
+                error=None,
+                api_error=None,
+                item=cached.get("item"),
+                form=cached.get("form"),
+            )
         raise HTTPException(400, "Chrome is not connected")
 
     request_id = uuid.uuid4().hex[:12]
@@ -227,7 +270,28 @@ async def get_vendoo_item(job_id: str, db: Session = Depends(get_db)):
         extension_manager.cancel_wait(request_id)
 
     if not payload.get("ok"):
+        if cached:
+            return VendooItemResponse(
+                ok=True,
+                source=cached.get("source") or "cache",
+                item_id=cached.get("item_id") or job.vendoo_item_id,
+                url=cached.get("url") or job.vendoo_url,
+                error=payload.get("error"),
+                api_error=payload.get("api_error"),
+                item=cached.get("item"),
+                form=cached.get("form"),
+            )
         raise HTTPException(502, payload.get("error") or "Could not read the Vendoo draft")
+
+    repo.save_vendoo_draft(
+        job.id,
+        item=payload.get("item"),
+        form=payload.get("form"),
+        item_id=payload.get("item_id") or job.vendoo_item_id,
+        url=payload.get("url") or job.vendoo_url,
+        source=payload.get("source") or "live",
+        step=job.current_step,
+    )
 
     return VendooItemResponse(
         ok=True,
@@ -267,7 +331,7 @@ async def resolve_category(
     if not job:
         raise HTTPException(404, "Job not found")
     if not job.vendoo_url and not job.vendoo_item_id:
-        raise HTTPException(400, "No Vendoo draft is available yet. Send the listing first.")
+        raise HTTPException(400, "No Vendoo draft is available yet. Import or send the listing first.")
     if not extension_manager.connected:
         raise HTTPException(400, "Chrome is not connected")
     if job.status == "dispatched" and job.current_step == "filling_fields":
