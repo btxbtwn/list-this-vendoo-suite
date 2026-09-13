@@ -75,6 +75,17 @@ class FillLogHelpersTest(unittest.TestCase):
         self.assertEqual(listing_value_for_field(listing, "ebay", "Type"), "Blouse")
         self.assertEqual(listing_value_for_field(listing, "ebay", "Country of Origin"), "United States")
 
+    def test_listing_value_for_field_maps_poshmark_category(self):
+        listing = {
+            "title": "Amplife L Graphic T-Shirt Black Cotton",
+            "category_path": "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts",
+            "ebay_specifics": {"department": "Men", "type": "T-Shirt", "sleeveLength": "Short Sleeve"},
+        }
+        self.assertEqual(
+            listing_value_for_field(listing, "poshmark", "Category"),
+            "Men > Shirts > Tees - Short Sleeve",
+        )
+
     def test_listing_value_for_field_uses_ebay_year_for_etsy_when_made(self):
         listing = {
             "ebay_specifics": {"yearManufactured": "2014"},

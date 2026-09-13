@@ -11,6 +11,7 @@ from vendoo_studio.providers.chatgpt_codex import (
     ChatGPTCodexProvider,
     _messages_to_input,
     _responses_text,
+    _responses_thinking,
     clamp_reasoning_effort,
     resolved_chatgpt_models,
     resolved_chatgpt_reasoning,
@@ -43,6 +44,16 @@ class ChatGPTOAuthTest(unittest.TestCase):
         self.assertEqual(
             _responses_text({"type": "response.output_text.delta", "delta": "hello"}),
             "hello",
+        )
+
+    def test_responses_thinking_delta(self):
+        self.assertEqual(
+            _responses_thinking({"type": "response.reasoning_summary_text.delta", "delta": "checking the photos"}),
+            "checking the photos",
+        )
+        self.assertEqual(
+            _responses_thinking({"type": "response.output_text.delta", "delta": "hello"}),
+            "",
         )
 
     def test_messages_to_input_splits_system(self):

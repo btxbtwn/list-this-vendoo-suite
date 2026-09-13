@@ -13,10 +13,14 @@ from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import RegistryRepo
 from vendoo_studio.services.registry import (
     MEN_TSHIRT_PATH,
+    POSHMARK_MEN_SHORT_TEE,
+    POSHMARK_WOMEN_BLOUSE,
+    POSHMARK_WOMEN_SHORT_TEE,
     WOMEN_TOPS_PATH,
     RegistryService,
     is_learned_listing_field,
     label_to_json_key,
+    map_poshmark_category_path,
     map_vendoo_category_path,
 )
 
@@ -125,3 +129,48 @@ class CategoryMappingTest(unittest.TestCase):
         _ensure_listing_defaults(listing)
         self.assertEqual(listing["category_path"], WOMEN_TOPS_PATH)
         self.assertEqual(listing["mercari_specifics"]["shippingLabel"], "USPS Ground Advantage")
+
+
+class PoshmarkCategoryMappingTest(unittest.TestCase):
+    def test_maps_mens_vendoo_tee_path(self):
+        mapped = map_poshmark_category_path(
+            MEN_TSHIRT_PATH,
+            {"title": "Amplife L Graphic T-Shirt", "ebay_specifics": {"department": "Men", "type": "T-Shirt"}},
+        )
+        self.assertEqual(mapped, POSHMARK_MEN_SHORT_TEE)
+
+    def test_maps_womens_graphic_tee_to_short_sleeve(self):
+        mapped = map_poshmark_category_path(
+            WOMEN_TOPS_PATH,
+            {"title": "Southwestern Graphic T-Shirt", "department": "Women"},
+        )
+        self.assertEqual(mapped, POSHMARK_WOMEN_SHORT_TEE)
+
+    def test_maps_blouse_type_to_blouses(self):
+        mapped = map_poshmark_category_path(
+            WOMEN_TOPS_PATH,
+            {"title": "Silk Blouse", "ebay_specifics": {"department": "Women", "type": "Blouse"}},
+        )
+        self.assertEqual(mapped, POSHMARK_WOMEN_BLOUSE)
+
+    def test_keeps_explicit_matching_poshmark_path(self):
+        mapped = map_poshmark_category_path(
+            WOMEN_TOPS_PATH,
+            {
+                "title": "Silk Blouse",
+                "department": "Women",
+                "poshmark_specifics": {"categoryPath": ["Women", "Tops", "Blouses"]},
+            },
+        )
+        self.assertEqual(mapped, POSHMARK_WOMEN_BLOUSE)
+
+    def test_ignores_stale_womens_poshmark_path_for_mens_tee(self):
+        mapped = map_poshmark_category_path(
+            MEN_TSHIRT_PATH,
+            {
+                "title": "Amplife Graphic T-Shirt",
+                "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+                "poshmark_specifics": {"categoryPath": ["Women", "Tops"]},
+            },
+        )
+        self.assertEqual(mapped, POSHMARK_MEN_SHORT_TEE)

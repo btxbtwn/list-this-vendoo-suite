@@ -96,6 +96,11 @@ LABEL_TO_JSON_KEY = {
 WOMEN_TOPS_PATH = "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops"
 MEN_TSHIRT_PATH = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts"
 MEN_SHIRTS_PATH = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts"
+POSHMARK_MEN_SHORT_TEE = "Men > Shirts > Tees - Short Sleeve"
+POSHMARK_MEN_LONG_TEE = "Men > Shirts > Tees - Long Sleeve"
+POSHMARK_WOMEN_SHORT_TEE = "Women > Tops > Tees - Short Sleeve"
+POSHMARK_WOMEN_LONG_TEE = "Women > Tops > Tees - Long Sleeve"
+POSHMARK_WOMEN_BLOUSE = "Women > Tops > Blouses"
 
 CATEGORY_NORMALIZATIONS: dict[str, dict[str, str]] = {
     "general": {
@@ -172,6 +177,57 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
         return WOMEN_TOPS_PATH
     if is_men and re.search(r"t-?shirts?|\btees?\b", haystack, re.I):
         return MEN_TSHIRT_PATH
+    return raw
+
+
+_TEE_RE = re.compile(r"t-?shirts?|\btees?\b|graphic tee", re.I)
+_LONG_SLEEVE_RE = re.compile(r"long\s*sleeve", re.I)
+_BLOUSE_RE = re.compile(r"\bblouses?\b", re.I)
+_POSHMARK_ROOT_RE = re.compile(r"^(men|women|kids|pets|home|electronics)\s*>", re.I)
+
+
+def map_poshmark_category_path(category: str, listing: dict | None = None) -> str:
+    """Map a Vendoo/listing category onto a selectable Poshmark path."""
+    listing = listing if isinstance(listing, dict) else {}
+    specifics = listing.get("poshmark_specifics")
+    if isinstance(specifics, dict):
+        explicit = specifics.get("category_path") or specifics.get("categoryPath")
+        explicit_path = ""
+        if isinstance(explicit, list):
+            explicit_path = " > ".join(str(part).strip() for part in explicit if str(part).strip())
+        elif isinstance(explicit, str):
+            explicit_path = explicit.strip()
+        if explicit_path:
+            listing_hay = _listing_text(listing)
+            listing_is_men = bool(_MEN_RE.search(listing_hay)) and not _WOMEN_RE.search(listing_hay)
+            listing_is_women = bool(_WOMEN_RE.search(listing_hay))
+            stale_women = listing_is_men and bool(_WOMEN_RE.search(explicit_path))
+            stale_men = listing_is_women and bool(_MEN_RE.search(explicit_path)) and not _WOMEN_RE.search(explicit_path)
+            if not stale_women and not stale_men:
+                return explicit_path
+
+    raw = (category or "").strip()
+    if not raw:
+        raw = str(listing.get("category_path") or "").strip()
+    if _POSHMARK_ROOT_RE.search(raw):
+        return raw
+
+    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    sleeve = ""
+    if isinstance(ebay, dict):
+        sleeve = str(ebay.get("sleeveLength") or "")
+    haystack = f"{raw} {_listing_text(listing)} {sleeve} {listing.get('sleeveLength') or ''}"
+    is_women = bool(_WOMEN_RE.search(haystack))
+    is_men = bool(_MEN_RE.search(haystack)) and not is_women
+    is_tee = bool(_TEE_RE.search(haystack))
+    is_blouse = bool(_BLOUSE_RE.search(haystack)) and not is_tee
+    long_sleeve = bool(_LONG_SLEEVE_RE.search(haystack))
+    if is_men and is_tee:
+        return POSHMARK_MEN_LONG_TEE if long_sleeve else POSHMARK_MEN_SHORT_TEE
+    if is_women and is_tee:
+        return POSHMARK_WOMEN_LONG_TEE if long_sleeve else POSHMARK_WOMEN_SHORT_TEE
+    if is_women and is_blouse:
+        return POSHMARK_WOMEN_BLOUSE
     return raw
 
 
