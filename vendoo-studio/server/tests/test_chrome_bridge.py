@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import tempfile
 import unittest
 from pathlib import Path
@@ -183,6 +184,42 @@ class ChromeBridgeTest(unittest.TestCase):
             with self.assertRaises(chrome_bridge.ChromeBridgeError) as raised:
                 chrome_bridge.launch_studio_chrome()
         self.assertIn("Google Chrome is not installed", str(raised.exception))
+
+    def test_studio_chrome_pids_match_profile_marker(self):
+        profile = chrome_bridge.chrome_profile_dir().resolve()
+        listing = (
+            f"1234 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome "
+            f"--user-data-dir={profile} --load-extension=/tmp/ext\n"
+            "5678 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n"
+        )
+        with patch("vendoo_studio.services.chrome_bridge.subprocess.check_output", return_value=listing):
+            self.assertEqual(chrome_bridge.studio_chrome_pids(), [1234])
+
+    def test_quit_studio_chrome_sends_sigterm(self):
+        calls = {"n": 0}
+
+        def pids() -> list[int]:
+            calls["n"] += 1
+            return [99] if calls["n"] == 1 else []
+
+        with patch.object(chrome_bridge, "studio_chrome_pids", side_effect=pids), patch.object(
+            chrome_bridge, "_pid_is_running", return_value=False
+        ), patch("vendoo_studio.services.chrome_bridge.os.kill") as kill:
+            chrome_bridge.quit_studio_chrome()
+        kill.assert_called_once_with(99, signal.SIGTERM)
+
+    def test_relaunch_quits_then_launches(self):
+        with patch.object(chrome_bridge, "sync_bundled_extension") as sync, patch.object(
+            chrome_bridge, "clear_extension_reload_pending"
+        ) as clear, patch.object(chrome_bridge, "quit_studio_chrome") as quit, patch.object(
+            chrome_bridge, "launch_studio_chrome", return_value={"ok": True, "visible": True}
+        ) as launch:
+            result = chrome_bridge.relaunch_studio_chrome(visible=True)
+        sync.assert_called_once()
+        clear.assert_called_once()
+        quit.assert_called_once()
+        launch.assert_called_once_with(chrome_bridge.DEFAULT_VENDOO_URL, visible=True)
+        self.assertTrue(result["ok"])
 
     def test_chrome_executable_finds_home_applications(self):
         root = Path(self.tmp.name) / "Applications"

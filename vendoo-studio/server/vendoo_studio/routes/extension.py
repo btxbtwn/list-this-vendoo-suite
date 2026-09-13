@@ -13,12 +13,13 @@ from vendoo_studio.models.protocol import ProtocolMessage
 from vendoo_studio.database import SessionLocal
 from vendoo_studio.services.chrome_bridge import (
     ChromeBridgeError,
+    bundled_extension_version,
     clear_extension_reload_pending,
     extension_build_status,
     install_bundled_extension,
     mark_extension_reload_pending,
-    needs_worker_reload,
     pending_extension_reload_token,
+    relaunch_studio_chrome,
 )
 
 router = APIRouter(tags=["extension"])
@@ -139,20 +140,37 @@ async def request_extension_reload(generation: str) -> bool:
     ).model_dump(mode="json"))
 
 
-async def handshake_extension(ws: WebSocket, reported_generation: str | None) -> bool:
+async def handshake_extension(
+    ws: WebSocket,
+    reported_generation: str | None,
+    reported_version: str | None = None,
+) -> bool:
     try:
         files_changed = install_bundled_extension()
     except ChromeBridgeError:
         files_changed = False
     pending = pending_extension_reload_token()
-    if needs_worker_reload(pending, reported_generation, files_changed):
-        token = pending or mark_extension_reload_pending()
-        await ws.send_json(ProtocolMessage(
-            type="extension.reload",
-            payload={"generation": token},
-        ).model_dump(mode="json"))
-        return False
-    if pending:
+    generation_matches = bool(pending) and pending == reported_generation
+    expected_version = bundled_extension_version()
+    version_matches = bool(
+        reported_version and expected_version and reported_version == expected_version
+    )
+
+    # One in-place worker reload is enough. Repeating it reloads every Vendoo
+    # tab forever and the page never finishes loading. A stale --load-extension
+    # worker needs a Chrome process relaunch from Connect Chrome instead.
+    if files_changed and not generation_matches:
+        if pending:
+            clear_extension_reload_pending()
+        else:
+            token = mark_extension_reload_pending()
+            await ws.send_json(ProtocolMessage(
+                type="extension.reload",
+                payload={"generation": token},
+            ).model_dump(mode="json"))
+            return False
+
+    if pending and (generation_matches or version_matches or not files_changed):
         clear_extension_reload_pending()
     await ws.send_json(ProtocolMessage(
         type="connection.accepted",
@@ -342,13 +360,16 @@ def extension_status():
 
 @router.post("/api/extension/reload")
 async def reload_extension():
+    await extension_manager.disconnect()
+    extension_manager.version = None
+    extension_manager.reload_generation = None
     try:
-        install_bundled_extension()
+        result = relaunch_studio_chrome(visible=True)
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc
-    token = pending_extension_reload_token() or mark_extension_reload_pending()
-    sent = await request_extension_reload(token)
-    return {"ok": True, "sent": sent}
+    result["sent"] = True
+    result["relaunched"] = True
+    return result
 
 
 @router.websocket("/api/extension/ws")
@@ -380,9 +401,13 @@ async def extension_websocket(ws: WebSocket):
                 extension_manager.reload_generation = _reported_reload_generation(payload)
                 token = payload.get("token", "")
                 if extension_manager.verify_token(token):
-                    extension_manager.paired = True
-                    accepted = await handshake_extension(ws, _reported_reload_generation(payload))
+                    accepted = await handshake_extension(
+                        ws,
+                        _reported_reload_generation(payload),
+                        _reported_version(payload),
+                    )
                     if accepted:
+                        extension_manager.paired = True
                         from vendoo_studio.repositories.queries import JobRepo
                         JobRepo(db).requeue_interrupted()
                         await dispatch_queued_jobs()

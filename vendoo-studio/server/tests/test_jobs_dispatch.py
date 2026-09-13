@@ -239,16 +239,44 @@ class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(socket.sent[0]["type"], "extension.reload")
         self.assertEqual(socket.sent[0]["payload"]["generation"], "abc123")
 
-    async def test_handshake_reloads_until_generation_matches(self):
+    async def test_handshake_accepts_when_files_are_current(self):
         socket = FakeSocket()
         with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=False), patch(
             "vendoo_studio.routes.extension.pending_extension_reload_token", return_value="abc123"
-        ):
+        ), patch(
+            "vendoo_studio.routes.extension.clear_extension_reload_pending"
+        ) as clear:
             accepted = await handshake_extension(socket, None)
 
-        self.assertFalse(accepted)
-        self.assertEqual(socket.sent[0]["type"], "extension.reload")
-        self.assertEqual(socket.sent[0]["payload"]["generation"], "abc123")
+        self.assertTrue(accepted)
+        self.assertEqual(socket.sent[0]["type"], "connection.accepted")
+        clear.assert_called_once()
+
+    async def test_handshake_accepts_matching_generation_even_if_files_changed(self):
+        socket = FakeSocket()
+        with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=True), patch(
+            "vendoo_studio.routes.extension.pending_extension_reload_token", return_value="abc123"
+        ), patch(
+            "vendoo_studio.routes.extension.clear_extension_reload_pending"
+        ) as clear:
+            accepted = await handshake_extension(socket, "abc123")
+
+        self.assertTrue(accepted)
+        self.assertEqual(socket.sent[0]["type"], "connection.accepted")
+        clear.assert_called_once()
+
+    async def test_handshake_does_not_reload_again_when_pending(self):
+        socket = FakeSocket()
+        with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=True), patch(
+            "vendoo_studio.routes.extension.pending_extension_reload_token", return_value="abc123"
+        ), patch(
+            "vendoo_studio.routes.extension.clear_extension_reload_pending"
+        ) as clear:
+            accepted = await handshake_extension(socket, None)
+
+        self.assertTrue(accepted)
+        self.assertEqual(socket.sent[0]["type"], "connection.accepted")
+        clear.assert_called_once()
 
     async def test_handshake_accepts_matching_reload_generation(self):
         socket = FakeSocket()
