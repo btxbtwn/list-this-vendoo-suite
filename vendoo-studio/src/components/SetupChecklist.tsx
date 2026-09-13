@@ -7,6 +7,7 @@ type SetupChecklistProps = {
   extensionConnected: boolean;
   creating?: boolean;
   onOpenSettings: () => void;
+  onStartGuide?: () => void;
   onCreate: () => void;
 };
 
@@ -38,6 +39,7 @@ export function SetupChecklist({
   extensionConnected,
   creating,
   onOpenSettings,
+  onStartGuide,
   onCreate,
 }: SetupChecklistProps) {
   return (
@@ -53,9 +55,16 @@ export function SetupChecklist({
           {providerConfigured ? (
             <p className="setup-step-note">Ready to generate listings.</p>
           ) : (
-            <button type="button" className="btn btn-primary btn-sm" onClick={onOpenSettings}>
-              Open Settings
-            </button>
+            <div className="setup-step-actions">
+              {onStartGuide ? (
+                <button type="button" className="btn btn-primary btn-sm" onClick={onStartGuide}>
+                  Start setup guide
+                </button>
+              ) : null}
+              <button type="button" className="btn btn-outline btn-sm" onClick={onOpenSettings}>
+                Open Settings
+              </button>
+            </div>
           )}
         </Step>
         <Step

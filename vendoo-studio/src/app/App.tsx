@@ -8,6 +8,7 @@ import { ChatPanel } from "../components/ChatPanel";
 import { PhotoTray } from "../components/PhotoTray";
 import { SettingsPage } from "../components/SettingsPage";
 import { SetupChecklist } from "../components/SetupChecklist";
+import { FirstRunGuide } from "../components/FirstRunGuide";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
 import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon } from "../components/ListingSidebar";
@@ -20,6 +21,7 @@ import {
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ToastHost } from "../components/ToastHost";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
+import { isSetupGuideDismissed } from "../onboarding";
 
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
@@ -50,6 +52,7 @@ export function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
   const [listingQuery, setListingQuery] = useState("");
   const [queuedChatMessage, setQueuedChatMessage] = useState<string | null>(null);
+  const [setupGuideOpen, setSetupGuideOpen] = useState(() => !isSetupGuideDismissed());
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -267,6 +270,7 @@ export function App() {
                 section={settingsSection}
                 targetId={settingsTargetId}
                 onTargetHandled={() => setSettingsTargetId(null)}
+                onOpenSetupGuide={() => setSetupGuideOpen(true)}
               />
             ) : selectedConvId ? (
               <div className="listing-workspace">
@@ -299,7 +303,8 @@ export function App() {
                 chromeAvailable={status?.chrome_available !== false}
                 extensionConnected={Boolean(status?.extension_connected)}
                 creating={createConv.isPending}
-                onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); closeMobileSidebar(); }}
+                onOpenSettings={openSettings}
+                onStartGuide={() => setSetupGuideOpen(true)}
                 onCreate={createListing}
               />
             ) : (
@@ -384,6 +389,16 @@ export function App() {
       </footer>
       <ToastHost />
       <ConfirmDialogHost />
+      {setupGuideOpen ? (
+        <FirstRunGuide
+          providerConfigured={providerConfigured}
+          chromeAvailable={status?.chrome_available !== false}
+          extensionConnected={Boolean(status?.extension_connected)}
+          creating={createConv.isPending}
+          onClose={() => setSetupGuideOpen(false)}
+          onCreateListing={createListing}
+        />
+      ) : null}
     </div>
   );
 }
