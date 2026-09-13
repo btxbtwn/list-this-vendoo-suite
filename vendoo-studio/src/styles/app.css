@@ -1228,7 +1228,12 @@ html.desktop-app .workspace-drag-region {
 
 .evidence-card {
   align-self: flex-start;
+  width: 100%;
   max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -1238,6 +1243,7 @@ html.desktop-app .workspace-drag-region {
 .evidence-header {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 8px;
   padding: 9px 14px;
   background: var(--color-cobalt-tint);
@@ -1248,6 +1254,10 @@ html.desktop-app .workspace-drag-region {
 }
 
 .evidence-body {
+  min-height: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 14px;
   font-size: var(--text-sm);
   line-height: 1.6;
@@ -1258,6 +1268,10 @@ html.desktop-app .workspace-drag-region {
 .sold-comps-body {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   gap: 8px;
   padding: 10px 14px 12px;
 }
