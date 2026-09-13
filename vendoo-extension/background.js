@@ -1090,12 +1090,12 @@ function commandTimeoutMs(command) {
     const count = Array.isArray(command.fields) ? command.fields.length : 0;
     return Math.min(300000, Math.max(90000, 30000 + count * 5000));
   }
-  if (
-    command.type === 'FILL_GENERAL' ||
-    command.type === 'FILL_MARKETPLACE' ||
-    command.type === 'CLEAR_GENERAL' ||
-    command.type === 'CLEAR_MARKETPLACE'
-  ) {
+  // Full marketplace fills (esp. Etsy category specifics) routinely exceed 90s.
+  // Leftover FILL_FIELDS already scales up to 300s; keep the bulk fill in the same range.
+  if (command.type === 'FILL_GENERAL' || command.type === 'FILL_MARKETPLACE') {
+    return 180000;
+  }
+  if (command.type === 'CLEAR_GENERAL' || command.type === 'CLEAR_MARKETPLACE') {
     return 90000;
   }
   if (command.type === 'DISCOVER_SCHEMA') {
