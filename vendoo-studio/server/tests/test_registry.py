@@ -18,6 +18,7 @@ from vendoo_studio.services.registry import (
     POSHMARK_WOMEN_SHORT_TEE,
     WOMEN_TOPS_PATH,
     RegistryService,
+    align_listing_gender,
     is_learned_listing_field,
     label_to_json_key,
     map_poshmark_category_path,
@@ -117,6 +118,53 @@ class CategoryMappingTest(unittest.TestCase):
         )
         self.assertEqual(mapped, MEN_TSHIRT_PATH)
 
+    def test_mens_department_wins_over_womens_path(self):
+        mapped = map_vendoo_category_path(
+            WOMEN_TOPS_PATH,
+            {
+                "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
+                "department": "Men",
+            },
+        )
+        self.assertEqual(mapped, MEN_TSHIRT_PATH)
+
+    def test_keeps_mens_path_when_ebay_department_still_women(self):
+        mapped = map_vendoo_category_path(
+            MEN_TSHIRT_PATH,
+            {
+                "title": "Casa San Bord M Graphic T-Shirt",
+                "department": "Men",
+                "ebay_specifics": {"department": "Women", "type": "T-Shirt"},
+            },
+        )
+        self.assertEqual(mapped, MEN_TSHIRT_PATH)
+
+    def test_ensure_listing_defaults_rewrites_womens_path_for_mens_tee(self):
+        from vendoo_studio.routes.jobs import _ensure_listing_defaults
+
+        listing = {
+            "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
+            "category_path": WOMEN_TOPS_PATH,
+            "department": "Men",
+            "condition": "Good",
+        }
+        _ensure_listing_defaults(listing)
+        self.assertEqual(listing["category_path"], MEN_TSHIRT_PATH)
+
+    def test_align_listing_gender_rewrites_category_from_department_patch(self):
+        listing = {
+            "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
+            "department": "Women",
+            "category_path": WOMEN_TOPS_PATH,
+            "ebay_specifics": {"department": "Women", "type": "T-Shirt"},
+        }
+        align_listing_gender(listing, [
+            {"op": "replace", "path": "/department", "value": "Men"},
+        ])
+        self.assertEqual(listing["department"], "Men")
+        self.assertEqual(listing["ebay_specifics"]["department"], "Men")
+        self.assertEqual(listing["category_path"], MEN_TSHIRT_PATH)
+
     def test_ensure_listing_defaults_rewrites_category(self):
         from vendoo_studio.routes.jobs import _ensure_listing_defaults
 
@@ -171,6 +219,17 @@ class PoshmarkCategoryMappingTest(unittest.TestCase):
                 "title": "Amplife Graphic T-Shirt",
                 "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
                 "poshmark_specifics": {"categoryPath": ["Women", "Tops"]},
+            },
+        )
+        self.assertEqual(mapped, POSHMARK_MEN_SHORT_TEE)
+
+    def test_maps_mens_tee_when_vendoo_path_is_still_womens(self):
+        mapped = map_poshmark_category_path(
+            WOMEN_TOPS_PATH,
+            {
+                "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
+                "department": "Men",
+                "ebay_specifics": {"type": "T-Shirt"},
             },
         )
         self.assertEqual(mapped, POSHMARK_MEN_SHORT_TEE)

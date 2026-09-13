@@ -24,6 +24,7 @@ from vendoo_studio.services.listing_generate import (
     persist_generated_listing,
     seller_item_details,
 )
+from vendoo_studio.services.registry import MEN_TSHIRT_PATH
 
 
 LISTING_JSON = {
@@ -153,6 +154,10 @@ class PersistListingTest(unittest.TestCase):
 
     def test_apply_payload_saves_mixed_json_patch_with_list_indexes(self):
         listing_repo = ListingRepo(self.db)
+        self.conv.notes = json.dumps({
+            "categoryOverride": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+        })
+        self.db.commit()
         listing_repo.save_revision(self.conv.id, {
             "title": "Casa San Bord M Graphic T-Shirt",
             "department": "Women",
@@ -172,8 +177,12 @@ class PersistListingTest(unittest.TestCase):
         ))
         saved = listing_repo.get_revisions(self.conv.id)[0].listing_json
         self.assertEqual(saved["department"], "Men")
+        self.assertEqual(saved["category_path"], MEN_TSHIRT_PATH)
+        self.assertEqual(saved["ebay_specifics"]["department"], "Men")
         self.assertEqual(saved["ebay_specifics"]["Primary Store Category"], "Men's Clothing")
         self.assertEqual(saved["poshmark_specifics"]["styleTags"], ["Casual", "Streetwear", "Embroidered"])
+        notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
+        self.assertEqual(notes["categoryOverride"], MEN_TSHIRT_PATH)
         messages = ConversationRepo(self.db).get_messages(self.conv.id)
         self.assertTrue(any("Saved those changes to the listing." in (m.text or "") for m in messages))
 
