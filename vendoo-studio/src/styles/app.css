@@ -1507,6 +1507,10 @@ details[open] .json-collapse-summary::before {
   align-items: start;
 }
 
+.item-row-measures {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .item-row + .item-row {
   margin-top: 8px;
 }
@@ -3103,7 +3107,8 @@ details[open] .json-collapse-summary::before {
     overflow-y: auto;
   }
 
-  .item-row {
+  .item-row,
+  .item-row-measures {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -3130,7 +3135,8 @@ details[open] .json-collapse-summary::before {
     display: none;
   }
 
-  .item-row {
+  .item-row,
+  .item-row-measures {
     grid-template-columns: minmax(0, 1fr);
   }
 
