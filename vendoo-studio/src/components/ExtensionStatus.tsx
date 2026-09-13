@@ -13,6 +13,7 @@ export function ExtensionStatus() {
   const outdated = connected && data?.up_to_date === false;
   const expected = data?.expected_version || null;
   const running = data?.version || null;
+  const loadPath = data?.load_path || null;
 
   let label = "Extension offline";
   if (outdated) label = "Extension outdated";
@@ -21,8 +22,9 @@ export function ExtensionStatus() {
   const title = outdated
     ? [
         expected ? `This Studio build expects extension ${expected}.` : "This Studio build has a newer extension.",
-        running ? `Chrome is running ${running}.` : "Connect Chrome again so it matches this build.",
-        "Reload the unpacked extension on chrome://extensions if the version does not update.",
+        running ? `Chrome is running ${running}.` : "Chrome is not on Studio's copy yet.",
+        loadPath ? `Load unpacked from ${loadPath}.` : "Load the unpacked folder shown in Settings → Connections.",
+        "Connect Chrome reloads that folder so it stays in lockstep.",
       ].join(" ")
     : undefined;
 

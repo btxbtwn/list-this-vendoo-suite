@@ -158,8 +158,28 @@ class ConnectChromeRouteTest(unittest.IsolatedAsyncioTestCase):
             desktop_routes,
             "relaunch_studio_chrome",
             return_value={"ok": True, "visible": True},
-        ) as launch:
+        ) as launch, patch(
+            "vendoo_studio.services.chrome_bridge.extension_reload_token_if_needed",
+            return_value=None,
+        ):
             result = await desktop_routes.connect_chrome()
         launch.assert_called_once_with(visible=True)
         self.assertTrue(result["ok"])
         self.assertEqual(result["via"], "chrome")
+        self.assertNotIn("extension_reload", result)
+
+    async def test_connect_chrome_reloads_stale_worker(self):
+        with patch.object(
+            desktop_routes,
+            "relaunch_studio_chrome",
+            return_value={"ok": True, "visible": True},
+        ), patch(
+            "vendoo_studio.services.chrome_bridge.extension_reload_token_if_needed",
+            return_value="gen-1",
+        ), patch(
+            "vendoo_studio.routes.extension.request_extension_reload",
+            return_value=True,
+        ) as reload:
+            result = await desktop_routes.connect_chrome()
+        reload.assert_awaited_once_with("gen-1")
+        self.assertTrue(result["extension_reload"])

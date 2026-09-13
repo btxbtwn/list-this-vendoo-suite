@@ -229,9 +229,33 @@ class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):
     async def test_handshake_accepts_without_reloading_tabs(self):
         socket = FakeSocket()
         with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=True), patch(
-            "vendoo_studio.routes.extension.clear_extension_reload_pending"
-        ) as clear:
+            "vendoo_studio.routes.extension.extension_reload_token_if_needed", return_value=None
+        ), patch("vendoo_studio.routes.extension.clear_extension_reload_pending") as clear:
             accepted = await handshake_extension(socket, None)
+
+        self.assertTrue(accepted)
+        self.assertEqual(socket.sent[0]["type"], "connection.accepted")
+        clear.assert_called_once()
+
+    async def test_handshake_reloads_once_when_chrome_is_behind(self):
+        socket = FakeSocket()
+        with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=True), patch(
+            "vendoo_studio.routes.extension.extension_reload_token_if_needed", return_value="gen-1"
+        ) as reload_token, patch("vendoo_studio.routes.extension.clear_extension_reload_pending") as clear:
+            accepted = await handshake_extension(socket, None, "0.2.15")
+
+        self.assertFalse(accepted)
+        reload_token.assert_called_once_with("0.2.15", None, None)
+        self.assertEqual(socket.sent[0]["type"], "extension.reload")
+        self.assertEqual(socket.sent[0]["payload"]["generation"], "gen-1")
+        clear.assert_not_called()
+
+    async def test_handshake_accepts_after_reload_generation_matches(self):
+        socket = FakeSocket()
+        with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=True), patch(
+            "vendoo_studio.routes.extension.extension_reload_token_if_needed", return_value=None
+        ), patch("vendoo_studio.routes.extension.clear_extension_reload_pending") as clear:
+            accepted = await handshake_extension(socket, "gen-1", "0.2.15")
 
         self.assertTrue(accepted)
         self.assertEqual(socket.sent[0]["type"], "connection.accepted")
@@ -255,7 +279,7 @@ class ExtensionStatusRouteTest(unittest.TestCase):
         ) as build:
             payload = extension_status()
 
-        build.assert_called_once_with("0.2.5", None)
+        build.assert_called_once_with("0.2.5", None, None)
         self.assertFalse(payload["connected"])
         self.assertFalse(payload["up_to_date"])
         self.assertEqual(payload["expected_version"], "0.2.6")

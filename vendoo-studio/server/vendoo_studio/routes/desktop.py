@@ -25,6 +25,17 @@ async def connect_chrome():
     try:
         result = relaunch_studio_chrome(visible=True)
         result.setdefault("via", "chrome")
+        from vendoo_studio.routes.extension import extension_manager, request_extension_reload
+        from vendoo_studio.services.chrome_bridge import extension_reload_token_if_needed
+
+        token = extension_reload_token_if_needed(
+            extension_manager.version,
+            extension_manager.reload_generation,
+            extension_manager.build,
+        )
+        if token:
+            await request_extension_reload(token)
+            result["extension_reload"] = True
         return result
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc

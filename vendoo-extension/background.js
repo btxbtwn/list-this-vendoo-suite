@@ -27,6 +27,11 @@ importScripts('content-script-version.js');
 importScripts('diagnostic-collector.js');
 importScripts('preview-screencast.js');
 
+var STUDIO_EXTENSION_BUILD = null;
+try {
+  importScripts('studio-build.js');
+} catch (e) {}
+
 function log(msg) {
   console.log(`[BG-Studio] ${msg}`);
 }
@@ -147,12 +152,18 @@ async function sendIdent() {
     type: 'extension.ready',
     message_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
     sent_at: new Date().toISOString(),
-    payload: {
-      token: token || 'direct',
-      version: chrome.runtime.getManifest().version,
-      reload_generation: stored[RELOAD_GENERATION_KEY] || null,
-    },
+    payload: identPayload(token, stored[RELOAD_GENERATION_KEY] || null),
   });
+}
+
+function identPayload(token, reloadGeneration) {
+  const build = typeof STUDIO_EXTENSION_BUILD === 'string' ? STUDIO_EXTENSION_BUILD.trim() : '';
+  return {
+    token: token || 'direct',
+    version: chrome.runtime.getManifest().version,
+    build: build || null,
+    reload_generation: reloadGeneration || null,
+  };
 }
 
 async function reloadMarketplaceTabs() {
@@ -1698,11 +1709,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           type: 'extension.ready',
           message_id: Date.now().toString(36),
           sent_at: new Date().toISOString(),
-          payload: {
-            token: 'direct',
-            version: chrome.runtime.getManifest().version,
-            reload_generation: stored[RELOAD_GENERATION_KEY] || null,
-          },
+            payload: identPayload('direct', stored[RELOAD_GENERATION_KEY] || null),
         });
       });
     }

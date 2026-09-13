@@ -347,8 +347,8 @@ export function FirstRunGuide({
                   <div className="setup-guide-task">
                     <ConnectChromeButton className="btn btn-primary btn-sm" />
                     <p className="setup-guide-note">
-                      Then in that Chrome window: chrome://extensions → Developer mode → Load unpacked.
-                      Zip users pick ~/Library/Application Support/List This Studio/vendoo-extension.
+                      Then in that Chrome window: chrome://extensions → Developer mode → Load unpacked
+                      from the folder in Settings → Connections.
                     </p>
                   </div>
                 )}

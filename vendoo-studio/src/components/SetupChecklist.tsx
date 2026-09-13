@@ -85,7 +85,7 @@ export function SetupChecklist({
             <>
               <ConnectChromeButton className="btn btn-sm btn-outline" />
               <p className="setup-step-note">
-                Then load the extension once in that Chrome window: chrome://extensions → Developer mode → Load unpacked.
+                Then load the extension once from the folder in Settings → Connections: chrome://extensions → Developer mode → Load unpacked.
               </p>
             </>
           )}

@@ -16,6 +16,11 @@ from vendoo_studio.routes import health, conversations, photos, listings, jobs, 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    try:
+        from vendoo_studio.services.chrome_bridge import install_bundled_extension
+        install_bundled_extension()
+    except Exception:
+        pass
     yield
 
 
