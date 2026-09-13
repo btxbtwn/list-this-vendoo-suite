@@ -1097,6 +1097,10 @@ function commandTimeoutMs(command) {
   if (command.type === 'SEARCH_CATEGORIES') {
     return 45000;
   }
+  if (command.type === 'UPLOAD_PHOTOS') {
+    const count = Array.isArray(command.files) ? command.files.length : 0;
+    return Math.min(180000, Math.max(60000, 20000 + count * 10000));
+  }
   return 45000;
 }
 
@@ -1529,6 +1533,52 @@ async function clearMarketplace(job, platform) {
   return sendToVendoo(job, { type: 'CLEAR_MARKETPLACE', platform });
 }
 
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunks = [];
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(chunks.join(''));
+}
+
+function photoFetchTimeoutSignal() {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(30000);
+  }
+  return undefined;
+}
+
+async function fetchStudioPhotoFiles(jobId, photos) {
+  const files = [];
+  const errors = [];
+  for (const photo of photos) {
+    const photoId = photo.id || photo.stored_filename || photo.name;
+    if (!photoId) {
+      errors.push('Photo is missing an id');
+      continue;
+    }
+    const url = `${STUDIO_URL}/api/jobs/${jobId}/photos/${encodeURIComponent(photoId)}`;
+    try {
+      const response = await fetch(url, { signal: photoFetchTimeoutSignal() });
+      if (!response.ok) {
+        errors.push(`${photoId}: HTTP ${response.status}`);
+        continue;
+      }
+      const buffer = await response.arrayBuffer();
+      files.push({
+        name: photo.name || photo.original_filename || 'photo.jpg',
+        type: response.headers.get('content-type') || photo.mime_type || 'image/jpeg',
+        data: arrayBufferToBase64(buffer),
+      });
+    } catch (err) {
+      errors.push(`${photoId}: ${err.message}`);
+    }
+  }
+  return { files, errors };
+}
+
 async function uploadPhotos(job) {
   if (job.options?.skipPhotos) {
     return { ok: true };
@@ -1542,14 +1592,19 @@ async function uploadPhotos(job) {
     return { ok: true };
   }
 
-  const result = await sendToVendoo(job, {
-    type: 'UPLOAD_PHOTOS',
-    photos,
-    studio_url: STUDIO_URL,
-    job_id: job.job_id,
-  });
+  const { files, errors } = await fetchStudioPhotoFiles(job.job_id, photos);
+  if (errors.length) {
+    log(`Studio photo fetch failed: ${errors.join('; ')}`);
+  }
+  if (files.length === 0) {
+    const detail = errors.length ? `: ${errors.join('; ')}` : '';
+    return { ok: false, error: `No photos could be fetched${detail}` };
+  }
 
-  return result;
+  return sendToVendoo(job, {
+    type: 'UPLOAD_PHOTOS',
+    files,
+  });
 }
 
 async function fillGeneral(job) {
