@@ -10,7 +10,7 @@
   window.__vendooStudioBridge = true;
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.10';
+  const CONTENT_SCRIPT_VERSION = '0.3.11';
   const DEBUG = true;
   let statusBox;
 
@@ -383,7 +383,8 @@
   }
 
   function optionMatchText(el) {
-      return (el.innerText || el.textContent || '').trim().split('\n')[0].trim();
+      const labelled = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || '';
+      return (el.innerText || el.textContent || labelled || '').trim().split('\n')[0].trim();
   }
 
   // Live Vendoo dropdown labels as of 2026-09-08.
@@ -601,6 +602,25 @@
           return mapped;
       }
       return canonical;
+  }
+
+  function mappingMarketplace(marketplace) {
+      const mp = String(marketplace || currentFillMarketplace || 'vendoo').toLowerCase();
+      if (!mp || mp === 'general' || mp === 'unknown') return 'vendoo';
+      return mp;
+  }
+
+  function mapPatchValue(marketplace, fieldName, value) {
+      if (value == null || String(value).trim() === '') return value;
+      const key = normalizeFieldKey(fieldName);
+      const mp = mappingMarketplace(marketplace);
+      if (/\bcolou?rs?\b/.test(key) || key === 'color' || /color$/i.test(key)) {
+          return mapColor(value, mp);
+      }
+      if (/\bcondition\b/.test(key)) {
+          return mapCondition(value, mp);
+      }
+      return value;
   }
 
   const ETSY_CATEGORY_VALUE_MAPS = {
@@ -985,23 +1005,35 @@
       return isDropdownLike(el) || DROPDOWN_FIELD_HINT.test(String(fieldName || ''));
   }
 
+  const DROPDOWN_OPTION_SELECTOR = [
+      '[role="option"]',
+      '.MuiAutocomplete-option',
+      '.react-select__option',
+      'li[role="option"]',
+      '.MuiMenuItem-root',
+      '.MuiListItem-root',
+  ].join(', ');
+
   function listOpenDropdownOptions() {
       const roots = document.querySelectorAll(
           '[role="listbox"], .MuiAutocomplete-popper, .MuiMenu-paper, .MuiPopover-paper, .react-select__menu, .react-select__menu-list, [role="presentation"]'
       );
       const seen = new Set();
       const options = [];
+      const addNode = (node) => {
+          if (seen.has(node) || !isVisibleElement(node)) return;
+          const text = optionMatchText(node);
+          const lower = (text || '').toLowerCase();
+          if (!text || lower.includes('create your description') || lower.includes('description with ai')) return;
+          seen.add(node);
+          options.push({ el: node, text });
+      };
       for (const root of roots) {
           if (!isVisibleElement(root)) continue;
-          const nodes = root.querySelectorAll('[role="option"], .MuiAutocomplete-option, .react-select__option, li[role="option"]');
-          for (const node of nodes) {
-              if (seen.has(node) || !isVisibleElement(node)) continue;
-              const text = optionMatchText(node);
-              const lower = (text || '').toLowerCase();
-              if (!text || lower.includes('create your description') || lower.includes('description with ai')) continue;
-              seen.add(node);
-              options.push({ el: node, text });
-          }
+          root.querySelectorAll(DROPDOWN_OPTION_SELECTOR).forEach(addNode);
+      }
+      if (options.length === 0) {
+          document.querySelectorAll(DROPDOWN_OPTION_SELECTOR).forEach(addNode);
       }
       return options;
   }
@@ -1015,11 +1047,40 @@
       return fuzzy ? fuzzy.el : null;
   }
 
+  function findHighlightedOption(value, isStrict) {
+      const options = listOpenDropdownOptions();
+      const highlighted = options.find((option) =>
+          option.el.getAttribute('aria-selected') === 'true' ||
+          option.el.classList.contains('Mui-focused') ||
+          option.el.classList.contains('Mui-focusVisible') ||
+          option.el.getAttribute('data-focus') === 'true'
+      );
+      if (highlighted && optionMatchesValue(highlighted.text, value, isStrict)) return highlighted.el;
+      if (!isStrict && options.length === 1 && optionMatchesValue(options[0].text, value, false)) {
+          return options[0].el;
+      }
+      return null;
+  }
+
+  function dispatchKey(el, key) {
+      if (!el) return;
+      const keyCode = key === 'Enter' ? 13 : key === 'Escape' ? 27 : key === 'ArrowDown' ? 40 : 0;
+      const opts = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true };
+      el.dispatchEvent(new KeyboardEvent('keydown', opts));
+      el.dispatchEvent(new KeyboardEvent('keyup', opts));
+  }
+
   async function clickDropdownOption(optionEl) {
       if (!optionEl) return;
       optionEl.scrollIntoView({ block: 'nearest', behavior: 'instant' });
       const mouseEventOptions = { bubbles: true, cancelable: true, view: window };
+      try {
+          optionEl.dispatchEvent(new PointerEvent('pointerdown', mouseEventOptions));
+      } catch (_) {}
       optionEl.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
+      try {
+          optionEl.dispatchEvent(new PointerEvent('pointerup', mouseEventOptions));
+      } catch (_) {}
       optionEl.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
       optionEl.dispatchEvent(new MouseEvent('click', mouseEventOptions));
       if (typeof optionEl.click === 'function') optionEl.click();
@@ -1156,7 +1217,8 @@
       await clickRightEdge(el);
       await sleep(CONFIG.SLEEP_LONG);
 
-      let targetOption = findMatchingOption(value, isStrict);
+      const resolveOpenOption = () => findMatchingOption(value, isStrict) || findHighlightedOption(value, isStrict);
+      let targetOption = resolveOpenOption();
       const supportsSearch = el instanceof HTMLInputElement ||
           el.getAttribute('role') === 'combobox' ||
           el.classList.contains('react-select__input');
@@ -1167,18 +1229,18 @@
               el.focus();
               await clearInput(el);
               setReactValue(el, value);
-              el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-              await sleep(CONFIG.SLEEP_MEDIUM);
-              targetOption = findMatchingOption(value, isStrict);
+              dispatchKey(el, 'ArrowDown');
+              await sleep(CONFIG.SLEEP_LONG);
+              targetOption = resolveOpenOption();
           }
 
           if (!targetOption && listOpenDropdownOptions().length === 0) {
               await clickRightEdge(el);
               await sleep(CONFIG.SLEEP_LONG);
-              targetOption = findMatchingOption(value, isStrict);
+              targetOption = resolveOpenOption();
           } else if (!targetOption) {
               await sleep(CONFIG.SLEEP_RETRY);
-              targetOption = findMatchingOption(value, isStrict);
+              targetOption = resolveOpenOption();
           }
       }
 
@@ -1191,7 +1253,7 @@
       const openOptions = listOpenDropdownOptions();
       if (dropdownLike && openOptions.length > 0) {
           await closeOpenMenus();
-          if (isMulti && el.value) await clearInput(el);
+          if (el.value) await clearInput(el);
           return { ok: false, method: 'no_option' };
       }
 
@@ -1206,13 +1268,14 @@
       if (isMulti) {
           await clearInput(el);
           setReactValue(el, value);
-          el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          dispatchKey(el, 'Enter');
           await sleep(CONFIG.SLEEP_MEDIUM);
           if (el.value) await clearInput(el);
           return { ok: true, method: 'typed_fallback' };
       }
 
       await closeOpenMenus();
+      if (el.value) await clearInput(el);
       return { ok: false, method: 'no_option' };
   }
 
@@ -1245,6 +1308,7 @@
 
   async function fillDropdownField(selectorOrEl, value, fieldName, isStrict = false, isMulti = false) {
       const selectorText = typeof selectorOrEl === 'string' ? selectorOrEl : selectorFor(selectorOrEl, '');
+      value = mapPatchValue(currentFillMarketplace, fieldName, value);
       if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
           recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
           return { status: 'skipped' };
@@ -3051,15 +3115,20 @@
               continue;
           }
           const shown = displayedFieldValue(el);
-          if (intended && optionMatchesValue(shown, intended, false)) {
-              entry.status = 'filled';
-              entry.reason = '';
+          const matches = Boolean(intended && optionMatchesValue(shown, intended, false));
+          if (entry.status === 'filled') {
+              if (!matches) {
+                  entry.status = 'failed';
+                  entry.reason = shouldFillAsDropdown(el, fieldName)
+                      ? 'Dropdown option was not selected'
+                      : 'Value did not stick';
+              }
               continue;
           }
-          if (shouldFillAsDropdown(el, fieldName)) {
+          if (shouldFillAsDropdown(el, fieldName) && !matches) {
               entry.status = 'failed';
               entry.reason = 'Dropdown option was not selected';
-          } else if (!fieldLooksFilled(el)) {
+          } else if (!shouldFillAsDropdown(el, fieldName) && !fieldLooksFilled(el)) {
               entry.status = 'failed';
               entry.reason = 'Value did not stick';
           }
@@ -3086,8 +3155,9 @@
               await sleep(CONFIG.SLEEP_LONG);
               for (const item of group) {
                   currentPatchEntryId = item.id || '';
-                  const value = item.value;
                   const fieldName = item.field || 'Field';
+                  const value = mapPatchValue(marketplace, fieldName, item.value);
+                  item.value = value;
                   const el = findControlForPatch(item);
                   if (!el) {
                       recordFill({
