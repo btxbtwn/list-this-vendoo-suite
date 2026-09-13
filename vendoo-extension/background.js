@@ -761,11 +761,8 @@ async function openListingForPatch(payload, { reload = true, preview = true } = 
   }
   const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
   const existing = await findTabByDraft(url, itemId);
-  const tab = existing
-    ? (reload ? await chrome.tabs.update(existing.id, { url }) : existing)
-    : await chrome.tabs.create({ url, active: false });
+  const tab = await openTabInHiddenWindow(existing && !reload ? null : url, existing);
   const tabId = tab.id;
-  await parkJobTab(tabId);
   const loaded = await waitForTabComplete(tabId);
   if (preview && payload.job_id) {
     await startJobPreview(tabId, payload.job_id);
@@ -1078,27 +1075,21 @@ async function openVendooListing(job) {
     const existingTab = await findNewItemTab();
     if (existingTab) {
       log(`Reloading new-item tab ${existingTab.id} -> ${NEW_ITEM_URL}`);
-      activeJob.windowId = existingTab.windowId;
-      activeJob.tabId = existingTab.id;
+      const tab = await openTabInHiddenWindow(NEW_ITEM_URL, existingTab);
+      activeJob.windowId = tab.windowId;
+      activeJob.tabId = tab.id;
       await persistActiveJob(activeJob);
-      await parkJobTab(existingTab.id);
-      await waitForTabComplete(existingTab.id);
-      await startJobPreview(existingTab.id, job.job_id);
+      await waitForTabComplete(tab.id);
+      await startJobPreview(tab.id, job.job_id);
       return { ok: true };
     }
 
-    const existing = await chrome.windows.getLastFocused();
-    const tab = await chrome.tabs.create({
-      windowId: existing?.id,
-      url: NEW_ITEM_URL,
-      active: false,
-    });
-    log(`Created Vendoo tab ${tab.id} in window ${tab.windowId}`);
+    const tab = await openTabInHiddenWindow(NEW_ITEM_URL);
+    log(`Created Vendoo tab ${tab.id} in hidden Chrome window ${tab.windowId}`);
 
     activeJob.windowId = tab.windowId;
     activeJob.tabId = tab.id;
     await persistActiveJob(activeJob);
-    await parkJobTab(tab.id);
 
     const loaded = await waitForTabComplete(tab.id);
     await startJobPreview(tab.id, job.job_id);

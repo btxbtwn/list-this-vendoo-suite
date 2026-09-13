@@ -238,9 +238,10 @@ def launch_args(
     extension_dir: Path,
     profile_dir: Path,
     url: str = DEFAULT_VENDOO_URL,
+    *,
+    visible: bool = False,
 ) -> list[str]:
-    target = url if is_vendoo_url(url) else DEFAULT_VENDOO_URL
-    return [
+    args = [
         str(executable),
         f"--user-data-dir={profile_dir}",
         "--disable-features=DisableLoadExtensionCommandLineSwitch,CalculateNativeWinOcclusion",
@@ -251,11 +252,14 @@ def launch_args(
         "--disable-backgrounding-occluded-windows",
         "--disable-renderer-backgrounding",
         "--disable-background-timer-throttling",
-        target,
+        "--no-startup-window",
     ]
+    if visible:
+        args.append(url if is_vendoo_url(url) else DEFAULT_VENDOO_URL)
+    return args
 
 
-def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL) -> dict:
+def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = False) -> dict:
     target = str(url or "").strip() or DEFAULT_VENDOO_URL
     if not is_vendoo_url(target):
         raise ChromeBridgeError("That is not a Vendoo listing URL.")
@@ -268,7 +272,7 @@ def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL) -> dict:
     profile_dir = chrome_profile_dir()
     profile_dir.mkdir(parents=True, exist_ok=True)
     subprocess.Popen(
-        launch_args(executable, extension_dir, profile_dir, target),
+        launch_args(executable, extension_dir, profile_dir, target, visible=visible),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
@@ -278,4 +282,5 @@ def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL) -> dict:
         "browser": executable.parent.parent.parent.stem,
         "extension_dir": str(extension_dir),
         "profile_dir": str(profile_dir),
+        "visible": visible,
     }
