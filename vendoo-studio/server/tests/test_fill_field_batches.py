@@ -64,6 +64,11 @@ console.log(JSON.stringify(result));
         start = text.index("async function runFillFields")
         end = text.index("function groupFillFieldBatches")
         run_fill = text[start:end]
+        self.assertIn("WAIT_FOR_FORM", run_fill)
+        self.assertLess(
+            run_fill.index("WAIT_FOR_FORM"),
+            run_fill.index("for (let i = 0;"),
+        )
         loop = run_fill[run_fill.index("for (let i = 0;") :]
         self.assertIn("saveCommandForMarketplace(marketplace)", loop)
         self.assertIn("type: 'FILL_FIELDS'", loop)
@@ -74,3 +79,14 @@ console.log(JSON.stringify(result));
         after_loop = run_fill[run_fill.index("const fillLog") :]
         self.assertNotIn("SAVE_GENERAL", after_loop)
         self.assertNotIn("saveCommandForMarketplace", after_loop)
+
+    def test_save_waits_for_button_to_appear(self) -> None:
+        text = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
+        start = text.index("async function waitForSaveButton")
+        end = text.index("async function auditGeneralForm")
+        block = text[start:end]
+        self.assertIn("requireEnabled", block)
+        self.assertIn("waitForSaveButton(20000", block)
+        self.assertNotIn("existingSave ? await waitForSaveButton()", block)
+        self.assertIn("async function waitForListingFormReady", text)
+        self.assertIn("WAIT_FOR_FORM", text)

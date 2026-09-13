@@ -3948,24 +3948,75 @@
       return { ok: true, count: fileObjects.length };
   }
 
-  async function waitForSaveButton(timeoutMs = 8000) {
+  function listingFormMarkersPresent() {
+      return Boolean(
+          document.querySelector('[data-testid="save-item-button"]')
+          || document.querySelector('#generalDetails\\.title, [id="generalDetails.title"]')
+          || document.querySelector('#categoryV2, [role="category-input"]')
+      );
+  }
+
+  async function waitForListingFormReady(timeoutMs = 30000) {
+      log('Waiting for Vendoo listing form...');
       const started = Date.now();
       while (Date.now() - started < timeoutMs) {
+          if (listingFormMarkersPresent()) {
+              log('Vendoo listing form is ready');
+              return { ok: true, hasSaveButton: Boolean(document.querySelector('[data-testid="save-item-button"]')) };
+          }
+          const bodyText = (document.body?.innerText || '').slice(0, 800).toLowerCase();
+          if (bodyText.includes('sign in') && (bodyText.includes('password') || bodyText.includes('log in'))) {
+              warn('Vendoo login wall detected while waiting for form');
+              return { ok: false, error: 'Vendoo login required before filling fields' };
+          }
+          await sleep(500);
+      }
+      warn('Vendoo listing form did not finish loading');
+      return { ok: false, error: 'Vendoo listing form did not finish loading' };
+  }
+
+  async function waitForSaveButton(timeoutMs = 20000, { requireEnabled = true } = {}) {
+      const started = Date.now();
+      let lastBtn = null;
+      while (Date.now() - started < timeoutMs) {
           const saveBtn = document.querySelector('[data-testid="save-item-button"]');
-          if (saveBtn && !saveBtn.disabled) return saveBtn;
+          if (saveBtn) {
+              lastBtn = saveBtn;
+              if (!requireEnabled || !saveBtn.disabled) return saveBtn;
+          }
           await sleep(250);
       }
-      const saveBtn = document.querySelector('[data-testid="save-item-button"]');
-      return saveBtn && !saveBtn.disabled ? saveBtn : null;
+      const saveBtn = document.querySelector('[data-testid="save-item-button"]') || lastBtn;
+      if (!saveBtn) return null;
+      if (requireEnabled && saveBtn.disabled) return null;
+      return saveBtn;
+  }
+
+  function findSaveButtonByText() {
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      const PROHIBITED_TERMS = ['list', 'publish', 'activate', 'sell'];
+      return buttons.find((b) => {
+          const t = (b.innerText || '').trim().toLowerCase();
+          if (!t || t.length > 20) return false;
+          if (!t.includes('save')) return false;
+          if (PROHIBITED_TERMS.some((pt) => t.includes(pt))) {
+              warn(`Skipping prohibited save button: "${b.innerText}"`);
+              return false;
+          }
+          return true;
+      }) || null;
   }
 
   async function saveGeneralForm() {
       log('Saving form...');
-      const existingSave = document.querySelector('[data-testid="save-item-button"]');
-      const saveBtn = existingSave ? await waitForSaveButton() : null;
-      if (existingSave && !saveBtn) {
-          warn('Save button stayed disabled');
-          return { ok: false, error: 'Save button stayed disabled' };
+      // Always wait for the SPA save control — tab "complete" fires before React mounts it.
+      const saveBtn = await waitForSaveButton(20000, { requireEnabled: true });
+      if (!saveBtn) {
+          const existingSave = document.querySelector('[data-testid="save-item-button"]');
+          if (existingSave && existingSave.disabled) {
+              warn('Save button stayed disabled');
+              return { ok: false, error: 'Save button stayed disabled' };
+          }
       }
       if (saveBtn) {
           saveBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
@@ -3996,19 +4047,7 @@
           return { ok: true, vendoo_item_id: itemId, vendoo_url: vendooUrl };
       }
 
-      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
-      const PROHIBITED_TERMS = ['list', 'publish', 'activate', 'sell'];
-      const target = buttons.find(b => {
-          const t = (b.innerText || '').trim().toLowerCase();
-          if (!t || t.length > 20) return false;
-          if (!t.includes('save')) return false;
-          if (PROHIBITED_TERMS.some(pt => t.includes(pt))) {
-              warn(`Skipping prohibited save button: "${b.innerText}"`);
-              return false;
-          }
-          return true;
-      });
-
+      const target = findSaveButtonByText();
       if (target) {
           target.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_MEDIUM);
@@ -4096,12 +4135,35 @@
   function marketplaceSectionButtonMatches(btn, platform) {
       const wanted = normalizeText(platform);
       if (!wanted) return false;
-      const firstLine = normalizeText((btn.innerText || btn.textContent || '').split('\n')[0]);
-      if (!firstLine || firstLine.length > 24) return false;
-      if (wanted === 'general') return firstLine === 'general' || firstLine === 'vendoo';
-      // Exact / prefix only — firstLine.includes('ebay') must not match random copy,
+      const labelled = (btn.getAttribute && (btn.getAttribute('aria-label') || btn.getAttribute('title'))) || '';
+      const firstLine = normalizeText((btn.innerText || btn.textContent || labelled || '').split('\n')[0]);
+      if (!firstLine || firstLine.length > 32) return false;
+      // Strip product badges so "eBay BETA" still matches ebay.
+      const bare = firstLine.replace(/\b(beta|new|alpha)\b/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!bare) return false;
+      if (wanted === 'general') return bare === 'general' || bare === 'vendoo';
+      // Exact / prefix only — bare.includes('ebay') must not match random copy,
       // and we must not confuse adjacent marketplace tabs after discovery.
-      return firstLine === wanted || firstLine.startsWith(`${wanted} `);
+      return bare === wanted || bare.startsWith(`${wanted} `);
+  }
+
+  function marketplaceFormMounted(marketplace) {
+      const mp = String(marketplace || '').toLowerCase();
+      if (!mp || mp === 'general') {
+          return Boolean(document.querySelector(
+              '[id^="generalDetails."], [name^="generalDetails."], #categoryV2, [role="category-input"]'
+          ));
+      }
+      const prefix = `listings.${mp}.`;
+      return Boolean(document.querySelector(`[id^="${prefix}"], [name^="${prefix}"]`));
+  }
+
+  async function waitForMarketplaceFormMounted(marketplace, attempts = 12) {
+      for (let attempt = 0; attempt < attempts; attempt++) {
+          if (marketplaceFormMounted(marketplace)) return true;
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      return marketplaceFormMounted(marketplace);
   }
 
   function marketplaceSectionLooksActive(platform) {
@@ -4121,6 +4183,17 @@
       }
       const catBtn = findMarketplaceCategoryControl(mp);
       return Boolean(catBtn && isEffectivelyVisible(catBtn));
+  }
+
+  async function marketplaceSectionReady(platform) {
+      // Mounted alone is not enough — sibling marketplace forms stay in the DOM
+      // after schema discovery. Require the panel to be effectively visible too.
+      if (!(await waitForMarketplaceFormMounted(platform))) return false;
+      for (let attempt = 0; attempt < 8; attempt++) {
+          if (marketplaceSectionLooksActive(platform)) return true;
+          await sleep(CONFIG.SLEEP_RETRY);
+      }
+      return marketplaceSectionLooksActive(platform);
   }
 
   function marketplaceNameToId(name) {
@@ -4188,31 +4261,40 @@
       // marketplace forms (eBay included) stay mounted and can look "visible"
       // while Depop is still the active panel — skipping the click makes
       // filling_ebay a no-op and the job races ahead to Etsy.
+      // Also force-click when the form never mounts (Refresh path: aria can say
+      // eBay is selected while generalDetails is still showing).
       await closeOpenMenus();
 
-      const clickMatching = async () => {
+      const clickMatching = async ({ force = false } = {}) => {
           const buttons = Array.from(document.querySelectorAll(
               '[role="tab"], button, [role="button"], a, span[role="button"]'
           ));
           const match = buttons.find((btn) => isVisibleElement(btn) && marketplaceSectionButtonMatches(btn, platform));
           if (!match) return false;
-          log(`  Clicking "${(match.innerText || '').trim()}" to activate ${platform}`);
+          const label = (match.innerText || match.textContent || match.getAttribute?.('aria-label') || '').trim().split('\n')[0];
+          log(`  Clicking "${label}" to activate ${platform}${force ? ' (force)' : ''}`);
           match.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_SHORT);
           match.click();
           await sleep(CONFIG.SLEEP_LONG * 2);
-          for (let attempt = 0; attempt < 8; attempt++) {
-              if (marketplaceSectionLooksActive(platform)) return true;
-              await sleep(CONFIG.SLEEP_RETRY);
-          }
-          return marketplaceSectionLooksActive(platform);
+          return true;
       };
 
-      if (await clickMatching()) return true;
+      if (await clickMatching()) {
+          if (await marketplaceSectionReady(platform)) return true;
+          // Form can stay unmounted while aria still looks selected — force re-click.
+          if (await clickMatching({ force: true }) && await marketplaceSectionReady(platform)) return true;
+          warn(`${platform} nav activated but form fields did not mount`);
+          return false;
+      }
       await expandOptionalFields();
       await sleep(CONFIG.SLEEP_LONG);
       await closeOpenMenus();
-      if (await clickMatching()) return true;
+      if (await clickMatching({ force: true })) {
+          if (await marketplaceSectionReady(platform)) return true;
+          warn(`${platform} nav activated but form fields did not mount`);
+          return false;
+      }
       warn(`Could not activate ${platform} marketplace section`);
       return false;
   }
@@ -4420,8 +4502,20 @@
               log(`Reading ${platform} form fields (including empty optionals)...`);
               await activateMarketplaceSection(platform);
               await sleep(CONFIG.SLEEP_LONG);
+              if (!marketplaceFormMounted(platform)) {
+                  warn(`  ${platform}: form did not mount after activate; skipping scrape`);
+                  continue;
+              }
               if (platform === 'ebay') {
-                  await waitForEbayOptionalCategoryFields();
+                  // Only wait for optionals when a category is already on the draft.
+                  // Re-selecting category is forbidden on refresh (remounts empties).
+                  const categoryShown = marketplaceCategoryDisplay('ebay');
+                  if (categoryShown) {
+                      await waitForEbayOptionalCategoryFields();
+                  } else {
+                      await expandOptionalFields();
+                      await sleep(CONFIG.SLEEP_LONG);
+                  }
               } else {
                   await expandOptionalFields();
                   await sleep(CONFIG.SLEEP_LONG);
@@ -4790,6 +4884,18 @@
 
       const allEntries = [];
       try {
+          const formReady = await waitForListingFormReady();
+          if (!formReady.ok) {
+              return {
+                  ok: false,
+                  error: formReady.error || 'Vendoo listing form did not finish loading',
+                  fill_log: {
+                      marketplace: items[0]?.marketplace || 'general',
+                      summary: { filled: 0, failed: 0, skipped: 0, not_found: 0 },
+                      entries: [],
+                  },
+              };
+          }
           for (const [marketplace, group] of grouped) {
               beginFillLog(marketplace);
               if (marketplace && marketplace !== 'general' && marketplace !== 'unknown') {
@@ -5011,11 +5117,19 @@
               return true;
           }
 
+          if (msg.type === 'WAIT_FOR_FORM') {
+              waitForListingFormReady(msg.timeoutMs || 30000)
+                  .then((result) => sendResponse(result))
+                  .catch((err) => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
           if (msg.type === 'GET_PAGE_STATE') {
               sendResponse({
                   ok: true,
                   url: window.location.href,
                   hasSaveButton: !!document.querySelector('[data-testid="save-item-button"]'),
+                  formReady: listingFormMarkersPresent(),
                   itemId: extractItemId(),
               });
               return true;
