@@ -71,7 +71,62 @@ function isWindowBoundsError(err) {
   return /bounds/i.test(message) && /visible screen/i.test(message);
 }
 
-function pickOnscreenBounds(windows) {
+function workAreasFromDisplays(displays) {
+  return (displays || [])
+    .filter((display) => (
+      display
+      && display.isEnabled !== false
+      && display.workArea
+      && Number.isFinite(display.workArea.left)
+      && Number.isFinite(display.workArea.top)
+      && Number.isFinite(display.workArea.width)
+      && display.workArea.width > 0
+      && Number.isFinite(display.workArea.height)
+      && display.workArea.height > 0
+    ))
+    .map((display) => display.workArea);
+}
+
+function overlapArea(win, area) {
+  const left = Math.max(win.left, area.left);
+  const top = Math.max(win.top, area.top);
+  const right = Math.min(win.left + win.width, area.left + area.width);
+  const bottom = Math.min(win.top + win.height, area.top + area.height);
+  if (right <= left || bottom <= top) {
+    return 0;
+  }
+  return (right - left) * (bottom - top);
+}
+
+function isMostlyOnscreen(win, areas) {
+  const total = Number(win && win.width) * Number(win && win.height);
+  if (!total || !(areas || []).length) {
+    return false;
+  }
+  let overlap = 0;
+  for (const area of areas) {
+    overlap += overlapArea(win, area);
+  }
+  return overlap >= total * 0.5;
+}
+
+function boundsInWorkArea(area, width, height) {
+  const areaWidth = Number(area && area.width) || FALLBACK_WIDTH;
+  const areaHeight = Number(area && area.height) || FALLBACK_HEIGHT;
+  const w = Math.max(1, Math.min(width || FALLBACK_WIDTH, areaWidth));
+  const h = Math.max(1, Math.min(height || FALLBACK_HEIGHT, areaHeight));
+  return {
+    left: (Number(area && area.left) || 0) + Math.max(0, Math.floor((areaWidth - w) / 2)),
+    top: (Number(area && area.top) || 0) + Math.max(0, Math.floor((areaHeight - h) / 2)),
+    width: w,
+    height: h,
+  };
+}
+
+function pickOnscreenBounds(windows, displays) {
+  const areas = workAreasFromDisplays(displays);
+  const primary = (displays || []).find((display) => display && display.isPrimary && display.workArea);
+  const fallbackArea = (primary && primary.workArea) || areas[0];
   const visible = (windows || []).find((win) => (
     win
     && win.state !== 'minimized'
@@ -82,7 +137,15 @@ function pickOnscreenBounds(windows) {
     && win.width >= 400
     && Number.isFinite(win.height)
     && win.height >= 300
+    && (!areas.length || isMostlyOnscreen(win, areas))
   ));
+  if (fallbackArea) {
+    return boundsInWorkArea(
+      fallbackArea,
+      visible ? Math.min(ENGINE_WIDTH, visible.width) : ENGINE_WIDTH,
+      visible ? Math.min(ENGINE_HEIGHT, visible.height) : ENGINE_HEIGHT,
+    );
+  }
   if (!visible) {
     return {
       left: SHOW_LEFT,
@@ -110,46 +173,113 @@ function stopPreviewPolling() {
   }
 }
 
-async function safeWindowBounds() {
+async function displayInfo() {
   try {
-    return pickOnscreenBounds(await chrome.windows.getAll());
+    if (chrome.system && chrome.system.display && chrome.system.display.getInfo) {
+      return await chrome.system.display.getInfo();
+    }
+  } catch (_) {}
+  return [];
+}
+
+async function safeWindowBounds() {
+  const displays = await displayInfo();
+  try {
+    return pickOnscreenBounds(await chrome.windows.getAll(), displays);
   } catch (_) {
-    return pickOnscreenBounds([]);
+    return pickOnscreenBounds([], displays);
   }
+}
+
+function createOptionsWithoutBounds(createOptions) {
+  const rest = { type: 'normal', ...createOptions };
+  delete rest.left;
+  delete rest.top;
+  delete rest.width;
+  delete rest.height;
+  return rest;
+}
+
+async function adoptTabIntoWindow(tabId, windowId) {
+  if (tabId == null || windowId == null) {
+    return;
+  }
+  await chrome.tabs.move(tabId, { windowId, index: -1 });
+  try {
+    await chrome.tabs.update(tabId, { active: true });
+  } catch (_) {}
+  await closeSpareBlankTabs(windowId, tabId);
 }
 
 async function updateWindowSafe(windowId, extras = {}) {
   const bounds = await safeWindowBounds();
-  try {
-    await chrome.windows.update(windowId, { ...bounds, ...extras });
-  } catch (err) {
-    if (!isWindowBoundsError(err)) {
-      throw err;
+  const attempts = [
+    { ...bounds, ...extras },
+    { ...bounds, focused: extras.focused, state: extras.state || 'normal' },
+    { ...bounds, focused: extras.focused },
+    { focused: extras.focused, state: extras.state || 'normal' },
+    { focused: extras.focused },
+  ];
+  let lastError = null;
+  for (const update of attempts) {
+    try {
+      await chrome.windows.update(windowId, update);
+      return;
+    } catch (err) {
+      lastError = err;
+      if (!isWindowBoundsError(err)) {
+        throw err;
+      }
+      log(`Chrome rejected window update (${err.message})`);
     }
-    log(`Chrome rejected window bounds (${err.message}); updating without position`);
-    await chrome.windows.update(windowId, {
-      focused: extras.focused,
-      state: extras.state || 'normal',
-    });
   }
+  throw lastError;
 }
 
-async function createWindowSafe(createOptions) {
+async function createWindowSafe(createOptions = {}) {
   const bounds = await safeWindowBounds();
-  try {
-    return await chrome.windows.create({ ...bounds, type: 'normal', ...createOptions });
-  } catch (err) {
-    if (!isWindowBoundsError(err)) {
-      throw err;
-    }
-    log(`Chrome rejected window bounds (${err.message}); creating without position`);
-    const rest = { type: 'normal', ...createOptions };
-    delete rest.left;
-    delete rest.top;
-    delete rest.width;
-    delete rest.height;
-    return await chrome.windows.create(rest);
+  const tabId = createOptions.tabId;
+  const withoutBounds = createOptionsWithoutBounds(createOptions);
+  const withoutTab = { ...withoutBounds };
+  delete withoutTab.tabId;
+  if (!withoutTab.url && tabId == null) {
+    withoutTab.url = 'about:blank';
   }
+  const attempts = [
+    { ...bounds, type: 'normal', ...createOptions },
+    { ...bounds, ...withoutTab },
+    {
+      ...withoutTab,
+      left: 0,
+      top: 0,
+      width: FALLBACK_WIDTH,
+      height: FALLBACK_HEIGHT,
+    },
+    withoutTab,
+  ];
+  let lastError = null;
+  let created = null;
+  for (const options of attempts) {
+    try {
+      created = await chrome.windows.create(options);
+      break;
+    } catch (err) {
+      lastError = err;
+      if (!isWindowBoundsError(err)) {
+        throw err;
+      }
+      log(`Chrome rejected window create (${err.message})`);
+    }
+  }
+  if (!created) {
+    throw lastError;
+  }
+  const createdWithTab = Array.isArray(created.tabs)
+    && created.tabs.some((tab) => tab && tab.id === tabId);
+  if (tabId != null && !createdWithTab) {
+    await adoptTabIntoWindow(tabId, created.id);
+  }
+  return created;
 }
 
 async function hideWindow(windowId) {
@@ -159,7 +289,7 @@ async function hideWindow(windowId) {
   try {
     // Chrome rejects off-screen bounds. Keep the window on-screen at state
     // 'normal' so compositing (and Studio preview) continue.
-    await chrome.windows.update(windowId, { focused: false, state: 'normal' });
+    await updateWindowSafe(windowId, { focused: false, state: 'normal' });
   } catch (err) {
     log(`Could not hide Chrome window (${err.message})`);
   }
@@ -172,8 +302,14 @@ async function showWindow(windowId) {
   try {
     const win = await chrome.windows.get(windowId);
     if (win && !isOffscreenEngineWindow(win) && win.state !== 'minimized') {
-      await chrome.windows.update(windowId, { focused: true, state: 'normal' });
-      return;
+      try {
+        await chrome.windows.update(windowId, { focused: true, state: 'normal' });
+        return;
+      } catch (err) {
+        if (!isWindowBoundsError(err)) {
+          throw err;
+        }
+      }
     }
     await updateWindowSafe(windowId, { focused: true, state: 'normal' });
   } catch (err) {
@@ -199,16 +335,37 @@ async function rememberedEngineWindowId() {
 async function engineWindowId() {
   const existing = await rememberedEngineWindowId();
   if (existing != null) {
-    return existing;
+    try {
+      await updateWindowSafe(existing, { focused: false, state: 'normal' });
+      return existing;
+    } catch (err) {
+      log(`Could not reuse engine window (${err.message}); opening a new one`);
+      try {
+        await chrome.storage.local.remove(ENGINE_WINDOW_KEY);
+      } catch (_) {}
+    }
   }
-  const created = await createWindowSafe({
-    url: 'about:blank',
-    focused: false,
-    type: 'normal',
-  });
-  await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
-  await hideWindow(created.id);
-  return created.id;
+  try {
+    const created = await createWindowSafe({
+      url: 'about:blank',
+      focused: false,
+      type: 'normal',
+    });
+    await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
+    await hideWindow(created.id);
+    return created.id;
+  } catch (err) {
+    log(`Could not create engine window (${err.message}); using an existing Chrome window`);
+    const windows = await chrome.windows.getAll();
+    const visible = (windows || []).find((win) => (
+      win && win.id != null && win.state !== 'minimized' && !isOffscreenEngineWindow(win)
+    ));
+    if (visible?.id != null) {
+      await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: visible.id });
+      return visible.id;
+    }
+    throw err;
+  }
 }
 
 async function closeSpareBlankTabs(windowId, keepTabId) {
@@ -231,26 +388,36 @@ async function closeEmptyWindows(keepWindowId) {
 }
 
 async function openTabInHiddenWindow(url, existing) {
-  const windowId = await engineWindowId();
-  await hideWindow(windowId);
-  let tab;
-  if (existing?.id) {
-    if (existing.windowId !== windowId) {
-      try {
-        await chrome.tabs.move(existing.id, { windowId, index: -1 });
-      } catch (_) {}
+  try {
+    const windowId = await engineWindowId();
+    await hideWindow(windowId);
+    let tab;
+    if (existing?.id) {
+      if (existing.windowId !== windowId) {
+        try {
+          await chrome.tabs.move(existing.id, { windowId, index: -1 });
+        } catch (_) {}
+      }
+      tab = url
+        ? await chrome.tabs.update(existing.id, { url, active: true })
+        : await chrome.tabs.update(existing.id, { active: true });
+    } else {
+      tab = await chrome.tabs.create({ windowId, url, active: true });
     }
-    tab = url
-      ? await chrome.tabs.update(existing.id, { url, active: true })
-      : await chrome.tabs.update(existing.id, { active: true });
-  } else {
-    tab = await chrome.tabs.create({ windowId, url, active: true });
+    const hiddenId = tab.windowId || windowId;
+    await closeSpareBlankTabs(hiddenId, tab.id);
+    await closeEmptyWindows(hiddenId);
+    await hideWindow(hiddenId);
+    return tab;
+  } catch (err) {
+    log(`Could not open engine tab (${err.message}); opening in a regular tab`);
+    if (existing?.id) {
+      return url
+        ? chrome.tabs.update(existing.id, { url, active: true })
+        : chrome.tabs.update(existing.id, { active: true });
+    }
+    return chrome.tabs.create({ url, active: true });
   }
-  const hiddenId = tab.windowId || windowId;
-  await closeSpareBlankTabs(hiddenId, tab.id);
-  await closeEmptyWindows(hiddenId);
-  await hideWindow(hiddenId);
-  return tab;
 }
 
 async function parkJobTab(tabId) {
