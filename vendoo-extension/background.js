@@ -623,14 +623,46 @@ function isVendooUrl(url) {
   }
 }
 
+function withMarketplaceQuery(url, marketplace) {
+  if (!url || !marketplace) return url;
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('marketplace', String(marketplace).toLowerCase());
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function listingUrlsMatch(currentUrl, targetUrl) {
+  if (!currentUrl || !targetUrl) return false;
+  try {
+    const current = new URL(currentUrl);
+    const target = new URL(targetUrl);
+    if (current.pathname !== target.pathname) return false;
+    const wantMp = (target.searchParams.get('marketplace') || '').toLowerCase();
+    if (!wantMp) return true;
+    const haveMp = (current.searchParams.get('marketplace') || '').toLowerCase();
+    return haveMp === wantMp;
+  } catch {
+    return false;
+  }
+}
+
 function isTabReady(tab) {
   return !!(tab && tab.status === 'complete' && isVendooUrl(tab.url));
 }
 
-async function waitForTabComplete(tabId, timeoutMs = 30000) {
+function tabMatchesTarget(tab, targetUrl) {
+  if (!isTabReady(tab)) return false;
+  if (!targetUrl) return true;
+  return listingUrlsMatch(tab.url || '', targetUrl);
+}
+
+async function waitForTabComplete(tabId, timeoutMs = 30000, targetUrl = null) {
   try {
     const current = await chrome.tabs.get(tabId);
-    if (isTabReady(current)) return current;
+    if (tabMatchesTarget(current, targetUrl)) return current;
   } catch (err) {
     log(`waitForTabComplete: cannot get tab ${tabId}: ${err.message}`);
     return null;
@@ -659,12 +691,12 @@ async function waitForTabComplete(tabId, timeoutMs = 30000) {
     }
 
     function onUpdated(id, _info, tab) {
-      if (id === tabId && isTabReady(tab)) finish(tab);
+      if (id === tabId && tabMatchesTarget(tab, targetUrl)) finish(tab);
     }
 
     chrome.tabs.onUpdated.addListener(onUpdated);
     chrome.tabs.get(tabId).then((tab) => {
-      if (isTabReady(tab)) finish(tab);
+      if (tabMatchesTarget(tab, targetUrl)) finish(tab);
     }).catch(() => {});
   });
 }
@@ -843,27 +875,34 @@ async function focusVendooListing(payload) {
   }
 }
 
-async function openListingForPatch(payload, { reload = true, preview = true } = {}) {
-  const url = payload.vendoo_url || (payload.vendoo_item_id
+async function openListingForPatch(payload, { reload = true, preview = true, marketplace = '' } = {}) {
+  let url = payload.vendoo_url || (payload.vendoo_item_id
     ? `https://web.vendoo.co/app/item/${payload.vendoo_item_id}`
     : null);
   if (!url) {
     return { ok: false, error: 'No Vendoo draft URL. Send the listing first.' };
   }
+  if (marketplace) url = withMarketplaceQuery(url, marketplace);
   const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
   const existing = await findTabByDraft(url, itemId);
-  let alreadyOpen = false;
+  let currentUrl = existing?.url || '';
   if (existing?.id) {
     try {
       const current = await chrome.tabs.get(existing.id);
-      alreadyOpen = isTabReady(current) && (
-        !itemId || extractItemIdFromUrl(current.url || '') === itemId
-      );
+      currentUrl = current.url || currentUrl;
     } catch (_) {}
   }
-  const opened = await openVisibleVendooWindow(alreadyOpen ? null : url, existing);
+  const samePage = Boolean(existing?.id) && listingUrlsMatch(currentUrl, url);
+  const opened = await openVisibleVendooWindow(samePage ? null : url, existing);
   const tabId = opened.tabId;
-  const loaded = await waitForTabComplete(tabId, 20000);
+  let loaded;
+  if (reload && samePage) {
+    log(`Reloading Vendoo draft tab ${tabId} -> ${url}`);
+    loaded = await reloadTabAndWait(tabId, 20000);
+  } else {
+    if (!samePage) log(`Opening Vendoo draft ${url}`);
+    loaded = await waitForTabComplete(tabId, 20000, url);
+  }
   if (preview && payload.job_id) {
     await startJobPreview(tabId, payload.job_id);
   }
@@ -1246,7 +1285,7 @@ async function openVendooListing(job) {
         job_id: job.job_id,
         vendoo_item_id: reuseId,
         vendoo_url: reuseUrl,
-      }, { reload: true, preview: true });
+      }, { reload: true, preview: true, marketplace: 'general' });
       if (!opened.ok) return opened;
       const tab = await chrome.tabs.get(opened.tabId);
       activeJob.windowId = tab.windowId;

@@ -2002,6 +2002,26 @@
       ]);
   }
 
+  function findGeneralCategoryControl() {
+      const direct = document.querySelector('#categoryV2, [role="category-input"]');
+      if (direct) return direct;
+      return findInputByExactLabel('Category', (el) => {
+          const id = String(el.id || '');
+          if (/^listings\./i.test(id)) return false;
+          return /category/i.test(id) || el.getAttribute('role') === 'combobox' || el.tagName === 'BUTTON';
+      });
+  }
+
+  async function waitForGeneralCategoryControl(attempts = 12) {
+      for (let i = 0; i < attempts; i++) {
+          const el = findGeneralCategoryControl();
+          if (el) return el;
+          if (i % 4 === 0) await activateMarketplaceSection('general');
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      return findGeneralCategoryControl();
+  }
+
   async function fillCategoryPath(data, options = {}) {
       const originalPath = data.category_path || '';
       const categoryPath = options.categoryPath || normalizeVendooCategoryPath(data);
@@ -2015,7 +2035,7 @@
       const segments = categoryPath.split('>').map(s => s.trim()).filter(Boolean);
       if (segments.length === 0) return { ok: true, filled: false };
 
-      const catBtn = options.catBtn || document.querySelector('#categoryV2, [role="category-input"]');
+      const catBtn = options.catBtn || await waitForGeneralCategoryControl();
       if (!catBtn) {
           warn('Category button #categoryV2 not found');
           return { ok: false, filled: false, error: 'Category button not found' };
@@ -2204,6 +2224,8 @@
       log('=== Filling Main Vendoo Form ===');
 
       try {
+      await activateMarketplaceSection('general');
+      await sleep(CONFIG.SLEEP_LONG);
       // Category must be set FIRST (before size, which depends on it)
       if (data.category_path) {
           const catResult = await fillCategoryPath(data);
@@ -3625,47 +3647,43 @@
       }
   }
 
+  function marketplaceSectionButtonMatches(btn, platform) {
+      const wanted = normalizeText(platform);
+      if (!wanted) return false;
+      const firstLine = normalizeText((btn.innerText || btn.textContent || '').split('\n')[0]);
+      if (!firstLine || firstLine.length > 24) return false;
+      if (wanted === 'general') return firstLine === 'general';
+      return firstLine === wanted || firstLine.includes(wanted);
+  }
+
   async function activateMarketplaceSection(platform) {
       log(`Activating ${platform} marketplace section...`);
 
-      const buttonTexts = [platform, platform.toUpperCase(), platform.charAt(0).toUpperCase() + platform.slice(1)];
-      const buttons = Array.from(document.querySelectorAll(
-          'button, [role="button"], div[role="tab"], a, span[role="button"]'
-      ));
-
-      for (const btn of buttons) {
-          const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-          if (buttonTexts.some(t => text.includes(t.toLowerCase()))) {
-              const expanded = btn.getAttribute('aria-expanded');
-              if (expanded === 'true') {
-                  log(`  ${platform} section already expanded`);
-                  await sleep(CONFIG.SLEEP_LONG);
-                  return;
-              }
-              log(`  Clicking "${btn.innerText}" to activate ${platform}`);
-              btn.scrollIntoView({ block: 'center', behavior: 'instant' });
-              await sleep(CONFIG.SLEEP_SHORT);
-              btn.click();
-              await sleep(CONFIG.SLEEP_LONG * 2);
-              return;
+      const clickMatching = async () => {
+          const buttons = Array.from(document.querySelectorAll(
+              '[role="tab"], button, [role="button"], a, span[role="button"]'
+          ));
+          const match = buttons.find((btn) => isVisibleElement(btn) && marketplaceSectionButtonMatches(btn, platform));
+          if (!match) return false;
+          const expanded = match.getAttribute('aria-expanded');
+          const selected = match.getAttribute('aria-selected');
+          if (expanded === 'true' || selected === 'true') {
+              log(`  ${platform} section already expanded`);
+              await sleep(CONFIG.SLEEP_LONG);
+              return true;
           }
-      }
+          log(`  Clicking "${(match.innerText || '').trim()}" to activate ${platform}`);
+          match.scrollIntoView({ block: 'center', behavior: 'instant' });
+          await sleep(CONFIG.SLEEP_SHORT);
+          match.click();
+          await sleep(CONFIG.SLEEP_LONG * 2);
+          return true;
+      };
 
+      if (await clickMatching()) return;
       await expandOptionalFields();
       await sleep(CONFIG.SLEEP_LONG);
-
-      for (const btn of buttons) {
-          const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-          if (buttonTexts.some(t => text.includes(t.toLowerCase()))) {
-              log(`  Clicking "${btn.innerText}" to activate ${platform}`);
-              btn.scrollIntoView({ block: 'center', behavior: 'instant' });
-              await sleep(CONFIG.SLEEP_SHORT);
-              btn.click();
-              await sleep(CONFIG.SLEEP_LONG * 2);
-              return;
-          }
-      }
-
+      if (await clickMatching()) return;
       warn(`Could not find activation button for ${platform}`);
   }
 
@@ -3791,6 +3809,8 @@
 
   async function clearGeneralForm() {
       log('Clearing leftover general fields (photos unchanged)');
+      await activateMarketplaceSection('general');
+      await sleep(CONFIG.SLEEP_LONG);
       for (const [name, selector] of Object.entries(VENDOO_SELECTORS)) {
           if (name === 'zipCode' || name === 'category') continue;
           const el = document.querySelector(selector);
@@ -3937,6 +3957,8 @@
               beginFillLog(marketplace);
               if (marketplace && marketplace !== 'general' && marketplace !== 'unknown') {
                   await activateMarketplaceSection(marketplace);
+              } else {
+                  await activateMarketplaceSection('general');
               }
               await expandOptionalFields();
               await sleep(CONFIG.SLEEP_LONG * 2);
