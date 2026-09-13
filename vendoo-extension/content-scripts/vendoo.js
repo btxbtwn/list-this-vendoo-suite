@@ -174,6 +174,33 @@
     'starting price': 'starting price',
   };
 
+  const ACCOUNT_SETTING_FIELDS = new Set([
+    'allow best offer',
+    'auto accept',
+    'minimum offer',
+    'minimum price',
+    'primary store category',
+    'secondary store category',
+    'personalization instructions',
+    'exclude sku from listing',
+    'no brand not sure',
+    'worldwide shipping',
+    'custom property',
+    'other info',
+    'size grouping',
+    'accept returns',
+    'return within',
+    'return refund method',
+    'return paid by',
+    'returns',
+    'starting price',
+    'payment method',
+  ]);
+
+  function isAccountSettingField(value) {
+    return ACCOUNT_SETTING_FIELDS.has(normalizeFieldKey(value));
+  }
+
   function normalizeFieldKey(value) {
     const key = String(value || '')
       .replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, '')
@@ -290,6 +317,7 @@
       const label = fieldLabelForControl(el);
       const key = normalizeFieldKey(label);
       if (!key || seen.has(key) || controlAlreadyLogged(el, key)) continue;
+      if (isAccountSettingField(key) || isAccountSettingField(label)) continue;
       if (fieldLooksFilled(el)) continue;
       seen.add(key);
       recordFill({
@@ -2720,6 +2748,7 @@
               const fieldName = fieldNameMap[key] || key;
               const fieldKey = normalizeFieldKey(fieldName);
               if (filledNames.has(fieldKey)) continue;
+              if (isAccountSettingField(fieldName) || isAccountSettingField(key)) continue;
               const isCascade = EBAY_CASCADE_SPECIFIC_KEYS.includes(key);
               if (mapped && typeof mapped === 'object' && !Array.isArray(mapped)) continue;
               if (specs[key] && (mapped == null || mapped === '')) {
@@ -2829,85 +2858,6 @@
               if (key === 'department' || key === 'type') await sleep(CONFIG.SLEEP_LONG * 2);
           }
       }
-      await fillEbayPolicyAndPriceFields(data, specs);
-  }
-
-  function findEbayMarketplaceControl(label, idNeedles = []) {
-      for (const needle of idNeedles) {
-          if (!needle) continue;
-          const nodes = document.querySelectorAll(`[id*="${needle}"]`);
-          for (const node of nodes) {
-              if (!String(node.id || '').startsWith('listings.ebay.')) continue;
-              const control = visibleDropdownControl(node) || node;
-              if (isAttachedElement(control) && (isVisibleElement(control) || isDropdownLike(control))) {
-                  return control;
-              }
-          }
-      }
-      return findEbaySpecificInput(label) || findInputByExactLabel(label, isMarketplaceInput('ebay'));
-  }
-
-  function ebaySpecValue(specs, keys) {
-      for (const key of keys) {
-          const value = specs && specs[key];
-          if (value != null && String(value).trim() !== '') return String(value).trim();
-      }
-      return '';
-  }
-
-  async function fillEbayLabeledField(label, value, idNeedles = []) {
-      if (value == null || (typeof value === 'string' && value.trim() === '')) return { status: 'skipped' };
-      const values = (Array.isArray(value) ? value : [value]).map((item) => String(item).trim()).filter(Boolean);
-      if (!values.length) return { status: 'skipped' };
-      let el = findEbayMarketplaceControl(label, idNeedles);
-      if (!el) {
-          el = await waitForPatchControl({ field: label, selector: '', marketplace: 'ebay' });
-      }
-      if (!el) {
-          recordFill({ field: label, status: 'not_found', reason: 'Element not found', value: values[0] });
-          return { status: 'not_found' };
-      }
-      const control = visibleDropdownControl(el) || el;
-      let last = { status: 'failed' };
-      for (const item of values) {
-          if (shouldFillAsDropdown(control, label) || isMultiChipField(label, control)) {
-              last = await fillDropdownField(control, item, label, false, isMultiChipField(label, control));
-          } else {
-              last = await fillTextFieldByElement(control, item, label);
-          }
-          if (last && last.status === 'filled') return last;
-      }
-      return last;
-  }
-
-  async function fillEbayPolicyAndPriceFields(data, specs) {
-      const price = data && data.price != null && String(data.price).trim() !== '' ? String(data.price) : '';
-      await expandOptionalFields();
-      await fillEbayLabeledField(
-          'Starting Price',
-          ebaySpecValue(specs, ['startingPrice', 'startPrice', 'starting_price']) || price,
-          ['startPrice', 'startingPrice'],
-      );
-      const acceptReturns = ebaySpecValue(specs, ['acceptReturns', 'returnsAccepted', 'accept_returns']) || 'Yes';
-      await fillEbayLabeledField(
-          'Accept Returns',
-          uniqueStrings([acceptReturns, 'Yes', 'Returns Accepted', 'Accept Returns']),
-          ['returnsAccepted', 'acceptReturns'],
-      );
-      await sleep(CONFIG.SLEEP_MEDIUM);
-      await fillEbayLabeledField(
-          'Return Within',
-          ebaySpecValue(specs, ['returnWithin', 'returnsWithin', 'return_within']) || '30 Days',
-          ['returnWithin', 'returnsWithin'],
-      );
-      await fillEbayLabeledField(
-          'Return Refund Method',
-          ebaySpecValue(specs, ['returnRefundMethod', 'refundMethod', 'return_refund_method']) || 'Money Back',
-          ['returnRefund', 'refundMethod'],
-      );
-      const paidBy = ebaySpecValue(specs, ['returnPaidBy', 'returnPayedBy', 'returnsPaidBy', 'return_paid_by', 'return_payed_by']) || 'Buyer';
-      await fillEbayLabeledField('Return Payed By', paidBy, ['PaidBy', 'PayedBy', 'paidBy']);
-      await fillEbayLabeledField('Return Paid By', paidBy, ['PaidBy', 'PayedBy', 'paidBy']);
   }
 
   async function fillEtsyForm(data) {
@@ -4275,25 +4225,19 @@
               await expandOptionalFields();
               await sleep(CONFIG.SLEEP_LONG * 2);
               let ebayOptionalsReady = marketplace !== 'ebay';
-              if (marketplace === 'ebay' && group.some((item) => /\breturn/i.test(item.field || ''))) {
-                  if (!group.some((item) => normalizeFieldKey(item.field) === 'accept returns')) {
-                      group.unshift({ marketplace: 'ebay', field: 'Accept Returns', value: 'Yes' });
-                  }
-              }
-              group.sort((left, right) => {
+              const pending = group.filter((item) => !isAccountSettingField(item.field));
+              pending.sort((left, right) => {
                   const fillPriority = (key) => {
                       if (key === 'category') return 0;
                       if (key === 'size type') return 1;
                       if (key === 'department') return 2;
                       if (key === 'type') return 3;
                       if (key === 'size') return 4;
-                      if (key === 'accept returns' || key === 'returns') return 5;
-                      if (key.startsWith('return')) return 6;
                       return 10;
                   };
                   return fillPriority(normalizeFieldKey(left.field)) - fillPriority(normalizeFieldKey(right.field));
               });
-              for (const item of group) {
+              for (const item of pending) {
                   currentPatchEntryId = item.id || '';
                   const fieldName = item.field || 'Field';
                   const value = mapPatchValue(marketplace, fieldName, item.value);
@@ -4350,7 +4294,7 @@
                   }
               }
               currentPatchEntryId = '';
-              reverifyPatchedFields(group);
+              reverifyPatchedFields(pending);
               const log = finishFillLog({ skipUnmapped: true });
               allEntries.push(...log.entries);
           }

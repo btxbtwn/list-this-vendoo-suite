@@ -37,6 +37,14 @@ SELLER_SETTING_LABELS = frozenset({
     "custom property",
     "other info",
     "size grouping",
+    "accept returns",
+    "return within",
+    "return refund method",
+    "return paid by",
+    "return payed by",
+    "returns",
+    "starting price",
+    "payment method",
 })
 
 # Already stored on the listing root (or a general field). Do not copy into *_specifics.

@@ -103,6 +103,30 @@ const SKIP_KEYS = new Set([
 ]);
 
 const UNFILLABLE_FIELDS = new Set(["photos", "images", "videos", "image"]);
+const ACCOUNT_SETTING_FIELDS = new Set([
+  "allow best offer",
+  "auto-accept",
+  "auto accept",
+  "minimum offer",
+  "minimum price",
+  "primary store category",
+  "secondary store category",
+  "personalization instructions",
+  "exclude sku from listing",
+  "no brand/not sure",
+  "worldwide shipping",
+  "custom property",
+  "other info",
+  "size grouping",
+  "accept returns",
+  "return within",
+  "return refund method",
+  "return paid by",
+  "return payed by",
+  "returns",
+  "starting price",
+  "payment method",
+]);
 const GENERAL_LISTING_KEYS: Record<string, string> = {
   title: "title",
   description: "description",
@@ -134,8 +158,17 @@ const GENERAL_LISTING_KEYS: Record<string, string> = {
   "vendoo internal notes": "notes",
 };
 
+function isAccountSettingField(field: DraftField | string): boolean {
+  const raw = typeof field === "string" ? field : field.label || field.key;
+  return ACCOUNT_SETTING_FIELDS.has(normalizeLookupKey(raw));
+}
+
 function isUnfillableField(field: DraftField): boolean {
-  return UNFILLABLE_FIELDS.has(field.label.toLowerCase()) || UNFILLABLE_FIELDS.has(field.key.toLowerCase());
+  return (
+    UNFILLABLE_FIELDS.has(field.label.toLowerCase()) ||
+    UNFILLABLE_FIELDS.has(field.key.toLowerCase()) ||
+    isAccountSettingField(field)
+  );
 }
 
 function normalizeLookupKey(value: string): string {
@@ -228,18 +261,6 @@ function listingValueForField(
     }
     if (raw == null) raw = valueFromRecord(listing, key);
   }
-  if (raw == null && marketplace === "ebay") {
-    if (key === "starting price") raw = listing.price;
-    if (raw == null) {
-      const defaults: Record<string, string> = {
-        "return within": "30 Days",
-        "return paid by": "Buyer",
-        "return refund method": "Money Back",
-        "accept returns": "Yes",
-      };
-      raw = defaults[key];
-    }
-  }
   if (raw == null) return "";
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean).join(", ").trim();
   const text = String(raw).trim();
@@ -289,7 +310,9 @@ function leftoverEntries(report: FillLogReport): FillLogEntry[] {
   const rows: FillLogEntry[] = [];
   for (const group of Object.values(report.by_marketplace)) {
     for (const entry of group.entries) {
-      if (FILLABLE_STATUSES.has(entry.status)) rows.push(entry);
+      if (!FILLABLE_STATUSES.has(entry.status)) continue;
+      if (isAccountSettingField(entry.field)) continue;
+      rows.push(entry);
     }
   }
   return rows.sort((left, right) => {
@@ -495,13 +518,7 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
     {
       label: "Shipping & returns",
       fields: [
-        { keys: ["accept returns"], label: "Accept Returns" },
-        { keys: ["return within"], label: "Return Within" },
-        { keys: ["return refund method"], label: "Return Refund Method" },
-        { keys: ["return paid by", "return payed by"], label: "Return Paid By" },
-        { keys: ["payment method"], label: "Payment Method" },
         { keys: ["shipping"], label: "Shipping" },
-        { keys: ["starting price"], label: "Starting Price" },
         { keys: ["returns"], label: "Returns" },
       ],
     },
@@ -1058,7 +1075,12 @@ function isFieldHidden(hidden: Set<string>, marketplace: string, field: DraftFie
 function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsState): DraftForm[] {
   const keys = hiddenKeySet(hidden);
   return forms
-    .map((form) => toForm(form.id, form.fields.filter((field) => !isFieldHidden(keys, form.id, field))))
+    .map((form) => {
+      const fields = form.fields.filter(
+        (field) => !isFieldHidden(keys, form.id, field) && !isAccountSettingField(field),
+      );
+      return toForm(form.id, fields);
+    })
     .filter((form) => form.fields.length > 0);
 }
 

@@ -205,14 +205,7 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
         ):
             return ""
         return result
-    if marketplace == "ebay" and key == "starting price":
-        return _stringify_listing_value(source.get("price"))
-    return {
-        ("ebay", "return within"): "30 Days",
-        ("ebay", "return paid by"): "Buyer",
-        ("ebay", "return refund method"): "Money Back",
-        ("ebay", "accept returns"): "Yes",
-    }.get((marketplace, key), "")
+    return ""
 
 
 def extract_missing_fields(text: str) -> list[dict] | None:
