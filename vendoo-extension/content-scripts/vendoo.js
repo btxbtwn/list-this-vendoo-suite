@@ -2743,7 +2743,15 @@
       }
       if (key === 'season') {
           const allowed = ['Fall', 'Spring', 'Summer', 'Winter'];
-          return allowed.find((item) => item.toLowerCase() === raw.toLowerCase()) || null;
+          const parts = raw.split(/[,;/|]+/).map((part) => part.trim()).filter(Boolean);
+          const matched = [];
+          for (const part of parts) {
+              if (/^all seasons$/i.test(part)) continue;
+              const hit = allowed.find((item) => item.toLowerCase() === part.toLowerCase());
+              if (hit && !matched.includes(hit)) matched.push(hit);
+          }
+          if (matched.length === 0) return null;
+          return matched.length === 1 ? matched[0] : matched;
       }
       if (key === 'countryOfOrigin' && /^unknown$/i.test(raw)) return null;
       if (isDoesNotApplyValue(raw) && key !== 'yearManufactured') return 'Does Not Apply';
@@ -2837,11 +2845,13 @@
           }
           log(`Found ${allInputs.length} category specific fields`);
 
+          // "All Seasons" is a Features chip, not a Season option (Season = Fall/Spring/Summer/Winter only).
           const seasonRaw = specs.season;
           if (/all seasons/i.test(String(seasonRaw || ''))) {
               const features = Array.isArray(specs.features) ? specs.features.slice() : String(specs.features || '').split(',').map((item) => item.trim()).filter(Boolean);
               if (!features.some((item) => /all seasons/i.test(item))) features.push('All Seasons');
               specs.features = features;
+              delete specs.season;
           }
           const fillOrder = [
               'sizeType', 'department', 'type', 'size',
