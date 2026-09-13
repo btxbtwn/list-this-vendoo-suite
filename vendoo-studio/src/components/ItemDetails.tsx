@@ -158,7 +158,15 @@ export function ItemDetails({ convId }: Props) {
     setDetails(updated);
     rememberLabels(updated.vendooLabels);
     setRecentTick((tick) => tick + 1);
+    let extra: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(conv?.notes || "{}");
+      extra = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      extra = {};
+    }
     await api.conversations.update(convId, { notes: JSON.stringify({
+      ...extra,
       condition: updated.condition,
       cog: updated.cog,
       packageDimensions: updated.packageDimensions,
@@ -170,7 +178,7 @@ export function ItemDetails({ convId }: Props) {
     })});
     queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
     setSaving(false);
-  }, [convId, queryClient]);
+  }, [conv?.notes, convId, queryClient]);
 
   const scheduleSave = useCallback((updated: ItemDetailsData) => {
     setDetails(updated);
