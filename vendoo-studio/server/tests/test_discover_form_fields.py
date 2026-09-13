@@ -90,11 +90,16 @@ const auditMarketplace = async () => ({ ok: true });
         # aria-selected alone skips eBay when the nav still looks selected.
         self.assertIn("marketplaceFormMounted(platform)", discover_body)
         self.assertIn("waitForMarketplaceFormMounted", content)
+        self.assertIn("marketplaceSectionReady", content)
+        self.assertIn("isEffectivelyVisible", content)
         activate_start = content.index("async function activateMarketplaceSection")
         activate_end = content.index("async function auditMarketplaceForm")
         activate_body = content[activate_start:activate_end]
-        self.assertIn("marketplaceFormMounted(platform)", activate_body)
+        self.assertIn("marketplaceSectionReady(platform)", activate_body)
         self.assertIn("force: true", activate_body)
+        self.assertIn("Always click the marketplace nav control", activate_body)
+        self.assertNotIn("getAttribute('aria-selected')", activate_body)
+        self.assertNotIn("already expanded", activate_body)
         scrape_start = content.index("async function scrapeVendooItem")
         scrape_end = content.index("async function clearChipContainer")
         scrape_body = content[scrape_start:scrape_end]
@@ -103,6 +108,25 @@ const auditMarketplace = async () => ({ ok: true });
         for platform in ("ebay", "etsy", "poshmark", "mercari", "depop"):
             self.assertIn(f"'{platform}'", content)
             self.assertIn(f"await fillMarketplaceCategory('{platform}'", content)
+
+    def test_activate_marketplace_checks_visible_panel_not_aria(self) -> None:
+        content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
+        activate_start = content.index("async function activateMarketplaceSection")
+        activate_end = content.index("async function auditMarketplaceForm")
+        activate_body = content[activate_start:activate_end]
+        self.assertIn("marketplaceSectionReady", activate_body)
+        self.assertNotIn("getAttribute('aria-selected')", activate_body)
+        self.assertNotIn("getAttribute('aria-expanded')", activate_body)
+        self.assertNotIn("already expanded", activate_body)
+        self.assertNotIn("section already active", activate_body)
+        self.assertIn("Always click the marketplace nav control", activate_body)
+        self.assertIn("isEffectivelyVisible", content)
+        self.assertIn("marketplaceFormMounted", content)
+        schema_start = content.index("async function discoverMarketplaceSchema")
+        schema_end = content.index("async function scrapeVendooItem")
+        schema_body = content[schema_start:schema_end]
+        self.assertIn("await saveGeneralForm()", schema_body)
+        self.assertIn("await closeOpenMenus()", schema_body)
 
 
 if __name__ == "__main__":
