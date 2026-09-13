@@ -10,6 +10,7 @@ from vendoo_studio.services.sold_comps import (
     comps_usable,
     format_sold_comps,
     parse_sold_comps,
+    research_note,
 )
 
 
@@ -111,3 +112,44 @@ class FormatParseTest(unittest.TestCase):
         self.assertIn("No sold listings found", text)
         self.assertFalse(comps_usable(text))
         self.assertFalse(comps_usable("Typical sold price $20"))
+
+    def test_keeps_research_note_and_market_without_listings(self):
+        text = format_sold_comps(
+            SoldCompsReport(
+                query="Sauza tee sold comps",
+                source="ChatGPT web search",
+                market="$10–$25",
+                note=(
+                    "## Research note — Sauza Tequila T-shirt\n"
+                    "**Typical sold-price range:** **$10–$25 USD** for a standard tee."
+                ),
+            )
+        )
+        parsed = parse_sold_comps(text)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.market, "$10–$25")
+        self.assertIn("Typical sold-price range", parsed.note)
+        self.assertFalse(parsed.comps)
+        self.assertFalse(comps_usable(text))
+
+
+class ResearchNoteTest(unittest.TestCase):
+    def test_keeps_markdown_prose(self):
+        note = research_note(
+            "## Research note — Sauza Tequila T-shirt\n"
+            "**Typical sold-price range:** **$10–$25 USD** for a standard tee."
+        )
+        self.assertIn("Typical sold-price range", note)
+        self.assertIn("## Research note", note)
+
+    def test_drops_json_only_payloads(self):
+        self.assertEqual(research_note('{"market":"","comps":[]}'), "")
+        self.assertEqual(research_note('```json\n{"market":"$18-$25","comps":[]}\n```'), "")
+
+    def test_keeps_prose_around_json(self):
+        note = research_note(
+            "Typical sold-price range $10-$25.\n"
+            '```json\n{"market":"$10-$25","comps":[]}\n```'
+        )
+        self.assertIn("Typical sold-price range $10-$25.", note)
+        self.assertNotIn("```", note)

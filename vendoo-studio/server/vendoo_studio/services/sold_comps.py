@@ -305,6 +305,24 @@ def comps_from_markdown(text: str | None) -> list[SoldComp]:
     return _dedupe([comp for comp in comps if comp])
 
 
+def research_note(answer: str | None) -> str:
+    blob = (answer or "").strip()
+    if not blob:
+        return ""
+    remainder = re.sub(r"```(?:json)?\s*[\s\S]*?```", "", blob, flags=re.I).strip()
+    payload = _extract_json(blob)
+    if payload is not None and not remainder:
+        return ""
+    if payload is not None:
+        try:
+            if json.loads(blob) == payload:
+                return ""
+        except json.JSONDecodeError:
+            pass
+        return remainder
+    return remainder or blob
+
+
 def comps_from_chatgpt(answer: str | None, sources: list[dict] | None = None) -> tuple[str, list[SoldComp]]:
     comps: list[SoldComp] = []
     market = ""
@@ -327,10 +345,10 @@ def comps_from_chatgpt(answer: str | None, sources: list[dict] | None = None) ->
 
 def format_sold_comps(report: SoldCompsReport) -> str:
     lines = [PREFIX, f"Query: {report.query}", f"Source: {report.source}"]
+    market = report.market or (market_range(comps=report.comps) if report.comps else "")
+    if market:
+        lines.append(f"Market: {market}")
     if report.comps:
-        market = report.market or market_range(comps=report.comps)
-        if market:
-            lines.append(f"Market: {market}")
         lines.append("")
         for comp in report.comps[:8]:
             parts = [format_price(comp.price), comp.marketplace]
@@ -354,7 +372,7 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
     query = ""
     source = ""
     market = ""
-    note = ""
+    note_lines: list[str] = []
     comps: list[SoldComp] = []
     pending: SoldComp | None = None
     for raw in blob.splitlines()[1:]:
@@ -382,6 +400,8 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
                 )
                 comps.append(pending)
                 pending = None
+            elif not comps and not pending:
+                note_lines.append(stripped)
             continue
         if stripped.startswith("- $") or stripped.startswith("-$"):
             if pending:
@@ -399,10 +419,14 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
                 condition, title = parts[2], " · ".join(parts[3:])
             pending = _comp(price, marketplace, title, condition=condition)
             continue
-        if stripped and not comps and not pending:
-            note = stripped if not note else f"{note} {stripped}"
+        if not comps and not pending:
+            if stripped or note_lines:
+                note_lines.append(line)
     if pending:
         comps.append(pending)
+    note = "\n".join(note_lines).strip()
+    if not market:
+        market = market_range(note)
     return SoldCompsReport(
         query=query,
         source=source,
