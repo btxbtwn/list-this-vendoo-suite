@@ -20,7 +20,7 @@ fi
 SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha"])' "$INFO")"
 SHORT="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("short_sha") or d["sha"][:7])' "$INFO")"
 REF="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("ref") or "main")' "$INFO")"
-NOTES=$(printf 'sha: %s\nref: %s\n\nUnzip List-This-Studio-macos.zip and move List This Studio.app to Applications.\n' "$SHA" "$REF")
+NOTES=$(printf 'sha: %s\nref: %s\n\nInstall\n1. Unzip List-This-Studio-macos.zip\n2. Move List This Studio.app into Applications\n3. Control-click the app and choose Open (first launch only)\n4. In Settings, sign in with ChatGPT or add a MiMo API key\n5. Click Connect Chrome and sign in to Vendoo\n\nNeeds macOS 13+ and Google Chrome. Listing data stays on this Mac.\n' "$SHA" "$REF")
 
 if gh release view "$TAG" --repo btxbtwn/list-this-vendoo-suite >/dev/null 2>&1; then
   gh release upload "$TAG" "$ZIP" "$INFO" --clobber --repo btxbtwn/list-this-vendoo-suite

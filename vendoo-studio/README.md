@@ -1,20 +1,20 @@
 # Vendoo Listing Studio
 
-Local application for generating and automating Vendoo marketplace listings through Xiaomi MiMo AI.
+Local Mac app for generating Vendoo marketplace listings with ChatGPT or Xiaomi MiMo, then filling a draft in Chrome. It never publishes.
 
 ## Share a Mac app
 
-Build a self-contained `.app` that someone else can unzip and open. They do not need Python, Node, or this git repo.
+Build a self-contained `.app`. Recipients do not need Python, Node, or this git repo.
 
 ```bash
 cd vendoo-studio
-python3.12 -m venv .venv
+./scripts/setup.sh
 source .venv/bin/activate
 pip install -e ".[package]"
 ./scripts/package-macos-app.sh
 ```
 
-That writes `vendoo-studio/release/List This Studio.app` and `vendoo-studio/release/List-This-Studio-macos.zip`.
+That writes `vendoo-studio/release/List This Studio.app` and `vendoo-studio/release/List-This-Studio-macos.zip`. The zip also includes **How to Open.txt**.
 
 Publish the zip as the rolling GitHub release (`studio-macos`):
 
@@ -29,55 +29,46 @@ The packaged app does not git-pull. **Check for updates** compares the stamped b
 The recipient:
 
 1. Unzips the archive and moves **List This Studio** into Applications.
-2. Opens it. The first time, macOS may require right-click → Open because the build is ad-hoc signed, not notarized.
-3. Enters a Xiaomi MiMo API key in Settings.
+2. Control-clicks the app and chooses **Open** the first time (ad-hoc signed, not notarized).
+3. Signs in with ChatGPT or enters a Xiaomi MiMo API key in Settings.
 4. Clicks **Connect Chrome**. Studio opens a managed Chrome window with the Vendoo extension loaded. They sign in to Vendoo there once.
 
-They need macOS 13+ and Google Chrome. Listing photos and the SQLite database live in `~/Library/Application Support/List This Studio`.
+They need macOS 13+ and Google Chrome.
 
-## Quick Start (development)
+## Quick start (this repo)
+
+From the repository root:
 
 ```bash
-cd vendoo-studio
-
-# Backend (Python 3.12+)
-python3 -m venv .venv
-source .venv/bin/activate
-pip install fastapi uvicorn[standard] pydantic sqlalchemy httpx python-multipart pillow keyring aiofiles
-PYTHONPATH=server python -m vendoo_studio.main
-
-# Frontend (dev mode, separate terminal)
-npm install
-npm run dev
+./setup.sh
+./start.sh
 ```
 
-The app opens at http://127.0.0.1:4318. In development the frontend runs at http://127.0.0.1:5173 with API proxying.
+Or from this directory:
 
-## Setup
+```bash
+./scripts/setup.sh
+./scripts/dev.sh
+```
 
-1. Open the app in your browser.
-2. Go to **Settings** (sidebar).
-3. Enter your Xiaomi MiMo API key.
-4. Click **Save Key** then **Test Connection**.
-5. Load the Chrome extension unpacked from `../vendoo-extension/`.
-6. The extension connects automatically and the status bar shows **Extension connected**.
+`setup.sh` creates `.venv`, installs Python and Node packages, and builds the frontend. `dev.sh` starts the API at http://127.0.0.1:4318 and the Vite app at http://127.0.0.1:5173. `./scripts/doctor.sh` checks that the machine is ready.
+
+Requirements: Python 3.12+, Node.js 20+, Google Chrome.
+
+Then:
+
+1. Open **Settings**.
+2. Sign in with ChatGPT, or save a Xiaomi MiMo API key and test it.
+3. Click **Connect Chrome** and sign in to Vendoo.
 
 ## Workflow
 
-1. **Create a listing** (sidebar + New).
+1. **Create a listing**.
 2. **Upload photos** by dragging them into the photo tray.
 3. Optionally add notes (cost, flaws, measurements).
-4. **Chat with MiMo** - ask it to analyze the photos and generate a listing.
-5. **Review the listing** in the right panel (General, eBay, Depop, etc. tabs or raw JSON).
-6. Revise by chatting, editing fields, or editing JSON directly.
-7. When satisfied, click **Send to Vendoo**.
-8. Watch the progress as the extension:
-   - Opens a new Vendoo listing
-   - Uploads the approved photos
-   - Fills and saves the general form
-   - Fills and saves each selected marketplace
-   - Stops before publishing
-9. Open the Vendoo draft to review and publish manually.
+4. Chat to analyze the photos and generate a listing.
+5. Review the listing in the right panel.
+6. Click **Send to Vendoo**. Studio fills and saves a draft, then stops before publishing.
 
 ## Architecture
 
@@ -92,53 +83,44 @@ vendoo-studio/           Local web app (FastAPI + React)
 │       ├── routes/      API endpoints
 │       ├── services/    Keychain, photos, extension gateway
 │       ├── repositories/ Database queries
-│       └── providers/   Xiaomi MiMo API client
+│       └── providers/   ChatGPT and Xiaomi MiMo clients
 ├── src/                 React frontend
 │   ├── app/             Main app and routing
 │   ├── api/             API client
 │   ├── components/      UI components
 │   └── styles/          CSS
-└── data/                SQLite database and photo storage
+└── data/                SQLite database and photo storage (dev only)
 ```
 
 ## Security
 
 - Binds only to `127.0.0.1` (localhost).
-- MiMo API key stored in macOS Keychain, never in SQLite, browser storage, or logs.
+- API keys and ChatGPT tokens live in macOS Keychain, never in SQLite, browser storage, or logs.
 - Never sent to the React frontend or Chrome extension.
-- Photo URLs use signed tokens for extension access.
-- No publication automation - only draft saving.
+- Photos are served only on localhost (`GET /api/photos/{id}`).
+- No publication automation — only draft saving.
 
 ## Development
 
-### Backend
-
 ```bash
-source .venv/bin/activate
-PYTHONPATH=server python -m vendoo_studio.main
+./scripts/dev.sh     # backend + frontend together
+./scripts/doctor.sh  # check Python, Node, Chrome, ports
+cd vendoo-studio && npm run build
+PYTHONPATH=server .venv/bin/python -m pytest -q server/tests
 ```
 
-Set `VENDOO_STUDIO_DEV=1` for auto-reload.
+Set `VENDOO_STUDIO_DEV=1` if you start the backend yourself and want auto-reload.
 
-### Frontend
-
-```bash
-npm run dev      # Vite dev server with API proxy
-npm run build    # Production build to dist/
-```
-
-### Extension
-
-Load unpacked from `../vendoo-extension/` in `chrome://extensions/`. The extension connects to `ws://127.0.0.1:4318/api/extension/ws`.
+The extension connects to `ws://127.0.0.1:4318/api/extension/ws`. Studio copies it into a managed Chrome profile when you click Connect Chrome.
 
 ## Database
 
-SQLite at `data/vendoo_studio.db`. Tables:
+SQLite at `data/vendoo_studio.db` in development, or `~/Library/Application Support/List This Studio` in the packaged app. Tables:
 
-- `conversations` - listing sessions
-- `messages` - chat history
-- `photos` - uploaded images
-- `listings` - current listing state
-- `listing_revisions` - edit history
-- `jobs` - automation jobs
-- `job_events` - per-job event log
+- `conversations` — listing sessions
+- `messages` — chat history
+- `photos` — uploaded images
+- `listings` — current listing state
+- `listing_revisions` — edit history
+- `jobs` — automation jobs
+- `job_events` — per-job event log

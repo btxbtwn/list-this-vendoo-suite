@@ -1017,6 +1017,70 @@ html.desktop-app .workspace-drag-region {
   margin: 4px 0;
 }
 
+.setup-checklist {
+  gap: 16px;
+}
+
+.setup-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100%, 22rem);
+  margin: 8px 0 0;
+  padding: 0;
+  text-align: left;
+}
+
+.setup-step {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+}
+
+.setup-step.done {
+  border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+}
+
+.setup-step-mark {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 1px;
+  border: 1px solid var(--color-border-bright);
+  border-radius: 999px;
+  color: var(--color-success);
+  font-size: 11px;
+  line-height: 1.15rem;
+  text-align: center;
+}
+
+.setup-step.done .setup-step-mark {
+  border-color: var(--color-success);
+}
+
+.setup-step-label {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.setup-step-note {
+  margin-top: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.setup-step-body .btn,
+.setup-step-body .status-connect {
+  margin-top: 8px;
+}
+
 /* ── Chat ── */
 
 .chat-panel {

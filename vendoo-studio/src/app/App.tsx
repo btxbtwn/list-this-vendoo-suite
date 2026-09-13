@@ -7,6 +7,7 @@ import { ListingEditor } from "../components/ListingEditor";
 import { ChatPanel } from "../components/ChatPanel";
 import { PhotoTray } from "../components/PhotoTray";
 import { SettingsPage } from "../components/SettingsPage";
+import { SetupChecklist } from "../components/SetupChecklist";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
 import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon } from "../components/ListingSidebar";
@@ -53,6 +54,14 @@ export function App() {
     queryFn: api.jobs.list,
     refetchInterval: 2000,
   });
+  const { data: status } = useQuery({
+    queryKey: ["status"],
+    queryFn: api.status,
+    refetchInterval: 4000,
+  });
+  const needsSetup = Boolean(
+    status && (!status.provider_configured || !status.extension_connected),
+  );
   const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
 
@@ -238,6 +247,15 @@ export function App() {
                   />
                 )}
               </div>
+            ) : needsSetup ? (
+              <SetupChecklist
+                providerConfigured={Boolean(status?.provider_configured)}
+                chromeAvailable={status?.chrome_available !== false}
+                extensionConnected={Boolean(status?.extension_connected)}
+                creating={createConv.isPending}
+                onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); closeMobileSidebar(); }}
+                onCreate={() => createConv.mutate()}
+              />
             ) : (
               <div className="empty-state">
                 <div className="empty-state-headline">Turn product photos<br />into marketplace-ready drafts.</div>

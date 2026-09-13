@@ -48,7 +48,7 @@ path.write_text(json.dumps({
 print(path)
 PY
 
-"$PYTHON" "$ROOT/desktop/make_icon.py" "$ROOT/desktop/AppIcon.icns"
+"$PYTHON" "$ROOT/desktop/make_icon.py" "$ROOT/desktop/AppIcon.icns" "$REPO/vendoo-extension/icons"
 rm -rf "$RELEASE" "$ROOT/build/pyinstaller"
 mkdir -p "$RELEASE"
 "$PYTHON" -m PyInstaller \
@@ -66,10 +66,18 @@ if command -v codesign >/dev/null 2>&1; then
   codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 fi
 
-ditto -c -k --keepParent "$APP" "$ZIP"
+PAYLOAD="$RELEASE/payload"
+rm -rf "$PAYLOAD" "$ZIP"
+mkdir -p "$PAYLOAD"
+ditto "$APP" "$PAYLOAD/List This Studio.app"
+cp "$ROOT/desktop/HowToOpen.txt" "$PAYLOAD/How to Open.txt"
+(
+  cd "$PAYLOAD"
+  ditto -c -k . "$ZIP"
+)
 cp "$ROOT/desktop/build_info.json" "$RELEASE/build_info.json"
 echo "Built $APP"
 echo "Share $ZIP"
 echo "Publish with: $ROOT/scripts/publish-macos-release.sh"
-echo "Recipients: unzip, move List This Studio.app to Applications, then open it."
-echo "They need macOS 13+, Google Chrome, and a Xiaomi MiMo API key. Python and Node are included."
+echo "Recipients: unzip, read How to Open.txt, move List This Studio.app to Applications."
+echo "They need macOS 13+, Google Chrome, and a ChatGPT account or Xiaomi MiMo API key. Python and Node are included."

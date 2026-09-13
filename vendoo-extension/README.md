@@ -1,5 +1,7 @@
 # Vendoo Multi-Platform Lister - Chrome Extension MVP
 
+Studio users do not load this unpacked. **Connect Chrome** in List This Studio copies this folder into a managed Chrome profile. Use the steps below only for the manual paste-and-fill popup.
+
 Flow A: Paste JSON → Fill Vendoo first → Sequential fill for eBay/Poshmark/Mercari/Depop/Etsy (draft-only)
 
 ## Installation

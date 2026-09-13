@@ -29,13 +29,18 @@ Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, an
 - **`skills/`** — Agent skills for listing generation (`list-this`).
 - **`vendoo-extension/`** — Chrome MV3 extension that consumes listing JSON and fills marketplace forms. Content scripts under `content-scripts/` handle Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy. `background.js` routes messages; `popup.html`/`popup.js` provide the manual paste-and-fill UI.
 - **`vendoo-studio/`** — React + TypeScript frontend (`src/`) and FastAPI Python backend (`server/vendoo_studio/`). Frontend API clients live under `src/api/`. Backend routes live under `server/vendoo_studio/routes/`; domain behavior lives in `server/vendoo_studio/services/` and `server/vendoo_studio/repositories/`.
+- **`background-studio/`** — Standalone local photo background-removal app. Keep it separate from `vendoo-studio/`.
 
 ## Development Commands
 
-- **Studio frontend dev:** `cd vendoo-studio && npm run dev`
+- **Studio setup:** `./setup.sh` (from the repo root) or `cd vendoo-studio && ./scripts/setup.sh`
+- **Studio start:** `./start.sh` or `cd vendoo-studio && ./scripts/dev.sh`
+- **Studio doctor:** `cd vendoo-studio && ./scripts/doctor.sh`
 - **Studio frontend build:** `cd vendoo-studio && npm run build`
-- **Studio backend:** Python 3.12+ required. Package entry point defined in `vendoo-studio/pyproject.toml`.
-- **Extension:** Load unpacked from Chrome extensions page (`chrome://extensions/`) with Developer mode enabled.
+- **Studio backend tests:** `cd vendoo-studio && python -m pytest -q` (install with `pip install -e ".[dev]"`)
+- **Background Studio setup:** `cd background-studio && ./scripts/setup.sh`
+- **Background Studio start:** `cd background-studio && ./scripts/dev.sh`
+- **Extension:** Studio loads it through **Connect Chrome**. For the manual popup fallback, load unpacked from `vendoo-extension/` in `chrome://extensions/` with Developer mode enabled.
 
 ## Coding Conventions
 

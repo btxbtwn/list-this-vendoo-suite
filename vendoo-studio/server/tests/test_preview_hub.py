@@ -79,8 +79,8 @@ class PreviewRouteTest(unittest.TestCase):
         client = TestClient(app)
         with client:
             response = client.get("/api/jobs/missing/preview")
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["detail"], "Job not found")
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.json()["detail"], "Job not found")
 
 
 if __name__ == "__main__":

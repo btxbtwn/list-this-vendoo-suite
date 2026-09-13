@@ -7,7 +7,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
-    allowedHosts: ['localhost', '127.0.0.1', 'criss-mac-mini-1.tail6c7361.ts.net'],
+    allowedHosts: ['localhost', '127.0.0.1', '.ts.net'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

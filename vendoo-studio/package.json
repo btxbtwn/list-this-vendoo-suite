@@ -6,7 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup": "bash scripts/setup.sh",
+    "doctor": "bash scripts/doctor.sh",
+    "start": "bash scripts/dev.sh"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.60.0",
