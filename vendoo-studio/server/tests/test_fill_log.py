@@ -93,6 +93,22 @@ class FillLogHelpersTest(unittest.TestCase):
         }
         self.assertEqual(listing_value_for_field(listing, "etsy", "When Made"), "2014")
 
+    def test_listing_value_for_field_reads_etsy_category_specifics(self):
+        listing = {
+            "size": "XL",
+            "etsy_specifics": {
+                "materials": ["Cotton"],
+                "category_specifics": {
+                    "graphic": "Sports & fitness",
+                    "fabricPattern": "Solid",
+                },
+            },
+        }
+        self.assertEqual(listing_value_for_field(listing, "etsy", "Graphic"), "Sports & fitness")
+        self.assertEqual(listing_value_for_field(listing, "etsy", "Fabric pattern"), "Solid")
+        self.assertEqual(listing_value_for_field(listing, "etsy", "Materials"), "Cotton")
+        self.assertEqual(listing_value_for_field(listing, "etsy", "Size"), "XL")
+
 
 class FillLogServiceTest(unittest.TestCase):
     def setUp(self):

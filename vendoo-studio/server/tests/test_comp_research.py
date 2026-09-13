@@ -9,6 +9,7 @@ from vendoo_studio.services.comp_research import (
     format_chatgpt_comps,
     research_sold_comps,
 )
+from vendoo_studio.services.sold_comps import SoldCompsReport, format_sold_comps
 
 
 ANALYSIS = "Photo analysis:\n- brand: Levi's\n- style: Slim shorts"
@@ -16,27 +17,36 @@ CHATGPT_COMPS = (
     "Sold comps:\n"
     "Query: Levi's Slim shorts sold comps\n"
     "Source: ChatGPT web search\n"
-    "Sold recently for $18-$25 on eBay.\n"
-    "https://www.ebay.com/itm/1\n"
+    "Market: $18–$25\n"
+    "\n"
+    "- $22 · eBay · Good · Levi's 511 Slim Shorts\n"
+    "  https://www.ebay.com/itm/1\n"
+    "\n"
     "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
 )
 BRAVE_COMPS = (
     "Sold comps:\n"
-    "Query: Levi's Slim shorts sold comps\n"
+    "Query: Levi's Slim shorts sold (site:ebay.com OR site:poshmark.com OR site:mercari.com OR site:depop.com OR site:etsy.com)\n"
     "Source: Brave Search\n"
-    "- Levi's 511 Slim Shorts - Sold\n"
-    "  Sold for $22.\n"
+    "Market: $22\n"
+    "\n"
+    "- $22 · eBay · Levi's 511 Slim Shorts - Sold\n"
+    "  https://www.ebay.com/itm/123\n"
+    "\n"
     "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
+)
+EMPTY_COMPS = format_sold_comps(
+    SoldCompsReport(query="Levi's Slim shorts sold comps", source="ChatGPT web search")
 )
 
 
 class CompUsableTest(unittest.TestCase):
-    def test_requires_price_or_url(self):
+    def test_requires_structured_sold_items(self):
         self.assertFalse(comps_usable(""))
-        self.assertFalse(comps_usable("Sold comps:\nNo sold listings found."))
+        self.assertFalse(comps_usable(EMPTY_COMPS))
         self.assertFalse(comps_usable("Sold comps:\nSearch failed (timeout)."))
+        self.assertFalse(comps_usable("Typical sold price $20"))
         self.assertTrue(comps_usable(CHATGPT_COMPS))
-        self.assertTrue(comps_usable("Typical sold price $20"))
 
 
 class CompAvailabilityTest(unittest.TestCase):
@@ -62,11 +72,11 @@ class FormatChatGPTCompsTest(unittest.TestCase):
     def test_includes_answer_and_sources(self):
         text = format_chatgpt_comps(
             "Levi's shorts sold comps",
-            "Sold $18-$25.",
-            [{"title": "eBay sold listing", "url": "https://www.ebay.com/itm/1"}],
+            '{"market":"$18-$25","comps":[{"title":"eBay sold listing","price":22,"marketplace":"eBay","url":"https://www.ebay.com/itm/1"}]}',
+            [],
         )
         self.assertIn("Source: ChatGPT web search", text)
-        self.assertIn("Sold $18-$25.", text)
+        self.assertIn("$22 · eBay", text)
         self.assertIn("https://www.ebay.com/itm/1", text)
 
 
@@ -92,6 +102,7 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
         ):
             text = await research_sold_comps(ANALYSIS)
         brave.assert_awaited_once()
+        self.assertIn("site:ebay.com", brave.await_args.args[0])
         self.assertIn("Source: Brave Search", text)
 
     async def test_thin_chatgpt_result_uses_brave(self):
@@ -99,13 +110,24 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
             patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
             patch(
                 "vendoo_studio.services.comp_research.research_chatgpt_comps",
-                new=AsyncMock(return_value="Sold comps:\nNo sold listings found."),
+                new=AsyncMock(return_value=EMPTY_COMPS),
             ),
             patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=BRAVE_COMPS)),
             patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
         ):
             text = await research_sold_comps(ANALYSIS)
         self.assertIn("Source: Brave Search", text)
+
+    async def test_unusable_brave_keeps_chatgpt_note(self):
+        with (
+            patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=AsyncMock(return_value=EMPTY_COMPS)),
+            patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=EMPTY_COMPS.replace("ChatGPT web search", "Brave Search"))),
+            patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
+        ):
+            text = await research_sold_comps(ANALYSIS)
+        self.assertIn("Source: ChatGPT web search", text)
+        self.assertFalse(comps_usable(text))
 
     async def test_skips_when_no_search_provider(self):
         with (

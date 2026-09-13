@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos } from "./thinkingTodos";
 
 interface Props {
@@ -514,14 +515,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     }
 
     if (m.role === "system" && isCompResearch(m.text)) {
-      const lines = m.text.split("\n").filter((l: string) => l.trim());
-      const body = lines.slice(1).join("\n");
-      return (
-        <div key={m.id} className="evidence-card">
-          <div className="evidence-header">SOLD COMPS</div>
-          <div className="evidence-body">{body || m.text}</div>
-        </div>
-      );
+      return <SoldCompsCard key={m.id} text={m.text} />;
     }
 
     if (m.role === "system") {

@@ -84,6 +84,7 @@ LABEL_TO_JSON_KEY = {
     "collar style": "collarStyle",
     "strap type": "strapType",
     "clothing style": "clothingStyle",
+    "fabric pattern": "fabricPattern",
     "who made": "who_made",
     "what is it": "what_is",
     "when made": "when_made",

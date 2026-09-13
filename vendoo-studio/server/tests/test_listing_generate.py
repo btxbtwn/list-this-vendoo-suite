@@ -82,10 +82,18 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         self.assertIsNone(extract_listing_json("Error: timeout"))
 
     def test_seller_item_details_from_notes(self):
-        notes = json.dumps({"condition": "Good", "cog": "1.72", "pitToPit": "16.5", "length": "26.5"})
+        notes = json.dumps({
+            "condition": "Good",
+            "cog": "1.72",
+            "pitToPit": "16.5",
+            "length": "26.5",
+            "sleeve": "8",
+        })
         details = seller_item_details(notes)
         self.assertIn("Good", details)
         self.assertIn('Pit to pit: 16.5"', details)
+        self.assertIn('Length: 26.5"', details)
+        self.assertIn('Sleeve: 8"', details)
 
     def test_latest_photo_analysis(self):
         class Msg:

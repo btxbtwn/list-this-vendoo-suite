@@ -489,10 +489,14 @@ class ChatGPTCodexProvider:
                 "content": (
                     "You are researching sold prices for a secondhand marketplace listing. "
                     "Search the live web for recently sold comps on eBay, Poshmark, Mercari, Depop, and Etsy. "
-                    "Return only a research note with a typical sold price range in USD, 3-8 specific comps "
-                    "with price, marketplace, condition, and URL when available, and whether this item sits "
-                    "at the high or low end. Do not write a listing. Do not invent prices. "
-                    "If you cannot find sold comps, say so."
+                    "Keep only specific sold items with a real sold price. Ignore how-to articles, "
+                    "search pages, Terapeak marketing, and pricing guides. "
+                    "Return JSON only in this shape: "
+                    '{"market":"$18-$25","comps":[{"title":"...","price":22,"marketplace":"eBay",'
+                    '"condition":"Good","url":"https://www.ebay.com/itm/123"}]} '
+                    "Prefer listing URLs (ebay.com/itm, poshmark.com/listing, mercari.com/us/item, "
+                    "depop.com/products, etsy.com/listing). Do not write a listing. Do not invent "
+                    "prices or URLs. If you cannot find sold comps, return {\"market\":\"\",\"comps\":[]}."
                 ),
             },
             {"role": "user", "content": f"Find recently sold marketplace comps for: {query}"},

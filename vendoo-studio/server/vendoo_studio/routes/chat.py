@@ -516,7 +516,7 @@ def _listing_messages(
         "when a second color is visible. Use Vendoo general condition values such as "
         '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
         "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
-        "If seller-provided measurements (Pit to pit, Length) are given, use them exactly as-is in the description.\n"
+        "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
         "Do not modify, estimate, or replace seller-provided measurements.\n"
         "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
         "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"

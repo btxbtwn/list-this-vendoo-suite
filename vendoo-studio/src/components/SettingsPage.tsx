@@ -3,6 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { useStudioUpdate } from "./UpdateButton";
+import {
+  DEFAULT_SETTINGS_SECTION,
+  type SettingsSectionId,
+} from "./settingsNav";
 
 function SettingsSection({
   id,
@@ -14,7 +18,7 @@ function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section id={id} className="settings-section">
+    <section id={id} className="settings-section" tabIndex={-1}>
       <h2 className="settings-section-title">{title}</h2>
       <div className="settings-group">{children}</div>
     </section>
@@ -22,12 +26,14 @@ function SettingsSection({
 }
 
 function SettingsRow({
+  id,
   title,
   description,
   status,
   control,
   children,
 }: {
+  id?: string;
   title: ReactNode;
   description?: ReactNode;
   status?: ReactNode;
@@ -35,7 +41,7 @@ function SettingsRow({
   children?: ReactNode;
 }) {
   return (
-    <div className="settings-row">
+    <div id={id} className="settings-row" tabIndex={id ? -1 : undefined}>
       <div className="settings-row-main">
         <div className="settings-row-copy">
           <h3 className="settings-row-title">{title}</h3>
@@ -101,6 +107,7 @@ function BraveSearchSection({ chatgptSignedIn }: { chatgptSignedIn: boolean }) {
   return (
     <SettingsSection id="brave" title="Brave Search">
       <SettingsRow
+        id="brave-api-key"
         title="API key"
         description={
           <>
@@ -264,16 +271,27 @@ function AboutVersionRow({ version }: { version: string }) {
   );
 }
 
-export function SettingsPage() {
+function GeneralPanel() {
+  const { data: status } = useQuery({
+    queryKey: ["status"],
+    queryFn: api.status,
+  });
+  return (
+    <>
+      <MarketplacesSection />
+      <SettingsSection id="about" title="About">
+        <AboutVersionRow version={status?.version || "0.1.0"} />
+      </SettingsSection>
+    </>
+  );
+}
+
+function ProvidersPanel() {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  const { data: status } = useQuery({
-    queryKey: ["status"],
-    queryFn: api.status,
-  });
   const { data: provider } = useQuery({
     queryKey: ["settings-provider"],
     queryFn: api.settings.provider,
@@ -379,216 +397,265 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="settings-page">
-      <div className="settings-page-inner">
-        <SettingsSection id="chatgpt" title="ChatGPT">
-          <SettingsRow
-            title="Sign in with ChatGPT"
-            description="Uses your ChatGPT subscription to generate listings and look up sold comps. Usage counts against Codex quota, not a Platform API key."
-            status={
-              chatgptSignedIn && testResult ? (
-                <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
-              ) : chatgpt?.error ? (
-                <span className="text-error">{chatgpt.error}</span>
-              ) : null
-            }
-            control={
-              chatgptSignedIn ? (
-                <>
+    <>
+      <SettingsSection id="chatgpt" title="ChatGPT">
+        <SettingsRow
+          title="Sign in with ChatGPT"
+          description="Uses your ChatGPT subscription to generate listings and look up sold comps. Usage counts against Codex quota, not a Platform API key."
+          status={
+            chatgptSignedIn && testResult ? (
+              <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
+            ) : chatgpt?.error ? (
+              <span className="text-error">{chatgpt.error}</span>
+            ) : null
+          }
+          control={
+            chatgptSignedIn ? (
+              <>
+                <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
+                  {testing ? "Testing…" : "Test"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost settings-danger"
+                  onClick={() => chatgptLogoutMutation.mutate()}
+                  disabled={chatgptLogoutMutation.isPending}
+                >
+                  Sign out
+                </button>
+              </>
+            ) : chatgptPending ? (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => chatgptCancelMutation.mutate()}
+                disabled={chatgptCancelMutation.isPending}
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={() => chatgptLoginMutation.mutate()}
+                disabled={chatgptLoginMutation.isPending}
+              >
+                {chatgptLoginMutation.isPending ? "Starting…" : "Sign in"}
+              </button>
+            )
+          }
+        >
+          {chatgptSignedIn ? (
+            <p className="settings-row-desc">
+              Signed in{chatgpt.email ? ` as ${chatgpt.email}` : ""}
+              {chatgpt.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
+            </p>
+          ) : chatgptPending ? (
+            <p className="settings-row-desc">
+              Open{" "}
+              <a href={chatgptPending.verification_url} target="_blank" rel="noreferrer">
+                {chatgptPending.verification_url}
+              </a>{" "}
+              and enter code <code className="settings-row-code">{chatgptPending.user_code}</code>
+            </p>
+          ) : chatgptLoginMutation.isError ? (
+            <p className="settings-row-desc text-error">{(chatgptLoginMutation.error as Error).message}</p>
+          ) : null}
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection id="models" title="Models">
+        <SettingsRow
+          title="Vision model"
+          description="Used to read product photos."
+          status={chatgptSignedIn && chatgptModels?.error ? <span className="text-error">{chatgptModels.error}</span> : null}
+          control={
+            chatgptSignedIn ? (
+              <select
+                className="input settings-model-select"
+                aria-label="Vision model"
+                value={visionModel}
+                disabled={setChatGPTModelsMutation.isPending || modelOptions.length === 0}
+                onChange={(event) => setChatGPTModelsMutation.mutate({ vision_model: event.target.value })}
+              >
+                {modelOptions.map((slug) => (
+                  <option key={`vision-${slug}`} value={slug}>
+                    {slug}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="settings-row-value">{visionModel}</span>
+            )
+          }
+        />
+        <SettingsRow
+          title="Listing model"
+          description="Used to write marketplace copy."
+          control={
+            chatgptSignedIn ? (
+              <select
+                className="input settings-model-select"
+                aria-label="Listing model"
+                value={listingModel}
+                disabled={setChatGPTModelsMutation.isPending || modelOptions.length === 0}
+                onChange={(event) => setChatGPTModelsMutation.mutate({ listing_model: event.target.value })}
+              >
+                {modelOptions.map((slug) => (
+                  <option key={`listing-${slug}`} value={slug}>
+                    {slug}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="settings-row-value">{listingModel}</span>
+            )
+          }
+        />
+        <SettingsRow
+          title="Reasoning"
+          description="Higher uses more Codex quota and takes longer. Applied to listing generation and photo analysis."
+          control={
+            chatgptSignedIn ? (
+              <select
+                className="input settings-model-select"
+                aria-label="Reasoning"
+                value={reasoningOptions.includes(reasoningEffort) ? reasoningEffort : reasoningOptions[0]}
+                disabled={setChatGPTModelsMutation.isPending}
+                onChange={(event) => setChatGPTModelsMutation.mutate({ reasoning_effort: event.target.value })}
+              >
+                {reasoningOptions.map((effort) => (
+                  <option key={`reasoning-${effort}`} value={effort}>
+                    {reasoningLabels[effort] || effort}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="settings-row-value">Not used with MiMo</span>
+            )
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection id="provider" title="Xiaomi MiMo">
+        <SettingsRow
+          title="API key"
+          description="Stored in macOS Keychain and never sent to the browser."
+        >
+          <div className="settings-row-field">
+            <input
+              className="input font-mono"
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveKey();
+              }}
+              placeholder="sk-..."
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button type="button" className="btn btn-sm btn-outline" onClick={saveKey} disabled={!apiKey.trim() || setKeyMutation.isPending}>
+              {setKeyMutation.isPending ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </SettingsRow>
+        <SettingsRow
+          title="Status"
+          description={
+            mimoConfigured
+              ? `Configured · ${provider?.masked_key}`
+              : chatgptSignedIn
+                ? "Fallback when ChatGPT is signed out"
+                : "Not configured"
+          }
+          status={
+            !chatgptSignedIn && testResult ? (
+              <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
+            ) : null
+          }
+          control={
+            mimoConfigured ? (
+              <>
+                {!chatgptSignedIn ? (
                   <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
                     {testing ? "Testing…" : "Test"}
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost settings-danger"
-                    onClick={() => chatgptLogoutMutation.mutate()}
-                    disabled={chatgptLogoutMutation.isPending}
-                  >
-                    Sign out
-                  </button>
-                </>
-              ) : chatgptPending ? (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline"
-                  onClick={() => chatgptCancelMutation.mutate()}
-                  disabled={chatgptCancelMutation.isPending}
-                >
-                  Cancel
+                ) : null}
+                <button type="button" className="btn btn-sm btn-ghost settings-danger" onClick={() => deleteKeyMutation.mutate()}>
+                  Remove
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  onClick={() => chatgptLoginMutation.mutate()}
-                  disabled={chatgptLoginMutation.isPending}
-                >
-                  {chatgptLoginMutation.isPending ? "Starting…" : "Sign in"}
-                </button>
-              )
-            }
-          >
-            {chatgptSignedIn ? (
-              <p className="settings-row-desc">
-                Signed in{chatgpt.email ? ` as ${chatgpt.email}` : ""}
-                {chatgpt.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
-              </p>
-            ) : chatgptPending ? (
-              <p className="settings-row-desc">
-                Open{" "}
-                <a href={chatgptPending.verification_url} target="_blank" rel="noreferrer">
-                  {chatgptPending.verification_url}
-                </a>{" "}
-                and enter code <code className="settings-row-code">{chatgptPending.user_code}</code>
-              </p>
-            ) : chatgptLoginMutation.isError ? (
-              <p className="settings-row-desc text-error">{(chatgptLoginMutation.error as Error).message}</p>
-            ) : null}
-          </SettingsRow>
-        </SettingsSection>
+              </>
+            ) : null
+          }
+        />
+      </SettingsSection>
+    </>
+  );
+}
 
-        <SettingsSection id="models" title="Models">
-          <SettingsRow
-            title="Vision model"
-            description="Used to read product photos."
-            status={chatgptSignedIn && chatgptModels?.error ? <span className="text-error">{chatgptModels.error}</span> : null}
-            control={
-              chatgptSignedIn ? (
-                <select
-                  className="input settings-model-select"
-                  aria-label="Vision model"
-                  value={visionModel}
-                  disabled={setChatGPTModelsMutation.isPending || modelOptions.length === 0}
-                  onChange={(event) => setChatGPTModelsMutation.mutate({ vision_model: event.target.value })}
-                >
-                  {modelOptions.map((slug) => (
-                    <option key={`vision-${slug}`} value={slug}>
-                      {slug}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="settings-row-value">{visionModel}</span>
-              )
-            }
-          />
-          <SettingsRow
-            title="Listing model"
-            description="Used to write marketplace copy."
-            control={
-              chatgptSignedIn ? (
-                <select
-                  className="input settings-model-select"
-                  aria-label="Listing model"
-                  value={listingModel}
-                  disabled={setChatGPTModelsMutation.isPending || modelOptions.length === 0}
-                  onChange={(event) => setChatGPTModelsMutation.mutate({ listing_model: event.target.value })}
-                >
-                  {modelOptions.map((slug) => (
-                    <option key={`listing-${slug}`} value={slug}>
-                      {slug}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="settings-row-value">{listingModel}</span>
-              )
-            }
-          />
-          <SettingsRow
-            title="Reasoning"
-            description="Higher uses more Codex quota and takes longer. Applied to listing generation and photo analysis."
-            control={
-              chatgptSignedIn ? (
-                <select
-                  className="input settings-model-select"
-                  aria-label="Reasoning"
-                  value={reasoningOptions.includes(reasoningEffort) ? reasoningEffort : reasoningOptions[0]}
-                  disabled={setChatGPTModelsMutation.isPending}
-                  onChange={(event) => setChatGPTModelsMutation.mutate({ reasoning_effort: event.target.value })}
-                >
-                  {reasoningOptions.map((effort) => (
-                    <option key={`reasoning-${effort}`} value={effort}>
-                      {reasoningLabels[effort] || effort}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="settings-row-value">Not used with MiMo</span>
-              )
-            }
-          />
-        </SettingsSection>
+function IntegrationsPanel() {
+  const { data: provider } = useQuery({
+    queryKey: ["settings-provider"],
+    queryFn: api.settings.provider,
+  });
+  return <BraveSearchSection chatgptSignedIn={Boolean(provider?.chatgpt?.signed_in)} />;
+}
 
-        <SettingsSection id="provider" title="Xiaomi MiMo">
-          <SettingsRow
-            title="API key"
-            description="Stored in macOS Keychain and never sent to the browser."
-          >
-            <div className="settings-row-field">
-              <input
-                className="input font-mono"
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveKey();
-                }}
-                placeholder="sk-..."
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <button type="button" className="btn btn-sm btn-outline" onClick={saveKey} disabled={!apiKey.trim() || setKeyMutation.isPending}>
-                {setKeyMutation.isPending ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </SettingsRow>
-          <SettingsRow
-            title="Status"
-            description={
-              mimoConfigured
-                ? `Configured · ${provider?.masked_key}`
-                : chatgptSignedIn
-                  ? "Fallback when ChatGPT is signed out"
-                  : "Not configured"
-            }
-            status={
-              !chatgptSignedIn && testResult ? (
-                <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
-              ) : null
-            }
-            control={
-              mimoConfigured ? (
-                <>
-                  {!chatgptSignedIn ? (
-                    <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
-                      {testing ? "Testing…" : "Test"}
-                    </button>
-                  ) : null}
-                  <button type="button" className="btn btn-sm btn-ghost settings-danger" onClick={() => deleteKeyMutation.mutate()}>
-                    Remove
-                  </button>
-                </>
-              ) : null
-            }
-          />
-        </SettingsSection>
+function ConnectionsPanel() {
+  return (
+    <SettingsSection id="connections" title="Connections">
+      <SettingsRow
+        title="Vendoo in Chrome"
+        description="Connect Chrome opens Vendoo in your everyday Chrome, where the listing extension should already be loaded. After that, Send to Vendoo stays in Studio — use Open listing only if you need the real Chrome window."
+        control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
+      />
+    </SettingsSection>
+  );
+}
 
-        <BraveSearchSection chatgptSignedIn={chatgptSignedIn} />
+function scrollToSettingsTarget(targetId: string) {
+  const target = document.getElementById(targetId);
+  if (!target) return false;
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({
+    behavior: prefersReducedMotion ? "auto" : "smooth",
+    block: "center",
+  });
+  target.focus({ preventScroll: true });
+  target.classList.remove("settings-search-target-pulse");
+  if (!prefersReducedMotion) {
+    void target.offsetWidth;
+    target.classList.add("settings-search-target-pulse");
+    target.addEventListener("blur", () => target.classList.remove("settings-search-target-pulse"), { once: true });
+  }
+  return true;
+}
 
-        <SettingsSection id="connections" title="Connections">
-          <SettingsRow
-            title="Vendoo in Chrome"
-            description="Connect Chrome opens Vendoo in your everyday Chrome, where the listing extension should already be loaded. After that, Send to Vendoo stays in Studio — use Open listing only if you need the real Chrome window."
-            control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
-          />
-        </SettingsSection>
+export function SettingsPage({
+  section = DEFAULT_SETTINGS_SECTION,
+  targetId = null,
+  onTargetHandled,
+}: {
+  section?: SettingsSectionId;
+  targetId?: string | null;
+  onTargetHandled?: () => void;
+}) {
+  useEffect(() => {
+    if (!targetId) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (scrollToSettingsTarget(targetId)) onTargetHandled?.();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [section, targetId, onTargetHandled]);
 
-        <MarketplacesSection />
-
-        <SettingsSection id="about" title="About">
-          <AboutVersionRow version={status?.version || "0.1.0"} />
-        </SettingsSection>
+  return (
+    <div className="settings-page" data-settings-page-scroll>
+      <div className="settings-page-inner">
+        {section === "general" ? <GeneralPanel /> : null}
+        {section === "providers" ? <ProvidersPanel /> : null}
+        {section === "integrations" ? <IntegrationsPanel /> : null}
+        {section === "connections" ? <ConnectionsPanel /> : null}
       </div>
     </div>
   );
