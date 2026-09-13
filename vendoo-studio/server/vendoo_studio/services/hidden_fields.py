@@ -157,3 +157,57 @@ def restore_field(
 
     update_settings(mutator)
     return result
+
+
+def restore_all_fields(conversation_id: str | None = None) -> dict[str, list[dict[str, str]]]:
+    """Clear always-hidden fields and this listing's hidden fields."""
+    listing_id = str(conversation_id or "").strip()
+    result = {"always": [], "listing": []}
+
+    def mutator(settings: dict) -> None:
+        stored = _from_settings(settings)
+        stored["always"] = []
+        if listing_id:
+            stored["listings"].pop(listing_id, None)
+        _store(settings, stored)
+        result["always"] = []
+        result["listing"] = []
+
+    update_settings(mutator)
+    return result
+
+
+def restore_matching_fields(
+    matches: list[tuple[str, str]],
+    conversation_id: str | None = None,
+) -> dict[str, list[dict[str, str]]]:
+    """Restore specific marketplace/field pairs from always and listing scopes."""
+    wanted = {
+        (normalize_marketplace(market), normalize_field_name(field))
+        for market, field in matches
+        if str(market or "").strip() and str(field or "").strip()
+    }
+    listing_id = str(conversation_id or "").strip()
+    result = {"always": [], "listing": []}
+
+    def mutator(settings: dict) -> None:
+        stored = _from_settings(settings)
+        stored["always"] = [
+            item for item in stored["always"] if (item["marketplace"], item["field"]) not in wanted
+        ]
+        if listing_id and listing_id in stored["listings"]:
+            remaining = [
+                item
+                for item in stored["listings"][listing_id]
+                if (item["marketplace"], item["field"]) not in wanted
+            ]
+            if remaining:
+                stored["listings"][listing_id] = remaining
+            else:
+                stored["listings"].pop(listing_id, None)
+        _store(settings, stored)
+        result["always"] = stored["always"]
+        result["listing"] = stored["listings"].get(listing_id, []) if listing_id else []
+
+    update_settings(mutator)
+    return result

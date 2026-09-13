@@ -76,6 +76,28 @@ class HiddenFieldsServiceTest(unittest.TestCase):
         stored = json.loads(Path(self.tmp.name, "settings.json").read_text())
         self.assertEqual(stored["hidden_fields"]["always"][0]["field"], "tags")
 
+    def test_restore_all_and_matching(self):
+        hidden_fields.hide_field("ebay", "Department", "always", label="Department")
+        hidden_fields.hide_field("ebay", "Accents", "listing", conversation_id="conv-1", label="Accents")
+        hidden_fields.hide_field("etsy", "Holiday", "always", label="Holiday")
+
+        matching = hidden_fields.restore_matching_fields(
+            [("ebay", "Department"), ("ebay", "Accents")],
+            conversation_id="conv-1",
+        )
+        self.assertEqual(matching["always"], [{"marketplace": "etsy", "field": "holiday", "label": "Holiday"}])
+        self.assertEqual(matching["listing"], [])
+
+        hidden_fields.hide_field("ebay", "Pattern", "always", label="Pattern")
+        hidden_fields.hide_field("depop", "Source", "listing", conversation_id="conv-1", label="Source")
+        cleared = hidden_fields.restore_all_fields("conv-1")
+        self.assertEqual(cleared, {"always": [], "listing": []})
+        self.assertEqual(hidden_fields.hidden_fields("conv-1"), {"always": [], "listing": []})
+        # Other listings' hidden fields remain.
+        hidden_fields.hide_field("depop", "Age", "listing", conversation_id="conv-2", label="Age")
+        hidden_fields.restore_all_fields("conv-1")
+        self.assertEqual(len(hidden_fields.hidden_fields("conv-2")["listing"]), 1)
+
 
 class HiddenFieldsRouteTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -134,6 +156,47 @@ class HiddenFieldsRouteTest(unittest.TestCase):
             json={"marketplace": "etsy", "field": "holiday", "scope": "listing"},
         )
         self.assertEqual(rejected.status_code, 400)
+
+    def test_restore_all_and_matching_routes(self):
+        self.client.put(
+            "/api/settings/hidden-fields",
+            json={"marketplace": "ebay", "field": "Department", "label": "Department", "scope": "always"},
+        )
+        self.client.put(
+            "/api/settings/hidden-fields",
+            json={
+                "marketplace": "ebay",
+                "field": "Accents",
+                "label": "Accents",
+                "scope": "listing",
+                "conversation_id": "abc123",
+            },
+        )
+        matching = self.client.post(
+            "/api/settings/hidden-fields/restore-matching",
+            json={
+                "conversation_id": "abc123",
+                "fields": [
+                    {"marketplace": "ebay", "field": "Department"},
+                    {"marketplace": "ebay", "field": "Accents"},
+                ],
+            },
+        )
+        self.assertEqual(matching.status_code, 200)
+        self.assertEqual(matching.json()["always"], [])
+        self.assertEqual(matching.json()["listing"], [])
+
+        self.client.put(
+            "/api/settings/hidden-fields",
+            json={"marketplace": "etsy", "field": "Holiday", "label": "Holiday", "scope": "always"},
+        )
+        cleared = self.client.post(
+            "/api/settings/hidden-fields/restore-all",
+            json={"conversation_id": "abc123"},
+        )
+        self.assertEqual(cleared.status_code, 200)
+        self.assertEqual(cleared.json()["always"], [])
+        self.assertEqual(cleared.json()["listing"], [])
 
 
 if __name__ == "__main__":

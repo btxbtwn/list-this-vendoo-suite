@@ -215,6 +215,27 @@ export const api = {
         method: "DELETE",
         body: JSON.stringify(body),
       }),
+    restoreAllHiddenFields: (conversationId?: string) =>
+      request<{
+        ok: boolean;
+        always: { marketplace: string; field: string; label: string }[];
+        listing: { marketplace: string; field: string; label: string }[];
+      }>("/settings/hidden-fields/restore-all", {
+        method: "POST",
+        body: JSON.stringify({ conversation_id: conversationId }),
+      }),
+    restoreMatchingHiddenFields: (
+      fields: { marketplace: string; field: string }[],
+      conversationId?: string,
+    ) =>
+      request<{
+        ok: boolean;
+        always: { marketplace: string; field: string; label: string }[];
+        listing: { marketplace: string; field: string; label: string }[];
+      }>("/settings/hidden-fields/restore-matching", {
+        method: "POST",
+        body: JSON.stringify({ fields, conversation_id: conversationId }),
+      }),
     dismissSetupGuide: () =>
       request<{ ok: boolean; dismissed: boolean }>("/settings/setup-guide/dismiss", { method: "POST" }),
   },
