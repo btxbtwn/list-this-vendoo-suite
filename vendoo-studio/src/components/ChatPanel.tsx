@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { parseThinkingTodos } from "./thinkingTodos";
 
 interface Props {
   convId: string;
@@ -318,6 +319,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     }
     await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+    queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
     if (isCurrent() && !failed) {
       setStreamText("");
@@ -372,6 +374,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (isCurrent()) setStreaming(false);
       await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       if (isCurrent() && !isStreamError(assembled)) {
         setStreamText("");
@@ -513,7 +516,24 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
               </span>
             </div>
             {streamThinking ? (
-              <div ref={thinkingBodyRef} className={`thinking-body${streamText ? "" : " live"}`}>{streamThinking}</div>
+              <div ref={thinkingBodyRef} className="thinking-body">
+                <ul className="thinking-todos">
+                  {parseThinkingTodos(streamThinking, Boolean(streamText)).map((item, index) => (
+                    <li
+                      key={`${index}-${item.text}`}
+                      className={[
+                        "thinking-todo",
+                        item.done ? "is-done" : "",
+                        item.current ? "is-current" : "",
+                        item.current && !streamText ? "is-live" : "",
+                      ].filter(Boolean).join(" ")}
+                    >
+                      <span className="thinking-todo-mark">{item.done ? "- [x]" : "- [ ]"}</span>
+                      <span className="thinking-todo-text">{item.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
           </div>
         )}

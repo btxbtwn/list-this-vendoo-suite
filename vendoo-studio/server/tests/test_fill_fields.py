@@ -209,6 +209,34 @@ class FillFieldsRouteTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409, response.text)
 
+    @patch("vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock)
+    def test_retry_refreshes_snapshot_from_latest_listing(self, dispatch):
+        from vendoo_studio.services.registry import MEN_TSHIRT_PATH, WOMEN_TOPS_PATH
+
+        ListingRepo(self.db).save_revision(self.conv.id, {
+            "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
+            "department": "Men",
+            "category_path": MEN_TSHIRT_PATH,
+            "condition": "Good",
+            "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+        }, source="model_refinement")
+        self.job.listing_snapshot = {
+            "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
+            "category_path": WOMEN_TOPS_PATH,
+            "ebay_specifics": {"department": "Women", "type": "T-Shirt"},
+        }
+        self.job.status = "completed"
+        self.db.commit()
+
+        response = self.client.post(f"/api/jobs/{self.job.id}/retry")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.db.refresh(self.job)
+        self.assertEqual(self.job.listing_snapshot["category_path"], MEN_TSHIRT_PATH)
+        self.assertEqual(self.job.listing_snapshot["department"], "Men")
+        self.assertEqual(self.job.listing_snapshot["ebay_specifics"]["department"], "Men")
+        dispatch.assert_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()

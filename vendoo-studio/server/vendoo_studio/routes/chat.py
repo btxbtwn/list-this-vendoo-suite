@@ -22,6 +22,7 @@ from vendoo_studio.services.listing_generate import (
 )
 from vendoo_studio.services.listing_patch import apply_json_patch, extract_json_patch
 from vendoo_studio.services.listing_provider import get_listing_provider
+from vendoo_studio.services.registry import MEN_TSHIRT_PATH, WOMEN_TOPS_PATH, align_listing_gender
 
 
 def _require_provider():
@@ -130,6 +131,53 @@ def _learned_fields_prompt(db: Session, conv_id: str) -> str:
     return f"\n\n--- Learned fields ---\n\n{text}"
 
 
+def _current_listing_prompt(db: Session, conv_id: str) -> str:
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    if not revisions or not isinstance(revisions[0].listing_json, dict):
+        return ""
+    listing = revisions[0].listing_json
+    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    return (
+        "\n\n--- Current listing ---\n"
+        f"department: {listing.get('department') or ''}\n"
+        f"category_path: {listing.get('category_path') or ''}\n"
+        f"ebay_specifics.department: {(ebay or {}).get('department') or ''}\n"
+        "If the seller changes gender or category, replace department, category_path, "
+        "and ebay_specifics.department together. Do not leave a women's category on a men's item.\n"
+    )
+
+
+def _sync_category_override(db: Session, conv_id: str, listing: dict) -> None:
+    from vendoo_studio.services.vendoo_import import merge_notes, parse_notes
+
+    category = str((listing or {}).get("category_path") or "").strip()
+    if not category:
+        return
+    conv = ConversationRepo(db).get(conv_id)
+    if not conv:
+        return
+    current = str(parse_notes(conv.notes).get("categoryOverride") or "").strip()
+    if not current or current == category:
+        return
+    conv.notes = merge_notes(conv.notes, {"categoryOverride": category})
+    db.commit()
+
+
+def _save_listing_revision(db: Session, conv_id: str, listing: dict, *, operations: list[dict] | None = None) -> dict:
+    updated = align_listing_gender(listing, operations)
+    stamped = _stamp_learned_fields(db, updated)
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    parent_id = revisions[0].id if revisions else None
+    ListingRepo(db).save_revision(
+        conv_id,
+        stamped,
+        source="model_refinement",
+        parent_revision_id=parent_id,
+    )
+    _sync_category_override(db, conv_id, stamped)
+    return stamped
+
+
 def _stamp_learned_fields(db: Session, listing: dict) -> dict:
     from vendoo_studio.services.registry import RegistryService
 
@@ -172,7 +220,9 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             'Example confirmation: "This is a men\'s T-shirt. I moved it to Men > Men\'s Clothing > Shirts > T-Shirts."\n'
             "Example patch:\n"
             "```json\n"
-            '[{"op": "replace", "path": "/department", "value": "Men"}]\n'
+            '[{"op": "replace", "path": "/department", "value": "Men"},'
+            f'{{"op": "replace", "path": "/category_path", "value": "{MEN_TSHIRT_PATH}"}},'
+            '{"op": "replace", "path": "/ebay_specifics/department", "value": "Men"}]\n'
             "```\n\n"
             "When generating a complete listing from scratch, write one sentence that the listing is ready, "
             "then the full listing JSON in a fenced json code block.\n\n"
@@ -181,7 +231,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             "Key rules:\n"
             "- Never publish. Stop at saved drafts.\n"
             "- Be conservative with brand and size. Ask when uncertain instead of guessing.\n"
-            "- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at Women > Women's Clothing > Tops, never Shirts & Blouses. Men's T-shirts use Men > Men's Clothing > Shirts > T-Shirts.\n"
+            f"- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at {WOMEN_TOPS_PATH}, never Shirts & Blouses. Men's T-shirts use {MEN_TSHIRT_PATH}.\n"
             "- Follow the title and description formulas EXACTLY from the rules below.\n"
             "- Always fill ALL eBay specifics when generating a complete listing.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
@@ -189,7 +239,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             f"\n--- Listing Rules ---\n\n{skill_rules}"
             if skill_rules
             else ""
-        ) + _learned_fields_prompt(db, conv_id),
+        ) + _current_listing_prompt(db, conv_id) + _learned_fields_prompt(db, conv_id),
     }
 
     messages = [system_prompt]
@@ -212,12 +262,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
         revisions = lr.get_revisions(conv_id)
         if revisions:
             updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
-            lr.save_revision(
-                conv_id,
-                _stamp_learned_fields(db, updated),
-                source="model_refinement",
-                parent_revision_id=revisions[0].id,
-            )
+            _save_listing_revision(db, conv_id, updated)
             ConversationRepo(db).add_message(
                 conv_id,
                 "system",
@@ -234,12 +279,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
         if not revisions:
             return
         updated = apply_json_patch(dict(revisions[0].listing_json), parsed_ops)
-        lr.save_revision(
-            conv_id,
-            _stamp_learned_fields(db, updated),
-            source="model_refinement",
-            parent_revision_id=revisions[0].id,
-        )
+        _save_listing_revision(db, conv_id, updated, operations=parsed_ops)
         ConversationRepo(db).add_message(
             conv_id,
             "system",
@@ -251,10 +291,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
 
     parsed = extract_listing_json(full_text)
     if parsed:
-        lr = ListingRepo(db)
-        revisions = lr.get_revisions(conv_id)
-        parent_id = revisions[0].id if revisions else None
-        lr.save_revision(conv_id, _stamp_learned_fields(db, parsed), source="model_refinement", parent_revision_id=parent_id)
+        _save_listing_revision(db, conv_id, parsed)
         ConversationRepo(db).add_message(
             conv_id,
             "system",
@@ -444,7 +481,7 @@ def _listing_messages(skill_rules: str, item_details: str, analysis_text: str, d
         "You are a product listing generator. Generate a COMPLETE, ready-to-use Vendoo listing JSON "
         "from the photo analysis and listing rules below.\n\n"
         "Use Vendoo's General taxonomy for category_path. Women's shirts and T-shirts must use "
-        '"Clothing, Shoes & Accessories > Women > Women\'s Clothing > Tops", not "Shirts & Blouses".\n\n'
+        f'"{WOMEN_TOPS_PATH}", not "Shirts & Blouses". Men\'s T-shirts must use "{MEN_TSHIRT_PATH}".\n\n'
         "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
         "when a second color is visible. Use Vendoo general condition values such as "
         '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
