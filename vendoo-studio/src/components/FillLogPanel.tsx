@@ -1341,6 +1341,8 @@ export function FillLogPanel({
   const sawFilling = React.useRef(false);
   const fillingRef = React.useRef(filling);
   fillingRef.current = filling;
+  const pendingAutoAsk = React.useRef(false);
+  const autoAskedForJob = React.useRef<string | null>(null);
 
   const draftQuery = useVendooDraft(jobId, hasDraft);
   const draft = draftQuery.data;
@@ -1560,7 +1562,8 @@ export function FillLogPanel({
     // Leftover-fill completion already triggers rereadDraft above.
     if (awaitingFill.current) return;
     rereadDraft();
-  }, [jobStatus, hasDraft, chromeConnected]);
+    if (onAskChat) pendingAutoAsk.current = true;
+  }, [jobStatus, hasDraft, chromeConnected, onAskChat]);
 
   const emptyFields = visibleSourceForms.flatMap((form) =>
     form.fields
@@ -1593,6 +1596,43 @@ export function FillLogPanel({
     }
     return payload;
   })();
+
+  React.useEffect(() => {
+    if (!pendingAutoAsk.current || !onAskChat) return;
+    if (jobStatus !== "completed") return;
+    if (autoAskedForJob.current === jobId) return;
+    if (filling || fillMutation.isPending) return;
+    // Wait until draft + fill-log have settled after the completion reread.
+    if (hasDraft && (draftQuery.isFetching || !draftQuery.isFetched)) return;
+    if (!report) return;
+    if (emptyFields.length === 0) {
+      pendingAutoAsk.current = false;
+      return;
+    }
+    // Values already available for Fill on Vendoo — skip chat.
+    if (fillPayload.length > 0) {
+      pendingAutoAsk.current = false;
+      return;
+    }
+    autoAskedForJob.current = jobId;
+    pendingAutoAsk.current = false;
+    onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft));
+  }, [
+    jobStatus,
+    jobId,
+    onAskChat,
+    filling,
+    fillMutation.isPending,
+    hasDraft,
+    draftQuery.isFetching,
+    draftQuery.isFetched,
+    report,
+    emptyFields.length,
+    fillPayload.length,
+    visibleSourceForms,
+    fromVendooDraft,
+  ]);
+
   const hideField = (formId: string, field: DraftField, scope: "always" | "listing") => {
     if (scope === "listing" && !conversationId) return;
     if (isProtectedEbayField(formId, field)) {

@@ -19,9 +19,11 @@ from vendoo_studio.services.listing_generate import (
     extract_listing_json,
     format_photo_analysis,
     latest_photo_analysis,
+    looks_like_listing_attempt,
     normalize_evidence,
-    persist_generated_listing,
+    persist_generated_listing_with_repair,
     photo_analysis_usable,
+    repair_listing_json,
     seller_item_details,
 )
 from vendoo_studio.services.listing_patch import apply_json_patch, extract_json_patch
@@ -493,6 +495,40 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[di
     return None
 
 
+async def _apply_listing_payload_with_repair(
+    db: Session,
+    conv_id: str,
+    full_text: str,
+    provider,
+) -> list[dict] | None:
+    operations = _apply_listing_payload(db, conv_id, full_text)
+    if operations is not None:
+        return operations
+    if extract_listing_json(full_text):
+        return None
+    if extract_json_patch(full_text):
+        return None
+    from vendoo_studio.services.fill_log import extract_missing_fields
+
+    if extract_missing_fields(full_text):
+        return None
+    if not looks_like_listing_attempt(full_text):
+        return None
+
+    repaired = await repair_listing_json(provider, full_text)
+    if not repaired:
+        return None
+    _save_listing_revision(db, conv_id, repaired)
+    ConversationRepo(db).add_message(
+        conv_id,
+        "system",
+        "Repaired malformed listing JSON and saved it for review.",
+        provider="system",
+        model="",
+    )
+    return None
+
+
 @router.post("/api/conversations/{conv_id}/messages")
 async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
@@ -531,7 +567,9 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
         try:
             if full_text and not full_text.lstrip().lower().startswith("error:"):
                 stream_repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=provider_model)
-                operations = _apply_listing_payload(stream_db, conv_id, full_text)
+                operations = await _apply_listing_payload_with_repair(
+                    stream_db, conv_id, full_text, provider
+                )
                 await _maybe_resolve_vendoo_category(stream_db, conv_id, operations=operations)
             stream_repo.update_status(conv_id, "draft")
         except Exception:
@@ -685,7 +723,9 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
 
             if not full_text.strip() or full_text.lstrip().lower().startswith("error:"):
                 raise RuntimeError(full_text.strip() or "Listing generation returned no text")
-            persist_generated_listing(stream_db, conv_id, full_text)
+            if not extract_listing_json(full_text):
+                run.publish(_sse_event("status", "Repairing listing JSON…"))
+            await persist_generated_listing_with_repair(stream_db, conv_id, full_text, provider)
             stream_repo.update_status(conv_id, "draft")
             run.publish("data: [DONE]\n\n")
         except asyncio.CancelledError:
@@ -695,7 +735,9 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     task.cancel()
             if full_text.strip() and not full_text.lstrip().lower().startswith("error:"):
                 try:
-                    persist_generated_listing(stream_db, conv_id, full_text)
+                    await persist_generated_listing_with_repair(
+                        stream_db, conv_id, full_text, provider
+                    )
                 except Exception:
                     log.exception("failed to persist cancelled listing for %s", conv_id)
             try:
