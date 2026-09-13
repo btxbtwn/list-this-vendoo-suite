@@ -1422,6 +1422,17 @@ export function FillLogPanel({
     if (sawFilling.current) rereadDraft();
   }, [filling]);
 
+  const prevJobStatus = React.useRef(jobStatus);
+  React.useEffect(() => {
+    const prev = prevJobStatus.current;
+    prevJobStatus.current = jobStatus;
+    if (!hasDraft || !chromeConnected) return;
+    if (jobStatus !== "completed" || prev === "completed" || prev == null) return;
+    // Leftover-fill completion already triggers rereadDraft above.
+    if (awaitingFill.current) return;
+    rereadDraft();
+  }, [jobStatus, hasDraft, chromeConnected]);
+
   const emptyFields = visibleSourceForms.flatMap((form) =>
     form.fields
       .filter((field) => field.missing && !isUnfillableField(field))
