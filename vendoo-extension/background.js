@@ -416,6 +416,7 @@ async function handleStudioMessage(msg) {
       if (!jobId) return;
 
       if (activePatch && activePatch.job_id === jobId) {
+        const tabId = activePatch.tabId;
         activePatch = null;
         await stopJobPreview();
         send({
@@ -426,11 +427,13 @@ async function handleStudioMessage(msg) {
           sent_at: new Date().toISOString(),
           payload: { cancelled_at: 'filling_fields' },
         });
+        await closeListingTab(tabId);
         return;
       }
 
       if (activeJob && activeJob.job_id === jobId) {
         const csJob = activeJob;
+        const tabId = csJob.tabId;
         activeJob = null;
         await persistActiveJob(null);
         await stopJobPreview();
@@ -443,6 +446,7 @@ async function handleStudioMessage(msg) {
           sent_at: new Date().toISOString(),
           payload: { cancelled_at: csJob.current_step },
         });
+        await closeListingTab(tabId);
       }
       break;
     }
@@ -557,6 +561,7 @@ async function runJob(jobId) {
 
   if (!failed) {
     const vurl = activeJob?.vendoo_url;
+    const tabId = activeJob?.tabId;
     await addCompletedJobId(jobId);
     activeJob = null;
     await persistActiveJob(null);
@@ -570,6 +575,7 @@ async function runJob(jobId) {
       sent_at: new Date().toISOString(),
       payload: { vendoo_url: vurl },
     });
+    await closeListingTab(tabId);
   }
 }
 
@@ -803,45 +809,14 @@ async function findVisibleVendooTab() {
   )) || null;
 }
 
-async function openVisibleVendooWindow(url, existingTab) {
-  if (existingTab?.id) {
-    if (existingTab.windowId) {
-      try {
-        const win = await chrome.windows.get(existingTab.windowId);
-        if (win?.id != null && !isOffscreenEngineWindow(win)) {
-          if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
-          else await chrome.tabs.update(existingTab.id, { active: true });
-          await showWindow(win.id);
-          return { ok: true, tabId: existingTab.id, windowId: win.id };
-        }
-      } catch (_) {}
-    }
-    try {
-      const created = await createWindowSafe({
-        tabId: existingTab.id,
-        focused: true,
-        type: 'normal',
-      });
-      await showWindow(created.id);
-      if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
-      return { ok: true, tabId: existingTab.id, windowId: created.id };
-    } catch (err) {
-      log(`Could not detach Vendoo tab into a new window (${err.message})`);
-      if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
-      else await chrome.tabs.update(existingTab.id, { active: true });
-      if (existingTab.windowId) await showWindow(existingTab.windowId);
-      return { ok: true, tabId: existingTab.id, windowId: existingTab.windowId };
-    }
-  }
+async function openVisibleVendooWindow(url, existingTab, { foreground = false } = {}) {
   try {
-    const created = await createWindowSafe({ url, focused: true, type: 'normal' });
-    const tabId = created.tabs && created.tabs[0] && created.tabs[0].id;
-    await showWindow(created.id);
-    return { ok: true, tabId, windowId: created.id };
+    const tab = await openEverydayListingTab(url, existingTab, { foreground });
+    return { ok: true, tabId: tab.id, windowId: tab.windowId };
   } catch (err) {
-    log(`Could not open a Vendoo window (${err.message})`);
-    const created = await chrome.tabs.create({ url, active: true });
-    if (created.windowId != null) await showWindow(created.windowId);
+    log(`Could not open a Vendoo tab (${err.message})`);
+    const created = await chrome.tabs.create({ url, active: foreground });
+    if (foreground && created.windowId != null) await showWindow(created.windowId);
     return { ok: true, tabId: created.id, windowId: created.windowId };
   }
 }
@@ -857,16 +832,16 @@ async function focusVendooListing(payload) {
 
   try {
     if (existing?.id && engineId != null && existing.windowId === engineId) {
-      return await openVisibleVendooWindow(url, existing);
+      return await openVisibleVendooWindow(url, existing, { foreground: true });
     }
     if (existing?.id) {
       await chrome.tabs.update(existing.id, { active: true });
       await showWindow(existing.windowId);
       return { ok: true, tabId: existing.id, windowId: existing.windowId };
     }
-    return await openVisibleVendooWindow(url);
+    return await openVisibleVendooWindow(url, null, { foreground: true });
   } catch (err) {
-    log(`job.open_listing could not show window: ${err.message}`);
+    log(`job.open_listing could not show tab: ${err.message}`);
     const created = await chrome.tabs.create({ url, active: true });
     if (created.windowId != null) {
       await showWindow(created.windowId);
@@ -893,8 +868,8 @@ async function openListingForPatch(payload, { reload = true, preview = true, mar
     } catch (_) {}
   }
   const samePage = Boolean(existing?.id) && listingUrlsMatch(currentUrl, url);
-  const tab = await openTabInHiddenWindow(samePage ? null : url, existing);
-  const tabId = tab?.id;
+  const opened = await openVisibleVendooWindow(samePage ? null : url, existing);
+  const tabId = opened.tabId;
   if (!tabId) {
     return { ok: false, error: 'Could not open the Vendoo draft.' };
   }
@@ -1052,6 +1027,7 @@ async function runFillFields(jobId, payload) {
       fill_log: fillLog,
     },
   });
+  await closeListingTab(job.tabId);
 }
 
 function groupFillFieldBatches(fields) {
@@ -1171,7 +1147,7 @@ async function readVendooItemInPage(wantedId) {
       url: location.href,
     };
   }
-  const item = (data && (data.item || data.data || data)) || null;
+  const item = compactImportedVendooItem((data && (data.item || data.data || data)) || null);
   return {
     ok: true,
     source: 'api',
@@ -1180,6 +1156,48 @@ async function readVendooItemInPage(wantedId) {
     url: location.href,
     item,
   };
+
+  function compactImportedVendooItem(value) {
+    const urls = [];
+    const seen = new Set();
+    const addUrl = (raw) => {
+      if (!raw || typeof raw !== 'string') return;
+      let url = raw.trim();
+      if (url.startsWith('//')) url = `https:${url}`;
+      if (!(url.startsWith('http://') || url.startsWith('https://'))) return;
+      const lower = url.toLowerCase();
+      const looksImage = /\.(jpe?g|png|webp|gif|heic|heif|avif)(\?|$)/i.test(url)
+        || /cloudinary|cloudfront|googleusercontent|firebasestorage|imgix|storage\.googleapis\.com/.test(lower)
+        || /(cdn|images|img|media|static|storage)[.-].*vendoo|vendoo[^/]*\.(cdn|images)/i.test(lower);
+      if (!looksImage) return;
+      if (seen.has(url)) return;
+      seen.add(url);
+      urls.push(url);
+    };
+    const compact = (node, depth) => {
+      if (node == null || depth > 8) return node;
+      if (typeof node === 'string') {
+        addUrl(node);
+        if (node.startsWith('data:') && node.length > 200) return `[data-url ${node.length} chars]`;
+        if (node.length > 8000) return `${node.slice(0, 4000)}…[truncated ${node.length} chars]`;
+        return node;
+      }
+      if (typeof node !== 'object') return node;
+      if (Array.isArray(node)) return node.slice(0, 40).map((entry) => compact(entry, depth + 1));
+      const out = {};
+      for (const key of Object.keys(node).slice(0, 120)) {
+        out[key] = compact(node[key], depth + 1);
+      }
+      return out;
+    };
+    const compacted = compact(value, 0);
+    if (compacted && typeof compacted === 'object' && !Array.isArray(compacted) && urls.length) {
+      if (!Array.isArray(compacted.images) || compacted.images.length === 0) {
+        compacted.images = urls.map((url) => ({ url }));
+      }
+    }
+    return compacted;
+  }
 }
 
 async function readItemFromPage(tabId, itemId) {
@@ -1306,7 +1324,7 @@ async function openVendooListing(job) {
     const existingTab = await findNewItemTab();
     if (existingTab) {
       log(`Reloading new-item tab ${existingTab.id} -> ${NEW_ITEM_URL}`);
-      const tab = await openTabInHiddenWindow(NEW_ITEM_URL, existingTab);
+      const tab = await openEverydayListingTab(NEW_ITEM_URL, existingTab);
       activeJob.windowId = tab.windowId;
       activeJob.tabId = tab.id;
       await persistActiveJob(activeJob);
@@ -1315,8 +1333,8 @@ async function openVendooListing(job) {
       return { ok: true };
     }
 
-    const tab = await openTabInHiddenWindow(NEW_ITEM_URL);
-    log(`Created Vendoo tab ${tab.id} in hidden Chrome window ${tab.windowId}`);
+    const tab = await openEverydayListingTab(NEW_ITEM_URL);
+    log(`Opened Vendoo tab ${tab.id} in everyday Chrome window ${tab.windowId}`);
 
     activeJob.windowId = tab.windowId;
     activeJob.tabId = tab.id;
@@ -1520,6 +1538,7 @@ async function importVendooListing(tabId) {
     return { ok: false, error: apiRead.error || formRead?.error || 'Could not read the Vendoo listing' };
   }
 
+  const imageUrls = collectImportedImageUrls(item, form);
   const response = await fetch(`${STUDIO_URL}/api/imports/vendoo`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -1529,6 +1548,7 @@ async function importVendooListing(tabId) {
       source: [apiRead.ok ? 'api' : null, formRead?.ok ? 'form' : null].filter(Boolean).join('+') || 'none',
       item,
       form,
+      image_urls: imageUrls,
     }),
   });
   let body = null;
@@ -1543,15 +1563,97 @@ async function importVendooListing(tabId) {
     return { ok: false, error: message };
   }
 
+  let photoCount = body.photo_count || 0;
+  const remaining = imageUrls.filter((url) => url.startsWith('blob:') || url.startsWith('http'));
+  if (photoCount === 0 && remaining.length) {
+    photoCount = await uploadImportedPhotos(tabId, body.conversation_id, remaining);
+  }
+
   await chrome.tabs.create({ url: `${STUDIO_URL}/?listing=${body.conversation_id}`, active: true });
   return {
     ok: true,
     conversation_id: body.conversation_id,
     reused: Boolean(body.reused),
-    photo_count: body.photo_count || 0,
+    photo_count: photoCount,
     photo_warnings: body.photo_warnings || [],
     listing_title: body.listing_title || '',
   };
+}
+
+function collectImportedImageUrls(...blobs) {
+  const urls = [];
+  const seen = new Set();
+  const add = (raw) => {
+    if (!raw || typeof raw !== 'string') return;
+    let url = raw.trim();
+    if (url.startsWith('//')) url = `https:${url}`;
+    if (!(url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:'))) return;
+    if (url.startsWith('data:')) return;
+    const lower = url.toLowerCase();
+    const looksImage = url.startsWith('blob:')
+      || /\.(jpe?g|png|webp|gif|heic|heif|avif)(\?|$)/i.test(url)
+      || /cloudinary|cloudfront|googleusercontent|firebasestorage|imgix|storage\.googleapis\.com/.test(lower)
+      || /(cdn|images|img|media|static|storage)[.-].*vendoo|vendoo[^/]*\.(cdn|images)/i.test(lower);
+    if (!looksImage || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+  const walk = (value, depth) => {
+    if (value == null || depth > 10) return;
+    if (typeof value === 'string') {
+      add(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.slice(0, 40).forEach((entry) => walk(entry, depth + 1));
+      return;
+    }
+    if (typeof value !== 'object') return;
+    Object.values(value).slice(0, 120).forEach((entry) => walk(entry, depth + 1));
+  };
+  blobs.forEach((blob) => walk(blob, 0));
+  return urls.slice(0, 20);
+}
+
+async function fetchImageBlobInPage(url) {
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) return { ok: false, status: res.status };
+  const buffer = await res.arrayBuffer();
+  const bytes = Array.from(new Uint8Array(buffer));
+  return {
+    ok: true,
+    bytes,
+    contentType: res.headers.get('content-type') || 'image/jpeg',
+  };
+}
+
+async function uploadImportedPhotos(tabId, conversationId, urls) {
+  let uploaded = 0;
+  for (const url of urls.slice(0, 20)) {
+    try {
+      const [execution] = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: fetchImageBlobInPage,
+        args: [url],
+      });
+      const result = execution?.result;
+      if (!result?.ok || !Array.isArray(result.bytes) || !result.bytes.length) continue;
+      const blob = new Blob([new Uint8Array(result.bytes)], { type: result.contentType || 'image/jpeg' });
+      const path = String(url).split('?')[0];
+      const name = path.split('/').pop() || `vendoo-${uploaded + 1}.jpg`;
+      const form = new FormData();
+      form.append('files', blob, name.includes('.') ? name : `${name}.jpg`);
+      const resp = await fetch(`${STUDIO_URL}/api/conversations/${conversationId}/photos`, {
+        method: 'POST',
+        body: form,
+      });
+      if (resp.ok) uploaded += 1;
+    } catch (err) {
+      log(`Imported photo fetch failed for ${url}: ${err.message}`);
+    }
+  }
+  return uploaded;
 }
 
 // Existing popup message handlers (backward compatible)

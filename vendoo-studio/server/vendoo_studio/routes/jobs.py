@@ -66,7 +66,11 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     from vendoo_studio.models.validation import validate_listing
     listing_snapshot = _prepare_listing_snapshot(db, conv, latest_revision.listing_json)
     binding = vendoo_binding(conv.notes)
-    validation = validate_listing(listing_snapshot, photo_count)
+    validation = validate_listing(
+        listing_snapshot,
+        photo_count,
+        require_photos=not bool(binding.get("vendooItemId")),
+    )
     if not validation.can_send:
         raise HTTPException(400, _validation_error_detail(validation))
 

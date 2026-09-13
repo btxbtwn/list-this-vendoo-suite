@@ -332,40 +332,28 @@ async function rememberedEngineWindowId() {
   return null;
 }
 
-async function engineWindowId() {
-  const existing = await rememberedEngineWindowId();
-  if (existing != null) {
-    try {
-      await updateWindowSafe(existing, { focused: false, state: 'normal' });
-      return existing;
-    } catch (err) {
-      log(`Could not reuse engine window (${err.message}); opening a new one`);
-      try {
-        await chrome.storage.local.remove(ENGINE_WINDOW_KEY);
-      } catch (_) {}
-    }
-  }
+async function currentEverydayWindowId() {
+  const usable = (win) => (
+    win
+    && win.id != null
+    && win.type !== 'popup'
+    && win.state !== 'minimized'
+    && !isOffscreenEngineWindow(win)
+  );
   try {
-    const created = await createWindowSafe({
-      url: 'about:blank',
-      focused: false,
-      type: 'normal',
-    });
-    await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
-    await hideWindow(created.id);
-    return created.id;
-  } catch (err) {
-    log(`Could not create engine window (${err.message}); using an existing Chrome window`);
+    const current = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+    if (usable(current)) {
+      return current.id;
+    }
+  } catch (_) {}
+  try {
     const windows = await chrome.windows.getAll();
-    const visible = (windows || []).find((win) => (
-      win && win.id != null && win.state !== 'minimized' && !isOffscreenEngineWindow(win)
-    ));
+    const visible = (windows || []).find(usable);
     if (visible?.id != null) {
-      await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: visible.id });
       return visible.id;
     }
-    throw err;
-  }
+  } catch (_) {}
+  return null;
 }
 
 async function closeSpareBlankTabs(windowId, keepTabId) {
@@ -377,55 +365,49 @@ async function closeSpareBlankTabs(windowId, keepTabId) {
   } catch (_) {}
 }
 
-async function closeEmptyWindows(keepWindowId) {
-  try {
-    const windows = await chrome.windows.getAll({ populate: true });
-    await Promise.all(windows
-      .filter((win) => win.id && win.id !== keepWindowId)
-      .filter((win) => !(win.tabs || []).some((tab) => tab.url && tab.url !== 'about:blank'))
-      .map((win) => chrome.windows.remove(win.id)));
-  } catch (_) {}
-}
-
-async function openTabInHiddenWindow(url, existing) {
-  try {
-    const windowId = await engineWindowId();
-    await hideWindow(windowId);
-    let tab;
-    if (existing?.id) {
-      if (existing.windowId !== windowId) {
-        try {
-          await chrome.tabs.move(existing.id, { windowId, index: -1 });
-        } catch (_) {}
-      }
-      tab = url
-        ? await chrome.tabs.update(existing.id, { url, active: true })
-        : await chrome.tabs.update(existing.id, { active: true });
-    } else {
-      tab = await chrome.tabs.create({ windowId, url, active: true });
+async function openEverydayListingTab(url, existing, { foreground = false } = {}) {
+  if (existing?.id) {
+    try {
+      const update = {};
+      if (url) update.url = url;
+      if (foreground) update.active = true;
+      const tab = Object.keys(update).length
+        ? await chrome.tabs.update(existing.id, update)
+        : await chrome.tabs.get(existing.id);
+      if (foreground && tab.windowId) await showWindow(tab.windowId);
+      return tab;
+    } catch (err) {
+      log(`Could not reuse Vendoo tab (${err.message}); opening a new tab`);
     }
-    const hiddenId = tab.windowId || windowId;
-    await closeSpareBlankTabs(hiddenId, tab.id);
-    await closeEmptyWindows(hiddenId);
-    await hideWindow(hiddenId);
+  }
+  const windowId = await currentEverydayWindowId();
+  try {
+    const tab = await chrome.tabs.create(
+      windowId != null ? { windowId, url, active: foreground } : { url, active: foreground },
+    );
+    if (foreground && tab.windowId) await showWindow(tab.windowId);
     return tab;
   } catch (err) {
-    log(`Could not open engine tab (${err.message}); opening in a regular tab`);
-    if (existing?.id) {
-      return url
-        ? chrome.tabs.update(existing.id, { url, active: true })
-        : chrome.tabs.update(existing.id, { active: true });
+    log(`Could not open listing tab (${err.message}); opening a window`);
+    const created = await createWindowSafe({ url, focused: foreground, type: 'normal' });
+    if (foreground) await showWindow(created.id);
+    const tab = created.tabs && created.tabs[0];
+    if (!tab) {
+      throw err;
     }
-    return chrome.tabs.create({ url, active: true });
+    return tab;
   }
 }
 
-async function parkJobTab(tabId) {
+async function closeListingTab(tabId) {
+  if (tabId == null) {
+    return;
+  }
   try {
-    const tab = await chrome.tabs.get(tabId);
-    await openTabInHiddenWindow(null, tab);
+    await chrome.tabs.remove(tabId);
+    log(`Closed listing tab ${tabId}`);
   } catch (err) {
-    log(`Could not keep Chrome hidden (${err.message})`);
+    log(`Could not close listing tab (${err.message})`);
   }
 }
 
@@ -500,13 +482,47 @@ function startDebuggerScreenshotPoll(tabId, jobId) {
       const url = await tabPreviewUrl(tabId);
       sendPreviewFrame(jobId, data, { url });
     } catch (_) {
-      if (!previewAttached) {
+      if (!previewAttached && await tabIsInFront(tabId)) {
         startVisibleTabPoll(tabId, jobId);
       }
     }
   };
   captureOnce();
   previewPollTimer = setInterval(captureOnce, PREVIEW_POLL_MS);
+}
+
+async function tabIsInFront(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab?.active || tab.windowId == null) {
+      return false;
+    }
+    const win = await chrome.windows.get(tab.windowId);
+    return Boolean(
+      win
+      && win.focused
+      && win.state !== 'minimized'
+      && !isOffscreenEngineWindow(win),
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+async function attachDebuggerPreview(tabId, jobId) {
+  try {
+    await chrome.debugger.attach({ tabId }, PREVIEW_PROTOCOL);
+    previewAttached = true;
+    await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
+    await preparePageForCapture(tabId);
+    startDebuggerScreenshotPoll(tabId, jobId);
+  } catch (err) {
+    previewAttached = false;
+    log(`Preview debugger unavailable (${err.message})`);
+    if (await tabIsInFront(tabId)) {
+      startVisibleTabPoll(tabId, jobId);
+    }
+  }
 }
 
 function armPreviewWatchdog(tabId, jobId) {
@@ -519,17 +535,7 @@ function armPreviewWatchdog(tabId, jobId) {
       return;
     }
     log('Visible-tab preview produced no frames; polling debugger screenshots');
-    try {
-      await chrome.debugger.attach({ tabId }, PREVIEW_PROTOCOL);
-      previewAttached = true;
-      await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
-      await preparePageForCapture(tabId);
-      startDebuggerScreenshotPoll(tabId, jobId);
-    } catch (err) {
-      previewAttached = false;
-      log(`Preview debugger unavailable (${err.message}); keeping visible-tab capture`);
-      startVisibleTabPoll(tabId, jobId);
-    }
+    await attachDebuggerPreview(tabId, jobId);
   }, PREVIEW_WATCHDOG_MS);
 }
 
@@ -558,24 +564,21 @@ async function startJobPreview(tabId, jobId) {
   if (!tabId || !jobId) {
     return;
   }
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    if (tab?.windowId) {
-      // Keep Chrome behind Studio. Preview capture works on an unfocused
-      // on-screen window; focusing would steal the desktop.
-      await hideWindow(tab.windowId);
-    }
-  } catch (_) {}
   if (previewTabId === tabId && previewJobId === jobId && (previewAttached || previewPollTimer)) {
     return;
   }
   await stopJobPreview();
   previewTabId = tabId;
   previewJobId = jobId;
-  // Visible window: snapshot the real tab. Screencast + device-metrics
-  // override fight the OS scale and make Vendoo's layout pulse.
-  startVisibleTabPoll(tabId, jobId);
-  armPreviewWatchdog(tabId, jobId);
+  try {
+    await chrome.tabs.update(tabId, { autoDiscardable: false });
+  } catch (_) {}
+  if (await tabIsInFront(tabId)) {
+    startVisibleTabPoll(tabId, jobId);
+    armPreviewWatchdog(tabId, jobId);
+    return;
+  }
+  await attachDebuggerPreview(tabId, jobId);
 }
 
 try {
@@ -603,7 +606,11 @@ try {
       previewAttached = false;
       log(`Preview debugger detached (${reason || 'unknown'})`);
       if (previewTabId && previewJobId) {
-        startVisibleTabPoll(previewTabId, previewJobId);
+        tabIsInFront(previewTabId).then((inFront) => {
+          if (inFront && previewTabId && previewJobId) {
+            startVisibleTabPoll(previewTabId, previewJobId);
+          }
+        });
       }
     }
   });

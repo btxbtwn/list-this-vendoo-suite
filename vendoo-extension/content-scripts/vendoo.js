@@ -3852,6 +3852,37 @@
       return text;
   }
 
+  function scrapeListingImageUrls() {
+      const urls = [];
+      const seen = new Set();
+      const add = (raw) => {
+          if (!raw || typeof raw !== 'string') return;
+          let url = raw.trim();
+          if (url.startsWith('//')) url = `https:${url}`;
+          if (!(url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:'))) return;
+          if (url.startsWith('data:')) return;
+          const lower = url.toLowerCase();
+          if (lower.includes('favicon') || lower.includes('/logo') || lower.includes('gravatar')) return;
+          const looksImage = url.startsWith('blob:')
+              || /\.(jpe?g|png|webp|gif|heic|heif|avif)(\?|$)/i.test(url)
+              || /cloudinary|cloudfront|googleusercontent|firebasestorage|imgix|storage\.googleapis\.com/.test(lower)
+              || /(cdn|images|img|media|static|storage)[.-].*vendoo|vendoo[^/]*\.(cdn|images)/i.test(lower);
+          if (!looksImage || seen.has(url)) return;
+          seen.add(url);
+          urls.push(url);
+      };
+      document.querySelectorAll('img').forEach((img) => {
+          const w = img.naturalWidth || img.width || 0;
+          const h = img.naturalHeight || img.height || 0;
+          if (w && h && (w < 64 || h < 64)) return;
+          add(img.currentSrc || img.src);
+          add(img.getAttribute('data-src'));
+          const srcset = img.getAttribute('srcset') || '';
+          srcset.split(',').forEach((part) => add(part.trim().split(/\s+/)[0]));
+      });
+      return urls.slice(0, 20);
+  }
+
   function scrapeVendooItem() {
       const itemId = extractItemId();
       if (itemId === 'new') {
@@ -3885,6 +3916,7 @@
                   height: controlValue(VENDOO_SELECTORS.height),
               },
           },
+          images: scrapeListingImageUrls().map((url) => ({ url })),
       };
       const filled = Object.values(form.generalDetails).some((value) => {
           if (value && typeof value === 'object') return Object.values(value).some(Boolean);
