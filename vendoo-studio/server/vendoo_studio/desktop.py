@@ -479,6 +479,32 @@ def _layout_t3_traffic_lights(native, AppKit) -> None:
             pass
 
 
+def _macos_flag(AppKit, name: str, fallback: int) -> int:
+    return int(getattr(AppKit, name, fallback))
+
+
+def _is_native_fullscreen(native, AppKit) -> bool:
+    try:
+        mask = int(native.styleMask())
+    except Exception:
+        return False
+    return bool(mask & _macos_flag(AppKit, "NSFullScreenWindowMask", 1 << 14))
+
+
+def _disable_native_fullscreen(native, AppKit) -> None:
+    """Keep zoom-to-fill, but block Spaces fullscreen. Frameless WKWebView crashes there."""
+    none = _macos_flag(AppKit, "NSWindowCollectionBehaviorFullScreenNone", 1 << 9)
+    primary = _macos_flag(AppKit, "NSWindowCollectionBehaviorFullScreenPrimary", 1 << 7)
+    try:
+        current = int(native.collectionBehavior())
+    except Exception:
+        current = 0
+    try:
+        native.setCollectionBehavior_((current & ~primary) | none)
+    except Exception:
+        pass
+
+
 def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
     """Paint the window like T3 Code: no grey title bar, 12pt traffic lights on the UI."""
     if sys.platform != "darwin":
@@ -491,6 +517,11 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
     except ImportError:
         return
 
+    if _is_native_fullscreen(native, AppKit):
+        return
+
+    _disable_native_fullscreen(native, AppKit)
+
     title_hidden = getattr(AppKit, "NSWindowTitleHidden", 1)
     try:
         native.setTitlebarAppearsTransparent_(True)
@@ -501,8 +532,11 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
         )
         appearance = AppKit.NSAppearance.appearanceNamed_(AppKit.NSAppearanceNameDarkAqua)
         native.setAppearance_(appearance)
-        titlebar = native.contentView().superview().subviews()[-1]
-        titlebar.setBackgroundColor_(AppKit.NSColor.clearColor())
+        content = native.contentView()
+        superview = content.superview() if content is not None else None
+        subviews = list(superview.subviews()) if superview is not None else []
+        if subviews:
+            subviews[-1].setBackgroundColor_(AppKit.NSColor.clearColor())
     except Exception:
         pass
 
@@ -519,8 +553,8 @@ def create_studio_window(webview_module):
     events = window.events
     if hasattr(events, "shown"):
         events.shown += apply_unified_macos_chrome
-    if hasattr(events, "resized"):
-        events.resized += apply_unified_macos_chrome
+    if hasattr(events, "restored"):
+        events.restored += apply_unified_macos_chrome
     return window
 
 

@@ -13,11 +13,11 @@ from vendoo_studio.config import extension_source_dir, user_data_root
 DEFAULT_VENDOO_URL = "https://web.vendoo.co"
 VENDOO_HOSTS = frozenset({"web.vendoo.co", "app.vendoo.co"})
 
-CHROME_CANDIDATES = (
-    Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-    Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
-    Path("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
-    Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+CHROME_APP_BINARIES = (
+    Path("Google Chrome.app/Contents/MacOS/Google Chrome"),
+    Path("Chromium.app/Contents/MacOS/Chromium"),
+    Path("Brave Browser.app/Contents/MacOS/Brave Browser"),
+    Path("Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
 )
 
 EXTENSION_SKIP = {
@@ -37,10 +37,16 @@ class ChromeBridgeError(RuntimeError):
     pass
 
 
+def chrome_search_dirs() -> tuple[Path, ...]:
+    return (Path("/Applications"), Path.home() / "Applications")
+
+
 def chrome_executable() -> Path | None:
-    for candidate in CHROME_CANDIDATES:
-        if candidate.is_file():
-            return candidate
+    for root in chrome_search_dirs():
+        for relative in CHROME_APP_BINARIES:
+            candidate = root / relative
+            if candidate.is_file():
+                return candidate
     return None
 
 
@@ -252,10 +258,11 @@ def launch_args(
         "--disable-backgrounding-occluded-windows",
         "--disable-renderer-backgrounding",
         "--disable-background-timer-throttling",
-        "--no-startup-window",
     ]
     if visible:
         args.append(url if is_vendoo_url(url) else DEFAULT_VENDOO_URL)
+    else:
+        args.append("--no-startup-window")
     return args
 
 
