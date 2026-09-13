@@ -754,20 +754,20 @@ async function findTabByDraft(vendooUrl, itemId) {
 
 async function findVisibleVendooTab() {
   const engineId = await rememberedEngineWindowId();
+  let engineOffscreen = false;
+  if (engineId != null) {
+    try {
+      engineOffscreen = isOffscreenEngineWindow(await chrome.windows.get(engineId));
+    } catch (_) {}
+  }
   const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*' });
   const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*' });
-  return [...webTabs, ...appTabs].find((tab) => tab.windowId && tab.windowId !== engineId) || null;
+  return [...webTabs, ...appTabs].find((tab) => (
+    tab.windowId && (!engineOffscreen || tab.windowId !== engineId)
+  )) || null;
 }
 
 async function openVisibleVendooWindow(url, existingTab) {
-  const bounds = {
-    focused: true,
-    type: 'normal',
-    left: SHOW_LEFT,
-    top: SHOW_TOP,
-    width: ENGINE_WIDTH,
-    height: ENGINE_HEIGHT,
-  };
   if (existingTab?.id) {
     if (existingTab.windowId) {
       try {
@@ -780,12 +780,16 @@ async function openVisibleVendooWindow(url, existingTab) {
         }
       } catch (_) {}
     }
-    const created = await chrome.windows.create({ ...bounds, tabId: existingTab.id });
+    const created = await createWindowSafe({
+      tabId: existingTab.id,
+      focused: true,
+      type: 'normal',
+    });
     await showWindow(created.id);
     if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
     return { ok: true, tabId: existingTab.id, windowId: created.id };
   }
-  const created = await chrome.windows.create({ ...bounds, url });
+  const created = await createWindowSafe({ url, focused: true, type: 'normal' });
   const tabId = created.tabs && created.tabs[0] && created.tabs[0].id;
   await showWindow(created.id);
   return { ok: true, tabId, windowId: created.id };
