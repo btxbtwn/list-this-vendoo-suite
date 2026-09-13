@@ -4339,20 +4339,19 @@
       return details;
   }
 
-  async function discoverAllMarketplaceListings(data = null, platforms = null) {
+  async function discoverAllMarketplaceListings(platforms = null) {
+      // Read-only: never call fillMarketplaceCategory here. Refresh/GET_VENDOO_ITEM
+      // must scrape what's already on the draft — re-selecting category remounts
+      // optionals as empty and makes Fields think fills never stuck.
       const list = Array.isArray(platforms) && platforms.length
           ? platforms.map((platform) => String(platform || '').toLowerCase()).filter(Boolean)
           : ['ebay', 'etsy', 'poshmark', 'mercari', 'depop'];
       let listings = {};
       for (const platform of list) {
           try {
-              log(`Discovering ${platform} form fields (including empty optionals)...`);
+              log(`Reading ${platform} form fields (including empty optionals)...`);
               await activateMarketplaceSection(platform);
               await sleep(CONFIG.SLEEP_LONG);
-              if (data) {
-                  await fillMarketplaceCategory(platform, data);
-                  await sleep(CONFIG.SLEEP_LONG);
-              }
               if (platform === 'ebay') {
                   await waitForEbayOptionalCategoryFields();
               } else {
@@ -4512,10 +4511,7 @@
       await expandOptionalFields();
       await sleep(CONFIG.SLEEP_LONG);
       const generalDetails = scrapeGeneralDetailsFromDom();
-      const categoryPath = generalDetails.categoryV2 || '';
-      const listings = await discoverAllMarketplaceListings(
-          categoryPath ? { category_path: categoryPath } : null,
-      );
+      const listings = await discoverAllMarketplaceListings();
       const form = {
           itemID: itemId,
           generalDetails,

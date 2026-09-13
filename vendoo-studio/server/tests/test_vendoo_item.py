@@ -142,6 +142,37 @@ class VendooItemRouteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertIn("401", response.json()["detail"])
 
+    def test_vendoo_item_refresh_failure_does_not_return_stale_cache(self):
+        self._connect_chrome()
+
+        async def ok_dispatch(job, request_id):
+            extension_manager.resolve_wait(request_id, {
+                "ok": True,
+                "source": "api+form",
+                "item_id": "abc123",
+                "url": "https://web.vendoo.co/app/item/abc123",
+                "item": {"itemID": "abc123", "generalDetails": {"title": "Old title"}},
+                "form": {"generalDetails": {"title": "Old title"}},
+            })
+            return True
+
+        async def fail_dispatch(job, request_id):
+            extension_manager.resolve_wait(request_id, {
+                "ok": False,
+                "error": "Tab closed during refresh",
+            })
+            return True
+
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=ok_dispatch)):
+            primed = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
+        self.assertEqual(primed.status_code, 200, primed.text)
+
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=fail_dispatch)):
+            response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item?refresh=true")
+
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertIn("Tab closed", response.json()["detail"])
+
     def test_vendoo_item_times_out(self):
         self._connect_chrome()
 
