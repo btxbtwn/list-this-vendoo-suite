@@ -53,6 +53,12 @@ async function tabPreviewUrl(tabId) {
   }
 }
 
+const ENGINE_WINDOW_KEY = 'studio_engine_window_id';
+const ENGINE_LEFT = -20000;
+const ENGINE_TOP = 0;
+const ENGINE_WIDTH = 1280;
+const ENGINE_HEIGHT = 900;
+
 function stopPreviewPolling() {
   if (previewPollTimer) {
     clearInterval(previewPollTimer);
@@ -64,34 +70,110 @@ function stopPreviewPolling() {
   }
 }
 
-async function parkJobTab(tabId) {
+async function hideWindow(windowId) {
+  if (windowId == null) {
+    return;
+  }
   try {
-    const tab = await chrome.tabs.update(tabId, { active: true });
-    if (tab?.windowId == null) {
-      return;
-    }
-    await chrome.windows.update(tab.windowId, { focused: false, state: 'minimized' });
+    await chrome.windows.update(windowId, {
+      focused: false,
+      left: ENGINE_LEFT,
+      top: ENGINE_TOP,
+      width: ENGINE_WIDTH,
+      height: ENGINE_HEIGHT,
+      state: 'normal',
+    });
+  } catch (_) {}
+  try {
+    await chrome.windows.update(windowId, { focused: false, state: 'minimized' });
   } catch (err) {
-    log(`Could not keep Chrome in the background (${err.message})`);
+    log(`Could not hide Chrome window (${err.message})`);
   }
 }
 
-async function restoreJobTabForCapture(tabId) {
+async function engineWindowId() {
+  const stored = await chrome.storage.local.get(ENGINE_WINDOW_KEY);
+  const remembered = stored[ENGINE_WINDOW_KEY];
+  if (remembered != null) {
+    try {
+      const win = await chrome.windows.get(remembered);
+      if (win?.id != null) {
+        return win.id;
+      }
+    } catch (_) {}
+  }
+  const windows = await chrome.windows.getAll();
+  if (windows[0]?.id != null) {
+    await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: windows[0].id });
+    return windows[0].id;
+  }
+  const created = await chrome.windows.create({
+    url: 'about:blank',
+    focused: false,
+    type: 'normal',
+    left: ENGINE_LEFT,
+    top: ENGINE_TOP,
+    width: ENGINE_WIDTH,
+    height: ENGINE_HEIGHT,
+  });
+  await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
+  await hideWindow(created.id);
+  return created.id;
+}
+
+async function closeSpareBlankTabs(windowId, keepTabId) {
   try {
-    const tab = await chrome.tabs.update(tabId, { active: true });
-    if (tab?.windowId == null) {
-      return;
-    }
-    const win = await chrome.windows.get(tab.windowId);
-    if (win.state === 'minimized') {
-      await chrome.windows.update(tab.windowId, { focused: false, state: 'normal' });
-    }
+    const tabs = await chrome.tabs.query({ windowId });
+    await Promise.all(tabs
+      .filter((tab) => tab.id && tab.id !== keepTabId && (!tab.url || tab.url === 'about:blank'))
+      .map((tab) => chrome.tabs.remove(tab.id)));
   } catch (_) {}
+}
+
+async function closeEmptyWindows(keepWindowId) {
+  try {
+    const windows = await chrome.windows.getAll({ populate: true });
+    await Promise.all(windows
+      .filter((win) => win.id && win.id !== keepWindowId)
+      .filter((win) => !(win.tabs || []).some((tab) => tab.url && tab.url !== 'about:blank'))
+      .map((win) => chrome.windows.remove(win.id)));
+  } catch (_) {}
+}
+
+async function openTabInHiddenWindow(url, existing) {
+  const windowId = await engineWindowId();
+  await hideWindow(windowId);
+  let tab;
+  if (existing?.id) {
+    if (existing.windowId !== windowId) {
+      try {
+        await chrome.tabs.move(existing.id, { windowId, index: -1 });
+      } catch (_) {}
+    }
+    tab = url
+      ? await chrome.tabs.update(existing.id, { url, active: true })
+      : await chrome.tabs.update(existing.id, { active: true });
+  } else {
+    tab = await chrome.tabs.create({ windowId, url, active: true });
+  }
+  const hiddenId = tab.windowId || windowId;
+  await closeSpareBlankTabs(hiddenId, tab.id);
+  await closeEmptyWindows(hiddenId);
+  await hideWindow(hiddenId);
+  return tab;
+}
+
+async function parkJobTab(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    await openTabInHiddenWindow(null, tab);
+  } catch (err) {
+    log(`Could not keep Chrome hidden (${err.message})`);
+  }
 }
 
 function startVisibleTabPoll(tabId, jobId) {
   stopPreviewPolling();
-  restoreJobTabForCapture(tabId);
   previewPollTimer = setInterval(async () => {
     if (!previewJobId || previewJobId !== jobId || previewTabId !== tabId) {
       return;
@@ -100,9 +182,6 @@ function startVisibleTabPoll(tabId, jobId) {
       const tab = await chrome.tabs.get(tabId);
       if (!tab?.windowId) {
         return;
-      }
-      if (!tab.active) {
-        await chrome.tabs.update(tabId, { active: true });
       }
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: 'jpeg',
@@ -114,7 +193,7 @@ function startVisibleTabPoll(tabId, jobId) {
       }
       sendPreviewFrame(jobId, dataUrl.slice(prefix.length), { url: tab.url || '' });
     } catch (_) {
-      // Window may be minimized; debugger capture is preferred.
+      // Hidden window; debugger capture is preferred.
     }
   }, PREVIEW_POLL_MS);
 }

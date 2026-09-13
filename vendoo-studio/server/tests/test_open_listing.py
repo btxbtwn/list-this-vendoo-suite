@@ -89,7 +89,7 @@ class OpenListingRouteTest(unittest.TestCase):
         body = response.json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["via"], "chrome")
-        launch.assert_called_once_with("https://web.vendoo.co/app/item/abc123")
+        launch.assert_called_once_with("https://web.vendoo.co/app/item/abc123", visible=True)
 
     def test_open_listing_builds_url_from_item_id(self):
         self.job.vendoo_url = None
@@ -99,7 +99,7 @@ class OpenListingRouteTest(unittest.TestCase):
             response = self.client.post(f"/api/jobs/{self.job.id}/open")
 
         self.assertEqual(response.status_code, 200, response.text)
-        launch.assert_called_once_with("https://web.vendoo.co/app/item/abc123")
+        launch.assert_called_once_with("https://web.vendoo.co/app/item/abc123", visible=True)
 
     def test_open_listing_requires_draft(self):
         self.job.vendoo_url = None

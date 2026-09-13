@@ -122,6 +122,16 @@ class ChromeBridgeTest(unittest.TestCase):
         self.assertIn("--disable-backgrounding-occluded-windows", args)
         self.assertIn("--disable-renderer-backgrounding", args)
         self.assertIn("--disable-background-timer-throttling", args)
+        self.assertIn("--no-startup-window", args)
+        self.assertNotIn("https://web.vendoo.co", args)
+
+    def test_launch_args_visible_opens_vendoo(self):
+        args = chrome_bridge.launch_args(
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            Path("/tmp/ext"),
+            Path("/tmp/profile"),
+            visible=True,
+        )
         self.assertEqual(args[-1], "https://web.vendoo.co")
 
     def test_launch_args_open_listing_url(self):
@@ -130,6 +140,7 @@ class ChromeBridgeTest(unittest.TestCase):
             Path("/tmp/ext"),
             Path("/tmp/profile"),
             "https://web.vendoo.co/app/item/abc123",
+            visible=True,
         )
         self.assertEqual(args[-1], "https://web.vendoo.co/app/item/abc123")
 
@@ -139,6 +150,7 @@ class ChromeBridgeTest(unittest.TestCase):
             Path("/tmp/ext"),
             Path("/tmp/profile"),
             "https://evil.example/phishing",
+            visible=True,
         )
         self.assertEqual(args[-1], "https://web.vendoo.co")
 

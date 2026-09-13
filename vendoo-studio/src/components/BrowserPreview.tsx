@@ -104,7 +104,7 @@ export function BrowserPreview({
         ) : (
           <div className="browser-preview-empty">
             <p>{live ? "Connecting to the Vendoo tab…" : "Starting live view…"}</p>
-            <p className="text-xs text-muted">Chrome stays in the background. Watch the listing fill here.</p>
+            <p className="text-xs text-muted">The Vendoo tab stays hidden. Watch it fill here.</p>
           </div>
         )}
       </div>
