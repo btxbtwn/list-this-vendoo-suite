@@ -1970,7 +1970,7 @@ export function FillLogPanel({
                 ? "Connect Chrome to read empty Vendoo fields. Ask chat can still generate values, then Fill on Vendoo patches only those fields."
                 : hasDraft
                   ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red."
-                  : "Send this listing to Vendoo to review each marketplace form."}
+                  : "Send this listing to Vendoo to review each marketplace form. After generate, Studio also discovers live Vendoo fields once the category is known."}
           </p>
           {!chromeConnected && hasDraft && <ConnectChromeButton />}
         </div>

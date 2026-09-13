@@ -27,6 +27,7 @@ class JobResponse(BaseModel):
     attempt_count: int
     last_error: str | None
     listing_title: str
+    mode: str | None = None
     created_at: str
     updated_at: str
 
@@ -621,6 +622,9 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
     job.listing_snapshot = _prepare_listing_snapshot(
         db, conv, source, prefer_listing_category=True,
     )
+    # Retries always become full fill jobs, even if the prior run was a schema probe.
+    if isinstance(job.listing_snapshot, dict):
+        job.listing_snapshot.pop("_schema_probe", None)
     if revisions:
         job.approved_revision_id = revisions[0].id
     flag_modified(job, "listing_snapshot")
@@ -799,6 +803,8 @@ def _ensure_listing_defaults(listing_snapshot: dict) -> None:
 
 
 def _job_response(job) -> JobResponse:
+    from vendoo_studio.services.schema_probe import is_schema_probe_job
+
     title = job.listing_snapshot.get("title", "") if job.listing_snapshot else ""
     return JobResponse(
         id=job.id,
@@ -810,6 +816,7 @@ def _job_response(job) -> JobResponse:
         attempt_count=job.attempt_count,
         last_error=job.last_error,
         listing_title=title,
+        mode="schema_probe" if is_schema_probe_job(job) else None,
         created_at=job.created_at.isoformat() if job.created_at else "",
         updated_at=job.updated_at.isoformat() if job.updated_at else "",
     )
