@@ -1435,7 +1435,7 @@
       return 0;
   }
 
-  function findCategoryOption(segment, options = listCategoryOptions()) {
+  function findCategoryOption(segment, options = listCategoryOptions(), minScore = 1) {
       let best = null;
       let bestScore = 0;
       for (const option of options) {
@@ -1445,7 +1445,53 @@
               bestScore = score;
           }
       }
-      return bestScore > 0 ? best : null;
+      return bestScore >= minScore ? best : null;
+  }
+
+  const VENDOO_WOMEN_TOPS = "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops";
+  const VENDOO_MEN_TSHIRTS = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts";
+  const CATEGORY_SEGMENT_ALIASES = {
+      clothing: ['Clothing, Shoes & Accessories', 'Clothing'],
+      women: ["Women's Clothing", 'Women'],
+      men: ["Men's Clothing", 'Men'],
+      "shirts & blouses": ['Tops', 'Shirts'],
+      't-shirts': ['T-Shirts', 'Tops'],
+      't shirts': ['T-Shirts', 'Tops'],
+  };
+
+  function categoryHaystack(data, categoryPath) {
+      const department = data.department || data.ebay_specifics?.department || '';
+      const type = data.ebay_specifics?.type || data.type || '';
+      return `${categoryPath} ${department} ${type} ${data.title || ''}`;
+  }
+
+  function normalizeVendooCategoryPath(data) {
+      const categoryPath = data.category_path || '';
+      const hay = categoryHaystack(data, categoryPath);
+      const hayLower = normalizeText(hay);
+      const pathLower = normalizeText(categoryPath);
+      const isWomen = /\bwomen/.test(hayLower);
+      const isMen = /\bmen/.test(hayLower) && !/\bwomen/.test(hayLower);
+      const isTop = /t-?shirts?|\btees?\b|\btops?\b|\bshirts?\b|\bblouses?\b/.test(hayLower);
+      const pathIsOtherItem = /dresses?|pants?|jeans?|skirts?|shorts?|jackets?|coats?|sweaters?|hoodies?/.test(pathLower)
+          && !/t-?shirts?|\btees?\b|\btops?\b|\bshirts?\b|\bblouses?\b/.test(pathLower);
+      if (pathIsOtherItem) return categoryPath;
+      if (isWomen && isTop) return VENDOO_WOMEN_TOPS;
+      if (isMen && /t-?shirts?|\btees?\b/.test(hayLower)) return VENDOO_MEN_TSHIRTS;
+      return categoryPath;
+  }
+
+  function categorySegmentNames(segment) {
+      const key = normalizeText(segment);
+      return CATEGORY_SEGMENT_ALIASES[key] || [segment];
+  }
+
+  function findStrongCategoryOption(segment, options = listCategoryOptions()) {
+      for (const name of categorySegmentNames(segment)) {
+          const match = findCategoryOption(name, options, 3);
+          if (match) return match;
+      }
+      return null;
   }
 
   function rankCategorySearchResults(options, segments) {
@@ -1486,18 +1532,16 @@
   }
 
   async function fillCategoryPath(data) {
-      const categoryPath = data.category_path || '';
+      const originalPath = data.category_path || '';
+      const categoryPath = normalizeVendooCategoryPath(data);
       if (!categoryPath) return { ok: true, filled: false };
+      if (categoryPath !== originalPath) {
+          log(`Mapped category "${originalPath}" → "${categoryPath}"`);
+      }
 
       log(`Setting category: ${categoryPath}`);
 
       const segments = categoryPath.split('>').map(s => s.trim()).filter(Boolean);
-      const department = normalizeText(data.department || data.ebay_specifics?.department);
-      const lastSegment = normalizeText(segments[segments.length - 1]);
-      if (department === 'women' && lastSegment === 'shirts & blouses') {
-          log('Normalizing General category "Shirts & Blouses" to Vendoo category "Tops"');
-          segments[segments.length - 1] = 'Tops';
-      }
       if (segments.length === 0) return { ok: true, filled: false };
 
       const catBtn = document.querySelector('#categoryV2, [role="category-input"]');
@@ -1541,16 +1585,24 @@
       if (searchStillOpen()) {
           for (let i = 0; i < segments.length; i++) {
               const segment = segments[i];
+              const isLeaf = i === segments.length - 1;
               log(`  Drilling into: "${segment}" (${i + 1}/${segments.length})`);
 
               let targetOption = null;
               for (let attempt = 0; attempt < 8 && !targetOption; attempt++) {
                   await sleep(CONFIG.SLEEP_LONG);
-                  targetOption = findCategoryOption(segment);
+                  targetOption = findStrongCategoryOption(segment);
               }
 
               if (!targetOption) {
                   const visible = listCategoryOptions().map((option) => option.text).slice(0, 20);
+                  const laterVisible = !isLeaf && segments.slice(i + 1).some((later) => (
+                      findStrongCategoryOption(later, listCategoryOptions())
+                  ));
+                  if (laterVisible) {
+                      warn(`Category option "${segment}" not found, skipping; a later segment is visible. Visible: ${JSON.stringify(visible)}`);
+                      continue;
+                  }
                   warn(`Category option "${segment}" not found. Visible: ${JSON.stringify(visible)}`);
                   return { ok: false, filled: false, error: `Category option "${segment}" not found` };
               }

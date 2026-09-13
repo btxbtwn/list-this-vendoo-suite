@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from sqlalchemy.orm import Session
 
 from vendoo_studio.repositories.queries import RegistryRepo, _normalize_label
@@ -91,15 +93,86 @@ LABEL_TO_JSON_KEY = {
 }
 
 
+WOMEN_TOPS_PATH = "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops"
+MEN_TSHIRT_PATH = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts"
+MEN_SHIRTS_PATH = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts"
+
 CATEGORY_NORMALIZATIONS: dict[str, dict[str, str]] = {
     "general": {
-        "women's shirts & blouses": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
-        "women's t-shirts": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
-        "women's tops": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
-        "men's t-shirts": "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts",
-        "men's shirts": "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts",
+        "women's shirts & blouses": WOMEN_TOPS_PATH,
+        "women's t-shirts": WOMEN_TOPS_PATH,
+        "women's tops": WOMEN_TOPS_PATH,
+        "women > clothing > tops": WOMEN_TOPS_PATH,
+        "women > clothing > tops > t-shirts": WOMEN_TOPS_PATH,
+        "women > women's clothing > tops": WOMEN_TOPS_PATH,
+        "clothing > women's clothing > tops": WOMEN_TOPS_PATH,
+        "clothing > women's clothing > t-shirts": WOMEN_TOPS_PATH,
+        "clothing > women's clothing > shirts & blouses": WOMEN_TOPS_PATH,
+        "men's t-shirts": MEN_TSHIRT_PATH,
+        "men's shirts": MEN_SHIRTS_PATH,
+        "men > clothing > tops > t-shirts": MEN_TSHIRT_PATH,
+        "clothing > men's clothing > shirts > t-shirts": MEN_TSHIRT_PATH,
     },
 }
+
+_TOP_ITEM_RE = re.compile(r"t-?shirts?|\btees?\b|\btops?\b|\bshirts?\b|\bblouses?\b", re.I)
+_NON_TOP_RE = re.compile(
+    r"\bdresses?\b|\bpants?\b|\bjeans?\b|\bskirts?\b|\bshorts?\b|\bjackets?\b|"
+    r"\bcoats?\b|\bsweaters?\b|\bhoodies?\b|\bshoes?\b|\bbags?\b",
+    re.I,
+)
+_WOMEN_RE = re.compile(r"\bwomen(?:['’]s)?\b", re.I)
+_MEN_RE = re.compile(r"\bmen(?:['’]s)?\b", re.I)
+
+
+def _category_key(category: str) -> str:
+    return " > ".join(part.strip().lower() for part in category.split(">") if part.strip())
+
+
+def _listing_text(listing: dict | None) -> str:
+    listing = listing or {}
+    specifics = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    return " ".join(
+        str(part)
+        for part in (
+            listing.get("department"),
+            specifics.get("department") if isinstance(specifics, dict) else "",
+            specifics.get("type") if isinstance(specifics, dict) else "",
+            listing.get("type"),
+            listing.get("title"),
+        )
+        if part
+    )
+
+
+def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
+    """Map marketplace or abbreviated paths onto a selectable Vendoo General leaf."""
+    raw = (category or "").strip()
+    if not raw and isinstance(listing, dict):
+        raw = str(listing.get("category_path") or "").strip()
+    if not raw:
+        return raw
+
+    norms = CATEGORY_NORMALIZATIONS.get("general", {})
+    key = raw.lower()
+    if key in norms:
+        return norms[key]
+    path_key = _category_key(raw)
+    if path_key in norms:
+        return norms[path_key]
+
+    haystack = f"{raw} {_listing_text(listing)}"
+    is_women = bool(_WOMEN_RE.search(haystack))
+    is_men = bool(_MEN_RE.search(haystack)) and not is_women
+    is_top = bool(_TOP_ITEM_RE.search(haystack))
+    path_is_other_item = bool(_NON_TOP_RE.search(raw)) and not _TOP_ITEM_RE.search(raw)
+    if path_is_other_item:
+        return raw
+    if is_women and is_top:
+        return WOMEN_TOPS_PATH
+    if is_men and re.search(r"t-?shirts?|\btees?\b", haystack, re.I):
+        return MEN_TSHIRT_PATH
+    return raw
 
 
 class RegistryService:
@@ -140,12 +213,15 @@ class RegistryService:
 
         return (value, False, f"'{trimmed}' not in known options: {valid[:5]}...")
 
-    def normalize_category(self, marketplace: str, category: str) -> tuple[str, bool]:
-        marketplace_norms = CATEGORY_NORMALIZATIONS.get(marketplace, {})
-        key = category.strip().lower()
-        if key in marketplace_norms:
-            return (marketplace_norms[key], True)
-        return (category, False)
+    def normalize_category(self, marketplace: str, category: str, listing: dict | None = None) -> tuple[str, bool]:
+        trimmed = (category or "").strip()
+        if marketplace != "general":
+            mapped = CATEGORY_NORMALIZATIONS.get(marketplace, {}).get(trimmed.lower())
+            if mapped:
+                return (mapped, True)
+            return (trimmed, False)
+        mapped = map_vendoo_category_path(trimmed, listing)
+        return (mapped, mapped != trimmed)
 
     def validate_dropdown_fields(
         self,
