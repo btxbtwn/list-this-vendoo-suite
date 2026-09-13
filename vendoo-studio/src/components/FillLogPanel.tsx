@@ -162,7 +162,37 @@ const GENERAL_LISTING_KEYS: Record<string, string> = {
 
 function isAccountSettingField(field: DraftField | string): boolean {
   const raw = typeof field === "string" ? field : field.label || field.key;
-  return ACCOUNT_SETTING_FIELDS.has(normalizeLookupKey(raw));
+  const key = normalizeLookupKey(raw);
+  if (ACCOUNT_SETTING_FIELDS.has(key)) return true;
+  // Scraped labels often concatenate the whole control path, e.g.
+  // "Pricing Format Details Fixed Price Allow Best Offer".
+  return (
+    key.includes("best offer") ||
+    key.includes("accept offer") ||
+    key.includes("decline offer") ||
+    key.includes("pricing format details") ||
+    key.includes("auto-accept") ||
+    key.includes("auto accept")
+  );
+}
+
+/** Cascade fields that must stay visible so optionals can mount on Vendoo. */
+const PROTECTED_EBAY_CORE_NAMES = new Set(
+  EBAY_CATEGORY_CORE.filter((field) =>
+    ["department", "size", "sizeType", "type"].includes(field.key),
+  ).map((field) => normalizeFieldName(field.label)),
+);
+
+const EBAY_CATEGORY_FIELD_NAMES = new Set([
+  ...EBAY_CATEGORY_CORE.map((field) => normalizeFieldName(field.label)),
+  ...EBAY_CATEGORY_OPTIONALS.map((field) => normalizeFieldName(field.label)),
+]);
+
+function isProtectedEbayField(marketplace: string, field: DraftField | string): boolean {
+  if (marketplace.toLowerCase() !== "ebay") return false;
+  const name =
+    typeof field === "string" ? normalizeFieldName(field) : fieldMatchKey(field) || normalizeFieldName(field.label);
+  return PROTECTED_EBAY_CORE_NAMES.has(name);
 }
 
 function isUnfillableField(field: DraftField): boolean {
@@ -352,17 +382,9 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
   const merged = forms.map((form) => {
     const listingForm = byId.get(form.id);
     if (!listingForm) return form;
-    const listingFields = new Map(listingForm.fields.map((field) => [fieldMatchKey(field), field]));
-    const seen = new Set<string>();
-    const fields = form.fields.map((field) => {
-      const key = fieldMatchKey(field);
-      if (key) seen.add(key);
-      const match = listingFields.get(key);
-      if (!match || fieldIsMissing(match.value, match.label || field.label)) return field;
-      return { ...field, value: match.value, missing: false };
-    });
-    // Listing-only values (chat-filled optionals) are missing from the Vendoo API
-    // draft until written — still show them under the marketplace extras section.
+    // Keep Vendoo draft emptiness authoritative. Listing/chat values are only
+    // candidates for Fill — never paint them as already filled on Vendoo.
+    const seen = new Set(form.fields.map((field) => fieldMatchKey(field)).filter(Boolean));
     const extrasSection = form.id === "ebay" || form.id === "etsy" ? "Category" : "Item specifics";
     const extras: DraftField[] = [];
     for (const field of listingForm.fields) {
@@ -371,17 +393,18 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
       seen.add(key);
       extras.push({
         ...field,
+        value: "",
         section: extrasSection,
-        missing: false,
+        missing: true,
       });
     }
-    if (extras.length) {
-      let insertAt = fields.length;
-      for (let i = 0; i < fields.length; i += 1) {
-        if (fields[i].section === extrasSection) insertAt = i + 1;
-      }
-      fields.splice(insertAt, 0, ...extras);
+    if (!extras.length) return form;
+    const fields = [...form.fields];
+    let insertAt = fields.length;
+    for (let i = 0; i < fields.length; i += 1) {
+      if (fields[i].section === extrasSection) insertAt = i + 1;
     }
+    fields.splice(insertAt, 0, ...extras);
     return toForm(form.id, fields);
   });
   for (const listingForm of listingForms) {
@@ -720,27 +743,28 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
         ? attachLeftover(found) || takeLeftover([...spec.keys, normalizeFieldName(spec.label)])
         : takeLeftover([...spec.keys, normalizeFieldName(spec.label)]);
       if (found) {
-        const cleaned = fieldDisplayValue(found.value, spec.label);
-        const leftoverPreview = fieldDisplayValue(leftover?.value_preview || "", spec.label);
-        const value = cleaned || leftoverPreview || "";
+        // Only the live Vendoo value counts as filled. Leftover previews are
+        // proposed fill values and must stay in the red/missing column.
+        const value = fieldDisplayValue(found.value, spec.label);
+        const pendingLeftover = leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : found.leftover;
         rows.push({
           ...found,
           label: spec.label,
           section: section.label,
-          leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : found.leftover,
-          missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
+          leftover: pendingLeftover && FILLABLE_STATUSES.has(pendingLeftover.status) ? pendingLeftover : undefined,
+          missing: !value,
           value,
         });
         continue;
       }
       if (spec.always || leftover) {
-        const value = fieldDisplayValue(leftover?.value_preview || "", spec.label);
+        const pendingLeftover = leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : undefined;
         rows.push({
           key: leftover?.id || `${marketplace}.${spec.keys[0]}`,
           label: spec.label,
-          value,
-          missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
-          leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : undefined,
+          value: "",
+          missing: true,
+          leftover: pendingLeftover,
           section: section.label,
         });
       }
@@ -751,13 +775,12 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
   const namedExtras = placed.get(extrasSection) || [];
   const extraRows: DraftField[] = [...unused.values()].flat().map((field) => {
     const leftover = attachLeftover(field);
-    const cleaned = fieldDisplayValue(field.value, field.label);
-    const leftoverPreview = fieldDisplayValue(leftover?.value_preview || "", field.label);
-    const value = cleaned || leftoverPreview || "";
+    const value = fieldDisplayValue(field.value, field.label);
+    const pendingLeftover = leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : field.leftover;
     return {
       ...field,
-      leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : field.leftover,
-      missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
+      leftover: pendingLeftover && FILLABLE_STATUSES.has(pendingLeftover.status) ? pendingLeftover : undefined,
+      missing: !value,
       value,
       section: extrasSection,
     };
@@ -768,13 +791,13 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
     if (key && seenExtras.has(key)) return [];
     if (key) seenExtras.add(key);
     const label = entry.field.replace(/^(ebay|etsy|poshmark|mercari|depop|vendoo)\s+/i, "").trim() || entry.field;
-    const value = fieldDisplayValue(entry.value_preview || "", label);
+    const pending = FILLABLE_STATUSES.has(entry.status);
     return [{
       key: entry.id,
       label,
-      value,
-      missing: value ? false : FILLABLE_STATUSES.has(entry.status),
-      leftover: FILLABLE_STATUSES.has(entry.status) ? entry : undefined,
+      value: "",
+      missing: pending || !fieldDisplayValue(entry.value_preview || "", label),
+      leftover: pending ? entry : undefined,
       section: extrasSection,
     }];
   }));
@@ -1115,13 +1138,17 @@ function formsFromFillLog(report: FillLogReport): DraftForm[] {
   ];
   return ids.map((id) => {
     const group = report.by_marketplace[id];
-    const fields: DraftField[] = group.entries.map((entry) => ({
-      key: entry.id,
-      label: entry.field,
-      value: entry.value_preview || "",
-      missing: FILLABLE_STATUSES.has(entry.status),
-      leftover: FILLABLE_STATUSES.has(entry.status) ? entry : undefined,
-    }));
+    const fields: DraftField[] = group.entries.map((entry) => {
+      const pending = FILLABLE_STATUSES.has(entry.status);
+      return {
+        key: entry.id,
+        label: entry.field,
+        // Pending leftovers keep their proposed value only in the leftover input.
+        value: pending ? "" : entry.value_preview || "",
+        missing: pending,
+        leftover: pending ? entry : undefined,
+      };
+    });
     return toForm(id, organizeFields(id, fields, group.entries));
   });
 }
@@ -1297,7 +1324,7 @@ export function FillLogPanel({
     queryFn: api.settings.marketplaces,
   });
   const hiddenQueryKey = ["settings-hidden-fields", conversationId] as const;
-  const { data: hiddenData } = useQuery({
+  const { data: hiddenData, isSuccess: hiddenReady } = useQuery({
     queryKey: hiddenQueryKey,
     queryFn: () => api.settings.hiddenFields(conversationId),
   });
@@ -1435,6 +1462,52 @@ export function FillLogPanel({
     },
   });
 
+  const restoreAllMutation = useMutation({
+    mutationFn: () => api.settings.restoreAllHiddenFields(conversationId),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(hiddenQueryKey, { always: payload.always, listing: payload.listing });
+      setOpenMenu(null);
+      addToast({ type: "success", title: "Restored all hidden fields" });
+    },
+    onError: (error) => {
+      addToast({ type: "error", title: (error as Error).message || "Could not restore fields" });
+    },
+  });
+
+  const restoreCategoryMutation = useMutation({
+    mutationFn: (fields: { marketplace: string; field: string }[]) =>
+      api.settings.restoreMatchingHiddenFields(fields, conversationId),
+    onSuccess: (payload, fields) => {
+      queryClient.setQueryData(hiddenQueryKey, { always: payload.always, listing: payload.listing });
+      addToast({
+        type: "success",
+        title: `Restored ${fields.length} eBay category field${fields.length === 1 ? "" : "s"}`,
+        description: "Department and optionals were hidden — they should appear under eBay → Category.",
+      });
+    },
+    onError: (error) => {
+      addToast({ type: "error", title: (error as Error).message || "Could not restore category fields" });
+    },
+  });
+
+  const restoredCategoryRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const scopeKey = conversationId || "__global__";
+    if (restoredCategoryRef.current === scopeKey || !hiddenReady) return;
+    const matches = [...hidden.always, ...hidden.listing]
+      .filter(
+        (item) =>
+          item.marketplace === "ebay" && EBAY_CATEGORY_FIELD_NAMES.has(normalizeFieldName(item.field)),
+      )
+      .map((item) => ({ marketplace: item.marketplace, field: item.field }));
+    if (!matches.length) {
+      restoredCategoryRef.current = scopeKey;
+      return;
+    }
+    restoredCategoryRef.current = scopeKey;
+    restoreCategoryMutation.mutate(matches);
+  }, [conversationId, hiddenReady, hidden.always, hidden.listing]);
+
   const resolveCategory = useMutation({
     mutationFn: () => api.jobs.resolveCategory(jobId, String(listing?.category_path || "")),
     onSuccess: (result) => {
@@ -1507,6 +1580,15 @@ export function FillLogPanel({
   })();
   const hideField = (formId: string, field: DraftField, scope: "always" | "listing") => {
     if (scope === "listing" && !conversationId) return;
+    if (isProtectedEbayField(formId, field)) {
+      addToast({
+        type: "error",
+        title: "Keep this field visible",
+        description: `${field.label} is required for eBay category specifics to load on Vendoo.`,
+      });
+      setOpenMenu(null);
+      return;
+    }
     hideMutation.mutate({
       marketplace: formId,
       field: fieldMatchKey(field),
@@ -1515,6 +1597,10 @@ export function FillLogPanel({
       conversation_id: conversationId,
     });
   };
+
+  const hiddenEbayCategoryCount = [...hidden.always, ...hidden.listing].filter(
+    (item) => item.marketplace === "ebay" && EBAY_CATEGORY_FIELD_NAMES.has(normalizeFieldName(item.field)),
+  ).length;
 
   return (
     <div className="fill-log-pr">
@@ -1558,6 +1644,15 @@ export function FillLogPanel({
             </button>
             {openMenu?.kind === "hidden" && (
               <div className="pr-menu pr-menu-wide" role="menu">
+                <button
+                  type="button"
+                  className="pr-menu-item-action"
+                  style={{ width: "100%", marginBottom: 8 }}
+                  disabled={restoreAllMutation.isPending}
+                  onClick={() => restoreAllMutation.mutate()}
+                >
+                  {restoreAllMutation.isPending ? "Restoring…" : "Show all"}
+                </button>
                 {[
                   ...hidden.always.map((item) => ({ ...item, scope: "always" as const })),
                   ...hidden.listing.map((item) => ({ ...item, scope: "listing" as const })),
@@ -1613,6 +1708,32 @@ export function FillLogPanel({
       {draftQuery.isFetching && (
         <p className="pr-notice">
           Opening each marketplace form and expanding optional fields so Studio can list every empty field…
+        </p>
+      )}
+
+      {hiddenEbayCategoryCount > 0 && (
+        <p className="pr-notice">
+          {hiddenEbayCategoryCount} eBay category field{hiddenEbayCategoryCount === 1 ? " is" : "s are"} hidden
+          (Department, Accents, Pattern, …).{" "}
+          <button
+            type="button"
+            className="pr-read"
+            style={{ background: "none", border: "none", padding: 0, color: "inherit", textDecoration: "underline", cursor: "pointer" }}
+            disabled={restoreCategoryMutation.isPending}
+            onClick={() =>
+              restoreCategoryMutation.mutate(
+                [...hidden.always, ...hidden.listing]
+                  .filter(
+                    (item) =>
+                      item.marketplace === "ebay" &&
+                      EBAY_CATEGORY_FIELD_NAMES.has(normalizeFieldName(item.field)),
+                  )
+                  .map((item) => ({ marketplace: item.marketplace, field: item.field })),
+              )
+            }
+          >
+            Show category fields
+          </button>
         </p>
       )}
 
@@ -1741,6 +1862,7 @@ export function FillLogPanel({
                       const leftover = field.leftover;
                       const menuKey = `${selectedForm.id}:${field.key}`;
                       const menuOpen = openMenu?.kind === "field" && openMenu.key === menuKey;
+                      const canHide = !isProtectedEbayField(selectedForm.id, field);
                       return (
                         <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
                           <span className="pr-diff-gutter">{field.missing ? "-" : "+"}</span>
@@ -1756,7 +1878,7 @@ export function FillLogPanel({
                                 onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
                               />
                             )}
-                            {menuOpen && (
+                            {menuOpen && canHide && (
                               <div className="pr-hide-choices">
                                 <button
                                   type="button"
@@ -1775,6 +1897,7 @@ export function FillLogPanel({
                               </div>
                             )}
                           </div>
+                          {canHide && (
                           <div className="pr-field-actions">
                             <button
                               type="button"
@@ -1789,6 +1912,7 @@ export function FillLogPanel({
                               </svg>
                             </button>
                           </div>
+                          )}
                         </div>
                       );
                     })}

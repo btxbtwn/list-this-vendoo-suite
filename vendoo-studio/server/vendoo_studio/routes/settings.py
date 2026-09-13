@@ -270,6 +270,37 @@ def restore_hidden_field(config: HiddenFieldConfig):
         raise HTTPException(400, str(exc)) from exc
 
 
+class RestoreAllHiddenFields(BaseModel):
+    conversation_id: str | None = None
+
+
+class RestoreMatchingHiddenFields(BaseModel):
+    conversation_id: str | None = None
+    fields: list[dict[str, str]]
+
+
+@router.post("/hidden-fields/restore-all")
+def restore_all_hidden_fields(body: RestoreAllHiddenFields):
+    from vendoo_studio.services.hidden_fields import restore_all_fields
+
+    return {"ok": True, **restore_all_fields(body.conversation_id)}
+
+
+@router.post("/hidden-fields/restore-matching")
+def restore_matching_hidden_fields(body: RestoreMatchingHiddenFields):
+    from vendoo_studio.services.hidden_fields import restore_matching_fields
+
+    matches = [
+        (str(item.get("marketplace") or ""), str(item.get("field") or ""))
+        for item in body.fields
+        if isinstance(item, dict)
+    ]
+    return {
+        "ok": True,
+        **restore_matching_fields(matches, body.conversation_id),
+    }
+
+
 @router.post("/chatgpt/login")
 async def chatgpt_login():
     from vendoo_studio.services import chatgpt_oauth
