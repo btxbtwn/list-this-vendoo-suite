@@ -73,8 +73,20 @@ class VendooItemRouteTest(unittest.TestCase):
                 "source": "api+form",
                 "item_id": "abc123",
                 "url": "https://web.vendoo.co/app/item/abc123",
-                "item": {"itemID": "abc123", "generalDetails": {"title": "Nike tee"}},
+                "item": {
+                    "itemID": "abc123",
+                    "generalDetails": {"title": "Nike tee"},
+                    "listings": {
+                        "ebay": {"status": {"listed": True}},
+                        "depop": {"status": {"listed": False}},
+                    },
+                },
                 "form": {"generalDetails": {"title": "Nike tee"}},
+                "statuses": {
+                    "general": "COMPLETE",
+                    "ebay": "LISTED",
+                    "depop": "NOT LISTED",
+                },
             })
             return True
 
@@ -87,6 +99,13 @@ class VendooItemRouteTest(unittest.TestCase):
         self.assertEqual(body["source"], "api+form")
         self.assertEqual(body["item"]["generalDetails"]["title"], "Nike tee")
         self.assertEqual(body["form"]["generalDetails"]["title"], "Nike tee")
+        self.assertEqual(body["statuses"]["ebay"], "LISTED")
+        self.assertEqual(body["statuses"]["depop"], "NOT LISTED")
+        self.assertEqual(body["statuses"]["general"], "COMPLETE")
+
+        cached = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
+        self.assertEqual(cached.status_code, 200, cached.text)
+        self.assertEqual(cached.json()["statuses"]["ebay"], "LISTED")
 
     def test_vendoo_item_requires_connected_chrome(self):
         response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")

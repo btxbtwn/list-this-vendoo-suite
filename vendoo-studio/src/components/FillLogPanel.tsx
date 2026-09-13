@@ -42,6 +42,7 @@ interface DraftForm {
   fields: DraftField[];
   filled: number;
   missing: number;
+  liveStatus?: string;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -105,6 +106,7 @@ const SKIP_KEYS = new Set([
   "draftid",
   "lastsynced",
   "lastmodified",
+  "statuses",
 ]);
 
 const UNFILLABLE_FIELDS = new Set(["photos", "images", "videos", "image"]);
@@ -386,7 +388,7 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
       if (fields[i].section === extrasSection) insertAt = i + 1;
     }
     fields.splice(insertAt, 0, ...extras);
-    return toForm(form.id, fields);
+    return toForm(form.id, fields, form.liveStatus);
   });
   for (const listingForm of listingForms) {
     if (seenForms.has(listingForm.id) || !listingForm.fields.length) continue;
@@ -424,6 +426,23 @@ function useVendooDraft(jobId: string, enabled: boolean) {
 
 function marketplaceLabel(id: string): string {
   return MARKETPLACE_LABELS[id] || id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+function liveStatusClass(status?: string): string {
+  const key = (status || "").toLowerCase().replace(/\s+/g, "-");
+  if (key === "listed" || key === "complete" || key === "sold") return "is-listed";
+  if (key === "not-listed" || key === "draft" || key === "incomplete") return "is-not-listed";
+  if (key === "failed") return "is-failed";
+  return "";
+}
+
+function LiveStatusChip({ status }: { status?: string }) {
+  if (!status) return null;
+  return (
+    <span className={`pr-live-status ${liveStatusClass(status)}`} title={`Vendoo status: ${status}`}>
+      {status}
+    </span>
+  );
 }
 
 type FieldSpec = { keys: string[]; label: string; always?: boolean };
@@ -1041,7 +1060,11 @@ function deepMergeRecords(
   return out;
 }
 
-function mergeDraftItem(draft: { item?: unknown; form?: unknown } | undefined): Record<string, unknown> | undefined {
+function mergeDraftItem(draft: {
+  item?: unknown;
+  form?: unknown;
+  statuses?: unknown;
+} | undefined): Record<string, unknown> | undefined {
   if (!draft) return undefined;
   const item = draft.item && typeof draft.item === "object" && !Array.isArray(draft.item)
     ? draft.item as Record<string, unknown>
@@ -1050,6 +1073,12 @@ function mergeDraftItem(draft: { item?: unknown; form?: unknown } | undefined): 
     ? draft.form as Record<string, unknown>
     : {};
   if (!Object.keys(item).length && !Object.keys(form).length) return undefined;
+  const formStatuses = form.statuses && typeof form.statuses === "object" && !Array.isArray(form.statuses)
+    ? form.statuses as Record<string, unknown>
+    : undefined;
+  const draftStatuses = draft.statuses && typeof draft.statuses === "object" && !Array.isArray(draft.statuses)
+    ? draft.statuses as Record<string, unknown>
+    : undefined;
   // Deep-merge so empty optional categorySpecifics scraped from the page are
   // kept when the API omits those keys.
   return {
@@ -1064,6 +1093,7 @@ function mergeDraftItem(draft: { item?: unknown; form?: unknown } | undefined): 
       (item.listings as Record<string, unknown> | undefined),
     ),
     images: item.images ?? form.images,
+    statuses: draftStatuses || formStatuses,
   };
 }
 
@@ -1071,14 +1101,42 @@ function fillLogEntriesForMarket(report: FillLogReport | undefined, marketplace:
   return report?.by_marketplace[marketplace]?.entries || [];
 }
 
-function toForm(id: string, fields: DraftField[]): DraftForm {
+function toForm(id: string, fields: DraftField[], liveStatus?: string): DraftForm {
   return {
     id,
     label: marketplaceLabel(id),
     fields,
     filled: fields.filter((field) => !field.missing).length,
     missing: fields.filter((field) => field.missing).length,
+    liveStatus,
   };
+}
+
+function normalizeLiveStatus(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const cleaned = raw.replace(/\s+/g, " ").trim().toUpperCase();
+  return cleaned || undefined;
+}
+
+function liveStatusForMarketplace(
+  id: string,
+  item: Record<string, unknown> | null | undefined,
+): string | undefined {
+  const statuses = item?.statuses;
+  if (statuses && typeof statuses === "object" && !Array.isArray(statuses)) {
+    const scraped = normalizeLiveStatus((statuses as Record<string, unknown>)[id]);
+    if (scraped) return scraped;
+  }
+  if (id === "general") return undefined;
+  const listings = item?.listings && typeof item.listings === "object"
+    ? item.listings as Record<string, unknown>
+    : undefined;
+  const listing = listings?.[id] as Record<string, unknown> | undefined;
+  const status = listing?.status as Record<string, unknown> | undefined;
+  if (!status || typeof status !== "object") return undefined;
+  if (status.listed === true) return "LISTED";
+  if (status.listed === false) return "NOT LISTED";
+  return undefined;
 }
 
 function formsFromDraft(item: Record<string, unknown> | null | undefined, report?: FillLogReport): DraftForm[] {
@@ -1105,7 +1163,11 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
       });
     }
   }
-  forms.push(toForm("general", organizeFields("general", general, fillLogEntriesForMarket(report, "general"))));
+  forms.push(toForm(
+    "general",
+    organizeFields("general", general, fillLogEntriesForMarket(report, "general")),
+    liveStatusForMarketplace("general", item),
+  ));
 
   const listings = item?.listings && typeof item.listings === "object"
     ? item.listings as Record<string, unknown>
@@ -1126,7 +1188,7 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
     const raw = listings[id] ? flattenFields(listingSection(listings[id] as Record<string, unknown>)) : [];
     const fields = organizeFields(id, raw, fillLogEntriesForMarket(report, id));
     if (!fields.length) continue;
-    forms.push(toForm(id, fields));
+    forms.push(toForm(id, fields, liveStatusForMarketplace(id, item)));
   }
   return forms;
 }
@@ -1261,7 +1323,7 @@ function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsState): Dra
       const fields = form.fields.filter(
         (field) => !isFieldHidden(keys, form.id, field) && !isAccountSettingField(field),
       );
-      return toForm(form.id, fields);
+      return toForm(form.id, fields, form.liveStatus);
     })
     .filter((form) => form.fields.length > 0);
 }
@@ -1276,15 +1338,17 @@ function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): D
         if (!needle) return true;
         return (
           form.label.toLowerCase().includes(needle) ||
+          (form.liveStatus || "").toLowerCase().includes(needle) ||
           (field.section || "").toLowerCase().includes(needle) ||
           field.label.toLowerCase().includes(needle) ||
           field.value.toLowerCase().includes(needle)
         );
       });
-      if (needle && !fields.length && !form.label.toLowerCase().includes(needle)) return null;
+      if (needle && !fields.length && !form.label.toLowerCase().includes(needle)
+        && !(form.liveStatus || "").toLowerCase().includes(needle)) return null;
       const visible = filtered ? fields : form.fields;
       if (!visible.length && filtered) return null;
-      return toForm(form.id, visible);
+      return toForm(form.id, visible, form.liveStatus);
     })
     .filter((form): form is DraftForm => Boolean(form));
 }
@@ -1899,6 +1963,7 @@ export function FillLogPanel({
                   onClick={() => setSelected(form.id)}
                 >
                   <span className="pr-name">{form.label}</span>
+                  <LiveStatusChip status={form.liveStatus} />
                   <span className="pr-counts">
                     {form.filled > 0 && <span className="pr-add">+{form.filled}</span>}
                     {form.missing > 0 && <span className="pr-del">-{form.missing}</span>}
@@ -1911,6 +1976,7 @@ export function FillLogPanel({
             <div className="pr-diff">
               <div className="pr-diff-head">
                 <span className="pr-diff-path">{selectedForm.label}</span>
+                <LiveStatusChip status={selectedForm.liveStatus} />
                 <span className="pr-files-count">
                   {selectedForm.filled > 0 && <span className="pr-add">+{selectedForm.filled}</span>}
                   {selectedForm.missing > 0 && <span className="pr-del">-{selectedForm.missing}</span>}

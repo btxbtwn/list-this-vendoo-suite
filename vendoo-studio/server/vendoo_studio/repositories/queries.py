@@ -344,6 +344,7 @@ class JobRepo:
         url: str | None = None,
         source: str | None = None,
         step: str | None = None,
+        statuses: dict | None = None,
     ) -> JobEvent:
         return self.add_event(
             job_id,
@@ -356,6 +357,7 @@ class JobRepo:
                 "url": url,
                 "item": item,
                 "form": form,
+                "statuses": statuses,
             },
         )
 

@@ -1128,7 +1128,7 @@ function compactVendooValue(value, depth) {
   }
   const out = {};
   const keys = Object.keys(value);
-  const priority = ['generalDetails', 'listings', 'images', 'overrides', 'marketplaceSpecifics', 'categorySpecifics'];
+  const priority = ['generalDetails', 'listings', 'images', 'statuses', 'overrides', 'marketplaceSpecifics', 'categorySpecifics'];
   const ordered = [
     ...priority.filter((key) => keys.includes(key)),
     ...keys.filter((key) => !priority.includes(key)),
@@ -1314,6 +1314,9 @@ async function runVendooGet(jobId, payload) {
   formRead = await sendToVendoo(job, { type: 'GET_VENDOO_ITEM' });
   const item = apiRead.ok ? compactVendooValue(apiRead.item, 0) : null;
   const form = formRead?.ok ? compactVendooValue(formRead.form || formRead.item, 0) : null;
+  const statuses = (formRead?.ok && formRead.statuses && typeof formRead.statuses === 'object')
+    ? formRead.statuses
+    : (form && form.statuses && typeof form.statuses === 'object' ? form.statuses : null);
   const ok = Boolean(item || form);
   const sources = [];
   if (item) sources.push('api');
@@ -1326,6 +1329,7 @@ async function runVendooGet(jobId, payload) {
     url: apiRead.url || formRead?.url || payload.vendoo_url || null,
     item,
     form,
+    statuses,
     api_error: apiRead.ok ? null : (apiRead.error || null),
     error: ok ? null : (apiRead.error || formRead?.error || 'Could not read the Vendoo draft'),
   });
