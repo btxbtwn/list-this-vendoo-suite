@@ -104,8 +104,43 @@ console.log(JSON.stringify(result));
         self.assertNotRegex(preview, r"left:\s*ENGINE_LEFT")
         self.assertNotRegex(preview, r"windows\.create\([^)]*left:\s*-")
         self.assertIn("createWindowSafe", preview)
-        self.assertIn("createWindowSafe", background)
+        self.assertIn("openEverydayListingTab", background)
+        self.assertIn("closeListingTab", background)
         self.assertIn("delete withoutTab.tabId", preview)
         self.assertIn("system.display", Path(EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
         self.assertRegex(preview, r"focused:\s*false,\s*state:\s*'normal'")
         self.assertTrue(re.search(r"pickOnscreenBounds", preview))
+
+
+class EverydayListingTabTest(unittest.TestCase):
+    def test_listing_opens_a_tab_in_everyday_chrome(self) -> None:
+        preview = PREVIEW.read_text(encoding="utf-8")
+        background = BACKGROUND.read_text(encoding="utf-8")
+        self.assertIn("currentEverydayWindowId", preview)
+        self.assertIn("chrome.windows.getLastFocused", preview)
+        self.assertIn("openEverydayListingTab", preview)
+        self.assertIn("openEverydayListingTab", background)
+        self.assertNotIn("openTabInHiddenWindow", preview)
+        self.assertNotIn("openTabInHiddenWindow", background)
+        self.assertNotIn("hidden Chrome window", background)
+        self.assertIn("everyday Chrome window", background)
+
+    def test_listing_tab_closes_when_the_job_finishes(self) -> None:
+        background = BACKGROUND.read_text(encoding="utf-8")
+        preview = PREVIEW.read_text(encoding="utf-8")
+        self.assertIn("closeListingTab", background)
+        self.assertIn("Closed listing tab", preview)
+        self.assertGreaterEqual(background.count("await closeListingTab("), 4)
+
+    def test_listing_does_not_bring_chrome_to_front(self) -> None:
+        preview = PREVIEW.read_text(encoding="utf-8")
+        background = BACKGROUND.read_text(encoding="utf-8")
+        self.assertIn("active: foreground", preview)
+        self.assertIn("focused: foreground", preview)
+        start = preview.index("async function startJobPreview")
+        start_fn = preview[start:]
+        self.assertNotIn("showWindow", start_fn.split("chrome.debugger.onEvent", 1)[0])
+        self.assertIn("tabIsInFront", start_fn)
+        self.assertIn("attachDebuggerPreview", start_fn)
+        self.assertIn("foreground: true", background)
+        self.assertIn("{ foreground }", background)

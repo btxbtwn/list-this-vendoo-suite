@@ -72,10 +72,11 @@ The app opens at http://127.0.0.1:4318. In development the frontend runs at http
 6. Revise by chatting, editing fields, or editing JSON directly.
 7. When satisfied, click **Send to Vendoo**.
 8. Watch the progress as the extension:
-   - Opens a new Vendoo listing
+   - Opens a background Vendoo tab in everyday Chrome
    - Uploads the approved photos
    - Fills and saves the general form
    - Fills and saves each selected marketplace
+   - Closes the tab when the draft is saved
    - Stops before publishing
 9. Open the Vendoo draft to review and publish manually.
 

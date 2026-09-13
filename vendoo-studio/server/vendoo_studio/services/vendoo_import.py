@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 from vendoo_studio.config import MAX_PHOTO_COUNT
+from vendoo_studio.models.schema import ListingSchema
 from vendoo_studio.services.photos import process_bytes
 
 log = logging.getLogger("vendoo_studio.vendoo_import")
@@ -32,7 +34,31 @@ ETSY_KEY_MAP = {
     "whenMade": "when_made",
 }
 
-IMAGE_URL_KEYS = (
+LIST_SPECIFIC_KEYS = frozenset({
+    "features",
+    "accents",
+    "style",
+    "occasion",
+    "tags",
+    "materials",
+})
+
+PATH_SPECIFIC_KEYS = frozenset({"categoryPath"})
+
+IMAGE_CONTAINER_KEYS = frozenset({
+    "images",
+    "photos",
+    "imageUrls",
+    "itemImages",
+    "media",
+    "imageList",
+    "pictures",
+    "pictureUrls",
+    "attachments",
+    "photoUrls",
+})
+
+IMAGE_URL_KEYS = frozenset({
     "url",
     "originalUrl",
     "original",
@@ -42,7 +68,38 @@ IMAGE_URL_KEYS = (
     "largeUrl",
     "fullUrl",
     "secureUrl",
+    "thumbnailUrl",
+    "mediumUrl",
+    "processedUrl",
+    "editedUrl",
+    "cdnUrl",
+    "signedUrl",
+    "location",
+    "href",
+    "uri",
+    "publicUrl",
+    "fileUrl",
+    "highResUrl",
+    "fullSizeUrl",
+    "srcset",
+    "currentSrc",
+})
+
+IMAGE_HOST_HINTS = (
+    "cloudinary",
+    "cloudfront",
+    "googleusercontent",
+    "firebasestorage",
+    "storage.googleapis",
+    "imgix",
+    "akamai",
+    "fastly",
+    "imagekit",
+    "cloudflare",
 )
+
+HTTP_URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.I)
+IMAGE_EXT_RE = re.compile(r"\.(?:jpe?g|png|webp|gif|heic|heif|bmp|avif)(?:$|\?)", re.I)
 
 
 def parse_notes(raw: str | None) -> dict[str, Any]:
@@ -105,9 +162,9 @@ def listing_from_vendoo(item: dict | None, form: dict | None) -> dict[str, Any]:
         "cost": cost,
         "quantity": quantity,
         "brand": _text(general.get("brand")),
-        "condition": _text(general.get("condition")),
-        "primaryColor": _text(general.get("primaryColor") or general.get("color")),
-        "secondaryColor": _text(general.get("secondaryColor")),
+        "condition": ListingSchema.validate_condition(_vendoo_label(general.get("condition"))),
+        "primaryColor": _vendoo_label(general.get("primaryColor") or general.get("color")),
+        "secondaryColor": _vendoo_label(general.get("secondaryColor")),
         "category_path": _category_path(general.get("categoryV2") or general.get("category")),
         "size": size,
         "sizeType": size_type,
@@ -128,34 +185,64 @@ def listing_from_vendoo(item: dict | None, form: dict | None) -> dict[str, Any]:
     return listing
 
 
-def image_urls_from_vendoo(item: dict | None, form: dict | None) -> list[str]:
-    blobs: list[Any] = [item, form]
-    if isinstance(item, dict):
-        blobs.append(item.get("generalDetails"))
-    if isinstance(form, dict):
-        blobs.append(form.get("generalDetails"))
+def image_urls_from_vendoo(
+    item: dict | None,
+    form: dict | None,
+    extra: list[str] | None = None,
+) -> list[str]:
     urls: list[str] = []
     seen: set[str] = set()
-    for blob in blobs:
-        if not isinstance(blob, dict):
-            continue
-        for key in ("images", "photos", "imageUrls"):
-            for url in _collect_image_urls(blob.get(key)):
-                if url in seen:
-                    continue
-                seen.add(url)
-                urls.append(url)
-                if len(urls) >= MAX_PHOTO_COUNT:
-                    return urls
+
+    def add(raw: Any, *, require_image_hint: bool) -> None:
+        if len(urls) >= MAX_PHOTO_COUNT:
+            return
+        for url in _iter_http_urls(raw):
+            if url in seen or url.startswith(("blob:", "data:")):
+                continue
+            if require_image_hint and not _looks_like_image_url(url):
+                continue
+            seen.add(url)
+            urls.append(url)
+            if len(urls) >= MAX_PHOTO_COUNT:
+                return
+
+    def walk(value: Any, require_image_hint: bool, depth: int = 0) -> None:
+        if len(urls) >= MAX_PHOTO_COUNT or value is None or depth > 10:
+            return
+        if isinstance(value, str):
+            add(value, require_image_hint=require_image_hint)
+            return
+        if isinstance(value, list):
+            for nested in value:
+                walk(nested, require_image_hint, depth + 1)
+            return
+        if not isinstance(value, dict):
+            return
+        for key, nested in value.items():
+            key_name = str(key)
+            hinted = require_image_hint
+            if key_name in IMAGE_CONTAINER_KEYS or key_name in IMAGE_URL_KEYS:
+                hinted = False
+            walk(nested, hinted, depth + 1)
+
+    walk(extra or [], False)
+    walk(item, True)
+    walk(form, True)
     return urls
 
 
 async def download_vendoo_photos(urls: list[str]) -> list[dict[str, Any]]:
     photos: list[dict[str, Any]] = []
-    if not urls:
+    http_urls = [url for url in urls if url.startswith(("http://", "https://"))]
+    if not http_urls:
         return photos
-    async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
-        for index, url in enumerate(urls[:MAX_PHOTO_COUNT]):
+    headers = {
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Referer": "https://web.vendoo.co/",
+        "User-Agent": "Mozilla/5.0",
+    }
+    async with httpx.AsyncClient(follow_redirects=True, timeout=20.0, headers=headers) as client:
+        for index, url in enumerate(http_urls[:MAX_PHOTO_COUNT]):
             try:
                 response = await client.get(url)
                 response.raise_for_status()
@@ -197,6 +284,17 @@ def _text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _vendoo_label(value: Any) -> str | None:
+    text = _text(value)
+    if not text:
+        return None
+    if text.startswith("v_") and len(text) > 2:
+        rest = text[2:].replace("_", " ").strip()
+        if rest:
+            return rest[:1].upper() + rest[1:]
+    return text
 
 
 def _number(value: Any) -> float | None:
@@ -301,7 +399,15 @@ def _copy_specifics(section: Any, *, rename: dict[str, str] | None = None) -> di
         if key in SKIP_SPECIFIC_KEYS:
             continue
         dest = (rename or {}).get(key, key)
-        copied = _copy_value(value)
+        if dest in PATH_SPECIFIC_KEYS:
+            out[dest] = _category_path_list(value)
+            continue
+        if dest in LIST_SPECIFIC_KEYS:
+            items = _string_list(value)
+            if items:
+                out[dest] = items
+            continue
+        copied = _as_scalar_field(value)
         if copied is not None:
             out[dest] = copied
     return out
@@ -318,11 +424,50 @@ def _copy_value(value: Any) -> Any:
         return cleaned or None
     if isinstance(value, dict):
         text = _text(value)
+        if text:
+            return text
         path = value.get("displayPath") or value.get("path")
         if isinstance(path, list):
             return [part for part in (_text(item) for item in path) if part]
-        return text
+        return None
     return _text(value)
+
+
+def _as_scalar_field(value: Any) -> Any:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        parts = [part for part in (_as_scalar_field(item) for item in value) if part not in (None, "")]
+        if not parts:
+            return None
+        if len(parts) == 1:
+            return parts[0]
+        return str(parts[-1])
+    if isinstance(value, dict):
+        text = _text(value)
+        if text:
+            return text
+        path = value.get("displayPath") or value.get("path")
+        if isinstance(path, list):
+            return _as_scalar_field(path)
+        return None
+    return _text(value)
+
+
+def _category_path_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [part for part in (_text(item) if not isinstance(item, str) else item.strip() for item in value) if part]
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(">") if part.strip()]
+    if isinstance(value, dict):
+        path = value.get("displayPath") or value.get("path") or value.get("breadcrumb")
+        if isinstance(path, list):
+            return _category_path_list(path)
+        text = _text(value)
+        return [text] if text else []
+    return []
 
 
 def _ebay_specifics(section: Any, size: str | None, size_type: str | None) -> dict[str, Any]:
@@ -367,30 +512,41 @@ def _etsy_specifics(section: Any) -> dict[str, Any]:
     category = {}
     if isinstance(section, dict) and isinstance(section.get("categorySpecifics"), dict):
         for key, value in section["categorySpecifics"].items():
-            copied = _copy_value(value)
-            if copied is not None:
-                category[key] = copied if isinstance(copied, str) else str(copied)
+            copied = _as_scalar_field(value)
+            if copied is None:
+                continue
+            category[key] = copied if isinstance(copied, str) else str(copied)
     if category:
         specifics["category_specifics"] = category
     return specifics
 
 
-def _collect_image_urls(value: Any) -> list[str]:
-    urls: list[str] = []
-    if isinstance(value, str):
-        if value.startswith("http://") or value.startswith("https://"):
-            urls.append(value)
-        return urls
-    if isinstance(value, list):
-        for item in value:
-            urls.extend(_collect_image_urls(item))
-        return urls
-    if isinstance(value, dict):
-        for key in IMAGE_URL_KEYS:
-            if value.get(key):
-                urls.extend(_collect_image_urls(value.get(key)))
-                break
-    return urls
+def _iter_http_urls(value: Any) -> list[str]:
+    if not isinstance(value, str):
+        return []
+    text = value.strip().strip("'\"")
+    if not text or text.startswith(("blob:", "data:")):
+        return []
+    if text.startswith("//"):
+        text = "https:" + text
+    found: list[str] = []
+    if text.startswith(("http://", "https://")):
+        found.append(text.split()[0].rstrip(".,;"))
+    else:
+        found.extend(match.rstrip(".,;") for match in HTTP_URL_RE.findall(value))
+    return found
+
+
+def _looks_like_image_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if IMAGE_EXT_RE.search(parsed.path) or IMAGE_EXT_RE.search(url):
+        return True
+    host = parsed.netloc.lower()
+    if any(hint in host for hint in IMAGE_HOST_HINTS):
+        return True
+    if "vendoo" in host and any(part in host for part in ("img", "image", "cdn", "media", "static", "storage")):
+        return True
+    return False
 
 
 def _filename_from_url(url: str, index: int) -> str:

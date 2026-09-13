@@ -18,7 +18,12 @@ class ValidationResult(BaseModel):
         return self.valid and not self.errors
 
 
-def validate_listing(data: dict, required_photo_count: Optional[int] = None) -> ValidationResult:
+def validate_listing(
+    data: dict,
+    required_photo_count: Optional[int] = None,
+    *,
+    require_photos: bool = True,
+) -> ValidationResult:
     result = ValidationResult(valid=True)
 
     try:
@@ -26,9 +31,11 @@ def validate_listing(data: dict, required_photo_count: Optional[int] = None) -> 
     except ValidationError as e:
         result.valid = False
         for err in e.errors():
+            field = ".".join(str(loc) for loc in err["loc"])
+            message = err["msg"]
             result.errors.append({
-                "field": ".".join(str(loc) for loc in err["loc"]),
-                "message": err["msg"],
+                "field": field,
+                "message": f"{field}: {message}" if field else message,
             })
 
     for field in ("title", "description", "price"):
@@ -39,7 +46,7 @@ def validate_listing(data: dict, required_photo_count: Optional[int] = None) -> 
                 "message": f"{field} is required",
             })
 
-    if required_photo_count is not None and required_photo_count == 0:
+    if require_photos and required_photo_count is not None and required_photo_count == 0:
         result.valid = False
         result.errors.append({
             "field": "photos",

@@ -23,6 +23,7 @@ class VendooImportRequest(BaseModel):
     source: str | None = None
     item: dict | None = None
     form: dict | None = None
+    image_urls: list[str] | None = None
 
 
 class VendooImportResponse(BaseModel):
@@ -77,7 +78,7 @@ async def import_vendoo_listing(body: VendooImportRequest, db: Session = Depends
     if existing_photos:
         photo_count = len(existing_photos)
     else:
-        urls = image_urls_from_vendoo(body.item, body.form)
+        urls = image_urls_from_vendoo(body.item, body.form, body.image_urls)
         imported = await download_vendoo_photos(urls)
         for meta in imported:
             conv_repo.add_photo(

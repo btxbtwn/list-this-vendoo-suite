@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional, Annotated
+from typing import Any, Optional, Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 VALID_CONDITIONS = frozenset((
@@ -44,8 +44,65 @@ VALID_DEPOP_MATERIAL = frozenset((
 PACKAGE_DIMS_PATTERN = r"^\d+(\.\d+)?\s*x\s*\d+(\.\d+)?\s*x\s*\d+(\.\d+)?$"
 
 
+def _scalar_text(value: Any) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        parts = [part for part in (_scalar_text(item) for item in value) if part]
+        return parts[-1] if parts else None
+    if isinstance(value, dict):
+        for key in ("displayName", "label", "name", "value"):
+            text = _scalar_text(value.get(key))
+            if text:
+                return text
+        path = value.get("displayPath") or value.get("path")
+        if isinstance(path, list):
+            return _scalar_text(path)
+    return None
+
+
+def _coerce_string_map(
+    values: dict[str, Any],
+    list_keys: frozenset[str],
+    skip_keys: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in values.items():
+        if key in skip_keys:
+            out[key] = value
+            continue
+        if key in list_keys:
+            if isinstance(value, list):
+                out[key] = [item for item in (_scalar_text(part) for part in value) if item]
+            elif isinstance(value, str):
+                out[key] = value
+            else:
+                text = _scalar_text(value)
+                out[key] = [text] if text else value
+            continue
+        if isinstance(value, (list, dict)):
+            text = _scalar_text(value)
+            out[key] = text if text is not None else value
+        else:
+            out[key] = value
+    return out
+
+
 class EbaySpecifics(BaseModel):
     model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_values(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return _coerce_string_map(data, frozenset({"features", "accents"}))
+        return data
+
     type: Optional[str] = None
     department: Optional[str] = None
     sizeType: Optional[str] = None
@@ -89,6 +146,14 @@ class EbaySpecifics(BaseModel):
 
 class DepopSpecifics(BaseModel):
     model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_values(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return _coerce_string_map(data, frozenset({"style", "material", "occasion"}))
+        return data
+
     source: Optional[str] = None
     age: Optional[str] = None
     style: Optional[list[str] | str] = None
@@ -99,6 +164,18 @@ class DepopSpecifics(BaseModel):
 
 class EtsySpecifics(BaseModel):
     model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_values(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return _coerce_string_map(
+                data,
+                frozenset({"materials", "tags"}),
+                skip_keys=frozenset({"category_specifics"}),
+            )
+        return data
+
     who_made: Optional[str] = None
     what_is: Optional[str] = None
     when_made: Optional[str] = None
@@ -106,6 +183,18 @@ class EtsySpecifics(BaseModel):
     materials: Optional[list[str] | str] = None
     tags: Optional[list[str] | str] = None
     category_specifics: Optional[dict[str, str]] = None
+
+    @field_validator("category_specifics", mode="before")
+    @classmethod
+    def coerce_category_specifics(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        out: dict[str, str] = {}
+        for key, nested in value.items():
+            text = nested if isinstance(nested, str) else _scalar_text(nested)
+            if text:
+                out[str(key)] = text
+        return out
 
 
 class PoshmarkSpecifics(BaseModel):
@@ -154,7 +243,13 @@ class ListingSchema(BaseModel):
         if v is None:
             return v
         if v not in VALID_CONDITIONS:
-            lv = v.lower()
+            lv = v.lower().replace("_", " ").replace("-", " ")
+            if "preowned" in lv.replace(" ", "") or "pre owned" in lv:
+                if "excellent" in lv or "like new" in lv:
+                    return "Pre-Owned - Excellent"
+                if "fair" in lv:
+                    return "Pre-Owned - Fair"
+                return "Pre-Owned - Good"
             if "good" in lv:
                 return "Pre-Owned - Good"
             if "poor" in lv:
