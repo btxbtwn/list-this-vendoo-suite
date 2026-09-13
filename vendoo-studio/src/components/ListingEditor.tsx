@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { FillLogPanel, FillLogSummary } from "./FillLogPanel";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import { confirmDialog } from "../ui/confirmDialog";
 
 interface Props {
   convId: string;
@@ -33,6 +34,14 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
     queryFn: api.jobs.list,
     refetchInterval: 2000,
   });
+  const { data: marketplaceSettings } = useQuery({
+    queryKey: ["settings-marketplaces"],
+    queryFn: api.settings.marketplaces,
+  });
+  const { data: conversation } = useQuery({
+    queryKey: ["conversation", convId],
+    queryFn: () => api.conversations.get(convId),
+  });
   const listingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
 
   const updateMutation = useMutation({
@@ -44,7 +53,14 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
     if (data?.listing) setJsonText(JSON.stringify(data.listing, null, 2));
   }, [data?.listing]);
 
-  const tabs = ["general", "ebay", "poshmark", "mercari", "depop", "etsy", "json"];
+  const tabs = React.useMemo(() => {
+    const selected = new Set(marketplaceSettings?.selected ?? ["ebay", "etsy", "poshmark", "mercari", "depop"]);
+    return ["general", ...["ebay", "poshmark", "mercari", "depop", "etsy"].filter((id) => selected.has(id)), "json"];
+  }, [marketplaceSettings?.selected]);
+
+  React.useEffect(() => {
+    if (!tabs.includes(editTab)) setEditTab("general");
+  }, [editTab, tabs]);
 
   const applyJsonEdit = () => {
     try {
@@ -57,6 +73,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
 
   const listing = data?.listing || {};
   const listingTitle = String(listing.title || "Listing");
+  const importedItemId = listingJob?.vendoo_item_id || notesVendooItemId(conversation?.notes);
 
   return (
     <div className="listing-editor">
@@ -66,8 +83,8 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
           {data?.can_send && <span className="editor-ready">Ready</span>}
         </div>
         <div className="pr-review-meta">
-          {listingJob?.vendoo_item_id
-            ? <span className="pr-review-branch">vendoo ← {listingJob.vendoo_item_id.slice(0, 8)}</span>
+          {importedItemId
+            ? <span className="pr-review-branch">vendoo ← {String(importedItemId).slice(0, 8)}</span>
             : <span className="pr-review-branch">Draft</span>}
         </div>
         <div className="pr-pills" role="tablist" aria-label="Listing review">
@@ -142,6 +159,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
           convId={convId}
           canSend={data?.can_send ?? false}
           sendBlockers={data?.errors || []}
+          vendooItemId={importedItemId}
           onJobStarted={onJobStarted}
           onOpenFillLog={() => setReviewTab("fields")}
         />
@@ -297,6 +315,17 @@ function JobTimeline({ jobId }: { jobId: string }) {
   );
 }
 
+function notesVendooItemId(notes?: string | null): string | null {
+  if (!notes) return null;
+  try {
+    const parsed = JSON.parse(notes);
+    const itemId = String(parsed?.vendooItemId || "").trim();
+    return itemId || null;
+  } catch {
+    return null;
+  }
+}
+
 function coerce(val: string): any {
   if (val === "") return null;
   if (!isNaN(Number(val)) && val.trim() !== "") return Number(val);
@@ -307,12 +336,14 @@ function SendToVendooButton({
   convId,
   canSend,
   sendBlockers,
+  vendooItemId,
   onJobStarted,
   onOpenFillLog,
 }: {
   convId: string;
   canSend: boolean;
   sendBlockers: { field?: string; message?: string }[];
+  vendooItemId?: string | null;
   onJobStarted?: () => void;
   onOpenFillLog?: () => void;
 }) {
@@ -375,10 +406,19 @@ function SendToVendooButton({
 
   const existingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
   const extensionConnected = extStatus?.connected ?? false;
+  const overwriteItemId = vendooItemId || existingJob?.vendoo_item_id || null;
+  const sendLabel = overwriteItemId ? "Update Vendoo listing" : "Send to Vendoo";
   const blockerText = sendBlockers
     .map((err) => err.message)
     .filter(Boolean)
     .join(" · ");
+
+  const confirmOverwriteIfNeeded = async () => {
+    if (!overwriteItemId) return true;
+    return confirmDialog(
+      "Overwrite this existing Vendoo listing?\nThis does not publish. If it is already live, saving may update those marketplace listings.",
+    );
+  };
 
   if (existingJob) {
     const isFailed = existingJob.status === "failed";
@@ -393,7 +433,7 @@ function SendToVendooButton({
       : isFailed
         ? "Retry"
         : isCompleted || isQueued
-          ? "Send to Vendoo"
+          ? sendLabel
           : "Restart Job";
     return (
       <div className={`job-card${isFailed ? " job-card-error" : ""}`}>
@@ -411,7 +451,11 @@ function SendToVendooButton({
               type="button"
               className="btn btn-primary btn-sm job-card-action"
               disabled={retryMutation.isPending || cancelMutation.isPending}
-              onClick={() => { setError(null); retryMutation.mutate(existingJob.id); }}
+              onClick={async () => {
+                if (!(await confirmOverwriteIfNeeded())) return;
+                setError(null);
+                retryMutation.mutate(existingJob.id);
+              }}
             >
               {buttonLabel}
             </button>
@@ -448,16 +492,17 @@ function SendToVendooButton({
         className="btn btn-success"
         style={{ width: "100%" }}
         disabled={sendMutation.isPending}
-        onClick={() => {
+        onClick={async () => {
           if (!canSend) {
             setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
             return;
           }
+          if (!(await confirmOverwriteIfNeeded())) return;
           setError(null);
           sendMutation.mutate();
         }}
       >
-        {sendMutation.isPending ? "Sending..." : "Send to Vendoo"}
+        {sendMutation.isPending ? "Sending..." : sendLabel}
       </button>
       {(error || (!canSend && blockerText)) && (
         <div className="mt-8 text-xs text-error">{error || blockerText}</div>

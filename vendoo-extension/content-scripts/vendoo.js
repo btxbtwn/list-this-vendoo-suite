@@ -10,7 +10,7 @@
   window.__vendooStudioBridge = true;
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.8';
+  const CONTENT_SCRIPT_VERSION = '0.3.10';
   const DEBUG = true;
   let statusBox;
 
@@ -966,10 +966,23 @@
       if (!el) return false;
       if (el instanceof HTMLSelectElement) return true;
       const role = el.getAttribute && el.getAttribute('role');
-      if (role === 'combobox' || role === 'listbox') return true;
+      if (role === 'combobox' || role === 'listbox' || role === 'menu') return true;
       const popup = el.getAttribute && el.getAttribute('aria-haspopup');
       if (popup === 'listbox' || popup === 'true' || popup === 'menu') return true;
-      return Boolean(el.closest?.('.MuiAutocomplete-root, .MuiSelect-root, .react-select__control, [class*="MuiSelect"]'));
+      const autocomplete = el.getAttribute && el.getAttribute('aria-autocomplete');
+      if (autocomplete === 'list' || autocomplete === 'both') return true;
+      if (el instanceof HTMLInputElement && (el.readOnly || el.getAttribute('aria-expanded') != null)) return true;
+      if (el.closest?.('[role="combobox"], [role="listbox"], .MuiAutocomplete-root, .MuiSelect-root, .react-select__control, [class*="MuiSelect"], [class*="MuiAutocomplete"]')) {
+          return true;
+      }
+      const inputRoot = el.closest?.('.MuiInputBase-root, [class*="MuiInputBase-root"]');
+      return Boolean(inputRoot?.querySelector('.MuiSelect-select, [class*="MuiSelect-icon"], [class*="MuiAutocomplete-endAdornment"], [class*="MuiArrowDropDown"]'));
+  }
+
+  const DROPDOWN_FIELD_HINT = /\b(condition|brand|color|size|category|shipping|occasion|style|department|who made|when made|source|scale|material|pattern|features|sleeve|neckline|fit|rise|inseam|wash|closure)\b/i;
+
+  function shouldFillAsDropdown(el, fieldName) {
+      return isDropdownLike(el) || DROPDOWN_FIELD_HINT.test(String(fieldName || ''));
   }
 
   function listOpenDropdownOptions() {
@@ -1190,12 +1203,17 @@
           return { ok: true, method: 'option_click' };
       }
 
-      await clearInput(el);
-      setReactValue(el, value);
-      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-      await sleep(CONFIG.SLEEP_MEDIUM);
-      if (isMulti && el.value) await clearInput(el);
-      return { ok: true, method: 'typed_fallback' };
+      if (isMulti) {
+          await clearInput(el);
+          setReactValue(el, value);
+          el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          await sleep(CONFIG.SLEEP_MEDIUM);
+          if (el.value) await clearInput(el);
+          return { ok: true, method: 'typed_fallback' };
+      }
+
+      await closeOpenMenus();
+      return { ok: false, method: 'no_option' };
   }
 
   // ============================================
@@ -2927,6 +2945,49 @@
       };
   }
 
+  async function clearChipContainer(el) {
+      const container = el.closest('.MuiAutocomplete-root, .MuiFormControl-root') || el.parentElement;
+      if (!container) return;
+      for (let i = 0; i < 40; i++) {
+          const chipDelete = container.querySelector('.MuiChip-deleteIcon, [data-testid*="Cancel"], [aria-label="Remove"], [aria-label="delete"]');
+          if (!chipDelete) break;
+          chipDelete.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          await sleep(CONFIG.SLEEP_SHORT);
+      }
+  }
+
+  async function clearControl(el) {
+      if (!el) return;
+      const type = String(el.getAttribute('type') || el.type || '').toLowerCase();
+      if (type === 'file' || type === 'hidden' || type === 'checkbox' || type === 'radio') return;
+      await clearChipContainer(el);
+      await clearInput(el);
+  }
+
+  async function clearGeneralForm() {
+      log('Clearing leftover general fields (photos unchanged)');
+      for (const [name, selector] of Object.entries(VENDOO_SELECTORS)) {
+          if (name === 'zipCode' || name === 'category') continue;
+          const el = document.querySelector(selector);
+          if (!el) continue;
+          await clearControl(el);
+      }
+      return { ok: true };
+  }
+
+  async function clearMarketplaceForm(platform) {
+      const prefix = `listings.${String(platform || '').toLowerCase()}`;
+      log(`Clearing leftover ${prefix} fields`);
+      const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
+      for (const el of controls) {
+          const id = el.id || '';
+          if (!id.startsWith(prefix)) continue;
+          if (/image/i.test(id)) continue;
+          await clearControl(el);
+      }
+      return { ok: true };
+  }
+
   function queryByRecordedSelector(selector) {
       if (!selector) return null;
       try {
@@ -2974,6 +3035,37 @@
       return { status: 'filled' };
   }
 
+  function reverifyPatchedFields(items) {
+      for (const item of items) {
+          const fieldName = item.field || 'Field';
+          const intended = String(item.value || '').trim();
+          const entry = [...fillLedger].reverse().find((row) =>
+              (item.id && row.id === item.id) ||
+              normalizeFieldKey(row.field) === normalizeFieldKey(fieldName)
+          );
+          if (!entry || entry.status === 'skipped' || entry.status === 'not_found') continue;
+          const el = findControlForPatch(item);
+          if (!el) {
+              entry.status = 'failed';
+              entry.reason = 'Field disappeared after fill';
+              continue;
+          }
+          const shown = displayedFieldValue(el);
+          if (intended && optionMatchesValue(shown, intended, false)) {
+              entry.status = 'filled';
+              entry.reason = '';
+              continue;
+          }
+          if (shouldFillAsDropdown(el, fieldName)) {
+              entry.status = 'failed';
+              entry.reason = 'Dropdown option was not selected';
+          } else if (!fieldLooksFilled(el)) {
+              entry.status = 'failed';
+              entry.reason = 'Value did not stick';
+          }
+      }
+  }
+
   async function fillSelectedFields(fields) {
       const items = Array.isArray(fields) ? fields : [];
       const grouped = new Map();
@@ -3008,17 +3100,19 @@
                       });
                       continue;
                   }
-                  if (isDropdownLike(el)) {
-                      await fillDropdownField(el, value, fieldName);
+                  if (shouldFillAsDropdown(el, fieldName)) {
+                      const isMulti = /\b(tags?|labels?|materials?|features?)\b/i.test(fieldName);
+                      await fillDropdownField(el, value, fieldName, false, isMulti);
                   } else {
                       await fillTextFieldByElement(el, value, fieldName);
                   }
               }
               currentPatchEntryId = '';
+              reverifyPatchedFields(group);
               const log = finishFillLog({ skipUnmapped: true });
               allEntries.push(...log.entries);
           }
-          await clickSave();
+          await closeOpenMenus();
           return {
               ok: true,
               fill_log: {
@@ -3127,6 +3221,20 @@
               } catch (err) {
                   sendResponse({ ok: false, error: err.message });
               }
+              return true;
+          }
+
+          if (msg.type === 'CLEAR_GENERAL') {
+              clearGeneralForm()
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'CLEAR_MARKETPLACE') {
+              clearMarketplaceForm(msg.platform)
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
               return true;
           }
 

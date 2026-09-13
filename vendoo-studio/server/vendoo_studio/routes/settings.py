@@ -16,6 +16,10 @@ class ProviderConfig(BaseModel):
     api_key: str | None = None
 
 
+class MarketplacesConfig(BaseModel):
+    selected: list[str]
+
+
 class ChatGPTStatus(BaseModel):
     signed_in: bool
     email: str | None = None
@@ -184,6 +188,34 @@ def set_chatgpt_models(config: ChatGPTModelsConfig):
         "listing_model": listing_model,
         "reasoning_effort": clamp_reasoning_effort(resolved_chatgpt_reasoning(), listing_model),
     }
+
+
+def _marketplaces_payload(selected: list[str]) -> dict:
+    from vendoo_studio.services.marketplaces import catalog_payload, selected_fillable_platforms
+
+    return {
+        "available": catalog_payload(),
+        "selected": selected,
+        "fillable": selected_fillable_platforms(selected),
+    }
+
+
+@router.get("/marketplaces")
+def get_marketplaces():
+    from vendoo_studio.services.marketplaces import get_selected_marketplaces
+
+    return _marketplaces_payload(get_selected_marketplaces())
+
+
+@router.put("/marketplaces")
+def set_marketplaces(config: MarketplacesConfig):
+    from vendoo_studio.services.marketplaces import set_selected_marketplaces
+
+    try:
+        selected = set_selected_marketplaces(config.selected)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **_marketplaces_payload(selected)}
 
 
 @router.post("/chatgpt/login")

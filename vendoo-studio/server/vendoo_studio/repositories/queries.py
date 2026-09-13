@@ -53,6 +53,22 @@ class ConversationRepo:
     def get(self, conv_id: str) -> Conversation | None:
         return self.db.query(Conversation).filter(Conversation.id == conv_id).first()
 
+    def find_by_vendoo_item_id(self, item_id: str) -> Conversation | None:
+        item_id = (item_id or "").strip()
+        if not item_id:
+            return None
+        from vendoo_studio.services.vendoo_import import vendoo_binding
+        rows = (
+            self.db.query(Conversation)
+            .filter(Conversation.notes.contains(item_id))
+            .order_by(Conversation.updated_at.desc())
+            .all()
+        )
+        for conv in rows:
+            if vendoo_binding(conv.notes).get("vendooItemId") == item_id:
+                return conv
+        return None
+
     def list_all(self) -> list[Conversation]:
         return self.db.query(Conversation).order_by(Conversation.updated_at.desc()).all()
 
@@ -212,11 +228,20 @@ class JobRepo:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, conv_id: str, approved_revision_id: str, listing_snapshot: dict) -> Job:
+    def create(
+        self,
+        conv_id: str,
+        approved_revision_id: str,
+        listing_snapshot: dict,
+        vendoo_item_id: str | None = None,
+        vendoo_url: str | None = None,
+    ) -> Job:
         job = Job(
             conversation_id=conv_id,
             approved_revision_id=approved_revision_id,
             listing_snapshot=listing_snapshot,
+            vendoo_item_id=vendoo_item_id,
+            vendoo_url=vendoo_url,
         )
         self.db.add(job)
         self.db.commit()
@@ -409,7 +434,7 @@ class DiagnosticRepo:
 
 
 def _step_to_marketplace(step: str) -> str:
-    for mp in ("general", "ebay", "etsy", "poshmark", "mercari", "depop"):
+    for mp in ("general", "ebay", "etsy", "poshmark", "mercari", "depop", "facebook", "grailed", "whatnot", "shopify"):
         if mp in step.lower():
             return mp
     return "unknown"

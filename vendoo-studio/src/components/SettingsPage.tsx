@@ -49,6 +49,89 @@ function SettingsRow({
   );
 }
 
+function orderedSelection(
+  available: { id: string }[],
+  selected: Iterable<string>,
+): string[] {
+  const chosen = new Set(selected);
+  return available.map((item) => item.id).filter((id) => chosen.has(id));
+}
+
+function MarketplacesSection() {
+  const queryClient = useQueryClient();
+  const { data, isPending, isError, error } = useQuery({
+    queryKey: ["settings-marketplaces"],
+    queryFn: api.settings.marketplaces,
+  });
+  const mutation = useMutation({
+    mutationFn: (selected: string[]) => api.settings.setMarketplaces(selected),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["settings-marketplaces"], payload);
+    },
+  });
+  const available = data?.available || [];
+  const selected = data?.selected || [];
+  const selectedSet = new Set(selected);
+  const save = (next: Iterable<string>) => mutation.mutate(orderedSelection(available, next));
+
+  return (
+    <SettingsSection id="marketplaces" title="Marketplaces">
+      <SettingsRow
+        title="List to"
+        description="Empty-field prompts and Send to Vendoo use only the marketplaces you check."
+        control={
+          <>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              disabled={mutation.isPending || available.length === 0 || selected.length === available.length}
+              onClick={() => save(available.map((item) => item.id))}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              disabled={mutation.isPending || selected.length === 0}
+              onClick={() => save([])}
+            >
+              None
+            </button>
+          </>
+        }
+      >
+        {isPending ? (
+          <p className="settings-row-desc">Loading marketplaces…</p>
+        ) : isError ? (
+          <p className="settings-row-desc text-error">{(error as Error).message || "Could not load marketplaces"}</p>
+        ) : (
+          <div className="settings-marketplace-grid" role="group" aria-label="Marketplaces to list to">
+            {available.map((item) => (
+              <label key={item.id} className="settings-marketplace-option">
+                <input
+                  type="checkbox"
+                  checked={selectedSet.has(item.id)}
+                  disabled={mutation.isPending}
+                  onChange={(event) => {
+                    const next = new Set(selected);
+                    if (event.target.checked) next.add(item.id);
+                    else next.delete(item.id);
+                    save(next);
+                  }}
+                />
+                <span>{item.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        {mutation.isError ? (
+          <p className="settings-row-desc text-error">{(mutation.error as Error).message}</p>
+        ) : null}
+      </SettingsRow>
+    </SettingsSection>
+  );
+}
+
 function AboutVersionRow({ version }: { version: string }) {
   const { available, busy, description, iconTooltip, onClick, settingsLabel } = useStudioUpdate();
   return (
@@ -392,6 +475,8 @@ export function SettingsPage() {
             control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
           />
         </SettingsSection>
+
+        <MarketplacesSection />
 
         <SettingsSection id="about" title="About">
           <AboutVersionRow version={status?.version || "0.1.0"} />
