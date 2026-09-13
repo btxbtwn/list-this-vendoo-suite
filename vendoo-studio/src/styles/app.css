@@ -1605,17 +1605,42 @@ details[open] .json-collapse-summary::before {
   flex-shrink: 0;
   border: 2px solid var(--color-border);
   background: var(--color-surface-secondary);
-  transition: border-color 0.1s;
+  transition: border-color 0.1s, opacity 0.1s, box-shadow 0.1s;
+  user-select: none;
 }
 
 .photo-thumb:hover {
   border-color: var(--color-cobalt);
 }
 
+.photo-thumb-reorderable {
+  cursor: grab;
+}
+
+.photo-thumb-reorderable .photo-thumb-open {
+  cursor: grab;
+}
+
+.photo-thumb.is-dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.photo-thumb.is-dragging .photo-thumb-open {
+  cursor: grabbing;
+}
+
+.photo-thumb.is-drop-target {
+  border-color: var(--color-cobalt);
+  box-shadow: 0 0 0 2px var(--color-cobalt);
+}
+
 .photo-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
+  -webkit-user-drag: none;
 }
 
 .photo-thumb-num {
