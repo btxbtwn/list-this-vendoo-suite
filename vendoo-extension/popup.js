@@ -67,8 +67,9 @@ const SAMPLE_JSON = {
       "clothingStyle": "Streetwear",
       "sleeveLength": "Short Sleeve",
       "neckline": "Crew Neck",
-      "fabric": "Cotton",
-      "pattern": "Solid"
+      "graphic": "Sports & fitness",
+      "fabricPattern": "Solid",
+      "size": "L"
     }
   }
 };

@@ -225,7 +225,7 @@
             // First, click "Show Optional Fields" if it exists
             const optionalBtn = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]')).find(btn => {
                 const text = (btn.innerText || '').toLowerCase();
-                return text.includes('show optional') || text.includes('optional fields');
+                return text.includes('show optional') && !text.includes('hide');
             });
             
             if (optionalBtn) {

@@ -641,6 +641,24 @@
       if (key === 'when made') {
           return normalizeEtsyWhenMade(value);
       }
+      if (mp === 'etsy') {
+          const etsyPatchFields = {
+              'clothing style': 'clothingStyle',
+              'sleeve length': 'sleeveLength',
+              'neckline': 'neckline',
+              'graphic': 'graphic',
+              'occasion': 'occasion',
+              'holiday': 'holiday',
+              'sustainability': 'sustainability',
+              'fabric pattern': 'fabricPattern',
+              'pattern': 'fabricPattern',
+          };
+          const etsyField = etsyPatchFields[key];
+          if (etsyField) {
+              const mapped = normalizeEtsyCategorySpecificValue(etsyField, value);
+              return mapped == null ? null : mapped;
+          }
+      }
       if (mp === 'ebay' && key === 'type') {
           return normalizeEbaySpecificValue('type', value);
       }
@@ -681,6 +699,104 @@
           ['menswear', 'Menswear'],
           ['tailored', 'Menswear'],
           ['suiting', 'Menswear']
+      ],
+      sleeveLength: [
+          ['sleeveless', 'Sleeveless'],
+          ['three quarter', '3/4 sleeve'],
+          ['3/4', '3/4 sleeve'],
+          ['half', 'Half sleeve'],
+          ['short', 'Short sleeve'],
+          ['long', 'Long sleeve']
+      ],
+      neckline: [
+          ['henley', 'Henley'],
+          ['v neck', 'V-neck'],
+          ['crew', 'Crew']
+      ],
+      graphic: [
+          ['fantasy', 'Fantasy & Sci Fi'],
+          ['sci fi', 'Fantasy & Sci Fi'],
+          ['food', 'Food & drink'],
+          ['drink', 'Food & drink'],
+          ['music', 'Music'],
+          ['nautical', 'Nautical'],
+          ['patriotic', 'Patriotic & flags'],
+          ['flag', 'Patriotic & flags'],
+          ['religious', 'Religious'],
+          ['science', 'Science & tech'],
+          ['sports', 'Sports & fitness'],
+          ['fitness', 'Sports & fitness'],
+          ['racing', 'Sports & fitness'],
+          ['nhra', 'Sports & fitness'],
+          ['drag', 'Sports & fitness'],
+          ['travel', 'Travel & transportation'],
+          ['cars', 'Travel & transportation'],
+          ['car', 'Travel & transportation'],
+          ['plants', 'Plants & trees'],
+          ['trees', 'Plants & trees'],
+          ['stars', 'Stars & celestial'],
+          ['celestial', 'Stars & celestial'],
+          ['animal', 'Animal'],
+          ['anime', 'Anime & cartoon'],
+          ['cartoon', 'Anime & cartoon'],
+          ['comics', 'Comics & manga'],
+          ['manga', 'Comics & manga'],
+          ['superhero', 'Superhero'],
+          ['video game', 'Video game'],
+          ['lgbtq', 'LGBTQ pride'],
+          ['pride', 'LGBTQ pride'],
+          ['abstract', 'Abstract & geometric'],
+          ['geometric', 'Abstract & geometric'],
+          ['flowers', 'Flowers'],
+          ['horror', 'Horror & gothic'],
+          ['humorous', 'Humorous saying'],
+          ['funny', 'Humorous saying'],
+          ['inspirational', 'Inspirational saying'],
+          ['literary', 'Literary'],
+          ['geography', 'Geography & locale'],
+          ['military', 'Military & historical'],
+          ['historical', 'Military & historical'],
+          ['protest', 'Protest'],
+          ['surf', 'Surf & skate'],
+          ['skate', 'Surf & skate'],
+          ['politics', 'Politics & elections'],
+          ['phrase', 'Phrase & saying'],
+          ['logo', 'Brand & logo'],
+          ['brand', 'Brand & logo'],
+          ['movie', 'Movie']
+      ],
+      fabricPattern: [
+          ['camouflage', 'Camouflage'],
+          ['camo', 'Camouflage'],
+          ['floral', 'Floral'],
+          ['geometric', 'Geometric'],
+          ['plaid', 'Plaid'],
+          ['polka', 'Polka dot'],
+          ['solid', 'Solid'],
+          ['striped', 'Striped'],
+          ['stripe', 'Striped'],
+          ['tie dye', 'Tie dye'],
+          ['ombre', 'Ombré'],
+          ['ombré', 'Ombré'],
+          ['check', 'Check'],
+          ['graphic', 'Solid']
+      ],
+      holiday: [
+          ['christmas', 'Christmas'],
+          ['halloween', 'Halloween'],
+          ['easter', 'Easter'],
+          ['hanukkah', 'Hanukkah'],
+          ['thanksgiving', 'Thanksgiving'],
+          ['valentine', "Valentine's Day"],
+          ['father', "Father's Day"],
+          ['independence', 'Independence Day'],
+          ['patrick', "St Patrick's Day"],
+          ['kwanzaa', 'Kwanzaa'],
+          ['veterans', 'Veterans Day'],
+          ['diwali', 'Diwali'],
+          ['holi', 'Holi'],
+          ['eid', 'Eid'],
+          ['cinco', 'Cinco de Mayo']
       ],
       closure: [
           ['button', 'Buttons'],
@@ -729,8 +845,18 @@
       }
 
       const normalizedValue = normalizeText(rawValue);
-      for (const [needle, mappedValue] of mappings) {
-          if (normalizedValue.includes(needle)) {
+      const words = new Set(normalizedValue.split(/[^a-z0-9]+/).filter(Boolean));
+      const ranked = mappings
+          .map(([needle, mappedValue]) => [normalizeText(needle), mappedValue])
+          .filter(([needle]) => needle)
+          .sort((left, right) => right[0].length - left[0].length);
+
+      for (const [needle, mappedValue] of ranked) {
+          if (normalizedValue === needle) return mappedValue;
+          const needleWords = needle.split(/[^a-z0-9]+/).filter(Boolean);
+          if (needleWords.length > 1) {
+              if (normalizedValue.includes(needle)) return mappedValue;
+          } else if (words.has(needle)) {
               return mappedValue;
           }
       }
@@ -805,26 +931,62 @@
       return 'Before 1700 (Vintage)';
   }
 
+  const ETSY_CATEGORY_OPTIONS = {
+      clothingStyle: ['Minimalist', 'Boho & hippie', 'Gothic', 'Steampunk', 'Athletic', 'Military', 'Preppy', 'Rave', 'Rocker', 'Streetwear', 'Utility', 'Western & cowboy', 'Harajuku', 'Lolita', 'Mod', 'Pin-up & rockabilly', 'Menswear'],
+      sleeveLength: ['Short sleeve', 'Half sleeve', '3/4 sleeve', 'Long sleeve', 'Sleeveless'],
+      neckline: ['Crew', 'Henley', 'V-neck'],
+      graphic: ['Fantasy & Sci Fi', 'Food & drink', 'Music', 'Nautical', 'Patriotic & flags', 'Religious', 'Science & tech', 'Sports & fitness', 'Travel & transportation', 'Plants & trees', 'Stars & celestial', 'Animal', 'Anime & cartoon', 'Comics & manga', 'Superhero', 'Video game', 'LGBTQ pride', 'Abstract & geometric', 'Fitspiration', 'Flowers', 'Horror & gothic', 'Humorous saying', 'Inspirational saying', 'Literary', 'Geography & locale', 'Military & historical', 'Protest', 'Surf & skate', 'Politics & elections', 'Phrase & saying', 'Brand & logo', 'Movie', 'TV', 'Bollywood'],
+      occasion: ['Anniversary', 'Baby shower', 'Bachelor party', 'Birthday', 'Engagement', 'Graduation', 'Divorce & breakup', 'Retirement', 'Wedding', 'LGBTQ pride'],
+      holiday: ['Christmas', 'Cinco de Mayo', 'Easter', "Father's Day", 'Halloween', 'Hanukkah', 'Independence Day', 'Kwanzaa', "St Patrick's Day", 'Thanksgiving', "Valentine's Day", 'Veterans Day', 'Diwali', 'Holi', 'Eid'],
+      sustainability: ['Hemp', 'Linen', 'Organic cotton', 'Recycled polyester'],
+      fabricPattern: ['Camouflage', 'Check', 'Floral', 'Geometric', 'Plaid', 'Polka dot', 'Solid', 'Striped', 'Tie dye', 'Ombré']
+  };
+
+  function etsyCategoryValueKey(fieldName) {
+      if (fieldName === 'pattern') return 'fabricPattern';
+      return fieldName;
+  }
+
   function normalizeEtsyCategorySpecificValue(fieldName, rawValue) {
-      if (!rawValue) return rawValue;
+      if (rawValue == null || rawValue === '') return rawValue;
+
+      const key = etsyCategoryValueKey(fieldName);
+      const raw = Array.isArray(rawValue) ? rawValue.join(', ') : String(rawValue).trim();
+      if (!raw) return raw;
+
+      const options = ETSY_CATEGORY_OPTIONS[key];
+      if (options) {
+          const exact = options.find((opt) => normalizeText(opt) === normalizeText(raw));
+          if (exact) return exact;
+          const fuzzy = options.find((opt) => optionMatchesValue(opt, raw, false));
+          if (fuzzy) return fuzzy;
+      }
+
+      const mappings = ETSY_CATEGORY_VALUE_MAPS[key] || ETSY_CATEGORY_VALUE_MAPS[fieldName];
+      if (mappings) {
+          const mapped = mapByIncludes(raw, mappings);
+          if (mapped && mapped !== raw) {
+              if (!options) return mapped;
+              const mappedExact = options.find((opt) => normalizeText(opt) === normalizeText(mapped));
+              if (mappedExact) return mappedExact;
+              const mappedFuzzy = options.find((opt) => optionMatchesValue(opt, mapped, false));
+              if (mappedFuzzy) return mappedFuzzy;
+              return mapped;
+          }
+      }
 
       const skipUnmapped = {
-          occasion: ['everyday', 'casual', 'n/a'],
-          graphic: ['graphic', 'n/a'],
-          fabric: ['cotton', 'cotton blend'],
-          pattern: ['graphic', 'graphic print'],
+          occasion: ['everyday', 'casual', 'n/a', 'does not apply', 'none'],
+          graphic: ['graphic', 'n/a', 'does not apply', 'none'],
+          holiday: ['n/a', 'does not apply', 'none'],
+          sustainability: ['n/a', 'does not apply', 'none', 'cotton']
       };
-      const skipValues = skipUnmapped[fieldName];
-      if (skipValues && skipValues.includes(normalizeText(rawValue))) {
+      const skipValues = skipUnmapped[key];
+      if (skipValues && skipValues.includes(normalizeText(raw))) {
           return null;
       }
 
-      const mappings = ETSY_CATEGORY_VALUE_MAPS[fieldName];
-      if (!mappings) {
-          return rawValue;
-      }
-
-      return mapByIncludes(rawValue, mappings);
+      return raw;
   }
 
   function isVisibleElement(el) {
@@ -836,7 +998,46 @@
   }
 
   function isEtsyCategorySpecificInput(input) {
-      return Boolean(input?.id) && input.id.startsWith('listings.etsy.categorySpecifics.');
+      if (!input) return false;
+      const id = String(input.id || '');
+      const name = String(input.name || '');
+      return id.startsWith('listings.etsy.categorySpecifics.') ||
+          name.startsWith('listings.etsy.categorySpecifics.');
+  }
+
+  function etsySpecificFieldToken(idOrName) {
+      const afterDot = String(idOrName || '').split('.').pop() || '';
+      return normalizeText(afterDot.replace(/^[0-9a-f]{8,}_/i, '').replace(/^\d+_/, ''));
+  }
+
+  function collectEtsyCategoryInputs(requireVisible = true) {
+      const usable = requireVisible ? isVisibleElement : isAttachedElement;
+      return Array.from(document.querySelectorAll(
+          'input[id^="listings.etsy.categorySpecifics."], select[id^="listings.etsy.categorySpecifics."], [id^="listings.etsy.categorySpecifics."][role="combobox"], input[name^="listings.etsy.categorySpecifics."], select[name^="listings.etsy.categorySpecifics."]'
+      )).filter(usable);
+  }
+
+  function findEtsyCategoryInput(fieldName, labelPatterns, inputs) {
+      const wants = uniqueStrings([
+          normalizeText(fieldName),
+          ...(labelPatterns || []).map(normalizeText),
+      ]).filter(Boolean);
+      const compact = (value) => value.replace(/\s+/g, '');
+      const pool = inputs && inputs.length ? inputs : collectEtsyCategoryInputs();
+
+      for (const input of pool) {
+          const token = etsySpecificFieldToken(input.id) || etsySpecificFieldToken(input.name);
+          if (!token) continue;
+          if (wants.some((want) => token === want || compact(token) === compact(want))) return input;
+      }
+
+      for (const label of [fieldName, ...(labelPatterns || [])]) {
+          const exact = findInputByExactLabel(label, isEtsyCategorySpecificInput);
+          if (exact) return exact;
+      }
+
+      return findInputByLabelPatterns(labelPatterns || [fieldName], isEtsyCategorySpecificInput) ||
+          findInputByContext(pool, labelPatterns || [fieldName]);
   }
 
   function isEbayCategorySpecificInput(input) {
@@ -989,12 +1190,21 @@
       return '';
   }
 
+  function chipFieldRoot(el) {
+      if (!el) return null;
+      return el.closest?.('.MuiAutocomplete-root, .MuiFormControl-root, [class*="MuiAutocomplete"]') || el.parentElement || null;
+  }
+
   function listedChipValues(el) {
-      const root = el?.closest?.('.MuiAutocomplete-root, .MuiFormControl-root') || el?.parentElement;
-      if (!root) return [];
-      return uniqueStrings(Array.from(root.querySelectorAll('.MuiChip-label')).map((chip) =>
-          (chip.textContent || '').replace(/\u00a0/g, ' ').trim()
-      ));
+      let root = chipFieldRoot(el);
+      for (let depth = 0; depth < 4 && root; depth++) {
+          const chips = uniqueStrings(Array.from(root.querySelectorAll('.MuiChip-label')).map((chip) =>
+              (chip.textContent || '').replace(/\u00a0/g, ' ').trim()
+          ));
+          if (chips.length) return chips;
+          root = root.parentElement;
+      }
+      return [];
   }
 
   function fieldHasChip(el, value) {
@@ -1288,6 +1498,9 @@
 
   async function fillCombobox(el, value, isStrict = false, isMulti = false) {
       if (!value || !el) return { ok: false, method: 'skipped' };
+      if (isMulti && fieldHasChip(el, value)) {
+          return { ok: true, method: 'already_present' };
+      }
 
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
       await sleep(CONFIG.SLEEP_MEDIUM);
@@ -1432,7 +1645,8 @@
 
       if (chipField) {
           log(`Filling ${fieldName}...`);
-          if (values.length > 1) await clearChipContainer(el);
+          const replaceChips = values.length > 1 || normalizeFieldKey(fieldName) === 'tags';
+          if (replaceChips) await clearChipContainer(el);
           let filledCount = 0;
           let lastMethod = '';
           for (const item of values) {
@@ -2013,15 +2227,9 @@
       }
       
       // Multi-value fields
-      if (data.tags) {
-          const tagsEl = document.querySelector(VENDOO_SELECTORS.tags);
-          if (tagsEl) {
-              const tags = Array.isArray(data.tags) ? data.tags : data.tags.split(',').map(t => t.trim());
-              for (const tag of tags) await fillCombobox(tagsEl, tag, false, true);
-              recordFill({ field: 'Tags', status: 'filled', selector: VENDOO_SELECTORS.tags, value: tags });
-          } else {
-              recordFill({ field: 'Tags', status: 'not_found', reason: 'Tags input not found', selector: VENDOO_SELECTORS.tags, value: data.tags });
-          }
+      const generalTags = listingTagValues(data);
+      if (generalTags.length) {
+          await fillDropdownField(VENDOO_SELECTORS.tags, generalTags, 'Tags', false, true);
       } else {
           recordFill({ field: 'Tags', status: 'skipped', reason: 'No value in listing', selector: VENDOO_SELECTORS.tags });
       }
@@ -2119,22 +2327,31 @@
   // ============================================
 
   async function expandOptionalFields() {
-      const texts = ['Show Optional Fields', 'Optional Fields', 'Show more', 'More options', 'Advanced'];
+      const showNeedles = ['show optional fields', 'show optional', 'show more', 'more options'];
+      const hideNeedles = ['hide optional fields', 'hide optional', 'show less'];
       const buttons = Array.from(document.querySelectorAll('button, span[role="button"], a, div[role="button"]'));
-      
+      let expanded = false;
+
       for (const btn of buttons) {
-          if (!btn.innerText) continue;
-          const btnText = btn.innerText.toLowerCase();
-          if (texts.some(t => btnText.includes(t.toLowerCase()))) {
-              log(`Expanding optional fields: "${btn.innerText}"`);
-              btn.scrollIntoView({ block: 'center', behavior: 'instant' });
-              await sleep(CONFIG.SLEEP_SHORT);
-              btn.click();
-              await sleep(CONFIG.SLEEP_LONG); // Reduced from 2000ms
-              return true;
+          if (!isVisibleElement(btn)) continue;
+          const rawText = (btn.innerText || btn.textContent || '').trim();
+          const btnText = normalizeText(rawText);
+          if (!btnText) continue;
+          if (hideNeedles.some((needle) => btnText.includes(needle)) || btn.getAttribute?.('aria-expanded') === 'true') {
+              log(`Optional fields already expanded: "${rawText}"`);
+              expanded = true;
+              continue;
           }
+          if (!showNeedles.some((needle) => btnText.includes(needle))) continue;
+
+          log(`Expanding optional fields: "${rawText}"`);
+          btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+          await sleep(CONFIG.SLEEP_SHORT);
+          btn.click();
+          await sleep(CONFIG.SLEEP_LONG);
+          expanded = true;
       }
-      return false;
+      return expanded;
   }
 
   // ============================================
@@ -2388,56 +2605,65 @@
           await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whatIsIt', specs.what_is || specs.whatIsIt, 'What Is It');
           await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whenMade', normalizedWhenMade, 'When Made');
           
-          // Tags and materials
-          if (specs.tags || specs.materials) {
-              const tagsEl = document.querySelector('#listings\\.etsy\\.marketplaceSpecifics\\.tags');
-              const materialsEl = document.querySelector('#listings\\.etsy\\.marketplaceSpecifics\\.materials');
-              
-              if (tagsEl && specs.tags) {
-                  const tags = Array.isArray(specs.tags) ? specs.tags : specs.tags.split(',').map(t => t.trim());
-                  for (const tag of tags) await fillCombobox(tagsEl, tag, false, true);
-                  recordFill({ field: 'Tags', status: 'filled', value: tags });
-              } else if (specs.tags) {
-                  recordFill({ field: 'Tags', status: 'not_found', reason: 'Etsy tags field not found', value: specs.tags });
-              }
-              
-              if (materialsEl && specs.materials) {
-                  const materials = Array.isArray(specs.materials) ? specs.materials : specs.materials.split(',').map(m => m.trim());
-                  for (const material of materials) await fillCombobox(materialsEl, material, false, true);
-                  recordFill({ field: 'Materials', status: 'filled', value: materials });
-              } else if (specs.materials) {
-                  recordFill({ field: 'Materials', status: 'not_found', reason: 'Etsy materials field not found', value: specs.materials });
-              }
+          const etsyTags = uniqueStrings([
+              ...listingTagValues({ tags: specs.tags }),
+              ...listingTagValues(data),
+          ]);
+          if (etsyTags.length) {
+              await fillDropdownField(
+                  resolveMarketplaceField('etsy', ['tags'], [
+                      '#listings\\.etsy\\.marketplaceSpecifics\\.tags',
+                      '#listings\\.etsy\\.overrides\\.tags',
+                  ]),
+                  etsyTags,
+                  'Tags',
+                  false,
+                  true
+              );
+          }
+
+          const marketplaceMaterialsEl = document.querySelector('#listings\\.etsy\\.marketplaceSpecifics\\.materials');
+          if (marketplaceMaterialsEl && specs.materials) {
+              await fillDropdownField(marketplaceMaterialsEl, specs.materials, 'Materials', false, true);
+          }
+
+          const etsyOptionalLabels = ['Graphic', 'Materials', 'Fabric pattern', 'Occasion', 'Holiday', 'Sustainability', 'Size'];
+          let optionalCategoryReady = false;
+          for (let attempt = 0; attempt < 8; attempt++) {
+              optionalCategoryReady = etsyOptionalLabels.some((label) => findInputByExactLabel(label, isEtsyCategorySpecificInput));
+              if (optionalCategoryReady) break;
+              await expandOptionalFields();
+              await sleep(CONFIG.SLEEP_LONG);
+          }
+          if (optionalCategoryReady) {
+              log('Etsy optional category fields are visible');
+          } else {
+              warn('Etsy optional category fields did not appear after expanding');
           }
           
-          // Category specifics - find by label text matching
           log('Filling Etsy category specifics...');
           
-          // Map of field names to label text patterns
           const etsyCategoryFieldMap = {
-              'sleeveLength': ['sleeve length', 'sleeve'],
-              'neckline': ['neckline', 'neck'],
-              'clothingStyle': ['clothing style', 'clothing_style', 'style'],
+              'sleeveLength': ['sleeve length'],
+              'neckline': ['neckline'],
+              'clothingStyle': ['clothing style'],
               'closure': ['closure'],
-              'collarStyle': ['collar style', 'collar_style', 'collar'],
-              'pattern': ['pattern'],
+              'collarStyle': ['collar style'],
+              'fabricPattern': ['fabric pattern'],
+              'pattern': ['fabric pattern'],
               'occasion': ['occasion'],
               'holiday': ['holiday'],
               'sustainability': ['sustainability'],
-              'fabric': ['fabric', 'fabric type'],
-              'graphic': ['graphic', 'print'],
-              'materials': ['materials', 'material'],
+              'graphic': ['graphic'],
+              'materials': ['materials'],
               'size': ['size']
           };
-          
-          // Get all category specific inputs
-          const etsyCategoryInputs = Array.from(document.querySelectorAll(
-              '[id^="listings\.etsy\.categorySpecifics\."], [name^="listings.etsy.categorySpecifics."]'
-          )).filter(isVisibleElement);
+          const etsyMultiFields = new Set(['materials']);
           const categorySpecifics = { ...(specs.category_specifics || {}) };
           const rootLevelEtsyCategoryFields = [
               'sleeveLength', 'neckline', 'clothingStyle', 'closure', 'collarStyle',
-              'pattern', 'occasion', 'holiday', 'sustainability', 'fabric', 'graphic', 'size'
+              'pattern', 'fabricPattern', 'occasion', 'holiday', 'sustainability',
+              'graphic', 'size', 'materials'
           ];
 
           for (const fieldName of rootLevelEtsyCategoryFields) {
@@ -2446,14 +2672,29 @@
               }
           }
 
+          if (categorySpecifics.pattern && categorySpecifics.fabricPattern == null) {
+              categorySpecifics.fabricPattern = categorySpecifics.pattern;
+          }
+          delete categorySpecifics.pattern;
+
+          if (categorySpecifics.fabric && categorySpecifics.materials == null) {
+              categorySpecifics.materials = categorySpecifics.fabric;
+          }
+          delete categorySpecifics.fabric;
+
+          if (specs.materials && categorySpecifics.materials == null) {
+              categorySpecifics.materials = specs.materials;
+          }
+
           const etsyFallbackCategoryFields = {
               closure: ebaySpecifics.closure,
-              collarStyle: ebaySpecifics.collarStyle || ebaySpecifics.collar_style || ebaySpecifics.neckline,
+              collarStyle: ebaySpecifics.collarStyle || ebaySpecifics.collar_style,
               sleeveLength: ebaySpecifics.sleeveLength,
               neckline: ebaySpecifics.neckline,
-              occasion: ebaySpecifics.occasion,
-              pattern: ebaySpecifics.pattern,
+              fabricPattern: ebaySpecifics.pattern,
               size: data.size || ebaySpecifics.size,
+              graphic: ebaySpecifics.theme || ebaySpecifics.characterFamily || ebaySpecifics.character,
+              materials: ebaySpecifics.material,
           };
 
           for (const [fieldName, fallbackValue] of Object.entries(etsyFallbackCategoryFields)) {
@@ -2461,18 +2702,32 @@
                   categorySpecifics[fieldName] = fallbackValue;
               }
           }
+
+          const fillOrder = [
+              'clothingStyle', 'sleeveLength', 'neckline', 'materials', 'graphic',
+              'occasion', 'holiday', 'sustainability', 'size', 'fabricPattern',
+              ...Object.keys(categorySpecifics).filter((key) => ![
+                  'clothingStyle', 'sleeveLength', 'neckline', 'materials', 'graphic',
+                  'occasion', 'holiday', 'sustainability', 'size', 'fabricPattern'
+              ].includes(key)),
+          ];
           
-          // Find each field by its label text and fill it
-          for (const [jsonField, rawValue] of Object.entries(categorySpecifics)) {
+          for (const jsonField of fillOrder) {
+              const rawValue = categorySpecifics[jsonField];
               if (!rawValue) continue;
 
               const labelPatterns = etsyCategoryFieldMap[jsonField] || [normalizeText(jsonField)];
-              const valuesToFill = (Array.isArray(rawValue)
-                  ? rawValue.map(value => normalizeEtsyCategorySpecificValue(jsonField, value))
+              const parts = Array.isArray(rawValue)
+                  ? rawValue
                   : (typeof rawValue === 'string' && rawValue.includes(','))
-                      ? rawValue.split(',').map(value => normalizeEtsyCategorySpecificValue(jsonField, value.trim()))
-                      : [normalizeEtsyCategorySpecificValue(jsonField, rawValue)]
-              ).filter(Boolean);
+                      ? rawValue.split(',').map((value) => value.trim()).filter(Boolean)
+                      : [rawValue];
+              let valuesToFill = parts
+                  .map((value) => normalizeEtsyCategorySpecificValue(jsonField, value))
+                  .filter(Boolean);
+              if (!etsyMultiFields.has(jsonField) && valuesToFill.length > 1) {
+                  valuesToFill = valuesToFill.slice(0, 1);
+              }
 
               if (valuesToFill.length === 0) {
                   recordFill({
@@ -2484,11 +2739,11 @@
                   continue;
               }
 
-              const foundEl = findInputByLabelPatterns(labelPatterns, isEtsyCategorySpecificInput) ||
-                  findInputByContext(etsyCategoryInputs, labelPatterns);
+              const etsyCategoryInputs = collectEtsyCategoryInputs();
+              const foundEl = findEtsyCategoryInput(jsonField, labelPatterns, etsyCategoryInputs);
               
               if (foundEl) {
-                  const isMulti = jsonField === 'materials' || valuesToFill.length > 1;
+                  const isMulti = etsyMultiFields.has(jsonField);
                   log(`  Filling Etsy ${jsonField}: ${valuesToFill.join(', ')}`);
                   for (const value of valuesToFill) {
                       if (!value) continue;
@@ -2505,21 +2760,6 @@
                   });
               }
           }
-          
-          // Handle materials field (category specific version)
-          if (specs.materials && categorySpecifics.materials == null) {
-              const materialsCatEl = findInputByLabelPatterns(['materials', 'material'], isEtsyCategorySpecificInput) ||
-                  findInputByContext(etsyCategoryInputs, ['materials', 'material']);
-              
-              if (materialsCatEl) {
-                  const materials = Array.isArray(specs.materials) ? specs.materials : specs.materials.split(',').map(m => m.trim());
-                  log(`  Filling Etsy materials (category): ${materials.join(', ')}`);
-                  for (const material of materials) {
-                      await fillCombobox(materialsCatEl, material, false, true);
-                  }
-                  recordFill({ field: 'Materials', status: 'filled', value: materials });
-              }
-          }
       }
       
   }
@@ -2532,9 +2772,9 @@
   function listingTagValues(data) {
       const raw = data?.tags;
       if (!raw) return [];
-      return (Array.isArray(raw) ? raw : String(raw).split(','))
+      return uniqueStrings((Array.isArray(raw) ? raw : String(raw).split(','))
           .map((tag) => String(tag).trim())
-          .filter(Boolean);
+          .filter(Boolean));
   }
 
   function marketplaceSizeSelectors(marketplace) {
@@ -2656,8 +2896,7 @@
           });
           return;
       }
-      for (const tag of tags) await fillCombobox(el, tag, false, true);
-      recordFill({ field: fieldName, status: 'filled', selector: selectorFor(el, ''), value: tags });
+      await fillDropdownField(el, tags, fieldName, false, true);
   }
 
   async function fillPoshmarkForm(data) {
@@ -3481,13 +3720,18 @@
   }
 
   async function clearChipContainer(el) {
-      const container = el.closest('.MuiAutocomplete-root, .MuiFormControl-root') || el.parentElement;
-      if (!container) return;
-      for (let i = 0; i < 40; i++) {
-          const chipDelete = container.querySelector('.MuiChip-deleteIcon, [data-testid*="Cancel"], [aria-label="Remove"], [aria-label="delete"]');
-          if (!chipDelete) break;
-          chipDelete.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-          await sleep(CONFIG.SLEEP_SHORT);
+      let container = chipFieldRoot(el);
+      for (let depth = 0; depth < 4 && container; depth++) {
+          let removed = false;
+          for (let i = 0; i < 40; i++) {
+              const chipDelete = container.querySelector('.MuiChip-deleteIcon, [data-testid*="Cancel"], [aria-label="Remove"], [aria-label="delete"]');
+              if (!chipDelete) break;
+              chipDelete.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              await sleep(CONFIG.SLEEP_SHORT);
+              removed = true;
+          }
+          if (removed || listedChipValues(el).length === 0) return;
+          container = container.parentElement;
       }
   }
 
