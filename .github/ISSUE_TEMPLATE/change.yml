@@ -1,0 +1,30 @@
+name: Change
+description: Request a feature or product change
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Vendoo Listing Studio
+        - Chrome extension
+        - list-this skills
+        - Background Studio
+        - CI / repo hygiene
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The smallest change that would fix it.
+    validations:
+      required: true

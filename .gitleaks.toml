@@ -1,0 +1,17 @@
+title = "list-this-vendoo-suite"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local runtime, caches, and generated app data"
+paths = [
+  '''(^|/)\.git/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)vendoo-studio/data/''',
+  '''(^|/)vendoo-studio/\.mp/''',
+  '''(^|/)vendoo-studio/\.venv/''',
+  '''(^|/)background-studio/\.venv/''',
+]

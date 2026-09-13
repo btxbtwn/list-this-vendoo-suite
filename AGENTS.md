@@ -49,12 +49,15 @@ Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, Ve
 
 ## Verification
 
-- **Studio frontend:** `cd vendoo-studio && npm run build`
-- **Studio backend:** Use narrow Python checks for affected modules.
-- **Background Studio backend:** `cd background-studio && pytest -q backend/tests`
-- **Background Studio frontend:** `cd background-studio/frontend && npm test && npm run build && npm audit --audit-level=low`
-- **Extension:** Reload the unpacked extension and test affected marketplace flows manually. Use platform-prefixed console logs (`[EBAY]`, `[POSHMARK]`, etc.), the **Diagnose Page** button for live form structure, and the debug overlay (bottom-left) for per-field fill results.
-- **Skills:** Validate changes with existing eval assets under the skill directory.
+CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `main`. Run the same commands locally for the paths you touched.
+
+- **Studio frontend:** `cd vendoo-studio && npm ci && npm run build`
+- **Studio backend:** `cd vendoo-studio && python -m pytest -q` (install with `pip install -e ".[dev]"`)
+- **Background Studio backend:** `cd background-studio && pytest -q backend/tests` (CI uses `backend/requirements-test.txt` so the job does not pull Torch)
+- **Background Studio frontend:** `cd background-studio/frontend && npm ci && npm test && npm run build`
+- **Extension:** `node --check` on changed JS files and `python -m json.tool vendoo-extension/manifest.json`. Then reload the unpacked extension and test affected marketplace flows manually. Use platform-prefixed console logs (`[EBAY]`, `[POSHMARK]`, etc.), the **Diagnose Page** button for live form structure, and the debug overlay (bottom-left) for per-field fill results.
+- **Skills:** Confirm `skills/list-this/SKILL.md` exists and `python -m json.tool skills/list-this/references/vendoo-dropdown-options.json` succeeds.
+- **Secrets:** Do not track `.env`, key files, photos, or private exports. CI scans the working tree with gitleaks.
 
 ## Security and Product Invariants
 

@@ -1,5 +1,7 @@
 # List This Vendoo Suite
 
+[![CI](https://github.com/btxbtwn/list-this-vendoo-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/btxbtwn/list-this-vendoo-suite/actions/workflows/ci.yml)
+
 Monorepo combining the `list-this` skill family, Vendoo Listing Studio, Background Studio, and the Vendoo Chrome extension. The skills generate marketplace-ready listings from product photos; Vendoo Studio provides a local web interface for chat-driven listing creation and extension automation; Background Studio is a standalone local FastAPI + React photo background-removal app; the extension fills six platforms (Vendoo, eBay, Poshmark, Mercari, Depop, Etsy) from a single JSON payload.
 
 ## Source of truth
@@ -215,3 +217,11 @@ When ID matching fails, label-based matching scans the DOM for associated `<labe
 2. Watch for `[EBAY]`, `[POSHMARK]`, etc. prefixed logs
 3. Use the extension's **Diagnose Page** button to download live form structure
 4. Check the debug overlay (bottom-left) for per-field fill results
+
+---
+
+## Development
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for PR checks and [`AGENTS.md`](AGENTS.md) for product invariants.
+
+CI on pull requests and `main` builds Studio, runs Studio and Background Studio tests, validates the extension and skill JSON, and scans the tree for secrets. The macOS app is packaged separately by `.github/workflows/studio-macos.yml`.
