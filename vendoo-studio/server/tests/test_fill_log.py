@@ -16,6 +16,7 @@ from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.services.fill_log import (
     FillLogService,
     extract_missing_fields,
+    listing_value_for_field,
     preview_value,
     sanitize_entries,
     summarize,
@@ -55,6 +56,31 @@ class FillLogHelpersTest(unittest.TestCase):
 
     def test_extract_missing_fields_ignores_json_patch(self):
         self.assertIsNone(extract_missing_fields('[{"op":"replace","path":"/sku","value":"ABC-1"}]'))
+
+    def test_listing_value_for_field_maps_leftover_labels(self):
+        listing = {
+            "size": "S",
+            "department": "Women",
+            "ebay_specifics": {
+                "department": "Women",
+                "type": "Blouse",
+                "countryOfOrigin": "United States",
+                "yearManufactured": "2010s",
+            },
+            "etsy_specifics": {"when_made": "2010 - 2019 (Recently)"},
+        }
+        self.assertEqual(listing_value_for_field(listing, "poshmark", "Size"), "S")
+        self.assertEqual(listing_value_for_field(listing, "etsy", "When Was It Made?"), "2010 - 2019 (Recently)")
+        self.assertEqual(listing_value_for_field(listing, "ebay", "Department"), "Women")
+        self.assertEqual(listing_value_for_field(listing, "ebay", "Type"), "Blouse")
+        self.assertEqual(listing_value_for_field(listing, "ebay", "Country of Origin"), "United States")
+
+    def test_listing_value_for_field_uses_ebay_year_for_etsy_when_made(self):
+        listing = {
+            "ebay_specifics": {"yearManufactured": "2014"},
+            "etsy_specifics": {},
+        }
+        self.assertEqual(listing_value_for_field(listing, "etsy", "When Made"), "2014")
 
 
 class FillLogServiceTest(unittest.TestCase):

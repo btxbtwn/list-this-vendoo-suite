@@ -137,35 +137,84 @@ function isUnfillableField(field: DraftField): boolean {
   return UNFILLABLE_FIELDS.has(field.label.toLowerCase()) || UNFILLABLE_FIELDS.has(field.key.toLowerCase());
 }
 
+function normalizeLookupKey(value: string): string {
+  const aliases: Record<string, string> = {
+    "listing price": "price",
+    "buy it now price": "price",
+    "cost of goods": "cost",
+    "us size": "size",
+    "vendoo labels": "labels",
+    "internal notes": "notes",
+    "vendoo internal notes": "notes",
+    "primary color": "color",
+    "when was it made": "when made",
+    "who made it": "who made",
+  };
+  const key = String(value || "")
+    .replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_*?-]+/g, " ")
+    .replace(/[^\w\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return aliases[key] || key;
+}
+
+function lookupToJsonKey(key: string): string {
+  const mapped: Record<string, string> = {
+    "when made": "when_made",
+    "who made": "who_made",
+    "what is it": "what_is",
+    "size type": "sizeType",
+    "country of origin": "countryOfOrigin",
+    "year manufactured": "yearManufactured",
+  };
+  if (mapped[key]) return mapped[key];
+  const parts = key.split(" ").filter(Boolean);
+  if (!parts.length) return "";
+  return parts[0] + parts.slice(1).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
+}
+
+function valueFromRecord(record: Record<string, unknown> | undefined, key: string): unknown {
+  if (!record || !key) return undefined;
+  const jsonKey = lookupToJsonKey(key);
+  const mapped = GENERAL_LISTING_KEYS[key];
+  const colorKeys = new Set(["color", "primary color"]);
+  for (const [candidate, value] of Object.entries(record)) {
+    const candidateKey = normalizeLookupKey(candidate);
+    if (candidateKey === key || (colorKeys.has(key) && colorKeys.has(candidateKey))) return value;
+    if (candidate === jsonKey || (mapped && candidate === mapped)) return value;
+  }
+  if (jsonKey && jsonKey in record) return record[jsonKey];
+  if (mapped && mapped in record) return record[mapped];
+  return undefined;
+}
+
 function listingValueForField(
   listing: Record<string, unknown> | undefined,
   marketplace: string,
   field: DraftField,
 ): string {
   if (!listing) return "";
-  const key = field.label.toLowerCase().replace(/\s+/g, " ").trim();
-  const rawKey = field.key.toLowerCase();
+  const key = normalizeLookupKey(field.label || field.key);
   let raw: unknown;
   if (marketplace === "general") {
-    const mapped = GENERAL_LISTING_KEYS[key];
-    raw = (mapped ? listing[mapped] : undefined) ?? listing[field.key] ?? listing[field.label];
-    if (raw == null) {
-      const hit = Object.keys(listing).find((candidate) => {
-        const normalized = candidate.toLowerCase().replace(/_/g, " ");
-        return normalized === key || candidate.toLowerCase() === rawKey;
-      });
-      raw = hit ? listing[hit] : undefined;
-    }
+    raw = valueFromRecord(listing, key);
   } else {
     const specifics = listing[`${marketplace}_specifics`];
     const record = specifics && typeof specifics === "object" && !Array.isArray(specifics)
       ? specifics as Record<string, unknown>
       : {};
-    const hit = Object.keys(record).find((candidate) => {
-      const normalized = candidate.toLowerCase().replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, "").trim();
-      return normalized === key || candidate.toLowerCase() === rawKey;
-    });
-    raw = hit ? record[hit] : record[field.label] ?? record[field.key];
+    raw = valueFromRecord(record, key);
+    if (raw == null && key === "when made") {
+      const ebay = listing.ebay_specifics;
+      raw = valueFromRecord(
+        ebay && typeof ebay === "object" && !Array.isArray(ebay) ? ebay as Record<string, unknown> : {},
+        "year manufactured",
+      );
+    }
+    if (raw == null) raw = valueFromRecord(listing, key);
   }
   if (raw == null) return "";
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean).join(", ").trim();
@@ -199,11 +248,6 @@ Empty fields:
 ${lines.join("\n")}`;
 }
 
-function leftoverCount(summary?: Record<string, number>): number {
-  if (!summary) return 0;
-  return [...FILLABLE_STATUSES].reduce((sum, status) => sum + (summary[status] || 0), 0);
-}
-
 function allowedMarketplaceIds(selected?: string[]): Set<string> {
   const chosen = selected ?? DEFAULT_SELECTED_MARKETPLACES;
   return new Set(["general", ...chosen]);
@@ -220,6 +264,51 @@ function leftoverEntries(report: FillLogReport): FillLogEntry[] {
     const statusDelta = STATUS_ORDER.indexOf(left.status) - STATUS_ORDER.indexOf(right.status);
     if (statusDelta !== 0) return statusDelta;
     return `${left.marketplace} ${left.field}`.localeCompare(`${right.marketplace} ${right.field}`);
+  });
+}
+
+function patchableEmptyFields(
+  forms: DraftForm[],
+  listing: Record<string, unknown> | undefined,
+  values: Record<string, string> = {},
+): { id?: string; marketplace: string; field: string; value: string }[] {
+  return forms.flatMap((form) =>
+    form.fields
+      .filter((field) => field.missing && !isUnfillableField(field))
+      .map((field) => {
+        const leftover = field.leftover;
+        const typed = leftover ? String(values[leftover.id] || "").trim() : "";
+        const value = typed || listingValueForField(listing, form.id, field);
+        if (!value) return null;
+        return leftover
+          ? { id: leftover.id, marketplace: form.id, field: leftover.field || field.label, value }
+          : { marketplace: form.id, field: field.label, value };
+      })
+      .filter((item): item is { id?: string; marketplace: string; field: string; value: string } => Boolean(item)),
+  );
+}
+
+function sourceFormsForJob(
+  item: Record<string, unknown> | undefined,
+  report: FillLogReport | undefined,
+  listing: Record<string, unknown> | undefined,
+  selectedMarketplaces?: string[],
+): { sourceForms: DraftForm[]; fromVendooDraft: boolean } {
+  const enabled = allowedMarketplaceIds(selectedMarketplaces);
+  const draftForms = item ? formsFromDraft(item, report) : [];
+  const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
+  const listingForms = formsFromListing(listing);
+  const sourceForms = (draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms)
+    .filter((form) => enabled.has(form.id));
+  return { sourceForms, fromVendooDraft: draftForms.length > 0 };
+}
+
+function useVendooDraft(jobId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["vendoo-item", jobId],
+    queryFn: () => api.jobs.vendooItem(jobId),
+    enabled,
+    staleTime: Infinity,
   });
 }
 
@@ -710,6 +799,7 @@ function listingSection(listing: Record<string, unknown> | undefined): unknown {
   delete rest.overrides;
   delete rest.marketplaceSpecifics;
   delete rest.categorySpecifics;
+  delete rest.type;
   return {
     ...rest,
     ...(overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides as object : {}),
@@ -921,38 +1011,6 @@ function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): D
     .filter((form): form is DraftForm => Boolean(form));
 }
 
-export function FillLogSummary({ jobId, onOpenFillLog }: { jobId: string; onOpenFillLog?: () => void }) {
-  const report = useFillLog(jobId);
-  if (!report) return null;
-  const total = Object.values(report.summary).reduce((sum, n) => sum + n, 0);
-  if (total === 0) {
-    return onOpenFillLog ? (
-      <button type="button" className="fill-log-open" onClick={onOpenFillLog}>
-        Review fields
-      </button>
-    ) : null;
-  }
-  const leftover = leftoverCount(report.summary);
-  return (
-    <div className="fill-log-chips" aria-label="Fill log summary">
-      {STATUS_ORDER.map((status) => {
-        const count = report.summary[status] || 0;
-        if (!count) return null;
-        return (
-          <span key={status} className={`fill-log-chip fill-log-chip-${status}`}>
-            {count} {STATUS_LABELS[status]}
-          </span>
-        );
-      })}
-      {leftover > 0 && onOpenFillLog && (
-        <button type="button" className="fill-log-open" onClick={onOpenFillLog}>
-          Fill {leftover} leftover {leftover === 1 ? "field" : "fields"}
-        </button>
-      )}
-    </div>
-  );
-}
-
 export function FillLogPanel({
   jobId,
   jobStatus,
@@ -993,46 +1051,22 @@ export function FillLogPanel({
   const filling = jobStatus === "dispatched" && jobStep === "filling_fields";
   const hasDraft = Boolean(vendooItemId || vendooUrl);
   const chromeConnected = Boolean(extStatus?.connected);
-  const didRead = React.useRef<string | null>(null);
   const awaitingFill = React.useRef(false);
   const sawFilling = React.useRef(false);
   const fillingRef = React.useRef(filling);
   fillingRef.current = filling;
 
-  const { data: cachedDraft } = useQuery({
-    queryKey: ["vendoo-item", jobId],
-    queryFn: () => api.jobs.vendooItem(jobId),
-    enabled: false,
-    staleTime: Infinity,
-  });
-  const readMutation = useMutation({
-    mutationFn: () => api.jobs.vendooItem(jobId),
-    onSuccess: (payload) => {
-      setShowJson(false);
-      queryClient.setQueryData(["vendoo-item", jobId], payload);
-    },
-  });
-  const draft = readMutation.data || cachedDraft;
-  const item = mergeDraftItem(draft);
-  const enabledMarketplaces = allowedMarketplaceIds(marketplaceSettings?.selected);
-  const draftForms = item ? formsFromDraft(item, report) : [];
-  const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
-  const listingForms = formsFromListing(listing);
-  const sourceForms = (draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms)
-    .filter((form) => enabledMarketplaces.has(form.id));
-  const fromVendooDraft = draftForms.length > 0;
+  const draftQuery = useVendooDraft(jobId, hasDraft && chromeConnected);
+  const draft = draftQuery.data;
+  const { sourceForms, fromVendooDraft } = sourceFormsForJob(
+    mergeDraftItem(draft),
+    report,
+    listing,
+    marketplaceSettings?.selected,
+  );
   const sourceKey = sourceForms.map((form) => form.id).join("|");
   const forms = filterForms(sourceForms, query, missingOnly);
-  const leftovers = report
-    ? leftoverEntries(report).filter((entry) => enabledMarketplaces.has(entry.marketplace.toLowerCase()))
-    : [];
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
-
-  React.useEffect(() => {
-    if (!hasDraft || !chromeConnected || didRead.current === jobId) return;
-    didRead.current = jobId;
-    readMutation.mutate();
-  }, [hasDraft, jobId, chromeConnected]);
 
   React.useEffect(() => {
     if (!report) return;
@@ -1060,7 +1094,10 @@ export function FillLogPanel({
     sawFilling.current = false;
     queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
     queryClient.invalidateQueries({ queryKey: ["listing"] });
-    if (hasDraft && chromeConnected) readMutation.mutate();
+    if (hasDraft && chromeConnected) {
+      setShowJson(false);
+      draftQuery.refetch();
+    }
     onFilled?.();
   };
 
@@ -1095,28 +1132,29 @@ export function FillLogPanel({
       .filter((field) => field.missing && !isUnfillableField(field))
       .map((field) => ({ form, field })),
   );
-  const fillableEmpty = emptyFields
-    .map(({ form, field }) => {
-      const leftover = field.leftover;
-      const typed = leftover ? String(values[leftover.id] || "").trim() : "";
-      const value = typed || listingValueForField(listing, form.id, field);
-      if (!value) return null;
-      return leftover
-        ? { id: leftover.id, marketplace: form.id, field: leftover.field || field.label, value }
-        : { marketplace: form.id, field: field.label, value };
-    })
-    .filter((item): item is { id?: string; marketplace: string; field: string; value: string } => Boolean(item));
-
-  const pending = leftovers.filter((entry) => String(values[entry.id] || "").trim());
-  const visiblePending = pending.filter((entry) => {
-    if (selectedForm && entry.marketplace.toLowerCase() !== selectedForm.id) return false;
-    const form = forms.find((item) => item.id === entry.marketplace.toLowerCase());
-    return !form || form.fields.some((field) => field.leftover?.id === entry.id);
-  });
-  const fillPayload = fillableEmpty.length ? fillableEmpty : visiblePending.map((entry) => ({
-    id: entry.id,
-    value: String(values[entry.id] || "").trim(),
-  }));
+  const leftovers = report ? leftoverEntries(report) : [];
+  const fillableEmpty = fromVendooDraft ? patchableEmptyFields(sourceForms, listing, values) : [];
+  const fillPayload = (() => {
+    const payload = [...fillableEmpty];
+    const seen = new Set(
+      payload.map((item) => `${(item.marketplace || "").toLowerCase()}:${(item.field || "").toLowerCase()}`),
+    );
+    for (const entry of leftovers) {
+      const key = `${entry.marketplace.toLowerCase()}:${entry.field.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      const typed = String(values[entry.id] || "").trim();
+      const value = typed || listingValueForField(listing, entry.marketplace, {
+        key: entry.field,
+        label: entry.field,
+        value: "",
+        missing: true,
+      });
+      if (!value) continue;
+      seen.add(key);
+      payload.push({ id: entry.id, marketplace: entry.marketplace, field: entry.field, value });
+    }
+    return payload;
+  })();
 
   return (
     <div className="fill-log-pr">
@@ -1149,10 +1187,13 @@ export function FillLogPanel({
           <button
             type="button"
             className="pr-icon-btn pr-read"
-            disabled={readMutation.isPending}
-            onClick={() => readMutation.mutate()}
+            disabled={draftQuery.isFetching}
+            onClick={() => {
+              setShowJson(false);
+              draftQuery.refetch();
+            }}
           >
-            {readMutation.isPending ? "Reading…" : draft ? "Refresh" : "Read draft"}
+            {draftQuery.isFetching ? "Reading…" : draft ? "Refresh" : "Read draft"}
           </button>
         )}
         {draft?.ok && (
@@ -1198,7 +1239,7 @@ export function FillLogPanel({
         </div>
       )}
 
-      {hasDraft && !fromVendooDraft && !readMutation.isPending && (
+      {hasDraft && !fromVendooDraft && !draftQuery.isFetching && (
         <p className="pr-notice">
           {chromeConnected
             ? "Showing blank listing fields. Read the Vendoo draft to send only the empty Vendoo form fields to chat."
@@ -1206,15 +1247,15 @@ export function FillLogPanel({
         </p>
       )}
 
-      {readMutation.error && (
-        <div className="text-xs text-error">{(readMutation.error as Error).message || "Could not read the Vendoo draft"}</div>
+      {draftQuery.error && (
+        <div className="text-xs text-error">{(draftQuery.error as Error).message || "Could not read the Vendoo draft"}</div>
       )}
       {draft?.api_error && <div className="pr-meta">API: {draft.api_error}</div>}
 
       {!forms.length ? (
         <div className="pr-empty">
           <p>
-            {readMutation.isPending
+            {draftQuery.isFetching
               ? "Reading Vendoo draft…"
               : !chromeConnected && hasDraft
                 ? "Connect Chrome to read empty Vendoo fields. Ask chat can still generate values, then Fill on Vendoo patches only those fields."
