@@ -3199,9 +3199,15 @@
   }
 
   async function waitForPatchControl(item) {
+      let seen = false;
       for (let attempt = 0; attempt < 6; attempt++) {
           const el = findControlForPatch(item);
-          if (el && isEnabledField(el) && (isVisibleElement(el) || isAttachedElement(el))) return el;
+          if (el) {
+              seen = true;
+              if (isEnabledField(el) && (isVisibleElement(el) || isAttachedElement(el))) return el;
+          } else if (!seen && attempt >= 2) {
+              break;
+          }
           await sleep(CONFIG.SLEEP_RETRY);
       }
       return findControlForPatch(item);
