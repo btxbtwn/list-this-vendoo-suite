@@ -21,10 +21,11 @@ import {
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ToastHost } from "../components/ToastHost";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
-import { isSetupGuideDismissed } from "../onboarding";
+import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
 
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
+let setupGuideAutoOpen: boolean | null = null;
 
 function useMobileLayout() {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
@@ -52,7 +53,7 @@ export function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
   const [listingQuery, setListingQuery] = useState("");
   const [queuedChatMessage, setQueuedChatMessage] = useState<string | null>(null);
-  const [setupGuideOpen, setSetupGuideOpen] = useState(() => !isSetupGuideDismissed());
+  const [setupGuideOpen, setSetupGuideOpen] = useState(setupGuideAutoOpen === true);
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -86,6 +87,24 @@ export function App() {
     const next = url.pathname + url.search + url.hash;
     window.history.replaceState({}, "", next);
   }, []);
+
+  useEffect(() => {
+    if (setupGuideAutoOpen !== null) return;
+    if (isSetupGuideDismissed()) {
+      setupGuideAutoOpen = false;
+      dismissSetupGuide();
+      return;
+    }
+    if (!status) return;
+    if (status.setup_guide_dismissed || status.provider_configured || (status.conversations ?? 0) > 0) {
+      setupGuideAutoOpen = false;
+      dismissSetupGuide();
+      return;
+    }
+    setupGuideAutoOpen = true;
+    setSetupGuideOpen(true);
+    dismissSetupGuide();
+  }, [status]);
 
   const selectedListing = conversations?.find((listing: { id: string }) => listing.id === selectedConvId);
   const workspaceTitle = activeView === "settings"

@@ -22,6 +22,7 @@ server/tests/test_open_listing.py
 server/tests/test_packaged_updates.py
 server/tests/test_preview_hub.py
 server/tests/test_registry.py
+server/tests/test_setup_guide.py
 server/tests/test_sold_comps.py
 server/tests/test_updates.py
 server/tests/test_vendoo_import.py
