@@ -92,12 +92,15 @@ def seller_item_details(notes: str | None) -> str:
         lines.append(f"- Package dimensions: {parsed['packageDimensions']}")
     pit_to_pit = (parsed.get("pitToPit") or "").strip()
     length_val = (parsed.get("length") or "").strip()
-    if pit_to_pit or length_val:
+    sleeve_val = (parsed.get("sleeve") or "").strip()
+    if pit_to_pit or length_val or sleeve_val:
         parts = []
         if pit_to_pit:
             parts.append(f'Pit to pit: {pit_to_pit}"')
         if length_val:
             parts.append(f'Length: {length_val}"')
+        if sleeve_val:
+            parts.append(f'Sleeve: {sleeve_val}"')
         lines.append("- Measurements: " + "; ".join(parts))
     if not lines:
         return ""

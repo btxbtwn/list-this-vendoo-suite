@@ -12,6 +12,7 @@ interface ItemDetailsData {
   packageDimensions: string;
   pitToPit: string;
   length: string;
+  sleeve: string;
   vendooLabels: string;
   categoryOverride: string;
   poshmarkOriginalPrice: string;
@@ -85,6 +86,7 @@ const DEFAULTS: ItemDetailsData = {
   packageDimensions: "13x10x3",
   pitToPit: "",
   length: "",
+  sleeve: "",
   vendooLabels: "",
   categoryOverride: "",
   poshmarkOriginalPrice: "0",
@@ -100,6 +102,7 @@ function parseNotes(notes: string | null): ItemDetailsData {
       packageDimensions: parsed.packageDimensions || "13x10x3",
       pitToPit: parsed.pitToPit || "",
       length: parsed.length || "",
+      sleeve: parsed.sleeve || "",
       vendooLabels: parsed.vendooLabels ?? DEFAULTS.vendooLabels,
       categoryOverride: parsed.categoryOverride || "",
       poshmarkOriginalPrice: parsed.poshmarkOriginalPrice ?? "0",
@@ -172,6 +175,7 @@ export function ItemDetails({ convId }: Props) {
       packageDimensions: updated.packageDimensions,
       pitToPit: updated.pitToPit,
       length: updated.length,
+      sleeve: updated.sleeve,
       vendooLabels: updated.vendooLabels,
       categoryOverride: updated.categoryOverride,
       poshmarkOriginalPrice: updated.poshmarkOriginalPrice,
@@ -288,7 +292,7 @@ export function ItemDetails({ convId }: Props) {
           <input {...f("packageDimensions")} placeholder="13x10x3" />
         </div>
       </div>
-      <div className="item-row">
+      <div className="item-row item-row-measures">
         <div className="item-field">
           <label className="label">COG ($)</label>
           <input {...f("cog", "number")} step="0.01" placeholder="0.00" />
@@ -304,6 +308,10 @@ export function ItemDetails({ convId }: Props) {
         <div className="item-field">
           <label className="label">Length</label>
           <input {...f("length", "number")} step="0.25" placeholder="27" />
+        </div>
+        <div className="item-field">
+          <label className="label">Sleeve</label>
+          <input {...f("sleeve", "number")} step="0.25" placeholder="9" />
         </div>
       </div>
       {saving && <span className="item-saving">SAVING…</span>}
