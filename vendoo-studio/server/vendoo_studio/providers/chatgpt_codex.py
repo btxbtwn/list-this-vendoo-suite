@@ -149,6 +149,10 @@ def _responses_text(payload: dict) -> str:
         return ""
 
 
+def _content_type_for_role(role: str) -> str:
+    return "output_text" if role in {"assistant", "model"} else "input_text"
+
+
 def _messages_to_input(messages: list[dict]) -> tuple[str, list[dict]]:
     instructions: list[str] = []
     items: list[dict] = []
@@ -159,25 +163,26 @@ def _messages_to_input(messages: list[dict]) -> tuple[str, list[dict]]:
             if isinstance(content, str) and content.strip():
                 instructions.append(content)
             continue
+        mapped_role = "assistant" if role in {"assistant", "model"} else "user"
+        text_type = _content_type_for_role(mapped_role)
         parts: list[dict] = []
         if isinstance(content, str):
             if content:
-                parts.append({"type": "input_text", "text": content})
+                parts.append({"type": text_type, "text": content})
         elif isinstance(content, list):
             for part in content:
                 if isinstance(part, str) and part:
-                    parts.append({"type": "input_text", "text": part})
+                    parts.append({"type": text_type, "text": part})
                 elif isinstance(part, dict):
-                    if part.get("type") == "text" and part.get("text"):
-                        parts.append({"type": "input_text", "text": str(part["text"])})
-                    elif part.get("type") == "image_url":
+                    if part.get("type") in {"text", "input_text", "output_text"} and part.get("text"):
+                        parts.append({"type": text_type, "text": str(part["text"])})
+                    elif mapped_role == "user" and part.get("type") == "image_url":
                         image = part.get("image_url") or {}
                         url = image.get("url") if isinstance(image, dict) else None
                         if url:
                             parts.append({"type": "input_image", "image_url": url})
         if not parts:
             continue
-        mapped_role = "assistant" if role in {"assistant", "model"} else "user"
         items.append({"role": mapped_role, "content": parts, "type": "message"})
     return "\n\n".join(instructions), items
 

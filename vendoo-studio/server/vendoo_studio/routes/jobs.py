@@ -36,8 +36,11 @@ class CreateJobRequest(BaseModel):
 
 
 class FillFieldItem(BaseModel):
-    id: str
-    value: str
+    id: str | None = None
+    marketplace: str | None = None
+    field: str | None = None
+    value: str | None = None
+    selector: str | None = None
 
 
 class FillFieldsRequest(BaseModel):
@@ -281,6 +284,8 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         MAX_PATCH_FIELDS,
         MAX_PATCH_VALUE,
         FillLogService,
+        listing_value_for_field,
+        normalize_field_label,
         preview_value,
         write_values_into_listing,
     )
@@ -300,43 +305,100 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
 
     requested = body.fields[:MAX_PATCH_FIELDS]
     if not requested:
-        raise HTTPException(400, "Add at least one leftover field value")
+        raise HTTPException(400, "Add at least one field to fill")
 
-    values_by_id: dict[str, str] = {}
+    listing_repo = ListingRepo(db)
+    revisions = listing_repo.get_revisions(job.conversation_id)
+    listing = dict(revisions[0].listing_json) if revisions else dict(job.listing_snapshot or {})
+
+    fill_repo = FillLogRepo(db)
+    existing_ids = [str(item.id or "").strip() for item in requested if str(item.id or "").strip()]
+    existing_by_id = {
+        entry.id: entry
+        for entry in fill_repo.get_for_job_ids(job_id, existing_ids)
+    }
+
+    resolved: list[dict] = []
+    created_specs: list[dict] = []
     for item in requested:
+        entry_id = str(item.id or "").strip()
+        marketplace = str(item.marketplace or "").strip().lower()
+        field = str(item.field or "").strip()
+        selector = str(item.selector or "").strip()
         value = str(item.value or "").strip()
+        entry = existing_by_id.get(entry_id) if entry_id else None
+        if entry_id and entry is None:
+            raise HTTPException(400, "One or more leftover fields were not found on this job")
+        if entry:
+            if entry.status not in FILLABLE_STATUSES:
+                raise HTTPException(400, f"{entry.field} is already filled")
+            marketplace = marketplace or entry.marketplace
+            field = field or entry.field
+            selector = selector or (entry.selector or "")
+        if not field:
+            raise HTTPException(400, "Each field needs a name")
+        if not marketplace:
+            marketplace = "general"
+        if not value:
+            value = listing_value_for_field(listing, marketplace, field)
         if not value:
             continue
         if len(value) > MAX_PATCH_VALUE:
-            raise HTTPException(400, f"Value for {item.id} is too long")
-        values_by_id[item.id] = value
-    if not values_by_id:
-        raise HTTPException(400, "Add at least one leftover field value")
+            raise HTTPException(400, f"Value for {field} is too long")
+        patch = {
+            "marketplace": marketplace,
+            "field": field,
+            "selector": selector,
+            "value": value,
+        }
+        if entry:
+            patch["id"] = entry.id
+            patch["entry"] = entry
+        else:
+            created_specs.append({
+                "marketplace": marketplace,
+                "field": field,
+                "status": "new",
+                "reason": "Waiting to fill missing field",
+                "selector": selector,
+                "value_preview": preview_value(value),
+            })
+        resolved.append(patch)
 
-    fill_repo = FillLogRepo(db)
-    entries = fill_repo.get_for_job_ids(job_id, list(values_by_id.keys()))
-    found_ids = {entry.id for entry in entries}
-    missing = [entry_id for entry_id in values_by_id if entry_id not in found_ids]
-    if missing:
-        raise HTTPException(400, "One or more leftover fields were not found on this job")
+    if not resolved:
+        raise HTTPException(400, "No values to fill. Ask chat to generate the empty fields first.")
 
-    patches = []
-    for entry in entries:
-        if entry.status not in FILLABLE_STATUSES:
-            raise HTTPException(400, f"{entry.field} is already filled")
-        patches.append({
-            "id": entry.id,
-            "marketplace": entry.marketplace,
-            "field": entry.field,
-            "selector": entry.selector or "",
-            "value": values_by_id[entry.id],
-        })
+    if created_specs:
+        created = fill_repo.add_entries(
+            job_id=job.id,
+            conversation_id=job.conversation_id,
+            step="filling_fields",
+            marketplace=created_specs[0]["marketplace"],
+            entries=created_specs,
+        )
+        created_by_key = {
+            (entry.marketplace, normalize_field_label(entry.field)): entry
+            for entry in created
+        }
+        for patch in resolved:
+            if patch.get("id"):
+                continue
+            entry = created_by_key.get((patch["marketplace"], normalize_field_label(patch["field"])))
+            if entry:
+                patch["id"] = entry.id
+                patch["entry"] = entry
 
-    snapshot = write_values_into_listing(dict(job.listing_snapshot or {}), patches)
+    patches = [{
+        "id": patch.get("id") or "",
+        "marketplace": patch["marketplace"],
+        "field": patch["field"],
+        "selector": patch.get("selector") or "",
+        "value": patch["value"],
+    } for patch in resolved]
+
+    snapshot = write_values_into_listing(listing, patches)
     job.listing_snapshot = snapshot
     flag_modified(job, "listing_snapshot")
-    listing_repo = ListingRepo(db)
-    revisions = listing_repo.get_revisions(job.conversation_id)
     parent_id = revisions[0].id if revisions else job.approved_revision_id
     listing_repo.save_revision(
         conv_id=job.conversation_id,
@@ -353,9 +415,11 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
     job.status = "dispatched"
     job.current_step = "filling_fields"
     job.last_error = None
-    for entry in entries:
-        entry.value_preview = preview_value(values_by_id[entry.id])
-        entry.reason = "Waiting to fill leftover field"
+    for patch in resolved:
+        entry = patch.get("entry")
+        if entry:
+            entry.value_preview = preview_value(patch["value"])
+            entry.reason = "Waiting to fill leftover field"
     db.commit()
     db.refresh(job)
     ConversationRepo(db).update_status(job.conversation_id, "listing")

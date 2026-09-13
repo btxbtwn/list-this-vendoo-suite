@@ -7,6 +7,7 @@ import { ConnectChromeButton } from "./ConnectChromeButton";
 interface Props {
   convId: string;
   onJobStarted?: () => void;
+  onAskChat?: (text: string) => void;
 }
 
 interface EditorField {
@@ -16,9 +17,9 @@ interface EditorField {
   defaultValue?: string;
 }
 
-export function ListingEditor({ convId, onJobStarted }: Props) {
+export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
   const queryClient = useQueryClient();
-  const [reviewTab, setReviewTab] = React.useState<"summary" | "timeline" | "code">("summary");
+  const [reviewTab, setReviewTab] = React.useState<"forms" | "timeline" | "fields">("forms");
   const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
 
@@ -70,7 +71,7 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
             : <span className="pr-review-branch">Draft</span>}
         </div>
         <div className="pr-pills" role="tablist" aria-label="Listing review">
-          {(["summary", "timeline", "code"] as const).map((tab) => (
+          {(["forms", "timeline", "fields"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -79,14 +80,14 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
               className={`pr-pill${reviewTab === tab ? " is-active" : ""}`}
               onClick={() => setReviewTab(tab)}
             >
-              {tab === "summary" ? "Summary" : tab === "timeline" ? "Timeline" : "Code"}
+              {tab === "forms" ? "Forms" : tab === "timeline" ? "Timeline" : "Fields"}
             </button>
           ))}
         </div>
       </div>
 
-      <div className={`editor-body${reviewTab === "code" || reviewTab === "timeline" ? " is-files" : ""}`}>
-        {reviewTab === "code" ? (
+      <div className={`editor-body${reviewTab === "fields" || reviewTab === "timeline" ? " is-files" : ""}`}>
+        {reviewTab === "fields" ? (
           listingJob ? (
             <FillLogPanel
               jobId={listingJob.id}
@@ -94,11 +95,13 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
               jobStep={listingJob.current_step}
               vendooItemId={listingJob.vendoo_item_id}
               vendooUrl={listingJob.vendoo_url}
+              listing={listing}
+              onAskChat={onAskChat}
               onFilled={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
               onJobStarted={onJobStarted}
             />
           ) : (
-            <p className="pr-empty">Send this listing to Vendoo, then open Code to review each marketplace form like a file diff.</p>
+            <p className="pr-empty">Send this listing to Vendoo, then open Fields to review each marketplace and fill empty fields.</p>
           )
         ) : reviewTab === "timeline" ? (
           listingJob ? (
@@ -140,7 +143,7 @@ export function ListingEditor({ convId, onJobStarted }: Props) {
           canSend={data?.can_send ?? false}
           sendBlockers={data?.errors || []}
           onJobStarted={onJobStarted}
-          onOpenFillLog={() => setReviewTab("code")}
+          onOpenFillLog={() => setReviewTab("fields")}
         />
       </div>
     </div>

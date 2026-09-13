@@ -51,8 +51,23 @@ class ChatGPTOAuthTest(unittest.TestCase):
             {"role": "user", "content": [{"type": "text", "text": "Look"}, {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,xx"}}]},
         ])
         self.assertEqual(instructions, "Be careful.")
+        self.assertEqual(items[0]["role"], "user")
         self.assertEqual(items[0]["content"][0]["type"], "input_text")
         self.assertEqual(items[0]["content"][1]["type"], "input_image")
+
+    def test_messages_to_input_uses_output_text_for_assistant(self):
+        instructions, items = _messages_to_input([
+            {"role": "system", "content": "Be careful."},
+            {"role": "user", "content": "Fill empty fields."},
+            {"role": "assistant", "content": '{"title":"Nike tee"}'},
+            {"role": "user", "content": "SKU next"},
+        ])
+        self.assertEqual(instructions, "Be careful.")
+        self.assertEqual([item["role"] for item in items], ["user", "assistant", "user"])
+        self.assertEqual(items[0]["content"][0]["type"], "input_text")
+        self.assertEqual(items[1]["content"][0]["type"], "output_text")
+        self.assertEqual(items[1]["content"][0]["text"], '{"title":"Nike tee"}')
+        self.assertEqual(items[2]["content"][0]["type"], "input_text")
 
     def test_visible_model_slugs_skip_hidden(self):
         slugs = visible_model_slugs({

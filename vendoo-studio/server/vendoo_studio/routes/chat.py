@@ -176,6 +176,29 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
 
 
 def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
+    from vendoo_studio.services.fill_log import extract_missing_fields, write_values_into_listing
+
+    missing_fields = extract_missing_fields(full_text)
+    if missing_fields:
+        lr = ListingRepo(db)
+        revisions = lr.get_revisions(conv_id)
+        if revisions:
+            updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
+            lr.save_revision(
+                conv_id,
+                _stamp_learned_fields(db, updated),
+                source="model_refinement",
+                parent_revision_id=revisions[0].id,
+            )
+            ConversationRepo(db).add_message(
+                conv_id,
+                "system",
+                "Listing updated with generated field values.",
+                provider="system",
+                model="",
+            )
+            return
+
     parsed = extract_listing_json(full_text)
     if parsed:
         lr = ListingRepo(db)

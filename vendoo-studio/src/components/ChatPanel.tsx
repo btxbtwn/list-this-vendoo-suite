@@ -5,6 +5,8 @@ import { ChatMarkdown } from "./ChatMarkdown";
 
 interface Props {
   convId: string;
+  queuedMessage?: string | null;
+  onQueuedMessageConsumed?: () => void;
 }
 
 function isJsonBlock(text: string): boolean {
@@ -25,7 +27,7 @@ function isStreamError(text: string): boolean {
   return text.startsWith("Error:");
 }
 
-export function ChatPanel({ convId }: Props) {
+export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Props) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -227,6 +229,13 @@ export function ChatPanel({ convId }: Props) {
     queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
   }, [streaming, convId, isCurrent, queryClient]);
+
+  useEffect(() => {
+    if (!queuedMessage || streaming) return;
+    const text = queuedMessage;
+    onQueuedMessageConsumed?.();
+    void sendMessage(text);
+  }, [queuedMessage, streaming, sendMessage, onQueuedMessageConsumed]);
 
   const handleSend = useCallback(() => {
     void sendMessage(input.trim());

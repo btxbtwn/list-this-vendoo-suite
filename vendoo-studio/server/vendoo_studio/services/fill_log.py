@@ -112,6 +112,90 @@ def normalize_field_label(value: str) -> str:
     return key
 
 
+def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
+    source = listing if isinstance(listing, dict) else {}
+    marketplace = str(marketplace or "general").strip().lower()
+    key = normalize_field_label(field)
+    value: Any = None
+    if marketplace in {"", "general", "unknown"}:
+        mapped = GENERAL_LISTING_KEYS.get(key)
+        if mapped and mapped in source:
+            value = source.get(mapped)
+        elif field in source:
+            value = source.get(field)
+        else:
+            value = next(
+                (source[candidate] for candidate in source if normalize_field_label(str(candidate)) == key),
+                None,
+            )
+    else:
+        specifics = source.get(f"{marketplace}_specifics") or {}
+        if isinstance(specifics, dict):
+            value = next(
+                (specifics[candidate] for candidate in specifics if normalize_field_label(str(candidate)) == key),
+                None,
+            )
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        text = ", ".join(str(item).strip() for item in value if str(item).strip())
+    else:
+        text = str(value).strip()
+    return text
+
+
+def extract_missing_fields(text: str) -> list[dict] | None:
+    if not text or text.lstrip().lower().startswith("error:"):
+        return None
+
+    candidates: list[str] = []
+    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if fenced:
+        candidates.append(fenced.group(1).strip())
+    stripped = text.strip()
+    if stripped:
+        candidates.append(stripped)
+    match = re.search(r"\{[\s\S]*\}", text) or re.search(r"\[[\s\S]*\]", text)
+    if match:
+        candidates.append(match.group().strip())
+
+    import json
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        rows = None
+        if isinstance(parsed, dict) and isinstance(parsed.get("missing_fields"), list):
+            rows = parsed["missing_fields"]
+        elif isinstance(parsed, list):
+            rows = parsed
+        if not rows:
+            continue
+        cleaned: list[dict] = []
+        for item in rows:
+            if not isinstance(item, dict) or item.get("op"):
+                cleaned = []
+                break
+            field = str(item.get("field") or "").strip()
+            value = item.get("value")
+            if not field or value is None or str(value).strip() == "":
+                continue
+            cleaned.append({
+                "marketplace": str(item.get("marketplace") or "general").strip().lower() or "general",
+                "field": field,
+                "value": value,
+            })
+        if cleaned:
+            return cleaned[:MAX_PATCH_FIELDS]
+    return None
+
+
 def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
     updated = dict(listing or {})
     for patch in patches:
