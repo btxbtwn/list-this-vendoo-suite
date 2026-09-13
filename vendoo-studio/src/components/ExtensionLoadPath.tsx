@@ -23,22 +23,37 @@ export function ExtensionLoadPath({
     window.setTimeout(() => setCopied(false), 1600);
   };
 
+  const pathRow = path ? (
+    <div className="extension-load-path-row">
+      <code className="extension-load-path-code">{path}</code>
+      <button type="button" className="btn btn-sm btn-outline" onClick={() => void copy()}>
+        {copied ? "Copied" : "Copy path"}
+      </button>
+    </div>
+  ) : (
+    <p className={compact ? "setup-step-note" : "setup-guide-note"}>Looking up the extension folder…</p>
+  );
+
   return (
     <div className={`extension-load-path${compact ? " compact" : ""}`}>
-      {hideHint ? null : (
-        <p className={compact ? "setup-step-note" : "setup-guide-note"}>
-          In Chrome open chrome://extensions, turn on Developer mode, and click Load unpacked. Choose this folder:
-        </p>
-      )}
-      {path ? (
-        <div className="extension-load-path-row">
-          <code className="extension-load-path-code">{path}</code>
-          <button type="button" className="btn btn-sm btn-outline" onClick={() => void copy()}>
-            {copied ? "Copied" : "Copy path"}
-          </button>
-        </div>
+      {hideHint ? (
+        pathRow
       ) : (
-        <p className={compact ? "setup-step-note" : "setup-guide-note"}>Looking up the extension folder…</p>
+        <ol className="extension-load-path-steps">
+          <li>
+            Copy this folder path:
+            {pathRow}
+          </li>
+          <li>
+            In Chrome, open <code>chrome://extensions</code>.
+          </li>
+          <li>Turn on Developer mode (top right).</li>
+          <li>Click Load unpacked.</li>
+          <li>
+            Press <kbd>Control-Shift-G</kbd> (<kbd>⌘⇧G</kbd>) to search for the folder.
+          </li>
+          <li>Paste the path, click Go, then Open.</li>
+        </ol>
       )}
     </div>
   );
