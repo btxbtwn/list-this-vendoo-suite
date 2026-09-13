@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from vendoo_studio.services.brave_search import (
     BRAVE_SEARCH_URL,
+    brave_sold_query,
     fields_from_analysis,
     format_comp_results,
     research_brave_comps,
@@ -39,6 +40,11 @@ class CompQueryTest(unittest.TestCase):
     def test_query_empty_without_brand_or_item(self):
         self.assertEqual(sold_comps_query({"size": "M"}), "")
 
+    def test_brave_query_targets_marketplace_sites(self):
+        query = brave_sold_query({"brand": "Levi's", "style": "slim shorts"})
+        self.assertTrue(query.startswith("Levi's slim shorts sold"))
+        self.assertIn("site:ebay.com", query)
+
     def test_fields_from_analysis_text(self):
         text = "Photo analysis:\n- brand: Levi's (source: tag)\n- style: Slim shorts\n- size: 33"
         fields = fields_from_analysis(text)
@@ -48,12 +54,21 @@ class CompQueryTest(unittest.TestCase):
 
 class FormatCompsTest(unittest.TestCase):
     def test_formats_results_for_prompt(self):
-        text = format_comp_results("Levi's slim shorts sold comps", BRAVE_PAYLOAD["web"]["results"])
+        text = format_comp_results("Levi's slim shorts sold comps", [
+            BRAVE_PAYLOAD["web"]["results"][0],
+            {
+                "title": "How to find sold comps on eBay",
+                "url": "https://www.terapeak.com/blog/sold-comps-guide",
+                "description": "Learn how to search sold listings for $20.",
+            },
+        ])
         self.assertTrue(text.startswith("Sold comps:"))
         self.assertIn("Query: Levi's slim shorts sold comps", text)
         self.assertIn("Source: Brave Search", text)
-        self.assertIn("Sold for $22", text)
+        self.assertIn("$22 · eBay", text)
+        self.assertIn("https://www.ebay.com/itm/123", text)
         self.assertIn("market × 1.35", text)
+        self.assertNotIn("How to", text)
 
     def test_empty_results_asks_for_baseline(self):
         text = format_comp_results("Nike tee sold comps", [])
@@ -75,7 +90,7 @@ class ResearchCompsTest(unittest.IsolatedAsyncioTestCase):
             text = await research_brave_comps("Levi's Slim shorts sold comps")
         search.assert_awaited_once()
         self.assertEqual(search.await_args.args[0], "Levi's Slim shorts sold comps")
-        self.assertIn("Sold for $22", text)
+        self.assertIn("$22 · eBay", text)
 
     async def test_search_failure_returns_baseline_note(self):
         with (
