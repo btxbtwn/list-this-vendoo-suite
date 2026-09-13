@@ -203,6 +203,24 @@ async def dispatch_queued_jobs():
         item_id = job.vendoo_item_id or binding.get("vendooItemId")
         item_url = job.vendoo_url or binding.get("vendooUrl")
         reuse_existing = bool(item_id or item_url)
+        resume_from = None
+        retried = repo.latest_event(job.id, "retried")
+        if retried and isinstance(retried.payload, dict):
+            candidate = str(retried.payload.get("resume_from") or "").strip()
+            resume_from = candidate or None
+        options = {
+            "platforms": selected_fillable_platforms(),
+            "saveDrafts": True,
+            "publish": False,
+            "reuseExistingItem": reuse_existing,
+            "skipPhotos": reuse_existing,
+            # Imported drafts keep matching values; fill skips unchanged fields.
+            "clearBeforeFill": False,
+            "vendoo_item_id": item_id,
+            "vendoo_url": item_url,
+        }
+        if resume_from:
+            options["resumeFrom"] = resume_from
         sent = await extension_manager.send_message(ProtocolMessage(
             type="job.start",
             job_id=job.id,
@@ -213,17 +231,7 @@ async def dispatch_queued_jobs():
                 "photos": photos_list,
                 "vendoo_item_id": item_id,
                 "vendoo_url": item_url,
-                "options": {
-                    "platforms": selected_fillable_platforms(),
-                    "saveDrafts": True,
-                    "publish": False,
-                    "reuseExistingItem": reuse_existing,
-                    "skipPhotos": reuse_existing,
-                    # Imported drafts keep matching values; fill skips unchanged fields.
-                    "clearBeforeFill": False,
-                    "vendoo_item_id": item_id,
-                    "vendoo_url": item_url,
-                },
+                "options": options,
                 "registry_selectors": registry_selectors,
             },
         ).model_dump(mode="json"))

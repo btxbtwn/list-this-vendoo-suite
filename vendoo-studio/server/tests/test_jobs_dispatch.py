@@ -224,6 +224,28 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(socket.sent[0]["payload"]["vendoo_item_id"], "abc123")
         self.assertFalse(options["publish"])
 
+    async def test_dispatch_includes_resume_from_latest_retry(self):
+        db = self.Session()
+        job = db.query(Job).filter(Job.id == self.job_id).one()
+        job.vendoo_item_id = "abc123"
+        job.vendoo_url = "https://web.vendoo.co/app/item/abc123"
+        db.commit()
+        JobRepo(db).add_event(job.id, "retried", "filling_etsy", {"resume_from": "filling_etsy"})
+        db.close()
+
+        manager = ExtensionManager()
+        socket = FakeSocket()
+        manager.connection = socket
+        manager.paired = True
+        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ):
+            await dispatch_queued_jobs()
+
+        options = socket.sent[0]["payload"]["options"]
+        self.assertEqual(options["resumeFrom"], "filling_etsy")
+        self.assertTrue(options["reuseExistingItem"])
+
 
 class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):
     async def test_handshake_accepts_without_reloading_tabs(self):
@@ -325,6 +347,47 @@ class PrepareListingSnapshotRetryTest(unittest.TestCase):
         )
         self.assertEqual(snapshot["category_path"], MEN_TSHIRT_PATH)
         self.assertNotIn("Women", snapshot["category_path"])
+
+
+class ResumeStepForRetryTest(unittest.TestCase):
+    def test_failed_marketplace_step_resumes_with_draft(self):
+        from types import SimpleNamespace
+
+        from vendoo_studio.routes.jobs import _resume_step_for_retry
+
+        job = SimpleNamespace(
+            status="failed",
+            current_step="filling_etsy",
+            vendoo_item_id="abc123",
+            vendoo_url="https://web.vendoo.co/app/item/abc123",
+        )
+        self.assertEqual(_resume_step_for_retry(job), "filling_etsy")
+
+    def test_completed_or_restart_does_not_resume(self):
+        from types import SimpleNamespace
+
+        from vendoo_studio.routes.jobs import _resume_step_for_retry
+
+        job = SimpleNamespace(
+            status="completed",
+            current_step="filling_etsy",
+            vendoo_item_id="abc123",
+            vendoo_url="https://web.vendoo.co/app/item/abc123",
+        )
+        self.assertIsNone(_resume_step_for_retry(job))
+
+    def test_marketplace_failure_without_draft_does_not_resume(self):
+        from types import SimpleNamespace
+
+        from vendoo_studio.routes.jobs import _resume_step_for_retry
+
+        job = SimpleNamespace(
+            status="failed",
+            current_step="filling_etsy",
+            vendoo_item_id=None,
+            vendoo_url=None,
+        )
+        self.assertIsNone(_resume_step_for_retry(job))
 
 
 if __name__ == "__main__":

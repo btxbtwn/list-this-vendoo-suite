@@ -11,7 +11,8 @@ EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 class RetryGeneralFormTest(unittest.TestCase):
     def test_retry_opens_existing_draft_on_general(self) -> None:
         background = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
-        self.assertIn("marketplace: 'general'", background)
+        self.assertIn("marketplace: resumeMarketplace", background)
+        self.assertIn("function marketplaceFromStep", background)
         self.assertIn("function withMarketplaceQuery", background)
         self.assertIn("function listingUrlsMatch", background)
         self.assertIn("waitForTabComplete(tabId, 20000, url)", background)
@@ -56,3 +57,59 @@ console.log(JSON.stringify(result));
         self.assertFalse(result["ebayVsGeneral"])
         self.assertFalse(result["missingVsGeneral"])
         self.assertFalse(result["otherItem"])
+
+    def test_select_job_steps_resumes_from_failed_marketplace(self) -> None:
+        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        start = text.index("function marketplaceFromStep")
+        end = text.index("async function runJob")
+        helpers = text[start:end]
+        script = helpers + """
+function log() {}
+const steps = [
+  { step: 'opening_vendoo' },
+  { step: 'waiting_ready' },
+  { step: 'uploading_photos' },
+  { step: 'filling_general' },
+  { step: 'saving_general' },
+  { step: 'auditing_general' },
+  { step: 'discovering_schema' },
+  { step: 'filling_ebay' },
+  { step: 'saving_ebay' },
+  { step: 'auditing_ebay' },
+  { step: 'filling_etsy' },
+  { step: 'saving_etsy' },
+  { step: 'auditing_etsy' },
+];
+const resumed = selectJobSteps({ options: { resumeFrom: 'filling_etsy' } }, steps);
+const full = selectJobSteps({ options: {} }, steps);
+const missing = selectJobSteps({ options: { resumeFrom: 'filling_facebook' } }, steps);
+const result = {
+  resumed: resumed.map((step) => step.step),
+  fullCount: full.length,
+  missingCount: missing.length,
+  etsyMarketplace: marketplaceFromStep('filling_etsy'),
+  generalMarketplace: marketplaceFromStep('filling_general'),
+  schemaMarketplace: marketplaceFromStep('discovering_schema'),
+};
+console.log(JSON.stringify(result));
+"""
+        proc = subprocess.run(
+            ["node", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(proc.stdout)
+        self.assertEqual(
+            result["resumed"],
+            ["opening_vendoo", "waiting_ready", "filling_etsy", "saving_etsy", "auditing_etsy"],
+        )
+        self.assertEqual(result["fullCount"], 13)
+        self.assertEqual(result["missingCount"], 13)
+        self.assertEqual(result["etsyMarketplace"], "etsy")
+        self.assertEqual(result["generalMarketplace"], "general")
+        self.assertEqual(result["schemaMarketplace"], "general")
+
+
+if __name__ == "__main__":
+    unittest.main()

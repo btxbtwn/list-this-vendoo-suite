@@ -760,6 +760,15 @@ class FillLogRepo:
         self.db.query(FillLogEntry).filter(FillLogEntry.job_id == job_id).delete(synchronize_session=False)
         self.db.commit()
 
+    def delete_for_step(self, job_id: str, step: str) -> None:
+        if not step:
+            return
+        self.db.query(FillLogEntry).filter(
+            FillLogEntry.job_id == job_id,
+            FillLogEntry.step == step,
+        ).delete(synchronize_session=False)
+        self.db.commit()
+
     def delete_for_jobs(self, job_ids: list[str]) -> None:
         if not job_ids:
             return

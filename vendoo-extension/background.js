@@ -427,6 +427,13 @@ async function handleStudioMessage(msg) {
 
       if (activeJob && activeJob.job_id === jobId) {
         activeJob.attempt = (activeJob.attempt || 0) + 1;
+        const resumeFrom = String(
+          msg.payload?.resumeFrom || activeJob.current_step || ''
+        ).trim();
+        activeJob.options = {
+          ...(activeJob.options || {}),
+          ...(resumeFrom ? { resumeFrom } : {}),
+        };
         await persistActiveJob(activeJob);
         runJob(jobId);
       }
@@ -497,12 +504,40 @@ async function handleStudioMessage(msg) {
   }
 }
 
+function marketplaceFromStep(step) {
+  const match = String(step || '').match(/^(?:clearing|filling|saving|auditing)_(.+)$/i);
+  if (!match) return 'general';
+  const platform = String(match[1] || '').toLowerCase();
+  if (!platform || platform === 'general') return 'general';
+  return platform;
+}
+
+function selectJobSteps(job, steps) {
+  const allSteps = Array.isArray(steps) ? steps : [];
+  const resumeFrom = String(job?.options?.resumeFrom || job?.resume_from || '').trim();
+  if (!resumeFrom) return allSteps;
+
+  const resumeIdx = allSteps.findIndex((step) => step.step === resumeFrom);
+  if (resumeIdx < 0) {
+    log(`resumeFrom=${resumeFrom} not in pipeline; running full job`);
+    return allSteps;
+  }
+
+  const prefix = allSteps.filter((step) => (
+    step.step === 'opening_vendoo' || step.step === 'waiting_ready'
+  ));
+  const prefixNames = new Set(prefix.map((step) => step.step));
+  const resumed = allSteps.slice(resumeIdx).filter((step) => !prefixNames.has(step.step));
+  log(`Resuming job at ${resumeFrom} (${resumed.length} step(s) after open/ready)`);
+  return [...prefix, ...resumed];
+}
+
 async function runJob(jobId) {
   if (!activeJob || activeJob.job_id !== jobId) {
     return;
   }
 
-  const steps = buildJobSteps(activeJob);
+  const steps = selectJobSteps(activeJob, buildJobSteps(activeJob));
 
   let failed = false;
   for (const step of steps) {
@@ -1436,11 +1471,12 @@ async function openVendooListing(job) {
       ? `https://web.vendoo.co/app/item/${reuseId}`
       : null);
     if (reuseId || reuseUrl) {
+      const resumeMarketplace = marketplaceFromStep(job.options?.resumeFrom);
       const opened = await openListingForPatch({
         job_id: job.job_id,
         vendoo_item_id: reuseId,
         vendoo_url: reuseUrl,
-      }, { reload: true, preview: true, marketplace: 'general' });
+      }, { reload: true, preview: true, marketplace: resumeMarketplace });
       if (!opened.ok) return opened;
       const tab = await chrome.tabs.get(opened.tabId);
       activeJob.windowId = tab.windowId;
