@@ -21,7 +21,7 @@ interface EditorField {
 
 export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
   const queryClient = useQueryClient();
-  const [reviewTab, setReviewTab] = React.useState<"forms" | "timeline" | "fields">("forms");
+  const [reviewTab, setReviewTab] = React.useState<"forms" | "fields">("forms");
   const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
 
@@ -97,7 +97,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
             : <span className="pr-review-branch">Draft</span>}
         </div>
         <div className="pr-pills" role="tablist" aria-label="Listing review">
-          {(["forms", "timeline", "fields"] as const).map((tab) => (
+          {(["forms", "fields"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -106,13 +106,13 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
               className={`pr-pill${reviewTab === tab ? " is-active" : ""}`}
               onClick={() => setReviewTab(tab)}
             >
-              {tab === "forms" ? "Forms" : tab === "timeline" ? "Timeline" : "Fields"}
+              {tab === "forms" ? "Forms" : "Fields"}
             </button>
           ))}
         </div>
       </div>
 
-      <div className={`editor-body${reviewTab === "fields" || reviewTab === "timeline" ? " is-files" : ""}`}>
+      <div className={`editor-body${reviewTab === "fields" ? " is-files" : ""}`}>
         {reviewTab === "fields" ? (
           listingJob ? (
             <FillLogPanel
@@ -128,12 +128,6 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
             />
           ) : (
             <p className="pr-empty">Send this listing to Vendoo, then open Fields to review each marketplace and fill empty fields.</p>
-          )
-        ) : reviewTab === "timeline" ? (
-          listingJob ? (
-            <JobTimeline jobId={listingJob.id} />
-          ) : (
-            <p className="pr-empty">No activity yet. Sending to Vendoo writes the timeline.</p>
           )
         ) : (
           <>
@@ -300,27 +294,6 @@ function setNestedValue(obj: any, path: string, value: any): any {
   }
   target[last] = value;
   return obj;
-}
-
-function JobTimeline({ jobId }: { jobId: string }) {
-  const { data: events } = useQuery({
-    queryKey: ["job-events", jobId],
-    queryFn: () => api.jobs.events(jobId),
-    refetchInterval: 2000,
-  });
-  if (!events?.length) {
-    return <p className="pr-empty">No activity yet.</p>;
-  }
-  return (
-    <ol className="pr-timeline">
-      {events.map((event: { id: string; step?: string; event_type?: string; created_at?: string }) => (
-        <li key={event.id} className="pr-timeline-item">
-          <div className="pr-timeline-step">{event.step || event.event_type || "event"}</div>
-          {event.created_at && <div className="pr-timeline-time">{event.created_at.replace("T", " ").slice(0, 19)}</div>}
-        </li>
-      ))}
-    </ol>
-  );
 }
 
 function notesVendooItemId(notes?: string | null): string | null {
