@@ -145,6 +145,22 @@ export const api = {
           body: JSON.stringify(models),
         },
       ),
+    marketplaces: () =>
+      request<{
+        available: { id: string; label: string; fillable: boolean }[];
+        selected: string[];
+        fillable: string[];
+      }>("/settings/marketplaces"),
+    setMarketplaces: (selected: string[]) =>
+      request<{
+        ok: boolean;
+        available: { id: string; label: string; fillable: boolean }[];
+        selected: string[];
+        fillable: string[];
+      }>("/settings/marketplaces", {
+        method: "PUT",
+        body: JSON.stringify({ selected }),
+      }),
   },
 
   extension: {

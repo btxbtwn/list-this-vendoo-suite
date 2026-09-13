@@ -32,7 +32,10 @@ function useMobileLayout() {
 export function App() {
   const queryClient = useQueryClient();
   const isMobile = useMobileLayout();
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(() => {
+    const listingId = new URLSearchParams(window.location.search).get("listing");
+    return listingId || null;
+  });
   const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
   const [mobilePane, setMobilePane] = useState<"workspace" | "editor" | "browser">("workspace");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
@@ -52,6 +55,15 @@ export function App() {
   });
   const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get("listing")) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("listing");
+    const next = url.pathname + url.search + url.hash;
+    window.history.replaceState({}, "", next);
+  }, []);
 
   const selectedListing = conversations?.find((listing: { id: string }) => listing.id === selectedConvId);
   const workspaceTitle = activeView === "settings"

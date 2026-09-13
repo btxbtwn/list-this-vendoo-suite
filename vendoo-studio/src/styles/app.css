@@ -2527,6 +2527,35 @@ details[open] .json-collapse-summary::before {
   background: var(--color-tomato-tint);
 }
 
+.settings-marketplace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 24px;
+  margin-top: 12px;
+}
+
+.settings-marketplace-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  color: var(--color-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.settings-marketplace-option input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--color-cobalt);
+  cursor: pointer;
+}
+
+.settings-marketplace-option:has(input:disabled) {
+  cursor: default;
+  opacity: 0.7;
+}
+
 @media (max-width: 900px) {
   .settings-page-inner {
     padding: 16px 16px 32px;
@@ -2543,6 +2572,10 @@ details[open] .json-collapse-summary::before {
   .settings-row-control {
     justify-content: flex-start;
     width: 100%;
+  }
+
+  .settings-marketplace-grid {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -48,6 +48,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_ORDER = ["failed", "not_found", "uncertain", "new", "skipped", "filled"];
 const FILLABLE_STATUSES = new Set(["failed", "not_found", "uncertain", "new", "skipped"]);
+const DEFAULT_SELECTED_MARKETPLACES = ["ebay", "etsy", "poshmark", "mercari", "depop"];
 const MARKETPLACE_ORDER = ["general", "ebay", "poshmark", "mercari", "depop", "etsy", "facebook", "grailed", "whatnot", "shopify"];
 const MARKETPLACE_LABELS: Record<string, string> = {
   general: "General",
@@ -192,6 +193,11 @@ ${lines.join("\n")}`;
 function leftoverCount(summary?: Record<string, number>): number {
   if (!summary) return 0;
   return [...FILLABLE_STATUSES].reduce((sum, status) => sum + (summary[status] || 0), 0);
+}
+
+function allowedMarketplaceIds(selected?: string[]): Set<string> {
+  const chosen = selected ?? DEFAULT_SELECTED_MARKETPLACES;
+  return new Set(["general", ...chosen]);
 }
 
 function leftoverEntries(report: FillLogReport): FillLogEntry[] {
@@ -647,6 +653,10 @@ export function FillLogPanel({
     queryFn: api.extension.status,
     refetchInterval: 5000,
   });
+  const { data: marketplaceSettings } = useQuery({
+    queryKey: ["settings-marketplaces"],
+    queryFn: api.settings.marketplaces,
+  });
   const [query, setQuery] = React.useState("");
   const [missingOnly, setMissingOnly] = React.useState(false);
   const [showJson, setShowJson] = React.useState(false);
@@ -656,6 +666,10 @@ export function FillLogPanel({
   const hasDraft = Boolean(vendooItemId || vendooUrl);
   const chromeConnected = Boolean(extStatus?.connected);
   const didRead = React.useRef<string | null>(null);
+  const awaitingFill = React.useRef(false);
+  const sawFilling = React.useRef(false);
+  const fillingRef = React.useRef(filling);
+  fillingRef.current = filling;
 
   const { data: cachedDraft } = useQuery({
     queryKey: ["vendoo-item", jobId],
@@ -672,14 +686,18 @@ export function FillLogPanel({
   });
   const draft = readMutation.data || cachedDraft;
   const item = mergeDraftItem(draft);
+  const enabledMarketplaces = allowedMarketplaceIds(marketplaceSettings?.selected);
   const draftForms = item ? formsFromDraft(item, report) : [];
   const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
   const listingForms = formsFromListing(listing);
-  const sourceForms = draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms;
+  const sourceForms = (draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms)
+    .filter((form) => enabledMarketplaces.has(form.id));
   const fromVendooDraft = draftForms.length > 0;
   const sourceKey = sourceForms.map((form) => form.id).join("|");
   const forms = filterForms(sourceForms, query, missingOnly);
-  const leftovers = report ? leftoverEntries(report) : [];
+  const leftovers = report
+    ? leftoverEntries(report).filter((entry) => enabledMarketplaces.has(entry.marketplace.toLowerCase()))
+    : [];
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
 
   React.useEffect(() => {
@@ -709,18 +727,40 @@ export function FillLogPanel({
     });
   }, [sourceKey]);
 
+  const rereadDraft = () => {
+    awaitingFill.current = false;
+    sawFilling.current = false;
+    queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
+    queryClient.invalidateQueries({ queryKey: ["listing"] });
+    if (hasDraft && chromeConnected) readMutation.mutate();
+    onFilled?.();
+  };
+
   const fillMutation = useMutation({
     mutationFn: (fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
       api.jobs.fillFields(jobId, fields),
     onSuccess: () => {
+      awaitingFill.current = true;
+      sawFilling.current = fillingRef.current;
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
       queryClient.invalidateQueries({ queryKey: ["listing"] });
-      queryClient.invalidateQueries({ queryKey: ["vendoo-item", jobId] });
       onFilled?.();
       onJobStarted?.();
+      window.setTimeout(() => {
+        if (awaitingFill.current && !sawFilling.current && !fillingRef.current) rereadDraft();
+      }, 8000);
     },
   });
+
+  React.useEffect(() => {
+    if (!awaitingFill.current) return;
+    if (filling) {
+      sawFilling.current = true;
+      return;
+    }
+    if (sawFilling.current) rereadDraft();
+  }, [filling]);
 
   const emptyFields = sourceForms.flatMap((form) =>
     form.fields

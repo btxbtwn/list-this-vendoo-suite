@@ -5,7 +5,7 @@ const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
 const RELOAD_GENERATION_KEY = 'studio_reload_generation';
 const RELOAD_TABS_KEY = 'studio_reload_tabs';
-const CONTENT_SCRIPT_VERSION = '0.3.8';
+const CONTENT_SCRIPT_VERSION = '0.3.10';
 const EXTENSION_TAB_URLS = [
   'https://app.vendoo.co/*',
   'https://web.vendoo.co/*',
@@ -349,6 +349,8 @@ async function handleStudioMessage(msg) {
         photos: payload.photos || [],
         options: payload.options || {},
         registry_selectors: payload.registry_selectors || {},
+        vendoo_item_id: payload.vendoo_item_id || payload.options?.vendoo_item_id || null,
+        vendoo_url: payload.vendoo_url || payload.options?.vendoo_url || null,
         current_step: 'accepted',
         attempt: 0,
       });
@@ -580,16 +582,25 @@ async function runJob(jobId) {
 
 function buildJobSteps(job) {
   const steps = [];
+  const clearBeforeFill = Boolean(job.options?.clearBeforeFill);
 
   steps.push({ step: 'opening_vendoo', fn: openVendooListing });
   steps.push({ step: 'waiting_ready', fn: waitForContentScript });
-  steps.push({ step: 'uploading_photos', fn: uploadPhotos });
+  if (!job.options?.skipPhotos) {
+    steps.push({ step: 'uploading_photos', fn: uploadPhotos });
+  }
+  if (clearBeforeFill) {
+    steps.push({ step: 'clearing_general', fn: clearGeneral });
+  }
   steps.push({ step: 'filling_general', fn: fillGeneral });
   steps.push({ step: 'saving_general', fn: saveGeneral });
   steps.push({ step: 'auditing_general', fn: auditGeneral });
 
   const platforms = job.options?.platforms || [];
   for (const platform of platforms) {
+    if (clearBeforeFill) {
+      steps.push({ step: `clearing_${platform}`, fn: (j) => clearMarketplace(j, platform) });
+    }
     steps.push({ step: `filling_${platform}`, fn: (j) => fillMarketplace(j, platform) });
     steps.push({ step: `saving_${platform}`, fn: (j) => saveMarketplace(j, platform) });
     steps.push({ step: `auditing_${platform}`, fn: (j) => auditMarketplace(j, platform) });
@@ -797,10 +808,10 @@ async function runFillFields(jobId, payload) {
     type: 'FILL_FIELDS',
     fields: payload.fields || [],
   });
-  activePatch = null;
-  await stopJobPreview();
 
   if (!result.ok) {
+    activePatch = null;
+    await stopJobPreview();
     send({
       version: 1,
       type: 'job.step_failed',
@@ -816,6 +827,28 @@ async function runFillFields(jobId, payload) {
     return;
   }
 
+  const saved = await sendToVendoo(job, { type: 'SAVE_GENERAL' });
+  activePatch = null;
+  await stopJobPreview();
+
+  if (!saved.ok) {
+    send({
+      version: 1,
+      type: 'job.step_failed',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: {
+        step: 'filling_fields',
+        error: saved.error || 'Filled fields, but Vendoo did not save the draft',
+        fill_log: result.fill_log || null,
+      },
+    });
+    return;
+  }
+
+  await sleep(1500);
+
   send({
     version: 1,
     type: 'job.step_completed',
@@ -824,6 +857,8 @@ async function runFillFields(jobId, payload) {
     sent_at: new Date().toISOString(),
     payload: {
       step: 'filling_fields',
+      vendoo_item_id: saved.vendoo_item_id || payload.vendoo_item_id || null,
+      vendoo_url: saved.vendoo_url || payload.vendoo_url || null,
       fill_log: result.fill_log || null,
     },
   });
@@ -992,6 +1027,30 @@ async function runVendooGet(jobId, payload) {
 
 async function openVendooListing(job) {
   try {
+    const reuseId = job.vendoo_item_id || job.options?.vendoo_item_id;
+    const reuseUrl = job.vendoo_url || job.options?.vendoo_url || (reuseId
+      ? `https://web.vendoo.co/app/item/${reuseId}`
+      : null);
+    if (reuseId || reuseUrl) {
+      const opened = await openListingForPatch({
+        job_id: job.job_id,
+        vendoo_item_id: reuseId,
+        vendoo_url: reuseUrl,
+      }, { reload: true, preview: true });
+      if (!opened.ok) return opened;
+      const tab = await chrome.tabs.get(opened.tabId);
+      activeJob.windowId = tab.windowId;
+      activeJob.tabId = opened.tabId;
+      activeJob.vendoo_item_id = reuseId || extractItemIdFromUrl(tab.url || reuseUrl || '');
+      activeJob.vendoo_url = reuseUrl || tab.url;
+      await persistActiveJob(activeJob);
+      return {
+        ok: true,
+        vendoo_item_id: activeJob.vendoo_item_id,
+        vendoo_url: activeJob.vendoo_url,
+      };
+    }
+
     const existingTab = await findNewItemTab();
     if (existingTab) {
       log(`Reloading new-item tab ${existingTab.id} -> ${NEW_ITEM_URL}`);
@@ -1079,7 +1138,7 @@ async function sendToVendoo(job, command) {
   if (!tabId) {
     return { ok: false, error: 'No job tab stored' };
   }
-  const timeoutMs = command.type === 'FILL_GENERAL' || command.type === 'FILL_MARKETPLACE' || command.type === 'FILL_FIELDS'
+  const timeoutMs = command.type === 'FILL_GENERAL' || command.type === 'FILL_MARKETPLACE' || command.type === 'FILL_FIELDS' || command.type === 'CLEAR_GENERAL' || command.type === 'CLEAR_MARKETPLACE'
     ? 90000
     : command.type === 'GET_VENDOO_ITEM'
       ? 20000
@@ -1098,7 +1157,18 @@ async function sendToVendoo(job, command) {
   }
 }
 
+async function clearGeneral(job) {
+  return sendToVendoo(job, { type: 'CLEAR_GENERAL' });
+}
+
+async function clearMarketplace(job, platform) {
+  return sendToVendoo(job, { type: 'CLEAR_MARKETPLACE', platform });
+}
+
 async function uploadPhotos(job) {
+  if (job.options?.skipPhotos) {
+    return { ok: true };
+  }
   const photos = job.photos || [];
   if (photos.length === 0) {
     return { ok: true };
@@ -1163,6 +1233,66 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+async function importVendooListing(tabId) {
+  if (!paired) {
+    return { ok: false, error: 'Studio is not connected' };
+  }
+  if (!tabId) {
+    return { ok: false, error: 'No active Vendoo tab' };
+  }
+  const tab = await chrome.tabs.get(tabId);
+  const itemId = extractItemIdFromUrl(tab.url || '');
+  if (!itemId) {
+    return { ok: false, error: 'Open a saved Vendoo listing first' };
+  }
+
+  const ready = await waitForContentScript({ tabId, job_id: 'import' });
+  if (!ready.ok) {
+    return { ok: false, error: ready.error };
+  }
+
+  const apiRead = await readItemFromPage(tabId, itemId);
+  const formRead = await sendToVendoo({ tabId }, { type: 'GET_VENDOO_ITEM' });
+  const item = apiRead.ok ? apiRead.item : null;
+  const form = formRead?.ok ? (formRead.form || formRead.item) : null;
+  if (!item && !form) {
+    return { ok: false, error: apiRead.error || formRead?.error || 'Could not read the Vendoo listing' };
+  }
+
+  const response = await fetch(`${STUDIO_URL}/api/imports/vendoo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      item_id: itemId,
+      url: tab.url,
+      source: [apiRead.ok ? 'api' : null, formRead?.ok ? 'form' : null].filter(Boolean).join('+') || 'none',
+      item,
+      form,
+    }),
+  });
+  let body = null;
+  try {
+    body = await response.json();
+  } catch (err) {
+    body = null;
+  }
+  if (!response.ok) {
+    const detail = body?.detail;
+    const message = typeof detail === 'string' ? detail : (body?.message || `Studio import failed (${response.status})`);
+    return { ok: false, error: message };
+  }
+
+  await chrome.tabs.create({ url: `${STUDIO_URL}/?listing=${body.conversation_id}`, active: true });
+  return {
+    ok: true,
+    conversation_id: body.conversation_id,
+    reused: Boolean(body.reused),
+    photo_count: body.photo_count || 0,
+    photo_warnings: body.photo_warnings || [],
+    listing_title: body.listing_title || '',
+  };
+}
+
 // Existing popup message handlers (backward compatible)
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'GET_STUDIO_STATUS') {
@@ -1191,6 +1321,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'OPEN_STUDIO') {
     chrome.tabs.create({ url: `${STUDIO_URL}/`, active: true });
     sendResponse({ ok: true });
+    return true;
+  }
+
+  if (msg.type === 'IMPORT_VENDOO_LISTING') {
+    importVendooListing(msg.tabId).then(sendResponse).catch((err) => {
+      sendResponse({ ok: false, error: err.message });
+    });
     return true;
   }
 

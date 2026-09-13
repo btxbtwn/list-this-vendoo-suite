@@ -94,6 +94,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const studioJobInfo = document.getElementById('studioJobInfo');
   const studioJobStep = document.getElementById('studioJobStep');
   const openStudioBtn = document.getElementById('openStudioBtn');
+  const importStudioBtn = document.getElementById('importStudioBtn');
+
+  function currentVendooItemId(url) {
+    const match = String(url || '').match(/\/item\/([^/?]+)/);
+    if (!match || match[1] === 'new') return '';
+    return match[1];
+  }
+
+  function updateImportButton(connected) {
+    if (!importStudioBtn) return;
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const itemId = currentVendooItemId(tabs[0]?.url);
+      const canImport = Boolean(connected && itemId);
+      importStudioBtn.style.display = canImport ? 'block' : 'none';
+      importStudioBtn.disabled = !canImport;
+    });
+  }
 
   function pollStudioStatus() {
     chrome.runtime.sendMessage({ type: 'GET_STUDIO_STATUS' }, (resp) => {
@@ -112,6 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         studioJobInfo.style.display = 'none';
       }
+      updateImportButton(Boolean(resp.connected));
     });
   }
 
@@ -121,6 +139,36 @@ document.addEventListener('DOMContentLoaded', () => {
   if (openStudioBtn) {
     openStudioBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'OPEN_STUDIO' });
+    });
+  }
+
+  if (importStudioBtn) {
+    importStudioBtn.addEventListener('click', () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tabId = tabs[0]?.id;
+        if (!tabId) {
+          showStatus('error', 'No active tab found');
+          return;
+        }
+        importStudioBtn.disabled = true;
+        showStatus('info', 'Importing listing into Studio...');
+        chrome.runtime.sendMessage({ type: 'IMPORT_VENDOO_LISTING', tabId }, (resp) => {
+          importStudioBtn.disabled = false;
+          if (chrome.runtime.lastError) {
+            showStatus('error', chrome.runtime.lastError.message);
+            return;
+          }
+          if (!resp?.ok) {
+            showStatus('error', resp?.error || 'Import failed');
+            return;
+          }
+          const photoNote = resp.photo_count ? ` • ${resp.photo_count} photos` : '';
+          showStatus('success', `${resp.reused ? 'Updated' : 'Imported'} ${resp.listing_title || 'listing'} in Studio${photoNote}`);
+          if (Array.isArray(resp.photo_warnings) && resp.photo_warnings.length) {
+            log(resp.photo_warnings.join('\n'));
+          }
+        });
+      });
     });
   }
 

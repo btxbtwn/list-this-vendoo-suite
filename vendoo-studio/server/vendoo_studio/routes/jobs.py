@@ -64,9 +64,10 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
 
     listing_snapshot = dict(latest_revision.listing_json)
 
-    import json as _json
+    from vendoo_studio.services.vendoo_import import parse_notes, vendoo_binding
+    conv_notes = parse_notes(conv.notes)
+    binding = vendoo_binding(conv.notes)
     try:
-        conv_notes = _json.loads(conv.notes or "{}")
         raw_labels = conv_notes.get("vendooLabels", "")
         if raw_labels:
             listing_snapshot["labels"] = [
@@ -96,8 +97,9 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     from vendoo_studio.services.registry import RegistryService
     registry = RegistryService(db)
     registry.merge_learned_fields(listing_snapshot)
+    from vendoo_studio.services.marketplaces import selected_fillable_platforms
     all_warnings = []
-    for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
+    for marketplace in selected_fillable_platforms():
         mp_warnings = registry.validate_dropdown_fields(
             listing_snapshot, marketplace, listing_snapshot.get("category_path"),
         )
@@ -125,6 +127,8 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
         conv_id=body.conversation_id,
         approved_revision_id=latest_revision.id,
         listing_snapshot=listing_snapshot,
+        vendoo_item_id=binding.get("vendooItemId"),
+        vendoo_url=binding.get("vendooUrl"),
     )
     job_repo.add_event(job.id, "created", "queued")
 
@@ -507,7 +511,8 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
         registry = RegistryService(db)
         registry.merge_learned_fields(job.listing_snapshot)
         category_path = job.listing_snapshot.get("category_path", "")
-        for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
+        from vendoo_studio.services.marketplaces import selected_fillable_platforms
+        for marketplace in selected_fillable_platforms():
             registry.validate_dropdown_fields(
                 job.listing_snapshot, marketplace, category_path,
             )

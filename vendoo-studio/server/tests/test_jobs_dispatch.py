@@ -183,6 +183,47 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(socket.sent[0]["payload"]["job_id"], self.job_id)
         self.assertFalse(socket.sent[0]["payload"]["options"]["publish"])
 
+    async def test_dispatch_uses_selected_fillable_platforms(self):
+        manager = ExtensionManager()
+        socket = FakeSocket()
+        manager.connection = socket
+        manager.paired = True
+        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ), patch(
+            "vendoo_studio.services.marketplaces.selected_fillable_platforms",
+            return_value=["ebay", "poshmark"],
+        ):
+            await dispatch_queued_jobs()
+
+        self.assertEqual(socket.sent[0]["payload"]["options"]["platforms"], ["ebay", "poshmark"])
+        self.assertFalse(socket.sent[0]["payload"]["options"]["publish"])
+
+    async def test_dispatch_reuses_existing_vendoo_item(self):
+        db = self.Session()
+        job = db.query(Job).filter(Job.id == self.job_id).one()
+        job.vendoo_item_id = "abc123"
+        job.vendoo_url = "https://web.vendoo.co/app/item/abc123"
+        db.commit()
+        db.close()
+
+        manager = ExtensionManager()
+        socket = FakeSocket()
+        manager.connection = socket
+        manager.paired = True
+        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ):
+            await dispatch_queued_jobs()
+
+        options = socket.sent[0]["payload"]["options"]
+        self.assertTrue(options["reuseExistingItem"])
+        self.assertTrue(options["skipPhotos"])
+        self.assertTrue(options["clearBeforeFill"])
+        self.assertEqual(options["vendoo_item_id"], "abc123")
+        self.assertEqual(socket.sent[0]["payload"]["vendoo_item_id"], "abc123")
+        self.assertFalse(options["publish"])
+
 
 class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):
     async def test_handshake_reloads_when_files_changed(self):

@@ -166,6 +166,14 @@ async def dispatch_queued_jobs():
         job = jobs[0]
         photos_list = _build_photo_list(job.conversation_id, db)
         registry_selectors = _build_registry_selectors(job.listing_snapshot or {}, db)
+        from vendoo_studio.repositories.queries import ConversationRepo
+        from vendoo_studio.services.marketplaces import selected_fillable_platforms
+        from vendoo_studio.services.vendoo_import import vendoo_binding
+        conv = ConversationRepo(db).get(job.conversation_id)
+        binding = vendoo_binding(conv.notes if conv else None)
+        item_id = job.vendoo_item_id or binding.get("vendooItemId")
+        item_url = job.vendoo_url or binding.get("vendooUrl")
+        reuse_existing = bool(item_id or item_url)
         sent = await extension_manager.send_message(ProtocolMessage(
             type="job.start",
             job_id=job.id,
@@ -174,10 +182,17 @@ async def dispatch_queued_jobs():
                 "job_id": job.id,
                 "listing": job.listing_snapshot,
                 "photos": photos_list,
+                "vendoo_item_id": item_id,
+                "vendoo_url": item_url,
                 "options": {
-                    "platforms": ["ebay", "etsy", "poshmark", "mercari", "depop"],
+                    "platforms": selected_fillable_platforms(),
                     "saveDrafts": True,
                     "publish": False,
+                    "reuseExistingItem": reuse_existing,
+                    "skipPhotos": reuse_existing,
+                    "clearBeforeFill": reuse_existing,
+                    "vendoo_item_id": item_id,
+                    "vendoo_url": item_url,
                 },
                 "registry_selectors": registry_selectors,
             },
@@ -249,8 +264,10 @@ def _build_registry_selectors(listing: dict, db) -> dict:
     repo = RegistryRepo(db)
     category_path = listing.get("category_path", "")
 
+    from vendoo_studio.services.marketplaces import selected_fillable_platforms
+
     result = {}
-    for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
+    for marketplace in selected_fillable_platforms():
         fields = {}
         specifics = listing.get(f"{marketplace}_specifics", {}) or {}
         if isinstance(specifics, dict):
