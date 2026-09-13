@@ -13,5 +13,4 @@ paths = [
   '''(^|/)vendoo-studio/data/''',
   '''(^|/)vendoo-studio/\.mp/''',
   '''(^|/)vendoo-studio/\.venv/''',
-  '''(^|/)background-studio/\.venv/''',
 ]

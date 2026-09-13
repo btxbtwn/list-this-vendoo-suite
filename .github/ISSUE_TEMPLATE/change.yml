@@ -10,7 +10,6 @@ body:
         - Vendoo Listing Studio
         - Chrome extension
         - list-this skills
-        - Background Studio
         - CI / repo hygiene
     validations:
       required: true

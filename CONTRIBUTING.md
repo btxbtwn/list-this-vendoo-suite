@@ -1,6 +1,6 @@
 # Contributing
 
-This is a local-first monorepo: listing skills, Vendoo Listing Studio, Background Studio, and the Chrome extension. Product rules live in [`AGENTS.md`](AGENTS.md).
+This is a local-first monorepo: listing skills, Vendoo Listing Studio, and the Chrome extension. Product rules live in [`AGENTS.md`](AGENTS.md).
 
 ## Working on a change
 
@@ -15,8 +15,6 @@ This is a local-first monorepo: listing skills, Vendoo Listing Studio, Backgroun
 |---|---|
 | `vendoo-studio/` frontend | `cd vendoo-studio && npm ci && npm run build` |
 | `vendoo-studio/` backend | `cd vendoo-studio && python -m pytest -q` |
-| `background-studio/frontend/` | `cd background-studio/frontend && npm ci && npm test && npm run build` |
-| `background-studio/` backend | `cd background-studio && pytest -q backend/tests` |
 | `vendoo-extension/` | `node --check` on changed JS files; `python -m json.tool vendoo-extension/manifest.json` |
 | `skills/list-this/` | Confirm `SKILL.md` and reference JSON still parse |
 
@@ -26,5 +24,5 @@ CI on every pull request and push to `main` runs these jobs and a secret scan. T
 
 - Do not publish listings. Stop at saved drafts.
 - Do not add Redis, MongoDB, Celery, Docker, or cloud hosting unless that is the task.
-- Bind Studio and Background Studio to `127.0.0.1`.
+- Bind Studio to `127.0.0.1`.
 - Keep listing rules in `skills/`. Do not copy them into the extension wrapper.

@@ -22,19 +22,6 @@ updates:
           - minor
           - patch
 
-  - package-ecosystem: npm
-    directory: /background-studio/frontend
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      background-npm:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-
   - package-ecosystem: pip
     directory: /vendoo-studio
     schedule:
@@ -42,32 +29,6 @@ updates:
     open-pull-requests-limit: 5
     groups:
       studio-pip:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: pip
-    directory: /background-studio/backend
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      background-pip:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: pip
-    directory: /background-studio/runpod
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      runpod-pip:
         patterns:
           - "*"
         update-types:
