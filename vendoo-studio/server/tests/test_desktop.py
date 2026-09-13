@@ -22,11 +22,53 @@ class StudioWindowChromeTest(unittest.TestCase):
         self.assertNotIn("icon", kwargs)
 
     def test_start_kwargs_use_chrome_extension_icon(self):
-        kwargs = desktop.studio_start_kwargs()
+        with patch.object(desktop, "studio_app_menu", return_value=["menu"]):
+            kwargs = desktop.studio_start_kwargs()
         icon = desktop.extension_app_icon_path()
         self.assertIsNotNone(icon)
         self.assertEqual(kwargs["icon"], str(icon))
         self.assertEqual(icon.name, "icon128.png")
+        self.assertEqual(kwargs["menu"], ["menu"])
+
+    def test_studio_app_menu_includes_update_actions(self):
+        menu_mod = SimpleNamespace(
+            Menu=lambda title, items=None: SimpleNamespace(title=title, items=items or []),
+            MenuAction=lambda title, function: SimpleNamespace(title=title, function=function),
+            MenuSeparator=lambda: SimpleNamespace(kind="separator"),
+        )
+        with patch.dict(sys.modules, {"webview": SimpleNamespace(), "webview.menu": menu_mod}):
+            # Force re-import path inside studio_app_menu via ImportError-safe stub
+            menus = desktop.studio_app_menu()
+        titles = [menu.title for menu in menus]
+        self.assertIn("__app__", titles)
+        self.assertIn("Studio", titles)
+        app_menu = next(menu for menu in menus if menu.title == "__app__")
+        action_titles = [
+            item.title for item in app_menu.items if getattr(item, "title", None)
+        ]
+        self.assertIn("Check for Updates…", action_titles)
+        self.assertIn("Update and Restart…", action_titles)
+
+    def test_update_status_message_up_to_date(self):
+        self.assertEqual(
+            desktop._update_status_message({"available": False}),
+            f"{desktop.APP_NAME} is up to date.",
+        )
+
+    def test_menu_update_and_restart_applies_when_available(self):
+        status = {"available": True, "short_sha": "abc1234", "summary": "Fix black screen"}
+        applied = {"ok": True, "updated": True}
+        with (
+            patch.object(desktop, "studio_is_up", return_value=True),
+            patch.object(desktop, "_http_check_updates", return_value=status),
+            patch.object(desktop, "confirm_update_dialog", return_value=True),
+            patch.object(desktop, "_http_apply_update", return_value=applied) as apply,
+            patch.object(desktop, "notify") as notify,
+            patch.object(desktop.threading.Thread, "start", lambda self: self.run()),
+        ):
+            desktop.menu_update_and_restart()
+        apply.assert_called_once()
+        self.assertTrue(any("Restarting" in str(call.args[0]) for call in notify.call_args_list))
 
     def test_install_bundle_icon_copies_chrome_extension_png(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -220,6 +220,133 @@ def notify(message: str) -> None:
     )
 
 
+def confirm_update_dialog(message: str) -> bool:
+    """Native confirm for menu-bar updates when the web UI may be unusable."""
+    if not shutil.which("osascript"):
+        return True
+    script = (
+        f'display dialog {shlex_quote(message)} with title {shlex_quote(APP_NAME)} '
+        f'buttons {{"Cancel", "Update"}} default button "Update" cancel button "Cancel"'
+    )
+    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    return result.returncode == 0 and "Update" in (result.stdout or "")
+
+
+def _update_status_message(status: dict) -> str:
+    if status.get("error"):
+        return str(status["error"])
+    if not status.get("available"):
+        return f"{APP_NAME} is up to date."
+    version = status.get("short_sha") or (
+        (status.get("remote_sha") or "")[:7] if status.get("remote_sha") else ""
+    )
+    summary = status.get("summary") or "An update is available."
+    if version:
+        return f"Update {version} available. {summary}"
+    return str(summary)
+
+
+def _http_apply_update() -> dict:
+    request = urllib.request.Request(
+        f"{APP_URL}/api/updates/apply",
+        data=b"{}",
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=300) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _http_check_updates() -> dict:
+    with urllib.request.urlopen(f"{APP_URL}/api/updates", timeout=60) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def menu_check_for_updates() -> None:
+    def work() -> None:
+        try:
+            notify("Checking for updates…")
+            if studio_is_up():
+                status = _http_check_updates()
+            else:
+                from vendoo_studio.services.updates import check_for_updates
+
+                status = check_for_updates()
+            notify(_update_status_message(status))
+        except Exception as exc:
+            notify(f"Could not check for updates: {exc}")
+
+    threading.Thread(target=work, daemon=True, name="studio-menu-check-updates").start()
+
+
+def menu_update_and_restart() -> None:
+    def work() -> None:
+        try:
+            notify("Checking for updates…")
+            if studio_is_up():
+                status = _http_check_updates()
+            else:
+                from vendoo_studio.services.updates import check_for_updates
+
+                status = check_for_updates()
+            if status.get("error") and not status.get("available"):
+                notify(str(status["error"]))
+                return
+            if not status.get("available"):
+                notify(f"{APP_NAME} is up to date.")
+                return
+            message = (
+                f"{_update_status_message(status)}\n\n"
+                "Install this update and restart? Running tasks will be interrupted."
+            )
+            if not confirm_update_dialog(message):
+                notify("Update cancelled.")
+                return
+            notify("Installing update…")
+            if studio_is_up():
+                result = _http_apply_update()
+            else:
+                from vendoo_studio.services.updates import apply_update, schedule_restart
+
+                result = apply_update()
+                if result.get("updated"):
+                    schedule_restart()
+            if result.get("updated"):
+                notify("Update installed. Restarting…")
+            else:
+                notify(f"{APP_NAME} is up to date.")
+        except Exception as exc:
+            notify(f"Update failed: {exc}")
+
+    threading.Thread(target=work, daemon=True, name="studio-menu-apply-update").start()
+
+
+def studio_app_menu():
+    """Native macOS menu bar items that work even when the web UI is blank."""
+    try:
+        from webview.menu import Menu, MenuAction, MenuSeparator
+    except ImportError:
+        return []
+
+    app_items = [
+        MenuAction("Check for Updates…", menu_check_for_updates),
+        MenuSeparator(),
+        MenuAction("Update and Restart…", menu_update_and_restart),
+    ]
+    return [
+        # macOS only: items under the app name in the system menu bar.
+        Menu("__app__", app_items),
+        Menu(
+            "Studio",
+            [
+                MenuAction("Check for Updates…", menu_check_for_updates),
+                MenuAction("Update and Restart…", menu_update_and_restart),
+            ],
+        ),
+    ]
+
+
+
 def ensure_venv() -> Path:
     python = venv_python()
     if not python.exists():
@@ -453,7 +580,10 @@ def studio_window_kwargs() -> dict:
 
 def studio_start_kwargs() -> dict:
     icon = extension_app_icon_path()
-    return {"icon": str(icon)} if icon is not None else {}
+    kwargs: dict = {"menu": studio_app_menu()}
+    if icon is not None:
+        kwargs["icon"] = str(icon)
+    return kwargs
 
 
 def _hex_to_srgb(color: str) -> tuple[float, float, float]:
