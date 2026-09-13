@@ -15,7 +15,19 @@ const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 const BUSY_STATUSES = new Set(["in_progress", "listing"]);
 const HOVER_STATUS_DELAY_MS = 280;
-const MARKETPLACE_STATUS_ORDER = ["general", "ebay", "etsy", "poshmark", "mercari", "depop"];
+const MARKETPLACE_STATUS_ORDER = [
+  "general",
+  "ebay",
+  "etsy",
+  "poshmark",
+  "mercari",
+  "depop",
+  "facebook",
+  "shopify",
+  "vinted",
+  "whatnot",
+  "sellwild",
+];
 const MARKETPLACE_STATUS_LABELS: Record<string, string> = {
   general: "Vendoo",
   ebay: "eBay",
@@ -27,8 +39,10 @@ const MARKETPLACE_STATUS_LABELS: Record<string, string> = {
   shopify: "Shopify",
   vinted: "Vinted",
   whatnot: "Whatnot",
+  sellwild: "Sellwild",
   grailed: "Grailed",
 };
+const INVALID_LIVE_STATUSES = new Set(["BETA", "NEW", "ALPHA"]);
 
 type Listing = {
   id: string;
@@ -596,7 +610,8 @@ function marketplaceLabel(id: string): string {
 function normalizeLiveStatus(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const cleaned = raw.replace(/\s+/g, " ").trim().toUpperCase();
-  return cleaned || undefined;
+  if (!cleaned || INVALID_LIVE_STATUSES.has(cleaned)) return undefined;
+  return cleaned;
 }
 
 function liveStatusClass(status?: string): string {

@@ -1115,7 +1115,8 @@ function toForm(id: string, fields: DraftField[], liveStatus?: string): DraftFor
 function normalizeLiveStatus(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const cleaned = raw.replace(/\s+/g, " ").trim().toUpperCase();
-  return cleaned || undefined;
+  if (!cleaned || cleaned === "BETA" || cleaned === "NEW" || cleaned === "ALPHA") return undefined;
+  return cleaned;
 }
 
 function liveStatusForMarketplace(
