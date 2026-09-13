@@ -185,7 +185,11 @@ function StructuredEditor({ listing, tab, onChange }: { listing: any; tab: strin
 
   const handleBlur = (key: string) => {
     if (local[key] == null) return;
-    const updated = setNestedValue({ ...listing }, key, coerce(local[key]));
+    const updated = cloneListing(listing);
+    for (const field of fields) {
+      if (local[field.key] == null) continue;
+      setNestedValue(updated, field.key, coerce(local[field.key]));
+    }
     onChange(updated);
   };
 
@@ -284,12 +288,20 @@ function getNestedValue(obj: any, path: string): any {
   return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
 }
 
+function cloneListing(listing: any): any {
+  try {
+    return JSON.parse(JSON.stringify(listing || {}));
+  } catch {
+    return { ...(listing || {}) };
+  }
+}
+
 function setNestedValue(obj: any, path: string, value: any): any {
   const keys = path.split(".");
   const last = keys.pop()!;
   let target = obj;
   for (const k of keys) {
-    if (!target[k]) target[k] = {};
+    if (!target[k] || typeof target[k] !== "object") target[k] = {};
     target = target[k];
   }
   target[last] = value;

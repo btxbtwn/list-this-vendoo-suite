@@ -3648,20 +3648,45 @@
       return { ok: true, count: fileObjects.length };
   }
 
+  async function waitForSaveButton(timeoutMs = 8000) {
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+          const saveBtn = document.querySelector('[data-testid="save-item-button"]');
+          if (saveBtn && !saveBtn.disabled) return saveBtn;
+          await sleep(250);
+      }
+      const saveBtn = document.querySelector('[data-testid="save-item-button"]');
+      return saveBtn && !saveBtn.disabled ? saveBtn : null;
+  }
+
   async function saveGeneralForm() {
       log('Saving form...');
-      const saveBtn = document.querySelector('[data-testid="save-item-button"]');
+      const existingSave = document.querySelector('[data-testid="save-item-button"]');
+      const saveBtn = existingSave ? await waitForSaveButton() : null;
+      if (existingSave && !saveBtn) {
+          warn('Save button stayed disabled');
+          return { ok: false, error: 'Save button stayed disabled' };
+      }
       if (saveBtn) {
           saveBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_MEDIUM);
+          if (saveBtn.disabled) {
+              warn('Save button stayed disabled');
+              return { ok: false, error: 'Save button stayed disabled' };
+          }
           saveBtn.click();
           await sleep(CONFIG.SLEEP_LONG * 3);
           log('Save button clicked, waiting for completion');
 
+          let stillSaving = false;
           for (let i = 0; i < 10; i++) {
               await sleep(1000);
-              const stillLoading = document.querySelector('[data-testid="save-item-button"][disabled], button:disabled');
-              if (!stillLoading) break;
+              stillSaving = Boolean(document.querySelector('[data-testid="save-item-button"][disabled]'));
+              if (!stillSaving) break;
+          }
+          if (stillSaving) {
+              warn('Save did not finish');
+              return { ok: false, error: 'Save did not finish' };
           }
 
           const itemId = extractItemId();
