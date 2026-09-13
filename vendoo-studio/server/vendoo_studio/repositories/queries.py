@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id
@@ -135,15 +137,30 @@ class ListingRepo:
             listing = Listing(conversation_id=conv_id, current_revision_id=revision.id)
             self.db.add(listing)
 
-        title = (listing_json.get("title") or "").strip()
-        if title:
-            conv = self.db.query(Conversation).filter(Conversation.id == conv_id).first()
-            if conv:
+        conv = self.db.query(Conversation).filter(Conversation.id == conv_id).first()
+        if conv:
+            title = (listing_json.get("title") or "").strip()
+            if title:
                 conv.title = title
+            category_path = (listing_json.get("category_path") or "").strip()
+            if category_path:
+                self._sync_category_override(conv, category_path)
 
         self.db.commit()
         self.db.refresh(revision)
         return revision
+
+    def _sync_category_override(self, conv: Conversation, category_path: str) -> None:
+        try:
+            notes = json.loads(conv.notes or "{}")
+            if not isinstance(notes, dict):
+                notes = {}
+        except Exception:
+            notes = {}
+        if notes.get("categoryOverride") == category_path:
+            return
+        notes["categoryOverride"] = category_path
+        conv.notes = json.dumps(notes)
 
     def get_revision(self, revision_id: str) -> ListingRevision | None:
         return self.db.query(ListingRevision).filter(ListingRevision.id == revision_id).first()

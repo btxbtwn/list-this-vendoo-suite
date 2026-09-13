@@ -25,3 +25,7 @@ INFO:     127.0.0.1:51351 - "GET /api/extension/status HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51352 - "GET /api/conversations HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51354 - "GET /api/jobs HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51355 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57683 - "GET /api/extension/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57682 - "GET /api/conversations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57681 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57681 - "GET /api/conversations HTTP/1.1" 200 OK

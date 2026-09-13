@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from pathlib import Path
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from vendoo_studio.database import get_db
 from vendoo_studio.repositories.queries import JobRepo, ConversationRepo, ListingRepo
 from vendoo_studio.config import PHOTOS_DIR
@@ -174,33 +176,7 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
     job.attempt_count += 1
     job.last_error = None
 
-    import json as _json
-    try:
-        from vendoo_studio.repositories.queries import ConversationRepo
-        conv = ConversationRepo(db).get(job.conversation_id)
-        if conv:
-            conv_notes = _json.loads(conv.notes or "{}")
-            raw_labels = conv_notes.get("vendooLabels", "")
-            if raw_labels and isinstance(job.listing_snapshot, dict):
-                job.listing_snapshot["labels"] = [
-                    label.strip() for label in str(raw_labels).split(",") if label.strip()
-                ]
-            if isinstance(job.listing_snapshot, dict):
-                poshmark = job.listing_snapshot.get("poshmark_specifics") or {}
-                if isinstance(poshmark, dict):
-                    poshmark["originalPrice"] = 0
-                job.listing_snapshot["poshmark_specifics"] = poshmark
-
-                mercari = job.listing_snapshot.get("mercari_specifics") or {}
-                if isinstance(mercari, dict):
-                    mercari["shippingLabel"] = "USPS Ground Advantage"
-                job.listing_snapshot["mercari_specifics"] = mercari
-
-                category_override = conv_notes.get("categoryOverride", "").strip()
-                if category_override:
-                    job.listing_snapshot["category_path"] = category_override
-    except Exception:
-        pass
+    _refresh_snapshot_for_retry(job, db)
 
     if isinstance(job.listing_snapshot, dict):
         from vendoo_studio.services.registry import RegistryService
@@ -237,6 +213,50 @@ def cancel_job(job_id: str, db: Session = Depends(get_db)):
     repo.add_event(job_id, "cancelled")
 
     return _job_response(job)
+
+
+def _refresh_snapshot_for_retry(job, db: Session) -> None:
+    import json as _json
+
+    snapshot = dict(job.listing_snapshot or {})
+    revisions = ListingRepo(db).get_revisions(job.conversation_id)
+    if revisions:
+        snapshot = dict(revisions[0].listing_json)
+        job.approved_revision_id = revisions[0].id
+
+    conv = ConversationRepo(db).get(job.conversation_id)
+    notes: dict = {}
+    if conv:
+        try:
+            parsed = _json.loads(conv.notes or "{}")
+            if isinstance(parsed, dict):
+                notes = parsed
+        except Exception:
+            notes = {}
+
+    raw_labels = notes.get("vendooLabels", "")
+    if raw_labels:
+        snapshot["labels"] = [
+            label.strip() for label in str(raw_labels).split(",") if label.strip()
+        ]
+
+    if not str(snapshot.get("category_path") or "").strip():
+        category_override = str(notes.get("categoryOverride") or "").strip()
+        if category_override:
+            snapshot["category_path"] = category_override
+
+    poshmark = snapshot.get("poshmark_specifics") or {}
+    if isinstance(poshmark, dict):
+        poshmark["originalPrice"] = 0
+    snapshot["poshmark_specifics"] = poshmark
+
+    mercari = snapshot.get("mercari_specifics") or {}
+    if isinstance(mercari, dict):
+        mercari["shippingLabel"] = "USPS Ground Advantage"
+    snapshot["mercari_specifics"] = mercari
+
+    job.listing_snapshot = snapshot
+    flag_modified(job, "listing_snapshot")
 
 
 def _job_response(job) -> JobResponse:

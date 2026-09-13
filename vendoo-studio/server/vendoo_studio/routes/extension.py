@@ -98,6 +98,8 @@ async def dispatch_queued_jobs():
                             "publish": False,
                         },
                         "registry_selectors": registry_selectors,
+                        "vendoo_item_id": job.vendoo_item_id,
+                        "vendoo_url": job.vendoo_url,
                     },
                 ).model_dump())
             repo.update_status(job.id, "dispatched")

@@ -304,6 +304,8 @@ async function handleStudioMessage(msg) {
         registry_selectors: payload.registry_selectors || {},
         current_step: 'accepted',
         attempt: 0,
+        vendoo_item_id: payload.vendoo_item_id || null,
+        vendoo_url: payload.vendoo_url || null,
       });
 
       send({
@@ -491,36 +493,53 @@ function buildJobSteps(job) {
   return steps;
 }
 
-async function findOrCreateVendooTab() {
+function vendooItemUrl(job) {
   const NEW_ITEM_URL = 'https://web.vendoo.co/app/item/new?marketplace=general';
-  const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*' });
-  const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*' });
-  const allTabs = [...webTabs, ...appTabs];
-
-  const newItemTab = allTabs.find(t => {
-    const url = t.url || '';
-    return url.includes('/item/new') && url.includes('marketplace=general');
-  });
-
-  if (newItemTab) return { tab: newItemTab, url: NEW_ITEM_URL };
-
-  const anyVendooTab = allTabs[0];
-  if (anyVendooTab) return { tab: anyVendooTab, url: NEW_ITEM_URL };
-
-  return null;
+  const existingUrl = job.vendoo_url || '';
+  if (existingUrl.includes('/item/') && !existingUrl.includes('/item/new')) {
+    const base = existingUrl.split('?')[0];
+    return existingUrl.includes('marketplace=') ? existingUrl : `${base}?marketplace=general`;
+  }
+  if (job.vendoo_item_id) {
+    return `https://web.vendoo.co/app/item/${job.vendoo_item_id}?marketplace=general`;
+  }
+  return NEW_ITEM_URL;
 }
 
 async function openVendooListing(job) {
   try {
+    const url = vendooItemUrl(job);
+    const itemId = job.vendoo_item_id;
+
+    const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*' });
+    const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*' });
+    const allTabs = [...webTabs, ...appTabs];
+    const existingTab = itemId
+      ? allTabs.find(t => (t.url || '').includes(`/item/${itemId}`))
+      : null;
+
+    if (existingTab) {
+      log(`Reusing Vendoo tab ${existingTab.id} for existing draft ${itemId}`);
+      if (existingTab.windowId) {
+        await chrome.windows.update(existingTab.windowId, { focused: true });
+      }
+      await chrome.tabs.update(existingTab.id, { active: true });
+      activeJob.windowId = existingTab.windowId;
+      activeJob.tabId = existingTab.id;
+      await persistActiveJob(activeJob);
+      await sleep(1000);
+      return { ok: true };
+    }
+
     const existing = await chrome.windows.getLastFocused();
     const win = await chrome.windows.create({
-      url: 'https://web.vendoo.co/app/item/new?marketplace=general',
+      url,
       focused: true,
       ...(existing && { left: existing.left + 30, top: existing.top + 30 }),
     });
 
     const tab = win.tabs[0];
-    log(`Created new Vendoo window ${win.id} tab ${tab.id}`);
+    log(`Created new Vendoo window ${win.id} tab ${tab.id} url=${url}`);
 
     activeJob.windowId = win.id;
     activeJob.tabId = tab.id;
@@ -537,7 +556,7 @@ async function waitForContentScript(job) {
   const tabId = job.tabId || (activeJob && activeJob.tabId);
   if (!tabId) return { ok: false, error: 'No job tab stored' };
 
-  const EXPECTED_VERSION = '0.3.0';
+  const EXPECTED_VERSION = '0.3.1';
 
   for (let i = 0; i < 20; i++) {
     try {
@@ -573,6 +592,10 @@ async function sendToVendoo(job, command) {
 async function uploadPhotos(job) {
   const photos = job.photos || [];
   if (photos.length === 0) {
+    return { ok: true };
+  }
+  if (job.vendoo_item_id) {
+    log(`Draft ${job.vendoo_item_id} already exists, skipping photo upload`);
     return { ok: true };
   }
 

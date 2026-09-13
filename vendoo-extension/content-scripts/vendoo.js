@@ -5,7 +5,7 @@
   'use strict';
 
   const PLATFORM = 'VENDOO';
-  const CONTENT_SCRIPT_VERSION = '0.3.0';
+  const CONTENT_SCRIPT_VERSION = '0.3.1';
   const DEBUG = true;
   let statusBox;
 
@@ -652,6 +652,229 @@
   // CATEGORY SELECTION
   // ============================================
 
+  const CATEGORY_SEGMENT_ALIASES = {
+      'clothing, shoes & accessories': ['Clothing'],
+      'clothing, shoes and accessories': ['Clothing'],
+      clothing: ['Clothing, Shoes & Accessories'],
+  };
+
+  function categoryButtonText(catBtn) {
+      return (catBtn?.innerText || catBtn?.textContent || '').trim();
+  }
+
+  function isCategoryPlaceholder(text) {
+      const lower = normalizeText(text);
+      return !lower || lower.includes('click to select') || lower.includes('select category') || lower === 'category';
+  }
+
+  function optionLabel(opt) {
+      return (opt.innerText || opt.textContent || '').trim();
+  }
+
+  function visibleCategoryOptions() {
+      const modal = categoryModalRoot();
+      const scope = modal || document;
+      return Array.from(scope.querySelectorAll(CATEGORY_RESULT_SELECTORS)).filter(opt => {
+          return isVisibleElement(opt) && Boolean(optionLabel(opt));
+      });
+  }
+
+  function categoryAliases(segment) {
+      const aliases = [segment];
+      const mapped = CATEGORY_SEGMENT_ALIASES[normalizeText(segment)] || [];
+      for (const alias of mapped) {
+          if (!aliases.some(existing => normalizeText(existing) === normalizeText(alias))) {
+              aliases.push(alias);
+          }
+      }
+      return aliases;
+  }
+
+  function optionMatchesSegment(text, segment) {
+      const haystack = normalizeText(text);
+      return categoryAliases(segment).some(alias => {
+          const needle = normalizeText(alias);
+          return haystack === needle || haystack.startsWith(`${needle} `) || haystack.startsWith(`${needle}(`);
+      });
+  }
+
+  function currentCategoryMatches(catBtn, segments) {
+      const current = normalizeText(categoryButtonText(catBtn));
+      if (isCategoryPlaceholder(current)) return false;
+      const needed = segments.slice(-2).map(normalizeText).filter(Boolean);
+      if (needed.length === 0 || !needed.every(segment => {
+          return current.includes(segment) || categoryAliases(segment).some(alias => current.includes(normalizeText(alias)));
+      })) {
+          return false;
+      }
+      const targetWomen = segments.some(segment => normalizeText(segment).startsWith('women'));
+      const targetMen = segments.some(segment => {
+          const value = normalizeText(segment);
+          return value === 'men' || value.startsWith('men ');
+      });
+      if (targetMen && current.includes('women')) return false;
+      if (targetWomen && current.includes('men') && !current.includes('women')) return false;
+      return true;
+  }
+
+  function isCategoryModalOpen() {
+      const searchInput = document.querySelector('input[role="category-search-field"]');
+      return Boolean(searchInput && document.contains(searchInput) && isVisibleElement(searchInput));
+  }
+
+  async function clickCategoryOption(optionEl) {
+      optionEl.scrollIntoView({ block: 'center', behavior: 'instant' });
+      await sleep(CONFIG.SLEEP_SHORT);
+      optionEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      optionEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      optionEl.click();
+      await sleep(CONFIG.SLEEP_LONG * 2);
+  }
+
+  async function closeCategoryModal() {
+      for (let i = 0; i < 3 && isCategoryModalOpen(); i++) {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await sleep(CONFIG.SLEEP_MEDIUM);
+      }
+  }
+
+  async function openCategoryPicker(catBtn) {
+      if (isCategoryModalOpen()) return true;
+      catBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
+      await sleep(CONFIG.SLEEP_MEDIUM);
+      catBtn.click();
+      await sleep(CONFIG.SLEEP_LONG * 2);
+      if (isCategoryModalOpen()) return true;
+      await clickRightEdge(catBtn);
+      await sleep(CONFIG.SLEEP_LONG * 2);
+      return isCategoryModalOpen();
+  }
+
+  function findCategoryClearButton(catBtn) {
+      const root = catBtn.closest('[class*="Autocomplete"], [class*="category"], [class*="MuiInput"], [class*="MuiForm"]')
+          || catBtn.parentElement
+          || document;
+      const selectors = [
+          'button[aria-label="Clear"]',
+          'button[aria-label="clear"]',
+          'button[aria-label*="Clear" i]',
+          '.MuiAutocomplete-clearIndicator',
+          '[class*="clearIndicator"]',
+          '[data-testid*="clear" i]',
+      ];
+      for (const sel of selectors) {
+          const el = root.querySelector(sel);
+          if (el && isVisibleElement(el)) return el.closest('button') || el;
+      }
+      const candidates = Array.from(root.querySelectorAll('button, [role="button"]'));
+      for (const el of candidates) {
+          if (!isVisibleElement(el)) continue;
+          const label = normalizeText(el.getAttribute('aria-label') || el.getAttribute('title') || '');
+          if (label.includes('clear') || label.includes('remove') || label.includes('delete')) {
+              return el;
+          }
+      }
+      return null;
+  }
+
+  function categoryModalRoot() {
+      const searchInput = document.querySelector('input[role="category-search-field"]');
+      if (!searchInput || !document.contains(searchInput)) return null;
+      return searchInput.closest('[role="dialog"], [role="presentation"], [class*="MuiPaper"], [class*="popover"], [class*="modal"]')
+          || searchInput.parentElement
+          || null;
+  }
+
+  function findCategoryBackControl() {
+      const modal = categoryModalRoot();
+      if (!modal) return null;
+      const crumbs = Array.from(modal.querySelectorAll('[class*="breadcrumb"] button, [class*="breadcrumb"] a, nav button, nav a'))
+          .filter(el => isVisibleElement(el));
+      if (crumbs.length > 1) return crumbs[0];
+
+      const candidates = Array.from(modal.querySelectorAll('button, [role="button"]'));
+      for (const el of candidates) {
+          if (!isVisibleElement(el)) continue;
+          const label = normalizeText(el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || '');
+          if (label === 'back' || label === 'go back' || label === 'previous' || label.includes('go back')) {
+              return el;
+          }
+      }
+      return null;
+  }
+
+  async function resetCategoryPicker(catBtn) {
+      const current = categoryButtonText(catBtn);
+      if (!isCategoryPlaceholder(current)) {
+          log(`Clearing existing category: "${current}"`);
+          await closeCategoryModal();
+          const clearBtn = findCategoryClearButton(catBtn);
+          if (clearBtn) {
+              clearBtn.click();
+              await sleep(CONFIG.SLEEP_MEDIUM);
+          }
+      }
+
+      await openCategoryPicker(catBtn);
+
+      const searchInput = document.querySelector('input[role="category-search-field"]');
+      if (searchInput && searchInput.value) {
+          await clearInput(searchInput);
+          await sleep(CONFIG.SLEEP_MEDIUM);
+      }
+
+      for (let i = 0; i < 10; i++) {
+          const backControl = findCategoryBackControl();
+          if (!backControl) break;
+          log('Category picker: returning to parent');
+          backControl.click();
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+  }
+
+  async function findSegmentOption(segment) {
+      let target = null;
+      for (let attempt = 0; attempt < 8 && !target; attempt++) {
+          await sleep(attempt === 0 ? CONFIG.SLEEP_MEDIUM : CONFIG.SLEEP_LONG);
+          target = visibleCategoryOptions().find(opt => optionMatchesSegment(optionLabel(opt), segment)) || null;
+      }
+      return target;
+  }
+
+  async function selectCategoryBySearch(categoryPath, segments) {
+      const searchInput = document.querySelector('input[role="category-search-field"]');
+      if (!searchInput) return false;
+
+      const queries = [categoryPath, segments.slice(-3).join(' > '), segments[segments.length - 1]];
+      for (const query of queries) {
+          if (!query) continue;
+          log(`Searching category for: "${query}"`);
+          searchInput.focus();
+          await clearInput(searchInput);
+          setReactValue(searchInput, query);
+          await sleep(CONFIG.SLEEP_LONG * 2);
+
+          const options = visibleCategoryOptions();
+          const match = options.find(opt => {
+              const text = normalizeText(optionLabel(opt));
+              return segments.every(segment =>
+                  categoryAliases(segment).some(alias => text.includes(normalizeText(alias)))
+              );
+          });
+          if (match) {
+              log(`  Selecting search result: "${optionLabel(match)}"`);
+              await clickCategoryOption(match);
+              return true;
+          }
+      }
+
+      if (searchInput.value) {
+          await clearInput(searchInput);
+          await sleep(CONFIG.SLEEP_MEDIUM);
+      }
+      return false;
+  }
+
   async function fillCategoryPath(data) {
       const categoryPath = data.category_path || '';
       if (!categoryPath) return { ok: true, filled: false };
@@ -673,44 +896,32 @@
           return { ok: false, filled: false, error: 'Category button not found' };
       }
 
-      log('Opening category selector...');
-      catBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
-      await sleep(CONFIG.SLEEP_MEDIUM);
-      catBtn.click();
-      await sleep(CONFIG.SLEEP_LONG * 2);
+      if (currentCategoryMatches(catBtn, segments)) {
+          log(`Category already set: "${categoryButtonText(catBtn)}"`);
+          return { ok: true, filled: false, result: categoryButtonText(catBtn) };
+      }
+
+      await resetCategoryPicker(catBtn);
+
+      const searched = await selectCategoryBySearch(categoryPath, segments);
+      if (searched && !isCategoryModalOpen() && !isCategoryPlaceholder(categoryButtonText(catBtn))) {
+          log(`Category selected via search. Button text: "${categoryButtonText(catBtn)}"`);
+          return { ok: true, filled: true, result: categoryButtonText(catBtn) };
+      }
 
       for (let i = 0; i < segments.length; i++) {
           const segment = segments[i];
           log(`  Drilling into: "${segment}" (${i + 1}/${segments.length})`);
 
-          let targetOption = null;
-          const lowerSegment = segment.toLowerCase();
-
-          for (let attempt = 0; attempt < 10 && !targetOption; attempt++) {
-              await sleep(CONFIG.SLEEP_LONG);
-              const allOptions = document.querySelectorAll('[role="option"]');
-              for (const opt of allOptions) {
-                  if (opt.offsetParent === null) continue;
-                  const text = (opt.innerText || opt.textContent || '').trim();
-                  if (text.toLowerCase() === lowerSegment) {
-                      targetOption = opt;
-                      break;
-                  }
-              }
-          }
-
+          const targetOption = await findSegmentOption(segment);
           if (!targetOption) {
-              warn(`Category option "${segment}" not found`);
+              const visible = visibleCategoryOptions().map(optionLabel);
+              warn(`Category option "${segment}" not found. Visible: ${JSON.stringify(visible)}`);
               return { ok: false, filled: false, error: `Category option "${segment}" not found` };
           }
 
-          log(`  Clicking: "${targetOption.innerText.trim()}"`);
-          targetOption.scrollIntoView({ block: 'center', behavior: 'instant' });
-          await sleep(CONFIG.SLEEP_SHORT);
-          targetOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          targetOption.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-          targetOption.click();
-          await sleep(CONFIG.SLEEP_LONG * 2);
+          log(`  Clicking: "${optionLabel(targetOption)}"`);
+          await clickCategoryOption(targetOption);
       }
 
       await sleep(CONFIG.SLEEP_LONG * 2);
