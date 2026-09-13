@@ -8,7 +8,7 @@ interface Props {
   lineBreaks?: boolean;
 }
 
-type MarkdownProps<Tag extends keyof JSX.IntrinsicElements> =
+type MarkdownProps<Tag extends keyof React.JSX.IntrinsicElements> =
   React.ComponentPropsWithoutRef<Tag> & ExtraProps;
 
 export function ChatMarkdown({ text, lineBreaks = false }: Props) {
