@@ -37,6 +37,7 @@ export function App() {
   const [mobilePane, setMobilePane] = useState<"workspace" | "editor" | "browser">("workspace");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
   const [listingQuery, setListingQuery] = useState("");
+  const [queuedChatMessage, setQueuedChatMessage] = useState<string | null>(null);
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -206,7 +207,11 @@ export function App() {
                   <PhotoTray convId={selectedConvId} />
                   <ItemDetails convId={selectedConvId} />
                   <div className="chat-column">
-                    <ChatPanel convId={selectedConvId} />
+                    <ChatPanel
+                      convId={selectedConvId}
+                      queuedMessage={queuedChatMessage}
+                      onQueuedMessageConsumed={() => setQueuedChatMessage(null)}
+                    />
                   </div>
                 </div>
                 {previewOpen && (
@@ -233,7 +238,14 @@ export function App() {
           {activeView !== "settings" && (
             <aside className="panel detail-panel">
               {selectedConvId ? (
-                <ListingEditor convId={selectedConvId} onJobStarted={() => setMobilePane("browser")} />
+                <ListingEditor
+                  convId={selectedConvId}
+                  onJobStarted={() => setMobilePane("browser")}
+                  onAskChat={(text) => {
+                    setQueuedChatMessage(text);
+                    setMobilePane("workspace");
+                  }}
+                />
               ) : (
                 <div className="empty-state">
                   <p className="text-xs text-muted font-mono">Select a listing to inspect</p>

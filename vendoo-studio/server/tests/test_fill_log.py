@@ -15,6 +15,7 @@ from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.services.fill_log import (
     FillLogService,
+    extract_missing_fields,
     preview_value,
     sanitize_entries,
     summarize,
@@ -45,6 +46,15 @@ class FillLogHelpersTest(unittest.TestCase):
         self.assertEqual(counts["not_found"], 1)
         self.assertEqual(counts["new"], 1)
         self.assertEqual(counts["failed"], 0)
+
+    def test_extract_missing_fields_from_fenced_json(self):
+        fields = extract_missing_fields(
+            'Here you go:\n```json\n{"missing_fields":[{"marketplace":"general","field":"SKU","value":"ABC-1"}]}\n```'
+        )
+        self.assertEqual(fields, [{"marketplace": "general", "field": "SKU", "value": "ABC-1"}])
+
+    def test_extract_missing_fields_ignores_json_patch(self):
+        self.assertIsNone(extract_missing_fields('[{"op":"replace","path":"/sku","value":"ABC-1"}]'))
 
 
 class FillLogServiceTest(unittest.TestCase):

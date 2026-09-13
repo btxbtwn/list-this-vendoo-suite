@@ -634,6 +634,34 @@ class FillLogRepo:
             self.db.refresh(entry)
         return saved
 
+    def add_entries(
+        self,
+        job_id: str,
+        conversation_id: str,
+        step: str,
+        marketplace: str,
+        entries: list[dict],
+    ) -> list[FillLogEntry]:
+        saved: list[FillLogEntry] = []
+        for item in entries:
+            entry = FillLogEntry(
+                job_id=job_id,
+                conversation_id=conversation_id,
+                step=step,
+                marketplace=item.get("marketplace") or marketplace,
+                field=item["field"],
+                status=item["status"],
+                reason=item.get("reason") or "",
+                selector=item.get("selector") or "",
+                value_preview=item.get("value_preview") or "",
+            )
+            self.db.add(entry)
+            saved.append(entry)
+        self.db.commit()
+        for entry in saved:
+            self.db.refresh(entry)
+        return saved
+
     def get_for_job_ids(self, job_id: str, ids: list[str]) -> list[FillLogEntry]:
         if not ids:
             return []

@@ -1,6 +1,7 @@
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { ConnectChromeButton } from "./ConnectChromeButton";
 
 interface FillLogEntry {
   id: string;
@@ -98,6 +99,95 @@ const SKIP_KEYS = new Set([
   "lastsynced",
   "lastmodified",
 ]);
+
+const UNFILLABLE_FIELDS = new Set(["photos", "images", "videos", "image"]);
+const GENERAL_LISTING_KEYS: Record<string, string> = {
+  title: "title",
+  description: "description",
+  price: "price",
+  "listing price": "price",
+  cost: "cost",
+  "cost of goods": "cost",
+  quantity: "quantity",
+  brand: "brand",
+  condition: "condition",
+  "primary color": "primaryColor",
+  color: "primaryColor",
+  "secondary color": "secondaryColor",
+  size: "size",
+  "us size": "size",
+  sku: "sku",
+  category: "category_path",
+  tags: "tags",
+  notes: "notes",
+  "internal notes": "notes",
+};
+
+function isUnfillableField(field: DraftField): boolean {
+  return UNFILLABLE_FIELDS.has(field.label.toLowerCase()) || UNFILLABLE_FIELDS.has(field.key.toLowerCase());
+}
+
+function listingValueForField(
+  listing: Record<string, unknown> | undefined,
+  marketplace: string,
+  field: DraftField,
+): string {
+  if (!listing) return "";
+  const key = field.label.toLowerCase().replace(/\s+/g, " ").trim();
+  const rawKey = field.key.toLowerCase();
+  let raw: unknown;
+  if (marketplace === "general") {
+    const mapped = GENERAL_LISTING_KEYS[key];
+    raw = (mapped ? listing[mapped] : undefined) ?? listing[field.key] ?? listing[field.label];
+    if (raw == null) {
+      const hit = Object.keys(listing).find((candidate) => {
+        const normalized = candidate.toLowerCase().replace(/_/g, " ");
+        return normalized === key || candidate.toLowerCase() === rawKey;
+      });
+      raw = hit ? listing[hit] : undefined;
+    }
+  } else {
+    const specifics = listing[`${marketplace}_specifics`];
+    const record = specifics && typeof specifics === "object" && !Array.isArray(specifics)
+      ? specifics as Record<string, unknown>
+      : {};
+    const hit = Object.keys(record).find((candidate) => {
+      const normalized = candidate.toLowerCase().replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, "").trim();
+      return normalized === key || candidate.toLowerCase() === rawKey;
+    });
+    raw = hit ? record[hit] : record[field.label] ?? record[field.key];
+  }
+  if (raw == null) return "";
+  if (Array.isArray(raw)) return raw.map(String).filter(Boolean).join(", ").trim();
+  return String(raw).trim();
+}
+
+function emptyFieldsPrompt(forms: DraftForm[], fromDraft: boolean): string {
+  const rows: { marketplace: string; form: string; field: string }[] = [];
+  for (const form of forms) {
+    for (const field of form.fields) {
+      if (!field.missing || isUnfillableField(field)) continue;
+      rows.push({ marketplace: form.id, form: form.label, field: field.label });
+    }
+  }
+  const limited = rows.slice(0, 50);
+  const lines = limited.map((row) => `- ${row.form} / ${row.field} (marketplace: ${row.marketplace})`);
+  const intro = fromDraft
+    ? "These Vendoo form fields are empty. Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing."
+    : "These listing fields are still empty. Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.";
+  return `${intro}
+
+Reply with JSON in this exact shape:
+
+\`\`\`json
+{"missing_fields":[{"marketplace":"general","field":"SKU","value":"..."}]}
+\`\`\`
+
+Use the marketplace ids and field names exactly as listed. After the values are saved, they can be filled on Vendoo without resending the whole listing.
+
+Empty fields:
+${lines.join("\n")}`;
+}
 
 function leftoverCount(summary?: Record<string, number>): number {
   if (!summary) return 0;
@@ -393,6 +483,89 @@ function formsFromFillLog(report: FillLogReport): DraftForm[] {
   });
 }
 
+const LISTING_GENERAL_FIELDS: { key: string; label: string }[] = [
+  { key: "title", label: "Title" },
+  { key: "description", label: "Description" },
+  { key: "price", label: "Price" },
+  { key: "cost", label: "Cost" },
+  { key: "quantity", label: "Quantity" },
+  { key: "brand", label: "Brand" },
+  { key: "condition", label: "Condition" },
+  { key: "primaryColor", label: "Primary Color" },
+  { key: "secondaryColor", label: "Secondary Color" },
+  { key: "size", label: "Size" },
+  { key: "sku", label: "SKU" },
+  { key: "category_path", label: "Category" },
+  { key: "tags", label: "Tags" },
+  { key: "notes", label: "Notes" },
+];
+
+function nestedListingValue(listing: Record<string, unknown>, path: string): unknown {
+  return path.split(".").reduce<unknown>((current, key) => {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    return (current as Record<string, unknown>)[key];
+  }, listing);
+}
+
+function listingField(listing: Record<string, unknown>, key: string, label: string): DraftField {
+  const raw = nestedListingValue(listing, key);
+  return { key, label, value: displayValue(raw), missing: isEmptyValue(raw) };
+}
+
+function specificsListingFields(listing: Record<string, unknown>, marketplace: string): DraftField[] {
+  const specs = listing[`${marketplace}_specifics`];
+  if (!specs || typeof specs !== "object" || Array.isArray(specs)) return [];
+  const fields: DraftField[] = [];
+  for (const [key, value] of Object.entries(specs as Record<string, unknown>)) {
+    if (key === "category_specifics" && value && typeof value === "object" && !Array.isArray(value)) {
+      for (const [nested, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        fields.push({
+          key: `${marketplace}_specifics.category_specifics.${nested}`,
+          label: nested,
+          value: displayValue(nestedValue),
+          missing: isEmptyValue(nestedValue),
+        });
+      }
+      continue;
+    }
+    fields.push({
+      key: `${marketplace}_specifics.${key}`,
+      label: fieldLabel(key),
+      value: displayValue(value),
+      missing: isEmptyValue(value),
+    });
+  }
+  return fields;
+}
+
+function formsFromListing(listing?: Record<string, unknown>): DraftForm[] {
+  if (!listing || typeof listing !== "object") return [];
+  const general = LISTING_GENERAL_FIELDS.map((field) => listingField(listing, field.key, field.label));
+  const forms: DraftForm[] = [{
+    id: "general",
+    label: "General",
+    fields: general,
+    filled: general.filter((field) => !field.missing).length,
+    missing: general.filter((field) => field.missing).length,
+  }];
+  for (const id of ["ebay", "poshmark", "mercari", "depop", "etsy"]) {
+    const extras: DraftField[] = [];
+    if (id === "poshmark") extras.push(listingField(listing, "poshmark_specifics.originalPrice", "Original Price"));
+    if (id === "mercari") extras.push(listingField(listing, "mercari_specifics.shippingLabel", "Shipping Label"));
+    const seen = new Set(extras.map((field) => field.key));
+    const fields = [...extras, ...specificsListingFields(listing, id).filter((field) => !seen.has(field.key))];
+    if (!fields.length) continue;
+    forms.push({
+      id,
+      label: marketplaceLabel(id),
+      fields,
+      filled: fields.filter((field) => !field.missing).length,
+      missing: fields.filter((field) => field.missing).length,
+    });
+  }
+  return forms;
+}
+
 function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): DraftForm[] {
   const needle = query.trim().toLowerCase();
   return forms
@@ -421,7 +594,7 @@ export function FillLogSummary({ jobId, onOpenFillLog }: { jobId: string; onOpen
   if (total === 0) {
     return onOpenFillLog ? (
       <button type="button" className="fill-log-open" onClick={onOpenFillLog}>
-        Review marketplace files
+        Review fields
       </button>
     ) : null;
   }
@@ -452,6 +625,8 @@ export function FillLogPanel({
   jobStep,
   vendooItemId,
   vendooUrl,
+  listing,
+  onAskChat,
   onFilled,
   onJobStarted,
 }: {
@@ -460,11 +635,18 @@ export function FillLogPanel({
   jobStep?: string | null;
   vendooItemId?: string | null;
   vendooUrl?: string | null;
+  listing?: Record<string, unknown>;
+  onAskChat?: (text: string) => void;
   onFilled?: () => void;
   onJobStarted?: () => void;
 }) {
   const queryClient = useQueryClient();
   const report = useFillLog(jobId);
+  const { data: extStatus } = useQuery({
+    queryKey: ["extension-status"],
+    queryFn: api.extension.status,
+    refetchInterval: 5000,
+  });
   const [query, setQuery] = React.useState("");
   const [missingOnly, setMissingOnly] = React.useState(false);
   const [showJson, setShowJson] = React.useState(false);
@@ -472,6 +654,7 @@ export function FillLogPanel({
   const [values, setValues] = React.useState<Record<string, string>>({});
   const filling = jobStatus === "dispatched" && jobStep === "filling_fields";
   const hasDraft = Boolean(vendooItemId || vendooUrl);
+  const chromeConnected = Boolean(extStatus?.connected);
   const didRead = React.useRef<string | null>(null);
 
   const { data: cachedDraft } = useQuery({
@@ -491,17 +674,19 @@ export function FillLogPanel({
   const item = mergeDraftItem(draft);
   const draftForms = item ? formsFromDraft(item, report) : [];
   const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
-  const sourceForms = draftForms.length ? draftForms : fillForms;
+  const listingForms = formsFromListing(listing);
+  const sourceForms = draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms;
+  const fromVendooDraft = draftForms.length > 0;
   const sourceKey = sourceForms.map((form) => form.id).join("|");
   const forms = filterForms(sourceForms, query, missingOnly);
   const leftovers = report ? leftoverEntries(report) : [];
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
 
   React.useEffect(() => {
-    if (!hasDraft || didRead.current === jobId) return;
+    if (!hasDraft || !chromeConnected || didRead.current === jobId) return;
     didRead.current = jobId;
     readMutation.mutate();
-  }, [hasDraft, jobId]);
+  }, [hasDraft, jobId, chromeConnected]);
 
   React.useEffect(() => {
     if (!report) return;
@@ -525,15 +710,34 @@ export function FillLogPanel({
   }, [sourceKey]);
 
   const fillMutation = useMutation({
-    mutationFn: (fields: { id: string; value: string }[]) => api.jobs.fillFields(jobId, fields),
+    mutationFn: (fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
+      api.jobs.fillFields(jobId, fields),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
       queryClient.invalidateQueries({ queryKey: ["listing"] });
+      queryClient.invalidateQueries({ queryKey: ["vendoo-item", jobId] });
       onFilled?.();
       onJobStarted?.();
     },
   });
+
+  const emptyFields = sourceForms.flatMap((form) =>
+    form.fields
+      .filter((field) => field.missing && !isUnfillableField(field))
+      .map((field) => ({ form, field })),
+  );
+  const fillableEmpty = emptyFields
+    .map(({ form, field }) => {
+      const leftover = field.leftover;
+      const typed = leftover ? String(values[leftover.id] || "").trim() : "";
+      const value = typed || listingValueForField(listing, form.id, field);
+      if (!value) return null;
+      return leftover
+        ? { id: leftover.id, marketplace: form.id, field: field.label, value }
+        : { marketplace: form.id, field: field.label, value };
+    })
+    .filter((item): item is { id?: string; marketplace: string; field: string; value: string } => Boolean(item));
 
   const pending = leftovers.filter((entry) => String(values[entry.id] || "").trim());
   const visiblePending = pending.filter((entry) => {
@@ -541,6 +745,10 @@ export function FillLogPanel({
     const form = forms.find((item) => item.id === entry.marketplace.toLowerCase());
     return !form || form.fields.some((field) => field.leftover?.id === entry.id);
   });
+  const fillPayload = fillableEmpty.length ? fillableEmpty : visiblePending.map((entry) => ({
+    id: entry.id,
+    value: String(values[entry.id] || "").trim(),
+  }));
 
   return (
     <div className="fill-log-pr">
@@ -554,8 +762,8 @@ export function FillLogPanel({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search files..."
-            aria-label="Search marketplace forms"
+            placeholder="Search fields..."
+            aria-label="Search marketplace fields"
           />
         </label>
         <button
@@ -586,24 +794,73 @@ export function FillLogPanel({
         )}
       </div>
 
+      {(onAskChat || hasDraft) && (
+        <div className="pr-actions">
+          {onAskChat && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={fillMutation.isPending || filling || emptyFields.length === 0}
+              onClick={() => onAskChat(emptyFieldsPrompt(sourceForms, fromVendooDraft))}
+            >
+              {emptyFields.length
+                ? `Ask chat to fill ${emptyFields.length} empty ${emptyFields.length === 1 ? "field" : "fields"}`
+                : "Ask chat to fill empty fields"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={fillMutation.isPending || filling || fillPayload.length === 0 || !chromeConnected}
+            title={
+              !chromeConnected
+                ? "Connect Chrome to fill only these fields on Vendoo"
+                : fillPayload.length
+                  ? "Fill only these missing fields on the Vendoo draft"
+                  : "Ask chat to generate values first"
+            }
+            onClick={() => fillMutation.mutate(fillPayload)}
+          >
+            {fillMutation.isPending || filling
+              ? "Filling empty fields..."
+              : fillPayload.length
+                ? `Fill ${fillPayload.length} empty field${fillPayload.length === 1 ? "" : "s"} on Vendoo`
+                : "Fill empty fields on Vendoo"}
+          </button>
+        </div>
+      )}
+
+      {hasDraft && !fromVendooDraft && !readMutation.isPending && (
+        <p className="pr-notice">
+          {chromeConnected
+            ? "Showing blank listing fields. Read the Vendoo draft to send only the empty Vendoo form fields to chat."
+            : "Showing blank listing fields. Connect Chrome, then read the draft so chat gets the actual empty Vendoo fields."}
+        </p>
+      )}
+
       {readMutation.error && (
         <div className="text-xs text-error">{(readMutation.error as Error).message || "Could not read the Vendoo draft"}</div>
       )}
       {draft?.api_error && <div className="pr-meta">API: {draft.api_error}</div>}
 
       {!forms.length ? (
-        <p className="pr-empty">
-          {readMutation.isPending
-            ? "Reading Vendoo draft…"
-            : hasDraft
-              ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red."
-              : "Send this listing to Vendoo to review each marketplace form."}
-        </p>
+        <div className="pr-empty">
+          <p>
+            {readMutation.isPending
+              ? "Reading Vendoo draft…"
+              : !chromeConnected && hasDraft
+                ? "Connect Chrome to read empty Vendoo fields. Ask chat can still generate values, then Fill on Vendoo patches only those fields."
+                : hasDraft
+                  ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red."
+                  : "Send this listing to Vendoo to review each marketplace form."}
+          </p>
+          {!chromeConnected && hasDraft && <ConnectChromeButton />}
+        </div>
       ) : (
         <div className="pr-split">
           <div className="pr-files">
             <div className="pr-files-head">
-              <span>Files</span>
+              <span>Marketplaces</span>
               <span className="pr-files-count">{forms.length}</span>
             </div>
             <div className="pr-tree" role="list">
@@ -659,21 +916,6 @@ export function FillLogPanel({
         </div>
       )}
 
-      {visiblePending.length > 0 && (
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          disabled={fillMutation.isPending || filling}
-          onClick={() => fillMutation.mutate(visiblePending.map((entry) => ({
-            id: entry.id,
-            value: String(values[entry.id] || "").trim(),
-          })))}
-        >
-          {fillMutation.isPending || filling
-            ? "Filling leftover fields..."
-            : `Fill ${visiblePending.length} field${visiblePending.length === 1 ? "" : "s"}`}
-        </button>
-      )}
       {fillMutation.error && (
         <div className="text-xs text-error">{(fillMutation.error as Error).message || "Failed to fill leftover fields"}</div>
       )}

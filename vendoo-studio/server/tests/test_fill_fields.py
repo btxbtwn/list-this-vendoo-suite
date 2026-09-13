@@ -15,6 +15,7 @@ from vendoo_studio.models.fill_log import FillLogEntry
 from vendoo_studio.models.job import Job
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
+from vendoo_studio.repositories.queries import ListingRepo
 from vendoo_studio.services.fill_log import FillLogService
 
 
@@ -116,6 +117,40 @@ class FillFieldsRouteTest(unittest.TestCase):
             json={"fields": [{"id": "x", "value": "Casual"}]},
         )
         self.assertEqual(response.status_code, 404)
+
+    @patch("vendoo_studio.routes.extension.dispatch_fill_fields", new_callable=AsyncMock)
+    @patch("vendoo_studio.routes.extension.extension_manager")
+    def test_fill_named_field_from_listing_revision(self, manager, dispatch):
+        manager.connected = True
+        dispatch.return_value = True
+        ListingRepo(self.db).save_revision(
+            self.conv.id,
+            {"title": "Nike tee", "sku": "ABC-1", "ebay_specifics": {}},
+            source="model_refinement",
+        )
+
+        response = self.client.post(
+            f"/api/jobs/{self.job.id}/fill-fields",
+            json={"fields": [{"marketplace": "general", "field": "SKU"}]},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        sent_fields = dispatch.await_args.args[1]
+        self.assertEqual(sent_fields[0]["marketplace"], "general")
+        self.assertEqual(sent_fields[0]["field"], "SKU")
+        self.assertEqual(sent_fields[0]["value"], "ABC-1")
+        self.db.refresh(self.job)
+        self.assertEqual(self.job.listing_snapshot["sku"], "ABC-1")
+
+    @patch("vendoo_studio.routes.extension.extension_manager")
+    def test_fill_named_field_requires_value(self, manager):
+        manager.connected = True
+        response = self.client.post(
+            f"/api/jobs/{self.job.id}/fill-fields",
+            json={"fields": [{"marketplace": "general", "field": "SKU"}]},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Ask chat", response.json()["detail"])
 
 
 if __name__ == "__main__":
