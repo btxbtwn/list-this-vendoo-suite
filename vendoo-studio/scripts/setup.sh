@@ -3,27 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$(cd "$ROOT/.." && pwd)"
-
-find_python() {
-  local candidate
-  for candidate in \
-    "$ROOT/.venv/bin/python" \
-    python3.13 python3.12 \
-    /opt/homebrew/bin/python3.13 \
-    /opt/homebrew/bin/python3.12 \
-    /usr/local/bin/python3.13 \
-    /usr/local/bin/python3.12 \
-    python3
-  do
-    if command -v "$candidate" >/dev/null 2>&1 || [[ -x "$candidate" ]]; then
-      if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null; then
-        command -v "$candidate" 2>/dev/null || printf '%s\n' "$candidate"
-        return 0
-      fi
-    fi
-  done
-  return 1
-}
+# shellcheck source=lib.sh
+source "$ROOT/scripts/lib.sh"
 
 echo "List This Studio setup"
 echo
@@ -44,6 +25,11 @@ fi
   echo "Node.js 20 or newer is required (found $($NODE -v))." >&2
   exit 1
 }
+
+if ! find_chrome >/dev/null; then
+  echo "Google Chrome is required. Install it from https://www.google.com/chrome then run setup again." >&2
+  exit 1
+fi
 
 if [[ ! -x "$ROOT/.venv/bin/python" ]]; then
   echo "Creating Python environment with $PYTHON"

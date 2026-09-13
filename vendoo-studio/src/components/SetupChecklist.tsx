@@ -76,15 +76,21 @@ export function SetupChecklist({
             <ConnectChromeButton className="btn btn-sm btn-outline" />
           )}
         </Step>
-        <Step done={false} label="Create a listing and drop in photos.">
+        <Step
+          done={false}
+          label="Create a listing and drop in photos."
+        >
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={creating}
+            disabled={creating || !providerConfigured}
             onClick={onCreate}
           >
             Create a listing
           </button>
+          {!providerConfigured ? (
+            <p className="setup-step-note">Sign in first so chat can generate the listing.</p>
+          ) : null}
         </Step>
       </ol>
     </div>

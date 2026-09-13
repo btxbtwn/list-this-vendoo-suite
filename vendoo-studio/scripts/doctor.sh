@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$(cd "$ROOT/.." && pwd)"
+# shellcheck source=lib.sh
+source "$ROOT/scripts/lib.sh"
 FAILED=0
 
 ok() { printf '  ok    %s\n' "$1"; }
@@ -12,10 +14,8 @@ warn() { printf '  warn  %s\n' "$1"; }
 echo "List This Studio doctor"
 echo
 
-if command -v python3.12 >/dev/null 2>&1 || command -v python3.13 >/dev/null 2>&1; then
-  ok "Python 3.12+"
-elif python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null; then
-  ok "Python 3.12+"
+if PYTHON="$(find_python)"; then
+  ok "Python 3.12+ ($PYTHON)"
 else
   bad "Python 3.12+ not found (brew install python@3.12)"
 fi
@@ -68,20 +68,10 @@ for icon in icon16.png icon48.png icon128.png; do
   fi
 done
 
-CHROME=""
-for candidate in \
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  "$HOME/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-do
-  if [[ -x "$candidate" ]]; then
-    CHROME="$candidate"
-    break
-  fi
-done
-if [[ -n "$CHROME" ]]; then
-  ok "Google Chrome"
+if CHROME="$(find_chrome)"; then
+  ok "Google Chrome ($CHROME)"
 else
-  warn "Google Chrome not found. Install it from https://www.google.com/chrome before Connect Chrome."
+  bad "Google Chrome not found. Install it from https://www.google.com/chrome"
 fi
 
 if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:4318 -sTCP:LISTEN >/dev/null 2>&1; then

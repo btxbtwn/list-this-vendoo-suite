@@ -38,7 +38,12 @@ echo "Studio frontend http://127.0.0.1:5173"
 echo "Open the frontend URL. Press Ctrl+C to stop both processes."
 
 if command -v open >/dev/null 2>&1; then
-  sleep 1
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -sf "http://127.0.0.1:4318/api/health" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.3
+  done
   open "http://127.0.0.1:5173" >/dev/null 2>&1 || true
 fi
 
