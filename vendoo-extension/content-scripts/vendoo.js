@@ -3932,24 +3932,75 @@
       return { ok: true, count: fileObjects.length };
   }
 
-  async function waitForSaveButton(timeoutMs = 8000) {
+  function listingFormMarkersPresent() {
+      return Boolean(
+          document.querySelector('[data-testid="save-item-button"]')
+          || document.querySelector('#generalDetails\\.title, [id="generalDetails.title"]')
+          || document.querySelector('#categoryV2, [role="category-input"]')
+      );
+  }
+
+  async function waitForListingFormReady(timeoutMs = 30000) {
+      log('Waiting for Vendoo listing form...');
       const started = Date.now();
       while (Date.now() - started < timeoutMs) {
+          if (listingFormMarkersPresent()) {
+              log('Vendoo listing form is ready');
+              return { ok: true, hasSaveButton: Boolean(document.querySelector('[data-testid="save-item-button"]')) };
+          }
+          const bodyText = (document.body?.innerText || '').slice(0, 800).toLowerCase();
+          if (bodyText.includes('sign in') && (bodyText.includes('password') || bodyText.includes('log in'))) {
+              warn('Vendoo login wall detected while waiting for form');
+              return { ok: false, error: 'Vendoo login required before filling fields' };
+          }
+          await sleep(500);
+      }
+      warn('Vendoo listing form did not finish loading');
+      return { ok: false, error: 'Vendoo listing form did not finish loading' };
+  }
+
+  async function waitForSaveButton(timeoutMs = 20000, { requireEnabled = true } = {}) {
+      const started = Date.now();
+      let lastBtn = null;
+      while (Date.now() - started < timeoutMs) {
           const saveBtn = document.querySelector('[data-testid="save-item-button"]');
-          if (saveBtn && !saveBtn.disabled) return saveBtn;
+          if (saveBtn) {
+              lastBtn = saveBtn;
+              if (!requireEnabled || !saveBtn.disabled) return saveBtn;
+          }
           await sleep(250);
       }
-      const saveBtn = document.querySelector('[data-testid="save-item-button"]');
-      return saveBtn && !saveBtn.disabled ? saveBtn : null;
+      const saveBtn = document.querySelector('[data-testid="save-item-button"]') || lastBtn;
+      if (!saveBtn) return null;
+      if (requireEnabled && saveBtn.disabled) return null;
+      return saveBtn;
+  }
+
+  function findSaveButtonByText() {
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      const PROHIBITED_TERMS = ['list', 'publish', 'activate', 'sell'];
+      return buttons.find((b) => {
+          const t = (b.innerText || '').trim().toLowerCase();
+          if (!t || t.length > 20) return false;
+          if (!t.includes('save')) return false;
+          if (PROHIBITED_TERMS.some((pt) => t.includes(pt))) {
+              warn(`Skipping prohibited save button: "${b.innerText}"`);
+              return false;
+          }
+          return true;
+      }) || null;
   }
 
   async function saveGeneralForm() {
       log('Saving form...');
-      const existingSave = document.querySelector('[data-testid="save-item-button"]');
-      const saveBtn = existingSave ? await waitForSaveButton() : null;
-      if (existingSave && !saveBtn) {
-          warn('Save button stayed disabled');
-          return { ok: false, error: 'Save button stayed disabled' };
+      // Always wait for the SPA save control — tab "complete" fires before React mounts it.
+      const saveBtn = await waitForSaveButton(20000, { requireEnabled: true });
+      if (!saveBtn) {
+          const existingSave = document.querySelector('[data-testid="save-item-button"]');
+          if (existingSave && existingSave.disabled) {
+              warn('Save button stayed disabled');
+              return { ok: false, error: 'Save button stayed disabled' };
+          }
       }
       if (saveBtn) {
           saveBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
@@ -3980,19 +4031,7 @@
           return { ok: true, vendoo_item_id: itemId, vendoo_url: vendooUrl };
       }
 
-      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
-      const PROHIBITED_TERMS = ['list', 'publish', 'activate', 'sell'];
-      const target = buttons.find(b => {
-          const t = (b.innerText || '').trim().toLowerCase();
-          if (!t || t.length > 20) return false;
-          if (!t.includes('save')) return false;
-          if (PROHIBITED_TERMS.some(pt => t.includes(pt))) {
-              warn(`Skipping prohibited save button: "${b.innerText}"`);
-              return false;
-          }
-          return true;
-      });
-
+      const target = findSaveButtonByText();
       if (target) {
           target.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_MEDIUM);
@@ -4780,6 +4819,18 @@
 
       const allEntries = [];
       try {
+          const formReady = await waitForListingFormReady();
+          if (!formReady.ok) {
+              return {
+                  ok: false,
+                  error: formReady.error || 'Vendoo listing form did not finish loading',
+                  fill_log: {
+                      marketplace: items[0]?.marketplace || 'general',
+                      summary: { filled: 0, failed: 0, skipped: 0, not_found: 0 },
+                      entries: [],
+                  },
+              };
+          }
           for (const [marketplace, group] of grouped) {
               beginFillLog(marketplace);
               if (marketplace && marketplace !== 'general' && marketplace !== 'unknown') {
@@ -5001,11 +5052,19 @@
               return true;
           }
 
+          if (msg.type === 'WAIT_FOR_FORM') {
+              waitForListingFormReady(msg.timeoutMs || 30000)
+                  .then((result) => sendResponse(result))
+                  .catch((err) => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
           if (msg.type === 'GET_PAGE_STATE') {
               sendResponse({
                   ok: true,
                   url: window.location.href,
                   hasSaveButton: !!document.querySelector('[data-testid="save-item-button"]'),
+                  formReady: listingFormMarkersPresent(),
                   itemId: extractItemId(),
               });
               return true;
