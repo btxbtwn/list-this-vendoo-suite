@@ -24,7 +24,7 @@ def latest_photo_analysis(messages: list[Any]) -> str | None:
 
 def format_photo_analysis(evidence: dict) -> str:
     parts = ["Photo analysis:\n"]
-    for field_key in ("brand", "size", "color", "material", "style", "condition"):
+    for field_key in ("brand", "size", "color", "material", "style", "category", "condition"):
         fd = evidence.get(field_key)
         if isinstance(fd, dict) and fd.get("value"):
             extra = f" (source: {fd.get('source', 'tag')})" if fd.get("source") else ""

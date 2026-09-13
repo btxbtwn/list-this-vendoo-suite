@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine
@@ -50,6 +50,7 @@ class FakeProvider:
         self.chat_delay = chat_delay
         self.analyze_calls = 0
         self.chat_calls = 0
+        self.chat_messages = None
 
     async def analyze_photos(self, *args, **kwargs):
         self.analyze_calls += 1
@@ -59,6 +60,7 @@ class FakeProvider:
 
     async def chat(self, messages, stream=True):
         self.chat_calls += 1
+        self.chat_messages = messages
         if self.chat_delay:
             await asyncio.sleep(self.chat_delay)
         for chunk in self.chunks:
@@ -209,6 +211,8 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.patches = [
             patch("vendoo_studio.routes.chat.get_listing_provider", return_value=self.provider),
             patch("vendoo_studio.routes.chat._load_skill_rules", return_value="rules"),
+            patch("vendoo_studio.routes.chat.research_sold_comps", new=AsyncMock(return_value="")),
+            patch("vendoo_studio.routes.chat.comps_search_available", return_value=False),
         ]
         for p in self.patches:
             p.start()
@@ -271,6 +275,33 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(revisions[0].listing_json["title"], LISTING_JSON["title"])
         self.assertEqual(conv.status, "draft")
         db.close()
+
+    async def test_generate_injects_sold_comps_into_prompt(self):
+        comps = (
+            "Sold comps:\n"
+            "Query: M&O Gold Graphic T-Shirt sold comps\n"
+            "- Similar tees sold $12-$18\n"
+            "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
+        )
+        self.patches[2].stop()
+        self.patches[3].stop()
+        comps_patch = patch("vendoo_studio.routes.chat.research_sold_comps", new=AsyncMock(return_value=comps))
+        key_patch = patch("vendoo_studio.routes.chat.comps_search_available", return_value=True)
+        comps_patch.start()
+        key_patch.start()
+        self.patches[2] = comps_patch
+        self.patches[3] = key_patch
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                body = "".join([chunk async for chunk in resp.aiter_text()])
+        self.assertIn("Looking up sold comps", body)
+        prompt = self.provider.chat_messages[0]["content"]
+        self.assertIn("Similar tees sold $12-$18", prompt)
+        db = self.Session()
+        messages = ConversationRepo(db).get_messages(self.conv_id)
+        db.close()
+        self.assertTrue(any((m.text or "").startswith("Sold comps:") for m in messages))
 
     async def test_keepalives_emit_while_waiting_for_model(self):
         async def slow():

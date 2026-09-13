@@ -16,6 +16,8 @@ from vendoo_studio.providers.chatgpt_codex import (
     resolved_chatgpt_models,
     resolved_chatgpt_reasoning,
     visible_model_slugs,
+    web_search_answer,
+    web_search_sources,
 )
 from vendoo_studio.services.chatgpt_oauth import jwt_auth_claims, profile_from_tokens
 
@@ -106,6 +108,56 @@ class ChatGPTModelChoiceTest(unittest.TestCase):
         self.assertEqual(provider._payload([{"role": "user", "content": "hi"}], "gpt-5.5", True)["reasoning"]["effort"], "high")
         self.assertEqual(clamp_reasoning_effort("none", "gpt-6-astra"), "low")
         self.assertEqual(clamp_reasoning_effort("max", "gpt-5.5"), "xhigh")
+
+    def test_search_payload_includes_web_search_tool(self):
+        with patch(
+            "vendoo_studio.providers.chatgpt_codex.get_chatgpt_models",
+            return_value={"listing_model": "gpt-5.5", "reasoning_effort": "medium"},
+        ):
+            provider = ChatGPTCodexProvider()
+        payload = provider._payload(
+            [{"role": "user", "content": "Levi's shorts sold comps"}],
+            "gpt-5.5",
+            True,
+            tools=[{"type": "web_search", "external_web_access": True}],
+            tool_choice="required",
+            include=["web_search_call.action.sources"],
+            reasoning_effort="low",
+        )
+        self.assertEqual(payload["tools"], [{"type": "web_search", "external_web_access": True}])
+        self.assertEqual(payload["tool_choice"], "required")
+        self.assertEqual(payload["include"], ["web_search_call.action.sources"])
+        self.assertEqual(payload["reasoning"]["effort"], "low")
+
+
+class WebSearchExtractTest(unittest.TestCase):
+    def test_reads_answer_citations_and_sources(self):
+        output = [
+            {
+                "type": "web_search_call",
+                "action": {
+                    "sources": [{"title": "eBay sold", "url": "https://www.ebay.com/itm/1"}],
+                },
+            },
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Sold recently for $22.",
+                        "annotations": [
+                            {"type": "url_citation", "url": "https://www.ebay.com/itm/2", "title": "Another sold listing"},
+                        ],
+                    }
+                ],
+            },
+        ]
+        self.assertEqual(web_search_answer(output), "Sold recently for $22.")
+        sources = web_search_sources(output)
+        self.assertEqual(
+            [item["url"] for item in sources],
+            ["https://www.ebay.com/itm/1", "https://www.ebay.com/itm/2"],
+        )
 
 
 class ChatGPTCatalogFetchTest(unittest.IsolatedAsyncioTestCase):

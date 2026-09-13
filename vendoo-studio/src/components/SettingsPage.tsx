@@ -57,6 +57,112 @@ function orderedSelection(
   return available.map((item) => item.id).filter((id) => chosen.has(id));
 }
 
+function BraveSearchSection({ chatgptSignedIn }: { chatgptSignedIn: boolean }) {
+  const queryClient = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const { data: brave } = useQuery({
+    queryKey: ["settings-brave"],
+    queryFn: api.settings.brave,
+  });
+  const setKeyMutation = useMutation({
+    mutationFn: (key: string) => api.settings.setBrave(key),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings-brave"] });
+      setApiKey("");
+      setTestResult(null);
+    },
+  });
+  const deleteKeyMutation = useMutation({
+    mutationFn: () => api.settings.deleteBrave(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings-brave"] });
+      setTestResult(null);
+    },
+  });
+  const configured = Boolean(brave?.configured);
+  const saveKey = () => {
+    if (!apiKey.trim()) return;
+    setKeyMutation.mutate(apiKey);
+  };
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await api.settings.testBrave();
+      setTestResult(result.ok ? "Connection successful" : result.error || "Connection failed");
+    } catch (err: any) {
+      setTestResult(`Error: ${err.message}`);
+    }
+    setTesting(false);
+  };
+
+  return (
+    <SettingsSection id="brave" title="Brave Search">
+      <SettingsRow
+        title="API key"
+        description={
+          <>
+            Used to look up sold comps if ChatGPT web search is unavailable or finds nothing. Get a key at{" "}
+            <a href="https://api.search.brave.com" target="_blank" rel="noreferrer">
+              api.search.brave.com
+            </a>
+            . Stored in macOS Keychain and never sent to the browser.
+          </>
+        }
+      >
+        <div className="settings-row-field">
+          <input
+            className="input font-mono"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveKey();
+            }}
+            placeholder="BSA..."
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button type="button" className="btn btn-sm btn-outline" onClick={saveKey} disabled={!apiKey.trim() || setKeyMutation.isPending}>
+            {setKeyMutation.isPending ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </SettingsRow>
+      <SettingsRow
+        title="Status"
+        description={
+          configured
+            ? `Fallback · ${brave?.masked_key}`
+            : chatgptSignedIn
+              ? "Optional fallback when ChatGPT web search misses comps"
+              : "Not configured — listing prices use an estimated baseline unless ChatGPT is signed in"
+        }
+        status={
+          testResult ? (
+            <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
+          ) : setKeyMutation.isError ? (
+            <span className="text-error">{(setKeyMutation.error as Error).message}</span>
+          ) : null
+        }
+        control={
+          configured ? (
+            <>
+              <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
+                {testing ? "Testing…" : "Test"}
+              </button>
+              <button type="button" className="btn btn-sm btn-ghost settings-danger" onClick={() => deleteKeyMutation.mutate()}>
+                Remove
+              </button>
+            </>
+          ) : null
+        }
+      />
+    </SettingsSection>
+  );
+}
+
 function MarketplacesSection() {
   const queryClient = useQueryClient();
   const { data, isPending, isError, error } = useQuery({
@@ -278,7 +384,7 @@ export function SettingsPage() {
         <SettingsSection id="chatgpt" title="ChatGPT">
           <SettingsRow
             title="Sign in with ChatGPT"
-            description="Uses your ChatGPT subscription to generate listings. Usage counts against Codex quota, not a Platform API key."
+            description="Uses your ChatGPT subscription to generate listings and look up sold comps. Usage counts against Codex quota, not a Platform API key."
             status={
               chatgptSignedIn && testResult ? (
                 <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
@@ -467,6 +573,8 @@ export function SettingsPage() {
             }
           />
         </SettingsSection>
+
+        <BraveSearchSection chatgptSignedIn={chatgptSignedIn} />
 
         <SettingsSection id="connections" title="Connections">
           <SettingsRow
