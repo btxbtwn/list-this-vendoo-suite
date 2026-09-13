@@ -121,11 +121,11 @@ CATEGORY_NORMALIZATIONS: dict[str, dict[str, str]] = {
     },
 }
 
-_TOP_ITEM_RE = re.compile(r"t-?shirts?|\btees?\b|\btops?\b|\bshirts?\b|\bblouses?\b", re.I)
-_TEE_ITEM_RE = re.compile(r"t-?shirts?|\btees?\b", re.I)
+_TOP_ITEM_RE = re.compile(r"\bt-?shirts?\b|\btees?\b|\btops?\b|\bshirts?\b|\bblouses?\b", re.I)
+_TEE_ITEM_RE = re.compile(r"\bt-?shirts?\b|\btees?\b", re.I)
 _NON_TOP_RE = re.compile(
     r"\bdresses?\b|\bpants?\b|\bjeans?\b|\bskirts?\b|\bshorts?\b|\bjackets?\b|"
-    r"\bcoats?\b|\bsweaters?\b|\bhoodies?\b|\bshoes?\b|\bbags?\b",
+    r"\bcoats?\b|\bsweatshirts?\b|\bsweaters?\b|\bhoodies?\b|\bshoes?\b|\bbags?\b",
     re.I,
 )
 _WOMEN_RE = re.compile(r"\bwomen(?:['’]s)?\b", re.I)
@@ -135,6 +135,11 @@ _GENDER_PATH_RE = re.compile(r"(?:department|category_path|categorypath)$", re.I
 
 def _category_key(category: str) -> str:
     return " > ".join(part.strip().lower() for part in category.split(">") if part.strip())
+
+
+def _path_leaf(category: str) -> str:
+    parts = [part.strip() for part in category.split(">") if part.strip()]
+    return parts[-1] if parts else ""
 
 
 def _listing_text(listing: dict | None) -> str:
@@ -224,14 +229,14 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
     if not raw:
         return raw
 
+    if _NON_TOP_RE.search(_path_leaf(raw)):
+        return raw
+
     norms = CATEGORY_NORMALIZATIONS.get("general", {})
     alias = norms.get(raw.lower()) or norms.get(_category_key(raw))
     haystack = f"{raw} {_listing_text(listing)}"
     gender = _listing_gender(listing, raw)
     is_top = bool(_TOP_ITEM_RE.search(haystack))
-    path_is_other_item = bool(_NON_TOP_RE.search(raw)) and not _TOP_ITEM_RE.search(raw)
-    if path_is_other_item:
-        return raw
     if gender == "women" and is_top:
         return WOMEN_TOPS_PATH
     if gender == "men" and _TEE_ITEM_RE.search(haystack):
@@ -241,7 +246,7 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
     return raw
 
 
-_TEE_RE = re.compile(r"t-?shirts?|\btees?\b|graphic tee", re.I)
+_TEE_RE = re.compile(r"\bt-?shirts?\b|\btees?\b|graphic tee", re.I)
 _LONG_SLEEVE_RE = re.compile(r"long\s*sleeve", re.I)
 _BLOUSE_RE = re.compile(r"\bblouses?\b", re.I)
 _POSHMARK_ROOT_RE = re.compile(r"^(men|women|kids|pets|home|electronics)\s*>", re.I)
@@ -269,6 +274,8 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
                 return explicit_path
 
     if _POSHMARK_ROOT_RE.search(raw):
+        return raw
+    if _NON_TOP_RE.search(_path_leaf(raw)):
         return raw
 
     ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}

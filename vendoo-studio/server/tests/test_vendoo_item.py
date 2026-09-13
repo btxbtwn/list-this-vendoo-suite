@@ -136,5 +136,84 @@ class VendooItemRouteTest(unittest.TestCase):
         self.assertIn("did not return", response.json()["detail"])
 
 
+class ResolveCategoryRouteTest(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        self.db = Session()
+        self.conv = Conversation(title="Sweatshirt")
+        self.db.add(self.conv)
+        self.db.commit()
+        self.job = Job(
+            conversation_id=self.conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot={"title": "Fruit of the Loom Sweatshirt", "category_path": "T-Shirts"},
+            status="completed",
+            vendoo_url="https://web.vendoo.co/app/item/abc123",
+            vendoo_item_id="abc123",
+        )
+        self.db.add(self.job)
+        self.db.commit()
+
+        def override_get_db():
+            try:
+                yield self.db
+            finally:
+                pass
+
+        app.dependency_overrides[get_db] = override_get_db
+        self.client = TestClient(app)
+        extension_manager.connection = None
+        extension_manager.paired = False
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+        extension_manager.connection = None
+        extension_manager.paired = False
+        for request_id in list(extension_manager._waits):
+            extension_manager.cancel_wait(request_id)
+        self.db.close()
+
+    def _connect_chrome(self):
+        extension_manager.connection = MagicMock()
+        extension_manager.paired = True
+
+    def test_resolve_category_saves_picker_path(self):
+        self._connect_chrome()
+        path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweats & Hoodies > Sweatshirts"
+
+        async def fake_resolve(db, conv_id, query=None, job=None):
+            return {"ok": True, "query": "Men Sweatshirt", "path": path, "matches": [{"path": path}]}
+
+        with patch(
+            "vendoo_studio.services.category_lookup.resolve_listing_category",
+            new=AsyncMock(side_effect=fake_resolve),
+        ):
+            response = self.client.post(f"/api/jobs/{self.job.id}/resolve-category", json={"query": "Men Sweatshirt"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["path"], path)
+
+    def test_resolve_category_requires_chrome(self):
+        response = self.client.post(f"/api/jobs/{self.job.id}/resolve-category", json={})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Chrome is not connected", response.json()["detail"])
+
+    def test_resolve_category_blocks_active_fill(self):
+        self._connect_chrome()
+        self.job.status = "dispatched"
+        self.job.current_step = "filling_fields"
+        self.db.commit()
+        response = self.client.post(f"/api/jobs/{self.job.id}/resolve-category", json={})
+        self.assertEqual(response.status_code, 409)
+
+
 if __name__ == "__main__":
     unittest.main()

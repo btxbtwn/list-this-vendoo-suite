@@ -266,6 +266,23 @@ async def dispatch_vendoo_get(job, request_id: str) -> bool:
     ).model_dump(mode="json"))
 
 
+async def dispatch_search_categories(job, request_id: str, query: str) -> bool:
+    if not extension_manager.connected:
+        return False
+    return await extension_manager.send_message(ProtocolMessage(
+        type="job.search_categories",
+        job_id=job.id,
+        message_id=request_id,
+        payload={
+            "job_id": job.id,
+            "request_id": request_id,
+            "query": query,
+            "vendoo_item_id": job.vendoo_item_id,
+            "vendoo_url": job.vendoo_url,
+        },
+    ).model_dump(mode="json"))
+
+
 async def dispatch_open_listing(job) -> bool:
     if not extension_manager.connected:
         return False
@@ -503,6 +520,22 @@ async def extension_websocket(ws: WebSocket):
                         "source": payload.get("source"),
                         "item_id": payload.get("item_id"),
                         "error": payload.get("error") or payload.get("api_error"),
+                    })
+
+            elif msg_type == "job.categories":
+                payload = message.get("payload") or {}
+                request_id = payload.get("request_id") or message.get("message_id")
+                if request_id:
+                    extension_manager.resolve_wait(str(request_id), payload)
+                job_id = message.get("job_id")
+                if job_id:
+                    from vendoo_studio.repositories.queries import JobRepo
+                    repo = JobRepo(db)
+                    repo.add_event(job_id, "search_categories", None, {
+                        "ok": bool(payload.get("ok")),
+                        "query": payload.get("query"),
+                        "path": payload.get("path"),
+                        "error": payload.get("error"),
                     })
 
             elif msg_type == "job.completed":

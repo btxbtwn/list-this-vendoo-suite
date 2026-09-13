@@ -5,7 +5,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from pathlib import Path
 
@@ -238,6 +238,57 @@ async def get_vendoo_item(job_id: str, db: Session = Depends(get_db)):
         api_error=payload.get("api_error"),
         item=payload.get("item"),
         form=payload.get("form"),
+    )
+
+
+class ResolveCategoryRequest(BaseModel):
+    query: str | None = None
+
+
+class ResolveCategoryResponse(BaseModel):
+    ok: bool
+    query: str | None = None
+    path: str | None = None
+    matches: list[dict] = Field(default_factory=list)
+    error: str | None = None
+
+
+@router.post("/{job_id}/resolve-category", response_model=ResolveCategoryResponse)
+async def resolve_category(
+    job_id: str,
+    body: ResolveCategoryRequest = ResolveCategoryRequest(),
+    db: Session = Depends(get_db),
+):
+    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.category_lookup import resolve_listing_category
+
+    repo = JobRepo(db)
+    job = repo.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if not job.vendoo_url and not job.vendoo_item_id:
+        raise HTTPException(400, "No Vendoo draft is available yet. Send the listing first.")
+    if not extension_manager.connected:
+        raise HTTPException(400, "Chrome is not connected")
+    if job.status == "dispatched" and job.current_step == "filling_fields":
+        raise HTTPException(409, "A Vendoo fill is already running.")
+
+    result = await resolve_listing_category(
+        db,
+        job.conversation_id,
+        query=(body.query if body else None),
+        job=job,
+    )
+    if result.get("skipped"):
+        raise HTTPException(400, result.get("error") or "Could not search Vendoo categories")
+    if not result.get("ok"):
+        status = 504 if "in time" in str(result.get("error") or "") else 502
+        raise HTTPException(status, result.get("error") or "No matching Vendoo category")
+    return ResolveCategoryResponse(
+        ok=True,
+        query=result.get("query"),
+        path=result.get("path"),
+        matches=result.get("matches") or [],
     )
 
 
