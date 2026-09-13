@@ -4129,19 +4129,49 @@
       return urls.slice(0, 20);
   }
 
+  function normalizeScrapedFieldKey(raw) {
+      // listings.ebay.categorySpecifics.15687_Unit_Quantity -> "Unit Quantity"
+      return String(raw || '')
+          .replace(/^[0-9a-f]{8,}_/i, '')
+          .replace(/^\d+_/, '')
+          .replace(/_/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+  }
+
+  function deepMergeListings(base, overlay) {
+      const out = base && typeof base === 'object' ? { ...base } : {};
+      for (const [marketplace, section] of Object.entries(overlay || {})) {
+          if (!section || typeof section !== 'object') continue;
+          const current = out[marketplace] && typeof out[marketplace] === 'object' ? { ...out[marketplace] } : {};
+          for (const [bucket, fields] of Object.entries(section)) {
+              if (!fields || typeof fields !== 'object') continue;
+              const bucketOut = current[bucket] && typeof current[bucket] === 'object' ? { ...current[bucket] } : {};
+              for (const [key, value] of Object.entries(fields)) {
+                  if (!(key in bucketOut) || (value != null && String(value).trim() !== '')) {
+                      bucketOut[key] = value;
+                  }
+              }
+              current[bucket] = bucketOut;
+          }
+          out[marketplace] = current;
+      }
+      return out;
+  }
+
   function scrapeMarketplaceListingsFromDom() {
       const listings = {};
       const controls = document.querySelectorAll(
-          'input[id^="listings."], textarea[id^="listings."], select[id^="listings."], [id^="listings."][role="combobox"]'
+          'input[id^="listings."], textarea[id^="listings."], select[id^="listings."], [id^="listings."][role="combobox"], [name^="listings."]'
       );
       for (const el of controls) {
-          const id = el.id || '';
+          const id = el.id || el.getAttribute('name') || '';
           const parts = id.split('.');
           if (parts.length < 4 || parts[0] !== 'listings') continue;
           const marketplace = parts[1];
           const bucket = parts[2];
           if (!['overrides', 'marketplaceSpecifics', 'categorySpecifics'].includes(bucket)) continue;
-          const fieldKey = parts.slice(3).join('.');
+          const fieldKey = normalizeScrapedFieldKey(parts.slice(3).join('.'));
           if (!fieldKey || /image/i.test(fieldKey)) continue;
           if (!listings[marketplace]) listings[marketplace] = {};
           if (!listings[marketplace][bucket]) listings[marketplace][bucket] = {};
@@ -4156,42 +4186,99 @@
       return listings;
   }
 
+  function scrapeGeneralDetailsFromDom() {
+      const details = {
+          title: controlValue(VENDOO_SELECTORS.title),
+          description: controlValue(VENDOO_SELECTORS.description),
+          brand: controlValue(VENDOO_SELECTORS.brand),
+          condition: controlValue(VENDOO_SELECTORS.condition),
+          primaryColor: controlValue(VENDOO_SELECTORS.primaryColor),
+          secondaryColor: controlValue(VENDOO_SELECTORS.secondaryColor),
+          zipCode: controlValue(VENDOO_SELECTORS.zipCode),
+          tags: controlValue(VENDOO_SELECTORS.tags),
+          quantity: controlValue(VENDOO_SELECTORS.quantity),
+          size: controlValue(VENDOO_SELECTORS.size),
+          sku: controlValue(VENDOO_SELECTORS.sku),
+          price: controlValue(VENDOO_SELECTORS.price),
+          cost: controlValue(VENDOO_SELECTORS.cost),
+          notes: controlValue(VENDOO_SELECTORS.notes),
+          categoryV2: controlValue(VENDOO_SELECTORS.category),
+          weight: {
+              pounds: controlValue(VENDOO_SELECTORS.weightLb),
+              ounces: controlValue(VENDOO_SELECTORS.weightOz),
+          },
+          dimensions: {
+              length: controlValue(VENDOO_SELECTORS.length),
+              width: controlValue(VENDOO_SELECTORS.width),
+              height: controlValue(VENDOO_SELECTORS.height),
+          },
+      };
+      const controls = document.querySelectorAll(
+          'input[id^="generalDetails."], textarea[id^="generalDetails."], select[id^="generalDetails."], [id^="generalDetails."][role="combobox"]'
+      );
+      for (const el of controls) {
+          const id = el.id || '';
+          const path = id.slice('generalDetails.'.length);
+          if (!path || /image/i.test(path)) continue;
+          let value = '';
+          if ('value' in el && el.value != null) value = String(el.value).trim();
+          if (!value) value = (el.innerText || el.textContent || '').trim();
+          const parts = path.split('.');
+          let cursor = details;
+          for (let i = 0; i < parts.length - 1; i += 1) {
+              const part = parts[i];
+              if (!cursor[part] || typeof cursor[part] !== 'object') cursor[part] = {};
+              cursor = cursor[part];
+          }
+          const leaf = parts[parts.length - 1];
+          if (!(leaf in cursor) || value) cursor[leaf] = value;
+      }
+      return details;
+  }
+
+  async function discoverAllMarketplaceListings() {
+      const platforms = ['ebay', 'etsy', 'poshmark', 'mercari', 'depop'];
+      let listings = {};
+      for (const platform of platforms) {
+          try {
+              log(`Discovering ${platform} form fields (including empty optionals)...`);
+              await activateMarketplaceSection(platform);
+              await sleep(CONFIG.SLEEP_LONG);
+              if (platform === 'ebay') {
+                  await waitForEbayOptionalCategoryFields();
+              } else {
+                  await expandOptionalFields();
+                  await sleep(CONFIG.SLEEP_LONG);
+              }
+              listings = deepMergeListings(listings, scrapeMarketplaceListingsFromDom());
+              const count = Object.values(listings[platform] || {}).reduce(
+                  (sum, bucket) => sum + (bucket && typeof bucket === 'object' ? Object.keys(bucket).length : 0),
+                  0
+              );
+              log(`  ${platform}: ${count} fields`);
+          } catch (err) {
+              warn(`Discover ${platform} failed: ${err.message}`);
+          }
+      }
+      return listings;
+  }
+
   async function scrapeVendooItem() {
       const itemId = extractItemId();
       if (itemId === 'new') {
           return { ok: false, error: 'This is a new item, not a saved draft', url: window.location.href, item_id: null };
       }
+      // General form first, then every marketplace with optionals expanded so
+      // Studio gets the live field schema (empty keys included), not only API values.
+      await activateMarketplaceSection('general');
       await expandOptionalFields();
       await sleep(CONFIG.SLEEP_LONG);
+      const generalDetails = scrapeGeneralDetailsFromDom();
+      const listings = await discoverAllMarketplaceListings();
       const form = {
           itemID: itemId,
-          generalDetails: {
-              title: controlValue(VENDOO_SELECTORS.title),
-              description: controlValue(VENDOO_SELECTORS.description),
-              brand: controlValue(VENDOO_SELECTORS.brand),
-              condition: controlValue(VENDOO_SELECTORS.condition),
-              primaryColor: controlValue(VENDOO_SELECTORS.primaryColor),
-              secondaryColor: controlValue(VENDOO_SELECTORS.secondaryColor),
-              zipCode: controlValue(VENDOO_SELECTORS.zipCode),
-              tags: controlValue(VENDOO_SELECTORS.tags),
-              quantity: controlValue(VENDOO_SELECTORS.quantity),
-              size: controlValue(VENDOO_SELECTORS.size),
-              sku: controlValue(VENDOO_SELECTORS.sku),
-              price: controlValue(VENDOO_SELECTORS.price),
-              cost: controlValue(VENDOO_SELECTORS.cost),
-              notes: controlValue(VENDOO_SELECTORS.notes),
-              categoryV2: controlValue(VENDOO_SELECTORS.category),
-              weight: {
-                  pounds: controlValue(VENDOO_SELECTORS.weightLb),
-                  ounces: controlValue(VENDOO_SELECTORS.weightOz),
-              },
-              dimensions: {
-                  length: controlValue(VENDOO_SELECTORS.length),
-                  width: controlValue(VENDOO_SELECTORS.width),
-                  height: controlValue(VENDOO_SELECTORS.height),
-              },
-          },
-          listings: scrapeMarketplaceListingsFromDom(),
+          generalDetails,
+          listings,
           images: scrapeListingImageUrls().map((url) => ({ url })),
       };
       const filled = Object.values(form.generalDetails).some((value) => {

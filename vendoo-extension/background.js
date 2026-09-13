@@ -1092,7 +1092,7 @@ function commandTimeoutMs(command) {
     return 90000;
   }
   if (command.type === 'GET_VENDOO_ITEM') {
-    return 20000;
+    return 120000;
   }
   if (command.type === 'SEARCH_CATEGORIES') {
     return 45000;
@@ -1121,7 +1121,7 @@ function compactVendooValue(value, depth) {
   const ordered = [
     ...priority.filter((key) => keys.includes(key)),
     ...keys.filter((key) => !priority.includes(key)),
-  ].slice(0, 120);
+  ].slice(0, 400);
   for (const key of ordered) {
     out[key] = compactVendooValue(value[key], depth + 1);
   }
@@ -1210,7 +1210,7 @@ async function readVendooItemInPage(wantedId) {
       if (typeof node !== 'object') return node;
       if (Array.isArray(node)) return node.slice(0, 40).map((entry) => compact(entry, depth + 1));
       const out = {};
-      for (const key of Object.keys(node).slice(0, 120)) {
+      for (const key of Object.keys(node).slice(0, 400)) {
         out[key] = compact(node[key], depth + 1);
       }
       return out;
