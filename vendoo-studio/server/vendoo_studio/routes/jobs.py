@@ -587,6 +587,15 @@ def _ensure_listing_defaults(listing_snapshot: dict) -> None:
     if not str(listing_snapshot.get("sku") or "").strip():
         listing_snapshot["sku"] = _generate_sku(listing_snapshot)
 
+    from vendoo_studio.services.registry import map_vendoo_category_path
+
+    mapped_category = map_vendoo_category_path(
+        str(listing_snapshot.get("category_path") or ""),
+        listing_snapshot,
+    )
+    if mapped_category:
+        listing_snapshot["category_path"] = mapped_category
+
     mercari = listing_snapshot.get("mercari_specifics") or {}
     if not isinstance(mercari, dict):
         mercari = {}

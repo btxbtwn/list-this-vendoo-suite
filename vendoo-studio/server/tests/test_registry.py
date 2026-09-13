@@ -12,9 +12,12 @@ from vendoo_studio.models.job import Job  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import RegistryRepo
 from vendoo_studio.services.registry import (
+    MEN_TSHIRT_PATH,
+    WOMEN_TOPS_PATH,
     RegistryService,
     is_learned_listing_field,
     label_to_json_key,
+    map_vendoo_category_path,
 )
 
 
@@ -78,3 +81,47 @@ class RegistryMergeTest(unittest.TestCase):
         self.assertIn("character", text)
         self.assertNotIn("allow best offer", text.lower())
         self.assertIn("ebay", text)
+
+
+class CategoryMappingTest(unittest.TestCase):
+    def test_maps_abbreviated_womens_tee_path_using_title(self):
+        mapped = map_vendoo_category_path(
+            "Clothing > Women",
+            {"title": "Unknown S Southwestern Graphic T-Shirt", "department": "Women"},
+        )
+        self.assertEqual(mapped, WOMEN_TOPS_PATH)
+
+    def test_maps_mercari_style_womens_tshirt_path(self):
+        mapped = map_vendoo_category_path("Women > Clothing > Tops > T-shirts")
+        self.assertEqual(mapped, WOMEN_TOPS_PATH)
+
+    def test_maps_shirts_and_blouses_alias(self):
+        mapped = map_vendoo_category_path("Women's Shirts & Blouses")
+        self.assertEqual(mapped, WOMEN_TOPS_PATH)
+
+    def test_keeps_womens_dresses_path(self):
+        mapped = map_vendoo_category_path(
+            "Clothing > Women > Dresses",
+            {"title": "Floral Midi Dress", "department": "Women"},
+        )
+        self.assertEqual(mapped, "Clothing > Women > Dresses")
+
+    def test_maps_mens_tee_from_listing_type(self):
+        mapped = map_vendoo_category_path(
+            "Clothing > Men",
+            {"title": "Nike Tee", "ebay_specifics": {"department": "Men", "type": "T-Shirt"}},
+        )
+        self.assertEqual(mapped, MEN_TSHIRT_PATH)
+
+    def test_ensure_listing_defaults_rewrites_category(self):
+        from vendoo_studio.routes.jobs import _ensure_listing_defaults
+
+        listing = {
+            "title": "Unknown S Southwestern Graphic T-Shirt",
+            "category_path": "Clothing > Women",
+            "department": "Women",
+            "condition": "Good",
+        }
+        _ensure_listing_defaults(listing)
+        self.assertEqual(listing["category_path"], WOMEN_TOPS_PATH)
+        self.assertEqual(listing["mercari_specifics"]["shippingLabel"], "USPS Ground Advantage")
