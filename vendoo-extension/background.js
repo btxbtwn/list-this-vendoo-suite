@@ -769,8 +769,20 @@ async function openVisibleVendooWindow(url, existingTab) {
     height: ENGINE_HEIGHT,
   };
   if (existingTab?.id) {
+    if (existingTab.windowId) {
+      try {
+        const win = await chrome.windows.get(existingTab.windowId);
+        if (win?.id != null && !isOffscreenEngineWindow(win)) {
+          if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
+          else await chrome.tabs.update(existingTab.id, { active: true });
+          await showWindow(win.id);
+          return { ok: true, tabId: existingTab.id, windowId: win.id };
+        }
+      } catch (_) {}
+    }
     const created = await chrome.windows.create({ ...bounds, tabId: existingTab.id });
     await showWindow(created.id);
+    if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
     return { ok: true, tabId: existingTab.id, windowId: created.id };
   }
   const created = await chrome.windows.create({ ...bounds, url });
@@ -817,25 +829,27 @@ async function openListingForPatch(payload, { reload = true, preview = true } = 
   }
   const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
   const existing = await findTabByDraft(url, itemId);
-  if (existing?.id && !reload) {
+  let alreadyOpen = false;
+  if (existing?.id) {
     try {
       const current = await chrome.tabs.get(existing.id);
-      if (isTabReady(current)) {
-        if (preview && payload.job_id) {
-          await startJobPreview(current.id, payload.job_id);
-        }
-        return { ok: true, tabId: current.id };
-      }
+      alreadyOpen = isTabReady(current) && (
+        !itemId || extractItemIdFromUrl(current.url || '') === itemId
+      );
     } catch (_) {}
   }
-  const tab = await openTabInHiddenWindow(existing && !reload ? null : url, existing);
-  const tabId = tab.id;
-  const loaded = await waitForTabComplete(tabId, 15000);
+  const opened = await openVisibleVendooWindow(alreadyOpen ? null : url, existing);
+  const tabId = opened.tabId;
+  const loaded = await waitForTabComplete(tabId, 20000);
   if (preview && payload.job_id) {
     await startJobPreview(tabId, payload.job_id);
   }
   if (!isTabReady(loaded)) {
-    return { ok: false, error: `Vendoo draft did not finish loading (${loaded?.url || 'unknown url'})` };
+    if (loaded && isVendooUrl(loaded.url)) {
+      log(`Vendoo tab still ${loaded.status || 'unknown'}; continuing ${loaded.url}`);
+    } else {
+      return { ok: false, error: `Vendoo draft did not finish loading (${loaded?.url || 'unknown url'})` };
+    }
   }
   return { ok: true, tabId };
 }

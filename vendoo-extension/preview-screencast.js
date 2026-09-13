@@ -225,30 +225,63 @@ function startVisibleTabPoll(tabId, jobId) {
   }, PREVIEW_POLL_MS);
 }
 
-function startDebuggerScreenshotPoll(tabId, jobId) {
-  stopPreviewPolling();
-  previewPollTimer = setInterval(async () => {
-    if (!previewJobId || previewJobId !== jobId || previewTabId !== tabId || !previewAttached) {
-      return;
-    }
+async function preparePageForCapture(tabId) {
+  try {
+    await chrome.debugger.sendCommand({ tabId }, 'Page.setWebLifecycleState', {
+      state: 'active',
+    });
+  } catch (_) {}
+  try {
+    await chrome.debugger.sendCommand({ tabId }, 'Emulation.setDeviceMetricsOverride', {
+      width: ENGINE_WIDTH,
+      height: ENGINE_HEIGHT,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+  } catch (_) {}
+}
+
+async function captureDebuggerScreenshot(tabId) {
+  const attempts = [
+    { fromSurface: false, captureBeyondViewport: false },
+    { fromSurface: true, captureBeyondViewport: false },
+  ];
+  for (const options of attempts) {
     try {
       const result = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', {
         format: 'jpeg',
         quality: PREVIEW_QUALITY,
-        fromSurface: true,
-        captureBeyondViewport: false,
+        ...options,
       });
-      if (!result?.data) {
+      if (result?.data) {
+        return result.data;
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+function startDebuggerScreenshotPoll(tabId, jobId) {
+  stopPreviewPolling();
+  const captureOnce = async () => {
+    if (!previewJobId || previewJobId !== jobId || previewTabId !== tabId || !previewAttached) {
+      return;
+    }
+    try {
+      const data = await captureDebuggerScreenshot(tabId);
+      if (!data) {
         return;
       }
       const url = await tabPreviewUrl(tabId);
-      sendPreviewFrame(jobId, result.data, { url });
+      sendPreviewFrame(jobId, data, { url });
     } catch (_) {
       if (!previewAttached) {
         startVisibleTabPoll(tabId, jobId);
       }
     }
-  }, PREVIEW_POLL_MS);
+  };
+  captureOnce();
+  previewPollTimer = setInterval(captureOnce, PREVIEW_POLL_MS);
 }
 
 function armPreviewWatchdog(tabId, jobId) {
@@ -291,7 +324,12 @@ async function startJobPreview(tabId, jobId) {
   if (!tabId || !jobId) {
     return;
   }
-  await parkJobTab(tabId);
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab?.windowId) {
+      await showWindow(tab.windowId);
+    }
+  } catch (_) {}
   if (previewTabId === tabId && previewJobId === jobId && (previewAttached || previewPollTimer)) {
     return;
   }
@@ -302,6 +340,7 @@ async function startJobPreview(tabId, jobId) {
     await chrome.debugger.attach({ tabId }, PREVIEW_PROTOCOL);
     previewAttached = true;
     await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
+    await preparePageForCapture(tabId);
     try {
       await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
         format: 'jpeg',
@@ -311,11 +350,10 @@ async function startJobPreview(tabId, jobId) {
         everyNthFrame: 2,
       });
       log(`Preview screencast started on tab ${tabId}`);
-      armPreviewWatchdog(tabId, jobId);
     } catch (screencastErr) {
       log(`Preview screencast failed (${screencastErr.message}); polling screenshots`);
-      startDebuggerScreenshotPoll(tabId, jobId);
     }
+    startDebuggerScreenshotPoll(tabId, jobId);
   } catch (err) {
     previewAttached = false;
     log(`Preview debugger unavailable (${err.message}); using visible-tab capture fallback`);
