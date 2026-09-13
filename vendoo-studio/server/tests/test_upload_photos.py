@@ -49,7 +49,8 @@ const result = {
   empty: commandTimeoutMs({ type: 'UPLOAD_PHOTOS', files: [] }),
   four: commandTimeoutMs({ type: 'UPLOAD_PHOTOS', files: Array(4).fill({}) }),
   twenty: commandTimeoutMs({ type: 'UPLOAD_PHOTOS', files: Array(20).fill({}) }),
-  defaultType: commandTimeoutMs({ type: 'SAVE_GENERAL' }),
+  saveGeneral: commandTimeoutMs({ type: 'SAVE_GENERAL' }),
+  defaultType: commandTimeoutMs({ type: 'UNKNOWN_COMMAND' }),
 };
 console.log(JSON.stringify(result));
 """
@@ -64,6 +65,7 @@ console.log(JSON.stringify(result));
         self.assertEqual(result["empty"], 60000)
         self.assertEqual(result["four"], 60000)
         self.assertEqual(result["twenty"], 180000)
+        self.assertEqual(result["saveGeneral"], 60000)
         self.assertEqual(result["defaultType"], 45000)
 
     def test_background_fetches_job_photos_and_encodes_files(self) -> None:
