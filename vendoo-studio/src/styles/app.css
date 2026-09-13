@@ -1117,8 +1117,11 @@ html.desktop-app .workspace-drag-region {
   z-index: 1;
   display: grid;
   grid-template-columns: 11.5rem minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   width: min(52rem, 100%);
-  max-height: min(36rem, 100%);
+  height: min(36rem, calc(100dvh - 32px));
+  max-height: min(36rem, calc(100dvh - 32px));
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 16px;
@@ -1185,6 +1188,7 @@ html.desktop-app .workspace-drag-region {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .setup-guide-body {
@@ -1291,6 +1295,7 @@ html.desktop-app .workspace-drag-region {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-shrink: 0;
   padding: 12px 24px 16px;
   border-top: 1px solid var(--color-border);
 }
@@ -1303,7 +1308,9 @@ html.desktop-app .workspace-drag-region {
 @media (max-width: 900px) {
   .setup-guide-popup {
     grid-template-columns: 1fr;
-    max-height: 100%;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: min(36rem, calc(100dvh - 32px));
+    max-height: min(36rem, calc(100dvh - 32px));
   }
 
   .setup-guide-rail {

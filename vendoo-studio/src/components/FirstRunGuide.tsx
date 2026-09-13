@@ -22,7 +22,7 @@ type FirstRunGuideProps = {
   extensionConnected: boolean;
   creating?: boolean;
   onClose: () => void;
-  onCreateListing: () => void;
+  onCreateListing: () => boolean;
 };
 
 export function FirstRunGuide({
@@ -92,9 +92,15 @@ export function FirstRunGuide({
   const stepIndex = SETUP_GUIDE_STEPS.findIndex((item) => item.id === step);
   const isLast = step === "ready";
   const listingReady = chatgptSignedIn || mimoConfigured || providerConfigured;
+  const canCreateListing = providerConfigured;
   const chromeReady = extensionConnected;
   const canAdvance =
     step === "listing-ai" ? listingReady : true;
+
+  useEffect(() => {
+    if (!chatgptSignedIn && !mimoConfigured) return;
+    queryClient.invalidateQueries({ queryKey: ["status"] });
+  }, [chatgptSignedIn, mimoConfigured, queryClient]);
 
   const finish = () => {
     dismissSetupGuide();
@@ -387,16 +393,19 @@ export function FirstRunGuide({
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={creating || !listingReady}
+                  disabled={creating || !canCreateListing}
                   onClick={() => {
-                    onCreateListing();
-                    finish();
+                    if (onCreateListing()) finish();
                   }}
                 >
                   Create a listing
                 </button>
-                {!listingReady ? (
-                  <p className="setup-guide-note">Sign in with ChatGPT or save a MiMo key first.</p>
+                {!canCreateListing ? (
+                  <p className="setup-guide-note">
+                    {listingReady
+                      ? "Waiting for Studio to see ChatGPT or MiMo before creating a listing."
+                      : "Sign in with ChatGPT or save a MiMo key first."}
+                  </p>
                 ) : null}
               </>
             ) : null}

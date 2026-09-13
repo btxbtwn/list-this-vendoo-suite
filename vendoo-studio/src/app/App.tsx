@@ -173,8 +173,9 @@ export function App() {
     },
   });
   const createListing = () => {
-    if (!providerConfigured || createConv.isPending) return;
+    if (!providerConfigured || createConv.isPending) return false;
     createConv.mutate();
+    return true;
   };
 
   const cancelJob = useMutation({
