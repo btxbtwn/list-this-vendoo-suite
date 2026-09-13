@@ -22,8 +22,11 @@ from vendoo_studio.services.listing_generate import (
     extract_listing_json,
     format_photo_analysis,
     latest_photo_analysis,
+    looks_like_listing_attempt,
     persist_generated_listing,
+    persist_generated_listing_with_repair,
     photo_analysis_usable,
+    repair_listing_json,
     seller_item_details,
 )
 from vendoo_studio.services.registry import MEN_TSHIRT_PATH
@@ -85,6 +88,12 @@ class ListingGenerateHelpersTest(unittest.TestCase):
 
     def test_rejects_error_text(self):
         self.assertIsNone(extract_listing_json("Error: timeout"))
+
+    def test_looks_like_listing_attempt(self):
+        self.assertTrue(looks_like_listing_attempt('{"title": "Tee", "price":'))
+        self.assertTrue(looks_like_listing_attempt("```json\n{broken\n```"))
+        self.assertFalse(looks_like_listing_attempt("Sure, I can help with that."))
+        self.assertFalse(looks_like_listing_attempt("Error: boom"))
 
     def test_seller_item_details_from_notes(self):
         notes = json.dumps({
@@ -201,6 +210,42 @@ class PersistListingTest(unittest.TestCase):
         messages = ConversationRepo(self.db).get_messages(self.conv.id)
         self.assertTrue(any(m.role == "assistant" for m in messages))
         self.assertTrue(any("Listing extracted" in m.text for m in messages))
+
+    def test_persist_with_repair_saves_repaired_listing(self):
+        broken = 'Here is the listing:\n```json\n{"title": "Broken Tee", "price": 12,\n```'
+
+        class RepairProvider:
+            def __init__(self):
+                self.chat_calls = 0
+
+            async def chat(self, messages, stream=True):
+                self.chat_calls += 1
+                yield "```json\n" + json.dumps(LISTING_JSON) + "\n```"
+
+        provider = RepairProvider()
+
+        async def run():
+            return await persist_generated_listing_with_repair(
+                self.db, self.conv.id, broken, provider
+            )
+
+        parsed = asyncio.run(run())
+        self.assertEqual(parsed["title"], LISTING_JSON["title"])
+        self.assertEqual(provider.chat_calls, 1)
+        messages = ConversationRepo(self.db).get_messages(self.conv.id)
+        self.assertTrue(any("repaired" in (m.text or "").lower() for m in messages))
+        revisions = ListingRepo(self.db).get_revisions(self.conv.id)
+        self.assertEqual(len(revisions), 1)
+
+    def test_repair_listing_json_skips_plain_chat(self):
+        class BoomProvider:
+            async def chat(self, messages, stream=True):
+                raise AssertionError("should not call provider")
+
+        async def run():
+            return await repair_listing_json(BoomProvider(), "Looks good to me.")
+
+        self.assertIsNone(asyncio.run(run()))
 
     def test_apply_payload_saves_mixed_json_patch_with_list_indexes(self):
         listing_repo = ListingRepo(self.db)
@@ -358,6 +403,39 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(revisions[0].listing_json["title"], LISTING_JSON["title"])
         self.assertEqual(conv.status, "draft")
         db.close()
+
+    async def test_generate_repairs_malformed_listing_json(self):
+        class RepairingProvider(FakeProvider):
+            async def chat(self, messages, stream=True):
+                self.chat_calls += 1
+                self.chat_messages = messages
+                contents = " ".join(str(m.get("content") or "") for m in messages).lower()
+                if "malformed" in contents:
+                    yield "```json\n" + json.dumps(LISTING_JSON) + "\n```"
+                    return
+                yield '```json\n{"title": "Broken Tee", "price": 12,\n```'
+
+        self.provider = RepairingProvider()
+        self.patches[0].stop()
+        provider_patch = patch("vendoo_studio.routes.chat.get_listing_provider", return_value=self.provider)
+        provider_patch.start()
+        self.patches[0] = provider_patch
+
+        transport = ASGITransport(app=app)
+        body = ""
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                self.assertEqual(resp.status_code, 200)
+                body = "".join([chunk async for chunk in resp.aiter_text()])
+        self.assertIn("Repairing listing JSON", body)
+        self.assertGreaterEqual(self.provider.chat_calls, 2)
+        db = self.Session()
+        revisions = ListingRepo(db).get_revisions(self.conv_id)
+        messages = ConversationRepo(db).get_messages(self.conv_id)
+        db.close()
+        self.assertEqual(len(revisions), 1)
+        self.assertEqual(revisions[0].listing_json["title"], LISTING_JSON["title"])
+        self.assertTrue(any("repaired" in (m.text or "").lower() for m in messages))
 
     async def test_generate_reanalyzes_when_prior_analysis_was_empty(self):
         db = self.Session()
