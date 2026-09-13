@@ -59,6 +59,101 @@ SSE_HEADERS = {
     "Connection": "keep-alive",
 }
 KEEPALIVE = ": keepalive\n\n"
+_DONE = object()
+_generation_tasks: set[asyncio.Task] = set()
+_generations: dict[str, "_GenerationRun"] = {}
+
+
+class _GenerationRun:
+    def __init__(self) -> None:
+        self.history: list[str] = []
+        self.subscribers: set[asyncio.Queue] = set()
+        self.task: asyncio.Task | None = None
+        self.done = False
+        self.cancelling = False
+
+    def subscribe(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue()
+        for item in self.history:
+            queue.put_nowait(item)
+        if self.done:
+            queue.put_nowait(_DONE)
+        self.subscribers.add(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue) -> None:
+        self.subscribers.discard(queue)
+
+    def publish(self, item: str) -> None:
+        if item != KEEPALIVE:
+            self.history.append(item)
+        for queue in list(self.subscribers):
+            queue.put_nowait(item)
+
+    def finish(self) -> None:
+        self.done = True
+        for queue in list(self.subscribers):
+            queue.put_nowait(_DONE)
+
+
+def _active_generation(conv_id: str) -> _GenerationRun | None:
+    run = _generations.get(conv_id)
+    if run and not run.done and not run.cancelling:
+        return run
+    return None
+
+
+def _spawn(coro) -> asyncio.Task:
+    task = asyncio.get_running_loop().create_task(coro)
+    _generation_tasks.add(task)
+    task.add_done_callback(_generation_tasks.discard)
+    return task
+
+
+async def _pump_generation(run: _GenerationRun, work) -> None:
+    try:
+        await work(run)
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        log.exception("listing generation pump failed")
+    finally:
+        run.finish()
+
+
+async def _follow_generation(run: _GenerationRun):
+    queue = run.subscribe()
+    try:
+        yield KEEPALIVE
+        while True:
+            item = await queue.get()
+            if item is _DONE:
+                break
+            yield item
+    finally:
+        run.unsubscribe(queue)
+
+
+async def wait_generation(conv_id: str) -> None:
+    run = _generations.get(conv_id)
+    if run and run.task:
+        try:
+            await run.task
+        except asyncio.CancelledError:
+            pass
+
+
+async def reset_generations() -> None:
+    for run in list(_generations.values()):
+        if run.task and not run.task.done():
+            run.cancelling = True
+            run.task.cancel()
+    _generations.clear()
+    _generation_tasks.clear()
+
+
+def _stream_generation(run: _GenerationRun) -> StreamingResponse:
+    return StreamingResponse(_follow_generation(run), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 class ChatMessage(BaseModel):
@@ -102,18 +197,33 @@ def _load_skill_rules() -> str:
 async def _iter_with_keepalives(source, timeout: float = 10.0):
     iterator = source.__aiter__()
     pending = None
-    while True:
-        if pending is None:
-            pending = asyncio.ensure_future(iterator.__anext__())
-        try:
-            item = await asyncio.wait_for(asyncio.shield(pending), timeout=timeout)
-        except StopAsyncIteration:
-            return
-        except asyncio.TimeoutError:
-            yield None
-            continue
-        pending = None
-        yield item
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(iterator.__anext__())
+            done, _ = await asyncio.wait({pending}, timeout=timeout)
+            if not done:
+                yield None
+                continue
+            try:
+                item = pending.result()
+            except StopAsyncIteration:
+                return
+            pending = None
+            yield item
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            try:
+                await pending
+            except (asyncio.CancelledError, StopAsyncIteration, Exception):
+                pass
+
+
+async def _wait_task_keepalives(task: asyncio.Task, timeout: float = 10.0):
+    while not task.done():
+        yield
+        await asyncio.wait({task}, timeout=timeout)
 
 
 def _learned_fields_prompt(db: Session, conv_id: str) -> str:
@@ -397,6 +507,10 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     provider = _require_provider()
     vision_name, vision_model = _vision_meta(provider)
 
+    existing = _active_generation(conv_id)
+    if existing is not None:
+        return _stream_generation(existing)
+
     photos = repo.get_photos(conv_id)
     if not photos:
         raise HTTPException(400, "No photos to generate from. Upload product photos first.")
@@ -405,13 +519,15 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     skill_rules = _load_skill_rules()
     notes = conv.notes or ""
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
+    # Release the request-scoped session before background work opens its own.
+    db.close()
 
-    async def stream_response():
-        yield _sse_event("status", "Analyzing photos…")
-        yield KEEPALIVE
+    async def run_generation(run: _GenerationRun):
+        run.publish(_sse_event("status", "Analyzing photos…"))
         stream_db = SessionLocal()
         stream_repo = ConversationRepo(stream_db)
         full_text = ""
+        child_tasks: list[asyncio.Task] = []
         try:
             evidence: dict = {}
             existing = latest_photo_analysis(stream_repo.get_messages(conv_id))
@@ -421,12 +537,9 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 analysis_task = asyncio.create_task(
                     provider.analyze_photos(paths, notes=notes, listing_rules=skill_rules[:8000])
                 )
-                while not analysis_task.done():
-                    yield KEEPALIVE
-                    try:
-                        await asyncio.wait_for(asyncio.shield(analysis_task), timeout=10)
-                    except asyncio.TimeoutError:
-                        continue
+                child_tasks.append(analysis_task)
+                async for _ in _wait_task_keepalives(analysis_task):
+                    run.publish(KEEPALIVE)
                 try:
                     result = analysis_task.result()
                     evidence = result.get("evidence", {}) or {}
@@ -440,14 +553,11 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
 
             comps_text = ""
             if comps_search_available():
-                yield _sse_event("status", "Looking up sold comps…")
+                run.publish(_sse_event("status", "Looking up sold comps…"))
                 comps_task = asyncio.create_task(research_sold_comps(analysis_text, evidence))
-                while not comps_task.done():
-                    yield KEEPALIVE
-                    try:
-                        await asyncio.wait_for(asyncio.shield(comps_task), timeout=10)
-                    except asyncio.TimeoutError:
-                        continue
+                child_tasks.append(comps_task)
+                async for _ in _wait_task_keepalives(comps_task):
+                    run.publish(KEEPALIVE)
                 comps_text = comps_task.result()
                 if comps_text:
                     source = "chatgpt" if "Source: ChatGPT" in comps_text else "brave"
@@ -455,25 +565,28 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
 
             item_details = seller_item_details(notes)
             messages = _listing_messages(skill_rules, item_details, analysis_text, stream_db, conv_id, comps_text)
-            yield _sse_event("status", "thinking")
+            run.publish(_sse_event("status", "thinking"))
 
             async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
                 if item is None:
-                    yield KEEPALIVE
+                    run.publish(KEEPALIVE)
                     continue
                 payload, content = _sse_for_stream_item(item)
                 if content:
                     full_text += content
                 if payload:
-                    yield payload
+                    run.publish(payload)
 
             if not full_text.strip() or full_text.lstrip().lower().startswith("error:"):
                 raise RuntimeError(full_text.strip() or "Listing generation returned no text")
             persist_generated_listing(stream_db, conv_id, full_text)
             stream_repo.update_status(conv_id, "draft")
-            yield "data: [DONE]\n\n"
+            run.publish("data: [DONE]\n\n")
         except asyncio.CancelledError:
             log.warning("listing generation cancelled for %s; saving any completed text", conv_id)
+            for task in child_tasks:
+                if not task.done():
+                    task.cancel()
             if full_text.strip() and not full_text.lstrip().lower().startswith("error:"):
                 try:
                     persist_generated_listing(stream_db, conv_id, full_text)
@@ -487,15 +600,31 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         except Exception as e:
             log.warning("listing generation failed for %s: %s", conv_id, e)
             try:
-                yield _sse_data(f"Error: {e}")
-                yield "data: [DONE]\n\n"
+                run.publish(_sse_data(f"Error: {e}"))
+                run.publish("data: [DONE]\n\n")
                 stream_repo.update_status(conv_id, "draft")
             except Exception:
                 log.exception("failed to report listing generation error for %s", conv_id)
         finally:
+            for task in child_tasks:
+                if not task.done():
+                    task.cancel()
             stream_db.close()
 
-    return StreamingResponse(stream_response(), media_type="text/event-stream", headers=SSE_HEADERS)
+    run = _GenerationRun()
+    _generations[conv_id] = run
+    run.task = _spawn(_pump_generation(run, run_generation))
+    await asyncio.sleep(0)
+    return _stream_generation(run)
+
+
+@router.post("/api/conversations/{conv_id}/generate/cancel")
+async def cancel_generate_listing(conv_id: str):
+    run = _generations.get(conv_id)
+    if run and run.task and not run.task.done():
+        run.cancelling = True
+        run.task.cancel()
+    return {"ok": True}
 
 
 def _listing_messages(
