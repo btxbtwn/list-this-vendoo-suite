@@ -358,7 +358,7 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
       const key = fieldMatchKey(field);
       if (key) seen.add(key);
       const match = listingFields.get(key);
-      if (!match || isEmptyValue(match.value)) return field;
+      if (!match || fieldIsMissing(match.value, match.label || field.label)) return field;
       return { ...field, value: match.value, missing: false };
     });
     // Listing-only values (chat-filled optionals) are missing from the Vendoo API
@@ -367,7 +367,7 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
     const extras: DraftField[] = [];
     for (const field of listingForm.fields) {
       const key = fieldMatchKey(field);
-      if (!key || seen.has(key) || isEmptyValue(field.value)) continue;
+      if (!key || seen.has(key) || fieldIsMissing(field.value, field.label)) continue;
       seen.add(key);
       extras.push({
         ...field,
@@ -720,22 +720,26 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
         ? attachLeftover(found) || takeLeftover([...spec.keys, normalizeFieldName(spec.label)])
         : takeLeftover([...spec.keys, normalizeFieldName(spec.label)]);
       if (found) {
+        const cleaned = fieldDisplayValue(found.value, spec.label);
+        const leftoverPreview = fieldDisplayValue(leftover?.value_preview || "", spec.label);
+        const value = cleaned || leftoverPreview || "";
         rows.push({
           ...found,
           label: spec.label,
           section: section.label,
           leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : found.leftover,
-          missing: found.value ? found.missing : leftover ? FILLABLE_STATUSES.has(leftover.status) : found.missing,
-          value: found.value || leftover?.value_preview || "",
+          missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
+          value,
         });
         continue;
       }
       if (spec.always || leftover) {
+        const value = fieldDisplayValue(leftover?.value_preview || "", spec.label);
         rows.push({
           key: leftover?.id || `${marketplace}.${spec.keys[0]}`,
           label: spec.label,
-          value: leftover?.value_preview || "",
-          missing: leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
+          value,
+          missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
           leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : undefined,
           section: section.label,
         });
@@ -747,11 +751,14 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
   const namedExtras = placed.get(extrasSection) || [];
   const extraRows: DraftField[] = [...unused.values()].flat().map((field) => {
     const leftover = attachLeftover(field);
+    const cleaned = fieldDisplayValue(field.value, field.label);
+    const leftoverPreview = fieldDisplayValue(leftover?.value_preview || "", field.label);
+    const value = cleaned || leftoverPreview || "";
     return {
       ...field,
       leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : field.leftover,
-      missing: field.value ? field.missing : leftover ? FILLABLE_STATUSES.has(leftover.status) : field.missing,
-      value: field.value || leftover?.value_preview || "",
+      missing: value ? false : leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
+      value,
       section: extrasSection,
     };
   });
@@ -760,11 +767,13 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
     const key = normalizeFieldName(entry.field);
     if (key && seenExtras.has(key)) return [];
     if (key) seenExtras.add(key);
+    const label = entry.field.replace(/^(ebay|etsy|poshmark|mercari|depop|vendoo)\s+/i, "").trim() || entry.field;
+    const value = fieldDisplayValue(entry.value_preview || "", label);
     return [{
       key: entry.id,
-      label: entry.field.replace(/^(ebay|etsy|poshmark|mercari|depop|vendoo)\s+/i, "").trim() || entry.field,
-      value: entry.value_preview || "",
-      missing: FILLABLE_STATUSES.has(entry.status),
+      label,
+      value,
+      missing: value ? false : FILLABLE_STATUSES.has(entry.status),
       leftover: FILLABLE_STATUSES.has(entry.status) ? entry : undefined,
       section: extrasSection,
     }];
@@ -819,6 +828,41 @@ function isEmptyValue(value: unknown): boolean {
   return true;
 }
 
+/** MUI empty selects often render the field label itself as the visible text. */
+function isPlaceholderFieldValue(value: unknown, label?: string): boolean {
+  if (isEmptyValue(value)) return true;
+  if (typeof value !== "string") return false;
+  const shown = value
+    .trim()
+    .replace(/[*?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!shown) return true;
+  const lower = shown.toLowerCase();
+  if (/^(select|choose|pick|----)\b/.test(lower)) return true;
+  if (label) {
+    const labelNorm = label
+      .trim()
+      .replace(/[*?]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    if (labelNorm && lower === labelNorm) return true;
+  }
+  return /^(department|type|size|size type|condition|brand|primary color|secondary color|shipping label|category)$/i.test(
+    lower,
+  );
+}
+
+function fieldDisplayValue(value: unknown, label?: string): string {
+  if (isPlaceholderFieldValue(value, label)) return "";
+  return displayValue(value);
+}
+
+function fieldIsMissing(value: unknown, label?: string): boolean {
+  return isPlaceholderFieldValue(value, label);
+}
+
 function displayValue(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "boolean") return value ? "Yes" : "No";
@@ -869,8 +913,9 @@ function displayValue(value: unknown): string {
 function flattenFields(value: unknown, prefix = ""): DraftField[] {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     if (!prefix) return [];
-    const shown = displayValue(value);
-    return [{ key: prefix, label: fieldLabel(prefix.split(".").pop() || prefix), value: shown, missing: isEmptyValue(value) }];
+    const label = fieldLabel(prefix.split(".").pop() || prefix);
+    const shown = fieldDisplayValue(value, label);
+    return [{ key: prefix, label, value: shown, missing: fieldIsMissing(value, label) }];
   }
   const record = value as Record<string, unknown>;
   if (
@@ -879,12 +924,13 @@ function flattenFields(value: unknown, prefix = ""): DraftField[] {
     record.option ||
     (record.value != null && Object.keys(record).length <= 3)
   ) {
-    const shown = displayValue(record);
+    const label = fieldLabel((prefix.split(".").pop() || prefix || "Value"));
+    const shown = fieldDisplayValue(record, label);
     return [{
       key: prefix || "value",
-      label: fieldLabel((prefix.split(".").pop() || prefix || "Value")),
+      label,
       value: shown,
-      missing: isEmptyValue(record),
+      missing: fieldIsMissing(record, label),
     }];
   }
   const rows: DraftField[] = [];
@@ -898,14 +944,14 @@ function flattenFields(value: unknown, prefix = ""): DraftField[] {
         rows.push({
           key: `${path}.option`,
           label: "US Size",
-          value: displayValue(nestedRecord.option),
-          missing: isEmptyValue(nestedRecord.option),
+          value: fieldDisplayValue(nestedRecord.option, "US Size"),
+          missing: fieldIsMissing(nestedRecord.option, "US Size"),
         });
         rows.push({
           key: `${path}.scale`,
           label: "Size Type",
-          value: displayValue(nestedRecord.scale),
-          missing: isEmptyValue(nestedRecord.scale),
+          value: fieldDisplayValue(nestedRecord.scale, "Size Type"),
+          missing: fieldIsMissing(nestedRecord.scale, "Size Type"),
         });
         continue;
       }
@@ -919,12 +965,13 @@ function flattenFields(value: unknown, prefix = ""): DraftField[] {
         continue;
       }
     }
-    const shown = displayValue(nested);
+    const label = fieldLabel(key);
+    const shown = fieldDisplayValue(nested, label);
     rows.push({
       key: path,
-      label: fieldLabel(key),
+      label,
       value: shown,
-      missing: isEmptyValue(nested),
+      missing: fieldIsMissing(nested, label),
     });
   }
   return rows;
@@ -1110,7 +1157,7 @@ function nestedListingValue(listing: Record<string, unknown>, path: string): unk
 
 function listingField(listing: Record<string, unknown>, key: string, label: string): DraftField {
   const raw = nestedListingValue(listing, key);
-  return { key, label, value: displayValue(raw), missing: isEmptyValue(raw) };
+  return { key, label, value: fieldDisplayValue(raw, label), missing: fieldIsMissing(raw, label) };
 }
 
 function specificsListingFields(listing: Record<string, unknown>, marketplace: string): DraftField[] {
@@ -1120,20 +1167,22 @@ function specificsListingFields(listing: Record<string, unknown>, marketplace: s
   for (const [key, value] of Object.entries(specs as Record<string, unknown>)) {
     if (key === "category_specifics" && value && typeof value === "object" && !Array.isArray(value)) {
       for (const [nested, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        const label = nested;
         fields.push({
           key: `${marketplace}_specifics.category_specifics.${nested}`,
-          label: nested,
-          value: displayValue(nestedValue),
-          missing: isEmptyValue(nestedValue),
+          label,
+          value: fieldDisplayValue(nestedValue, label),
+          missing: fieldIsMissing(nestedValue, label),
         });
       }
       continue;
     }
+    const label = fieldLabel(key);
     fields.push({
       key: `${marketplace}_specifics.${key}`,
-      label: fieldLabel(key),
-      value: displayValue(value),
-      missing: isEmptyValue(value),
+      label,
+      value: fieldDisplayValue(value, label),
+      missing: fieldIsMissing(value, label),
     });
   }
   return fields;
