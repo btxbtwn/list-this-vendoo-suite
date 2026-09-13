@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
 import {
   DEFAULT_SETTINGS_SECTION,
@@ -329,7 +330,7 @@ function AboutVersionRow({ version }: { version: string }) {
   );
 }
 
-function GeneralPanel() {
+function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   const { data: status } = useQuery({
     queryKey: ["status"],
     queryFn: api.status,
@@ -338,6 +339,17 @@ function GeneralPanel() {
     <>
       <MarketplacesSection />
       <HiddenFieldsSection />
+      <SettingsSection id="setup-guide" title="Setup guide">
+        <SettingsRow
+          title="First-run tutorial"
+          description="Walk through ChatGPT or MiMo, Brave Search, Connect Chrome, and how the listing workspace is laid out."
+          control={
+            <button type="button" className="btn btn-sm btn-outline" onClick={onOpenSetupGuide}>
+              Open setup guide
+            </button>
+          }
+        />
+      </SettingsSection>
       <SettingsSection id="about" title="About">
         <AboutVersionRow version={status?.version || "0.1.0"} />
       </SettingsSection>
@@ -362,24 +374,24 @@ function ProvidersPanel() {
     enabled: chatgptSignedIn,
   });
 
+  const refreshProvider = () => {
+    queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+    queryClient.invalidateQueries({ queryKey: ["chatgpt-models"] });
+    queryClient.invalidateQueries({ queryKey: ["status"] });
+  };
+
   const setKeyMutation = useMutation({
     mutationFn: (key: string) => api.settings.setProvider(key),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+      refreshProvider();
       setApiKey("");
     },
   });
 
   const deleteKeyMutation = useMutation({
     mutationFn: () => api.settings.deleteKey(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings-provider"] }),
+    onSuccess: refreshProvider,
   });
-
-  const refreshProvider = () => {
-    queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
-    queryClient.invalidateQueries({ queryKey: ["chatgpt-models"] });
-    queryClient.invalidateQueries({ queryKey: ["status"] });
-  };
 
   const chatgptLoginMutation = useMutation({
     mutationFn: () => api.settings.chatgptLogin(),
@@ -506,8 +518,8 @@ function ProvidersPanel() {
         >
           {chatgptSignedIn ? (
             <p className="settings-row-desc">
-              Signed in{chatgpt.email ? ` as ${chatgpt.email}` : ""}
-              {chatgpt.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
+              Signed in{chatgpt?.email ? ` as ${chatgpt.email}` : ""}
+              {chatgpt?.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
             </p>
           ) : chatgptPending ? (
             <p className="settings-row-desc">
@@ -623,7 +635,9 @@ function ProvidersPanel() {
           title="Status"
           description={
             mimoConfigured
-              ? `Configured · ${provider?.masked_key}`
+              ? chatgptSignedIn
+                ? `Fallback · ${provider?.masked_key}`
+                : `Configured · ${provider?.masked_key}`
               : chatgptSignedIn
                 ? "Fallback when ChatGPT is signed out"
                 : "Not configured"
@@ -666,9 +680,15 @@ function ConnectionsPanel() {
     <SettingsSection id="connections" title="Connections">
       <SettingsRow
         title="Vendoo in Chrome"
-        description="Connect Chrome opens Vendoo in your everyday Chrome, where the listing extension should already be loaded. Send to Vendoo fills a background tab in that same Chrome and closes it when the draft is saved."
+        description="Connect Chrome opens Vendoo in your everyday Chrome and reloads Studio's listing extension so it matches this build. Send to Vendoo fills a background tab in that same Chrome and closes it when the draft is saved."
         control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
       />
+      <SettingsRow
+        title="Listing extension folder"
+        description="Copy this path. In chrome://extensions turn on Developer mode, click Load unpacked, press Control-Shift-G (⌘⇧G) to search for the folder, paste the path, then Open. Studio overwrites this folder on launch so Chrome and Studio stay on the same files."
+      >
+        <ExtensionLoadPath compact hideHint />
+      </SettingsRow>
     </SettingsSection>
   );
 }
@@ -695,10 +715,12 @@ export function SettingsPage({
   section = DEFAULT_SETTINGS_SECTION,
   targetId = null,
   onTargetHandled,
+  onOpenSetupGuide,
 }: {
   section?: SettingsSectionId;
   targetId?: string | null;
   onTargetHandled?: () => void;
+  onOpenSetupGuide?: () => void;
 }) {
   useEffect(() => {
     if (!targetId) return;
@@ -711,7 +733,7 @@ export function SettingsPage({
   return (
     <div className="settings-page" data-settings-page-scroll>
       <div className="settings-page-inner">
-        {section === "general" ? <GeneralPanel /> : null}
+        {section === "general" ? <GeneralPanel onOpenSetupGuide={onOpenSetupGuide} /> : null}
         {section === "providers" ? <ProvidersPanel /> : null}
         {section === "integrations" ? <IntegrationsPanel /> : null}
         {section === "connections" ? <ConnectionsPanel /> : null}

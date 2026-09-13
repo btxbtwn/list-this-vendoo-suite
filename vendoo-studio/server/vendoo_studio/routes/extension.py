@@ -15,8 +15,9 @@ from vendoo_studio.services.chrome_bridge import (
     ChromeBridgeError,
     clear_extension_reload_pending,
     extension_build_status,
+    extension_reload_token_if_needed,
     install_bundled_extension,
-    launch_studio_chrome,
+    relaunch_studio_chrome,
 )
 
 router = APIRouter(tags=["extension"])
@@ -29,6 +30,7 @@ class ExtensionManager:
         self.connection: Optional[WebSocket] = None
         self.paired = False
         self.version: Optional[str] = None
+        self.build: Optional[str] = None
         self.reload_generation: Optional[str] = None
         self._pairing_token: Optional[str] = None
         self._waits: dict[str, asyncio.Future] = {}
@@ -48,6 +50,13 @@ class ExtensionManager:
         fut = self._waits.pop(request_id, None)
         if fut and not fut.done():
             fut.cancel()
+
+    def _mark_disconnected(self) -> None:
+        self.connection = None
+        self.paired = False
+        self.version = None
+        self.build = None
+        self.reload_generation = None
 
     @property
     def connected(self) -> bool:
@@ -91,24 +100,21 @@ class ExtensionManager:
             return True
         except Exception:
             if self.connection is connection:
-                self.connection = None
-                self.paired = False
+                self._mark_disconnected()
             return False
 
     async def disconnect(self, ws: WebSocket | None = None):
         connection = self.connection if ws is None else ws
         if connection is None:
             if ws is None:
-                self.connection = None
-                self.paired = False
+                self._mark_disconnected()
             return
         try:
             await connection.close()
         except Exception:
             pass
         if self.connection is connection:
-            self.connection = None
-            self.paired = False
+            self._mark_disconnected()
 
 
 extension_manager = ExtensionManager()
@@ -120,6 +126,14 @@ def _reported_reload_generation(payload: dict) -> str | None:
         return None
     token = str(reported).strip()
     return token or None
+
+
+def _reported_build(payload: dict) -> str | None:
+    reported = payload.get("build")
+    if reported is None:
+        return None
+    text = str(reported).strip()
+    return text or None
 
 
 def _reported_version(payload: dict) -> str | None:
@@ -141,14 +155,22 @@ async def handshake_extension(
     ws: WebSocket,
     reported_generation: str | None,
     reported_version: str | None = None,
+    reported_build: str | None = None,
 ) -> bool:
     try:
         install_bundled_extension()
     except ChromeBridgeError:
         pass
-    # Never chrome.runtime.reload() here. That reloads every Vendoo tab and
-    # leaves Connect Chrome on a white page. Connect Chrome opens everyday
-    # Chrome after quitting any leftover Studio-managed Chrome.
+    token = extension_reload_token_if_needed(reported_version, reported_generation, reported_build)
+    if token:
+        # One worker reload when Chrome is not yet on this Studio copy. A
+        # second pass with the same generation is accepted so Vendoo tabs
+        # are not reloaded in a loop.
+        await ws.send_json(ProtocolMessage(
+            type="extension.reload",
+            payload={"generation": token},
+        ).model_dump(mode="json"))
+        return False
     clear_extension_reload_pending()
     await ws.send_json(ProtocolMessage(
         type="connection.accepted",
@@ -244,6 +266,23 @@ async def dispatch_vendoo_get(job, request_id: str) -> bool:
     ).model_dump(mode="json"))
 
 
+async def dispatch_search_categories(job, request_id: str, query: str) -> bool:
+    if not extension_manager.connected:
+        return False
+    return await extension_manager.send_message(ProtocolMessage(
+        type="job.search_categories",
+        job_id=job.id,
+        message_id=request_id,
+        payload={
+            "job_id": job.id,
+            "request_id": request_id,
+            "query": query,
+            "vendoo_item_id": job.vendoo_item_id,
+            "vendoo_url": job.vendoo_url,
+        },
+    ).model_dump(mode="json"))
+
+
 async def dispatch_open_listing(job) -> bool:
     if not extension_manager.connected:
         return False
@@ -332,6 +371,7 @@ def extension_status():
         **extension_build_status(
             extension_manager.version,
             extension_manager.reload_generation,
+            extension_manager.build,
         ),
     }
 
@@ -339,7 +379,7 @@ def extension_status():
 @router.post("/api/extension/reload")
 async def reload_extension():
     try:
-        result = launch_studio_chrome(visible=True)
+        result = relaunch_studio_chrome(visible=True)
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc
     result["sent"] = True
@@ -352,8 +392,7 @@ async def extension_websocket(ws: WebSocket):
 
     old = extension_manager.connection
     if old is not None and old is not ws:
-        extension_manager.connection = None
-        extension_manager.paired = False
+        extension_manager._mark_disconnected()
         try:
             await old.close()
         except Exception:
@@ -372,6 +411,7 @@ async def extension_websocket(ws: WebSocket):
             if msg_type == "extension.ready":
                 payload = message.get("payload", {}) or {}
                 extension_manager.version = _reported_version(payload)
+                extension_manager.build = _reported_build(payload)
                 extension_manager.reload_generation = _reported_reload_generation(payload)
                 token = payload.get("token", "")
                 if extension_manager.verify_token(token):
@@ -379,6 +419,7 @@ async def extension_websocket(ws: WebSocket):
                         ws,
                         _reported_reload_generation(payload),
                         _reported_version(payload),
+                        _reported_build(payload),
                     )
                     if accepted:
                         extension_manager.paired = True
@@ -481,6 +522,22 @@ async def extension_websocket(ws: WebSocket):
                         "error": payload.get("error") or payload.get("api_error"),
                     })
 
+            elif msg_type == "job.categories":
+                payload = message.get("payload") or {}
+                request_id = payload.get("request_id") or message.get("message_id")
+                if request_id:
+                    extension_manager.resolve_wait(str(request_id), payload)
+                job_id = message.get("job_id")
+                if job_id:
+                    from vendoo_studio.repositories.queries import JobRepo
+                    repo = JobRepo(db)
+                    repo.add_event(job_id, "search_categories", None, {
+                        "ok": bool(payload.get("ok")),
+                        "query": payload.get("query"),
+                        "path": payload.get("path"),
+                        "error": payload.get("error"),
+                    })
+
             elif msg_type == "job.completed":
                 job_id = message.get("job_id")
                 if job_id:
@@ -529,6 +586,5 @@ async def extension_websocket(ws: WebSocket):
         pass
     finally:
         if extension_manager.connection is ws:
-            extension_manager.connection = None
-            extension_manager.paired = False
+            extension_manager._mark_disconnected()
         db.close()

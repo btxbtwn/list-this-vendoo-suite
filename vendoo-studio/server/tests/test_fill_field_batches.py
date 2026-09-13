@@ -27,6 +27,11 @@ const result = {
   fill0: commandTimeoutMs({ type: 'FILL_FIELDS', fields: [] }),
   fill80: commandTimeoutMs({ type: 'FILL_FIELDS', fields: Array(80).fill({}) }),
   general: commandTimeoutMs({ type: 'FILL_GENERAL' }),
+  saveEbay: saveCommandForMarketplace('ebay'),
+  saveEtsy: saveCommandForMarketplace('ETSY'),
+  saveGeneral: saveCommandForMarketplace('general'),
+  saveUnknown: saveCommandForMarketplace('unknown'),
+  saveEmpty: saveCommandForMarketplace(''),
 };
 console.log(JSON.stringify(result));
 """
@@ -44,3 +49,24 @@ console.log(JSON.stringify(result));
         self.assertEqual(result["fill0"], 90000)
         self.assertEqual(result["fill80"], 300000)
         self.assertEqual(result["general"], 90000)
+        self.assertEqual(result["saveEbay"], {"type": "SAVE_MARKETPLACE", "platform": "ebay"})
+        self.assertEqual(result["saveEtsy"], {"type": "SAVE_MARKETPLACE", "platform": "etsy"})
+        self.assertEqual(result["saveGeneral"], {"type": "SAVE_GENERAL"})
+        self.assertEqual(result["saveUnknown"], {"type": "SAVE_GENERAL"})
+        self.assertEqual(result["saveEmpty"], {"type": "SAVE_GENERAL"})
+
+    def test_leftover_fill_saves_each_marketplace_before_switching(self) -> None:
+        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        start = text.index("async function runFillFields")
+        end = text.index("function groupFillFieldBatches")
+        run_fill = text[start:end]
+        loop = run_fill[run_fill.index("for (let i = 0;") :]
+        self.assertIn("saveCommandForMarketplace(marketplace)", loop)
+        self.assertIn("type: 'FILL_FIELDS'", loop)
+        self.assertLess(
+            loop.index("type: 'FILL_FIELDS'"),
+            loop.index("saveCommandForMarketplace(marketplace)"),
+        )
+        after_loop = run_fill[run_fill.index("const fillLog") :]
+        self.assertNotIn("SAVE_GENERAL", after_loop)
+        self.assertNotIn("saveCommandForMarketplace", after_loop)

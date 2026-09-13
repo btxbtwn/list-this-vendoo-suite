@@ -109,6 +109,14 @@ export const api = {
       }),
     vendooItem: (id: string) =>
       request<any>(`/jobs/${id}/vendoo-item`, { method: "POST" }),
+    resolveCategory: (id: string, query?: string) =>
+      request<{ ok: boolean; query?: string; path?: string; matches?: { text?: string; path?: string; score?: number }[]; error?: string }>(
+        `/jobs/${id}/resolve-category`,
+        {
+          method: "POST",
+          body: JSON.stringify({ query: query || null }),
+        },
+      ),
     open: (id: string) =>
       request<{ ok: boolean; url: string; via: "extension" | "chrome" }>(`/jobs/${id}/open`, { method: "POST" }),
     retry: (id: string) => request<any>(`/jobs/${id}/retry`, { method: "POST" }),
@@ -214,9 +222,13 @@ export const api = {
         paired: boolean;
         version?: string | null;
         expected_version?: string | null;
+        expected_build?: string | null;
+        build?: string | null;
         up_to_date?: boolean;
         reload_pending?: boolean;
         files_in_sync?: boolean;
+        version_mismatch?: boolean;
+        load_path?: string | null;
       }>("/extension/status"),
     pairingToken: () => request<any>("/extension/pairing-token"),
     reload: () => request<{ ok: boolean; sent: boolean }>("/extension/reload", { method: "POST" }),

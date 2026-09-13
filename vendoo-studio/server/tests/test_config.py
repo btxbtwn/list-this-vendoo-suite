@@ -49,3 +49,10 @@ class ConfigPathTest(unittest.TestCase):
         os.environ.pop("VENDOO_STUDIO_SKILLS_DIR", None)
         skill = config.skills_dir() / "list-this" / "SKILL.md"
         self.assertTrue(skill.is_file(), skill)
+
+    def test_extension_dir_has_manifest_and_icons(self):
+        os.environ.pop("VENDOO_STUDIO_EXTENSION_DIR", None)
+        extension = config.extension_source_dir()
+        self.assertTrue((extension / "manifest.json").is_file(), extension)
+        for name in ("icon16.png", "icon48.png", "icon128.png"):
+            self.assertTrue((extension / "icons" / name).is_file(), name)

@@ -17,6 +17,8 @@ class ExtensionContentScriptVersionTest(unittest.TestCase):
 
         background = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
         self.assertIn("importScripts('content-script-version.js')", background)
+        self.assertIn("importScripts('studio-build.js')", background)
+        self.assertIn("identPayload", background)
         self.assertNotRegex(background, r"\bCONTENT_SCRIPT_VERSION\s*=")
         self.assertNotIn("Content script is stale", background)
         self.assertIn("Reloading Vendoo tab", background)

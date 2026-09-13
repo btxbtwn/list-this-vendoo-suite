@@ -222,6 +222,90 @@ class ListingProviderPrefersChatGPTTest(unittest.TestCase):
             provider = listing_provider.get_listing_provider()
         self.assertIsInstance(provider, ChatGPTCodexProvider)
 
+    def test_falls_back_to_mimo_key(self):
+        from vendoo_studio.providers.xiaomi_mimo import MiMoProvider
+        from vendoo_studio.services import listing_provider
+
+        with (
+            patch("vendoo_studio.services.listing_provider.chatgpt_signed_in", return_value=False),
+            patch("vendoo_studio.services.listing_provider.get_api_key", return_value="sk-test"),
+        ):
+            provider = listing_provider.get_listing_provider()
+        self.assertIsInstance(provider, MiMoProvider)
+
+    def test_unconfigured_without_chatgpt_or_key(self):
+        from vendoo_studio.services import listing_provider
+
+        with (
+            patch("vendoo_studio.services.listing_provider.chatgpt_signed_in", return_value=False),
+            patch("vendoo_studio.services.listing_provider.get_api_key", return_value=None),
+        ):
+            self.assertIsNone(listing_provider.get_listing_provider())
+            self.assertFalse(listing_provider.provider_is_configured())
+
+
+class SettingsChatGPTRouteTest(unittest.TestCase):
+    def test_provider_keeps_masked_mimo_key_while_chatgpt_is_signed_in(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+
+        token = _jwt({
+            "email": "seller@example.com",
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "acct_123",
+                "chatgpt_plan_type": "plus",
+            },
+        })
+        tokens = {"id_token": token, "access_token": "a", "refresh_token": "r"}
+        with (
+            patch("vendoo_studio.services.chatgpt_oauth.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.keychain.get_chatgpt_tokens", return_value=tokens),
+            patch("vendoo_studio.services.keychain.get_api_key", return_value="sk-mimo-key-1234"),
+            patch("vendoo_studio.services.keychain.get_chatgpt_models", return_value={}),
+        ):
+            resp = TestClient(app).get("/api/settings/provider")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["provider"], "chatgpt")
+        self.assertTrue(body["configured"])
+        self.assertEqual(body["listing_model"], "gpt-5.5")
+        self.assertEqual(body["chatgpt"]["email"], "seller@example.com")
+        self.assertEqual(body["chatgpt"]["plan"], "plus")
+        self.assertEqual(body["masked_key"], "sk-mimo-...1234")
+
+    def test_provider_hides_mimo_key_when_missing(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+
+        with (
+            patch("vendoo_studio.services.chatgpt_oauth.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.keychain.get_chatgpt_tokens", return_value={"access_token": "a", "refresh_token": "r"}),
+            patch("vendoo_studio.services.keychain.get_api_key", return_value=None),
+            patch("vendoo_studio.services.keychain.get_chatgpt_models", return_value={}),
+        ):
+            resp = TestClient(app).get("/api/settings/provider")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["masked_key"])
+
+    def test_login_returns_device_code(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+
+        pending = {
+            "verification_url": "https://auth.openai.com/codex/device",
+            "user_code": "ABCD-1234",
+        }
+        with patch(
+            "vendoo_studio.services.chatgpt_oauth.start_login",
+            new=AsyncMock(return_value=pending),
+        ):
+            resp = TestClient(app).post("/api/settings/chatgpt/login")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), pending)
+
 
 if __name__ == "__main__":
     unittest.main()

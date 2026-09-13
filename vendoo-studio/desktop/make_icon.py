@@ -62,7 +62,19 @@ def write_icns(destination: Path) -> Path:
     return destination
 
 
+def write_extension_icons(destination: Path) -> Path:
+    destination = destination.resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    for size in (16, 48, 128):
+        render_icon(size).save(destination / f"icon{size}.png")
+    return destination
+
+
 if __name__ == "__main__":
-    target = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("AppIcon.icns")
-    write_icns(target)
-    print(target)
+    if len(sys.argv) > 2:
+        print(write_icns(Path(sys.argv[1])))
+        print(write_extension_icons(Path(sys.argv[2])))
+    elif len(sys.argv) > 1 and Path(sys.argv[1]).suffix.lower() != ".icns":
+        print(write_extension_icons(Path(sys.argv[1])))
+    else:
+        print(write_icns(Path(sys.argv[1]) if len(sys.argv) > 1 else Path("AppIcon.icns")))

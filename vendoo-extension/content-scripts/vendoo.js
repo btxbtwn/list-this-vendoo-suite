@@ -1927,11 +1927,17 @@
       return options;
   }
 
+  function escapeRegExp(value) {
+      return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   function scoreCategoryOption(option, segment) {
       const needle = normalizeText(segment);
       if (!needle || !option.lower) return 0;
       if (option.lower === needle) return 4;
-      if (option.lower.startsWith(needle) || needle.startsWith(option.lower)) return 3;
+      const word = new RegExp(`\\b${escapeRegExp(needle)}\\b`);
+      if (word.test(option.lower)) return 3;
+      if (option.lower.startsWith(needle) || needle.startsWith(option.lower)) return 2;
       if (option.lower.includes(needle) || needle.includes(option.lower)) return 1;
       return 0;
   }
@@ -1962,6 +1968,12 @@
       tees: ['Tees - Short Sleeve', 'Tees - Long Sleeve'],
       'tees - short sleeve': ['Tees - Short Sleeve'],
       'tees - long sleeve': ['Tees - Long Sleeve'],
+      sweatshirt: ['Sweatshirts', 'Sweats & Hoodies', 'Sweaters'],
+      sweatshirts: ['Sweatshirts', 'Sweats & Hoodies', 'Sweaters'],
+      hoodie: ['Hoodies', 'Sweats & Hoodies'],
+      hoodies: ['Hoodies', 'Sweats & Hoodies'],
+      sweater: ['Sweaters', 'Sweatshirts'],
+      sweaters: ['Sweaters', 'Sweatshirts'],
   };
 
   function categoryHaystack(data, categoryPath) {
@@ -2037,6 +2049,8 @@
   function rankCategorySearchResults(options, segments) {
       const needles = segments.map((segment) => normalizeText(segment)).filter(Boolean);
       const leaf = needles[needles.length - 1] || '';
+      const query = needles.join(' ');
+      const wantsSweat = /\bsweatshirts?\b|\bhoodies?\b|\bsweaters?\b/.test(query);
       return options
           .map((option) => {
               let score = scoreCategoryOption(option, leaf);
@@ -2044,6 +2058,9 @@
                   if (option.lower.includes(needle) || needle.includes(option.lower)) {
                       score += 2;
                   }
+              }
+              if (wantsSweat && /t-?shirts?|\btees?\b/.test(option.lower) && !/\bsweatshirts?\b/.test(option.lower)) {
+                  score -= 5;
               }
               return { ...option, score };
           })
@@ -2330,6 +2347,97 @@
       }
 
       return { ok: true, filled: true, result: catBtnText };
+  }
+
+  function normalizeCategoryDisplay(shown) {
+      return String(shown || '')
+          .replace(/[▸▶›]/g, '>')
+          .replace(/\s*>\s*/g, ' > ')
+          .replace(/\s+/g, ' ')
+          .trim();
+  }
+
+  function categoryOptionRecord(option) {
+      const text = option.text || '';
+      const full = option.el
+          ? String(option.el.innerText || option.el.textContent || text).replace(/\u00a0/g, ' ').trim()
+          : text;
+      const path = normalizeCategoryDisplay(full.includes('>') || full.includes('▸') ? full : text);
+      return { text, path, score: option.score || 0 };
+  }
+
+  async function searchCategoryPicker(query) {
+      const q = String(query || '').trim();
+      if (!q) return { ok: false, error: 'No category search query' };
+
+      const catBtn = await waitForGeneralCategoryControl();
+      if (!catBtn) {
+          return { ok: false, error: 'Category button not found' };
+      }
+
+      await closeOpenMenus();
+      catBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
+      await sleep(CONFIG.SLEEP_MEDIUM);
+      log(`Searching Vendoo category picker for: "${q}"`);
+      catBtn.click();
+      await sleep(CONFIG.SLEEP_LONG * 2);
+
+      let searchInput = await waitForCategorySearch();
+      await resetCategoryPickerToRoot();
+      searchInput = document.querySelector('input[role="category-search-field"]') || searchInput;
+      if (!searchInput) {
+          await closeOpenMenus();
+          return { ok: false, error: 'Category search field not found' };
+      }
+
+      searchInput.focus();
+      await clearInput(searchInput);
+      setReactValue(searchInput, q);
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      searchInput.dispatchEvent(new KeyboardEvent('input', { bubbles: true }));
+      searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(CONFIG.SLEEP_LONG * 2);
+
+      const segments = q.split(/[>\s]+/).map((part) => part.trim()).filter(Boolean);
+      const ranked = rankCategorySearchResults(listCategoryOptions(), segments);
+      const matches = ranked.slice(0, 12).map(categoryOptionRecord);
+      log(`Category search matches: ${JSON.stringify(matches.map((item) => item.path || item.text))}`);
+
+      if (!ranked.length) {
+          await closeOpenMenus();
+          return { ok: false, query: q, matches, error: 'No matching Vendoo category' };
+      }
+
+      await clickCategoryOption(ranked[0]);
+      await sleep(CONFIG.SLEEP_LONG * 2);
+
+      const terminalSearch = document.querySelector('input[role="category-search-field"]');
+      if (terminalSearch && document.contains(terminalSearch)) {
+          const children = listCategoryOptions();
+          const childRanked = rankCategorySearchResults(children, segments);
+          if (childRanked.length) {
+              await clickCategoryOption(childRanked[0]);
+              await sleep(CONFIG.SLEEP_LONG);
+          } else {
+              await closeOpenMenus();
+          }
+      }
+
+      const shown = normalizeCategoryDisplay(
+          displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '',
+      ).split('\n')[0].trim();
+      if (!shown || /click to select|select category/i.test(shown)) {
+          const fallback = matches.find((item) => item.path.includes('>')) || matches[0];
+          return {
+              ok: Boolean(fallback?.path),
+              query: q,
+              path: fallback?.path || '',
+              matches,
+              error: fallback?.path ? null : 'Category picker did not keep a selection',
+          };
+      }
+
+      return { ok: true, query: q, path: shown, matches };
   }
 
   async function fillMarketplaceCategory(marketplace, data) {
@@ -3759,20 +3867,45 @@
       return { ok: true, count: fileObjects.length };
   }
 
+  async function waitForSaveButton(timeoutMs = 8000) {
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+          const saveBtn = document.querySelector('[data-testid="save-item-button"]');
+          if (saveBtn && !saveBtn.disabled) return saveBtn;
+          await sleep(250);
+      }
+      const saveBtn = document.querySelector('[data-testid="save-item-button"]');
+      return saveBtn && !saveBtn.disabled ? saveBtn : null;
+  }
+
   async function saveGeneralForm() {
       log('Saving form...');
-      const saveBtn = document.querySelector('[data-testid="save-item-button"]');
+      const existingSave = document.querySelector('[data-testid="save-item-button"]');
+      const saveBtn = existingSave ? await waitForSaveButton() : null;
+      if (existingSave && !saveBtn) {
+          warn('Save button stayed disabled');
+          return { ok: false, error: 'Save button stayed disabled' };
+      }
       if (saveBtn) {
           saveBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_MEDIUM);
+          if (saveBtn.disabled) {
+              warn('Save button stayed disabled');
+              return { ok: false, error: 'Save button stayed disabled' };
+          }
           saveBtn.click();
           await sleep(CONFIG.SLEEP_LONG * 3);
           log('Save button clicked, waiting for completion');
 
+          let stillSaving = false;
           for (let i = 0; i < 10; i++) {
               await sleep(1000);
-              const stillLoading = document.querySelector('[data-testid="save-item-button"][disabled], button:disabled');
-              if (!stillLoading) break;
+              stillSaving = Boolean(document.querySelector('[data-testid="save-item-button"][disabled]'));
+              if (!stillSaving) break;
+          }
+          if (stillSaving) {
+              warn('Save did not finish');
+              return { ok: false, error: 'Save did not finish' };
           }
 
           const itemId = extractItemId();
@@ -4407,6 +4540,13 @@
               } catch (err) {
                   sendResponse({ ok: false, error: err.message });
               }
+              return true;
+          }
+
+          if (msg.type === 'SEARCH_CATEGORIES') {
+              searchCategoryPicker(msg.query || '')
+                  .then((result) => sendResponse(result))
+                  .catch((err) => sendResponse({ ok: false, error: err.message }));
               return true;
           }
 

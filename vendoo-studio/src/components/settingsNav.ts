@@ -49,6 +49,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["exclude", "hide fields", "fields tab"],
   },
   {
+    id: "setup-guide",
+    title: "Setup guide",
+    section: "general",
+    targetId: "setup-guide",
+    searchTerms: ["tutorial", "onboarding", "first run", "chatgpt", "mimo", "brave"],
+  },
+  {
     id: "about-version",
     title: "Version",
     section: "general",

@@ -5,6 +5,7 @@ import { FillLogPanel } from "./FillLogPanel";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { OpenListingButton } from "./OpenListingButton";
 import { confirmDialog } from "../ui/confirmDialog";
+import { addToast } from "../ui/toast";
 
 interface Props {
   convId: string;
@@ -152,7 +153,14 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
                 </button>
               </div>
             ) : (
-              <StructuredEditor listing={listing} tab={editTab} onChange={(updated) => updateMutation.mutate(updated)} />
+              <StructuredEditor
+                listing={listing}
+                tab={editTab}
+                jobId={listingJob?.id}
+                jobBusy={listingJob?.status === "dispatched" && listingJob?.current_step === "filling_fields"}
+                onChange={(updated) => updateMutation.mutate(updated)}
+                onCategoryMatched={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
+              />
             )}
           </>
         )}
@@ -171,9 +179,46 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
   );
 }
 
-function StructuredEditor({ listing, tab, onChange }: { listing: any; tab: string; onChange: (v: any) => void }) {
+function StructuredEditor({
+  listing,
+  tab,
+  jobId,
+  jobBusy,
+  onChange,
+  onCategoryMatched,
+}: {
+  listing: any;
+  tab: string;
+  jobId?: string;
+  jobBusy?: boolean;
+  onChange: (v: any) => void;
+  onCategoryMatched?: () => void;
+}) {
+  const queryClient = useQueryClient();
   const fields = getFieldsForTab(listing, tab);
   const [local, setLocal] = React.useState<Record<string, string>>({});
+  const { data: extStatus } = useQuery({
+    queryKey: ["extension-status"],
+    queryFn: api.extension.status,
+    refetchInterval: 5000,
+  });
+
+  const resolveCategory = useMutation({
+    mutationFn: () => api.jobs.resolveCategory(jobId || "", local.category_path || listing.category_path),
+    onSuccess: (result) => {
+      if (result.path) {
+        setLocal((current) => ({ ...current, category_path: result.path || "" }));
+        addToast({ type: "success", title: "Matched Vendoo category", description: result.path });
+      }
+      queryClient.invalidateQueries({ queryKey: ["listing"] });
+      queryClient.invalidateQueries({ queryKey: ["conversation"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      onCategoryMatched?.();
+    },
+    onError: (err: any) => {
+      addToast({ type: "error", title: "Could not match category", description: err.message || "Vendoo picker search failed" });
+    },
+  });
 
   React.useEffect(() => {
     const init: Record<string, string> = {};
@@ -186,7 +231,11 @@ function StructuredEditor({ listing, tab, onChange }: { listing: any; tab: strin
 
   const handleBlur = (key: string) => {
     if (local[key] == null) return;
-    const updated = setNestedValue({ ...listing }, key, coerce(local[key]));
+    const updated = cloneListing(listing);
+    for (const field of fields) {
+      if (local[field.key] == null) continue;
+      setNestedValue(updated, field.key, coerce(local[field.key]));
+    }
     onChange(updated);
   };
 
@@ -201,7 +250,21 @@ function StructuredEditor({ listing, tab, onChange }: { listing: any; tab: strin
           {f.key === "description" ? (
             <textarea className="input" style={{ height: 100 }} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
           ) : (
-            <input className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
+            <>
+              <input className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
+              {f.key === "category_path" && jobId ? (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ marginTop: 6 }}
+                  disabled={!extStatus?.connected || jobBusy || resolveCategory.isPending}
+                  title={!extStatus?.connected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker"}
+                  onClick={() => resolveCategory.mutate()}
+                >
+                  {resolveCategory.isPending ? "Matching on Vendoo…" : "Match on Vendoo"}
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       ))}
@@ -285,12 +348,20 @@ function getNestedValue(obj: any, path: string): any {
   return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
 }
 
+function cloneListing(listing: any): any {
+  try {
+    return JSON.parse(JSON.stringify(listing || {}));
+  } catch {
+    return { ...(listing || {}) };
+  }
+}
+
 function setNestedValue(obj: any, path: string, value: any): any {
   const keys = path.split(".");
   const last = keys.pop()!;
   let target = obj;
   for (const k of keys) {
-    if (!target[k]) target[k] = {};
+    if (!target[k] || typeof target[k] !== "object") target[k] = {};
     target = target[k];
   }
   target[last] = value;

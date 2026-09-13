@@ -22,6 +22,8 @@ class ChromeBridgeTest(unittest.TestCase):
         (self.extension / ".playwright-mcp").mkdir()
         (self.extension / ".playwright-mcp" / "trace.log").write_text("nope\n", encoding="utf-8")
         (self.extension / "README.md").write_text("skip\n", encoding="utf-8")
+        (self.extension / "_metadata").mkdir()
+        (self.extension / "_metadata" / "verified_contents.json").write_text("{}\n", encoding="utf-8")
         self._data = os.environ.get("VENDOO_STUDIO_DATA_DIR")
         self._ext = os.environ.get("VENDOO_STUDIO_EXTENSION_DIR")
         os.environ["VENDOO_STUDIO_DATA_DIR"] = str(self.data)
@@ -44,6 +46,10 @@ class ChromeBridgeTest(unittest.TestCase):
         self.assertTrue((installed / "background.js").is_file())
         self.assertFalse((installed / ".playwright-mcp").exists())
         self.assertFalse((installed / "README.md").exists())
+        self.assertFalse((installed / "_metadata").exists())
+        stamp = installed / "studio-build.js"
+        self.assertTrue(stamp.is_file())
+        self.assertIn(chrome_bridge.expected_extension_build() or "", stamp.read_text(encoding="utf-8"))
 
     def test_install_is_idempotent_until_source_changes(self):
         self.assertTrue(chrome_bridge.install_bundled_extension())
@@ -79,37 +85,57 @@ class ChromeBridgeTest(unittest.TestCase):
     def test_build_status_matches_bundled_version(self):
         (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
         chrome_bridge.install_bundled_extension()
-        status = chrome_bridge.extension_build_status("0.2.6", None)
+        build = chrome_bridge.expected_extension_build()
+        status = chrome_bridge.extension_build_status("0.2.6", None, build)
         self.assertTrue(status["up_to_date"])
         self.assertFalse(status["reload_pending"])
+        self.assertFalse(status["version_mismatch"])
         self.assertEqual(status["expected_version"], "0.2.6")
+        self.assertEqual(status["expected_build"], build)
         self.assertEqual(status["version"], "0.2.6")
+        self.assertEqual(status["load_path"], str(chrome_bridge.installed_extension_dir()))
 
     def test_build_status_reports_version_mismatch(self):
         (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
         chrome_bridge.install_bundled_extension()
         status = chrome_bridge.extension_build_status("0.2.5", None)
         self.assertFalse(status["up_to_date"])
+        self.assertTrue(status["version_mismatch"])
         self.assertEqual(status["expected_version"], "0.2.6")
         self.assertEqual(status["version"], "0.2.5")
 
-    def test_build_status_stale_when_source_changed(self):
+    def test_reload_token_issued_once_until_lockstep_build(self):
+        (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
+        chrome_bridge.install_bundled_extension()
+        build = chrome_bridge.expected_extension_build()
+        token = chrome_bridge.extension_reload_token_if_needed("0.2.5", None, None)
+        self.assertTrue(token)
+        self.assertIsNone(chrome_bridge.extension_reload_token_if_needed("0.2.5", token, None))
+        self.assertIsNone(chrome_bridge.extension_reload_token_if_needed("0.2.6", None, build))
+
+    def test_build_status_ignores_shadow_copy_and_reload_token(self):
         (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
         chrome_bridge.install_bundled_extension()
         (self.extension / "background.js").write_text("console.log('new')\n", encoding="utf-8")
+        chrome_bridge.mark_extension_reload_pending()
         status = chrome_bridge.extension_build_status("0.2.6", None)
         self.assertFalse(status["up_to_date"])
         self.assertTrue(status["reload_pending"])
         self.assertFalse(status["files_in_sync"])
 
-    def test_build_status_stale_until_reload_generation_matches(self):
+    def test_chrome_metadata_does_not_mark_installed_copy_stale(self):
         (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
         chrome_bridge.install_bundled_extension()
-        token = chrome_bridge.mark_extension_reload_pending()
-        stale = chrome_bridge.extension_build_status("0.2.6", None)
-        self.assertFalse(stale["up_to_date"])
-        current = chrome_bridge.extension_build_status("0.2.6", token)
-        self.assertTrue(current["up_to_date"])
+        installed = chrome_bridge.installed_extension_dir()
+        metadata = installed / "_metadata"
+        metadata.mkdir()
+        (metadata / "verified_contents.json").write_text("{}\n", encoding="utf-8")
+        self.assertTrue(chrome_bridge.extension_files_in_sync())
+        self.assertFalse(chrome_bridge.install_bundled_extension())
+        build = chrome_bridge.expected_extension_build()
+        status = chrome_bridge.extension_build_status("0.2.6", None, build)
+        self.assertTrue(status["up_to_date"])
+        self.assertTrue(status["files_in_sync"])
 
     def test_launch_args_open_everyday_chrome_on_macos(self):
         executable = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")

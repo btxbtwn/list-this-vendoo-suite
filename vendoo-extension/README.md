@@ -1,5 +1,7 @@
 # Vendoo Multi-Platform Lister - Chrome Extension MVP
 
+Studio users: **Connect Chrome** in List This Studio opens everyday Chrome. Load this folder unpacked there once (`chrome://extensions/` → Developer mode → Load unpacked). Zip users load `~/Library/Application Support/List This Studio/vendoo-extension`. The steps below are the same load path, plus the manual paste-and-fill popup.
+
 Flow A: Paste JSON → Fill Vendoo first → Sequential fill for eBay/Poshmark/Mercari/Depop/Etsy (draft-only)
 
 ## Installation

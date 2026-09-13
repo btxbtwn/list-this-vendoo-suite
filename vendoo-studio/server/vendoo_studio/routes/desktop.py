@@ -2,20 +2,24 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from vendoo_studio.services.chrome_bridge import ChromeBridgeError, chrome_executable, launch_studio_chrome
+from vendoo_studio.services.chrome_bridge import ChromeBridgeError, chrome_executable, relaunch_studio_chrome
 
 router = APIRouter(prefix="/api/desktop", tags=["desktop"])
 
 
 @router.get("/chrome")
 def chrome_status():
-    from vendoo_studio.services.chrome_bridge import installed_extension_dir
+    from vendoo_studio.services.chrome_bridge import installed_extension_dir, sync_bundled_extension
 
+    try:
+        extension_dir = sync_bundled_extension()
+    except ChromeBridgeError:
+        extension_dir = installed_extension_dir()
     executable = chrome_executable()
     return {
         "available": executable is not None,
         "browser": executable.parent.parent.parent.stem if executable else None,
-        "extension_dir": str(installed_extension_dir()),
+        "extension_dir": str(extension_dir),
         "profile": "default",
     }
 
@@ -23,8 +27,19 @@ def chrome_status():
 @router.post("/chrome/connect")
 async def connect_chrome():
     try:
-        result = launch_studio_chrome(visible=True)
+        result = relaunch_studio_chrome(visible=True)
         result.setdefault("via", "chrome")
+        from vendoo_studio.routes.extension import extension_manager, request_extension_reload
+        from vendoo_studio.services.chrome_bridge import extension_reload_token_if_needed
+
+        token = extension_reload_token_if_needed(
+            extension_manager.version,
+            extension_manager.reload_generation,
+            extension_manager.build,
+        )
+        if token:
+            await request_extension_reload(token)
+            result["extension_reload"] = True
         return result
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc

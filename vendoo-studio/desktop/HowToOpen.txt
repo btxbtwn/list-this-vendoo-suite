@@ -1,0 +1,15 @@
+List This Studio
+
+1. Drag "List This Studio.app" into Applications.
+2. Control-click the app and choose Open. Click Open again if macOS asks.
+   You only do this the first time (the build is signed for local use, not Apple notarized).
+3. In Settings, sign in with ChatGPT or paste a Xiaomi MiMo API key.
+4. Click Connect Chrome. Studio opens Vendoo in your everyday Chrome.
+5. Load the listing extension once:
+   Copy the exact folder path from Settings → Connections in List This Studio.
+   In Chrome open chrome://extensions, turn on Developer mode, and click Load unpacked.
+   Press Control-Shift-G (⌘⇧G) to search for the folder, paste the path, click Go, then Open.
+6. Sign in to Vendoo in that Chrome window, then create a listing.
+
+Needs macOS 13+ and Google Chrome. Photos and listings stay on this Mac in:
+  ~/Library/Application Support/List This Studio

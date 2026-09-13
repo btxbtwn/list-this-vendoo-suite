@@ -343,6 +343,27 @@ function patchableEmptyFields(
   );
 }
 
+function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): DraftForm[] {
+  if (!listingForms.length) return forms;
+  const byId = new Map(listingForms.map((form) => [form.id, form]));
+  return forms.map((form) => {
+    const listingForm = byId.get(form.id);
+    if (!listingForm) return form;
+    const listingFields = new Map(listingForm.fields.map((field) => [fieldMatchKey(field), field]));
+    const fields = form.fields.map((field) => {
+      const match = listingFields.get(fieldMatchKey(field));
+      if (!match || isEmptyValue(match.value)) return field;
+      return { ...field, value: match.value, missing: false };
+    });
+    return {
+      ...form,
+      fields,
+      filled: fields.filter((field) => !field.missing).length,
+      missing: fields.filter((field) => field.missing).length,
+    };
+  });
+}
+
 function sourceFormsForJob(
   item: Record<string, unknown> | undefined,
   report: FillLogReport | undefined,
@@ -353,8 +374,10 @@ function sourceFormsForJob(
   const draftForms = item ? formsFromDraft(item, report) : [];
   const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
   const listingForms = formsFromListing(listing);
-  const sourceForms = (draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms)
-    .filter((form) => enabled.has(form.id));
+  const sourceForms = overlayListingForms(
+    draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms,
+    listingForms,
+  ).filter((form) => enabled.has(form.id));
   return { sourceForms, fromVendooDraft: draftForms.length > 0 };
 }
 
@@ -1281,6 +1304,25 @@ export function FillLogPanel({
     },
   });
 
+  const resolveCategory = useMutation({
+    mutationFn: () => api.jobs.resolveCategory(jobId, String(listing?.category_path || "")),
+    onSuccess: (result) => {
+      addToast({
+        type: "success",
+        title: "Matched Vendoo category",
+        description: result.path || "Saved the picker category onto this listing.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["listing"] });
+      queryClient.invalidateQueries({ queryKey: ["conversation"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["vendoo-item", jobId] });
+      onFilled?.();
+    },
+    onError: (err: Error) => {
+      addToast({ type: "error", title: "Could not match category", description: err.message });
+    },
+  });
+
   React.useEffect(() => {
     if (!awaitingFill.current) return;
     if (filling) {
@@ -1461,6 +1503,17 @@ export function FillLogPanel({
               {emptyFields.length
                 ? `Ask chat to fill ${emptyFields.length} empty ${emptyFields.length === 1 ? "field" : "fields"}`
                 : "Ask chat to fill empty fields"}
+            </button>
+          )}
+          {hasDraft && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={resolveCategory.isPending || filling || !chromeConnected}
+              title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
+              onClick={() => resolveCategory.mutate()}
+            >
+              {resolveCategory.isPending ? "Matching category…" : "Match Vendoo category"}
             </button>
           )}
           <button

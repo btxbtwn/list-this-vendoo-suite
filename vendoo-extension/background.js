@@ -27,6 +27,11 @@ importScripts('content-script-version.js');
 importScripts('diagnostic-collector.js');
 importScripts('preview-screencast.js');
 
+var STUDIO_EXTENSION_BUILD = null;
+try {
+  importScripts('studio-build.js');
+} catch (e) {}
+
 function log(msg) {
   console.log(`[BG-Studio] ${msg}`);
 }
@@ -147,12 +152,18 @@ async function sendIdent() {
     type: 'extension.ready',
     message_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
     sent_at: new Date().toISOString(),
-    payload: {
-      token: token || 'direct',
-      version: chrome.runtime.getManifest().version,
-      reload_generation: stored[RELOAD_GENERATION_KEY] || null,
-    },
+    payload: identPayload(token, stored[RELOAD_GENERATION_KEY] || null),
   });
+}
+
+function identPayload(token, reloadGeneration) {
+  const build = typeof STUDIO_EXTENSION_BUILD === 'string' ? STUDIO_EXTENSION_BUILD.trim() : '';
+  return {
+    token: token || 'direct',
+    version: chrome.runtime.getManifest().version,
+    build: build || null,
+    reload_generation: reloadGeneration || null,
+  };
 }
 
 async function reloadMarketplaceTabs() {
@@ -387,6 +398,17 @@ async function handleStudioMessage(msg) {
         return;
       }
       await runVendooGet(jobId, payload);
+      break;
+    }
+
+    case 'job.search_categories': {
+      const payload = msg.payload || {};
+      const jobId = msg.job_id || payload.job_id;
+      if (!payload.request_id) {
+        log('job.search_categories missing request_id');
+        return;
+      }
+      await runSearchCategories(jobId, payload);
       break;
     }
 
@@ -948,6 +970,7 @@ async function runFillFields(jobId, payload) {
 
   const batches = groupFillFieldBatches(payload.fields || []);
   const batchResults = [];
+  let lastSaved = null;
   log(`Filling leftover fields in ${batches.length} batch(es)`);
 
   for (let i = 0; i < batches.length; i++) {
@@ -972,7 +995,10 @@ async function runFillFields(jobId, payload) {
       fields,
     });
     batchResults.push(result);
-    if (!result.ok) {
+    log(`Saving leftover ${marketplace} form`);
+    const saved = await sendToVendoo(job, saveCommandForMarketplace(marketplace));
+    lastSaved = saved;
+    if (!result.ok || !saved.ok) {
       activePatch = null;
       await stopJobPreview();
       send({
@@ -983,7 +1009,9 @@ async function runFillFields(jobId, payload) {
         sent_at: new Date().toISOString(),
         payload: {
           step: 'filling_fields',
-          error: result.error || 'Leftover field fill failed',
+          error: !result.ok
+            ? (result.error || 'Leftover field fill failed')
+            : (saved.error || 'Filled fields, but Vendoo did not save the draft'),
           fill_log: mergeFillLogs(batchResults),
         },
       });
@@ -992,26 +1020,8 @@ async function runFillFields(jobId, payload) {
   }
 
   const fillLog = mergeFillLogs(batchResults);
-  const saved = await sendToVendoo(job, { type: 'SAVE_GENERAL' });
   activePatch = null;
   await stopJobPreview();
-
-  if (!saved.ok) {
-    send({
-      version: 1,
-      type: 'job.step_failed',
-      job_id: jobId,
-      message_id: Date.now().toString(36),
-      sent_at: new Date().toISOString(),
-      payload: {
-        step: 'filling_fields',
-        error: saved.error || 'Filled fields, but Vendoo did not save the draft',
-        fill_log: fillLog,
-      },
-    });
-    return;
-  }
-
   await sleep(1500);
 
   send({
@@ -1022,8 +1032,8 @@ async function runFillFields(jobId, payload) {
     sent_at: new Date().toISOString(),
     payload: {
       step: 'filling_fields',
-      vendoo_item_id: saved.vendoo_item_id || payload.vendoo_item_id || null,
-      vendoo_url: saved.vendoo_url || payload.vendoo_url || null,
+      vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id || null,
+      vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url || null,
       fill_log: fillLog,
     },
   });
@@ -1060,6 +1070,14 @@ function mergeFillLogs(results) {
   };
 }
 
+function saveCommandForMarketplace(marketplace) {
+  const platform = String(marketplace || 'general').toLowerCase();
+  if (platform && platform !== 'general' && platform !== 'unknown') {
+    return { type: 'SAVE_MARKETPLACE', platform };
+  }
+  return { type: 'SAVE_GENERAL' };
+}
+
 function commandTimeoutMs(command) {
   if (command.type === 'FILL_FIELDS') {
     const count = Array.isArray(command.fields) ? command.fields.length : 0;
@@ -1075,6 +1093,9 @@ function commandTimeoutMs(command) {
   }
   if (command.type === 'GET_VENDOO_ITEM') {
     return 8000;
+  }
+  if (command.type === 'SEARCH_CATEGORIES') {
+    return 45000;
   }
   return 45000;
 }
@@ -1292,6 +1313,74 @@ async function runVendooGet(jobId, payload) {
     form,
     api_error: apiRead.ok ? null : (apiRead.error || null),
     error: ok ? null : (apiRead.error || formRead?.error || 'Could not read the Vendoo draft'),
+  });
+}
+
+function replyCategories(jobId, requestId, payload) {
+  send({
+    version: 1,
+    type: 'job.categories',
+    job_id: jobId || undefined,
+    message_id: requestId,
+    sent_at: new Date().toISOString(),
+    payload: { request_id: requestId, ...payload },
+  });
+}
+
+async function runSearchCategories(jobId, payload) {
+  const requestId = payload.request_id;
+  const reply = (body) => replyCategories(jobId, requestId, body);
+  const query = String(payload.query || '').trim();
+  if (!query) {
+    reply({ ok: false, error: 'No category search query' });
+    return;
+  }
+  if (activeJob && String(activeJob.current_step || '').includes('fill')) {
+    reply({ ok: false, error: 'A fill is already running' });
+    return;
+  }
+
+  let tabId = null;
+  const existingTabId = activePatch?.tabId || activeJob?.tabId || null;
+  if (existingTabId) {
+    try {
+      const tab = await chrome.tabs.get(existingTabId);
+      const currentId = extractItemIdFromUrl(tab.url || '');
+      const wantId = payload.vendoo_item_id || extractItemIdFromUrl(payload.vendoo_url || '');
+      if (wantId && currentId === wantId) tabId = existingTabId;
+    } catch (err) {
+      /* tab closed */
+    }
+  }
+  if (!tabId) {
+    const opened = await openListingForPatch(
+      { ...payload, job_id: jobId },
+      { reload: false, preview: false },
+    );
+    if (!opened.ok) {
+      reply({ ok: false, query, error: opened.error });
+      return;
+    }
+    tabId = opened.tabId;
+  }
+
+  const job = { job_id: jobId, tabId };
+  const ping = await pingContentScript(tabId);
+  if (!ping?.ok) {
+    try {
+      await injectVendooContentScript(tabId);
+      await sleep(400);
+    } catch (err) {
+      log(`Content script inject failed on tab ${tabId}: ${err.message}`);
+    }
+  }
+  const result = await sendToVendoo(job, { type: 'SEARCH_CATEGORIES', query });
+  reply({
+    ok: Boolean(result?.ok),
+    query,
+    path: result?.path || '',
+    matches: Array.isArray(result?.matches) ? result.matches : [],
+    error: result?.ok ? null : (result?.error || 'Could not search Vendoo categories'),
   });
 }
 
@@ -1702,11 +1791,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           type: 'extension.ready',
           message_id: Date.now().toString(36),
           sent_at: new Date().toISOString(),
-          payload: {
-            token: 'direct',
-            version: chrome.runtime.getManifest().version,
-            reload_generation: stored[RELOAD_GENERATION_KEY] || null,
-          },
+            payload: identPayload('direct', stored[RELOAD_GENERATION_KEY] || null),
         });
       });
     }

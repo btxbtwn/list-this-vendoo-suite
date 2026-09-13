@@ -7,6 +7,8 @@ import { ListingEditor } from "../components/ListingEditor";
 import { ChatPanel } from "../components/ChatPanel";
 import { PhotoTray } from "../components/PhotoTray";
 import { SettingsPage } from "../components/SettingsPage";
+import { SetupChecklist } from "../components/SetupChecklist";
+import { FirstRunGuide } from "../components/FirstRunGuide";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
 import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon } from "../components/ListingSidebar";
@@ -19,6 +21,7 @@ import {
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ToastHost } from "../components/ToastHost";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
+import { isSetupGuideDismissed } from "../onboarding";
 
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
@@ -49,6 +52,7 @@ export function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
   const [listingQuery, setListingQuery] = useState("");
   const [queuedChatMessage, setQueuedChatMessage] = useState<string | null>(null);
+  const [setupGuideOpen, setSetupGuideOpen] = useState(() => !isSetupGuideDismissed());
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -61,6 +65,16 @@ export function App() {
     queryFn: api.jobs.list,
     refetchInterval: 2000,
   });
+  const { data: status } = useQuery({
+    queryKey: ["status"],
+    queryFn: api.status,
+    refetchInterval: 4000,
+  });
+  const providerConfigured = Boolean(status?.provider_configured);
+  const needsSetup = !status || !status.provider_configured || !status.extension_connected;
+  const createListingTitle = providerConfigured
+    ? "New listing"
+    : "Sign in with ChatGPT or add a MiMo key first";
   const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
 
@@ -158,6 +172,11 @@ export function App() {
       setMobileSidebarOpen(false);
     },
   });
+  const createListing = () => {
+    if (!providerConfigured || createConv.isPending) return false;
+    createConv.mutate();
+    return true;
+  };
 
   const cancelJob = useMutation({
     mutationFn: (jobId: string) => api.jobs.cancel(jobId),
@@ -189,11 +208,12 @@ export function App() {
           activeView={activeView}
           settingsSection={settingsSection}
           creating={createConv.isPending}
+          canCreate={providerConfigured}
           mobileOpen={!isMobile || mobileSidebarOpen}
           listingQuery={listingQuery}
           onSearchQueryChange={handleListingSearch}
           onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
-          onCreate={() => createConv.mutate()}
+          onCreate={createListing}
           onDelete={(id) => deleteConv.mutate(id)}
           onOpenSettings={openSettings}
           onCloseSettings={closeSettings}
@@ -251,6 +271,7 @@ export function App() {
                 section={settingsSection}
                 targetId={settingsTargetId}
                 onTargetHandled={() => setSettingsTargetId(null)}
+                onOpenSetupGuide={() => setSetupGuideOpen(true)}
               />
             ) : selectedConvId ? (
               <div className="listing-workspace">
@@ -277,11 +298,28 @@ export function App() {
                   />
                 )}
               </div>
+            ) : needsSetup ? (
+              <SetupChecklist
+                providerConfigured={providerConfigured}
+                chromeAvailable={status?.chrome_available !== false}
+                extensionConnected={Boolean(status?.extension_connected)}
+                creating={createConv.isPending}
+                onOpenSettings={openSettings}
+                onStartGuide={() => setSetupGuideOpen(true)}
+                onCreate={createListing}
+              />
             ) : (
               <div className="empty-state">
                 <div className="empty-state-headline">Turn product photos<br />into marketplace-ready drafts.</div>
                 <div className="empty-state-rule" />
-                <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => createConv.mutate()}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ marginTop: 8 }}
+                  disabled={createConv.isPending || !providerConfigured}
+                  title={createListingTitle}
+                  onClick={createListing}
+                >
                   Create a listing
                 </button>
               </div>
@@ -334,10 +372,10 @@ export function App() {
           <button
             type="button"
             className="mobile-mail-btn"
-            title="New listing"
-            aria-label="New listing"
-            disabled={createConv.isPending}
-            onClick={() => createConv.mutate()}
+            title={createListingTitle}
+            aria-label={createListingTitle}
+            disabled={createConv.isPending || !providerConfigured}
+            onClick={createListing}
           >
             <ComposeIcon />
           </button>
@@ -352,6 +390,16 @@ export function App() {
       </footer>
       <ToastHost />
       <ConfirmDialogHost />
+      {setupGuideOpen ? (
+        <FirstRunGuide
+          providerConfigured={providerConfigured}
+          chromeAvailable={status?.chrome_available !== false}
+          extensionConnected={Boolean(status?.extension_connected)}
+          creating={createConv.isPending}
+          onClose={() => setSetupGuideOpen(false)}
+          onCreateListing={createListing}
+        />
+      ) : null}
     </div>
   );
 }

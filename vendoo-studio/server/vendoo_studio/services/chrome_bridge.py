@@ -31,10 +31,15 @@ EXTENSION_SKIP = {
     "IMPROVEMENTS.md",
     "README.md",
     "TROUBLESHOOTING.md",
+    "__pycache__",
+    "node_modules",
     "sample-listing.json",
     "skills",
     "test-script.js",
+    "studio-build.js",
 }
+
+BUILD_STAMP_NAME = "studio-build.js"
 
 
 class ChromeBridgeError(RuntimeError):
@@ -67,7 +72,12 @@ def pending_reload_path() -> Path:
 
 
 def _ignored_name(name: str) -> bool:
-    return name in EXTENSION_SKIP or name.startswith(".") or name.endswith(".log")
+    return (
+        name in EXTENSION_SKIP
+        or name.startswith(".")
+        or name.startswith("_")
+        or name.endswith(".log")
+    )
 
 
 def _ignore_extension(_directory: str, names: list[str]) -> list[str]:
@@ -123,6 +133,44 @@ def _overlay_copy(source: Path, destination: Path) -> None:
             pass
 
 
+def expected_extension_build() -> str | None:
+    source = extension_source_dir()
+    if not (source / "manifest.json").is_file():
+        return None
+    return extension_fingerprint(source)
+
+
+def _build_stamp_contents(fingerprint: str) -> str:
+    version = bundled_extension_version() or ""
+    return (
+        f"var STUDIO_EXTENSION_BUILD = '{fingerprint}';\n"
+        f"var STUDIO_EXTENSION_VERSION = '{version}';\n"
+    )
+
+
+def _write_build_stamp(root: Path, fingerprint: str) -> bool:
+    path = root / BUILD_STAMP_NAME
+    contents = _build_stamp_contents(fingerprint)
+    try:
+        old = path.read_text(encoding="utf-8")
+    except OSError:
+        old = None
+    if old == contents:
+        return False
+    try:
+        path.write_text(contents, encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def _stamp_lockstep_copies(fingerprint: str) -> bool:
+    destination = installed_extension_dir()
+    if destination.is_dir():
+        return _write_build_stamp(destination, fingerprint)
+    return False
+
+
 def install_bundled_extension() -> bool:
     """Copy the bundled extension into Chrome's load path. True when files changed."""
     source = extension_source_dir()
@@ -134,19 +182,19 @@ def install_bundled_extension() -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
     new_fingerprint = extension_fingerprint(source)
     old_fingerprint = extension_fingerprint(destination) if destination.exists() else None
-    if old_fingerprint == new_fingerprint:
-        return False
-
-    staging = destination.parent / f".{destination.name}.staging"
-    if staging.exists():
-        shutil.rmtree(staging)
-    shutil.copytree(source, staging, ignore=_ignore_extension)
-    if destination.exists():
-        _overlay_copy(staging, destination)
-        shutil.rmtree(staging)
-    else:
-        staging.rename(destination)
-    return True
+    files_changed = old_fingerprint != new_fingerprint
+    if files_changed:
+        staging = destination.parent / f".{destination.name}.staging"
+        if staging.exists():
+            shutil.rmtree(staging)
+        shutil.copytree(source, staging, ignore=_ignore_extension)
+        if destination.exists():
+            _overlay_copy(staging, destination)
+            shutil.rmtree(staging)
+        else:
+            staging.rename(destination)
+    stamp_changed = _stamp_lockstep_copies(new_fingerprint)
+    return files_changed or stamp_changed
 
 
 def sync_bundled_extension() -> Path:
@@ -205,23 +253,55 @@ def extension_files_in_sync() -> bool:
     return extension_fingerprint(source) == extension_fingerprint(destination)
 
 
+def extension_version_mismatch(reported_version: str | None) -> bool:
+    expected_version = bundled_extension_version()
+    return bool(reported_version and expected_version and reported_version != expected_version)
+
+
+def extension_in_lockstep(reported_build: str | None, reported_version: str | None = None) -> bool:
+    expected_build = expected_extension_build()
+    if reported_build:
+        return bool(expected_build) and reported_build == expected_build
+    return False
+
+
+def extension_reload_token_if_needed(
+    reported_version: str | None,
+    reported_generation: str | None,
+    reported_build: str | None = None,
+) -> str | None:
+    """One reload token when Chrome is not on this Studio copy."""
+    if extension_in_lockstep(reported_build, reported_version):
+        return None
+    pending = pending_extension_reload_token()
+    if pending and pending == reported_generation:
+        return None
+    return pending or mark_extension_reload_pending()
+
+
 def extension_build_status(
     reported_version: str | None,
     reported_generation: str | None,
+    reported_build: str | None = None,
 ) -> dict:
     expected_version = bundled_extension_version()
+    expected_build = expected_extension_build()
     files_in_sync = extension_files_in_sync()
     pending = pending_extension_reload_token()
-    reload_pending = needs_worker_reload(pending, reported_generation, not files_in_sync)
-    version_mismatch = bool(
-        reported_version and expected_version and reported_version != expected_version
-    )
+    reload_pending = needs_worker_reload(pending, reported_generation, False)
+    version_mismatch = extension_version_mismatch(reported_version)
+    in_lockstep = extension_in_lockstep(reported_build, reported_version)
+    connected_copy = bool(reported_build or reported_version)
     return {
         "expected_version": expected_version,
+        "expected_build": expected_build,
         "version": reported_version,
-        "up_to_date": (not reload_pending) and (not version_mismatch),
+        "build": reported_build,
+        "up_to_date": (not connected_copy) or in_lockstep,
         "reload_pending": reload_pending,
         "files_in_sync": files_in_sync,
+        "version_mismatch": version_mismatch,
+        "load_path": str(installed_extension_dir()),
     }
 
 

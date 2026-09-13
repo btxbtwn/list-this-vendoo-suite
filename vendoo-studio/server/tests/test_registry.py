@@ -115,6 +115,46 @@ class CategoryMappingTest(unittest.TestCase):
         )
         self.assertEqual(mapped, "Clothing > Women > Dresses")
 
+    def test_keeps_mens_sweatshirt_path_when_title_contains_sweatshirt(self):
+        path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters"
+        mapped = map_vendoo_category_path(
+            path,
+            {
+                "title": "Fruit of the Loom M Retro Graphic Sweatshirt Blue",
+                "department": "Men",
+                "ebay_specifics": {"department": "Men", "type": "Sweatshirt"},
+            },
+        )
+        self.assertEqual(mapped, path)
+
+    def test_keeps_sweatshirt_leaf_even_when_ebay_type_is_still_tshirt(self):
+        path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweatshirts & Hoodies"
+        mapped = map_vendoo_category_path(
+            path,
+            {
+                "title": "Fruit of the Loom M Retro Graphic Sweatshirt",
+                "department": "Men",
+                "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+            },
+        )
+        self.assertEqual(mapped, path)
+
+    def test_align_keeps_sweatshirt_category_from_chat_patch(self):
+        path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters"
+        listing = {
+            "title": "Fruit of the Loom M Retro Graphic Sweatshirt Blue",
+            "department": "Men",
+            "category_path": MEN_TSHIRT_PATH,
+            "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+        }
+        listing["category_path"] = path
+        listing["ebay_specifics"]["type"] = "Sweatshirt"
+        align_listing_gender(listing, [
+            {"op": "replace", "path": "/category_path", "value": path},
+            {"op": "replace", "path": "/ebay_specifics/type", "value": "Sweatshirt"},
+        ])
+        self.assertEqual(listing["category_path"], path)
+
     def test_maps_mens_tee_from_listing_type(self):
         mapped = map_vendoo_category_path(
             "Clothing > Men",
@@ -237,3 +277,16 @@ class PoshmarkCategoryMappingTest(unittest.TestCase):
             },
         )
         self.assertEqual(mapped, POSHMARK_MEN_SHORT_TEE)
+
+    def test_does_not_map_sweatshirt_to_poshmark_tee(self):
+        path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters"
+        mapped = map_poshmark_category_path(
+            path,
+            {
+                "title": "Fruit of the Loom M Retro Graphic Sweatshirt",
+                "department": "Men",
+                "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+            },
+        )
+        self.assertEqual(mapped, path)
+        self.assertNotEqual(mapped, POSHMARK_MEN_SHORT_TEE)
