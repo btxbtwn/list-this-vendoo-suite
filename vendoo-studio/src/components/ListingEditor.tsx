@@ -30,16 +30,23 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
   const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
 
-  const { data } = useQuery({
-    queryKey: ["listing", convId],
-    queryFn: () => api.listings.get(convId),
-  });
-
   const { data: jobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: api.jobs.list,
     refetchInterval: 2000,
   });
+  const listingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
+  const schemaProbeActive = Boolean(
+    listingJob?.mode === "schema_probe"
+    && ["queued", "awaiting_extension", "dispatched"].includes(String(listingJob?.status || "")),
+  );
+
+  const { data } = useQuery({
+    queryKey: ["listing", convId],
+    queryFn: () => api.listings.get(convId),
+    refetchInterval: schemaProbeActive ? 3000 : false,
+  });
+
   const { data: marketplaceSettings } = useQuery({
     queryKey: ["settings-marketplaces"],
     queryFn: api.settings.marketplaces,
@@ -48,7 +55,6 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
     queryKey: ["conversation", convId],
     queryFn: () => api.conversations.get(convId),
   });
-  const listingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
 
   const updateMutation = useMutation({
     mutationFn: (listing: any) => api.listings.update(convId, listing),
@@ -58,6 +64,14 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
   React.useEffect(() => {
     if (data?.listing) setJsonText(JSON.stringify(data.listing, null, 2));
   }, [data?.listing]);
+
+  React.useEffect(() => {
+    if (listingJob?.mode === "schema_probe" && listingJob.status === "completed") {
+      queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
+      queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+    }
+  }, [listingJob?.mode, listingJob?.status, listingJob?.id, convId, queryClient]);
 
   const tabs = React.useMemo(() => {
     const selected = new Set(marketplaceSettings?.selected ?? ["ebay", "etsy", "poshmark", "mercari", "depop"]);
@@ -132,6 +146,12 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
           ))}
         </div>
       </div>
+
+      {schemaProbeActive && (
+        <div className="pr-notice" role="status">
+          Discovering Vendoo marketplace fields for this category… Empty keys will appear on Forms as they arrive.
+        </div>
+      )}
 
       <div className={`editor-body${reviewTab === "fields" ? " is-files" : ""}`}>
         {reviewTab === "fields" ? (
@@ -523,8 +543,14 @@ function SendToVendooButton({
   const existingJob = jobs?.find(
     (j: any) => j.conversation_id === convId && j.status !== "cancelled" && j.status !== "imported",
   );
+  const isSchemaProbe = existingJob?.mode === "schema_probe";
+  const probeActive = Boolean(
+    isSchemaProbe && ["queued", "awaiting_extension", "dispatched"].includes(String(existingJob?.status || "")),
+  );
+  // Completed/failed schema probes must not capture the Send button — create a real fill job instead.
+  const fillJob = isSchemaProbe && !probeActive ? null : existingJob;
   const extensionConnected = extStatus?.connected ?? false;
-  const overwriteItemId = vendooItemId || existingJob?.vendoo_item_id || null;
+  const overwriteItemId = vendooItemId || fillJob?.vendoo_item_id || existingJob?.vendoo_item_id || null;
   const sendLabel = overwriteItemId ? "Update Vendoo listing" : "Send to Vendoo";
   const blockerText = sendBlockers
     .map((err) => err.message)
@@ -538,12 +564,39 @@ function SendToVendooButton({
     );
   };
 
-  if (existingJob) {
-    const isFailed = existingJob.status === "failed";
-    const isDispatched = existingJob.status === "dispatched";
-    const isCompleted = existingJob.status === "completed";
-    const isQueued = existingJob.status === "queued" || existingJob.status === "awaiting_extension";
-    const leftoverFilling = isDispatched && existingJob.current_step === "filling_fields";
+  if (probeActive && existingJob) {
+    return (
+      <div className="job-card">
+        <div className="job-card-copy">
+          <div className="job-card-label">Discovering fields</div>
+          <div className="job-card-status">
+            {existingJob.current_step || existingJob.status}
+            <div className="mt-4 text-xs text-muted">
+              Matching the Vendoo category and reading marketplace fields into this listing.
+            </div>
+          </div>
+        </div>
+        <div className="job-card-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm job-card-action"
+            disabled={cancelMutation.isPending}
+            onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}
+          >
+            {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
+          </button>
+        </div>
+        {error && <div className="job-card-error-text">{error}</div>}
+      </div>
+    );
+  }
+
+  if (fillJob) {
+    const isFailed = fillJob.status === "failed";
+    const isDispatched = fillJob.status === "dispatched";
+    const isCompleted = fillJob.status === "completed";
+    const isQueued = fillJob.status === "queued" || fillJob.status === "awaiting_extension";
+    const leftoverFilling = isDispatched && fillJob.current_step === "filling_fields";
     const canRestart = (isFailed || isDispatched || isCompleted || isQueued) && !leftoverFilling;
     const canCancel = !isCompleted;
     const buttonLabel = retryMutation.isPending
@@ -558,8 +611,8 @@ function SendToVendooButton({
         <div className="job-card-copy">
           <div className="job-card-label">Job Status</div>
           <div className={`job-card-status${isFailed ? " error" : ""}`}>
-            {existingJob.status}: {existingJob.current_step || "queued"}
-            {existingJob.last_error && <div className="mt-4 text-xs text-error">{existingJob.last_error}</div>}
+            {fillJob.status}: {fillJob.current_step || "queued"}
+            {fillJob.last_error && <div className="mt-4 text-xs text-error">{fillJob.last_error}</div>}
           </div>
         </div>
         <div className="job-card-actions">
@@ -571,7 +624,7 @@ function SendToVendooButton({
               onClick={async () => {
                 if (!(await confirmOverwriteIfNeeded())) return;
                 setError(null);
-                retryMutation.mutate(existingJob.id);
+                retryMutation.mutate(fillJob.id);
               }}
             >
               {buttonLabel}
@@ -582,7 +635,7 @@ function SendToVendooButton({
               type="button"
               className="btn btn-secondary btn-sm job-card-action"
               disabled={cancelMutation.isPending}
-              onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}
+              onClick={() => { setError(null); cancelMutation.mutate(fillJob.id); }}
             >
               {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
             </button>

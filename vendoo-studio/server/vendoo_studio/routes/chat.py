@@ -725,8 +725,13 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 raise RuntimeError(full_text.strip() or "Listing generation returned no text")
             if not extract_listing_json(full_text):
                 run.publish(_sse_event("status", "Repairing listing JSON…"))
-            await persist_generated_listing_with_repair(stream_db, conv_id, full_text, provider)
+            listing = await persist_generated_listing_with_repair(stream_db, conv_id, full_text, provider)
             stream_repo.update_status(conv_id, "draft")
+            if listing:
+                from vendoo_studio.services.schema_probe import kickoff_schema_probe
+                run.publish(_sse_event("status", "Discovering marketplace fields…"))
+                # Fire-and-forget: do not add to child_tasks (those are cancelled in finally).
+                asyncio.create_task(kickoff_schema_probe(conv_id, listing, reason="generate"))
             run.publish("data: [DONE]\n\n")
         except asyncio.CancelledError:
             log.warning("listing generation cancelled for %s; saving any completed text", conv_id)

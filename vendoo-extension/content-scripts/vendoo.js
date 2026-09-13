@@ -2510,6 +2510,44 @@
       return { status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed' };
   }
 
+  async function setGeneralCategoryOnly(data) {
+      beginFillLog('general');
+      log('=== Setting General category only (schema probe) ===');
+      try {
+          await activateMarketplaceSection('general');
+          await sleep(CONFIG.SLEEP_LONG);
+          if (!data?.category_path) {
+              recordFill({
+                  field: 'Category',
+                  status: 'skipped',
+                  reason: 'No value in listing',
+                  selector: VENDOO_SELECTORS.category,
+              });
+              return { ok: false, error: 'No category_path in listing', fill_log: finishFillLog({ skipUnmapped: true }) };
+          }
+          const catResult = await fillCategoryPath(data);
+          recordFill({
+              field: 'Category',
+              status: catResult.ok ? (catResult.filled ? 'filled' : 'skipped') : 'failed',
+              reason: catResult.error || (catResult.already ? 'Already set' : ''),
+              selector: VENDOO_SELECTORS.category,
+              value: data.category_path,
+          });
+          if (!catResult.ok) {
+              return {
+                  ok: false,
+                  error: catResult.error || 'Category selection failed',
+                  fill_log: finishFillLog({ skipUnmapped: true }),
+              };
+          }
+          await sleep(CONFIG.SLEEP_LONG);
+          return { ok: true, fill_log: finishFillLog({ skipUnmapped: true }) };
+      } catch (err) {
+          recordFill({ field: 'form', status: 'failed', reason: err.message });
+          return { ok: false, error: err.message, fill_log: finishFillLog({ skipUnmapped: true }) };
+      }
+  }
+
   // ============================================
   // MAIN VENDOO FORM FILLER - OPTIMIZED
   // ============================================
@@ -4969,6 +5007,13 @@
           if (msg.type === 'FILL_GENERAL') {
               currentRegistrySelectors = msg.registry_selectors || {};
               fillMainForm(msg.data)
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'SET_GENERAL_CATEGORY') {
+              setGeneralCategoryOnly(msg.data)
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
               return true;

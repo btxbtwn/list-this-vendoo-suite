@@ -183,6 +183,7 @@ async def dispatch_queued_jobs():
     db = SessionLocal()
     try:
         from vendoo_studio.repositories.queries import JobRepo
+        from vendoo_studio.services.schema_probe import is_schema_probe_job, listing_for_extension
         repo = JobRepo(db)
         jobs = repo.get_dispatchable()
         if not jobs:
@@ -203,17 +204,19 @@ async def dispatch_queued_jobs():
         item_id = job.vendoo_item_id or binding.get("vendooItemId")
         item_url = job.vendoo_url or binding.get("vendooUrl")
         reuse_existing = bool(item_id or item_url)
+        schema_probe = is_schema_probe_job(job)
+        platforms = selected_fillable_platforms()
         resume_from = None
         retried = repo.latest_event(job.id, "retried")
         if retried and isinstance(retried.payload, dict):
             candidate = str(retried.payload.get("resume_from") or "").strip()
             resume_from = candidate or None
         options = {
-            "platforms": selected_fillable_platforms(),
+            "platforms": platforms,
             "saveDrafts": True,
             "publish": False,
             "reuseExistingItem": reuse_existing,
-            "skipPhotos": reuse_existing,
+            "skipPhotos": True if schema_probe else reuse_existing,
             # Imported drafts keep matching values; fill skips unchanged fields.
             "clearBeforeFill": False,
             "vendoo_item_id": item_id,
@@ -221,14 +224,17 @@ async def dispatch_queued_jobs():
         }
         if resume_from:
             options["resumeFrom"] = resume_from
+        if schema_probe:
+            options["mode"] = "schema_probe"
+            options["skipPhotos"] = True
         sent = await extension_manager.send_message(ProtocolMessage(
             type="job.start",
             job_id=job.id,
             message_id=uuid.uuid4().hex[:12],
             payload={
                 "job_id": job.id,
-                "listing": job.listing_snapshot,
-                "photos": photos_list,
+                "listing": listing_for_extension(job.listing_snapshot),
+                "photos": [] if schema_probe else photos_list,
                 "vendoo_item_id": item_id,
                 "vendoo_url": item_url,
                 "options": options,
@@ -361,9 +367,14 @@ def _build_registry_selectors(listing: dict, db) -> dict:
 
 def _set_conversation_status(db, job_id: str, status: str) -> None:
     from vendoo_studio.repositories.queries import ConversationRepo, JobRepo
+    from vendoo_studio.services.schema_probe import is_schema_probe_job
     job = JobRepo(db).get(job_id)
-    if job:
-        ConversationRepo(db).update_status(job.conversation_id, status)
+    if not job:
+        return
+    # Schema probes must not flip draft listings to listing/completed/failed.
+    if is_schema_probe_job(job):
+        return
+    ConversationRepo(db).update_status(job.conversation_id, status)
 
 
 @router.get("/api/extension/pairing-token")
@@ -502,8 +513,9 @@ async def extension_websocket(ws: WebSocket):
                 payload = message.get("payload", {})
                 job_id = message.get("job_id")
                 if job_id:
-                    from vendoo_studio.repositories.queries import JobRepo
+                    from vendoo_studio.repositories.queries import ConversationRepo, JobRepo
                     from vendoo_studio.services.fill_log import FillLogService
+                    from vendoo_studio.services.schema_probe import is_schema_probe_job
                     repo = JobRepo(db)
                     err = payload.get("error", "Unknown error")
                     step = payload.get("step", "")
@@ -522,7 +534,16 @@ async def extension_websocket(ws: WebSocket):
                         job = repo.get(job_id)
                         if job and payload.get("fill_log"):
                             FillLogService(db).save_step(job, step, payload.get("fill_log"))
-                        _set_conversation_status(db, job_id, "failed")
+                        if is_schema_probe_job(job):
+                            ConversationRepo(db).add_message(
+                                job.conversation_id,
+                                "system",
+                                f"Could not discover Vendoo fields ({step}): {err}",
+                                provider="system",
+                                model="",
+                            )
+                        else:
+                            _set_conversation_status(db, job_id, "failed")
 
             elif msg_type == "job.vendoo_item":
                 payload = message.get("payload") or {}
@@ -559,21 +580,52 @@ async def extension_websocket(ws: WebSocket):
             elif msg_type == "job.completed":
                 job_id = message.get("job_id")
                 if job_id:
-                    from vendoo_studio.repositories.queries import JobRepo
+                    from vendoo_studio.repositories.queries import ConversationRepo, JobRepo
+                    from vendoo_studio.services.schema_probe import bind_probe_draft, is_schema_probe_job
                     repo = JobRepo(db)
                     vurl = message.get("payload", {}).get("vendoo_url", "")
-                    repo.update_status(job_id, "completed", vendoo_url=vurl or None)
-                    repo.add_event(job_id, "completed")
-                    _set_conversation_status(db, job_id, "completed")
+                    job = repo.get(job_id)
+                    if job and is_schema_probe_job(job):
+                        bind_probe_draft(db, job)
+                        repo.update_status(
+                            job_id,
+                            "completed",
+                            current_step="schema_probe_done",
+                            vendoo_url=vurl or job.vendoo_url,
+                            vendoo_item_id=job.vendoo_item_id,
+                        )
+                        repo.add_event(job_id, "completed", "schema_probe_done", {
+                            "mode": "schema_probe",
+                            "vendoo_url": vurl or job.vendoo_url,
+                        })
+                        path = str((job.listing_snapshot or {}).get("category_path") or "").strip()
+                        ConversationRepo(db).add_message(
+                            job.conversation_id,
+                            "system",
+                            (
+                                f"Marketplace fields discovered for {path}."
+                                if path else
+                                "Marketplace fields discovered from Vendoo."
+                            ),
+                            provider="system",
+                            model="",
+                        )
+                    else:
+                        repo.update_status(job_id, "completed", vendoo_url=vurl or None)
+                        repo.add_event(job_id, "completed")
+                        _set_conversation_status(db, job_id, "completed")
 
             elif msg_type == "job.cancelled":
                 job_id = message.get("job_id")
                 if job_id:
                     from vendoo_studio.repositories.queries import JobRepo
+                    from vendoo_studio.services.schema_probe import is_schema_probe_job
                     repo = JobRepo(db)
+                    job = repo.get(job_id)
                     repo.update_status(job_id, "cancelled")
                     repo.add_event(job_id, "cancelled")
-                    _set_conversation_status(db, job_id, "draft")
+                    if not is_schema_probe_job(job):
+                        _set_conversation_status(db, job_id, "draft")
 
             elif msg_type == "job.preview_frame":
                 job_id = message.get("job_id")
