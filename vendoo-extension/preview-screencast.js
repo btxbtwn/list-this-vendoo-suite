@@ -55,14 +55,48 @@ async function tabPreviewUrl(tabId) {
 
 const ENGINE_WINDOW_KEY = 'studio_engine_window_id';
 const ENGINE_LEFT = -20000;
-const ENGINE_TOP = 0;
 const ENGINE_WIDTH = 1280;
 const ENGINE_HEIGHT = 900;
 const SHOW_LEFT = 80;
 const SHOW_TOP = 80;
+const FALLBACK_WIDTH = 800;
+const FALLBACK_HEIGHT = 600;
 
 function isOffscreenEngineWindow(win) {
   return Boolean(win && win.id != null && Number.isFinite(win.left) && win.left <= ENGINE_LEFT / 2);
+}
+
+function isWindowBoundsError(err) {
+  const message = String((err && err.message) || err || '');
+  return /bounds/i.test(message) && /visible screen/i.test(message);
+}
+
+function pickOnscreenBounds(windows) {
+  const visible = (windows || []).find((win) => (
+    win
+    && win.state !== 'minimized'
+    && Number.isFinite(win.left)
+    && win.left > ENGINE_LEFT / 2
+    && Number.isFinite(win.top)
+    && Number.isFinite(win.width)
+    && win.width >= 400
+    && Number.isFinite(win.height)
+    && win.height >= 300
+  ));
+  if (!visible) {
+    return {
+      left: SHOW_LEFT,
+      top: SHOW_TOP,
+      width: FALLBACK_WIDTH,
+      height: FALLBACK_HEIGHT,
+    };
+  }
+  return {
+    left: visible.left,
+    top: visible.top,
+    width: Math.min(ENGINE_WIDTH, visible.width),
+    height: Math.min(ENGINE_HEIGHT, visible.height),
+  };
 }
 
 function stopPreviewPolling() {
@@ -76,21 +110,56 @@ function stopPreviewPolling() {
   }
 }
 
+async function safeWindowBounds() {
+  try {
+    return pickOnscreenBounds(await chrome.windows.getAll());
+  } catch (_) {
+    return pickOnscreenBounds([]);
+  }
+}
+
+async function updateWindowSafe(windowId, extras = {}) {
+  const bounds = await safeWindowBounds();
+  try {
+    await chrome.windows.update(windowId, { ...bounds, ...extras });
+  } catch (err) {
+    if (!isWindowBoundsError(err)) {
+      throw err;
+    }
+    log(`Chrome rejected window bounds (${err.message}); updating without position`);
+    await chrome.windows.update(windowId, {
+      focused: extras.focused,
+      state: extras.state || 'normal',
+    });
+  }
+}
+
+async function createWindowSafe(createOptions) {
+  const bounds = await safeWindowBounds();
+  try {
+    return await chrome.windows.create({ ...bounds, type: 'normal', ...createOptions });
+  } catch (err) {
+    if (!isWindowBoundsError(err)) {
+      throw err;
+    }
+    log(`Chrome rejected window bounds (${err.message}); creating without position`);
+    const rest = { type: 'normal', ...createOptions };
+    delete rest.left;
+    delete rest.top;
+    delete rest.width;
+    delete rest.height;
+    return await chrome.windows.create(rest);
+  }
+}
+
 async function hideWindow(windowId) {
   if (windowId == null) {
     return;
   }
   try {
-    // Stay off-screen at state 'normal'. Minimized Chrome windows stop
-    // compositing, so Studio's preview stays blank until the window is restored.
-    await chrome.windows.update(windowId, {
-      focused: false,
-      left: ENGINE_LEFT,
-      top: ENGINE_TOP,
-      width: ENGINE_WIDTH,
-      height: ENGINE_HEIGHT,
-      state: 'normal',
-    });
+    // Chrome rejects off-screen bounds. Keep the window on-screen at state
+    // 'normal' so compositing (and Studio preview) continue.
+    await chrome.windows.update(windowId, { focused: false, state: 'normal' });
   } catch (err) {
     log(`Could not hide Chrome window (${err.message})`);
   }
@@ -106,14 +175,7 @@ async function showWindow(windowId) {
       await chrome.windows.update(windowId, { focused: true, state: 'normal' });
       return;
     }
-    await chrome.windows.update(windowId, {
-      focused: true,
-      state: 'normal',
-      left: SHOW_LEFT,
-      top: SHOW_TOP,
-      width: ENGINE_WIDTH,
-      height: ENGINE_HEIGHT,
-    });
+    await updateWindowSafe(windowId, { focused: true, state: 'normal' });
   } catch (err) {
     log(`Could not show Chrome window (${err.message})`);
   }
@@ -127,7 +189,7 @@ async function rememberedEngineWindowId() {
   }
   try {
     const win = await chrome.windows.get(remembered);
-    if (isOffscreenEngineWindow(win)) {
+    if (win?.id != null) {
       return win.id;
     }
   } catch (_) {}
@@ -139,14 +201,10 @@ async function engineWindowId() {
   if (existing != null) {
     return existing;
   }
-  const created = await chrome.windows.create({
+  const created = await createWindowSafe({
     url: 'about:blank',
     focused: false,
     type: 'normal',
-    left: ENGINE_LEFT,
-    top: ENGINE_TOP,
-    width: ENGINE_WIDTH,
-    height: ENGINE_HEIGHT,
   });
   await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
   await hideWindow(created.id);
