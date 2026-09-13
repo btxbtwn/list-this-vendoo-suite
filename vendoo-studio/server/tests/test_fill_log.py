@@ -204,6 +204,53 @@ class FillLogServiceTest(unittest.TestCase):
             "ebay",
         )
 
+    def test_discovering_schema_registers_fields_per_marketplace(self):
+        from vendoo_studio.repositories.queries import ListingRepo
+
+        category = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts"
+        self.job.listing_snapshot = {
+            "title": "Nike tee",
+            "category_path": category,
+            "ebay_specifics": {},
+            "poshmark_specifics": {},
+        }
+        self.db.commit()
+
+        listing_repo = ListingRepo(self.db)
+        listing_repo.save_revision(self.conv.id, {
+            "title": "Nike tee",
+            "category_path": category,
+            "ebay_specifics": {},
+            "poshmark_specifics": {},
+        }, source="model")
+
+        service = FillLogService(self.db)
+        service.save_step(self.job, "discovering_schema", {
+            "marketplace": "ebay",
+            "entries": [
+                {"marketplace": "ebay", "field": "Department", "status": "new", "selector": "#listings.ebay.categorySpecifics.department"},
+                {"marketplace": "ebay", "field": "Type", "status": "new", "selector": "#listings.ebay.categorySpecifics.type"},
+                {"marketplace": "poshmark", "field": "Style Tags", "status": "new", "selector": "#listings.poshmark.marketplaceSpecifics.styleTags"},
+                {"marketplace": "poshmark", "field": "Category", "status": "filled", "selector": "#listings.poshmark.overrides.category", "value_preview": "Men > Shirts"},
+            ],
+        })
+
+        ebay_dept = self.db.query(FieldRegistry).filter(
+            FieldRegistry.marketplace == "ebay",
+            FieldRegistry.normalized_label == "department",
+        ).one()
+        posh_style = self.db.query(FieldRegistry).filter(
+            FieldRegistry.marketplace == "poshmark",
+            FieldRegistry.normalized_label == "style tags",
+        ).one()
+        self.assertEqual(ebay_dept.marketplace, "ebay")
+        self.assertEqual(posh_style.marketplace, "poshmark")
+
+        listing = listing_repo.get_revisions(self.conv.id)[0].listing_json
+        self.assertEqual(listing["ebay_specifics"]["department"], "")
+        self.assertEqual(listing["ebay_specifics"]["type"], "")
+        self.assertEqual(listing["poshmark_specifics"]["styleTags"], "")
+
     def test_retry_clears_previous_log(self):
         service = FillLogService(self.db)
         service.save_step(self.job, "filling_general", {

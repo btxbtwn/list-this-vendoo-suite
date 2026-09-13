@@ -2805,6 +2805,8 @@
 
   async function fillEbayForm(data) {
       log('Filling eBay form...');
+      await fillMarketplaceCategory('ebay', data);
+      await sleep(CONFIG.SLEEP_LONG);
 
       await fillDropdownField(
           '#listings\\.ebay\\.overrides\\.condition',
@@ -3025,6 +3027,8 @@
 
   async function fillEtsyForm(data) {
       log('Filling Etsy form...');
+      await fillMarketplaceCategory('etsy', data);
+      await sleep(CONFIG.SLEEP_LONG);
 
       const specs = data.etsy_specifics || {};
       const ebaySpecifics = data.ebay_specifics || {};
@@ -3510,6 +3514,8 @@
 
   async function fillMercariForm(data) {
       log('Filling Mercari form...');
+      await fillMarketplaceCategory('mercari', data);
+      await sleep(CONFIG.SLEEP_LONG);
 
       await fillDropdownField(
           resolveMarketplaceField('mercari', ['condition'], [
@@ -3628,6 +3634,8 @@
 
   async function fillDepopForm(data) {
       log('Filling Depop form...');
+      await fillMarketplaceCategory('depop', data);
+      await sleep(CONFIG.SLEEP_LONG);
 
       await fillDropdownField(
           resolveMarketplaceField('depop', ['condition'], [
@@ -4294,14 +4302,20 @@
       return details;
   }
 
-  async function discoverAllMarketplaceListings() {
-      const platforms = ['ebay', 'etsy', 'poshmark', 'mercari', 'depop'];
+  async function discoverAllMarketplaceListings(data = null, platforms = null) {
+      const list = Array.isArray(platforms) && platforms.length
+          ? platforms.map((platform) => String(platform || '').toLowerCase()).filter(Boolean)
+          : ['ebay', 'etsy', 'poshmark', 'mercari', 'depop'];
       let listings = {};
-      for (const platform of platforms) {
+      for (const platform of list) {
           try {
               log(`Discovering ${platform} form fields (including empty optionals)...`);
               await activateMarketplaceSection(platform);
               await sleep(CONFIG.SLEEP_LONG);
+              if (data) {
+                  await fillMarketplaceCategory(platform, data);
+                  await sleep(CONFIG.SLEEP_LONG);
+              }
               if (platform === 'ebay') {
                   await waitForEbayOptionalCategoryFields();
               } else {
@@ -4321,6 +4335,133 @@
       return listings;
   }
 
+  function marketplaceCategoryDisplay(marketplace) {
+      const catBtn = findMarketplaceCategoryControl(marketplace);
+      if (!catBtn) return '';
+      return normalizeCategoryDisplay(
+          displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '',
+      ).split('\n')[0].trim();
+  }
+
+  function collectMarketplaceSchemaFields(marketplace) {
+      const fields = [];
+      const seen = new Set();
+      const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
+      for (const el of controls) {
+          if (el.closest && el.closest('#vendoo-debug-box')) continue;
+          const type = String(el.type || '').toLowerCase();
+          if (['hidden', 'submit', 'button', 'reset', 'file', 'image'].includes(type)) continue;
+          if (!isVisibleElement(el)) continue;
+          if (!isEnabledField(el)) continue;
+          if (!marketplaceFieldNode(el, marketplace) && !isCurrentMarketplaceControl(el)) continue;
+
+          const label = fieldLabelForControl(el);
+          const key = normalizeFieldKey(label);
+          if (!key || seen.has(key)) continue;
+          if (isAccountSettingField(key) || isAccountSettingField(label)) continue;
+          seen.add(key);
+          const value = (() => {
+              let raw = '';
+              if ('value' in el && el.value != null) raw = String(el.value).trim();
+              if (!raw) raw = (displayedFieldValue(el) || '').trim();
+              if (raw && !fieldLooksFilled(el)) return '';
+              return raw;
+          })();
+          fields.push({
+              label,
+              selector: selectorFor(el, ''),
+              filled: Boolean(value),
+              value,
+              required: Boolean(
+                  el.required
+                  || el.getAttribute?.('aria-required') === 'true'
+                  || /\*/.test(label)
+                  || /\(required\)/i.test(label)
+              ),
+          });
+      }
+      return fields;
+  }
+
+  async function discoverMarketplaceSchema(data, platforms) {
+      const list = Array.isArray(platforms) && platforms.length
+          ? platforms.map((platform) => String(platform || '').toLowerCase()).filter(Boolean)
+          : ['ebay', 'etsy', 'poshmark', 'mercari', 'depop'];
+      const listing = data && typeof data === 'object' ? data : {};
+      const allEntries = [];
+      const categories = {};
+      const schema = {};
+
+      log(`=== Discovering marketplace schemas after category (${list.join(', ')}) ===`);
+
+      for (const platform of list) {
+          beginFillLog(platform);
+          try {
+              await activateMarketplaceSection(platform);
+              await sleep(CONFIG.SLEEP_LONG);
+
+              const catResult = await fillMarketplaceCategory(platform, listing);
+              await sleep(CONFIG.SLEEP_LONG);
+              const shown = marketplaceCategoryDisplay(platform);
+              categories[platform] = {
+                  status: catResult?.status || 'skipped',
+                  path: shown || '',
+              };
+              log(`  ${platform} category: ${shown || catResult?.status || 'none'}`);
+
+              if (platform === 'ebay') {
+                  await waitForEbayOptionalCategoryFields();
+              } else {
+                  await expandOptionalFields();
+                  await sleep(CONFIG.SLEEP_LONG);
+              }
+
+              const fields = collectMarketplaceSchemaFields(platform);
+              for (const field of fields) {
+                  if (normalizeFieldKey(field.label) === 'category') continue;
+                  recordFill({
+                      field: field.label,
+                      status: field.filled ? 'filled' : 'new',
+                      reason: field.filled
+                          ? 'Already has a value'
+                          : (field.required
+                              ? 'Required field discovered after category select'
+                              : 'Discovered on form after category select'),
+                      selector: field.selector,
+                      value: field.value,
+                  });
+              }
+              schema[platform] = {
+                  category: categories[platform],
+                  fields,
+              };
+              log(`  ${platform}: ${fields.length} schema fields`);
+          } catch (err) {
+              warn(`Discover schema ${platform} failed: ${err.message}`);
+              recordFill({ field: 'form', status: 'failed', reason: err.message });
+              categories[platform] = categories[platform] || { status: 'failed', path: '', error: err.message };
+              schema[platform] = {
+                  category: categories[platform],
+                  fields: [],
+                  error: err.message,
+              };
+          }
+          const logResult = finishFillLog({ skipUnmapped: true });
+          allEntries.push(...logResult.entries);
+      }
+
+      return {
+          ok: true,
+          schema,
+          categories,
+          fill_log: {
+              marketplace: allEntries[0]?.marketplace || 'ebay',
+              summary: summarizeFillLog(allEntries),
+              entries: allEntries,
+          },
+      };
+  }
+
   async function scrapeVendooItem() {
       const itemId = extractItemId();
       if (itemId === 'new') {
@@ -4332,7 +4473,10 @@
       await expandOptionalFields();
       await sleep(CONFIG.SLEEP_LONG);
       const generalDetails = scrapeGeneralDetailsFromDom();
-      const listings = await discoverAllMarketplaceListings();
+      const categoryPath = generalDetails.categoryV2 || '';
+      const listings = await discoverAllMarketplaceListings(
+          categoryPath ? { category_path: categoryPath } : null,
+      );
       const form = {
           itemID: itemId,
           generalDetails,
@@ -4689,6 +4833,13 @@
           if (msg.type === 'FILL_MARKETPLACE') {
               currentRegistrySelectors = msg.registry_selectors || {};
               fillMarketplaceForm(msg.data, msg.platform)
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'DISCOVER_SCHEMA') {
+              discoverMarketplaceSchema(msg.data, msg.platforms)
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
               return true;

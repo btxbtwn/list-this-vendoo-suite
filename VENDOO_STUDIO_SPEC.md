@@ -652,6 +652,7 @@ UPLOAD_PHOTOS
 FILL_GENERAL
 SAVE_GENERAL
 AUDIT_GENERAL
+DISCOVER_SCHEMA
 FILL_MARKETPLACE
 SAVE_MARKETPLACE
 AUDIT_MARKETPLACE
@@ -664,6 +665,7 @@ Required changes:
 - Fetch authorized job photos from the backend.
 - Preserve photo ordering and verify visible upload count.
 - Fill category path.
+- After General category is committed, align each marketplace category, scrape the live field schema, and register discovered fields before marketplace fill.
 - Fill SKU only when explicitly supplied.
 - Return structured field results.
 - Separate filling, saving, and auditing.
