@@ -57,7 +57,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_ORDER = ["failed", "not_found", "uncertain", "new", "skipped", "filled"];
 const FILLABLE_STATUSES = new Set(["failed", "not_found", "uncertain", "new", "skipped"]);
 const DEFAULT_SELECTED_MARKETPLACES = ["ebay", "etsy", "poshmark", "mercari", "depop"];
-const MARKETPLACE_ORDER = ["general", "ebay", "etsy", "poshmark", "mercari", "depop", "facebook", "shopify", "vinted", "whatnot", "grailed"];
+const MARKETPLACE_ORDER = ["general", "ebay", "etsy", "poshmark", "mercari", "depop", "facebook", "shopify", "vinted", "whatnot", "sellwild", "grailed"];
 const MARKETPLACE_LABELS: Record<string, string> = {
   general: "Vendoo",
   ebay: "eBay",
@@ -69,6 +69,7 @@ const MARKETPLACE_LABELS: Record<string, string> = {
   shopify: "Shopify",
   vinted: "Vinted",
   whatnot: "Whatnot",
+  sellwild: "Sellwild",
   grailed: "Grailed",
   vestiaire: "Vestiaire",
   kidizen: "Kidizen",
@@ -410,7 +411,7 @@ function sourceFormsForJob(
   const sourceForms = overlayListingForms(
     draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms,
     listingForms,
-  ).filter((form) => enabled.has(form.id));
+  ).filter((form) => enabled.has(form.id) || Boolean(form.liveStatus));
   return { sourceForms, fromVendooDraft: draftForms.length > 0 };
 }
 
@@ -1174,12 +1175,17 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
     ? item.listings as Record<string, unknown>
     : {};
   const leftoverMarkets = new Set(leftovers.map((entry) => entry.marketplace.toLowerCase()));
+  const scrapedStatuses = item?.statuses && typeof item.statuses === "object" && !Array.isArray(item.statuses)
+    ? item.statuses as Record<string, unknown>
+    : {};
   // Always include the standard marketplaces so empty Category optionals still
   // appear even when the Vendoo API omits an empty listings.ebay object.
+  // Also keep any marketplace that has a live Vendoo status (Facebook, etc.).
   const listingIds = [
     ...MARKETPLACE_ORDER.filter((id) => id !== "general"),
+    ...Object.keys(scrapedStatuses).filter((id) => id !== "general" && !MARKETPLACE_ORDER.includes(id)),
     ...Object.keys(listings).filter((id) => {
-      if (MARKETPLACE_ORDER.includes(id) || id === "validate") return false;
+      if (MARKETPLACE_ORDER.includes(id) || id === "validate" || id in scrapedStatuses) return false;
       const listing = listings[id] as Record<string, unknown> | undefined;
       const status = listing?.status as Record<string, unknown> | undefined;
       return Boolean(status?.listed) || leftoverMarkets.has(id);
@@ -1188,8 +1194,9 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
   for (const id of listingIds) {
     const raw = listings[id] ? flattenFields(listingSection(listings[id] as Record<string, unknown>)) : [];
     const fields = organizeFields(id, raw, fillLogEntriesForMarket(report, id));
-    if (!fields.length) continue;
-    forms.push(toForm(id, fields, liveStatusForMarketplace(id, item)));
+    const liveStatus = liveStatusForMarketplace(id, item);
+    if (!fields.length && !liveStatus) continue;
+    forms.push(toForm(id, fields, liveStatus));
   }
   return forms;
 }
@@ -1326,7 +1333,7 @@ function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsState): Dra
       );
       return toForm(form.id, fields, form.liveStatus);
     })
-    .filter((form) => form.fields.length > 0);
+    .filter((form) => form.fields.length > 0 || Boolean(form.liveStatus));
 }
 
 function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): DraftForm[] {
@@ -1984,7 +1991,16 @@ export function FillLogPanel({
                 </span>
               </div>
               <div className="pr-diff-body">
-                {groupFields(selectedForm.fields).map((group) => (
+                {!selectedForm.fields.length ? (
+                  <div className="pr-empty">
+                    <p>
+                      {selectedForm.liveStatus
+                        ? `Vendoo status: ${selectedForm.liveStatus}. Studio doesn’t fill this marketplace yet.`
+                        : "No fields to show for this marketplace."}
+                    </p>
+                  </div>
+                ) : (
+                  groupFields(selectedForm.fields).map((group) => (
                   <div key={group.label || "fields"} className="pr-section-block">
                     {group.label ? <div className="pr-section">{group.label}</div> : null}
                     {group.fields.map((field) => {
@@ -2056,7 +2072,8 @@ export function FillLogPanel({
                       );
                     })}
                   </div>
-                ))}
+                ))
+                )}
               </div>
             </div>
           )}
