@@ -68,7 +68,8 @@ Then:
 3. Optionally add notes (cost, flaws, measurements).
 4. Chat to analyze the photos and generate a listing.
 5. Review the listing in the right panel.
-6. Click **Send to Vendoo**. Studio fills and saves a draft, then stops before publishing.
+6. Click **Send to Vendoo**. Studio opens a background Vendoo tab in everyday Chrome, fills and saves a draft, closes the tab, and stops before publishing.
+7. Open the Vendoo draft to review and publish manually.
 
 ## Architecture
 

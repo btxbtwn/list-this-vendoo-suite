@@ -114,6 +114,55 @@ class VendooImportMapperTest(unittest.TestCase):
         self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
         self.assertEqual(listing["etsy_specifics"]["category_specifics"]["sleeveLength"], "Short Sleeve")
 
+    def test_extracts_nested_and_marketplace_image_urls(self):
+        item = {
+            "images": [{
+                "original": {"location": "https://storage.googleapis.com/vendoo/a.jpg"},
+                "url": "https://cdn.example/thumb.jpg",
+            }],
+            "listings": {
+                "ebay": {
+                    "images": [{"src": "https://images.cloudinary.com/b.png"}],
+                }
+            },
+        }
+        urls = image_urls_from_vendoo(item, None)
+        self.assertEqual(urls, [
+            "https://storage.googleapis.com/vendoo/a.jpg",
+            "https://cdn.example/thumb.jpg",
+            "https://images.cloudinary.com/b.png",
+        ])
+
+    def test_extracts_explicit_image_urls(self):
+        urls = image_urls_from_vendoo(None, None, ["https://cdn.example/extra.webp"])
+        self.assertEqual(urls, ["https://cdn.example/extra.webp"])
+
+    def test_maps_vendoo_option_ids_and_ebay_path_objects(self):
+        item = {
+            "generalDetails": {
+                "title": "Sauza Tee",
+                "description": "Graphic tee",
+                "price": 20,
+                "condition": "v_preowned",
+                "primaryColor": "v_Gray",
+            },
+            "listings": {
+                "ebay": {
+                    "marketplaceSpecifics": {
+                        "type": {"displayName": "T-Shirt", "displayPath": ["Clothing", "Tops", "T-Shirt"]},
+                        "department": {"displayPath": ["Women"]},
+                    }
+                }
+            },
+        }
+        listing = listing_from_vendoo(item, None)
+        self.assertEqual(listing["condition"], "Pre-Owned - Good")
+        self.assertEqual(listing["primaryColor"], "Gray")
+        self.assertEqual(listing["ebay_specifics"]["type"], "T-Shirt")
+        self.assertEqual(listing["ebay_specifics"]["department"], "Women")
+        from vendoo_studio.models.schema import ListingSchema
+        ListingSchema.model_validate(listing)
+
     def test_extracts_image_urls(self):
         urls = image_urls_from_vendoo(VENDOO_ITEM, None)
         self.assertEqual(urls, ["https://cdn.example/a.jpg", "https://cdn.example/b.png"])
@@ -205,6 +254,9 @@ class VendooImportRouteTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["photo_count"], 0)
         self.assertTrue(body["photo_warnings"])
+        listing_resp = self.client.get(f"/api/conversations/{body['conversation_id']}/listing")
+        self.assertEqual(listing_resp.status_code, 200, listing_resp.text)
+        self.assertTrue(listing_resp.json()["can_send"])
 
     def test_import_requires_item_id(self):
         response = self.client.post("/api/imports/vendoo", json={"item_id": "new", "item": VENDOO_ITEM})
@@ -231,6 +283,17 @@ class VendooImportRouteTest(unittest.TestCase):
         job = JobRepo(self.db).get(response.json()["id"])
         self.assertEqual(job.vendoo_item_id, "abc123")
         self.assertEqual(job.vendoo_url, "https://web.vendoo.co/app/item/abc123")
+
+    @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
+    def test_create_job_allows_imported_listing_without_photos(self, download):
+        download.return_value = []
+        imported = self._import().json()
+        conv_id = imported["conversation_id"]
+        with patch("vendoo_studio.routes.jobs.JobRepo.get_active", return_value=[]), patch(
+            "vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock
+        ):
+            response = self.client.post("/api/jobs", json={"conversation_id": conv_id})
+        self.assertEqual(response.status_code, 200, response.text)
 
 
 if __name__ == "__main__":

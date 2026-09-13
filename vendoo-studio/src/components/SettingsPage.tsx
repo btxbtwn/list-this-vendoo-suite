@@ -618,7 +618,7 @@ function ConnectionsPanel() {
     <SettingsSection id="connections" title="Connections">
       <SettingsRow
         title="Vendoo in Chrome"
-        description="Connect Chrome opens Vendoo in your everyday Chrome, where the listing extension should already be loaded. After that, Send to Vendoo stays in Studio — use Open listing only if you need the real Chrome window."
+        description="Connect Chrome opens Vendoo in your everyday Chrome, where the listing extension should already be loaded. Send to Vendoo fills a background tab in that same Chrome and closes it when the draft is saved."
         control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
       />
     </SettingsSection>

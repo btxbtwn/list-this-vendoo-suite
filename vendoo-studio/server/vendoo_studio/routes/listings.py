@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from vendoo_studio.database import get_db
 from vendoo_studio.models.validation import validate_listing
 from vendoo_studio.repositories.queries import ListingRepo, ConversationRepo
+from vendoo_studio.services.vendoo_import import vendoo_binding
 
 router = APIRouter(tags=["listings"])
 
@@ -51,7 +52,12 @@ def get_listing(conv_id: str, db: Session = Depends(get_db)):
         listing_data = latest.listing_json
 
     photo_count = len(conv_repo.get_photos(conv_id))
-    validation = validate_listing(listing_data, photo_count)
+    conv = conv_repo.get(conv_id)
+    validation = validate_listing(
+        listing_data,
+        photo_count,
+        require_photos=not bool(vendoo_binding(conv.notes if conv else None).get("vendooItemId")),
+    )
 
     return ListingResponse(
         conversation_id=conv_id,
@@ -81,7 +87,12 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     )
 
     photo_count = len(conv_repo.get_photos(conv_id))
-    validation = validate_listing(body.listing, photo_count)
+    conv = conv_repo.get(conv_id)
+    validation = validate_listing(
+        body.listing,
+        photo_count,
+        require_photos=not bool(vendoo_binding(conv.notes if conv else None).get("vendooItemId")),
+    )
 
     if current:
         current.validation_status = "valid" if validation.valid else "error"
@@ -106,7 +117,12 @@ def validate(conv_id: str, db: Session = Depends(get_db)):
     listing_data = revisions[0].listing_json if revisions else {}
 
     photo_count = len(conv_repo.get_photos(conv_id))
-    result = validate_listing(listing_data, photo_count)
+    conv = conv_repo.get(conv_id)
+    result = validate_listing(
+        listing_data,
+        photo_count,
+        require_photos=not bool(vendoo_binding(conv.notes if conv else None).get("vendooItemId")),
+    )
 
     return ValidationResponse(
         valid=result.valid,
