@@ -10,6 +10,12 @@ import { SettingsPage } from "../components/SettingsPage";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
 import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon } from "../components/ListingSidebar";
+import {
+  DEFAULT_SETTINGS_SECTION,
+  SETTINGS_SECTION_LABELS,
+  type SettingsSearchItem,
+  type SettingsSectionId,
+} from "../components/settingsNav";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ToastHost } from "../components/ToastHost";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
@@ -37,6 +43,8 @@ export function App() {
     return listingId || null;
   });
   const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(DEFAULT_SETTINGS_SECTION);
+  const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"workspace" | "editor" | "browser">("workspace");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
   const [listingQuery, setListingQuery] = useState("");
@@ -67,8 +75,33 @@ export function App() {
 
   const selectedListing = conversations?.find((listing: { id: string }) => listing.id === selectedConvId);
   const workspaceTitle = activeView === "settings"
-    ? "Settings"
+    ? SETTINGS_SECTION_LABELS[settingsSection]
     : String(selectedListing?.title || "Vendoo Studio");
+
+  const closeMobileSidebar = () => setMobileSidebarOpen(false);
+
+  const openSettings = () => {
+    setSettingsSection(DEFAULT_SETTINGS_SECTION);
+    setSettingsTargetId(null);
+    setActiveView("settings");
+    setMobilePane("workspace");
+    closeMobileSidebar();
+  };
+
+  const closeSettings = () => {
+    setActiveView("listings");
+    setSettingsTargetId(null);
+  };
+
+  const handleSettingsSectionChange = (section: SettingsSectionId) => {
+    setSettingsSection(section);
+    setSettingsTargetId(null);
+  };
+
+  const handleSettingsSearchResult = (item: SettingsSearchItem) => {
+    setSettingsSection(item.section);
+    setSettingsTargetId(item.targetId || item.id);
+  };
 
   useEffect(() => {
     if (wasPreviewOpen.current && !previewOpen && mobilePane === "browser") {
@@ -102,13 +135,12 @@ export function App() {
       ) {
         return;
       }
-      setActiveView("listings");
+      closeSettings();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [activeView, isMobile, mobileSidebarOpen]);
 
-  const closeMobileSidebar = () => setMobileSidebarOpen(false);
   const showMailToolbar = isMobile && activeView === "listings" && mobileSidebarOpen;
 
   const handleListingSearch = (value: string) => {
@@ -155,6 +187,7 @@ export function App() {
           conversations={conversations}
           selectedConvId={selectedConvId}
           activeView={activeView}
+          settingsSection={settingsSection}
           creating={createConv.isPending}
           mobileOpen={!isMobile || mobileSidebarOpen}
           listingQuery={listingQuery}
@@ -162,8 +195,10 @@ export function App() {
           onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
           onCreate={() => createConv.mutate()}
           onDelete={(id) => deleteConv.mutate(id)}
-          onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); closeMobileSidebar(); }}
-          onCloseSettings={() => setActiveView("listings")}
+          onOpenSettings={openSettings}
+          onCloseSettings={closeSettings}
+          onSettingsSectionChange={handleSettingsSectionChange}
+          onSettingsSearchResult={handleSettingsSearchResult}
         />
 
         <div className="workspace-frame">
@@ -212,7 +247,11 @@ export function App() {
           <main className="panel main-panel">
             <div className="workspace-drag-region pywebview-drag-region" aria-hidden="true" />
             {activeView === "settings" ? (
-              <SettingsPage />
+              <SettingsPage
+                section={settingsSection}
+                targetId={settingsTargetId}
+                onTargetHandled={() => setSettingsTargetId(null)}
+              />
             ) : selectedConvId ? (
               <div className="listing-workspace">
                 <div className="listing-workspace-main">
