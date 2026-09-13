@@ -314,24 +314,24 @@ function ProvidersPanel() {
     enabled: chatgptSignedIn,
   });
 
+  const refreshProvider = () => {
+    queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+    queryClient.invalidateQueries({ queryKey: ["chatgpt-models"] });
+    queryClient.invalidateQueries({ queryKey: ["status"] });
+  };
+
   const setKeyMutation = useMutation({
     mutationFn: (key: string) => api.settings.setProvider(key),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+      refreshProvider();
       setApiKey("");
     },
   });
 
   const deleteKeyMutation = useMutation({
     mutationFn: () => api.settings.deleteKey(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings-provider"] }),
+    onSuccess: refreshProvider,
   });
-
-  const refreshProvider = () => {
-    queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
-    queryClient.invalidateQueries({ queryKey: ["chatgpt-models"] });
-    queryClient.invalidateQueries({ queryKey: ["status"] });
-  };
 
   const chatgptLoginMutation = useMutation({
     mutationFn: () => api.settings.chatgptLogin(),
@@ -458,8 +458,8 @@ function ProvidersPanel() {
         >
           {chatgptSignedIn ? (
             <p className="settings-row-desc">
-              Signed in{chatgpt.email ? ` as ${chatgpt.email}` : ""}
-              {chatgpt.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
+              Signed in{chatgpt?.email ? ` as ${chatgpt.email}` : ""}
+              {chatgpt?.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
             </p>
           ) : chatgptPending ? (
             <p className="settings-row-desc">
@@ -575,7 +575,9 @@ function ProvidersPanel() {
           title="Status"
           description={
             mimoConfigured
-              ? `Configured · ${provider?.masked_key}`
+              ? chatgptSignedIn
+                ? `Fallback · ${provider?.masked_key}`
+                : `Configured · ${provider?.masked_key}`
               : chatgptSignedIn
                 ? "Fallback when ChatGPT is signed out"
                 : "Not configured"
