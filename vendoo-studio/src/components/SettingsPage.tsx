@@ -626,7 +626,7 @@ function ConnectionsPanel() {
       />
       <SettingsRow
         title="Listing extension folder"
-        description="Load unpacked from this exact folder once in chrome://extensions. Studio overwrites it on launch so Chrome and Studio stay on the same files."
+        description="Copy this path. In chrome://extensions turn on Developer mode, click Load unpacked, press Control-Shift-G (⌘⇧G) to search for the folder, paste the path, then Open. Studio overwrites this folder on launch so Chrome and Studio stay on the same files."
       >
         <ExtensionLoadPath compact hideHint />
       </SettingsRow>
