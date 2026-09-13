@@ -15,6 +15,7 @@ from vendoo_studio.services.sold_comps import (
     comps_from_chatgpt,
     comps_usable,
     format_sold_comps,
+    research_note,
 )
 
 log = logging.getLogger("vendoo_studio.comp_research")
@@ -32,6 +33,7 @@ def format_chatgpt_comps(query: str, answer: str, sources: list[dict]) -> str:
             source="ChatGPT web search",
             comps=comps,
             market=market,
+            note="" if comps else research_note(answer),
         )
     )
 
