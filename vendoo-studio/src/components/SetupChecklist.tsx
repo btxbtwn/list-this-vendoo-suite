@@ -60,7 +60,7 @@ export function SetupChecklist({
         </Step>
         <Step
           done={extensionConnected}
-          label="Connect Chrome and sign in to Vendoo in that window."
+          label="Connect Chrome, load the listing extension once, and sign in to Vendoo."
         >
           {!chromeAvailable ? (
             <p className="setup-step-note">
@@ -73,7 +73,12 @@ export function SetupChecklist({
           ) : extensionConnected ? (
             <p className="setup-step-note">Extension connected.</p>
           ) : (
-            <ConnectChromeButton className="btn btn-sm btn-outline" />
+            <>
+              <ConnectChromeButton className="btn btn-sm btn-outline" />
+              <p className="setup-step-note">
+                Then load the extension once in that Chrome window: chrome://extensions → Developer mode → Load unpacked.
+              </p>
+            </>
           )}
         </Step>
         <Step

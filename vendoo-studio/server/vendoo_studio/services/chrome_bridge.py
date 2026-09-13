@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import signal
 import shutil
+import signal
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -13,7 +14,7 @@ from urllib.parse import urlparse
 
 from vendoo_studio.config import extension_source_dir, user_data_root
 
-DEFAULT_VENDOO_URL = "https://web.vendoo.co"
+DEFAULT_VENDOO_URL = "https://web.vendoo.co/app"
 VENDOO_HOSTS = frozenset({"web.vendoo.co", "app.vendoo.co"})
 
 CHROME_APP_BINARIES = (
@@ -242,71 +243,34 @@ def listing_url_for_job(item_id: str | None = None, url: str | None = None) -> s
     return None
 
 
-def launch_args(
-    executable: Path,
-    extension_dir: Path,
-    profile_dir: Path,
-    url: str = DEFAULT_VENDOO_URL,
-    *,
-    visible: bool = False,
-) -> list[str]:
-    args = [
-        str(executable),
-        f"--user-data-dir={profile_dir}",
-        "--disable-features=DisableLoadExtensionCommandLineSwitch,CalculateNativeWinOcclusion",
-        f"--load-extension={extension_dir}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-sync",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--disable-background-timer-throttling",
-    ]
-    if visible:
-        args.extend(
-            [
-                "--new-window",
-                "--window-position=80,80",
-                "--window-size=1280,900",
-                url if is_vendoo_url(url) else DEFAULT_VENDOO_URL,
-            ]
-        )
-    else:
-        args.append("--no-startup-window")
-    return args
+def chrome_app_bundle(executable: Path) -> Path:
+    return executable.parent.parent.parent
 
 
-def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = False) -> dict:
-    target = str(url or "").strip() or DEFAULT_VENDOO_URL
-    if not is_vendoo_url(target):
-        raise ChromeBridgeError("That is not a Vendoo listing URL.")
-    executable = chrome_executable()
-    if executable is None:
-        raise ChromeBridgeError(
-            "Google Chrome is not installed. Install it from https://www.google.com/chrome, then click Connect Chrome again."
-        )
-    extension_dir = sync_bundled_extension()
-    profile_dir = chrome_profile_dir()
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.Popen(
-        launch_args(executable, extension_dir, profile_dir, target, visible=visible),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    return {
-        "ok": True,
-        "browser": executable.parent.parent.parent.stem,
-        "extension_dir": str(extension_dir),
-        "profile_dir": str(profile_dir),
-        "visible": visible,
-    }
+def launch_args(executable: Path, url: str = DEFAULT_VENDOO_URL) -> list[str]:
+    target = url if is_vendoo_url(url) else DEFAULT_VENDOO_URL
+    if sys.platform == "darwin":
+        return ["open", "-a", str(chrome_app_bundle(executable)), target]
+    return [str(executable), target]
+
+
+def studio_chrome_profile_markers() -> tuple[str, ...]:
+    markers = []
+    for root in (chrome_profile_dir(), installed_extension_dir()):
+        for path in (root, root.resolve()):
+            text = str(path)
+            if not text:
+                continue
+            markers.append(f"--user-data-dir={text}")
+            markers.append(f'--user-data-dir="{text}"')
+            markers.append(f"--load-extension={text}")
+            markers.append(f'--load-extension="{text}"')
+    return tuple(dict.fromkeys(markers))
 
 
 def studio_chrome_pids() -> list[int]:
-    """PIDs for the Studio-managed Chrome profile only, never the user's main Chrome."""
-    profile = str(chrome_profile_dir().resolve())
-    marker = f"--user-data-dir={profile}"
+    """PIDs for the leftover Studio-managed Chrome profile only, never everyday Chrome."""
+    markers = studio_chrome_profile_markers()
     try:
         output = subprocess.check_output(["ps", "-axww", "-o", "pid=,command="], text=True)
     except (OSError, subprocess.CalledProcessError):
@@ -314,7 +278,7 @@ def studio_chrome_pids() -> list[int]:
     pids: list[int] = []
     for raw in output.splitlines():
         line = raw.strip()
-        if marker not in line:
+        if not any(marker in line for marker in markers):
             continue
         pid_s = line.split(None, 1)[0]
         try:
@@ -334,9 +298,28 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
+CHROME_LOCK_NAMES = ("SingletonLock", "SingletonSocket", "SingletonCookie")
+
+
+def clear_chrome_profile_locks() -> None:
+    root = chrome_profile_dir().resolve()
+    if not root.is_dir():
+        return
+    for name in CHROME_LOCK_NAMES:
+        path = root / name
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+        except OSError:
+            pass
+
+
 def quit_studio_chrome(timeout_sec: float = 5.0) -> None:
     pids = set(studio_chrome_pids())
     if not pids:
+        clear_chrome_profile_locks()
         return
     for pid in list(pids):
         try:
@@ -358,11 +341,46 @@ def quit_studio_chrome(timeout_sec: float = 5.0) -> None:
     leftover_deadline = time.monotonic() + 1.0
     while studio_chrome_pids() and time.monotonic() < leftover_deadline:
         time.sleep(0.05)
+    leftovers = studio_chrome_pids()
+    if leftovers:
+        for marker in studio_chrome_profile_markers():
+            subprocess.run(
+                ["pkill", "-f", marker],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    if not studio_chrome_pids():
+        clear_chrome_profile_locks()
+
+
+def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = True) -> dict:
+    """Open Vendoo in the user's everyday Chrome, where the unpacked extension already runs."""
+    target = str(url or "").strip() or DEFAULT_VENDOO_URL
+    if not is_vendoo_url(target):
+        raise ChromeBridgeError("That is not a Vendoo listing URL.")
+    executable = chrome_executable()
+    if executable is None:
+        raise ChromeBridgeError(
+            "Google Chrome is not installed. Install it from https://www.google.com/chrome, then click Connect Chrome again."
+        )
+    extension_dir = sync_bundled_extension()
+    quit_studio_chrome()
+    subprocess.Popen(
+        launch_args(executable, target),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return {
+        "ok": True,
+        "browser": chrome_app_bundle(executable).stem,
+        "extension_dir": str(extension_dir),
+        "profile": "default",
+        "visible": visible,
+    }
 
 
 def relaunch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = True) -> dict:
-    """Replace the Studio Chrome process so --load-extension re-reads current files."""
-    sync_bundled_extension()
     clear_extension_reload_pending()
-    quit_studio_chrome()
     return launch_studio_chrome(url, visible=visible)

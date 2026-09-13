@@ -40,7 +40,7 @@ Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, an
 - **Studio backend tests:** `cd vendoo-studio && python -m pytest -q` (install with `pip install -e ".[dev]"`)
 - **Background Studio setup:** `cd background-studio && ./scripts/setup.sh`
 - **Background Studio start:** `cd background-studio && ./scripts/dev.sh`
-- **Extension:** Studio loads it through **Connect Chrome**. For the manual popup fallback, load unpacked from `vendoo-extension/` in `chrome://extensions/` with Developer mode enabled.
+- **Extension:** **Connect Chrome** opens everyday Chrome. Load unpacked from `vendoo-extension/` in `chrome://extensions/` with Developer mode enabled.
 
 ## Coding Conventions
 

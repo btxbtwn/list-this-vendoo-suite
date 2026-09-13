@@ -15,7 +15,7 @@ You need **macOS 13+** and **Google Chrome**. Python is already inside the app.
 3. Drag **List This Studio.app** into Applications.
 4. Control-click the app and choose **Open**. Click Open again if macOS warns that the developer is unidentified. You only do this once.
 5. In **Settings**, sign in with ChatGPT or paste a Xiaomi MiMo API key.
-6. Click **Connect Chrome**. Studio opens a Chrome window with the listing extension already loaded. Sign in to Vendoo there.
+6. Click **Connect Chrome**. Studio opens Vendoo in your everyday Chrome. Load the unpacked listing extension there once (`chrome://extensions/` → Developer mode → Load unpacked; zip users pick `~/Library/Application Support/List This Studio/vendoo-extension`), then sign in to Vendoo.
 
 Listings and photos stay on that Mac in `~/Library/Application Support/List This Studio`.
 
@@ -35,7 +35,7 @@ Requirements: macOS, Python 3.12+, Node.js 20+, Google Chrome.
 | Path | Role |
 |---|---|
 | `vendoo-studio/` | List This Studio (FastAPI + React). See `vendoo-studio/README.md`. |
-| `vendoo-extension/` | Chrome MV3 extension. Studio loads it automatically through **Connect Chrome**. |
+| `vendoo-extension/` | Chrome MV3 extension. **Connect Chrome** opens everyday Chrome; load this folder unpacked there once. |
 | `skills/list-this/` | Canonical listing rules used by Studio. |
 | `background-studio/` | Separate local background-removal app. See `background-studio/README.md`. |
 
@@ -43,7 +43,7 @@ Requirements: macOS, Python 3.12+, Node.js 20+, Google Chrome.
 
 ## Manual extension fallback
 
-If you are not using Studio, load the unpacked extension from `vendoo-extension/` in `chrome://extensions/` (Developer mode → Load unpacked). Paste listing JSON into the popup and fill a Vendoo draft. Prefer Studio when you can; it owns photos, chat, and the fill job.
+If the Studio window does not have the extension yet, load unpacked from `vendoo-extension/` in `chrome://extensions/` (Developer mode → Load unpacked). Paste listing JSON into the popup and fill a Vendoo draft. Prefer Studio when you can; it owns photos, chat, and the fill job.
 
 ## JSON contract
 

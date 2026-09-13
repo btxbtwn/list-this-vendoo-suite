@@ -31,7 +31,7 @@ The recipient:
 1. Unzips the archive and moves **List This Studio** into Applications.
 2. Control-clicks the app and chooses **Open** the first time (ad-hoc signed, not notarized).
 3. Signs in with ChatGPT or enters a Xiaomi MiMo API key in Settings.
-4. Clicks **Connect Chrome**. Studio opens a managed Chrome window with the Vendoo extension loaded. They sign in to Vendoo there once.
+4. Clicks **Connect Chrome**. Studio opens Vendoo in everyday Chrome. Load the unpacked listing extension there once (`chrome://extensions/` → Developer mode → Load unpacked), then sign in to Vendoo. Zip users pick `~/Library/Application Support/List This Studio/vendoo-extension`; from this repo, pick `vendoo-extension/`.
 
 They need macOS 13+ and Google Chrome.
 
@@ -111,7 +111,7 @@ PYTHONPATH=server .venv/bin/python -m pytest -q server/tests
 
 Set `VENDOO_STUDIO_DEV=1` if you start the backend yourself and want auto-reload.
 
-The extension connects to `ws://127.0.0.1:4318/api/extension/ws`. Studio copies it into a managed Chrome profile when you click Connect Chrome.
+The extension connects to `ws://127.0.0.1:4318/api/extension/ws`. **Connect Chrome** opens Vendoo in everyday Chrome; load the unpacked extension there once.
 
 ## Database
 

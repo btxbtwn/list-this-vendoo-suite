@@ -58,4 +58,4 @@ echo "Start the app with: $ROOT/scripts/dev.sh"
 echo "Or check this machine with: $ROOT/scripts/doctor.sh"
 echo
 echo "Then open http://127.0.0.1:5173"
-echo "In Settings, sign in with ChatGPT or add a MiMo API key, then click Connect Chrome."
+echo "In Settings, sign in with ChatGPT or add a MiMo API key, then click Connect Chrome and load the listing extension once."

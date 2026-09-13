@@ -48,13 +48,28 @@ def item_fields(analysis_text: str | None, evidence: dict | None = None) -> dict
     return fields
 
 
-def sold_comps_query(fields: dict[str, str]) -> str:
+def _query_core(fields: dict[str, str]) -> list[str]:
     brand = fields.get("brand", "").strip()
     item = (fields.get("category") or fields.get("style") or "").strip()
-    parts = [part for part in (brand, item) if part]
+    return [part for part in (brand, item) if part]
+
+
+def sold_comps_query(fields: dict[str, str]) -> str:
+    parts = _query_core(fields)
     if not parts:
         return ""
     return " ".join([*parts, "sold comps"])[:400]
+
+
+def brave_sold_query(fields: dict[str, str]) -> str:
+    parts = _query_core(fields)
+    if not parts:
+        return ""
+    core = " ".join(parts)
+    return (
+        f"{core} sold (site:ebay.com OR site:poshmark.com OR site:mercari.com "
+        "OR site:depop.com OR site:etsy.com)"
+    )[:400]
 
 
 def _brave_error(resp: httpx.Response) -> str:
@@ -75,41 +90,16 @@ def _brave_error(resp: httpx.Response) -> str:
     return f"Brave HTTP {resp.status_code}: {text}" if text else f"Brave HTTP {resp.status_code}"
 
 
-def _trim(value: object, limit: int = 280) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) > limit:
-        return text[: limit - 3] + "..."
-    return text
-
-
 def format_comp_results(query: str, results: list[dict], *, source: str = "Brave Search") -> str:
-    lines = ["Sold comps:", f"Query: {query}", f"Source: {source}"]
-    if not results:
-        lines.append(
-            "No sold listings found. Use an estimated baseline and note pricing uncertainty in the description."
-        )
-        return "\n".join(lines)
+    from vendoo_studio.services.sold_comps import SoldCompsReport, comps_from_web_results, format_sold_comps
 
-    for item in results[:8]:
-        title = _trim(item.get("title"), 160)
-        url = str(item.get("url") or "").strip()
-        description = _trim(item.get("description"))
-        if title:
-            lines.append(f"- {title}")
-        if description:
-            lines.append(f"  {description}")
-        extras = item.get("extra_snippets")
-        if isinstance(extras, list):
-            for snippet in extras[:2]:
-                extra = _trim(snippet)
-                if extra:
-                    lines.append(f"  {extra}")
-        if url:
-            lines.append(f"  {url}")
-    lines.append(
-        "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
+    return format_sold_comps(
+        SoldCompsReport(
+            query=query,
+            source=source,
+            comps=comps_from_web_results(results),
+        )
     )
-    return "\n".join(lines)
 
 
 async def search_web(query: str, api_key: str, *, count: int = 8) -> list[dict]:
@@ -158,9 +148,12 @@ async def research_brave_comps(query: str) -> str:
         return format_comp_results(query, results)
     except Exception as exc:
         log.warning("Brave sold-comps search failed: %s", exc)
-        return (
-            "Sold comps:\n"
-            f"Query: {query}\n"
-            "Source: Brave Search\n"
-            f"Search failed ({exc}). Use an estimated baseline and note pricing uncertainty in the description."
+        from vendoo_studio.services.sold_comps import SoldCompsReport, format_sold_comps
+
+        return format_sold_comps(
+            SoldCompsReport(
+                query=query,
+                source="Brave Search",
+                note=f"Search failed ({exc}). Use an estimated baseline and note pricing uncertainty in the description.",
+            )
         )

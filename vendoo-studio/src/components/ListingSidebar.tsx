@@ -1,7 +1,14 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { UpdateButton } from "./UpdateButton";
+import {
+  SETTINGS_NAV_ITEMS,
+  SETTINGS_SECTION_LABELS,
+  searchSettings,
+  type SettingsSearchItem,
+  type SettingsSectionId,
+} from "./settingsNav";
 
 const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
@@ -22,6 +29,7 @@ interface Props {
   conversations: Listing[] | undefined;
   selectedConvId: string | null;
   activeView: "listings" | "settings";
+  settingsSection: SettingsSectionId;
   creating?: boolean;
   canCreate?: boolean;
   mobileOpen?: boolean;
@@ -32,6 +40,8 @@ interface Props {
   onDelete: (id: string, title: string) => void;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
+  onSettingsSectionChange: (section: SettingsSectionId) => void;
+  onSettingsSearchResult: (item: SettingsSearchItem) => void;
 }
 
 export function HamburgerIcon() {
@@ -117,10 +127,49 @@ function matchesQuery(listing: Listing, needle: string): boolean {
   return title.includes(needle) || status.includes(needle);
 }
 
+function SettingsSectionIcon({ section }: { section: SettingsSectionId }) {
+  if (section === "general") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.75" />
+      </svg>
+    );
+  }
+  if (section === "providers") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 8V4H8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="4" y="8" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.75" />
+        <path d="M2 14h2M20 14h2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <circle cx="9" cy="14" r="1" fill="currentColor" />
+        <circle cx="15" cy="14" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (section === "integrations") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
+        <path d="M14 17.5h7M17.5 14v7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4.93" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 19.07" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function ListingSidebar({
   conversations,
   selectedConvId,
   activeView,
+  settingsSection,
   creating,
   canCreate = true,
   mobileOpen,
@@ -131,10 +180,16 @@ export function ListingSidebar({
   onDelete,
   onOpenSettings,
   onCloseSettings,
+  onSettingsSectionChange,
+  onSettingsSearchResult,
 }: Props) {
   const queryClient = useQueryClient();
   const [settledExpanded, setSettledExpanded] = useState(readSettledExpanded);
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
+  const [settingsQuery, setSettingsQuery] = useState("");
+  const [activeResultIndex, setActiveResultIndex] = useState(0);
+  const settingsSearchRef = useRef<HTMLInputElement>(null);
+  const settingsMode = activeView === "settings";
 
   const settleListing = useMutation({
     mutationFn: (id: string) => api.conversations.settle(id),
@@ -164,6 +219,41 @@ export function ListingSidebar({
     ? visibleSettled
     : visibleSettled.filter((listing) => listing.id === selectedConvId && activeView === "listings");
   const hiddenSettledCount = Math.max(0, settledListings.length - visibleSettled.length);
+  const settingsResults = useMemo(() => searchSettings(settingsQuery), [settingsQuery]);
+  const isSettingsSearching = settingsQuery.trim().length > 0;
+
+  useEffect(() => {
+    if (!settingsMode) {
+      setSettingsQuery("");
+      setActiveResultIndex(0);
+    }
+  }, [settingsMode]);
+
+  useEffect(() => {
+    setActiveResultIndex((index) => Math.min(index, Math.max(settingsResults.length - 1, 0)));
+  }, [settingsResults.length]);
+
+  useEffect(() => {
+    if (!settingsMode) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable ||
+          target.closest('[role="dialog"], [aria-modal="true"]') !== null)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      settingsSearchRef.current?.focus();
+      settingsSearchRef.current?.select();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [settingsMode]);
 
   const toggleSettledShelf = useCallback(() => {
     setSettledExpanded((value) => {
@@ -182,11 +272,52 @@ export function ListingSidebar({
     setSettledVisibleCount(SETTLED_TAIL_INITIAL_COUNT);
   };
 
+  const clearSettingsSearch = useCallback(() => {
+    setSettingsQuery("");
+    setActiveResultIndex(0);
+  }, []);
+
+  const handleSettingsResult = useCallback(
+    (item: SettingsSearchItem) => {
+      clearSettingsSearch();
+      onSettingsSearchResult(item);
+    },
+    [clearSettingsSearch, onSettingsSearchResult],
+  );
+
+  const handleSettingsSearchKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Escape" && isSettingsSearching) {
+        event.preventDefault();
+        event.stopPropagation();
+        clearSettingsSearch();
+        return;
+      }
+      if (settingsResults.length === 0) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveResultIndex((index) => (index + 1) % settingsResults.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveResultIndex((index) => (index - 1 + settingsResults.length) % settingsResults.length);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const result = settingsResults[activeResultIndex];
+        if (result) handleSettingsResult(result);
+      }
+    },
+    [activeResultIndex, clearSettingsSearch, handleSettingsResult, isSettingsSearching, settingsResults],
+  );
+
   return (
     <aside
       id="listings-sidebar"
-      className="panel sidebar"
-      aria-label="Listings"
+      className={`panel sidebar${settingsMode ? " sidebar-settings" : ""}`}
+      aria-label={settingsMode ? "Settings" : "Listings"}
       aria-hidden={mobileOpen === false ? true : undefined}
     >
       <div className="sidebar-header pywebview-drag-region">
@@ -194,110 +325,201 @@ export function ListingSidebar({
           <span className="sidebar-wordmark">Vendoo</span>
           <span className="sidebar-product">Studio</span>
         </div>
-        <button
-          type="button"
-          className={`sidebar-icon-btn sidebar-header-settings${activeView === "settings" ? " selected" : ""}`}
-          title="Settings"
-          aria-label="Settings"
-          onClick={onOpenSettings}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <circle cx="3.5" cy="8" r="1.15" fill="currentColor" />
-            <circle cx="8" cy="8" r="1.15" fill="currentColor" />
-            <circle cx="12.5" cy="8" r="1.15" fill="currentColor" />
-          </svg>
-        </button>
+        {!settingsMode ? (
+          <button
+            type="button"
+            className="sidebar-icon-btn sidebar-header-settings"
+            title="Settings"
+            aria-label="Settings"
+            onClick={onOpenSettings}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="3.5" cy="8" r="1.15" fill="currentColor" />
+              <circle cx="8" cy="8" r="1.15" fill="currentColor" />
+              <circle cx="12.5" cy="8" r="1.15" fill="currentColor" />
+            </svg>
+          </button>
+        ) : null}
       </div>
 
-      <div className="sidebar-toolbar">
-        <label className="sidebar-search">
-          <SearchIcon />
-          <input
-            type="search"
-            value={listingQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search"
-            aria-label="Search listings"
-          />
-        </label>
-        <button
-          className="sidebar-icon-btn"
-          title={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo key first"}
-          aria-label={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo key first"}
-          disabled={creating || !canCreate}
-          onClick={onCreate}
-        >
-          <ComposeIcon />
-        </button>
-      </div>
+      {settingsMode ? (
+        <>
+          <div className="sidebar-toolbar">
+            <label className="sidebar-search settings-sidebar-search">
+              <SearchIcon />
+              <input
+                ref={settingsSearchRef}
+                type="search"
+                value={settingsQuery}
+                onChange={(e) => {
+                  setSettingsQuery(e.target.value);
+                  setActiveResultIndex(0);
+                }}
+                onKeyDown={handleSettingsSearchKeyDown}
+                placeholder="Search"
+                aria-label="Search settings"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={isSettingsSearching && settingsResults.length > 0}
+                aria-controls={isSettingsSearching && settingsResults.length > 0 ? "settings-search-results" : undefined}
+                aria-activedescendant={
+                  isSettingsSearching && settingsResults[activeResultIndex]
+                    ? `settings-search-result-${settingsResults[activeResultIndex].id}`
+                    : undefined
+                }
+              />
+              {isSettingsSearching ? (
+                <button
+                  type="button"
+                  className="settings-search-clear"
+                  aria-label="Clear search"
+                  onClick={() => {
+                    clearSettingsSearch();
+                    settingsSearchRef.current?.focus();
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </button>
+              ) : (
+                <kbd className="settings-search-kbd">/</kbd>
+              )}
+            </label>
+          </div>
 
-      <div className="sidebar-list">
-        {activeListings.map((listing) => (
-          <ListingRow
-            key={listing.id}
-            listing={listing}
-            selected={selectedConvId === listing.id && activeView === "listings"}
-            settled={false}
-            busy={BUSY_STATUSES.has(String(listing.status || "draft"))}
-            settling={settleListing.isPending}
-            onSelect={onSelect}
-            onDelete={onDelete}
-            onSettle={(id) => settleListing.mutate(id)}
-          />
-        ))}
-
-        {settledListings.length > 0 && (
-          <>
+          <div className="sidebar-list settings-sidebar-nav">
+            {isSettingsSearching && settingsResults.length === 0 ? (
+              <div className="sidebar-empty">No settings found</div>
+            ) : null}
+            {isSettingsSearching ? (
+              <div id="settings-search-results" role="listbox" aria-label="Settings search results">
+                {settingsResults.map((item, index) => (
+                  <button
+                    key={item.id}
+                    id={`settings-search-result-${item.id}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeResultIndex}
+                    className={`settings-nav-result${index === activeResultIndex ? " selected" : ""}`}
+                    onMouseEnter={() => setActiveResultIndex(index)}
+                    onClick={() => handleSettingsResult(item)}
+                  >
+                    <span className="settings-nav-result-title">{item.title}</span>
+                    <span className="settings-nav-result-section">{SETTINGS_SECTION_LABELS[item.section]}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <nav aria-label="Settings sections">
+                {SETTINGS_NAV_ITEMS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`settings-nav-item${settingsSection === item.id ? " selected" : ""}`}
+                    onClick={() => onSettingsSectionChange(item.id)}
+                  >
+                    <SettingsSectionIcon section={item.id} />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="sidebar-toolbar">
+            <label className="sidebar-search">
+              <SearchIcon />
+              <input
+                type="search"
+                value={listingQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search"
+                aria-label="Search listings"
+              />
+            </label>
             <button
-              type="button"
-              className="sidebar-shelf-header"
-              aria-expanded={settledExpanded}
-              onClick={toggleSettledShelf}
+              className="sidebar-icon-btn"
+              title={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo key first"}
+              aria-label={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo key first"}
+              disabled={creating || !canCreate}
+              onClick={onCreate}
             >
-              <span className="sidebar-shelf-label">
-                {settledExpanded ? "Settled" : `Settled (${settledListings.length})`}
-              </span>
-              <span className="sidebar-shelf-rule" aria-hidden="true" />
-              <svg className="sidebar-shelf-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <ComposeIcon />
             </button>
-            {renderedSettled.map((listing) => (
+          </div>
+
+          <div className="sidebar-list">
+            {activeListings.map((listing) => (
               <ListingRow
                 key={listing.id}
                 listing={listing}
                 selected={selectedConvId === listing.id && activeView === "listings"}
-                settled
-                busy={false}
-                settling={unsettleListing.isPending}
+                settled={false}
+                busy={BUSY_STATUSES.has(String(listing.status || "draft"))}
+                settling={settleListing.isPending}
                 onSelect={onSelect}
                 onDelete={onDelete}
-                onUnsettle={(id) => unsettleListing.mutate(id)}
+                onSettle={(id) => settleListing.mutate(id)}
               />
             ))}
-            {settledExpanded && hiddenSettledCount > 0 && (
-              <button
-                type="button"
-                className="sidebar-show-more"
-                onClick={() => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT)}
-              >
-                Show {Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more
-              </button>
-            )}
-          </>
-        )}
 
-        {(!conversations || conversations.length === 0) && (
-          <div className="sidebar-empty">No listings yet</div>
-        )}
-        {conversations && conversations.length > 0 && activeListings.length === 0 && settledListings.length === 0 && (
-          <div className="sidebar-empty">No matching listings</div>
-        )}
-      </div>
+            {settledListings.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="sidebar-shelf-header"
+                  aria-expanded={settledExpanded}
+                  onClick={toggleSettledShelf}
+                >
+                  <span className="sidebar-shelf-label">
+                    {settledExpanded ? "Settled" : `Settled (${settledListings.length})`}
+                  </span>
+                  <span className="sidebar-shelf-rule" aria-hidden="true" />
+                  <svg className="sidebar-shelf-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {renderedSettled.map((listing) => (
+                  <ListingRow
+                    key={listing.id}
+                    listing={listing}
+                    selected={selectedConvId === listing.id && activeView === "listings"}
+                    settled
+                    busy={false}
+                    settling={unsettleListing.isPending}
+                    onSelect={onSelect}
+                    onDelete={onDelete}
+                    onUnsettle={(id) => unsettleListing.mutate(id)}
+                  />
+                ))}
+                {settledExpanded && hiddenSettledCount > 0 && (
+                  <button
+                    type="button"
+                    className="sidebar-show-more"
+                    onClick={() => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT)}
+                  >
+                    Show {Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more
+                  </button>
+                )}
+              </>
+            )}
+
+            {(!conversations || conversations.length === 0) && (
+              <div className="sidebar-empty">No listings yet</div>
+            )}
+            {conversations && conversations.length > 0 && activeListings.length === 0 && settledListings.length === 0 && (
+              <div className="sidebar-empty">No matching listings</div>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="sidebar-footer">
         <div className="sidebar-footer-actions">
-          {activeView === "settings" ? (
+          {settingsMode ? (
             <button
               type="button"
               className="sidebar-back-btn"
@@ -334,6 +556,7 @@ export function ListingSidebar({
     </aside>
   );
 }
+
 
 function ListingRow({
   listing,
