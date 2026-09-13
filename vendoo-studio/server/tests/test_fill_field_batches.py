@@ -27,6 +27,8 @@ const result = {
   fill0: commandTimeoutMs({ type: 'FILL_FIELDS', fields: [] }),
   fill80: commandTimeoutMs({ type: 'FILL_FIELDS', fields: Array(80).fill({}) }),
   general: commandTimeoutMs({ type: 'FILL_GENERAL' }),
+  marketplace: commandTimeoutMs({ type: 'FILL_MARKETPLACE' }),
+  clearGeneral: commandTimeoutMs({ type: 'CLEAR_GENERAL' }),
   saveEbay: saveCommandForMarketplace('ebay'),
   saveEtsy: saveCommandForMarketplace('ETSY'),
   saveGeneral: saveCommandForMarketplace('general'),
@@ -48,7 +50,9 @@ console.log(JSON.stringify(result));
         self.assertEqual(result["fill25"], 155000)
         self.assertEqual(result["fill0"], 90000)
         self.assertEqual(result["fill80"], 300000)
-        self.assertEqual(result["general"], 90000)
+        self.assertEqual(result["general"], 180000)
+        self.assertEqual(result["marketplace"], 180000)
+        self.assertEqual(result["clearGeneral"], 90000)
         self.assertEqual(result["saveEbay"], {"type": "SAVE_MARKETPLACE", "platform": "ebay"})
         self.assertEqual(result["saveEtsy"], {"type": "SAVE_MARKETPLACE", "platform": "etsy"})
         self.assertEqual(result["saveGeneral"], {"type": "SAVE_GENERAL"})
