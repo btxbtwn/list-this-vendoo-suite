@@ -195,6 +195,45 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.assertEqual(sent["Type"], "Blouse")
         self.assertEqual(sent["Country of Origin"], "United States")
 
+    @patch("vendoo_studio.routes.extension.dispatch_fill_fields", new_callable=AsyncMock)
+    @patch("vendoo_studio.routes.extension.extension_manager")
+    def test_fill_fields_allows_long_description(self, manager, dispatch):
+        manager.connected = True
+        dispatch.return_value = True
+        description = "A" * 600
+        leftovers = FillLogService(self.db).save_step(self.job, "filling_fields", {
+            "marketplace": "etsy",
+            "entries": [
+                {"field": "Description", "status": "new", "marketplace": "etsy", "selector": "#description"},
+            ],
+        })
+
+        response = self.client.post(
+            f"/api/jobs/{self.job.id}/fill-fields",
+            json={"fields": [{"id": leftovers[0].id, "value": description}]},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(dispatch.await_args.args[1][0]["value"], description)
+
+    @patch("vendoo_studio.routes.extension.extension_manager")
+    def test_fill_fields_rejects_oversized_value(self, manager):
+        manager.connected = True
+        leftovers = FillLogService(self.db).save_step(self.job, "filling_fields", {
+            "marketplace": "etsy",
+            "entries": [
+                {"field": "Description", "status": "new", "marketplace": "etsy", "selector": "#description"},
+            ],
+        })
+
+        response = self.client.post(
+            f"/api/jobs/{self.job.id}/fill-fields",
+            json={"fields": [{"id": leftovers[0].id, "value": "A" * 10_001}]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("too long", response.json()["detail"])
+
     @patch("vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock)
     def test_retry_refreshes_snapshot_from_latest_listing(self, dispatch):
         from vendoo_studio.services.registry import MEN_TSHIRT_PATH, WOMEN_TOPS_PATH

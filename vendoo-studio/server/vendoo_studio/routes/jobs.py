@@ -403,7 +403,10 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         if not value:
             continue
         if len(value) > MAX_PATCH_VALUE:
-            raise HTTPException(400, f"Value for {field} is too long")
+            raise HTTPException(
+                400,
+                f"Value for {field} is too long ({len(value)} chars; max {MAX_PATCH_VALUE})",
+            )
         patch = {
             "marketplace": marketplace,
             "field": field,
