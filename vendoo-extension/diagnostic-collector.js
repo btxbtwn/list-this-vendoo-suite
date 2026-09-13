@@ -245,7 +245,8 @@ async function collectPageDiagnostics(options = {}) {
   };
 
   const expandOptionalSections = async () => {
-    const triggerTexts = ['Show Optional Fields', 'Optional Fields', 'Show more', 'More options', 'Advanced'];
+    const showNeedles = ['show optional fields', 'show optional', 'show more', 'more options'];
+    const hideNeedles = ['hide optional fields', 'hide optional', 'show less'];
     const expandedSections = [];
     const buttons = Array.from(document.querySelectorAll('button, span[role="button"], a, div[role="button"]'));
 
@@ -253,8 +254,11 @@ async function collectPageDiagnostics(options = {}) {
       if (!isVisible(button)) continue;
       const buttonText = normalize(button.innerText || button.textContent || '');
       if (!buttonText) continue;
-      if (!triggerTexts.some((text) => buttonText.toLowerCase().includes(text.toLowerCase()))) continue;
-      if (button.getAttribute?.('aria-expanded') === 'true') continue;
+      const lower = buttonText.toLowerCase();
+      if (hideNeedles.some((text) => lower.includes(text)) || button.getAttribute?.('aria-expanded') === 'true') {
+        continue;
+      }
+      if (!showNeedles.some((text) => lower.includes(text))) continue;
 
       button.scrollIntoView({ block: 'center' });
       button.click();

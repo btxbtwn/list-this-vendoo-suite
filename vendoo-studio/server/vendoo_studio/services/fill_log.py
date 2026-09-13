@@ -162,6 +162,9 @@ def _value_from_record(record: dict | None, key: str) -> Any:
         return record.get(json_key)
     if mapped and mapped in record:
         return record.get(mapped)
+    nested = record.get("category_specifics")
+    if isinstance(nested, dict) and nested is not record:
+        return _value_from_record(nested, key)
     return None
 
 

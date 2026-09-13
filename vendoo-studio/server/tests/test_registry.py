@@ -32,6 +32,7 @@ class LabelHelpersTest(unittest.TestCase):
         self.assertEqual(label_to_json_key("MPN"), "mpn")
         self.assertEqual(label_to_json_key("Character"), "character")
         self.assertEqual(label_to_json_key("Clothing style"), "clothingStyle")
+        self.assertEqual(label_to_json_key("Fabric pattern"), "fabricPattern")
 
     def test_seller_settings_and_size_are_not_listing_fields(self):
         self.assertFalse(is_learned_listing_field("ebay", "Allow Best Offer"))

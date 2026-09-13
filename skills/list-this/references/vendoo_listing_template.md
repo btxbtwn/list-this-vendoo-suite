@@ -244,13 +244,11 @@ Depop: No title field → use Universal Description only
     "processingTime": "1-2 business days",
     "shippingTemplate": "Standard Shipping",
     "category_specifics": {
-      "clothingStyle": "Graphic",
-      "sleeveLength": "Short Sleeve",
-      "neckline": "Crew Neck",
-      "graphic": "Racing",
-      "occasion": "Everyday",
-      "fabric": "Cotton",
-      "pattern": "Graphic"
+      "clothingStyle": "Streetwear",
+      "sleeveLength": "Short sleeve",
+      "neckline": "Crew",
+      "graphic": "Sports & fitness",
+      "fabricPattern": "Solid"
     }
   },
   
@@ -331,6 +329,7 @@ All eBay Item Specifics fields. Use Appendix values.
 - `materials`: Array of materials
 - `tags`: Up to 13 tags
 - `renewalOption`, `processingTime`, `shippingTemplate`
+- `category_specifics`: T-shirt optional fields after Show Optional Fields. Use live Etsy dropdown values from `vendoo-dropdown-options.json` (`clothingStyle`, `sleeveLength`, `neckline`, `graphic`, `fabricPattern`). Skip `occasion` / `holiday` / `sustainability` unless the value is one of Etsy's listed options.
 
 **Poshmark Specifics:**
 - `originalPrice`: MSRP for comparison
