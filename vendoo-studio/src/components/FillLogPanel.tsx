@@ -27,6 +27,7 @@ interface DraftField {
   value: string;
   missing: boolean;
   leftover?: FillLogEntry;
+  section?: string;
 }
 
 interface DraftForm {
@@ -49,18 +50,19 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_ORDER = ["failed", "not_found", "uncertain", "new", "skipped", "filled"];
 const FILLABLE_STATUSES = new Set(["failed", "not_found", "uncertain", "new", "skipped"]);
 const DEFAULT_SELECTED_MARKETPLACES = ["ebay", "etsy", "poshmark", "mercari", "depop"];
-const MARKETPLACE_ORDER = ["general", "ebay", "poshmark", "mercari", "depop", "etsy", "facebook", "grailed", "whatnot", "shopify"];
+const MARKETPLACE_ORDER = ["general", "ebay", "etsy", "poshmark", "mercari", "depop", "facebook", "shopify", "vinted", "whatnot", "grailed"];
 const MARKETPLACE_LABELS: Record<string, string> = {
-  general: "General",
+  general: "Vendoo",
   ebay: "eBay",
+  etsy: "Etsy",
   poshmark: "Poshmark",
   mercari: "Mercari",
   depop: "Depop",
-  etsy: "Etsy",
   facebook: "Facebook",
-  grailed: "Grailed",
-  whatnot: "Whatnot",
   shopify: "Shopify",
+  vinted: "Vinted",
+  whatnot: "Whatnot",
+  grailed: "Grailed",
   vestiaire: "Vestiaire",
   kidizen: "Kidizen",
 };
@@ -94,7 +96,6 @@ const SKIP_KEYS = new Set([
   "version",
   "validate",
   "hash",
-  "labels",
   "draftid",
   "lastsynced",
   "lastmodified",
@@ -118,9 +119,18 @@ const GENERAL_LISTING_KEYS: Record<string, string> = {
   "us size": "size",
   sku: "sku",
   category: "category_path",
+  "zip code": "zipCode",
+  "size type": "sizeType",
+  pounds: "weight_lb",
+  "package weight (lb)": "weight_lb",
+  ounces: "weight_oz",
+  "package weight (oz)": "weight_oz",
   tags: "tags",
+  labels: "labels",
+  "vendoo labels": "labels",
   notes: "notes",
   "internal notes": "notes",
+  "vendoo internal notes": "notes",
 };
 
 function isUnfillableField(field: DraftField): boolean {
@@ -271,7 +281,7 @@ function patchableEmptyFields(
         const value = typed || listingValueForField(listing, form.id, field);
         if (!value) return null;
         return leftover
-          ? { id: leftover.id, marketplace: form.id, field: field.label, value }
+          ? { id: leftover.id, marketplace: form.id, field: leftover.field || field.label, value }
           : { marketplace: form.id, field: field.label, value };
       })
       .filter((item): item is { id?: string; marketplace: string; field: string; value: string } => Boolean(item)),
@@ -286,8 +296,9 @@ function sourceFormsForJob(
 ): { sourceForms: DraftForm[]; fromVendooDraft: boolean } {
   const enabled = allowedMarketplaceIds(selectedMarketplaces);
   const draftForms = item ? formsFromDraft(item, report) : [];
+  const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
   const listingForms = formsFromListing(listing);
-  const sourceForms = (draftForms.length ? draftForms : listingForms)
+  const sourceForms = (draftForms.length ? draftForms : fillForms.length ? fillForms : listingForms)
     .filter((form) => enabled.has(form.id));
   return { sourceForms, fromVendooDraft: draftForms.length > 0 };
 }
@@ -303,6 +314,342 @@ function useVendooDraft(jobId: string, enabled: boolean) {
 
 function marketplaceLabel(id: string): string {
   return MARKETPLACE_LABELS[id] || id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+type FieldSpec = { keys: string[]; label: string; always?: boolean };
+type SectionSpec = { label: string; fields?: FieldSpec[]; extras?: boolean };
+
+const FIELD_NAME_ALIASES: Record<string, string> = {
+  "category v2": "category",
+  categoryv2: "category",
+  "category path": "category",
+  categorypath: "category",
+  "us size": "size",
+  "size option": "size",
+  "size option value": "size",
+  "size type": "size type",
+  "size scale": "size type",
+  "size scale value": "size type",
+  "listing price": "price",
+  "buy it now price": "price",
+  "cost of goods": "cost",
+  "vendoo labels": "labels",
+  "vendoo internal notes": "notes",
+  "internal notes": "notes",
+  "weight lbs": "pounds",
+  "weight (lbs)": "pounds",
+  "weight lb": "pounds",
+  "weight pounds": "pounds",
+  "package weight (lb)": "pounds",
+  "package weight lb": "pounds",
+  "weight ounces": "ounces",
+  "weight (oz)": "ounces",
+  "weight oz": "ounces",
+  "package weight (oz)": "ounces",
+  "package weight oz": "ounces",
+  color: "primary color",
+  zipcode: "zip code",
+  zip: "zip code",
+  "who made it": "who made",
+  whomade: "who made",
+  "what is": "what is it",
+  whatisit: "what is it",
+  "when was it made": "when made",
+  whenmade: "when made",
+  "style tags": "style tags",
+  "style tag": "style tags",
+  "shipping label": "shipping label",
+  "accept return": "accept returns",
+  "payment met": "payment method",
+  "condition desc": "condition description",
+  "size group": "size grouping",
+  "body fit": "size grouping",
+};
+
+function normalizeFieldName(value: string): string {
+  const key = String(value || "")
+    .replace(/^(ebay|etsy|poshmark|mercari|depop|vendoo)\s+/i, "")
+    .replace(/[*?]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_.-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return FIELD_NAME_ALIASES[key] || key;
+}
+
+function fieldMatchKey(field: DraftField): string {
+  return normalizeFieldName(field.label) || normalizeFieldName(field.key.split(".").pop() || field.key);
+}
+
+const SHARED_ITEM_FIELDS: FieldSpec[] = [
+  { keys: ["title"], label: "Title" },
+  { keys: ["description"], label: "Description" },
+  { keys: ["brand"], label: "Brand" },
+  { keys: ["condition"], label: "Condition" },
+  { keys: ["primary color"], label: "Primary Color" },
+  { keys: ["secondary color"], label: "Secondary Color" },
+  { keys: ["quantity"], label: "Quantity" },
+  { keys: ["sku"], label: "SKU" },
+  { keys: ["price"], label: "Price" },
+];
+
+const PACKAGE_FIELDS: FieldSpec[] = [
+  { keys: ["pounds"], label: "Package Weight (lb)" },
+  { keys: ["ounces"], label: "Package Weight (oz)" },
+  { keys: ["length"], label: "Length" },
+  { keys: ["width"], label: "Width" },
+  { keys: ["height"], label: "Height" },
+];
+
+const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
+  general: [
+    { label: "Photos", fields: [{ keys: ["photos", "images"], label: "Photos", always: false }] },
+    {
+      label: "Item Details",
+      fields: [
+        { keys: ["title"], label: "Title", always: true },
+        { keys: ["description"], label: "Description", always: true },
+        { keys: ["brand"], label: "Brand", always: true },
+        { keys: ["condition"], label: "Condition", always: true },
+        { keys: ["primary color"], label: "Primary Color", always: true },
+        { keys: ["secondary color"], label: "Secondary Color", always: true },
+        { keys: ["sku"], label: "SKU", always: true },
+        { keys: ["zip code"], label: "Zip Code", always: true },
+        { keys: ["quantity"], label: "Quantity" },
+      ],
+    },
+    {
+      label: "Category",
+      fields: [
+        { keys: ["category"], label: "Category", always: true },
+        { keys: ["size"], label: "US Size", always: true },
+        { keys: ["size type"], label: "Size Type", always: true },
+      ],
+    },
+    { label: "Package Details", fields: PACKAGE_FIELDS.map((field) => ({ ...field, always: true })) },
+    {
+      label: "Price",
+      fields: [
+        { keys: ["price"], label: "Listing Price", always: true },
+        { keys: ["cost"], label: "Cost of Goods", always: true },
+      ],
+    },
+    {
+      label: "Additional Details",
+      fields: [
+        { keys: ["tags"], label: "Tags" },
+        { keys: ["labels"], label: "Vendoo Labels", always: true },
+        { keys: ["notes"], label: "Vendoo Internal Notes", always: true },
+      ],
+    },
+    { label: "More fields", extras: true },
+  ],
+  ebay: [
+    { label: "Item Details", fields: SHARED_ITEM_FIELDS },
+    {
+      label: "Category",
+      fields: [
+        { keys: ["category"], label: "Category" },
+        { keys: ["size"], label: "Size" },
+        { keys: ["size type"], label: "Size Type" },
+        { keys: ["type"], label: "Type" },
+        { keys: ["department"], label: "Department" },
+      ],
+    },
+    { label: "Item specifics", extras: true },
+    { label: "Package Details", fields: PACKAGE_FIELDS },
+    {
+      label: "Shipping & returns",
+      fields: [
+        { keys: ["accept returns"], label: "Accept Returns" },
+        { keys: ["payment method"], label: "Payment Method" },
+        { keys: ["shipping"], label: "Shipping" },
+        { keys: ["returns"], label: "Returns" },
+      ],
+    },
+    {
+      label: "Additional Details",
+      fields: [{ keys: ["condition description"], label: "Condition Description" }],
+    },
+  ],
+  etsy: [
+    { label: "Item Details", fields: SHARED_ITEM_FIELDS },
+    {
+      label: "Listing info",
+      fields: [
+        { keys: ["who made"], label: "Who made it" },
+        { keys: ["what is it"], label: "What is it" },
+        { keys: ["when made"], label: "When was it made" },
+      ],
+    },
+    { label: "Category", fields: [{ keys: ["category"], label: "Category" }, { keys: ["size"], label: "Size" }] },
+    {
+      label: "Tags & materials",
+      fields: [
+        { keys: ["tags"], label: "Tags" },
+        { keys: ["materials"], label: "Materials" },
+      ],
+    },
+    { label: "Item specifics", extras: true },
+  ],
+  poshmark: [
+    { label: "Item Details", fields: SHARED_ITEM_FIELDS },
+    { label: "Category", fields: [{ keys: ["category"], label: "Category" }, { keys: ["size"], label: "Size" }] },
+    {
+      label: "Additional Details",
+      fields: [
+        { keys: ["style tags"], label: "Style Tags" },
+        { keys: ["original price"], label: "Original Price" },
+      ],
+    },
+    { label: "Item specifics", extras: true },
+  ],
+  mercari: [
+    { label: "Item Details", fields: SHARED_ITEM_FIELDS },
+    { label: "Category", fields: [{ keys: ["category"], label: "Category" }, { keys: ["size"], label: "Size" }] },
+    { label: "Shipping", fields: [{ keys: ["shipping label"], label: "Shipping Label" }] },
+    { label: "Item specifics", extras: true },
+  ],
+  depop: [
+    { label: "Item Details", fields: SHARED_ITEM_FIELDS },
+    { label: "Category", fields: [{ keys: ["category"], label: "Category" }, { keys: ["size"], label: "Size" }] },
+    {
+      label: "Optional fields",
+      fields: [
+        { keys: ["source"], label: "Source" },
+        { keys: ["age"], label: "Age" },
+        { keys: ["style"], label: "Style" },
+        { keys: ["occasion"], label: "Occasion" },
+        { keys: ["size grouping"], label: "Size Grouping" },
+        { keys: ["material"], label: "Material" },
+        { keys: ["tags"], label: "Tags" },
+      ],
+    },
+    { label: "Item specifics", extras: true },
+  ],
+};
+
+const DEFAULT_FORM_LAYOUT: SectionSpec[] = [
+  { label: "Item Details", fields: SHARED_ITEM_FIELDS },
+  { label: "Category", fields: [{ keys: ["category"], label: "Category" }, { keys: ["size"], label: "Size" }] },
+  { label: "Package Details", fields: PACKAGE_FIELDS },
+  { label: "Item specifics", extras: true },
+];
+
+function organizeFields(marketplace: string, fields: DraftField[], leftovers: FillLogEntry[] = []): DraftField[] {
+  const layout = FORM_LAYOUTS[marketplace] || DEFAULT_FORM_LAYOUT;
+  const unused = new Map<string, DraftField[]>();
+  for (const field of fields) {
+    const key = fieldMatchKey(field);
+    if (!key) continue;
+    const bucket = unused.get(key) || [];
+    bucket.push(field);
+    unused.set(key, bucket);
+  }
+  const leftoverPool = leftovers.slice();
+  const takeField = (keys: string[]): DraftField | undefined => {
+    for (const key of keys) {
+      const bucket = unused.get(key);
+      if (bucket?.length) return bucket.shift();
+    }
+    return undefined;
+  };
+  const takeLeftover = (keys: string[]): FillLogEntry | undefined => {
+    const wants = new Set(keys);
+    const index = leftoverPool.findIndex((entry) => wants.has(normalizeFieldName(entry.field)));
+    if (index < 0) return undefined;
+    return leftoverPool.splice(index, 1)[0];
+  };
+  const attachLeftover = (field: DraftField | undefined): FillLogEntry | undefined => {
+    if (field?.leftover && leftoverPool.includes(field.leftover)) {
+      leftoverPool.splice(leftoverPool.indexOf(field.leftover), 1);
+      return field.leftover;
+    }
+    return takeLeftover(field ? [fieldMatchKey(field)] : []);
+  };
+  const placed = new Map<string, DraftField[]>();
+  let extrasSection = "Item specifics";
+
+  for (const section of layout) {
+    const rows: DraftField[] = placed.get(section.label) || [];
+    if (section.extras) extrasSection = section.label;
+    for (const spec of section.fields || []) {
+      const found = takeField(spec.keys);
+      const leftover = found
+        ? attachLeftover(found) || takeLeftover([...spec.keys, normalizeFieldName(spec.label)])
+        : takeLeftover([...spec.keys, normalizeFieldName(spec.label)]);
+      if (found) {
+        rows.push({
+          ...found,
+          label: spec.label,
+          section: section.label,
+          leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : found.leftover,
+          missing: found.value ? found.missing : leftover ? FILLABLE_STATUSES.has(leftover.status) : found.missing,
+          value: found.value || leftover?.value_preview || "",
+        });
+        continue;
+      }
+      if (spec.always || leftover) {
+        rows.push({
+          key: leftover?.id || `${marketplace}.${spec.keys[0]}`,
+          label: spec.label,
+          value: leftover?.value_preview || "",
+          missing: leftover ? FILLABLE_STATUSES.has(leftover.status) : true,
+          leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : undefined,
+          section: section.label,
+        });
+      }
+    }
+    placed.set(section.label, rows);
+  }
+
+  const namedExtras = placed.get(extrasSection) || [];
+  const extraRows: DraftField[] = [...unused.values()].flat().map((field) => {
+    const leftover = attachLeftover(field);
+    return {
+      ...field,
+      leftover: leftover && FILLABLE_STATUSES.has(leftover.status) ? leftover : field.leftover,
+      missing: field.value ? field.missing : leftover ? FILLABLE_STATUSES.has(leftover.status) : field.missing,
+      value: field.value || leftover?.value_preview || "",
+      section: extrasSection,
+    };
+  });
+  const seenExtras = new Set([...namedExtras, ...extraRows].map((field) => fieldMatchKey(field)));
+  extraRows.push(...leftoverPool.flatMap((entry) => {
+    const key = normalizeFieldName(entry.field);
+    if (key && seenExtras.has(key)) return [];
+    if (key) seenExtras.add(key);
+    return [{
+      key: entry.id,
+      label: entry.field.replace(/^(ebay|etsy|poshmark|mercari|depop|vendoo)\s+/i, "").trim() || entry.field,
+      value: entry.value_preview || "",
+      missing: FILLABLE_STATUSES.has(entry.status),
+      leftover: FILLABLE_STATUSES.has(entry.status) ? entry : undefined,
+      section: extrasSection,
+    }];
+  }));
+  extraRows.sort((left, right) => left.label.localeCompare(right.label));
+  placed.set(extrasSection, [...namedExtras, ...extraRows]);
+
+  const seenKeys = new Set<string>();
+  return layout.flatMap((section) => placed.get(section.label) || []).filter((field) => {
+    const key = `${field.section}|${fieldMatchKey(field)}|${field.key}`;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
+}
+
+function groupFields(fields: DraftField[]): { label: string; fields: DraftField[] }[] {
+  const groups: { label: string; fields: DraftField[] }[] = [];
+  for (const field of fields) {
+    const label = field.section || "";
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.fields.push(field);
+    else groups.push({ label, fields: [field] });
+  }
+  return groups;
 }
 
 function fieldLabel(key: string): string {
@@ -407,6 +754,21 @@ function flattenFields(value: unknown, prefix = ""): DraftField[] {
     const path = prefix ? `${prefix}.${key}` : key;
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
       const nestedRecord = nested as Record<string, unknown>;
+      if (nestedRecord.option && nestedRecord.scale) {
+        rows.push({
+          key: `${path}.option`,
+          label: "US Size",
+          value: displayValue(nestedRecord.option),
+          missing: isEmptyValue(nestedRecord.option),
+        });
+        rows.push({
+          key: `${path}.scale`,
+          label: "Size Type",
+          value: displayValue(nestedRecord.scale),
+          missing: isEmptyValue(nestedRecord.scale),
+        });
+        continue;
+      }
       const leaf =
         typeof nestedRecord.displayName === "string" ||
         Array.isArray(nestedRecord.displayPath) ||
@@ -470,22 +832,22 @@ function mergeDraftItem(draft: { item?: unknown; form?: unknown } | undefined): 
   };
 }
 
+function fillLogEntriesForMarket(report: FillLogReport | undefined, marketplace: string): FillLogEntry[] {
+  return report?.by_marketplace[marketplace]?.entries || [];
+}
+
+function toForm(id: string, fields: DraftField[]): DraftForm {
+  return {
+    id,
+    label: marketplaceLabel(id),
+    fields,
+    filled: fields.filter((field) => !field.missing).length,
+    missing: fields.filter((field) => field.missing).length,
+  };
+}
+
 function formsFromDraft(item: Record<string, unknown> | null | undefined, report?: FillLogReport): DraftForm[] {
   const leftovers = report ? leftoverEntries(report) : [];
-  const leftoverByKey = new Map<string, FillLogEntry>();
-  for (const entry of leftovers) {
-    leftoverByKey.set(`${entry.marketplace.toLowerCase()}:${entry.field.toLowerCase()}`, entry);
-  }
-
-  const attach = (formId: string, fields: DraftField[]): DraftField[] =>
-    fields.map((field) => ({
-      ...field,
-      leftover:
-        leftoverByKey.get(`${formId}:${field.label.toLowerCase()}`) ||
-        leftoverByKey.get(`${formId}:${field.key.toLowerCase()}`) ||
-        leftoverByKey.get(`${formId}:${field.key.split(".").pop()!.toLowerCase()}`),
-    }));
-
   const forms: DraftForm[] = [];
   const general = item?.generalDetails && typeof item.generalDetails === "object"
     ? flattenFields(item.generalDetails)
@@ -508,23 +870,14 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
       });
     }
   }
-  if (general.length) {
-    const fields = attach("general", general);
-    forms.push({
-      id: "general",
-      label: "General",
-      fields,
-      filled: fields.filter((field) => !field.missing).length,
-      missing: fields.filter((field) => field.missing).length,
-    });
-  }
+  forms.push(toForm("general", organizeFields("general", general, fillLogEntriesForMarket(report, "general"))));
 
   const listings = item?.listings && typeof item.listings === "object"
     ? item.listings as Record<string, unknown>
     : {};
   const leftoverMarkets = new Set(leftovers.map((entry) => entry.marketplace.toLowerCase()));
   const listingIds = [
-    ...MARKETPLACE_ORDER.filter((id) => id !== "general" && listings[id] != null),
+    ...MARKETPLACE_ORDER.filter((id) => id !== "general" && (listings[id] != null || leftoverMarkets.has(id))),
     ...Object.keys(listings).filter((id) => {
       if (MARKETPLACE_ORDER.includes(id) || id === "validate") return false;
       const listing = listings[id] as Record<string, unknown> | undefined;
@@ -533,34 +886,52 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
     }),
   ];
   for (const id of listingIds) {
-    const fields = attach(id, flattenFields(listingSection(listings[id] as Record<string, unknown>)));
+    const raw = listings[id] ? flattenFields(listingSection(listings[id] as Record<string, unknown>)) : [];
+    const fields = organizeFields(id, raw, fillLogEntriesForMarket(report, id));
     if (!fields.length) continue;
-    forms.push({
-      id,
-      label: marketplaceLabel(id),
-      fields,
-      filled: fields.filter((field) => !field.missing).length,
-      missing: fields.filter((field) => field.missing).length,
-    });
+    forms.push(toForm(id, fields));
   }
   return forms;
+}
+
+function formsFromFillLog(report: FillLogReport): DraftForm[] {
+  const ids = [
+    ...MARKETPLACE_ORDER.filter((id) => report.by_marketplace[id]),
+    ...Object.keys(report.by_marketplace).filter((id) => !MARKETPLACE_ORDER.includes(id)),
+  ];
+  return ids.map((id) => {
+    const group = report.by_marketplace[id];
+    const fields: DraftField[] = group.entries.map((entry) => ({
+      key: entry.id,
+      label: entry.field,
+      value: entry.value_preview || "",
+      missing: FILLABLE_STATUSES.has(entry.status),
+      leftover: FILLABLE_STATUSES.has(entry.status) ? entry : undefined,
+    }));
+    return toForm(id, organizeFields(id, fields, group.entries));
+  });
 }
 
 const LISTING_GENERAL_FIELDS: { key: string; label: string }[] = [
   { key: "title", label: "Title" },
   { key: "description", label: "Description" },
-  { key: "price", label: "Price" },
-  { key: "cost", label: "Cost" },
-  { key: "quantity", label: "Quantity" },
   { key: "brand", label: "Brand" },
   { key: "condition", label: "Condition" },
   { key: "primaryColor", label: "Primary Color" },
   { key: "secondaryColor", label: "Secondary Color" },
-  { key: "size", label: "Size" },
   { key: "sku", label: "SKU" },
+  { key: "zipCode", label: "Zip Code" },
+  { key: "quantity", label: "Quantity" },
   { key: "category_path", label: "Category" },
+  { key: "size", label: "US Size" },
+  { key: "sizeType", label: "Size Type" },
+  { key: "weight_lb", label: "Package Weight (lb)" },
+  { key: "weight_oz", label: "Package Weight (oz)" },
+  { key: "price", label: "Listing Price" },
+  { key: "cost", label: "Cost of Goods" },
   { key: "tags", label: "Tags" },
-  { key: "notes", label: "Notes" },
+  { key: "labels", label: "Vendoo Labels" },
+  { key: "notes", label: "Vendoo Internal Notes" },
 ];
 
 function nestedListingValue(listing: Record<string, unknown>, path: string): unknown {
@@ -604,27 +975,16 @@ function specificsListingFields(listing: Record<string, unknown>, marketplace: s
 function formsFromListing(listing?: Record<string, unknown>): DraftForm[] {
   if (!listing || typeof listing !== "object") return [];
   const general = LISTING_GENERAL_FIELDS.map((field) => listingField(listing, field.key, field.label));
-  const forms: DraftForm[] = [{
-    id: "general",
-    label: "General",
-    fields: general,
-    filled: general.filter((field) => !field.missing).length,
-    missing: general.filter((field) => field.missing).length,
-  }];
-  for (const id of ["ebay", "poshmark", "mercari", "depop", "etsy"]) {
+  const forms: DraftForm[] = [toForm("general", organizeFields("general", general))];
+  for (const id of ["ebay", "etsy", "poshmark", "mercari", "depop"]) {
     const extras: DraftField[] = [];
     if (id === "poshmark") extras.push(listingField(listing, "poshmark_specifics.originalPrice", "Original Price"));
     if (id === "mercari") extras.push(listingField(listing, "mercari_specifics.shippingLabel", "Shipping Label"));
     const seen = new Set(extras.map((field) => field.key));
     const fields = [...extras, ...specificsListingFields(listing, id).filter((field) => !seen.has(field.key))];
-    if (!fields.length) continue;
-    forms.push({
-      id,
-      label: marketplaceLabel(id),
-      fields,
-      filled: fields.filter((field) => !field.missing).length,
-      missing: fields.filter((field) => field.missing).length,
-    });
+    const organized = organizeFields(id, fields);
+    if (!organized.length) continue;
+    forms.push(toForm(id, organized));
   }
   return forms;
 }
@@ -638,6 +998,7 @@ function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): D
         if (!needle) return true;
         return (
           form.label.toLowerCase().includes(needle) ||
+          (field.section || "").toLowerCase().includes(needle) ||
           field.label.toLowerCase().includes(needle) ||
           field.value.toLowerCase().includes(needle)
         );
@@ -908,7 +1269,7 @@ export function FillLogPanel({
         <div className="pr-split">
           <div className="pr-files">
             <div className="pr-files-head">
-              <span>Marketplaces</span>
+              <span>Forms</span>
               <span className="pr-files-count">{forms.length}</span>
             </div>
             <div className="pr-tree" role="list">
@@ -939,25 +1300,30 @@ export function FillLogPanel({
                 </span>
               </div>
               <div className="pr-diff-body">
-                {selectedForm.fields.map((field) => {
-                  const leftover = field.leftover;
-                  return (
-                    <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
-                      <span className="pr-diff-gutter">{field.missing ? "-" : "+"}</span>
-                      <span className="pr-diff-name">{field.label}</span>
-                      <span className="pr-diff-value" title={field.value}>{field.value}</span>
-                      {leftover && (
-                        <input
-                          className="pr-input"
-                          value={values[leftover.id] || ""}
-                          disabled={fillMutation.isPending || filling}
-                          placeholder={STATUS_LABELS[leftover.status] || leftover.status}
-                          onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
+                {groupFields(selectedForm.fields).map((group) => (
+                  <div key={group.label || "fields"} className="pr-section-block">
+                    {group.label ? <div className="pr-section">{group.label}</div> : null}
+                    {group.fields.map((field) => {
+                      const leftover = field.leftover;
+                      return (
+                        <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
+                          <span className="pr-diff-gutter">{field.missing ? "-" : "+"}</span>
+                          <span className="pr-diff-name">{field.label}</span>
+                          <span className="pr-diff-value" title={field.value}>{field.value}</span>
+                          {leftover && (
+                            <input
+                              className="pr-input"
+                              value={values[leftover.id] || ""}
+                              disabled={fillMutation.isPending || filling}
+                              placeholder={STATUS_LABELS[leftover.status] || leftover.status}
+                              onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
