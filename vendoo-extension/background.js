@@ -1092,7 +1092,7 @@ function commandTimeoutMs(command) {
     return 90000;
   }
   if (command.type === 'GET_VENDOO_ITEM') {
-    return 8000;
+    return 20000;
   }
   if (command.type === 'SEARCH_CATEGORIES') {
     return 45000;

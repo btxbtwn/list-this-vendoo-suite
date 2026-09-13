@@ -346,22 +346,46 @@ function patchableEmptyFields(
 function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): DraftForm[] {
   if (!listingForms.length) return forms;
   const byId = new Map(listingForms.map((form) => [form.id, form]));
-  return forms.map((form) => {
+  const seenForms = new Set(forms.map((form) => form.id));
+  const merged = forms.map((form) => {
     const listingForm = byId.get(form.id);
     if (!listingForm) return form;
     const listingFields = new Map(listingForm.fields.map((field) => [fieldMatchKey(field), field]));
+    const seen = new Set<string>();
     const fields = form.fields.map((field) => {
-      const match = listingFields.get(fieldMatchKey(field));
+      const key = fieldMatchKey(field);
+      if (key) seen.add(key);
+      const match = listingFields.get(key);
       if (!match || isEmptyValue(match.value)) return field;
       return { ...field, value: match.value, missing: false };
     });
-    return {
-      ...form,
-      fields,
-      filled: fields.filter((field) => !field.missing).length,
-      missing: fields.filter((field) => field.missing).length,
-    };
+    // Listing-only values (chat-filled optionals) are missing from the Vendoo API
+    // draft until written — still show them under Item specifics.
+    const extras: DraftField[] = [];
+    for (const field of listingForm.fields) {
+      const key = fieldMatchKey(field);
+      if (!key || seen.has(key) || isEmptyValue(field.value)) continue;
+      seen.add(key);
+      extras.push({
+        ...field,
+        section: "Item specifics",
+        missing: false,
+      });
+    }
+    if (extras.length) {
+      let insertAt = fields.length;
+      for (let i = 0; i < fields.length; i += 1) {
+        if (fields[i].section === "Item specifics") insertAt = i + 1;
+      }
+      fields.splice(insertAt, 0, ...extras);
+    }
+    return toForm(form.id, fields);
   });
+  for (const listingForm of listingForms) {
+    if (seenForms.has(listingForm.id) || !listingForm.fields.length) continue;
+    merged.push(listingForm);
+  }
+  return merged;
 }
 
 function sourceFormsForJob(
@@ -443,6 +467,8 @@ const FIELD_NAME_ALIASES: Record<string, string> = {
   "condition desc": "condition description",
   "size group": "size grouping",
   "body fit": "size grouping",
+  "country region of manufacture": "country of origin",
+  "fabric pattern": "pattern",
 };
 
 function normalizeFieldName(value: string): string {
@@ -479,6 +505,34 @@ const PACKAGE_FIELDS: FieldSpec[] = [
   { keys: ["length"], label: "Length" },
   { keys: ["width"], label: "Width" },
   { keys: ["height"], label: "Height" },
+];
+
+/** Empty optional category fields Vendoo keeps off the API until filled. */
+const EBAY_OPTIONAL_FIELDS: FieldSpec[] = [
+  { keys: ["accents"], label: "Accents", always: true },
+  { keys: ["character"], label: "Character", always: true },
+  { keys: ["closure"], label: "Closure", always: true },
+  { keys: ["country of origin"], label: "Country of Origin", always: true },
+  { keys: ["fabric type"], label: "Fabric Type", always: true },
+  { keys: ["fabric weight"], label: "Fabric Weight", always: true },
+  { keys: ["features"], label: "Features", always: true },
+  { keys: ["fit"], label: "Fit", always: true },
+  { keys: ["garment care"], label: "Garment Care", always: true },
+  { keys: ["handmade"], label: "Handmade", always: true },
+  { keys: ["material"], label: "Material", always: true },
+  { keys: ["mpn"], label: "MPN", always: true },
+  { keys: ["neckline"], label: "Neckline", always: true },
+  { keys: ["occasion"], label: "Occasion", always: true },
+  { keys: ["pattern"], label: "Pattern", always: true },
+];
+
+const ETSY_OPTIONAL_FIELDS: FieldSpec[] = [
+  { keys: ["graphic"], label: "Graphic", always: true },
+  { keys: ["collar style"], label: "Collar style", always: true },
+  { keys: ["holiday"], label: "Holiday", always: true },
+  { keys: ["occasion"], label: "Occasion", always: true },
+  { keys: ["pattern", "fabric pattern"], label: "Pattern", always: true },
+  { keys: ["sustainability"], label: "Sustainability", always: true },
 ];
 
 const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
@@ -536,7 +590,7 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
         { keys: ["department"], label: "Department" },
       ],
     },
-    { label: "Item specifics", extras: true },
+    { label: "Item specifics", fields: EBAY_OPTIONAL_FIELDS, extras: true },
     { label: "Package Details", fields: PACKAGE_FIELDS },
     {
       label: "Shipping & returns",
@@ -568,7 +622,7 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
         { keys: ["materials"], label: "Materials" },
       ],
     },
-    { label: "Item specifics", extras: true },
+    { label: "Item specifics", fields: ETSY_OPTIONAL_FIELDS, extras: true },
   ],
   poshmark: [
     { label: "Item Details", fields: SHARED_ITEM_FIELDS },
@@ -594,13 +648,13 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
     {
       label: "Optional fields",
       fields: [
-        { keys: ["source"], label: "Source" },
-        { keys: ["age"], label: "Age" },
-        { keys: ["style"], label: "Style" },
-        { keys: ["occasion"], label: "Occasion" },
-        { keys: ["size grouping"], label: "Size Grouping" },
-        { keys: ["material"], label: "Material" },
-        { keys: ["tags"], label: "Tags" },
+        { keys: ["source"], label: "Source", always: true },
+        { keys: ["age"], label: "Age", always: true },
+        { keys: ["style"], label: "Style", always: true },
+        { keys: ["occasion"], label: "Occasion", always: true },
+        { keys: ["size grouping"], label: "Size Grouping", always: true },
+        { keys: ["material"], label: "Material", always: true },
+        { keys: ["tags"], label: "Tags", always: true },
       ],
     },
     { label: "Item specifics", extras: true },
@@ -885,6 +939,29 @@ function listingSection(listing: Record<string, unknown> | undefined): unknown {
   };
 }
 
+function deepMergeRecords(
+  base: Record<string, unknown> | undefined,
+  overlay: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(base || {}) };
+  for (const [key, value] of Object.entries(overlay || {})) {
+    const prev = out[key];
+    if (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      prev &&
+      typeof prev === "object" &&
+      !Array.isArray(prev)
+    ) {
+      out[key] = deepMergeRecords(prev as Record<string, unknown>, value as Record<string, unknown>);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 function mergeDraftItem(draft: { item?: unknown; form?: unknown } | undefined): Record<string, unknown> | undefined {
   if (!draft) return undefined;
   const item = draft.item && typeof draft.item === "object" && !Array.isArray(draft.item)
@@ -894,17 +971,19 @@ function mergeDraftItem(draft: { item?: unknown; form?: unknown } | undefined): 
     ? draft.form as Record<string, unknown>
     : {};
   if (!Object.keys(item).length && !Object.keys(form).length) return undefined;
+  // Deep-merge so empty optional categorySpecifics scraped from the page are
+  // kept when the API omits those keys.
   return {
     ...form,
     ...item,
-    generalDetails: {
-      ...((form.generalDetails as object) || {}),
-      ...((item.generalDetails as object) || {}),
-    },
-    listings: {
-      ...((form.listings as object) || {}),
-      ...((item.listings as object) || {}),
-    },
+    generalDetails: deepMergeRecords(
+      (form.generalDetails as Record<string, unknown> | undefined),
+      (item.generalDetails as Record<string, unknown> | undefined),
+    ),
+    listings: deepMergeRecords(
+      (form.listings as Record<string, unknown> | undefined),
+      (item.listings as Record<string, unknown> | undefined),
+    ),
     images: item.images ?? form.images,
   };
 }

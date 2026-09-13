@@ -4129,11 +4129,40 @@
       return urls.slice(0, 20);
   }
 
-  function scrapeVendooItem() {
+  function scrapeMarketplaceListingsFromDom() {
+      const listings = {};
+      const controls = document.querySelectorAll(
+          'input[id^="listings."], textarea[id^="listings."], select[id^="listings."], [id^="listings."][role="combobox"]'
+      );
+      for (const el of controls) {
+          const id = el.id || '';
+          const parts = id.split('.');
+          if (parts.length < 4 || parts[0] !== 'listings') continue;
+          const marketplace = parts[1];
+          const bucket = parts[2];
+          if (!['overrides', 'marketplaceSpecifics', 'categorySpecifics'].includes(bucket)) continue;
+          const fieldKey = parts.slice(3).join('.');
+          if (!fieldKey || /image/i.test(fieldKey)) continue;
+          if (!listings[marketplace]) listings[marketplace] = {};
+          if (!listings[marketplace][bucket]) listings[marketplace][bucket] = {};
+          let value = '';
+          if ('value' in el && el.value != null) value = String(el.value).trim();
+          if (!value) value = (el.innerText || el.textContent || '').trim();
+          // Keep empty strings so Studio Fields can show unfilled optional keys.
+          if (!(fieldKey in listings[marketplace][bucket]) || value) {
+              listings[marketplace][bucket][fieldKey] = value;
+          }
+      }
+      return listings;
+  }
+
+  async function scrapeVendooItem() {
       const itemId = extractItemId();
       if (itemId === 'new') {
           return { ok: false, error: 'This is a new item, not a saved draft', url: window.location.href, item_id: null };
       }
+      await expandOptionalFields();
+      await sleep(CONFIG.SLEEP_LONG);
       const form = {
           itemID: itemId,
           generalDetails: {
@@ -4162,14 +4191,16 @@
                   height: controlValue(VENDOO_SELECTORS.height),
               },
           },
+          listings: scrapeMarketplaceListingsFromDom(),
           images: scrapeListingImageUrls().map((url) => ({ url })),
       };
       const filled = Object.values(form.generalDetails).some((value) => {
           if (value && typeof value === 'object') return Object.values(value).some(Boolean);
           return Boolean(value);
       });
+      const hasListings = Object.keys(form.listings || {}).length > 0;
       return {
-          ok: filled || Boolean(itemId),
+          ok: filled || hasListings || Boolean(itemId),
           source: 'form',
           item_id: itemId,
           url: window.location.href,
@@ -4537,11 +4568,9 @@
           }
 
           if (msg.type === 'GET_VENDOO_ITEM') {
-              try {
-                  sendResponse(scrapeVendooItem());
-              } catch (err) {
-                  sendResponse({ ok: false, error: err.message });
-              }
+              scrapeVendooItem()
+                  .then((result) => sendResponse(result))
+                  .catch((err) => sendResponse({ ok: false, error: err.message }));
               return true;
           }
 
