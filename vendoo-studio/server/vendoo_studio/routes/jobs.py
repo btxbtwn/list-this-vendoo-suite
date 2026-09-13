@@ -62,50 +62,10 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     latest_revision = revisions[0]
     photo_count = len(conv_repo.get_photos(body.conversation_id))
 
-    listing_snapshot = dict(latest_revision.listing_json)
-
-    from vendoo_studio.services.vendoo_import import parse_notes, vendoo_binding
-    conv_notes = parse_notes(conv.notes)
-    binding = vendoo_binding(conv.notes)
-    try:
-        raw_labels = conv_notes.get("vendooLabels", "")
-        if raw_labels:
-            listing_snapshot["labels"] = [
-                label.strip() for label in str(raw_labels).split(",") if label.strip()
-            ]
-        category_override = conv_notes.get("categoryOverride", "").strip()
-        if category_override:
-            listing_snapshot["category_path"] = category_override
-        poshmark_price_override = conv_notes.get("poshmarkOriginalPrice", "").strip()
-        if poshmark_price_override:
-            try:
-                poshmark_price = float(poshmark_price_override)
-            except ValueError:
-                poshmark_price = 0
-        else:
-            poshmark_price = 0
-    except Exception:
-        poshmark_price = 0
-
-    poshmark = listing_snapshot.get("poshmark_specifics") or {}
-    if isinstance(poshmark, dict):
-        poshmark["originalPrice"] = poshmark_price
-    listing_snapshot["poshmark_specifics"] = poshmark
-
-    _ensure_listing_defaults(listing_snapshot)
-
-    from vendoo_studio.services.registry import RegistryService
-    registry = RegistryService(db)
-    registry.merge_learned_fields(listing_snapshot)
-    from vendoo_studio.services.marketplaces import selected_fillable_platforms
-    all_warnings = []
-    for marketplace in selected_fillable_platforms():
-        mp_warnings = registry.validate_dropdown_fields(
-            listing_snapshot, marketplace, listing_snapshot.get("category_path"),
-        )
-        all_warnings.extend(mp_warnings)
-
+    from vendoo_studio.services.vendoo_import import vendoo_binding
     from vendoo_studio.models.validation import validate_listing
+    listing_snapshot = _prepare_listing_snapshot(db, conv, latest_revision.listing_json)
+    binding = vendoo_binding(conv.notes)
     validation = validate_listing(listing_snapshot, photo_count)
     if not validation.can_send:
         raise HTTPException(400, _validation_error_detail(validation))
@@ -488,40 +448,15 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
     from vendoo_studio.services.fill_log import FillLogService
     FillLogService(db).clear_job(job_id)
 
-    import json as _json
-    try:
-        from vendoo_studio.repositories.queries import ConversationRepo
-        conv = ConversationRepo(db).get(job.conversation_id)
-        if conv:
-            conv_notes = _json.loads(conv.notes or "{}")
-            raw_labels = conv_notes.get("vendooLabels", "")
-            if raw_labels and isinstance(job.listing_snapshot, dict):
-                job.listing_snapshot["labels"] = [
-                    label.strip() for label in str(raw_labels).split(",") if label.strip()
-                ]
-            if isinstance(job.listing_snapshot, dict):
-                poshmark = job.listing_snapshot.get("poshmark_specifics") or {}
-                if isinstance(poshmark, dict):
-                    poshmark["originalPrice"] = 0
-                job.listing_snapshot["poshmark_specifics"] = poshmark
-
-                category_override = conv_notes.get("categoryOverride", "").strip()
-                if category_override:
-                    job.listing_snapshot["category_path"] = category_override
-    except Exception:
-        pass
-
-    if isinstance(job.listing_snapshot, dict):
-        _ensure_listing_defaults(job.listing_snapshot)
-        from vendoo_studio.services.registry import RegistryService
-        registry = RegistryService(db)
-        registry.merge_learned_fields(job.listing_snapshot)
-        category_path = job.listing_snapshot.get("category_path", "")
-        from vendoo_studio.services.marketplaces import selected_fillable_platforms
-        for marketplace in selected_fillable_platforms():
-            registry.validate_dropdown_fields(
-                job.listing_snapshot, marketplace, category_path,
-            )
+    from sqlalchemy.orm.attributes import flag_modified
+    conv = ConversationRepo(db).get(job.conversation_id)
+    listing_repo = ListingRepo(db)
+    revisions = listing_repo.get_revisions(job.conversation_id)
+    source = revisions[0].listing_json if revisions else (job.listing_snapshot or {})
+    job.listing_snapshot = _prepare_listing_snapshot(db, conv, source)
+    if revisions:
+        job.approved_revision_id = revisions[0].id
+    flag_modified(job, "listing_snapshot")
 
     db.commit()
     ConversationRepo(db).update_status(job.conversation_id, "listing")
@@ -578,6 +513,42 @@ def _generate_sku(listing: dict) -> str:
 def _validation_error_detail(validation) -> str:
     messages = [err.get("message", "") for err in validation.errors if err.get("message")]
     return "; ".join(messages) or "Listing cannot be sent to Vendoo. Fix validation errors first."
+
+
+def _prepare_listing_snapshot(db: Session, conv, listing_json: dict) -> dict:
+    from vendoo_studio.services.marketplaces import selected_fillable_platforms
+    from vendoo_studio.services.registry import RegistryService, align_listing_gender
+    from vendoo_studio.services.vendoo_import import parse_notes
+
+    listing_snapshot = dict(listing_json or {})
+    conv_notes = parse_notes(getattr(conv, "notes", None))
+    raw_labels = str(conv_notes.get("vendooLabels") or "")
+    if raw_labels.strip():
+        listing_snapshot["labels"] = [
+            label.strip() for label in raw_labels.split(",") if label.strip()
+        ]
+    category_override = str(conv_notes.get("categoryOverride") or "").strip()
+    if category_override:
+        listing_snapshot["category_path"] = category_override
+    price_raw = str(conv_notes.get("poshmarkOriginalPrice") or "").strip()
+    try:
+        poshmark_price = float(price_raw) if price_raw else 0
+    except ValueError:
+        poshmark_price = 0
+    poshmark = listing_snapshot.get("poshmark_specifics") or {}
+    if not isinstance(poshmark, dict):
+        poshmark = {}
+    poshmark["originalPrice"] = poshmark_price
+    listing_snapshot["poshmark_specifics"] = poshmark
+    align_listing_gender(listing_snapshot)
+    _ensure_listing_defaults(listing_snapshot)
+    registry = RegistryService(db)
+    registry.merge_learned_fields(listing_snapshot)
+    for marketplace in selected_fillable_platforms():
+        registry.validate_dropdown_fields(
+            listing_snapshot, marketplace, listing_snapshot.get("category_path"),
+        )
+    return listing_snapshot
 
 
 def _ensure_listing_defaults(listing_snapshot: dict) -> None:

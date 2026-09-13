@@ -121,6 +121,7 @@ CATEGORY_NORMALIZATIONS: dict[str, dict[str, str]] = {
 }
 
 _TOP_ITEM_RE = re.compile(r"t-?shirts?|\btees?\b|\btops?\b|\bshirts?\b|\bblouses?\b", re.I)
+_TEE_ITEM_RE = re.compile(r"t-?shirts?|\btees?\b", re.I)
 _NON_TOP_RE = re.compile(
     r"\bdresses?\b|\bpants?\b|\bjeans?\b|\bskirts?\b|\bshorts?\b|\bjackets?\b|"
     r"\bcoats?\b|\bsweaters?\b|\bhoodies?\b|\bshoes?\b|\bbags?\b",
@@ -128,6 +129,7 @@ _NON_TOP_RE = re.compile(
 )
 _WOMEN_RE = re.compile(r"\bwomen(?:['’]s)?\b", re.I)
 _MEN_RE = re.compile(r"\bmen(?:['’]s)?\b", re.I)
+_GENDER_PATH_RE = re.compile(r"(?:department|category_path|categorypath)$", re.I)
 
 
 def _category_key(category: str) -> str:
@@ -150,6 +152,69 @@ def _listing_text(listing: dict | None) -> str:
     )
 
 
+def _gender_from_text(text: str) -> str | None:
+    has_women = bool(_WOMEN_RE.search(text or ""))
+    has_men = bool(_MEN_RE.search(text or ""))
+    if has_men and not has_women:
+        return "men"
+    if has_women and not has_men:
+        return "women"
+    return None
+
+
+def _listing_gender(listing: dict | None, extra: str = "") -> str | None:
+    """Prefer explicit department over leftover Women/Men words in an old category path."""
+    listing = listing or {}
+    specifics = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    for value in (
+        listing.get("department"),
+        specifics.get("department") if isinstance(specifics, dict) else None,
+    ):
+        gender = _gender_from_text(str(value or ""))
+        if gender:
+            return gender
+    return _gender_from_text(f"{extra} {listing.get('title') or ''}")
+
+
+def _gender_from_patch(operations: list[dict] | None) -> str | None:
+    if not operations:
+        return None
+    found = None
+    for op in operations:
+        if not isinstance(op, dict) or op.get("op") not in {"replace", "add"}:
+            continue
+        path = str(op.get("path") or "").rstrip("/")
+        if not _GENDER_PATH_RE.search(path):
+            continue
+        gender = _gender_from_text(str(op.get("value") or ""))
+        if gender:
+            found = gender
+    return found
+
+
+def _apply_department(listing: dict, gender: str) -> None:
+    label = "Men" if gender == "men" else "Women"
+    listing["department"] = label
+    ebay = listing.get("ebay_specifics")
+    if isinstance(ebay, dict) and str(ebay.get("department") or "").strip():
+        ebay["department"] = label
+
+
+def align_listing_gender(listing: dict, operations: list[dict] | None = None) -> dict:
+    """Keep department and Vendoo category on the same gender after a chat revision."""
+    if not isinstance(listing, dict):
+        return listing
+    gender = _gender_from_patch(operations) or _listing_gender(
+        listing, str(listing.get("category_path") or ""),
+    )
+    if gender in {"men", "women"}:
+        _apply_department(listing, gender)
+    mapped = map_vendoo_category_path(str(listing.get("category_path") or ""), listing)
+    if mapped:
+        listing["category_path"] = mapped
+    return listing
+
+
 def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
     """Map marketplace or abbreviated paths onto a selectable Vendoo General leaf."""
     raw = (category or "").strip()
@@ -159,24 +224,19 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
         return raw
 
     norms = CATEGORY_NORMALIZATIONS.get("general", {})
-    key = raw.lower()
-    if key in norms:
-        return norms[key]
-    path_key = _category_key(raw)
-    if path_key in norms:
-        return norms[path_key]
-
+    alias = norms.get(raw.lower()) or norms.get(_category_key(raw))
     haystack = f"{raw} {_listing_text(listing)}"
-    is_women = bool(_WOMEN_RE.search(haystack))
-    is_men = bool(_MEN_RE.search(haystack)) and not is_women
+    gender = _listing_gender(listing, raw)
     is_top = bool(_TOP_ITEM_RE.search(haystack))
     path_is_other_item = bool(_NON_TOP_RE.search(raw)) and not _TOP_ITEM_RE.search(raw)
     if path_is_other_item:
         return raw
-    if is_women and is_top:
+    if gender == "women" and is_top:
         return WOMEN_TOPS_PATH
-    if is_men and re.search(r"t-?shirts?|\btees?\b", haystack, re.I):
+    if gender == "men" and _TEE_ITEM_RE.search(haystack):
         return MEN_TSHIRT_PATH
+    if alias:
+        return alias
     return raw
 
 
@@ -189,6 +249,7 @@ _POSHMARK_ROOT_RE = re.compile(r"^(men|women|kids|pets|home|electronics)\s*>", r
 def map_poshmark_category_path(category: str, listing: dict | None = None) -> str:
     """Map a Vendoo/listing category onto a selectable Poshmark path."""
     listing = listing if isinstance(listing, dict) else {}
+    raw = (category or "").strip() or str(listing.get("category_path") or "").strip()
     specifics = listing.get("poshmark_specifics")
     if isinstance(specifics, dict):
         explicit = specifics.get("category_path") or specifics.get("categoryPath")
@@ -198,17 +259,14 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
         elif isinstance(explicit, str):
             explicit_path = explicit.strip()
         if explicit_path:
-            listing_hay = _listing_text(listing)
-            listing_is_men = bool(_MEN_RE.search(listing_hay)) and not _WOMEN_RE.search(listing_hay)
-            listing_is_women = bool(_WOMEN_RE.search(listing_hay))
+            gender = _listing_gender(listing, raw)
+            listing_is_men = gender == "men"
+            listing_is_women = gender == "women"
             stale_women = listing_is_men and bool(_WOMEN_RE.search(explicit_path))
             stale_men = listing_is_women and bool(_MEN_RE.search(explicit_path)) and not _WOMEN_RE.search(explicit_path)
             if not stale_women and not stale_men:
                 return explicit_path
 
-    raw = (category or "").strip()
-    if not raw:
-        raw = str(listing.get("category_path") or "").strip()
     if _POSHMARK_ROOT_RE.search(raw):
         return raw
 
@@ -217,8 +275,12 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
     if isinstance(ebay, dict):
         sleeve = str(ebay.get("sleeveLength") or "")
     haystack = f"{raw} {_listing_text(listing)} {sleeve} {listing.get('sleeveLength') or ''}"
-    is_women = bool(_WOMEN_RE.search(haystack))
-    is_men = bool(_MEN_RE.search(haystack)) and not is_women
+    gender = _listing_gender(listing, raw)
+    is_women = gender == "women"
+    is_men = gender == "men"
+    if gender is None:
+        is_women = bool(_WOMEN_RE.search(haystack))
+        is_men = bool(_MEN_RE.search(haystack)) and not is_women
     is_tee = bool(_TEE_RE.search(haystack))
     is_blouse = bool(_BLOUSE_RE.search(haystack)) and not is_tee
     long_sleeve = bool(_LONG_SLEEVE_RE.search(haystack))

@@ -1288,13 +1288,46 @@ html.desktop-app .workspace-drag-region {
   font-size: var(--text-xs);
   line-height: 1.55;
   color: var(--color-text-muted);
-  white-space: pre-wrap;
   word-break: break-word;
   max-height: 220px;
   overflow-y: auto;
 }
 
-.thinking-body.live::after {
+.thinking-todos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+}
+
+.thinking-todo {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.thinking-todo-mark {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.thinking-todo-text {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.thinking-todo.is-done {
+  opacity: 0.65;
+}
+
+.thinking-todo.is-current {
+  color: var(--color-text-secondary);
+}
+
+.thinking-todo.is-live .thinking-todo-text::after {
   content: "▍";
   margin-left: 2px;
   animation: thinking-pulse 1s step-end infinite;
