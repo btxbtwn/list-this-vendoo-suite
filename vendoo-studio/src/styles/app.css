@@ -1756,6 +1756,31 @@ details[open] .json-collapse-summary::before {
   font-size: 11px;
 }
 
+.pr-review-open {
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.pr-review-open:hover:not(:disabled) {
+  background: var(--color-paper);
+  border-color: var(--color-border-bright);
+  color: var(--color-text);
+}
+
+.pr-review-open:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .pr-pills {
   display: inline-flex;
   align-self: flex-start;

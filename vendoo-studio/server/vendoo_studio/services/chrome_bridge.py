@@ -5,8 +5,12 @@ import shutil
 import subprocess
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 from vendoo_studio.config import extension_source_dir, user_data_root
+
+DEFAULT_VENDOO_URL = "https://web.vendoo.co"
+VENDOO_HOSTS = frozenset({"web.vendoo.co", "app.vendoo.co"})
 
 CHROME_CANDIDATES = (
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
@@ -165,7 +169,31 @@ def needs_worker_reload(pending: str | None, reported: str | None, files_changed
     return bool(pending) and pending != reported
 
 
-def launch_args(executable: Path, extension_dir: Path, profile_dir: Path) -> list[str]:
+def is_vendoo_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and parsed.hostname in VENDOO_HOSTS
+
+
+def listing_url_for_job(item_id: str | None = None, url: str | None = None) -> str | None:
+    raw = str(url or "").strip()
+    if raw and is_vendoo_url(raw):
+        return raw
+    item = str(item_id or "").strip()
+    if item and item != "new" and all(ch.isalnum() or ch in "-_" for ch in item):
+        return f"https://web.vendoo.co/app/item/{item}"
+    return None
+
+
+def launch_args(
+    executable: Path,
+    extension_dir: Path,
+    profile_dir: Path,
+    url: str = DEFAULT_VENDOO_URL,
+) -> list[str]:
+    target = url if is_vendoo_url(url) else DEFAULT_VENDOO_URL
     return [
         str(executable),
         f"--user-data-dir={profile_dir}",
@@ -174,11 +202,14 @@ def launch_args(executable: Path, extension_dir: Path, profile_dir: Path) -> lis
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-sync",
-        "https://web.vendoo.co",
+        target,
     ]
 
 
-def launch_studio_chrome() -> dict:
+def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL) -> dict:
+    target = str(url or "").strip() or DEFAULT_VENDOO_URL
+    if not is_vendoo_url(target):
+        raise ChromeBridgeError("That is not a Vendoo listing URL.")
     executable = chrome_executable()
     if executable is None:
         raise ChromeBridgeError(
@@ -188,7 +219,7 @@ def launch_studio_chrome() -> dict:
     profile_dir = chrome_profile_dir()
     profile_dir.mkdir(parents=True, exist_ok=True)
     subprocess.Popen(
-        launch_args(executable, extension_dir, profile_dir),
+        launch_args(executable, extension_dir, profile_dir, target),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,

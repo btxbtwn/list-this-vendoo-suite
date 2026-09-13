@@ -14,6 +14,7 @@ class MessageType(str, enum.Enum):
     JOB_CANCEL = "job.cancel"
     JOB_FILL_FIELDS = "job.fill_fields"
     JOB_VENDOO_GET = "job.vendoo_get"
+    JOB_OPEN_LISTING = "job.open_listing"
     DIAGNOSTIC_ACK = "diagnostic.ack"
     EXTENSION_RELOAD = "extension.reload"
     PING = "ping"

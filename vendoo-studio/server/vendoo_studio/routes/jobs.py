@@ -273,6 +273,37 @@ async def get_vendoo_item(job_id: str, db: Session = Depends(get_db)):
     )
 
 
+class OpenListingResponse(BaseModel):
+    ok: bool
+    url: str
+    via: str
+
+
+@router.post("/{job_id}/open", response_model=OpenListingResponse)
+async def open_listing(job_id: str, db: Session = Depends(get_db)):
+    from vendoo_studio.routes.extension import dispatch_open_listing, extension_manager
+    from vendoo_studio.services.chrome_bridge import ChromeBridgeError, launch_studio_chrome, listing_url_for_job
+
+    repo = JobRepo(db)
+    job = repo.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    url = listing_url_for_job(job.vendoo_item_id, job.vendoo_url)
+    if not url:
+        raise HTTPException(400, "No Vendoo draft is available yet. Send the listing first.")
+
+    if extension_manager.connected:
+        sent = await dispatch_open_listing(job)
+        if sent:
+            return OpenListingResponse(ok=True, url=url, via="extension")
+
+    try:
+        launch_studio_chrome(url)
+    except ChromeBridgeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return OpenListingResponse(ok=True, url=url, via="chrome")
+
+
 @router.post("/{job_id}/fill-fields", response_model=JobResponse)
 async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = Depends(get_db)):
     from sqlalchemy.orm.attributes import flag_modified

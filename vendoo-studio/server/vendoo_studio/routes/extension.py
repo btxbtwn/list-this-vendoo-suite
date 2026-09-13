@@ -222,6 +222,21 @@ async def dispatch_vendoo_get(job, request_id: str) -> bool:
     ).model_dump(mode="json"))
 
 
+async def dispatch_open_listing(job) -> bool:
+    if not extension_manager.connected:
+        return False
+    return await extension_manager.send_message(ProtocolMessage(
+        type="job.open_listing",
+        job_id=job.id,
+        message_id=uuid.uuid4().hex[:12],
+        payload={
+            "job_id": job.id,
+            "vendoo_item_id": job.vendoo_item_id,
+            "vendoo_url": job.vendoo_url,
+        },
+    ).model_dump(mode="json"))
+
+
 def _build_photo_list(conv_id: str, db) -> list[dict]:
     from vendoo_studio.repositories.queries import ConversationRepo
     repo = ConversationRepo(db)
