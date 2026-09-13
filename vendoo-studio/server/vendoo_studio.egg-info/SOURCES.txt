@@ -8,6 +8,7 @@ server/tests/test_comp_research.py
 server/tests/test_config.py
 server/tests/test_conversations_settled.py
 server/tests/test_desktop.py
+server/tests/test_discover_form_fields.py
 server/tests/test_engine_window.py
 server/tests/test_extension_version.py
 server/tests/test_fill_field_batches.py
@@ -25,6 +26,7 @@ server/tests/test_registry.py
 server/tests/test_setup_guide.py
 server/tests/test_sold_comps.py
 server/tests/test_updates.py
+server/tests/test_upload_photos.py
 server/tests/test_vendoo_import.py
 server/tests/test_vendoo_item.py
 server/tests/test_vendoo_retry_general.py

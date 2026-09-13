@@ -20,7 +20,8 @@ MAX_ENTRIES = 200
 MAX_PREVIEW = 80
 MAX_PATCH_FIELDS = 50
 MAX_FILL_FIELDS = 200
-MAX_PATCH_VALUE = 500
+# Marketplace descriptions (esp. Etsy ~10k) routinely exceed a few hundred chars.
+MAX_PATCH_VALUE = 10_000
 
 GENERAL_LISTING_KEYS = {
     "title": "title",
