@@ -219,7 +219,8 @@ async def dispatch_queued_jobs():
                     "publish": False,
                     "reuseExistingItem": reuse_existing,
                     "skipPhotos": reuse_existing,
-                    "clearBeforeFill": reuse_existing,
+                    # Imported drafts keep matching values; fill skips unchanged fields.
+                    "clearBeforeFill": False,
                     "vendoo_item_id": item_id,
                     "vendoo_url": item_url,
                 },

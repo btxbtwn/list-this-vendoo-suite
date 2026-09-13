@@ -139,6 +139,65 @@ def extract_listing_json(text: str) -> dict | None:
     return None
 
 
+def looks_like_listing_attempt(text: str) -> bool:
+    """True when assistant text looks like it tried to emit listing JSON."""
+    if not text or text.lstrip().lower().startswith("error:"):
+        return False
+    if extract_listing_json(text):
+        return True
+    lowered = text.lower()
+    if "```" in text and "{" in text:
+        return True
+    return "{" in text and ('"title"' in lowered or '"description"' in lowered or '"price"' in lowered)
+
+
+REPAIR_LISTING_PROMPT = (
+    "The previous assistant reply tried to produce a Vendoo listing JSON object but it was "
+    "malformed or incomplete. Repair it into ONE valid JSON object only.\n\n"
+    "Rules:\n"
+    "- Output a single fenced ```json block with the listing object.\n"
+    "- Keep every usable field from the broken output; fix syntax only.\n"
+    "- Include title, description, and price when possible.\n"
+    "- Do not add commentary outside the JSON fence."
+)
+
+MAX_REPAIR_CHARS = 14000
+
+
+async def collect_provider_text(provider, messages: list[dict]) -> str:
+    from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
+
+    parts: list[str] = []
+    async for item in provider.chat(messages, stream=False):
+        kind, text = unpack_stream_item(item)
+        if kind == "content" and text:
+            parts.append(text)
+    return "".join(parts)
+
+
+async def repair_listing_json(provider, raw_text: str) -> dict | None:
+    """Ask the listing provider to repair malformed listing JSON. Returns parsed dict or None."""
+    parsed = extract_listing_json(raw_text)
+    if parsed:
+        return parsed
+    if provider is None or not looks_like_listing_attempt(raw_text):
+        return None
+
+    clipped = (raw_text or "").strip()
+    if len(clipped) > MAX_REPAIR_CHARS:
+        clipped = clipped[:MAX_REPAIR_CHARS]
+    messages = [
+        {"role": "system", "content": REPAIR_LISTING_PROMPT},
+        {"role": "user", "content": clipped},
+    ]
+    try:
+        repaired = await collect_provider_text(provider, messages)
+    except Exception:
+        log.exception("listing JSON repair request failed")
+        return None
+    return extract_listing_json(repaired)
+
+
 def seller_item_details(notes: str | None) -> str:
     if not notes:
         return ""
@@ -179,18 +238,57 @@ def seller_item_details(notes: str | None) -> str:
     return "Known item details from the seller:\n" + "\n".join(lines)
 
 
-def persist_generated_listing(db, conv_id: str, full_text: str, *, source: str = "model") -> dict | None:
+def persist_generated_listing(
+    db,
+    conv_id: str,
+    full_text: str,
+    *,
+    source: str = "model",
+    parsed: dict | None = None,
+    repaired: bool = False,
+) -> dict | None:
     repo = ConversationRepo(db)
     if full_text:
         repo.add_message(conv_id, "assistant", full_text, provider="xiaomi-mimo", model="mimo-v2.5-pro")
 
-    parsed = extract_listing_json(full_text)
-    if not parsed:
+    listing = parsed if isinstance(parsed, dict) else extract_listing_json(full_text)
+    if not listing:
         log.warning("listing generation produced no JSON for %s", conv_id)
         return None
 
-    repo.add_message(conv_id, "system", "Listing extracted and ready for review.", provider="system", model="")
-    if isinstance(parsed, dict):
-        RegistryService(db).merge_learned_fields(parsed)
-    ListingRepo(db).save_revision(conv_id, parsed, source=source)
-    return parsed
+    note = (
+        "Listing repaired from malformed model output and ready for review."
+        if repaired
+        else "Listing extracted and ready for review."
+    )
+    repo.add_message(conv_id, "system", note, provider="system", model="")
+    RegistryService(db).merge_learned_fields(listing)
+    ListingRepo(db).save_revision(conv_id, listing, source=source)
+    return listing
+
+
+async def persist_generated_listing_with_repair(
+    db,
+    conv_id: str,
+    full_text: str,
+    provider,
+    *,
+    source: str = "model",
+) -> dict | None:
+    """Persist listing JSON, repairing with the provider when the first parse fails."""
+    parsed = extract_listing_json(full_text)
+    if parsed:
+        return persist_generated_listing(db, conv_id, full_text, source=source, parsed=parsed)
+
+    repaired = await repair_listing_json(provider, full_text)
+    if repaired:
+        log.info("repaired malformed listing JSON for %s", conv_id)
+        return persist_generated_listing(
+            db,
+            conv_id,
+            full_text,
+            source=source,
+            parsed=repaired,
+            repaired=True,
+        )
+    return persist_generated_listing(db, conv_id, full_text, source=source)

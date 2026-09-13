@@ -103,6 +103,33 @@ function summarizeJsonPatch(ops: { op?: string; path?: string; value?: unknown }
   return `Updated the listing:\n${lines.map((line) => `- ${line}`).join("\n")}`;
 }
 
+const MARKETPLACE_DISPLAY: Record<string, string> = {
+  general: "Vendoo",
+  ebay: "eBay",
+  etsy: "Etsy",
+  poshmark: "Poshmark",
+  mercari: "Mercari",
+  depop: "Depop",
+  facebook: "Facebook",
+  shopify: "Shopify",
+};
+
+function summarizeMissingFields(
+  rows: { marketplace?: string; field?: string; value?: unknown }[],
+): string {
+  const lines = rows.flatMap((row) => {
+    const field = String(row.field || "").trim();
+    const value = displayValue(row.value).trim();
+    if (!field || !value) return [];
+    const market = String(row.marketplace || "general").trim().toLowerCase() || "general";
+    const label = MARKETPLACE_DISPLAY[market] || humanKey(market);
+    return [`${label} / ${field}: ${value}`];
+  });
+  if (!lines.length) return "Saved leftover field values to the listing.";
+  if (lines.length === 1) return `Ready to fill on Vendoo — ${lines[0]}.`;
+  return `Ready to fill on Vendoo:\n${lines.map((line) => `- ${line}`).join("\n")}`;
+}
+
 function stripJsonPayloads(text: string): string {
   let visible = text.replace(/```(?:json)?\s*[\s\S]*?(```|$)/gi, "\n");
   visible = visible.replace(/\n\s*\[[\s\S]*$/, "\n").replace(/\n\s*\{[\s\S]*$/, "\n").trim();
@@ -125,7 +152,7 @@ function assistantDisplayText(text: string): string {
     const parsed = JSON.parse(json);
     if (Array.isArray(parsed) && parsed[0]?.op) return summarizeJsonPatch(parsed);
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.missing_fields)) {
-      return `Filled ${parsed.missing_fields.length} leftover fields.`;
+      return summarizeMissingFields(parsed.missing_fields);
     }
     if (parsed && typeof parsed === "object" && typeof parsed.message === "string" && parsed.message.trim()) {
       return parsed.message.trim();

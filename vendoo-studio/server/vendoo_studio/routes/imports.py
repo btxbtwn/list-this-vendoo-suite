@@ -29,6 +29,7 @@ class VendooImportRequest(BaseModel):
 class VendooImportResponse(BaseModel):
     ok: bool
     conversation_id: str
+    job_id: str | None = None
     reused: bool
     photo_count: int
     photo_warnings: list[str] = []
@@ -61,7 +62,7 @@ async def import_vendoo_listing(body: VendooImportRequest, db: Session = Depends
     db.refresh(conv)
 
     current = listing_repo.get_current(conv.id)
-    listing_repo.save_revision(
+    revision = listing_repo.save_revision(
         conv_id=conv.id,
         listing_json=listing,
         source="vendoo_import",
@@ -99,10 +100,34 @@ async def import_vendoo_listing(body: VendooImportRequest, db: Session = Depends
         elif not urls:
             photo_warnings.append("No photos were found on the Vendoo listing.")
 
+    from vendoo_studio.repositories.queries import JobRepo
+    job_repo = JobRepo(db)
+    job = job_repo.create(
+        conv_id=conv.id,
+        approved_revision_id=revision.id,
+        listing_snapshot=listing,
+        vendoo_item_id=item_id,
+        vendoo_url=url,
+        status="imported",
+        current_step="imported",
+    )
+    job_repo.add_event(job.id, "imported", "imported")
+    job_repo.save_vendoo_draft(
+        job.id,
+        item=body.item,
+        form=body.form,
+        item_id=item_id,
+        url=url,
+        source=(body.source or "import"),
+        step="imported",
+    )
+    conv_repo.update_status(conv.id, "listing")
+
     binding = vendoo_binding(conv.notes)
     return VendooImportResponse(
         ok=True,
         conversation_id=conv.id,
+        job_id=job.id,
         reused=reused,
         photo_count=photo_count,
         photo_warnings=photo_warnings,

@@ -20,6 +20,7 @@ from vendoo_studio.services.fill_log import (
     preview_value,
     sanitize_entries,
     summarize,
+    summarize_missing_fields,
     write_values_into_listing,
 )
 
@@ -56,6 +57,15 @@ class FillLogHelpersTest(unittest.TestCase):
 
     def test_extract_missing_fields_ignores_json_patch(self):
         self.assertIsNone(extract_missing_fields('[{"op":"replace","path":"/sku","value":"ABC-1"}]'))
+
+    def test_summarize_missing_fields_lists_values(self):
+        summary = summarize_missing_fields([
+            {"marketplace": "general", "field": "SKU", "value": "ABC-1"},
+            {"marketplace": "ebay", "field": "Type", "value": "T-Shirt"},
+        ])
+        self.assertIn("Ready to fill on Vendoo:", summary)
+        self.assertIn("Vendoo / SKU: ABC-1", summary)
+        self.assertIn("eBay / Type: T-Shirt", summary)
 
     def test_listing_value_for_field_maps_leftover_labels(self):
         listing = {

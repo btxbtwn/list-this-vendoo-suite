@@ -1342,8 +1342,9 @@ export function FillLogPanel({
   const fillingRef = React.useRef(filling);
   fillingRef.current = filling;
 
-  const draftQuery = useVendooDraft(jobId, hasDraft && chromeConnected);
+  const draftQuery = useVendooDraft(jobId, hasDraft);
   const draft = draftQuery.data;
+  const [refreshingDraft, setRefreshingDraft] = React.useState(false);
   const { sourceForms, fromVendooDraft } = sourceFormsForJob(
     mergeDraftItem(draft),
     report,
@@ -1401,11 +1402,25 @@ export function FillLogPanel({
     sawFilling.current = false;
     queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
     queryClient.invalidateQueries({ queryKey: ["listing"] });
-    if (hasDraft && chromeConnected) {
+    if (hasDraft) {
       setShowJson(false);
       draftQuery.refetch();
     }
     onFilled?.();
+  };
+
+  const refreshDraftLive = async () => {
+    if (!hasDraft) return;
+    setShowJson(false);
+    setRefreshingDraft(true);
+    try {
+      const fresh = await api.jobs.vendooItem(jobId, { refresh: true });
+      queryClient.setQueryData(["vendoo-item", jobId], fresh);
+    } catch (error) {
+      addToast({ type: "error", title: (error as Error).message || "Could not refresh Vendoo draft" });
+    } finally {
+      setRefreshingDraft(false);
+    }
   };
 
   const fillMutation = useMutation({
@@ -1689,13 +1704,13 @@ export function FillLogPanel({
           <button
             type="button"
             className="pr-icon-btn pr-read"
-            disabled={draftQuery.isFetching}
+            disabled={draftQuery.isFetching || refreshingDraft}
             onClick={() => {
-              setShowJson(false);
-              draftQuery.refetch();
+              void refreshDraftLive();
             }}
+            title={chromeConnected ? "Re-read the live Vendoo form" : "Connect Chrome to refresh from Vendoo"}
           >
-            {draftQuery.isFetching ? "Discovering…" : draft ? "Refresh" : "Read draft"}
+            {draftQuery.isFetching || refreshingDraft ? "Discovering…" : draft ? "Refresh" : "Read draft"}
           </button>
         )}
         {draft?.ok && (
@@ -1784,6 +1799,13 @@ export function FillLogPanel({
         </div>
       )}
 
+      {fillPayload.length > 0 && !filling && !fillMutation.isPending && (
+        <p className="pr-notice">
+          {fillPayload.length} generated value{fillPayload.length === 1 ? "" : "s"} ready to fill.
+          Review each “Ready to fill” value below, then click Fill on Vendoo.
+        </p>
+      )}
+
       {hasDraft && !fromVendooDraft && !draftQuery.isFetching && (
         <p className="pr-notice">
           {chromeConnected
@@ -1863,6 +1885,10 @@ export function FillLogPanel({
                       const menuKey = `${selectedForm.id}:${field.key}`;
                       const menuOpen = openMenu?.kind === "field" && openMenu.key === menuKey;
                       const canHide = !isProtectedEbayField(selectedForm.id, field);
+                      const proposed =
+                        field.missing && !leftover
+                          ? listingValueForField(listing, selectedForm.id, field)
+                          : "";
                       return (
                         <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
                           <span className="pr-diff-gutter">{field.missing ? "-" : "+"}</span>
@@ -1878,6 +1904,12 @@ export function FillLogPanel({
                                 onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
                               />
                             )}
+                            {proposed ? (
+                              <span className="pr-proposed" title="Generated value ready to fill on Vendoo">
+                                <span className="pr-proposed-label">Ready to fill</span>
+                                {proposed}
+                              </span>
+                            ) : null}
                             {menuOpen && canHide && (
                               <div className="pr-hide-choices">
                                 <button

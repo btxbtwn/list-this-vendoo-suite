@@ -261,6 +261,42 @@ def extract_missing_fields(text: str) -> list[dict] | None:
     return None
 
 
+def summarize_missing_fields(patches: list[dict]) -> str:
+    market_labels = {
+        "general": "Vendoo",
+        "ebay": "eBay",
+        "etsy": "Etsy",
+        "poshmark": "Poshmark",
+        "mercari": "Mercari",
+        "depop": "Depop",
+        "facebook": "Facebook",
+        "shopify": "Shopify",
+    }
+    lines: list[str] = []
+    for patch in patches or []:
+        field = str(patch.get("field") or "").strip()
+        value = patch.get("value")
+        if not field or value is None:
+            continue
+        if isinstance(value, list):
+            text = ", ".join(str(part).strip() for part in value if str(part).strip())
+        else:
+            text = str(value).strip()
+        if not text:
+            continue
+        if len(text) > MAX_PREVIEW:
+            text = text[: MAX_PREVIEW - 1] + "…"
+        market = str(patch.get("marketplace") or "general").strip().lower() or "general"
+        label = market_labels.get(market) or market.replace("_", " ").title()
+        lines.append(f"{label} / {field}: {text}")
+    if not lines:
+        return "Saved leftover field values to the listing. Review them in Fields, then Fill on Vendoo."
+    if len(lines) == 1:
+        return f"Ready to fill on Vendoo — {lines[0]}."
+    bullet = "\n".join(f"- {line}" for line in lines[:MAX_PATCH_FIELDS])
+    return f"Ready to fill on Vendoo:\n{bullet}"
+
+
 def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
     updated = dict(listing or {})
     for patch in patches:
