@@ -390,6 +390,22 @@ async function handleStudioMessage(msg) {
       break;
     }
 
+    case 'job.open_listing': {
+      const payload = msg.payload || {};
+      const opened = await openListingForPatch(payload, { reload: false, preview: false });
+      if (!opened.ok) {
+        log(`job.open_listing failed: ${opened.error || 'unknown error'}`);
+        break;
+      }
+      try {
+        const tab = await chrome.tabs.get(opened.tabId);
+        if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
+      } catch {
+        /* window may already be focused */
+      }
+      break;
+    }
+
     case 'job.retry': {
       const jobId = msg.job_id || msg.payload?.job_id;
       if (!jobId) return;

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { FillLogPanel, FillLogSummary } from "./FillLogPanel";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import { OpenListingButton } from "./OpenListingButton";
 import { confirmDialog } from "../ui/confirmDialog";
 
 interface Props {
@@ -86,6 +87,14 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
           {importedItemId
             ? <span className="pr-review-branch">vendoo ← {String(importedItemId).slice(0, 8)}</span>
             : <span className="pr-review-branch">Draft</span>}
+          {listingJob && (
+            <OpenListingButton
+              jobId={listingJob.id}
+              vendooItemId={listingJob.vendoo_item_id}
+              vendooUrl={listingJob.vendoo_url}
+              className="pr-review-open"
+            />
+          )}
         </div>
         <div className="pr-pills" role="tablist" aria-label="Listing review">
           {(["forms", "timeline", "fields"] as const).map((tab) => (
@@ -446,6 +455,12 @@ function SendToVendooButton({
           <FillLogSummary jobId={existingJob.id} onOpenFillLog={onOpenFillLog} />
         </div>
         <div className="job-card-actions">
+          <OpenListingButton
+            jobId={existingJob.id}
+            vendooItemId={existingJob.vendoo_item_id}
+            vendooUrl={existingJob.vendoo_url}
+            className="btn btn-secondary btn-sm job-card-action"
+          />
           {canRestart && (
             <button
               type="button"

@@ -84,6 +84,44 @@ class ChromeBridgeTest(unittest.TestCase):
         self.assertIn("--load-extension=/tmp/ext", args)
         self.assertIn("--user-data-dir=/tmp/profile", args)
         self.assertIn("--disable-features=DisableLoadExtensionCommandLineSwitch", args)
+        self.assertEqual(args[-1], "https://web.vendoo.co")
+
+    def test_launch_args_open_listing_url(self):
+        args = chrome_bridge.launch_args(
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            Path("/tmp/ext"),
+            Path("/tmp/profile"),
+            "https://web.vendoo.co/app/item/abc123",
+        )
+        self.assertEqual(args[-1], "https://web.vendoo.co/app/item/abc123")
+
+    def test_launch_args_reject_non_vendoo_url(self):
+        args = chrome_bridge.launch_args(
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            Path("/tmp/ext"),
+            Path("/tmp/profile"),
+            "https://evil.example/phishing",
+        )
+        self.assertEqual(args[-1], "https://web.vendoo.co")
+
+    def test_listing_url_for_job(self):
+        self.assertEqual(
+            chrome_bridge.listing_url_for_job("abc123", "https://web.vendoo.co/app/item/abc123"),
+            "https://web.vendoo.co/app/item/abc123",
+        )
+        self.assertEqual(
+            chrome_bridge.listing_url_for_job("abc123", None),
+            "https://web.vendoo.co/app/item/abc123",
+        )
+        self.assertIsNone(chrome_bridge.listing_url_for_job("new", None))
+        self.assertIsNone(chrome_bridge.listing_url_for_job(None, "https://evil.example/item/abc"))
+        self.assertIsNone(chrome_bridge.listing_url_for_job("../etc/passwd", None))
+
+    def test_launch_studio_chrome_rejects_non_vendoo_url(self):
+        with patch.object(chrome_bridge, "chrome_executable", return_value=Path("/bin/chrome")):
+            with self.assertRaises(chrome_bridge.ChromeBridgeError) as raised:
+                chrome_bridge.launch_studio_chrome("https://evil.example")
+        self.assertIn("not a Vendoo listing URL", str(raised.exception))
 
     def test_missing_chrome_is_a_clear_error(self):
         with patch.object(chrome_bridge, "chrome_executable", return_value=None):

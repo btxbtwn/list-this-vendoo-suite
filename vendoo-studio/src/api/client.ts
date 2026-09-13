@@ -110,6 +110,8 @@ export const api = {
       }),
     vendooItem: (id: string) =>
       request<any>(`/jobs/${id}/vendoo-item`, { method: "POST" }),
+    open: (id: string) =>
+      request<{ ok: boolean; url: string; via: "extension" | "chrome" }>(`/jobs/${id}/open`, { method: "POST" }),
     retry: (id: string) => request<any>(`/jobs/${id}/retry`, { method: "POST" }),
     cancel: (id: string) => request<any>(`/jobs/${id}/cancel`, { method: "POST" }),
   },
