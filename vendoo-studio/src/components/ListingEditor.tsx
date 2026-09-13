@@ -78,23 +78,23 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
 
   return (
     <div className="listing-editor">
-      <div className="pr-review-header pywebview-drag-region">
+      <div className="pr-review-header">
         <div className="pr-review-title-row">
-          <h2 className="pr-review-title" title={listingTitle}>{listingTitle}</h2>
+          <h2 className="pr-review-title pywebview-drag-region" title={listingTitle}>{listingTitle}</h2>
           {data?.can_send && <span className="editor-ready">Ready</span>}
-        </div>
-        <div className="pr-review-meta">
-          {importedItemId
-            ? <span className="pr-review-branch">vendoo ← {String(importedItemId).slice(0, 8)}</span>
-            : <span className="pr-review-branch">Draft</span>}
           {listingJob && (
             <OpenListingButton
               jobId={listingJob.id}
-              vendooItemId={listingJob.vendoo_item_id}
+              vendooItemId={listingJob.vendoo_item_id || importedItemId}
               vendooUrl={listingJob.vendoo_url}
               className="pr-review-open"
             />
           )}
+        </div>
+        <div className="pr-review-meta pywebview-drag-region">
+          {importedItemId
+            ? <span className="pr-review-branch">vendoo ← {String(importedItemId).slice(0, 8)}</span>
+            : <span className="pr-review-branch">Draft</span>}
         </div>
         <div className="pr-pills" role="tablist" aria-label="Listing review">
           {(["forms", "timeline", "fields"] as const).map((tab) => (
@@ -455,12 +455,6 @@ function SendToVendooButton({
           <FillLogSummary jobId={existingJob.id} onOpenFillLog={onOpenFillLog} />
         </div>
         <div className="job-card-actions">
-          <OpenListingButton
-            jobId={existingJob.id}
-            vendooItemId={existingJob.vendoo_item_id}
-            vendooUrl={existingJob.vendoo_url}
-            className="btn btn-secondary btn-sm job-card-action"
-          />
           {canRestart && (
             <button
               type="button"
