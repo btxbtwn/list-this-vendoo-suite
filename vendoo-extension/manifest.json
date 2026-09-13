@@ -37,7 +37,7 @@
   "content_scripts": [
     {
       "matches": ["https://app.vendoo.co/*", "https://web.vendoo.co/*"],
-      "js": ["content-scripts/vendoo.js"]
+      "js": ["content-script-version.js", "content-scripts/vendoo.js"]
     },
     {
       "matches": ["https://www.ebay.com/*"],
