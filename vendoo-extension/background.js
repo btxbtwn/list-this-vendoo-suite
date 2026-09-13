@@ -5,7 +5,7 @@ const HEARTBEAT_MS = 20000;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
 const RELOAD_GENERATION_KEY = 'studio_reload_generation';
 const RELOAD_TABS_KEY = 'studio_reload_tabs';
-const CONTENT_SCRIPT_VERSION = '0.3.10';
+const CONTENT_SCRIPT_VERSION = '0.3.11';
 const EXTENSION_TAB_URLS = [
   'https://app.vendoo.co/*',
   'https://web.vendoo.co/*',
