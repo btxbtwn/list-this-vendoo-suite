@@ -392,16 +392,9 @@ async function handleStudioMessage(msg) {
 
     case 'job.open_listing': {
       const payload = msg.payload || {};
-      const opened = await openListingForPatch(payload, { reload: false, preview: false });
+      const opened = await focusVendooListing(payload);
       if (!opened.ok) {
         log(`job.open_listing failed: ${opened.error || 'unknown error'}`);
-        break;
-      }
-      try {
-        const tab = await chrome.tabs.get(opened.tabId);
-        if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
-      } catch {
-        /* window may already be focused */
       }
       break;
     }
@@ -727,6 +720,36 @@ async function findTabByDraft(vendooUrl, itemId) {
     if (match) return match;
   }
   return null;
+}
+
+async function focusVendooListing(payload) {
+  const url = payload.vendoo_url || (payload.vendoo_item_id
+    ? `https://web.vendoo.co/app/item/${payload.vendoo_item_id}`
+    : null);
+  if (!url) {
+    return { ok: false, error: 'No Vendoo draft URL. Send the listing first.' };
+  }
+  const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
+  const existing = await findTabByDraft(url, itemId);
+  let tabId;
+  let windowId;
+  if (existing) {
+    tabId = existing.id;
+    windowId = existing.windowId;
+    await chrome.tabs.update(tabId, { active: true });
+  } else {
+    const created = await chrome.tabs.create({ url, active: true });
+    tabId = created.id;
+    windowId = created.windowId;
+  }
+  if (windowId != null) {
+    try {
+      await chrome.windows.update(windowId, { focused: true, state: 'normal' });
+    } catch (err) {
+      log(`job.open_listing could not focus window: ${err.message}`);
+    }
+  }
+  return { ok: true, tabId };
 }
 
 async function openListingForPatch(payload, { reload = true, preview = true } = {}) {

@@ -1758,15 +1758,19 @@ details[open] .json-collapse-summary::before {
 
 .pr-review-open {
   flex-shrink: 0;
-  height: 22px;
-  padding: 0 8px;
+  margin-left: auto;
+  height: 26px;
+  padding: 0 10px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xs);
   background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: 11px;
+  color: var(--color-text);
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
   -webkit-app-region: no-drag;
 }
 

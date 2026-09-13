@@ -1,5 +1,11 @@
+import type { MouseEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { addToast } from "../ui/toast";
+
+function stopWindowDrag(event: MouseEvent) {
+  event.stopPropagation();
+}
 
 export function OpenListingButton({
   jobId,
@@ -15,7 +21,11 @@ export function OpenListingButton({
   const open = useMutation({
     mutationFn: () => api.jobs.open(jobId),
     onError: (err: Error) => {
-      window.alert(err.message || "Could not open the listing in Vendoo.");
+      addToast({
+        type: "error",
+        title: "Could not open listing",
+        description: err.message || "Could not open the listing in Vendoo.",
+      });
     },
   });
 
@@ -28,7 +38,12 @@ export function OpenListingButton({
       disabled={open.isPending}
       title="Open this listing in Vendoo"
       aria-label="Open listing in Vendoo"
-      onClick={() => open.mutate()}
+      onMouseDown={stopWindowDrag}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        open.mutate();
+      }}
     >
       {open.isPending ? "Opening…" : "Open listing"}
     </button>
