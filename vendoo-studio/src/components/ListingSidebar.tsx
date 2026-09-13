@@ -23,6 +23,7 @@ interface Props {
   selectedConvId: string | null;
   activeView: "listings" | "settings";
   creating?: boolean;
+  canCreate?: boolean;
   mobileOpen?: boolean;
   listingQuery: string;
   onSearchQueryChange: (query: string) => void;
@@ -121,6 +122,7 @@ export function ListingSidebar({
   selectedConvId,
   activeView,
   creating,
+  canCreate = true,
   mobileOpen,
   listingQuery,
   onSearchQueryChange,
@@ -220,9 +222,9 @@ export function ListingSidebar({
         </label>
         <button
           className="sidebar-icon-btn"
-          title="New listing"
-          aria-label="New listing"
-          disabled={creating}
+          title={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo key first"}
+          aria-label={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo key first"}
+          disabled={creating || !canCreate}
           onClick={onCreate}
         >
           <ComposeIcon />

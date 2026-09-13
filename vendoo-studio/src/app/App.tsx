@@ -59,9 +59,11 @@ export function App() {
     queryFn: api.status,
     refetchInterval: 4000,
   });
-  const needsSetup = Boolean(
-    status && (!status.provider_configured || !status.extension_connected),
-  );
+  const providerConfigured = Boolean(status?.provider_configured);
+  const needsSetup = !status || !status.provider_configured || !status.extension_connected;
+  const createListingTitle = providerConfigured
+    ? "New listing"
+    : "Sign in with ChatGPT or add a MiMo key first";
   const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
 
@@ -135,6 +137,10 @@ export function App() {
       setMobileSidebarOpen(false);
     },
   });
+  const createListing = () => {
+    if (!providerConfigured || createConv.isPending) return;
+    createConv.mutate();
+  };
 
   const cancelJob = useMutation({
     mutationFn: (jobId: string) => api.jobs.cancel(jobId),
@@ -165,11 +171,12 @@ export function App() {
           selectedConvId={selectedConvId}
           activeView={activeView}
           creating={createConv.isPending}
+          canCreate={providerConfigured}
           mobileOpen={!isMobile || mobileSidebarOpen}
           listingQuery={listingQuery}
           onSearchQueryChange={handleListingSearch}
           onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
-          onCreate={() => createConv.mutate()}
+          onCreate={createListing}
           onDelete={(id) => deleteConv.mutate(id)}
           onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); closeMobileSidebar(); }}
           onCloseSettings={() => setActiveView("listings")}
@@ -249,18 +256,25 @@ export function App() {
               </div>
             ) : needsSetup ? (
               <SetupChecklist
-                providerConfigured={Boolean(status?.provider_configured)}
+                providerConfigured={providerConfigured}
                 chromeAvailable={status?.chrome_available !== false}
                 extensionConnected={Boolean(status?.extension_connected)}
                 creating={createConv.isPending}
                 onOpenSettings={() => { setActiveView("settings"); setMobilePane("workspace"); closeMobileSidebar(); }}
-                onCreate={() => createConv.mutate()}
+                onCreate={createListing}
               />
             ) : (
               <div className="empty-state">
                 <div className="empty-state-headline">Turn product photos<br />into marketplace-ready drafts.</div>
                 <div className="empty-state-rule" />
-                <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => createConv.mutate()}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ marginTop: 8 }}
+                  disabled={createConv.isPending || !providerConfigured}
+                  title={createListingTitle}
+                  onClick={createListing}
+                >
                   Create a listing
                 </button>
               </div>
@@ -313,10 +327,10 @@ export function App() {
           <button
             type="button"
             className="mobile-mail-btn"
-            title="New listing"
-            aria-label="New listing"
-            disabled={createConv.isPending}
-            onClick={() => createConv.mutate()}
+            title={createListingTitle}
+            aria-label={createListingTitle}
+            disabled={createConv.isPending || !providerConfigured}
+            onClick={createListing}
           >
             <ComposeIcon />
           </button>

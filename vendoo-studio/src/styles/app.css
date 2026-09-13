@@ -667,9 +667,14 @@ html.desktop-app .workspace-drag-region {
   outline: none;
 }
 
-.sidebar-icon-btn:hover {
+.sidebar-icon-btn:hover:not(:disabled) {
   background: var(--color-ink-hover);
   color: var(--color-text);
+}
+
+.sidebar-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .sidebar-icon-btn.selected {

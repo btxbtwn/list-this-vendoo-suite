@@ -8,7 +8,7 @@ Local tools for turning product photos into marketplace listing drafts. Automati
 
 ## Install on a Mac
 
-You need **macOS 13+** and **Google Chrome**. Python and Node are already inside the app.
+You need **macOS 13+** and **Google Chrome**. Python is already inside the app.
 
 1. Get `List-This-Studio-macos.zip` from https://github.com/btxbtwn/list-this-vendoo-suite/releases/tag/studio-macos, or from whoever built it.
 2. Unzip it. Read **How to Open.txt**.
