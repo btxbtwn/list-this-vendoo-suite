@@ -236,6 +236,26 @@ class PersistListingTest(unittest.TestCase):
         messages = ConversationRepo(self.db).get_messages(self.conv.id)
         self.assertTrue(any("Saved those changes to the listing." in (m.text or "") for m in messages))
 
+    def test_apply_payload_keeps_sweatshirt_category(self):
+        listing_repo = ListingRepo(self.db)
+        sweatshirt_path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters"
+        listing_repo.save_revision(self.conv.id, {
+            "title": "Fruit of the Loom M Retro Graphic Sweatshirt Blue",
+            "department": "Men",
+            "category_path": MEN_TSHIRT_PATH,
+            "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+        }, source="model")
+        chat_routes._apply_listing_payload(self.db, self.conv.id, (
+            "I changed this to a men's sweatshirt.\n"
+            "```json\n"
+            '[{"op":"replace","path":"/category_path","value":"' + sweatshirt_path + '"},'
+            '{"op":"replace","path":"/ebay_specifics/type","value":"Sweatshirt"}]\n'
+            "```"
+        ))
+        saved = listing_repo.get_revisions(self.conv.id)[0].listing_json
+        self.assertEqual(saved["category_path"], sweatshirt_path)
+        self.assertEqual(saved["ebay_specifics"]["type"], "Sweatshirt")
+
 
 class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

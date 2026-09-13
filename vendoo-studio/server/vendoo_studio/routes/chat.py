@@ -382,7 +382,65 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
     return messages
 
 
-def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
+def _patch_changes_category(operations: list[dict] | None) -> bool:
+    for op in operations or []:
+        if not isinstance(op, dict):
+            continue
+        path = str(op.get("path") or "").replace("~1", "/").rstrip("/").lower()
+        if path.endswith("category_path") or path.endswith("categorypath"):
+            return True
+    return False
+
+
+def _requested_category_path(operations: list[dict] | None) -> str:
+    requested = ""
+    for op in operations or []:
+        if not isinstance(op, dict) or op.get("op") not in {"replace", "add"}:
+            continue
+        path = str(op.get("path") or "").replace("~1", "/").rstrip("/").lower()
+        if path.endswith("category_path") or path.endswith("categorypath"):
+            requested = str(op.get("value") or "").strip()
+    return requested
+
+
+async def _maybe_resolve_vendoo_category(
+    db: Session,
+    conv_id: str,
+    *,
+    operations: list[dict] | None = None,
+) -> None:
+    if not _patch_changes_category(operations):
+        return
+    from vendoo_studio.services.category_lookup import resolve_listing_category
+
+    result = await resolve_listing_category(
+        db,
+        conv_id,
+        query=_requested_category_path(operations),
+    )
+    repo = ConversationRepo(db)
+    if result.get("skipped"):
+        return
+    if result.get("ok") and result.get("path"):
+        repo.add_message(
+            conv_id,
+            "system",
+            f"Matched Vendoo category: {result['path']}",
+            provider="system",
+            model="",
+        )
+        return
+    if result.get("error"):
+        repo.add_message(
+            conv_id,
+            "system",
+            f"Could not match a Vendoo category yet: {result['error']}",
+            provider="system",
+            model="",
+        )
+
+
+def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[dict] | None:
     from vendoo_studio.services.fill_log import extract_missing_fields, write_values_into_listing
 
     missing_fields = extract_missing_fields(full_text)
@@ -399,14 +457,14 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
                 provider="system",
                 model="",
             )
-            return
+            return None
 
     parsed_ops = extract_json_patch(full_text)
     if parsed_ops:
         lr = ListingRepo(db)
         revisions = lr.get_revisions(conv_id)
         if not revisions:
-            return
+            return None
         updated = apply_json_patch(dict(revisions[0].listing_json), parsed_ops)
         _save_listing_revision(db, conv_id, updated, operations=parsed_ops)
         ConversationRepo(db).add_message(
@@ -416,7 +474,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
             provider="system",
             model="",
         )
-        return
+        return parsed_ops
 
     parsed = extract_listing_json(full_text)
     if parsed:
@@ -428,6 +486,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> None:
             provider="system",
             model="",
         )
+    return None
 
 
 @router.post("/api/conversations/{conv_id}/messages")
@@ -468,7 +527,8 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
         try:
             if full_text and not full_text.lstrip().lower().startswith("error:"):
                 stream_repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=provider_model)
-                _apply_listing_payload(stream_db, conv_id, full_text)
+                operations = _apply_listing_payload(stream_db, conv_id, full_text)
+                await _maybe_resolve_vendoo_category(stream_db, conv_id, operations=operations)
             stream_repo.update_status(conv_id, "draft")
         except Exception:
             log.exception("failed to persist chat result for %s", conv_id)

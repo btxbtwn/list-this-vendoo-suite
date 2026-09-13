@@ -390,6 +390,17 @@ async function handleStudioMessage(msg) {
       break;
     }
 
+    case 'job.search_categories': {
+      const payload = msg.payload || {};
+      const jobId = msg.job_id || payload.job_id;
+      if (!payload.request_id) {
+        log('job.search_categories missing request_id');
+        return;
+      }
+      await runSearchCategories(jobId, payload);
+      break;
+    }
+
     case 'job.open_listing': {
       const payload = msg.payload || {};
       const opened = await focusVendooListing(payload);
@@ -1072,6 +1083,9 @@ function commandTimeoutMs(command) {
   if (command.type === 'GET_VENDOO_ITEM') {
     return 8000;
   }
+  if (command.type === 'SEARCH_CATEGORIES') {
+    return 45000;
+  }
   return 45000;
 }
 
@@ -1288,6 +1302,74 @@ async function runVendooGet(jobId, payload) {
     form,
     api_error: apiRead.ok ? null : (apiRead.error || null),
     error: ok ? null : (apiRead.error || formRead?.error || 'Could not read the Vendoo draft'),
+  });
+}
+
+function replyCategories(jobId, requestId, payload) {
+  send({
+    version: 1,
+    type: 'job.categories',
+    job_id: jobId || undefined,
+    message_id: requestId,
+    sent_at: new Date().toISOString(),
+    payload: { request_id: requestId, ...payload },
+  });
+}
+
+async function runSearchCategories(jobId, payload) {
+  const requestId = payload.request_id;
+  const reply = (body) => replyCategories(jobId, requestId, body);
+  const query = String(payload.query || '').trim();
+  if (!query) {
+    reply({ ok: false, error: 'No category search query' });
+    return;
+  }
+  if (activeJob && String(activeJob.current_step || '').includes('fill')) {
+    reply({ ok: false, error: 'A fill is already running' });
+    return;
+  }
+
+  let tabId = null;
+  const existingTabId = activePatch?.tabId || activeJob?.tabId || null;
+  if (existingTabId) {
+    try {
+      const tab = await chrome.tabs.get(existingTabId);
+      const currentId = extractItemIdFromUrl(tab.url || '');
+      const wantId = payload.vendoo_item_id || extractItemIdFromUrl(payload.vendoo_url || '');
+      if (wantId && currentId === wantId) tabId = existingTabId;
+    } catch (err) {
+      /* tab closed */
+    }
+  }
+  if (!tabId) {
+    const opened = await openListingForPatch(
+      { ...payload, job_id: jobId },
+      { reload: false, preview: false },
+    );
+    if (!opened.ok) {
+      reply({ ok: false, query, error: opened.error });
+      return;
+    }
+    tabId = opened.tabId;
+  }
+
+  const job = { job_id: jobId, tabId };
+  const ping = await pingContentScript(tabId);
+  if (!ping?.ok) {
+    try {
+      await injectVendooContentScript(tabId);
+      await sleep(400);
+    } catch (err) {
+      log(`Content script inject failed on tab ${tabId}: ${err.message}`);
+    }
+  }
+  const result = await sendToVendoo(job, { type: 'SEARCH_CATEGORIES', query });
+  reply({
+    ok: Boolean(result?.ok),
+    query,
+    path: result?.path || '',
+    matches: Array.isArray(result?.matches) ? result.matches : [],
+    error: result?.ok ? null : (result?.error || 'Could not search Vendoo categories'),
   });
 }
 
