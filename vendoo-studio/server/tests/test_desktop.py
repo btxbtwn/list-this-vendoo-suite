@@ -19,9 +19,10 @@ class StudioWindowChromeTest(unittest.TestCase):
         self.assertTrue(kwargs["shadow"])
         self.assertEqual(kwargs["background_color"], desktop.WINDOW_BACKGROUND)
         self.assertEqual(kwargs["min_size"], desktop.MIN_WINDOW_SIZE)
+        self.assertNotIn("icon", kwargs)
 
-    def test_window_kwargs_use_chrome_extension_icon(self):
-        kwargs = desktop.studio_window_kwargs()
+    def test_start_kwargs_use_chrome_extension_icon(self):
+        kwargs = desktop.studio_start_kwargs()
         icon = desktop.extension_app_icon_path()
         self.assertIsNotNone(icon)
         self.assertEqual(kwargs["icon"], str(icon))
@@ -31,11 +32,14 @@ class StudioWindowChromeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             resources = Path(tmp) / "Resources"
             name = desktop.install_bundle_icon(resources)
-            self.assertEqual(name, "AppIcon.png")
             copied = resources / "AppIcon.png"
             source = desktop.extension_app_icon_path()
             self.assertTrue(copied.is_file())
             self.assertEqual(copied.read_bytes(), source.read_bytes())
+            if (resources / "AppIcon.icns").is_file():
+                self.assertEqual(name, "AppIcon")
+            else:
+                self.assertEqual(name, "AppIcon.png")
 
     def test_titlebar_matches_t3_code(self):
         self.assertEqual(desktop.TITLEBAR_HEIGHT_PX, 38)
@@ -74,6 +78,7 @@ class StudioWindowChromeTest(unittest.TestCase):
         webview.create_window.assert_called_once()
         _, kwargs = webview.create_window.call_args
         self.assertTrue(kwargs["frameless"])
+        self.assertNotIn("icon", kwargs)
         self.assertEqual(kwargs["background_color"], desktop.WINDOW_BACKGROUND)
         self.assertEqual(events.before_show.handlers, [desktop.apply_unified_macos_chrome])
         self.assertEqual(events.shown.handlers, [desktop.apply_unified_macos_chrome])
