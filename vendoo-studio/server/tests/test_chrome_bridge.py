@@ -133,6 +133,7 @@ class ChromeBridgeTest(unittest.TestCase):
             visible=True,
         )
         self.assertEqual(args[-1], "https://web.vendoo.co")
+        self.assertNotIn("--no-startup-window", args)
 
     def test_launch_args_open_listing_url(self):
         args = chrome_bridge.launch_args(
@@ -178,3 +179,12 @@ class ChromeBridgeTest(unittest.TestCase):
             with self.assertRaises(chrome_bridge.ChromeBridgeError) as raised:
                 chrome_bridge.launch_studio_chrome()
         self.assertIn("Google Chrome is not installed", str(raised.exception))
+
+    def test_chrome_executable_finds_home_applications(self):
+        root = Path(self.tmp.name) / "Applications"
+        binary = root / "Google Chrome.app/Contents/MacOS/Google Chrome"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n", encoding="utf-8")
+        binary.chmod(0o755)
+        with patch.object(chrome_bridge, "chrome_search_dirs", return_value=(root,)):
+            self.assertEqual(chrome_bridge.chrome_executable(), binary)

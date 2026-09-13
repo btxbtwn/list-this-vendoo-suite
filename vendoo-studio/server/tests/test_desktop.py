@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from vendoo_studio import desktop
+from vendoo_studio.routes import desktop as desktop_routes
 
 
 class StudioWindowChromeTest(unittest.TestCase):
@@ -44,7 +45,7 @@ class StudioWindowChromeTest(unittest.TestCase):
                 self.handlers.append(handler)
                 return self
 
-        events = SimpleNamespace(before_show=Event(), shown=Event(), resized=Event())
+        events = SimpleNamespace(before_show=Event(), shown=Event(), restored=Event(), resized=Event())
         window = SimpleNamespace(events=events)
         webview = SimpleNamespace(create_window=MagicMock(return_value=window))
 
@@ -57,7 +58,8 @@ class StudioWindowChromeTest(unittest.TestCase):
         self.assertEqual(kwargs["background_color"], desktop.WINDOW_BACKGROUND)
         self.assertEqual(events.before_show.handlers, [desktop.apply_unified_macos_chrome])
         self.assertEqual(events.shown.handlers, [desktop.apply_unified_macos_chrome])
-        self.assertEqual(events.resized.handlers, [desktop.apply_unified_macos_chrome])
+        self.assertEqual(events.restored.handlers, [desktop.apply_unified_macos_chrome])
+        self.assertEqual(events.resized.handlers, [])
 
     def test_hex_to_srgb(self):
         self.assertEqual(desktop._hex_to_srgb("#000000"), (0.0, 0.0, 0.0))
@@ -79,6 +81,8 @@ class StudioWindowChromeTest(unittest.TestCase):
         container.frame.return_value.size.height = 38.0
         close.superview.return_value = container
         native = MagicMock()
+        native.styleMask.return_value = 0
+        native.collectionBehavior.return_value = 0
         native.contentView.return_value.superview.return_value.subviews.return_value = [titlebar]
         native.standardWindowButton_.side_effect = lambda button: {
             0: close,
@@ -92,6 +96,9 @@ class StudioWindowChromeTest(unittest.TestCase):
             NSWindowMiniaturizeButton=1,
             NSWindowZoomButton=2,
             NSControlSizeSmall=1,
+            NSFullScreenWindowMask=1 << 14,
+            NSWindowCollectionBehaviorFullScreenNone=1 << 9,
+            NSWindowCollectionBehaviorFullScreenPrimary=1 << 7,
             NSAppearanceNameDarkAqua="dark",
             NSMakeRect=lambda x, y, w, h: (x, y, w, h),
             NSColor=SimpleNamespace(
@@ -111,6 +118,7 @@ class StudioWindowChromeTest(unittest.TestCase):
         native.setTitlebarAppearsTransparent_.assert_called_once_with(True)
         native.setTitleVisibility_.assert_called_once_with(1)
         native.setAppearance_.assert_called_once_with("appearance")
+        native.setCollectionBehavior_.assert_called_once_with(1 << 9)
         close.setHidden_.assert_called_once_with(False)
         miniaturize.setHidden_.assert_called_once_with(False)
         zoom.setHidden_.assert_called_once_with(False)
@@ -119,3 +127,38 @@ class StudioWindowChromeTest(unittest.TestCase):
         miniaturize.setFrame_.assert_called_once_with((36.0, 13.0, 12.0, 12.0))
         zoom.setFrame_.assert_called_once_with((56.0, 13.0, 12.0, 12.0))
         titlebar.setBackgroundColor_.assert_called_once_with("clear")
+
+    def test_apply_chrome_skips_layout_in_fullscreen(self):
+        close = MagicMock()
+        native = MagicMock()
+        native.styleMask.return_value = 1 << 14
+        native.standardWindowButton_.return_value = close
+        appkit = SimpleNamespace(
+            NSFullScreenWindowMask=1 << 14,
+            NSWindowCollectionBehaviorFullScreenNone=1 << 9,
+            NSWindowCollectionBehaviorFullScreenPrimary=1 << 7,
+            NSWindowCloseButton=0,
+        )
+        window = SimpleNamespace(native=native)
+
+        with (
+            patch.object(desktop.sys, "platform", "darwin"),
+            patch.dict(sys.modules, {"AppKit": appkit}),
+        ):
+            desktop.apply_unified_macos_chrome(window)
+
+        native.setCollectionBehavior_.assert_not_called()
+        native.setTitlebarAppearsTransparent_.assert_not_called()
+        close.setFrame_.assert_not_called()
+
+
+class ConnectChromeRouteTest(unittest.TestCase):
+    def test_connect_chrome_opens_a_visible_window(self):
+        with patch.object(
+            desktop_routes,
+            "launch_studio_chrome",
+            return_value={"ok": True, "visible": True},
+        ) as launch:
+            result = desktop_routes.connect_chrome()
+        launch.assert_called_once_with(visible=True)
+        self.assertTrue(result["ok"])

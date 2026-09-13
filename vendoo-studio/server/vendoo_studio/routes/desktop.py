@@ -23,6 +23,6 @@ def chrome_status():
 @router.post("/chrome/connect")
 def connect_chrome():
     try:
-        return launch_studio_chrome()
+        return launch_studio_chrome(visible=True)
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc
