@@ -271,7 +271,7 @@ function AboutVersionRow({ version }: { version: string }) {
   );
 }
 
-function GeneralPanel() {
+function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   const { data: status } = useQuery({
     queryKey: ["status"],
     queryFn: api.status,
@@ -279,6 +279,17 @@ function GeneralPanel() {
   return (
     <>
       <MarketplacesSection />
+      <SettingsSection id="setup-guide" title="Setup guide">
+        <SettingsRow
+          title="First-run tutorial"
+          description="Walk through ChatGPT or MiMo, Brave Search, Connect Chrome, and how the listing workspace is laid out."
+          control={
+            <button type="button" className="btn btn-sm btn-outline" onClick={onOpenSetupGuide}>
+              Open setup guide
+            </button>
+          }
+        />
+      </SettingsSection>
       <SettingsSection id="about" title="About">
         <AboutVersionRow version={status?.version || "0.1.0"} />
       </SettingsSection>
@@ -636,10 +647,12 @@ export function SettingsPage({
   section = DEFAULT_SETTINGS_SECTION,
   targetId = null,
   onTargetHandled,
+  onOpenSetupGuide,
 }: {
   section?: SettingsSectionId;
   targetId?: string | null;
   onTargetHandled?: () => void;
+  onOpenSetupGuide?: () => void;
 }) {
   useEffect(() => {
     if (!targetId) return;
@@ -652,7 +665,7 @@ export function SettingsPage({
   return (
     <div className="settings-page" data-settings-page-scroll>
       <div className="settings-page-inner">
-        {section === "general" ? <GeneralPanel /> : null}
+        {section === "general" ? <GeneralPanel onOpenSetupGuide={onOpenSetupGuide} /> : null}
         {section === "providers" ? <ProvidersPanel /> : null}
         {section === "integrations" ? <IntegrationsPanel /> : null}
         {section === "connections" ? <ConnectionsPanel /> : null}

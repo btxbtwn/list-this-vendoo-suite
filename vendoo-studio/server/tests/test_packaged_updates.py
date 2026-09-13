@@ -89,6 +89,14 @@ class PackagedUpdateTest(unittest.TestCase):
         self.assertTrue(extracted.is_dir())
         self.assertEqual(extracted.name, "List This Studio.app")
 
+    def test_extract_app_finds_bundle_next_to_how_to_open(self):
+        archive = Path(self.tmp.name) / "List-This-Studio-macos.zip"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("How to Open.txt", "open me")
+            bundle.writestr("List This Studio.app/Contents/Info.plist", "plist")
+        extracted = packaged_updates._extract_app(archive, Path(self.tmp.name) / "unpacked-guide")
+        self.assertEqual(extracted.name, "List This Studio.app")
+
     def test_prepare_app_bundle_makes_launcher_executable(self):
         app = Path(self.tmp.name) / "List This Studio.app"
         launcher = app / "Contents" / "MacOS" / "ListThisStudio"

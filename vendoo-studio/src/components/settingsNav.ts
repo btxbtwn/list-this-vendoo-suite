@@ -42,6 +42,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["list to", "ebay", "poshmark", "mercari", "depop", "etsy"],
   },
   {
+    id: "setup-guide",
+    title: "Setup guide",
+    section: "general",
+    targetId: "setup-guide",
+    searchTerms: ["tutorial", "onboarding", "first run", "chatgpt", "mimo", "brave"],
+  },
+  {
     id: "about-version",
     title: "Version",
     section: "general",
