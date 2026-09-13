@@ -2529,6 +2529,30 @@
       return expanded;
   }
 
+  const EBAY_OPTIONAL_FIELD_LABELS = [
+      'Accents', 'Character', 'Character Family', 'Fabric Type', 'Fabric Weight',
+      'Features', 'Garment Care', 'Handmade', 'Country of Origin',
+  ];
+  const EBAY_CASCADE_SPECIFIC_KEYS = ['sizeType', 'department', 'type', 'size'];
+
+  async function waitForEbayOptionalCategoryFields() {
+      log('Expanding optional fields for eBay...');
+      let ready = false;
+      for (let attempt = 0; attempt < 8; attempt++) {
+          await expandOptionalFields();
+          const inputs = collectEbayCategoryInputs();
+          ready = EBAY_OPTIONAL_FIELD_LABELS.some((label) => findEbaySpecificInput(label, inputs));
+          if (ready) break;
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      if (ready) {
+          log('eBay optional category fields are visible');
+      } else {
+          warn('eBay optional category fields did not appear after expanding');
+      }
+      return ready;
+  }
+
   // ============================================
   // PLATFORM-SPECIFIC FILLERS - OPTIMIZED
   // ============================================
@@ -2598,6 +2622,13 @@
       }
       
       const specs = { ...(data.ebay_specifics || {}) };
+      const nestedSpecifics = specs.category_specifics;
+      if (nestedSpecifics && typeof nestedSpecifics === 'object' && !Array.isArray(nestedSpecifics)) {
+          for (const [key, value] of Object.entries(nestedSpecifics)) {
+              if (specs[key] == null) specs[key] = value;
+          }
+      }
+      delete specs.category_specifics;
       if (!specs.department && (data.department || specs.Department)) {
           specs.department = data.department || specs.Department;
       }
@@ -2608,10 +2639,6 @@
       if (!specs.size && (data.size || data.size_us)) specs.size = data.size || data.size_us;
 
       if (Object.keys(specs).length) {
-          log('Expanding optional fields for eBay...');
-          await expandOptionalFields();
-          await sleep(CONFIG.SLEEP_LONG * 2); // 1 second for fields to load
-          
           log('Filling eBay category specifics...');
           
           const fieldNameMap = {
@@ -2653,12 +2680,15 @@
           }
           const fillOrder = [
               'sizeType', 'department', 'type', 'size',
-              ...Object.keys(specs).filter(key => !['sizeType', 'type', 'department', 'size', 'Department', 'Type'].includes(key)),
+              ...Object.keys(specs).filter(key => !['sizeType', 'type', 'department', 'size', 'Department', 'Type', 'category_specifics'].includes(key)),
           ];
+          let optionalsReady = false;
 
           for (const key of fillOrder) {
               const mapped = normalizeEbaySpecificValue(key, specs[key]);
               const fieldName = fieldNameMap[key] || key;
+              const isCascade = EBAY_CASCADE_SPECIFIC_KEYS.includes(key);
+              if (mapped && typeof mapped === 'object' && !Array.isArray(mapped)) continue;
               if (specs[key] && (mapped == null || mapped === '')) {
                   recordFill({
                     field: fieldName,
@@ -2673,10 +2703,23 @@
                   continue;
               }
 
+              if (!isCascade && !optionalsReady) {
+                  await waitForEbayOptionalCategoryFields();
+                  optionalsReady = true;
+              }
+
               allInputs = collectEbayCategoryInputs();
               let foundEl = findEbaySpecificInput(fieldName, allInputs);
               if ((key === 'type' || key === 'department') && foundEl && !isEnabledField(foundEl)) {
                   for (let attempt = 0; attempt < 6 && foundEl && !isEnabledField(foundEl); attempt++) {
+                      await sleep(CONFIG.SLEEP_RETRY);
+                      allInputs = collectEbayCategoryInputs();
+                      foundEl = findEbaySpecificInput(fieldName, allInputs);
+                  }
+              }
+              if (!foundEl && !isCascade) {
+                  for (let attempt = 0; attempt < 4 && !foundEl; attempt++) {
+                      await expandOptionalFields();
                       await sleep(CONFIG.SLEEP_RETRY);
                       allInputs = collectEbayCategoryInputs();
                       foundEl = findEbaySpecificInput(fieldName, allInputs);
@@ -2736,7 +2779,6 @@
                   if (!filled) {
                       warn(`eBay ${fieldName} could not be set from ${valuesToFill.join(', ')}`);
                   }
-                  if (key === 'department') await sleep(CONFIG.SLEEP_LONG * 2);
               } else if (valuesToFill.length > 1) {
                   for (const item of valuesToFill) {
                       await fillDropdownField(foundEl, item, fieldName, isSizeField, true);
@@ -2745,6 +2787,7 @@
               } else {
                   await fillDropdownField(foundEl, valuesToFill[0], fieldName, isSizeField, false);
               }
+              if (key === 'department' || key === 'type') await sleep(CONFIG.SLEEP_LONG * 2);
           }
       }
   }
@@ -4078,6 +4121,7 @@
               }
               await expandOptionalFields();
               await sleep(CONFIG.SLEEP_LONG * 2);
+              let ebayOptionalsReady = marketplace !== 'ebay';
               group.sort((left, right) => {
                   const fillPriority = (key) => {
                       if (key === 'category') return 0;
@@ -4095,6 +4139,11 @@
                   const value = mapPatchValue(marketplace, fieldName, item.value);
                   item.value = value;
                   const fieldKey = normalizeFieldKey(fieldName);
+                  const isEbayCascade = marketplace === 'ebay' && ['category', 'size type', 'department', 'type', 'size'].includes(fieldKey);
+                  if (marketplace === 'ebay' && !isEbayCascade && !ebayOptionalsReady) {
+                      await waitForEbayOptionalCategoryFields();
+                      ebayOptionalsReady = true;
+                  }
                   if (fieldKey === 'category') {
                       if (marketplace === 'general' || marketplace === 'unknown') {
                           const result = await fillCategoryPath({ category_path: value });
@@ -4107,6 +4156,10 @@
                           });
                       } else {
                           await fillMarketplaceCategory(marketplace, { category_path: value });
+                      }
+                      if (marketplace === 'ebay') {
+                          await sleep(CONFIG.SLEEP_LONG * 2);
+                          ebayOptionalsReady = false;
                       }
                       continue;
                   }
@@ -4130,6 +4183,10 @@
                       await fillDropdownField(el, value, fieldName, false, isMultiChipField(fieldName));
                   } else {
                       await fillTextFieldByElement(el, value, fieldName);
+                  }
+                  if (marketplace === 'ebay' && ['size type', 'department', 'type'].includes(fieldKey)) {
+                      await sleep(CONFIG.SLEEP_LONG * 2);
+                      ebayOptionalsReady = false;
                   }
               }
               currentPatchEntryId = '';
