@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 
 from vendoo_studio import config
+
+
+def _load_make_icon() -> ModuleType:
+    path = Path(__file__).resolve().parents[2] / "desktop" / "make_icon.py"
+    spec = importlib.util.spec_from_file_location("make_icon", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class ConfigPathTest(unittest.TestCase):
@@ -54,5 +65,19 @@ class ConfigPathTest(unittest.TestCase):
         os.environ.pop("VENDOO_STUDIO_EXTENSION_DIR", None)
         extension = config.extension_source_dir()
         self.assertTrue((extension / "manifest.json").is_file(), extension)
-        for name in ("icon16.png", "icon48.png", "icon128.png"):
+        for name in ("icon16.png", "icon32.png", "icon48.png", "icon128.png"):
             self.assertTrue((extension / "icons" / name).is_file(), name)
+
+    def test_extension_icons_are_the_macos_app_icon_source(self):
+        from PIL import Image
+
+        make_icon = _load_make_icon()
+        source = Path(__file__).resolve().parents[3] / "vendoo-extension" / "icons" / "icon128.png"
+        chrome = Image.open(source).convert("RGBA")
+        self.assertEqual(make_icon.SOURCE_ICON.resolve(), source.resolve())
+        self.assertEqual(make_icon.render_icon(128).tobytes(), chrome.tobytes())
+        favicon = Path(__file__).resolve().parents[2] / "public" / "favicon.png"
+        self.assertEqual(
+            Image.open(favicon).convert("RGBA").tobytes(),
+            make_icon.render_icon(32).tobytes(),
+        )

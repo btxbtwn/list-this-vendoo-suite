@@ -50,7 +50,7 @@ fi
 
 (cd "$ROOT" && npm run build)
 
-"$VENV" "$ROOT/desktop/make_icon.py" "$REPO/vendoo-extension/icons"
+"$VENV" "$ROOT/desktop/make_icon.py" "$ROOT/desktop/AppIcon.icns"
 
 echo
 echo "Setup finished."

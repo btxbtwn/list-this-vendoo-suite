@@ -60,7 +60,7 @@ else
   bad "Missing vendoo-extension/manifest.json"
 fi
 
-for icon in icon16.png icon48.png icon128.png; do
+for icon in icon16.png icon32.png icon48.png icon128.png; do
   if [[ -f "$REPO/vendoo-extension/icons/$icon" ]]; then
     ok "Extension icon $icon"
   else

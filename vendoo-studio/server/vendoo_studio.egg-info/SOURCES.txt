@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 server/tests/test_brave_search.py
+server/tests/test_category_lookup.py
 server/tests/test_chatgpt_oauth.py
 server/tests/test_chrome_bridge.py
 server/tests/test_comp_research.py
@@ -65,6 +66,7 @@ server/vendoo_studio/routes/settings.py
 server/vendoo_studio/routes/updates.py
 server/vendoo_studio/services/__init__.py
 server/vendoo_studio/services/brave_search.py
+server/vendoo_studio/services/category_lookup.py
 server/vendoo_studio/services/chatgpt_oauth.py
 server/vendoo_studio/services/chrome_bridge.py
 server/vendoo_studio/services/comp_research.py
