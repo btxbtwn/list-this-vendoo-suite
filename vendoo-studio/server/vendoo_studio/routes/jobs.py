@@ -453,7 +453,9 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
     listing_repo = ListingRepo(db)
     revisions = listing_repo.get_revisions(job.conversation_id)
     source = revisions[0].listing_json if revisions else (job.listing_snapshot or {})
-    job.listing_snapshot = _prepare_listing_snapshot(db, conv, source)
+    job.listing_snapshot = _prepare_listing_snapshot(
+        db, conv, source, prefer_listing_category=True,
+    )
     if revisions:
         job.approved_revision_id = revisions[0].id
     flag_modified(job, "listing_snapshot")
@@ -515,7 +517,13 @@ def _validation_error_detail(validation) -> str:
     return "; ".join(messages) or "Listing cannot be sent to Vendoo. Fix validation errors first."
 
 
-def _prepare_listing_snapshot(db: Session, conv, listing_json: dict) -> dict:
+def _prepare_listing_snapshot(
+    db: Session,
+    conv,
+    listing_json: dict,
+    *,
+    prefer_listing_category: bool = False,
+) -> dict:
     from vendoo_studio.services.marketplaces import selected_fillable_platforms
     from vendoo_studio.services.registry import RegistryService, align_listing_gender
     from vendoo_studio.services.vendoo_import import parse_notes
@@ -527,8 +535,9 @@ def _prepare_listing_snapshot(db: Session, conv, listing_json: dict) -> dict:
         listing_snapshot["labels"] = [
             label.strip() for label in raw_labels.split(",") if label.strip()
         ]
+    listing_category = str(listing_snapshot.get("category_path") or "").strip()
     category_override = str(conv_notes.get("categoryOverride") or "").strip()
-    if category_override:
+    if category_override and (not prefer_listing_category or not listing_category):
         listing_snapshot["category_path"] = category_override
     price_raw = str(conv_notes.get("poshmarkOriginalPrice") or "").strip()
     try:

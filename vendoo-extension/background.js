@@ -1380,6 +1380,10 @@ async function uploadPhotos(job) {
   if (job.options?.skipPhotos) {
     return { ok: true };
   }
+  if (job.vendoo_item_id) {
+    log(`Draft ${job.vendoo_item_id} already exists, skipping photo upload`);
+    return { ok: true };
+  }
   const photos = job.photos || [];
   if (photos.length === 0) {
     return { ok: true };

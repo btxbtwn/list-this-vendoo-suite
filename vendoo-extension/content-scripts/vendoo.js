@@ -1710,21 +1710,66 @@
       return document.querySelector('input[role="category-search-field"]');
   }
 
+  function findCategoryClearControl(catBtn) {
+      const root = catBtn.closest('.MuiAutocomplete-root, .MuiFormControl-root, .MuiInputBase-root, [class*="category"]')
+          || catBtn.parentElement;
+      if (!root) return null;
+      const selectors = [
+          '.MuiAutocomplete-clearIndicator',
+          'button[aria-label="Clear"]',
+          'button[aria-label*="clear" i]',
+          '.MuiChip-deleteIcon',
+          '[data-testid*="clear" i]',
+      ];
+      for (const sel of selectors) {
+          const el = root.querySelector(sel);
+          if (el && isVisibleElement(el)) return el.closest('button') || el;
+      }
+      return Array.from(root.querySelectorAll('button, [role="button"]')).find((el) => {
+          if (!isVisibleElement(el)) return false;
+          const label = normalizeText(el.getAttribute('aria-label') || el.getAttribute('title') || '');
+          return label.includes('clear') || label.includes('remove') || label.includes('delete');
+      }) || null;
+  }
+
+  async function clearExistingCategorySelection(catBtn) {
+      const shown = (displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '')
+          .trim().split('\n')[0].trim();
+      if (!shown || /click to select|select category/i.test(shown)) return;
+      log(`Clearing existing category: "${shown}"`);
+      await closeOpenMenus();
+      const clearBtn = findCategoryClearControl(catBtn);
+      if (!clearBtn) return;
+      clearBtn.click();
+      await sleep(CONFIG.SLEEP_MEDIUM);
+  }
+
   async function resetCategoryPickerToRoot() {
       const search = document.querySelector('input[role="category-search-field"]');
       if (!search) return;
-      const scope = search.getAttribute('placeholder') || '';
-      if (!/under|children/i.test(scope)) return;
       const root = search.closest('[role="dialog"], [class*="Popover"], [class*="Modal"], [class*="paper"]') || search.parentElement;
-      const allEl = Array.from((root || document).querySelectorAll('button, a, span, div, p')).find((el) => {
-          if (!isVisibleElement(el)) return false;
-          const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-          return text === 'All';
-      });
-      if (!allEl) return;
-      log('Resetting category picker to All');
-      allEl.click();
-      await sleep(CONFIG.SLEEP_LONG);
+      const clickVisible = (predicate) => {
+          const match = Array.from((root || document).querySelectorAll('button, a, span, div, p, [role="button"]')).find((el) => {
+              if (!isVisibleElement(el)) return false;
+              return predicate(el);
+          });
+          if (!match) return false;
+          match.click();
+          return true;
+      };
+      if (clickVisible((el) => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim() === 'All')) {
+          log('Resetting category picker to All');
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      for (let i = 0; i < 8; i++) {
+          const wentBack = clickVisible((el) => {
+              const label = normalizeText(el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || '');
+              return label === 'back' || label === 'go back' || label === 'previous';
+          });
+          if (!wentBack) break;
+          log('Category picker: going back');
+          await sleep(CONFIG.SLEEP_LONG);
+      }
   }
 
   function categoryDisplayMatches(shown, path) {
@@ -1768,6 +1813,7 @@
           return { ok: true, filled: true, result: alreadyShown };
       }
 
+      await clearExistingCategorySelection(catBtn);
       await closeOpenMenus();
       catBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
       await sleep(CONFIG.SLEEP_MEDIUM);
