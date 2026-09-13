@@ -4059,8 +4059,45 @@
       if (!wanted) return false;
       const firstLine = normalizeText((btn.innerText || btn.textContent || '').split('\n')[0]);
       if (!firstLine || firstLine.length > 24) return false;
-      if (wanted === 'general') return firstLine === 'general';
+      if (wanted === 'general') return firstLine === 'general' || firstLine === 'vendoo';
       return firstLine === wanted || firstLine.includes(wanted);
+  }
+
+  function marketplaceNameToId(name) {
+      const n = normalizeText(name);
+      if (!n) return null;
+      if (n === 'vendoo' || n === 'general') return 'general';
+      const known = [
+          'ebay', 'etsy', 'poshmark', 'mercari', 'depop', 'facebook',
+          'shopify', 'vinted', 'whatnot', 'sellwild', 'grailed', 'vestiaire', 'kidizen',
+      ];
+      for (const id of known) {
+          if (n === id || n.includes(id)) return id;
+      }
+      return null;
+  }
+
+  function scrapeMarketplaceStatusesFromDom() {
+      // Live labels from Vendoo's Step 1/2 nav: COMPLETE / NOT LISTED / LISTED / …
+      const statuses = {};
+      const statusRe = /^(complete|not listed|listed|failed|draft|sold|pending|incomplete)/i;
+      const buttons = Array.from(document.querySelectorAll(
+          '[role="tab"], button, [role="button"], a, span[role="button"]'
+      ));
+      for (const btn of buttons) {
+          if (!isVisibleElement(btn)) continue;
+          const lines = String(btn.innerText || btn.textContent || '')
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean);
+          if (lines.length < 2) continue;
+          const id = marketplaceNameToId(lines[0]);
+          if (!id) continue;
+          const statusLine = lines.slice(1).find((line) => statusRe.test(line)) || lines[1];
+          if (!statusLine || statusLine.length > 24) continue;
+          statuses[id] = statusLine.replace(/\s+/g, ' ').toUpperCase();
+      }
+      return statuses;
   }
 
   async function activateMarketplaceSection(platform) {
@@ -4316,6 +4353,8 @@
       if (itemId === 'new') {
           return { ok: false, error: 'This is a new item, not a saved draft', url: window.location.href, item_id: null };
       }
+      // Capture live nav statuses before marketplace discovery changes selection.
+      const statuses = scrapeMarketplaceStatusesFromDom();
       // General form first, then every marketplace with optionals expanded so
       // Studio gets the live field schema (empty keys included), not only API values.
       await activateMarketplaceSection('general');
@@ -4328,6 +4367,7 @@
           generalDetails,
           listings,
           images: scrapeListingImageUrls().map((url) => ({ url })),
+          statuses,
       };
       const filled = Object.values(form.generalDetails).some((value) => {
           if (value && typeof value === 'object') return Object.values(value).some(Boolean);
@@ -4340,6 +4380,7 @@
           item_id: itemId,
           url: window.location.href,
           form,
+          statuses,
       };
   }
 

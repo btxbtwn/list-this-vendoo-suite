@@ -3007,6 +3007,38 @@ details[open] .json-collapse-summary::before {
   font-size: 13px;
 }
 
+.pr-live-status {
+  flex-shrink: 0;
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: var(--color-ink-hover);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.pr-live-status.is-listed {
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  color: var(--color-success);
+}
+
+.pr-live-status.is-not-listed {
+  color: var(--color-muted);
+}
+
+.pr-live-status.is-failed {
+  border-color: color-mix(in srgb, var(--color-tomato) 40%, transparent);
+  color: var(--color-tomato);
+}
+
 .pr-counts {
   display: flex;
   gap: 8px;

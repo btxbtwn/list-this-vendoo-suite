@@ -189,6 +189,7 @@ class VendooItemResponse(BaseModel):
     api_error: str | None = None
     item: dict | None = None
     form: dict | None = None
+    statuses: dict | None = None
 
 
 @router.post("/{job_id}/vendoo-item", response_model=VendooItemResponse)
@@ -237,6 +238,7 @@ async def get_vendoo_item(
             api_error=None,
             item=cached.get("item"),
             form=cached.get("form"),
+            statuses=cached.get("statuses"),
         )
 
     if not extension_manager.connected:
@@ -250,6 +252,7 @@ async def get_vendoo_item(
                 api_error=None,
                 item=cached.get("item"),
                 form=cached.get("form"),
+                statuses=cached.get("statuses"),
             )
         raise HTTPException(400, "Chrome is not connected")
 
@@ -280,8 +283,16 @@ async def get_vendoo_item(
                 api_error=payload.get("api_error"),
                 item=cached.get("item"),
                 form=cached.get("form"),
+                statuses=cached.get("statuses"),
             )
         raise HTTPException(502, payload.get("error") or "Could not read the Vendoo draft")
+
+    statuses = payload.get("statuses")
+    if not isinstance(statuses, dict):
+        form = payload.get("form")
+        statuses = form.get("statuses") if isinstance(form, dict) else None
+        if not isinstance(statuses, dict):
+            statuses = None
 
     repo.save_vendoo_draft(
         job.id,
@@ -291,6 +302,7 @@ async def get_vendoo_item(
         url=payload.get("url") or job.vendoo_url,
         source=payload.get("source") or "live",
         step=job.current_step,
+        statuses=statuses,
     )
 
     return VendooItemResponse(
@@ -302,6 +314,7 @@ async def get_vendoo_item(
         api_error=payload.get("api_error"),
         item=payload.get("item"),
         form=payload.get("form"),
+        statuses=statuses,
     )
 
 
