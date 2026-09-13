@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
 import {
   DEFAULT_SETTINGS_SECTION,
@@ -616,11 +617,6 @@ function IntegrationsPanel() {
 }
 
 function ConnectionsPanel() {
-  const { data: chrome } = useQuery({
-    queryKey: ["desktop-chrome"],
-    queryFn: api.desktop.chrome,
-  });
-  const loadPath = chrome?.extension_dir;
   return (
     <SettingsSection id="connections" title="Connections">
       <SettingsRow
@@ -630,20 +626,10 @@ function ConnectionsPanel() {
       />
       <SettingsRow
         title="Listing extension folder"
-        description="Load unpacked from this folder once in chrome://extensions. Studio overwrites it on launch so Chrome and Studio stay on the same files."
-        status={loadPath ? <code className="settings-row-code">{loadPath}</code> : null}
-        control={
-          loadPath ? (
-            <button
-              type="button"
-              className="btn btn-sm btn-outline"
-              onClick={() => navigator.clipboard.writeText(loadPath)}
-            >
-              Copy path
-            </button>
-          ) : null
-        }
-      />
+        description="Load unpacked from this exact folder once in chrome://extensions. Studio overwrites it on launch so Chrome and Studio stay on the same files."
+      >
+        <ExtensionLoadPath compact hideHint />
+      </SettingsRow>
     </SettingsSection>
   );
 }
