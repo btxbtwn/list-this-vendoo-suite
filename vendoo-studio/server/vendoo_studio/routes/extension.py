@@ -16,7 +16,7 @@ from vendoo_studio.services.chrome_bridge import (
     clear_extension_reload_pending,
     extension_build_status,
     install_bundled_extension,
-    relaunch_studio_chrome,
+    launch_studio_chrome,
 )
 
 router = APIRouter(tags=["extension"])
@@ -147,8 +147,8 @@ async def handshake_extension(
     except ChromeBridgeError:
         pass
     # Never chrome.runtime.reload() here. That reloads every Vendoo tab and
-    # leaves Connect Chrome on a white page. Connect Chrome relaunches the
-    # Chrome process instead.
+    # leaves Connect Chrome on a white page. Connect Chrome opens everyday
+    # Chrome after quitting any leftover Studio-managed Chrome.
     clear_extension_reload_pending()
     await ws.send_json(ProtocolMessage(
         type="connection.accepted",
@@ -338,15 +338,11 @@ def extension_status():
 
 @router.post("/api/extension/reload")
 async def reload_extension():
-    await extension_manager.disconnect()
-    extension_manager.version = None
-    extension_manager.reload_generation = None
     try:
-        result = relaunch_studio_chrome(visible=True)
+        result = launch_studio_chrome(visible=True)
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc
     result["sent"] = True
-    result["relaunched"] = True
     return result
 
 
