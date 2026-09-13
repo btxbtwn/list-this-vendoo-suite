@@ -439,7 +439,7 @@ def install_bundle_icon(resources: Path) -> str | None:
 
 
 def studio_window_kwargs() -> dict:
-    kwargs = {
+    return {
         "width": WINDOW_WIDTH,
         "height": WINDOW_HEIGHT,
         "min_size": MIN_WINDOW_SIZE,
@@ -449,10 +449,11 @@ def studio_window_kwargs() -> dict:
         "shadow": True,
         "background_color": WINDOW_BACKGROUND,
     }
+
+
+def studio_start_kwargs() -> dict:
     icon = extension_app_icon_path()
-    if icon is not None:
-        kwargs["icon"] = str(icon)
-    return kwargs
+    return {"icon": str(icon)} if icon is not None else {}
 
 
 def _hex_to_srgb(color: str) -> tuple[float, float, float]:
@@ -640,7 +641,7 @@ def run_window() -> None:
     import webview
 
     window = create_studio_window(webview)
-    webview.start(lambda: _boot_window(window))
+    webview.start(lambda: _boot_window(window), **studio_start_kwargs())
     stop_owned_server()
 
 
