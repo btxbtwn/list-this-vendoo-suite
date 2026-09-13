@@ -201,7 +201,7 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 | **Pattern** | Solid, Striped, Floral, Tie-Dye, etc. |
 | **Style** | Casual, Graphic Tee, etc. |
 | **Accents** | Visible features: Graphic Print, Logo, Embroidered, Distressed, etc. |
-| **Features** | Graphic Print, Preshrunk, Tagless, Pocket, etc. |
+| **Features** | Graphic Print, Preshrunk, Tagless, Pocket, All Seasons, etc. |
 | **Neckline** | Crew Neck, V-Neck, Scoop Neck, Henley, etc. |
 | **Closure** | Pullover, Button, Zip, Snap, etc. |
 | **Country of Origin** | From tag: China, Haiti, Bangladesh, etc. |
@@ -211,7 +211,7 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 | **Personalize** | "No" (always) |
 | **Vintage** | "No" (unless actually vintage) |
 | **Occasion** | Casual, Workwear, Formal, etc. |
-| **Season** | Spring, Summer, Fall, Winter, All Seasons |
+| **Season** | Spring, Summer, Fall, Winter only (never "All Seasons") |
 | **Theme** | Space, Music, Sports, etc. when supportable |
 | **Unit Quantity** | "1" (always for single items) |
 | **Unit Type** | "Unit" (always) |
@@ -219,7 +219,9 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 | **Inseam** | If provided in measurements |
 | **Waist** | If provided in measurements |
 
-**Pitfall: Skipping any of these fields causes the Vendoo eBay form to show them blank. Fill every row, even if the value is generic like "Crew Neck" or "All Seasons". The five most commonly skipped fields are Features, Neckline, Season, Unit Quantity, and Unit Type — always verify they are present in `ebay_specifics` before outputting.**
+**Pitfall: Skipping any of these fields causes the Vendoo eBay form to show them blank. Fill every row, even if the value is generic like "Crew Neck" or "Casual". The five most commonly skipped fields are Features, Neckline, Season, Unit Quantity, and Unit Type — always verify they are present in `ebay_specifics` before outputting.**
+
+**Pitfall: eBay Season has no "All Seasons" option.** Use only Spring, Summer, Fall, or Winter (one or more). For year-round items, put `"All Seasons"` under **Features** and still set Season to the primary wear season(s).
 
 **Pitfall: JSON key names must exactly match the extension's `fieldNameMap` keys** (e.g., `unitQuantity` not `unit_quantity` or `qty`). See `references/vendoo-extension-architecture.md` for the full mapping and extension architecture.
 

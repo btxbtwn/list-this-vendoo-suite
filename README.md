@@ -75,7 +75,7 @@ Studio and the extension share this payload. `ebay_specifics` keys must use thes
     "material": "Cotton",
     "pattern": "Solid",
     "style": "Basic",
-    "features": "Comfortable",
+    "features": "All Seasons",
     "neckline": "Crew Neck",
     "closure": "Pullover",
     "countryOfOrigin": "United States",
@@ -85,7 +85,7 @@ Studio and the extension share this payload. `ebay_specifics` keys must use thes
     "personalize": "No",
     "vintage": "No",
     "occasion": "Casual",
-    "season": "All Seasons",
+    "season": "Summer",
     "unitQuantity": "1",
     "unitType": "Unit"
   },
