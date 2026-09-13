@@ -3032,12 +3032,13 @@ details[open] .json-collapse-summary::before {
 
 .pr-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   width: 100%;
   min-height: 32px;
   margin: 0;
-  padding: 0 8px;
+  padding: 6px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -3055,17 +3056,18 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-name {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+  line-height: 1.2;
 }
 
 .pr-live-status {
-  flex-shrink: 0;
-  max-width: 7.5rem;
+  flex: 0 1 auto;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

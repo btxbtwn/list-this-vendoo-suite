@@ -4084,36 +4084,58 @@
   function marketplaceNameToId(name) {
       const n = normalizeText(name);
       if (!n) return null;
-      if (n === 'vendoo' || n === 'general') return 'general';
+      // Strip trailing badges like "vinted beta" from the name line.
+      const bare = n.replace(/\b(beta|new|alpha)\b/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!bare) return null;
+      if (bare === 'vendoo' || bare === 'general') return 'general';
       const known = [
           'ebay', 'etsy', 'poshmark', 'mercari', 'depop', 'facebook',
           'shopify', 'vinted', 'whatnot', 'sellwild', 'grailed', 'vestiaire', 'kidizen',
       ];
       for (const id of known) {
-          if (n === id || n.includes(id)) return id;
+          if (bare === id || bare.includes(id)) return id;
       }
       return null;
   }
 
   function scrapeMarketplaceStatusesFromDom() {
       // Live labels from Vendoo's Step 1/2 nav: COMPLETE / NOT LISTED / LISTED / …
+      // Ignore product badges like BETA — those are not listing statuses.
       const statuses = {};
-      const statusRe = /^(complete|not listed|listed|failed|draft|sold|pending|incomplete)/i;
-      const buttons = Array.from(document.querySelectorAll(
-          '[role="tab"], button, [role="button"], a, span[role="button"]'
+      const statusRe = /^(complete|not listed|listed|failed|draft|sold|pending|incomplete)$/i;
+      const controls = Array.from(document.querySelectorAll(
+          '[role="tab"], button, [role="button"], a, span[role="button"], li, [role="listitem"]'
       ));
-      for (const btn of buttons) {
-          if (!isVisibleElement(btn)) continue;
-          const lines = String(btn.innerText || btn.textContent || '')
+      for (const el of controls) {
+          if (!isVisibleElement(el)) continue;
+          const ownLines = String(el.innerText || el.textContent || '')
               .split('\n')
               .map((line) => line.trim())
               .filter(Boolean);
-          if (lines.length < 2) continue;
-          const id = marketplaceNameToId(lines[0]);
+          if (!ownLines.length || ownLines[0].length > 24) continue;
+          const id = marketplaceNameToId(ownLines[0]);
           if (!id) continue;
-          const statusLine = lines.slice(1).find((line) => statusRe.test(line)) || lines[1];
-          if (!statusLine || statusLine.length > 24) continue;
-          statuses[id] = statusLine.replace(/\s+/g, ' ').toUpperCase();
+
+          // Status often lives on a sibling dropdown; walk up to the row that
+          // contains both the marketplace name and COMPLETE / NOT LISTED / LISTED.
+          let statusLine = ownLines.slice(1).find((line) => statusRe.test(line));
+          if (!statusLine) {
+              let node = el.parentElement;
+              for (let depth = 0; depth < 5 && node && !statusLine; depth++) {
+                  const lines = String(node.innerText || node.textContent || '')
+                      .split('\n')
+                      .map((line) => line.trim())
+                      .filter(Boolean);
+                  // Keep the row tight so we don't absorb the whole sidebar.
+                  if (lines.join(' ').length > 160) break;
+                  statusLine = lines.find((line) => statusRe.test(line));
+                  node = node.parentElement;
+              }
+          }
+          if (!statusLine) continue;
+          if (!statuses[id]) {
+              statuses[id] = statusLine.replace(/\s+/g, ' ').toUpperCase();
+          }
       }
       return statuses;
   }
