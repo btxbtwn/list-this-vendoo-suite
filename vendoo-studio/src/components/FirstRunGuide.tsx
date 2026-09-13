@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { dismissSetupGuide } from "../onboarding";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import { ExtensionLoadPath } from "./ExtensionLoadPath";
 
 export const SETUP_GUIDE_STEPS = [
   { id: "welcome", label: "Welcome" },
@@ -331,7 +332,7 @@ export function FirstRunGuide({
               <>
                 <h2 id="setup-guide-title" className="setup-guide-title">Connect Chrome</h2>
                 <p className="setup-guide-copy">
-                  Studio opens Vendoo in a background tab in everyday Chrome. Load the listing extension there once, then sign in to Vendoo. After that, Send to Vendoo fills a draft in the background and stops. It never publishes.
+                  Studio opens Vendoo in a background tab in everyday Chrome. Load the listing extension from the folder below once, then sign in to Vendoo. After that, Send to Vendoo fills a draft in the background and stops. It never publishes.
                 </p>
                 {!chromeAvailable ? (
                   <p className="setup-guide-copy">
@@ -346,10 +347,7 @@ export function FirstRunGuide({
                 ) : (
                   <div className="setup-guide-task">
                     <ConnectChromeButton className="btn btn-primary btn-sm" />
-                    <p className="setup-guide-note">
-                      Then in that Chrome window: chrome://extensions → Developer mode → Load unpacked
-                      from the folder in Settings → Connections.
-                    </p>
+                    <ExtensionLoadPath />
                   </div>
                 )}
               </>

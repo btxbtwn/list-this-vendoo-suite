@@ -9,13 +9,17 @@ router = APIRouter(prefix="/api/desktop", tags=["desktop"])
 
 @router.get("/chrome")
 def chrome_status():
-    from vendoo_studio.services.chrome_bridge import installed_extension_dir
+    from vendoo_studio.services.chrome_bridge import installed_extension_dir, sync_bundled_extension
 
+    try:
+        extension_dir = sync_bundled_extension()
+    except ChromeBridgeError:
+        extension_dir = installed_extension_dir()
     executable = chrome_executable()
     return {
         "available": executable is not None,
         "browser": executable.parent.parent.parent.stem if executable else None,
-        "extension_dir": str(installed_extension_dir()),
+        "extension_dir": str(extension_dir),
         "profile": "default",
     }
 

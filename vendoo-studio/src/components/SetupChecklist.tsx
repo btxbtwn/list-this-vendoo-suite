@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import { ExtensionLoadPath } from "./ExtensionLoadPath";
 
 type SetupChecklistProps = {
   providerConfigured: boolean;
@@ -84,9 +85,7 @@ export function SetupChecklist({
           ) : (
             <>
               <ConnectChromeButton className="btn btn-sm btn-outline" />
-              <p className="setup-step-note">
-                Then load the extension once from the folder in Settings → Connections: chrome://extensions → Developer mode → Load unpacked.
-              </p>
+              <ExtensionLoadPath compact />
             </>
           )}
         </Step>
