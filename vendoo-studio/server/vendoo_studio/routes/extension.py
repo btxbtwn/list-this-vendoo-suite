@@ -15,6 +15,7 @@ from vendoo_studio.services.chrome_bridge import (
     ChromeBridgeError,
     clear_extension_reload_pending,
     extension_build_status,
+    extension_reload_token_if_needed,
     install_bundled_extension,
     relaunch_studio_chrome,
 )
@@ -29,6 +30,7 @@ class ExtensionManager:
         self.connection: Optional[WebSocket] = None
         self.paired = False
         self.version: Optional[str] = None
+        self.build: Optional[str] = None
         self.reload_generation: Optional[str] = None
         self._pairing_token: Optional[str] = None
         self._waits: dict[str, asyncio.Future] = {}
@@ -53,6 +55,7 @@ class ExtensionManager:
         self.connection = None
         self.paired = False
         self.version = None
+        self.build = None
         self.reload_generation = None
 
     @property
@@ -125,6 +128,14 @@ def _reported_reload_generation(payload: dict) -> str | None:
     return token or None
 
 
+def _reported_build(payload: dict) -> str | None:
+    reported = payload.get("build")
+    if reported is None:
+        return None
+    text = str(reported).strip()
+    return text or None
+
+
 def _reported_version(payload: dict) -> str | None:
     version = payload.get("version")
     if version is None:
@@ -144,14 +155,22 @@ async def handshake_extension(
     ws: WebSocket,
     reported_generation: str | None,
     reported_version: str | None = None,
+    reported_build: str | None = None,
 ) -> bool:
     try:
         install_bundled_extension()
     except ChromeBridgeError:
         pass
-    # Never chrome.runtime.reload() here. That reloads every Vendoo tab and
-    # leaves Connect Chrome on a white page. Connect Chrome opens everyday
-    # Chrome after quitting any leftover Studio-managed Chrome.
+    token = extension_reload_token_if_needed(reported_version, reported_generation, reported_build)
+    if token:
+        # One worker reload when Chrome is not yet on this Studio copy. A
+        # second pass with the same generation is accepted so Vendoo tabs
+        # are not reloaded in a loop.
+        await ws.send_json(ProtocolMessage(
+            type="extension.reload",
+            payload={"generation": token},
+        ).model_dump(mode="json"))
+        return False
     clear_extension_reload_pending()
     await ws.send_json(ProtocolMessage(
         type="connection.accepted",
@@ -335,6 +354,7 @@ def extension_status():
         **extension_build_status(
             extension_manager.version,
             extension_manager.reload_generation,
+            extension_manager.build,
         ),
     }
 
@@ -374,6 +394,7 @@ async def extension_websocket(ws: WebSocket):
             if msg_type == "extension.ready":
                 payload = message.get("payload", {}) or {}
                 extension_manager.version = _reported_version(payload)
+                extension_manager.build = _reported_build(payload)
                 extension_manager.reload_generation = _reported_reload_generation(payload)
                 token = payload.get("token", "")
                 if extension_manager.verify_token(token):
@@ -381,6 +402,7 @@ async def extension_websocket(ws: WebSocket):
                         ws,
                         _reported_reload_generation(payload),
                         _reported_version(payload),
+                        _reported_build(payload),
                     )
                     if accepted:
                         extension_manager.paired = True

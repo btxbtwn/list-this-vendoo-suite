@@ -25,6 +25,7 @@ SKIP_PARTS = {
     "sample-listing.json",
     "skills",
     "test-script.js",
+    "studio-build.js",
 }
 
 

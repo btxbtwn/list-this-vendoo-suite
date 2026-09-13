@@ -614,12 +614,33 @@ function IntegrationsPanel() {
 }
 
 function ConnectionsPanel() {
+  const { data: chrome } = useQuery({
+    queryKey: ["desktop-chrome"],
+    queryFn: api.desktop.chrome,
+  });
+  const loadPath = chrome?.extension_dir;
   return (
     <SettingsSection id="connections" title="Connections">
       <SettingsRow
         title="Vendoo in Chrome"
-        description="Connect Chrome opens Vendoo in your everyday Chrome, where the listing extension should already be loaded. Send to Vendoo fills a background tab in that same Chrome and closes it when the draft is saved."
+        description="Connect Chrome opens Vendoo in your everyday Chrome and reloads Studio's listing extension so it matches this build. Send to Vendoo fills a background tab in that same Chrome and closes it when the draft is saved."
         control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
+      />
+      <SettingsRow
+        title="Listing extension folder"
+        description="Load unpacked from this folder once in chrome://extensions. Studio overwrites it on launch so Chrome and Studio stay on the same files."
+        status={loadPath ? <code className="settings-row-code">{loadPath}</code> : null}
+        control={
+          loadPath ? (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={() => navigator.clipboard.writeText(loadPath)}
+            >
+              Copy path
+            </button>
+          ) : null
+        }
       />
     </SettingsSection>
   );

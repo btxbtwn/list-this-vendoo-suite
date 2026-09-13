@@ -180,9 +180,13 @@ export const api = {
         paired: boolean;
         version?: string | null;
         expected_version?: string | null;
+        expected_build?: string | null;
+        build?: string | null;
         up_to_date?: boolean;
         reload_pending?: boolean;
         files_in_sync?: boolean;
+        version_mismatch?: boolean;
+        load_path?: string | null;
       }>("/extension/status"),
     pairingToken: () => request<any>("/extension/pairing-token"),
     reload: () => request<{ ok: boolean; sent: boolean }>("/extension/reload", { method: "POST" }),
