@@ -262,6 +262,42 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.assertEqual(self.job.listing_snapshot["ebay_specifics"]["department"], "Men")
         dispatch.assert_awaited()
 
+    @patch("vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock)
+    def test_failed_retry_resumes_and_keeps_earlier_fill_logs(self, dispatch):
+        from vendoo_studio.repositories.queries import JobRepo
+
+        FillLogService(self.db).save_step(self.job, "filling_general", {
+            "marketplace": "general",
+            "entries": [
+                {"field": "Title", "status": "filled", "selector": "#title", "value_preview": "Nike tee"},
+            ],
+        })
+        FillLogService(self.db).save_step(self.job, "filling_etsy", {
+            "marketplace": "etsy",
+            "entries": [
+                {"field": "Who Made", "status": "failed", "selector": "#whoMade", "value_preview": "Someone else"},
+            ],
+        })
+        self.job.status = "failed"
+        self.job.current_step = "filling_etsy"
+        self.job.last_error = "FILL_MARKETPLACE timed out after 90s"
+        self.db.commit()
+
+        response = self.client.post(f"/api/jobs/{self.job.id}/retry")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.db.refresh(self.job)
+        self.assertEqual(self.job.status, "queued")
+        report = FillLogService(self.db).report_for_job(self.job)
+        self.assertNotIn("etsy", report["by_marketplace"])
+        self.assertIn("general", report["by_marketplace"])
+        self.assertIn("ebay", report["by_marketplace"])
+        self.assertEqual(report["by_marketplace"]["general"]["summary"]["filled"], 1)
+        event = JobRepo(self.db).latest_event(self.job.id, "retried")
+        self.assertIsNotNone(event)
+        self.assertEqual(event.payload.get("resume_from"), "filling_etsy")
+        dispatch.assert_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()
