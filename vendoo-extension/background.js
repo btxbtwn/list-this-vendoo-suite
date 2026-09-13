@@ -915,8 +915,10 @@ async function openListingForPatch(payload, { reload = true, preview = true, mar
   }
   if (!isTabReady(loaded)) {
     if (loaded && isVendooUrl(loaded.url)) {
-      log(`Vendoo tab still ${loaded.status || 'unknown'}; continuing ${loaded.url}`);
-    } else {
+      log(`Vendoo tab still ${loaded.status || 'unknown'}; waiting longer ${loaded.url}`);
+      loaded = await waitForTabComplete(tabId, 15000, url);
+    }
+    if (!isTabReady(loaded)) {
       return { ok: false, error: `Vendoo draft did not finish loading (${loaded?.url || 'unknown url'})` };
     }
   }
@@ -971,6 +973,24 @@ async function runFillFields(jobId, payload) {
       message_id: Date.now().toString(36),
       sent_at: new Date().toISOString(),
       payload: { step: 'filling_fields', error: ready.error },
+    });
+    return;
+  }
+
+  const formReady = await sendToVendoo(job, { type: 'WAIT_FOR_FORM', timeoutMs: 30000 });
+  if (!formReady?.ok) {
+    activePatch = null;
+    await stopJobPreview();
+    send({
+      version: 1,
+      type: 'job.step_failed',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: {
+        step: 'filling_fields',
+        error: formReady?.error || 'Vendoo listing form did not finish loading',
+      },
     });
     return;
   }
@@ -1090,13 +1110,19 @@ function commandTimeoutMs(command) {
     const count = Array.isArray(command.fields) ? command.fields.length : 0;
     return Math.min(300000, Math.max(90000, 30000 + count * 5000));
   }
-  if (
-    command.type === 'FILL_GENERAL' ||
-    command.type === 'FILL_MARKETPLACE' ||
-    command.type === 'CLEAR_GENERAL' ||
-    command.type === 'CLEAR_MARKETPLACE'
-  ) {
+  if (command.type === 'WAIT_FOR_FORM') {
+    return Math.max(35000, Number(command.timeoutMs) || 30000) + 5000;
+  }
+  // Full marketplace fills (esp. Etsy category specifics) routinely exceed 90s.
+  // Leftover FILL_FIELDS already scales up to 300s; keep the bulk fill in the same range.
+  if (command.type === 'FILL_GENERAL' || command.type === 'FILL_MARKETPLACE') {
+    return 180000;
+  }
+  if (command.type === 'CLEAR_GENERAL' || command.type === 'CLEAR_MARKETPLACE') {
     return 90000;
+  }
+  if (command.type === 'SAVE_GENERAL' || command.type === 'SAVE_MARKETPLACE') {
+    return 60000;
   }
   if (command.type === 'DISCOVER_SCHEMA') {
     const count = Array.isArray(command.platforms) ? command.platforms.length : 5;

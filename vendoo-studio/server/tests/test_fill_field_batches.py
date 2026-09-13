@@ -27,6 +27,8 @@ const result = {
   fill0: commandTimeoutMs({ type: 'FILL_FIELDS', fields: [] }),
   fill80: commandTimeoutMs({ type: 'FILL_FIELDS', fields: Array(80).fill({}) }),
   general: commandTimeoutMs({ type: 'FILL_GENERAL' }),
+  marketplace: commandTimeoutMs({ type: 'FILL_MARKETPLACE' }),
+  clearGeneral: commandTimeoutMs({ type: 'CLEAR_GENERAL' }),
   saveEbay: saveCommandForMarketplace('ebay'),
   saveEtsy: saveCommandForMarketplace('ETSY'),
   saveGeneral: saveCommandForMarketplace('general'),
@@ -48,7 +50,9 @@ console.log(JSON.stringify(result));
         self.assertEqual(result["fill25"], 155000)
         self.assertEqual(result["fill0"], 90000)
         self.assertEqual(result["fill80"], 300000)
-        self.assertEqual(result["general"], 90000)
+        self.assertEqual(result["general"], 180000)
+        self.assertEqual(result["marketplace"], 180000)
+        self.assertEqual(result["clearGeneral"], 90000)
         self.assertEqual(result["saveEbay"], {"type": "SAVE_MARKETPLACE", "platform": "ebay"})
         self.assertEqual(result["saveEtsy"], {"type": "SAVE_MARKETPLACE", "platform": "etsy"})
         self.assertEqual(result["saveGeneral"], {"type": "SAVE_GENERAL"})
@@ -60,6 +64,11 @@ console.log(JSON.stringify(result));
         start = text.index("async function runFillFields")
         end = text.index("function groupFillFieldBatches")
         run_fill = text[start:end]
+        self.assertIn("WAIT_FOR_FORM", run_fill)
+        self.assertLess(
+            run_fill.index("WAIT_FOR_FORM"),
+            run_fill.index("for (let i = 0;"),
+        )
         loop = run_fill[run_fill.index("for (let i = 0;") :]
         self.assertIn("saveCommandForMarketplace(marketplace)", loop)
         self.assertIn("type: 'FILL_FIELDS'", loop)
@@ -70,3 +79,14 @@ console.log(JSON.stringify(result));
         after_loop = run_fill[run_fill.index("const fillLog") :]
         self.assertNotIn("SAVE_GENERAL", after_loop)
         self.assertNotIn("saveCommandForMarketplace", after_loop)
+
+    def test_save_waits_for_button_to_appear(self) -> None:
+        text = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
+        start = text.index("async function waitForSaveButton")
+        end = text.index("async function auditGeneralForm")
+        block = text[start:end]
+        self.assertIn("requireEnabled", block)
+        self.assertIn("waitForSaveButton(20000", block)
+        self.assertNotIn("existingSave ? await waitForSaveButton()", block)
+        self.assertIn("async function waitForListingFormReady", text)
+        self.assertIn("WAIT_FOR_FORM", text)
