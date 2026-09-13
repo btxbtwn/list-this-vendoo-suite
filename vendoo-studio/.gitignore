@@ -2,8 +2,11 @@ node_modules/
 .venv/
 dist/
 __pycache__/
+.pytest_cache/
+.mp/
 *.pyc
 .env
+*.log
 data/vendoo_studio.db
 data/vendoo_studio.db-shm
 data/vendoo_studio.db-wal

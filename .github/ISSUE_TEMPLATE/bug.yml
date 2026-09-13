@@ -1,0 +1,30 @@
+name: Bug
+description: Something is broken in Studio, the extension, skills, or Background Studio
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Vendoo Listing Studio
+        - Chrome extension
+        - list-this skills
+        - Background Studio
+        - CI / repo hygiene
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      placeholder: 1. ...
+    validations:
+      required: true
