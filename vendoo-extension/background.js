@@ -780,19 +780,34 @@ async function openVisibleVendooWindow(url, existingTab) {
         }
       } catch (_) {}
     }
-    const created = await createWindowSafe({
-      tabId: existingTab.id,
-      focused: true,
-      type: 'normal',
-    });
-    await showWindow(created.id);
-    if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
-    return { ok: true, tabId: existingTab.id, windowId: created.id };
+    try {
+      const created = await createWindowSafe({
+        tabId: existingTab.id,
+        focused: true,
+        type: 'normal',
+      });
+      await showWindow(created.id);
+      if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
+      return { ok: true, tabId: existingTab.id, windowId: created.id };
+    } catch (err) {
+      log(`Could not detach Vendoo tab into a new window (${err.message})`);
+      if (url) await chrome.tabs.update(existingTab.id, { url, active: true });
+      else await chrome.tabs.update(existingTab.id, { active: true });
+      if (existingTab.windowId) await showWindow(existingTab.windowId);
+      return { ok: true, tabId: existingTab.id, windowId: existingTab.windowId };
+    }
   }
-  const created = await createWindowSafe({ url, focused: true, type: 'normal' });
-  const tabId = created.tabs && created.tabs[0] && created.tabs[0].id;
-  await showWindow(created.id);
-  return { ok: true, tabId, windowId: created.id };
+  try {
+    const created = await createWindowSafe({ url, focused: true, type: 'normal' });
+    const tabId = created.tabs && created.tabs[0] && created.tabs[0].id;
+    await showWindow(created.id);
+    return { ok: true, tabId, windowId: created.id };
+  } catch (err) {
+    log(`Could not open a Vendoo window (${err.message})`);
+    const created = await chrome.tabs.create({ url, active: true });
+    if (created.windowId != null) await showWindow(created.windowId);
+    return { ok: true, tabId: created.id, windowId: created.windowId };
+  }
 }
 
 async function focusVendooListing(payload) {

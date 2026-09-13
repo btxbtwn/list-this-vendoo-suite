@@ -73,6 +73,31 @@ console.log(JSON.stringify(result));
         self.assertTrue(result["boundsError"])
         self.assertFalse(result["otherError"])
 
+    def test_pick_onscreen_bounds_uses_display_work_area(self) -> None:
+        result = _run_helper_script(
+            """
+const displays = [{
+  isPrimary: true,
+  isEnabled: true,
+  workArea: { left: 1920, top: 25, width: 1512, height: 945 },
+}];
+const offscreen = { id: 1, left: ENGINE_LEFT, top: 0, width: 1280, height: 900, state: 'normal' };
+const stale = { id: 2, left: -400, top: 40, width: 1440, height: 800, state: 'normal' };
+const result = {
+  fromDisplay: pickOnscreenBounds([offscreen, stale], displays),
+  skippedStale: isMostlyOnscreen(stale, workAreasFromDisplays(displays)),
+};
+console.log(JSON.stringify(result));
+"""
+        )
+        self.assertGreaterEqual(result["fromDisplay"]["left"], 1920)
+        self.assertLess(
+            result["fromDisplay"]["left"] + result["fromDisplay"]["width"],
+            1920 + 1512,
+        )
+        self.assertGreaterEqual(result["fromDisplay"]["top"], 25)
+        self.assertFalse(result["skippedStale"])
+
     def test_window_create_and_update_do_not_use_offscreen_coordinates(self) -> None:
         preview = PREVIEW.read_text(encoding="utf-8")
         background = BACKGROUND.read_text(encoding="utf-8")
@@ -80,5 +105,7 @@ console.log(JSON.stringify(result));
         self.assertNotRegex(preview, r"windows\.create\([^)]*left:\s*-")
         self.assertIn("createWindowSafe", preview)
         self.assertIn("createWindowSafe", background)
+        self.assertIn("delete withoutTab.tabId", preview)
+        self.assertIn("system.display", Path(EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
         self.assertRegex(preview, r"focused:\s*false,\s*state:\s*'normal'")
         self.assertTrue(re.search(r"pickOnscreenBounds", preview))
