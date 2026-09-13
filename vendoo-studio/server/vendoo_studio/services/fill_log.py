@@ -536,9 +536,10 @@ class FillLogService:
             label = entry["field"]
             selector = entry.get("selector") or ""
             status = entry["status"]
+            entry_marketplace = str(entry.get("marketplace") or marketplace or "").strip() or marketplace
             if status == "new":
                 self._registry.ensure_field(
-                    marketplace=marketplace,
+                    marketplace=entry_marketplace,
                     field_label=label,
                     selector=selector,
                     category_path=category_path,
@@ -546,7 +547,7 @@ class FillLogService:
                 continue
             if status in {"filled", "uncertain", "not_found", "failed"} and selector:
                 self._registry.record_fill_result(
-                    marketplace=marketplace,
+                    marketplace=entry_marketplace,
                     field_label=label,
                     selector=selector,
                     success=status == "filled",

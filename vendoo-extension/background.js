@@ -555,6 +555,8 @@ async function runJob(jobId) {
           vendoo_item_id: result.vendoo_item_id,
           vendoo_url: result.vendoo_url,
           fill_log: result.fill_log || null,
+          schema: result.schema || null,
+          categories: result.categories || null,
         },
       });
 
@@ -618,6 +620,11 @@ function buildJobSteps(job) {
   steps.push({ step: 'auditing_general', fn: auditGeneral });
 
   const platforms = job.options?.platforms || [];
+  // After General category is committed, align each marketplace category and
+  // scrape the live field schema before filling values.
+  if (platforms.length) {
+    steps.push({ step: 'discovering_schema', fn: discoverSchema });
+  }
   for (const platform of platforms) {
     if (clearBeforeFill) {
       steps.push({ step: `clearing_${platform}`, fn: (j) => clearMarketplace(j, platform) });
@@ -1090,6 +1097,10 @@ function commandTimeoutMs(command) {
     command.type === 'CLEAR_MARKETPLACE'
   ) {
     return 90000;
+  }
+  if (command.type === 'DISCOVER_SCHEMA') {
+    const count = Array.isArray(command.platforms) ? command.platforms.length : 5;
+    return Math.min(180000, Math.max(120000, 30000 + count * 25000));
   }
   if (command.type === 'GET_VENDOO_ITEM') {
     return 120000;
@@ -1613,6 +1624,20 @@ async function fillGeneral(job) {
     data: job.listing,
     registry_selectors: job.registry_selectors || {},
   });
+}
+
+async function discoverSchema(job) {
+  const platforms = job.options?.platforms || [];
+  const result = await sendToVendoo(job, {
+    type: 'DISCOVER_SCHEMA',
+    data: job.listing,
+    platforms,
+  });
+  if (result?.ok && result.schema) {
+    job.discovered_schema = result.schema;
+    await persistActiveJob(job);
+  }
+  return result;
 }
 
 async function saveGeneral(job) {

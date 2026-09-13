@@ -479,6 +479,15 @@ async def extension_websocket(ws: WebSocket):
                         job = repo.get(job_id)
                         if job and payload.get("fill_log"):
                             FillLogService(db).save_step(job, step, payload.get("fill_log"))
+                        if step == "discovering_schema" and job and payload.get("schema"):
+                            repo.add_event(job_id, "schema_discovered", step, {
+                                "platforms": list((payload.get("schema") or {}).keys()),
+                                "categories": payload.get("categories") or {},
+                                "field_counts": {
+                                    platform: len((section or {}).get("fields") or [])
+                                    for platform, section in (payload.get("schema") or {}).items()
+                                },
+                            })
                         _set_conversation_status(db, job_id, "listing")
 
             elif msg_type == "job.step_failed":
