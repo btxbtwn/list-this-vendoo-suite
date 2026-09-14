@@ -101,7 +101,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
     void queryClient.prefetchQuery({
       queryKey: ["vendoo-item", listingJob.id],
       queryFn: () => api.jobs.vendooItem(listingJob.id),
-      staleTime: Infinity,
+      staleTime: 0,
     });
   }, [listingJob?.id, listingJob?.vendoo_item_id, importedItemId, queryClient]);
 
@@ -507,7 +507,7 @@ function SendToVendooButton({
   };
 
   const sendMutation = useMutation({
-    mutationFn: () => api.jobs.create(convId),
+    mutationFn: () => api.jobs.create(convId, { confirmOverwrite: Boolean(vendooItemId) }),
     onSuccess: (job) => {
       setError(null);
       rememberJob(job);
@@ -552,10 +552,16 @@ function SendToVendooButton({
   const extensionConnected = extStatus?.connected ?? false;
   const overwriteItemId = vendooItemId || fillJob?.vendoo_item_id || existingJob?.vendoo_item_id || null;
   const sendLabel = overwriteItemId ? "Update Vendoo listing" : "Send to Vendoo";
-  const blockerText = sendBlockers
-    .map((err) => err.message)
-    .filter(Boolean)
-    .join(" · ");
+  const uniqueBlockers = React.useMemo(() => {
+    const seen = new Set<string>();
+    return sendBlockers.filter((err) => {
+      const key = `${err.field || ""}|${err.message || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return Boolean(err.message);
+    });
+  }, [sendBlockers]);
+  const blockerText = uniqueBlockers.map((err) => err.message).join(" · ");
 
   const confirmOverwriteIfNeeded = async () => {
     if (!overwriteItemId) return true;
@@ -661,7 +667,7 @@ function SendToVendooButton({
         type="button"
         className="btn btn-success"
         style={{ width: "100%" }}
-        disabled={sendMutation.isPending}
+        disabled={sendMutation.isPending || !canSend}
         onClick={async () => {
           if (!canSend) {
             setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");

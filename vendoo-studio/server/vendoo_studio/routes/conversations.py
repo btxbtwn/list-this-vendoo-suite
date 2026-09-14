@@ -123,7 +123,12 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
     if not conv:
         raise HTTPException(404, "Conversation not found")
     if body.notes is not None:
-        conv.notes = body.notes
+        from vendoo_studio.services.vendoo_import import merge_notes, parse_notes
+        incoming = parse_notes(body.notes)
+        if incoming:
+            conv.notes = merge_notes(conv.notes, incoming)
+        else:
+            conv.notes = body.notes
         db.commit()
     return _conv_response(conv)
 

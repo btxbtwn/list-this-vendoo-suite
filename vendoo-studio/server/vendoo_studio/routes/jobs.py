@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -34,6 +35,7 @@ class JobResponse(BaseModel):
 
 class CreateJobRequest(BaseModel):
     conversation_id: str
+    confirm_overwrite: bool = False
 
 
 class FillFieldItem(BaseModel):
@@ -65,21 +67,46 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
 
     from vendoo_studio.services.vendoo_import import vendoo_binding
     from vendoo_studio.models.validation import validate_listing
+    from vendoo_studio.services.marketplaces import (
+        selected_fillable_platforms,
+        unsupported_in_selection,
+        get_selected_marketplaces,
+        marketplace_label,
+    )
     listing_snapshot = _prepare_listing_snapshot(db, conv, latest_revision.listing_json)
     binding = vendoo_binding(conv.notes)
+    # Pre-dispatch guard: unsupported markets never enter the approved job snapshot.
+    selected_now = get_selected_marketplaces()
+    blocked = unsupported_in_selection(selected_now)
+    if blocked:
+        labels = ", ".join(marketplace_label(item_id) for item_id in blocked)
+        raise HTTPException(
+            400,
+            f"{labels} cannot be selected for Send — automation is not available. "
+            "Deselect unsupported marketplaces before creating a job.",
+        )
+    listing_snapshot["platforms"] = selected_fillable_platforms(selected_now)
     validation = validate_listing(
         listing_snapshot,
         photo_count,
-        require_photos=not bool(binding.get("vendooItemId")),
+        require_photos=True,
+        selected_marketplaces=listing_snapshot["platforms"],
     )
     if not validation.can_send:
         raise HTTPException(400, _validation_error_detail(validation))
+
+    existing_item_id = str(binding.get("vendooItemId") or "").strip()
+    if existing_item_id and existing_item_id.lower() != "new" and not body.confirm_overwrite:
+        raise HTTPException(
+            409,
+            "This listing is already bound to a Vendoo draft. Confirm overwrite to update that draft.",
+        )
 
     active = JobRepo(db).get_active()
     if active:
         raise HTTPException(409, "Another job is already in progress")
 
-    listing_repo.save_revision(
+    approved_revision = listing_repo.save_revision(
         conv_id=body.conversation_id,
         listing_json=listing_snapshot,
         source="normalized",
@@ -90,7 +117,7 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     job_repo = JobRepo(db)
     job = job_repo.create(
         conv_id=body.conversation_id,
-        approved_revision_id=latest_revision.id,
+        approved_revision_id=approved_revision.id,
         listing_snapshot=listing_snapshot,
         vendoo_item_id=binding.get("vendooItemId"),
         vendoo_url=binding.get("vendooUrl"),
@@ -423,8 +450,6 @@ async def open_listing(job_id: str, db: Session = Depends(get_db)):
 
 @router.post("/{job_id}/fill-fields", response_model=JobResponse)
 async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = Depends(get_db)):
-    from sqlalchemy.orm.attributes import flag_modified
-
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
     from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
     from vendoo_studio.services.fill_log import (
@@ -446,6 +471,9 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         raise HTTPException(404, "Job not found")
     if job.status in ACTIVE_JOB_STATUSES:
         raise HTTPException(400, "Wait for the current fill to finish")
+    active = [item for item in JobRepo(db).get_active() if item.id != job.id]
+    if active:
+        raise HTTPException(409, "Another job is already in progress")
     if job.status not in {"completed", "failed"}:
         raise HTTPException(400, f"Job is {job.status}, cannot fill leftover fields")
     if not job.vendoo_url and not job.vendoo_item_id:
@@ -496,6 +524,11 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         if marketplace == "poshmark" and field_lookup_key(field) == "category":
             from vendoo_studio.services.registry import map_poshmark_category_path
             mapped = map_poshmark_category_path(listing.get("category_path") or value, listing)
+            if mapped:
+                value = mapped
+        if marketplace == "mercari" and field_lookup_key(field) == "category":
+            from vendoo_studio.services.registry import map_mercari_category_path
+            mapped = map_mercari_category_path(listing.get("category_path") or value, listing)
             if mapped:
                 value = mapped
         if not value:
@@ -557,8 +590,6 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
     } for patch in resolved]
 
     snapshot = write_values_into_listing(listing, patches)
-    job.listing_snapshot = snapshot
-    flag_modified(job, "listing_snapshot")
     parent_id = revisions[0].id if revisions else job.approved_revision_id
     listing_repo.save_revision(
         conv_id=job.conversation_id,
@@ -568,13 +599,25 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
     )
     db.refresh(job)
 
-    sent = await dispatch_fill_fields(job, patches)
-    if not sent:
-        raise HTTPException(503, "Could not reach the Chrome extension")
-
     job.status = "dispatched"
     job.current_step = "filling_fields"
     job.last_error = None
+    db.commit()
+
+    repo.add_event(
+        job_id,
+        "fill_fields",
+        "filling_fields",
+        {"count": len(patches), "patches": patches},
+    )
+    sent = await dispatch_fill_fields(job, patches)
+    if not sent:
+        job.status = "failed"
+        job.current_step = "filling_fields"
+        job.last_error = "Could not reach the Chrome extension"
+        db.commit()
+        raise HTTPException(503, "Could not reach the Chrome extension")
+
     for patch in resolved:
         entry = patch.get("entry")
         if entry:
@@ -583,23 +626,59 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
     db.commit()
     db.refresh(job)
     ConversationRepo(db).update_status(job.conversation_id, "listing")
-    repo.add_event(job_id, "fill_fields", "filling_fields", {"count": len(patches)})
     FillLogService(db).write_markdown(job)
     return _job_response(job)
 
 
 @router.post("/{job_id}/retry")
-async def retry_job(job_id: str, db: Session = Depends(get_db)):
+async def retry_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    resume_from: str | None = Query(None),
+):
     repo = JobRepo(db)
     job = repo.get(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
     if job.status not in {"failed", "dispatched", "completed", "queued", "awaiting_extension"}:
         raise HTTPException(400, f"Job is {job.status}, cannot retry")
-    if job.status == "dispatched" and job.current_step == "filling_fields":
-        raise HTTPException(400, "Leftover field fill is already running")
+    if job.current_step == "filling_fields":
+        if job.status == "dispatched":
+            raise HTTPException(400, "Leftover field fill is already running")
+        raise HTTPException(400, "Retry this leftover fill from Fields")
+    if job.status == "cancelled":
+        raise HTTPException(400, "Cancelled jobs cannot be retried")
 
-    resume_from = _resume_step_for_retry(job)
+    active = [item for item in JobRepo(db).get_active() if item.id != job.id]
+    if active:
+        raise HTTPException(409, "Another job is already in progress")
+
+    photo_count = len(ConversationRepo(db).get_photos(job.conversation_id))
+    from vendoo_studio.models.validation import validate_listing
+    candidate = copy.deepcopy(job.listing_snapshot or {})
+    if isinstance(candidate, dict):
+        candidate.pop("_schema_probe", None)
+    selected = candidate.get("platforms") if isinstance(candidate.get("platforms"), list) else None
+    validation = validate_listing(
+        candidate,
+        photo_count,
+        require_photos=True,
+        selected_marketplaces=selected,
+    )
+    requested = str(resume_from or "").strip()
+    audit_only = bool(requested) and requested.startswith("auditing_") and requested != "auditing_general"
+    if not audit_only and not validation.can_send:
+        raise HTTPException(400, _validation_error_detail(validation))
+
+    if requested:
+        if not (job.vendoo_item_id or job.vendoo_url):
+            raise HTTPException(400, "No Vendoo draft is available yet. Send the listing first.")
+        if not requested.startswith("auditing_") or requested == "auditing_general":
+            raise HTTPException(400, "Only a marketplace audit step can be retried separately from fill/save")
+        resume_from_step = requested
+    else:
+        resume_from_step = _resume_step_for_retry(job)
+
     failed_step = job.current_step
 
     job.status = "queued"
@@ -609,30 +688,15 @@ async def retry_job(job_id: str, db: Session = Depends(get_db)):
 
     from vendoo_studio.services.fill_log import FillLogService
     fill_logs = FillLogService(db)
-    if resume_from:
-        fill_logs.clear_step(job_id, resume_from)
+    if resume_from_step:
+        fill_logs.clear_step(job_id, resume_from_step)
     else:
         fill_logs.clear_job(job_id)
 
-    from sqlalchemy.orm.attributes import flag_modified
-    conv = ConversationRepo(db).get(job.conversation_id)
-    listing_repo = ListingRepo(db)
-    revisions = listing_repo.get_revisions(job.conversation_id)
-    source = revisions[0].listing_json if revisions else (job.listing_snapshot or {})
-    job.listing_snapshot = _prepare_listing_snapshot(
-        db, conv, source, prefer_listing_category=True,
-    )
-    # Retries always become full fill jobs, even if the prior run was a schema probe.
-    if isinstance(job.listing_snapshot, dict):
-        job.listing_snapshot.pop("_schema_probe", None)
-    if revisions:
-        job.approved_revision_id = revisions[0].id
-    flag_modified(job, "listing_snapshot")
-
     db.commit()
     ConversationRepo(db).update_status(job.conversation_id, "listing")
-    repo.add_event(job_id, "retried", resume_from or "queued", {
-        "resume_from": resume_from,
+    repo.add_event(job_id, "retried", resume_from_step or "queued", {
+        "resume_from": resume_from_step,
         "failed_step": failed_step,
     })
 
@@ -718,6 +782,10 @@ def _resume_step_for_retry(job) -> str | None:
         return step
 
     marketplace_prefixes = ("clearing_", "filling_", "saving_", "auditing_")
+    if step.startswith("auditing_"):
+        marketplace = step[len("auditing_") :]
+        if marketplace and marketplace != "general":
+            return step if has_draft else None
     if step == "discovering_schema" or step.startswith(marketplace_prefixes):
         return step if has_draft else None
 

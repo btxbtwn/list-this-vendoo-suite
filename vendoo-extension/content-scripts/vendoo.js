@@ -148,7 +148,7 @@
   }
 
   function summarizeFillLog(entries) {
-    const summary = { filled: 0, skipped: 0, not_found: 0, failed: 0, uncertain: 0, new: 0 };
+    const summary = { filled: 0, skipped: 0, not_found: 0, invalid: 0, failed: 0, uncertain: 0, new: 0 };
     for (const entry of entries) {
       if (summary[entry.status] != null) summary[entry.status] += 1;
     }
@@ -336,9 +336,9 @@
     }
     const summary = summarizeFillLog(fillLedger);
     log(`=== FILL LOG ${currentFillMarketplace} ===`);
-    log(`filled ${summary.filled} · skipped ${summary.skipped} · not found ${summary.not_found} · failed ${summary.failed} · uncertain ${summary.uncertain} · new ${summary.new}`);
+    log(`filled ${summary.filled} · skipped ${summary.skipped} · not found ${summary.not_found} · invalid ${summary.invalid} · failed ${summary.failed} · uncertain ${summary.uncertain} · new ${summary.new}`);
     fillLedger
-      .filter((entry) => entry.status === 'failed' || entry.status === 'not_found')
+      .filter((entry) => entry.status === 'invalid' || entry.status === 'failed' || entry.status === 'not_found')
       .forEach((entry) => warn(`  ${entry.field}: ${entry.reason || entry.status}`));
     fillLedger
       .filter((entry) => entry.status === 'new')
@@ -906,7 +906,11 @@
 
       const value = String(rawValue).trim();
       const normalizedValue = normalizeText(value);
-      const explicitMappings = [
+          const unknownTokens = ['unknown', 'does not apply', 'n/a', 'not sure', 'not shown'];
+          if (unknownTokens.some((token) => normalizedValue === token || normalizedValue.includes(token))) {
+              return '';
+          }
+          const explicitMappings = [
           ['made to order', 'Made To Order (Not Yet Made)'],
           ['not yet made', 'Made To Order (Not Yet Made)'],
           ['2020 - 2026', '2020 - 2026 (Recently)'],
@@ -930,11 +934,7 @@
           ['1900', '1900 - 1909 (Vintage)'],
           ['1800s', '1800s (Vintage)'],
           ['1700s', '1700s (Vintage)'],
-          ['before 1700', 'Before 1700 (Vintage)'],
-          ['unknown', '2020 - 2026 (Recently)'],
-          ['does not apply', '2020 - 2026 (Recently)'],
-          ['n/a', '2020 - 2026 (Recently)'],
-          ['not sure', '2020 - 2026 (Recently)']
+          ['before 1700', 'Before 1700 (Vintage)']
       ];
 
       for (const [needle, mappedValue] of explicitMappings) {
@@ -1358,6 +1358,25 @@
       return uniqueStrings(Array.from(root.querySelectorAll('.MuiChip-label')).map((chip) =>
           (chip.textContent || '').replace(/\u00a0/g, ' ').trim()
       ));
+  }
+
+  function readPersistedControlValue(el) {
+      if (!el) return '';
+      const type = String(el.getAttribute?.('type') || el.type || '').toLowerCase();
+      const role = String(el.getAttribute?.('role') || '').toLowerCase();
+      if (type === 'checkbox' || type === 'radio' || role === 'checkbox' || role === 'switch') {
+          const aria = el.getAttribute?.('aria-checked');
+          if (aria === 'true') return true;
+          if (aria === 'false') return false;
+          return Boolean(el.checked);
+      }
+      const chips = listedChipValues(el);
+      if (chips.length > 1) return chips;
+      if (chips.length === 1 && !String(el.value || '').trim()) return chips[0];
+      if ('value' in el && el.value != null && String(el.value).trim()) return String(el.value).trim();
+      const text = (el.innerText || el.textContent || '').trim();
+      if (text && fieldLooksFilled(el)) return chips.length === 1 ? chips[0] : text;
+      return chips.length === 1 ? chips[0] : '';
   }
 
   function fieldHasChip(el, value) {
@@ -1887,12 +1906,12 @@
           }
           recordFill({
             field: fieldName,
-            status: 'failed',
+            status: 'invalid',
             reason: 'Option not found and value did not stick',
             selector: selectorFor(el, selectorText),
             value: filledValue,
           });
-          return { status: 'failed' };
+          return { status: 'invalid' };
       }
 
       if (optionMatchesValue(displayedFieldValue(el), value, false)) {
@@ -1918,12 +1937,12 @@
       }
       recordFill({
         field: fieldName,
-        status: 'failed',
+        status: 'invalid',
         reason: 'Option not found and value did not stick',
         selector: selectorFor(el, selectorText),
         value,
       });
-      return { status: 'failed' };
+      return { status: 'invalid' };
   }
 
   // Try registry selectors before falling back to hardcoded selector
@@ -1987,14 +2006,24 @@
       return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  function categoryOptionLeaf(option) {
+      const raw = String(option?.text || option?.lower || '');
+      const parts = raw.split(/[>‣▸▶]/).map((part) => normalizeText(part)).filter(Boolean);
+      return parts[parts.length - 1] || normalizeText(raw);
+  }
+
   function scoreCategoryOption(option, segment) {
       const needle = normalizeText(segment);
+      const leaf = categoryOptionLeaf(option);
       if (!needle || !option.lower) return 0;
+      if (leaf === needle) return 8;
       if (option.lower === needle) return 4;
       const word = new RegExp(`\\b${escapeRegExp(needle)}\\b`);
-      if (word.test(option.lower)) return 3;
-      if (option.lower.startsWith(needle) || needle.startsWith(option.lower)) return 2;
-      if (option.lower.includes(needle) || needle.includes(option.lower)) return 1;
+      if (word.test(leaf)) return 3;
+      if (word.test(option.lower)) return 2;
+      if (leaf.startsWith(needle) || needle.startsWith(leaf)) return 2;
+      if (option.lower.startsWith(needle) || needle.startsWith(option.lower)) return 1;
+      if (leaf.includes(needle) || needle.includes(leaf)) return 1;
       return 0;
   }
 
@@ -2021,6 +2050,8 @@
       't-shirts': ['T-Shirts', 'Tops', 'Tees - Short Sleeve', 'Tees - Long Sleeve'],
       't shirts': ['T-Shirts', 'Tops', 'Tees - Short Sleeve', 'Tees - Long Sleeve'],
       shirts: ['Shirts', 'Tops'],
+      blouse: ['Blouse', 'Blouses'],
+      blouses: ['Blouse', 'Blouses'],
       tees: ['Tees - Short Sleeve', 'Tees - Long Sleeve'],
       'tees - short sleeve': ['Tees - Short Sleeve'],
       'tees - long sleeve': ['Tees - Long Sleeve'],
@@ -2036,7 +2067,16 @@
       const department = data.department || data.ebay_specifics?.department || '';
       const type = data.ebay_specifics?.type || data.type || '';
       const sleeve = data.sleeveLength || data.ebay_specifics?.sleeveLength || '';
-      return `${categoryPath} ${department} ${type} ${sleeve} ${data.title || ''}`;
+      return `${categoryPath} ${department} ${type} ${sleeve} ${data.title || ''} ${data.description || ''}`;
+  }
+
+  function blouseVsTeeSignals(hayLower) {
+      const isTee = /t-?shirts?|\btees?\b|graphic tee/.test(hayLower);
+      const isBlouse = (
+          /\bblouses?\b/.test(hayLower)
+          || /button[\s-]*(up|front|down)/.test(hayLower)
+      ) && !isTee;
+      return { isTee, isBlouse };
   }
 
   function explicitPoshmarkCategoryPath(data) {
@@ -2063,8 +2103,7 @@
           if (!staleWomen && !staleMen) return explicit;
       }
       if (/^(men|women|kids|pets|home|electronics)\s*>/i.test(categoryPath)) return categoryPath;
-      const isTee = /t-?shirts?|\btees?\b|graphic tee/.test(hayLower);
-      const isBlouse = /\bblouses?\b/.test(hayLower) && !isTee;
+      const { isTee, isBlouse } = blouseVsTeeSignals(hayLower);
       const longSleeve = /long\s*sleeve/.test(hayLower);
       const teeLeaf = longSleeve ? 'Tees - Long Sleeve' : 'Tees - Short Sleeve';
       if (isMen && isTee) return `Men > Shirts > ${teeLeaf}`;
@@ -2107,16 +2146,24 @@
       const leaf = needles[needles.length - 1] || '';
       const query = needles.join(' ');
       const wantsSweat = /\bsweatshirts?\b|\bhoodies?\b|\bsweaters?\b/.test(query);
+      const wantsBlouse = /\bblouses?\b/.test(leaf);
       return options
           .map((option) => {
+              const shownLeaf = categoryOptionLeaf(option);
               let score = scoreCategoryOption(option, leaf);
               for (const needle of needles.slice(0, -1)) {
-                  if (option.lower.includes(needle) || needle.includes(option.lower)) {
-                      score += 2;
+                  if (shownLeaf.includes(needle) || option.lower.includes(needle) || needle.includes(option.lower)) {
+                      score += 1;
                   }
               }
-              if (wantsSweat && /t-?shirts?|\btees?\b/.test(option.lower) && !/\bsweatshirts?\b/.test(option.lower)) {
+              if (wantsSweat && /t-?shirts?|\btees?\b/.test(shownLeaf) && !/\bsweatshirts?\b/.test(shownLeaf)) {
                   score -= 5;
+              }
+              if (wantsBlouse && /t-?shirts?|\btees?\b/.test(shownLeaf)) {
+                  score -= 10;
+              }
+              if (wantsBlouse && shownLeaf === 'blouses') {
+                  score += 6;
               }
               return { ...option, score };
           })
@@ -2206,20 +2253,292 @@
       }
   }
 
+  function readCategoryDisplay(el) {
+      if (!el) return '';
+      const direct = displayedFieldValue(el) || String(el.innerText || el.textContent || '').trim();
+      const chunks = [];
+      const push = (text) => {
+          const cleaned = String(text || '')
+              .replace(/[▸▶‣]/g, '>')
+              .replace(/\u00a0/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+          if (!cleaned || /^category$/i.test(cleaned)) return;
+          if (cleaned.length > 80) return;
+          chunks.push(cleaned);
+      };
+      push(direct);
+      let node = el;
+      for (let depth = 0; depth < 6 && node; depth++) {
+          let sib = node.previousElementSibling;
+          while (sib) {
+              push(sib.innerText || sib.textContent || '');
+              sib = sib.previousElementSibling;
+          }
+          sib = node.nextElementSibling;
+          while (sib) {
+              push(sib.innerText || sib.textContent || '');
+              sib = sib.nextElementSibling;
+          }
+          const parent = node.parentElement;
+          if (parent) {
+              for (const child of Array.from(parent.children || []).slice(0, 12)) {
+                  if (child === el || child.contains?.(el)) continue;
+                  const text = String(child.innerText || child.textContent || '').trim();
+                  if (/tops|blouses?|shirts?|women|men|category/i.test(text)) push(text);
+              }
+          }
+          node = parent;
+      }
+      const unique = [];
+      for (const chunk of chunks) {
+          const norm = normalizeText(chunk);
+          if (!unique.some((item) => normalizeText(item) === norm)) unique.push(chunk);
+      }
+      if (!unique.length) return direct || '';
+      // Prefer the longest breadcrumb-like chunk; fall back to joined parts.
+      const breadcrumb = unique.find((item) => /[>‣]/.test(item) || /tops\s*&\s*blouses/i.test(item))
+          || unique.slice().sort((a, b) => b.length - a.length)[0];
+      if (breadcrumb && /tops|blouses?|shirts?/i.test(breadcrumb)) return breadcrumb;
+      return unique.join(' > ');
+  }
+
   function categoryDisplayMatches(shown, path) {
-      const shownNorm = normalizeText(String(shown || '').replace(/[▸▶]/g, ' '));
+      const shownNorm = normalizeText(String(shown || '').replace(/[▸▶‣\*]/g, ' '));
       const segs = String(path || '').split('>').map((part) => normalizeText(part)).filter(Boolean);
-      return segs.length > 0 && segs.every((seg) => shownNorm.includes(seg));
+      if (!segs.length || !shownNorm) return false;
+      const shownParts = String(shown || '')
+          .split(/[>‣▸▶]/)
+          .map((part) => normalizeText(part.replace(/^category$/i, '')))
+          .filter(Boolean);
+      const shownLeaf = shownParts[shownParts.length - 1] || shownNorm;
+      const wantLeaf = segs[segs.length - 1];
+      const leafAliases = categorySegmentNames(wantLeaf).map((name) => normalizeText(name));
+      const hayHas = (seg) => {
+          const token = normalizeText(seg);
+          if (!token) return false;
+          if (shownNorm === token || shownParts.includes(token)) return true;
+          if (shownNorm.endsWith(token) || shownNorm.startsWith(token)) return true;
+          try {
+              return new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(token)}(?:[^a-z0-9]|$)`).test(shownNorm);
+          } catch (_) {
+              return shownNorm.includes(token);
+          }
+      };
+      const leafInHay = !wantLeaf || hayHas(wantLeaf) || leafAliases.includes(shownLeaf)
+          || leafAliases.some((alias) => shownLeaf === alias);
+      const teeLeaf = /t-?shirts?|\btees?\b/.test(shownLeaf)
+          || /t[\s-]?shirts?\s*$/.test(shownNorm)
+          || /tees?\s*$/.test(shownNorm)
+          || /\bt\s+shirts?\b/.test(shownNorm);
+      if (/\bblouses?\b/.test(wantLeaf)) {
+          if (teeLeaf) return false;
+          // Require a terminal blouse leaf — parent "Tops & Blouses" alone is not enough.
+          const withoutParent = shownNorm.replace(/tops\s*&\s*blouses/g, 'X');
+          const terminalBlouse = shownLeaf === 'blouse' || shownLeaf === 'blouses'
+              || /(?:^|[^a-z0-9])blouses?$/.test(withoutParent);
+          if (!terminalBlouse) return false;
+      } else if (!leafInHay) {
+          return false;
+      }
+      if (segs.length >= 2) {
+          const wantParent = segs[segs.length - 2];
+          if (hayHas(wantParent) || shownNorm.includes(wantParent)) return true;
+      }
+      return segs.every((seg) => hayHas(seg) || leafAliases.includes(seg));
+  }
+
+  function queryDeepAll(selector, root) {
+      const out = [];
+      const visit = (node) => {
+          if (!node || !node.querySelectorAll) return;
+          try { out.push(...node.querySelectorAll(selector)); } catch (_) {}
+          try {
+              for (const el of node.querySelectorAll('*')) {
+                  if (el.shadowRoot) visit(el.shadowRoot);
+              }
+          } catch (_) {}
+      };
+      visit(root || document);
+      try {
+          for (const iframe of (root || document).querySelectorAll('iframe')) {
+              try {
+                  const doc = iframe.contentDocument;
+                  if (doc) visit(doc);
+              } catch (_) {}
+          }
+      } catch (_) {}
+      return out;
+  }
+
+  function isGeneralCategoryControl(el) {
+      if (!el) return false;
+      if (el.id === 'categoryV2') return true;
+      const id = String(el.id || '');
+      if (/^generalDetails/i.test(id)) return true;
+      try {
+          if (el.closest && el.closest('#categoryV2, [id^="generalDetails."]')) return true;
+      } catch (_) {}
+      return false;
+  }
+
+  function labelledByText(el) {
+      const ids = String(el?.getAttribute?.('aria-labelledby') || '').trim();
+      if (!ids) return '';
+      return ids.split(/\s+/).map((id) => {
+          const node = document.getElementById(id);
+          return (node && (node.innerText || node.textContent)) || '';
+      }).join(' ');
+  }
+
+  function findCategoryControlNearHeading(marketplace) {
+      const headings = queryDeepAll('h1, h2, h3, h4, h5, h6, [role="heading"], label, legend, p, span');
+      for (const heading of headings) {
+          const text = normalizeText(String(heading.innerText || heading.textContent || '').split('\n')[0]);
+          if (text !== 'category') continue;
+          if (isGeneralCategoryControl(heading)) continue;
+          const section = heading.closest
+              ? heading.closest(`section, [id*="${marketplace}"], [class*="Field"], [class*="MuiFormControl"], [class*="MuiAutocomplete"], form`)
+              : heading.parentElement;
+          const scope = section || heading.parentElement;
+          if (!scope || !scope.querySelectorAll) continue;
+          const candidates = Array.from(scope.querySelectorAll(
+              'button, [role="button"], [role="combobox"], [role="category-input"]'
+          )).filter((el) => !isGeneralCategoryControl(el));
+          const visible = candidates.find((el) => isVisibleElement(el) || isAttachedElement(el));
+          if (visible) return visible;
+          const sibling = heading.nextElementSibling;
+          if (sibling) {
+              if (sibling.matches?.('button, [role="button"], [role="combobox"], [role="category-input"]')
+                  && !isGeneralCategoryControl(sibling)) {
+                  return sibling;
+              }
+              const nested = sibling.querySelector?.('button, [role="button"], [role="combobox"], [role="category-input"]');
+              if (nested && !isGeneralCategoryControl(nested)) return nested;
+          }
+      }
+      return null;
+  }
+
+  function nearestMarketplaceCategoryClickable(start) {
+      if (!start) return null;
+      let sib = start.nextElementSibling;
+      while (sib) {
+          if (sib.matches?.('button, [role="button"], [role="combobox"], [role="category-input"]')
+              && !isGeneralCategoryControl(sib)) {
+              return visibleDropdownControl(sib) || sib;
+          }
+          const nested = sib.querySelector?.('[role="category-input"], [role="combobox"], [aria-haspopup="listbox"], button, [role="button"]');
+          if (nested && !isGeneralCategoryControl(nested)) return visibleDropdownControl(nested) || nested;
+          sib = sib.nextElementSibling;
+      }
+      let node = start;
+      for (let depth = 0; depth < 10 && node && node !== document.body; depth++) {
+          const nodes = node.querySelectorAll
+              ? node.querySelectorAll('[role="category-input"], [role="combobox"], [aria-haspopup="listbox"], button, [role="button"]')
+              : [];
+          const following = Array.from(nodes).filter((el) => {
+              if (isGeneralCategoryControl(el) || el === start) return false;
+              const label = String(el.getAttribute?.('aria-label') || el.getAttribute?.('title') || '');
+              if (/clear|remove|delete/i.test(label)) return false;
+              if (start.compareDocumentPosition && (start.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) === 0) {
+                  return false;
+              }
+              return true;
+          });
+          const named = following.find((el) => {
+              const text = normalizeText(el.innerText || el.textContent || el.getAttribute?.('aria-label') || '');
+              return text === 'category' || text.startsWith('category') || /\bwomen\b/.test(text);
+          });
+          if (named) return visibleDropdownControl(named) || named;
+          if (following[0]) return visibleDropdownControl(following[0]) || following[0];
+          node = node.parentElement;
+      }
+      return null;
   }
 
   function findMarketplaceCategoryControl(marketplace) {
+      const prefix = `listings.${marketplace}.overrides.category`;
+      const exactIds = [
+          `${prefix}V2`,
+          `${prefix}V2-label`,
+          `${prefix}V2-formGroupLabel`,
+          `${prefix}V2-formGroup`,
+          prefix,
+          `${prefix}-label`,
+          `${prefix}-formGroupLabel`,
+          `listings.${marketplace}.category`,
+      ];
+      for (const id of exactIds) {
+          const el = document.getElementById(id);
+          if (!el || isGeneralCategoryControl(el)) continue;
+          const clickable = nearestMarketplaceCategoryClickable(el)
+              || visibleDropdownControl(el)
+              || el.closest('button, [role="button"], [role="combobox"], [role="category-input"], .MuiAutocomplete-root, .MuiFormControl-root');
+          if (clickable && !isGeneralCategoryControl(clickable)) return clickable;
+          if (el && !isGeneralCategoryControl(el)) return el;
+      }
       const labeled = findInputByExactLabel('Category', isMarketplaceInput(marketplace));
       if (labeled) return labeled;
-      return resolveMarketplaceField(marketplace, ['category'], [
+      const resolved = resolveMarketplaceField(marketplace, ['category'], [
           `#listings\\.${marketplace}\\.overrides\\.category`,
           `#listings\\.${marketplace}\\.overrides\\.categoryV2`,
           `#listings\\.${marketplace}\\.category`,
       ]);
+      if (resolved) return resolved;
+      const headingHit = findCategoryControlNearHeading(marketplace);
+      if (headingHit) return headingHit;
+      const candidates = queryDeepAll(
+          'button, [role="button"], [role="combobox"], [role="category-input"], [aria-label="Category"]'
+      );
+      const matches = [];
+      for (const btn of candidates) {
+          if (isGeneralCategoryControl(btn)) continue;
+          const aria = normalizeText(btn.getAttribute('aria-label') || btn.getAttribute('title') || '');
+          const labelled = normalizeText(labelledByText(btn));
+          const text = normalizeText(btn.innerText || btn.textContent || '');
+          const looksNamed = aria === 'category' || aria.startsWith('category ')
+              || labelled === 'category' || labelled.startsWith('category ')
+              || text === 'category' || text.startsWith('category ');
+          const looksBreadcrumb = text.length < 180
+              && /\bwomen\b|\bmen\b/.test(text)
+              && /tops|blouses|shirts|tees/.test(text);
+          if (!looksNamed && !looksBreadcrumb) continue;
+          if (!isVisibleElement(btn) && !isAttachedElement(btn)) continue;
+          matches.push(btn);
+      }
+      return matches.find((btn) => /women|men|tops|blouses|shirts|tees/i.test(btn.innerText || ''))
+          || matches[0]
+          || findMarketplaceCategoryBreadcrumb(marketplace);
+  }
+
+  function findMarketplaceCategoryBreadcrumb(marketplace) {
+      const nodes = Array.from(document.querySelectorAll(
+          'button, [role="button"], [role="combobox"], [role="category-input"], [aria-label="Category"], [tabindex="0"], div'
+      ));
+      const scored = [];
+      for (const el of nodes) {
+          if (!isVisibleElement(el)) continue;
+          if (el.id === 'categoryV2') continue;
+          const text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!text || text.length > 180) continue;
+          if (!/\bwomen\b|\bmen\b/i.test(text)) continue;
+          if (!/tops|blouses|shirts|tees/i.test(text)) continue;
+          scored.push(el);
+      }
+      scored.sort((a, b) => String(a.innerText || '').length - String(b.innerText || '').length);
+      const leaf = scored[0];
+      if (!leaf) return null;
+      return leaf.closest('button, [role="button"], [role="combobox"], [role="category-input"]') || leaf;
+  }
+
+  async function waitForMarketplaceCategoryControl(marketplace, attempts = 40) {
+      for (let i = 0; i < attempts; i++) {
+          const el = findMarketplaceCategoryControl(marketplace);
+          if (el) return el;
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      return findMarketplaceCategoryControl(marketplace);
   }
 
   function findGeneralCategoryControl() {
@@ -2230,6 +2549,47 @@
           if (/^listings\./i.test(id)) return false;
           return /category/i.test(id) || el.getAttribute('role') === 'combobox' || el.tagName === 'BUTTON';
       });
+  }
+
+  function isGeneralSizeValueControl(el) {
+      if (!el || isSizeScaleControl(el)) return false;
+      const id = String(el.id || el.name || '');
+      if (/^listings\./i.test(id)) return false;
+      return true;
+  }
+
+  function findGeneralSizeControl() {
+      const hashed = queryByRecordedSelector(VENDOO_SELECTORS.size)
+          || document.querySelector('[id="generalDetails.size.option.value"]')
+          || document.querySelector('[name="generalDetails.size.option.value"]')
+          || document.querySelector('[id*="generalDetails.size.option"]')
+          || document.querySelector('[name*="generalDetails.size.option"]');
+      if (hashed && isGeneralSizeValueControl(hashed)) {
+          return visibleDropdownControl(hashed) || hashed;
+      }
+
+      const aria = document.querySelector('[aria-label="US Size"], [aria-label="Size"]');
+      if (aria && isGeneralSizeValueControl(aria)) {
+          return visibleDropdownControl(aria) || aria;
+      }
+
+      const labeled = findInputByExactLabel('US Size', isGeneralSizeValueControl)
+          || findInputByExactLabel('Size', isGeneralSizeValueControl);
+      if (labeled) return visibleDropdownControl(labeled) || labeled;
+
+      const patched = findControlForPatch({ field: 'Size', selector: VENDOO_SELECTORS.size });
+      if (patched && isGeneralSizeValueControl(patched)) return patched;
+      return null;
+  }
+
+  async function waitForGeneralSizeControl(attempts = 10) {
+      for (let i = 0; i < attempts; i++) {
+          if (i === 1 || i === 4) await expandOptionalFields();
+          const el = findGeneralSizeControl();
+          if (el) return el;
+          await sleep(CONFIG.SLEEP_RETRY);
+      }
+      return findGeneralSizeControl();
   }
 
   async function waitForGeneralCategoryControl(attempts = 12) {
@@ -2261,7 +2621,7 @@
           return { ok: false, filled: false, error: 'Category button not found' };
       }
 
-      const alreadyShown = displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '';
+      const alreadyShown = readCategoryDisplay(catBtn);
       if (categoryDisplayMatches(alreadyShown, categoryPath)) {
           log(`Category already set: "${alreadyShown}"`);
           return { ok: true, filled: true, already: true, result: alreadyShown };
@@ -2279,7 +2639,8 @@
       await resetCategoryPickerToRoot();
       searchInput = document.querySelector('input[role="category-search-field"]') || searchInput;
       if (searchInput) {
-          const query = segments.slice(-2).join(' ');
+          const leaf = segments[segments.length - 1] || '';
+          const query = /\bblouses?\b/i.test(leaf) ? leaf : segments.slice(-2).join(' ');
           log(`Searching categories for: "${query}"`);
           searchInput.focus();
           await clearInput(searchInput);
@@ -2353,6 +2714,7 @@
                   'dress shirt': 'dress shirts',
                   'button-down': 'casual button-down shirts',
                   'button down': 'casual button-down shirts',
+                  'blouse': 'blouses',
                   'henley': 'henleys',
                   'tank': 'tank tops',
                   'tank top': 'tank tops',
@@ -2361,16 +2723,21 @@
                   'long sleeve': 'long sleeve t-shirts',
               };
 
+              const wantLeaf = segments[segments.length - 1] || '';
               let targetType = '';
-              for (const [key, val] of Object.entries(TYPE_MAP)) {
-                  if (typeLower.includes(key)) {
-                      targetType = val;
-                      break;
+              if (/\bblouses?\b/i.test(wantLeaf) || /\bblouse/.test(typeLower)) {
+                  targetType = 'Blouse';
+              } else {
+                  for (const [key, val] of Object.entries(TYPE_MAP)) {
+                      if (typeLower.includes(key)) {
+                          targetType = val;
+                          break;
+                      }
                   }
               }
 
               const rankedChildren = rankCategorySearchResults(children, [
-                  ...segments,
+                  wantLeaf,
                   targetType || type,
               ].filter(Boolean));
               const childOption = rankedChildren[0] || null;
@@ -2496,21 +2863,50 @@
       return { ok: true, query: q, path: shown, matches };
   }
 
+  function normalizeMercariCategoryPath(data) {
+      const specs = data?.mercari_specifics;
+      const explicit = specs && (specs.category_path || specs.categoryPath);
+      if (explicit) {
+          return Array.isArray(explicit) ? explicit.map((part) => String(part || '').trim()).filter(Boolean).join(' > ') : String(explicit).trim();
+      }
+      const categoryPath = String(data?.category_path || '').trim();
+      // Leftover fills pass the Mercari path directly in category_path.
+      if (/tops\s*&\s*blouses/i.test(categoryPath) && /\bblouses?\b/i.test(categoryPath.split('>').pop() || '')) {
+          return 'Women > Tops & Blouses > Blouse';
+      }
+      if (/tops\s*&\s*blouses/i.test(categoryPath) && /t-?shirts?/i.test(categoryPath.split('>').pop() || '')) {
+          return 'Women > Tops & Blouses > T-shirts';
+      }
+      const hay = categoryHaystack(data, categoryPath);
+      const hayLower = normalizeText(hay);
+      const isWomen = /\bwomen/.test(hayLower);
+      const { isTee, isBlouse } = blouseVsTeeSignals(hayLower);
+      if (isWomen && isBlouse) return 'Women > Tops & Blouses > Blouse';
+      if (isWomen && isTee) return 'Women > Tops & Blouses > T-shirts';
+      return categoryPath;
+  }
+
   async function fillMarketplaceCategory(marketplace, data) {
       const categoryPath = marketplace === 'poshmark'
           ? normalizePoshmarkCategoryPath(data)
+          : marketplace === 'mercari'
+              ? normalizeMercariCategoryPath(data)
           : String(data?.category_path || '').trim();
       if (!categoryPath) {
           recordFill({ field: 'Category', status: 'skipped', reason: 'No value in listing' });
           return { status: 'skipped' };
       }
-      const catBtn = findMarketplaceCategoryControl(marketplace);
+      const catBtn = await waitForMarketplaceCategoryControl(marketplace);
       if (!catBtn) {
+          const ids = Array.from(document.querySelectorAll('[id*="category" i], [name*="category" i], [role="category-input"], [aria-label="Category"]'))
+              .map((el) => el.id || el.getAttribute('name') || el.getAttribute('role') || el.tagName)
+              .filter(Boolean)
+              .slice(0, 40);
           warn(`${marketplace} category field not found`);
           recordFill({
             field: 'Category',
             status: 'not_found',
-            reason: 'Category field not found',
+            reason: `Category field not found (${ids.join(', ') || 'no mercari/category ids'})`,
             value: categoryPath,
           });
           return { status: 'not_found' };
@@ -2518,12 +2914,12 @@
       const result = await fillCategoryPath(data, { catBtn, categoryPath });
       recordFill({
         field: 'Category',
-        status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed',
+        status: result.ok ? (result.already ? 'skipped' : (result.filled ? 'filled' : 'skipped')) : 'failed',
         reason: result.error || (result.already ? 'Already set' : ''),
         selector: selectorFor(catBtn, ''),
         value: categoryPath,
       });
-      return { status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed' };
+      return { status: result.ok ? (result.already ? 'skipped' : (result.filled ? 'filled' : 'skipped')) : 'failed' };
   }
 
   async function setGeneralCategoryOnly(data) {
@@ -2627,7 +3023,7 @@
           await fillDropdownField(sizeTypeEl, sizeTypeValue, 'Size Type');
       }
       if (data.size) {
-          const sizeEl = document.querySelector(VENDOO_SELECTORS.size);
+          const sizeEl = await waitForGeneralSizeControl();
           if (sizeEl) {
               await fillDropdownField(sizeEl, data.size, 'Size', true);
           } else {
@@ -3086,9 +3482,8 @@
 
       const specs = data.etsy_specifics || {};
       const ebaySpecifics = data.ebay_specifics || {};
-      const normalizedWhenMade = normalizeEtsyWhenMade(
-          specs.when_made || specs.whenMade || ebaySpecifics.yearManufactured
-      );
+      const approvedWhenMade = specs.when_made || specs.whenMade || '';
+      const normalizedWhenMade = approvedWhenMade ? normalizeEtsyWhenMade(approvedWhenMade) : '';
 
       await fillDropdownField(
           resolveMarketplaceField('etsy', ['primary color', 'color'], [
@@ -3119,7 +3514,80 @@
 
           await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whoMade', specs.who_made || specs.whoMade, 'Who Made');
           await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whatIsIt', specs.what_is || specs.whatIsIt, 'What Is It');
-          await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whenMade', normalizedWhenMade, 'When Made');
+          if (normalizedWhenMade) {
+              await fillDropdownField('#listings\\.etsy\\.marketplaceSpecifics\\.whenMade', normalizedWhenMade, 'When Made');
+          } else {
+              recordFill({
+                  field: 'When Made',
+                  status: 'skipped',
+                  reason: 'No approved when-made value; leaving blank rather than inventing a date',
+                  selector: '#listings.etsy.marketplaceSpecifics.whenMade',
+              });
+          }
+          const listingType = specs.listing_type || specs.listingType || '';
+          if (listingType) {
+              await fillDropdownField(
+                  '#listings\\.etsy\\.marketplaceSpecifics\\.listingType',
+                  listingType,
+                  'Listing Type'
+              );
+          }
+          const renewalOption = specs.renewal_option || specs.renewalOption || '';
+          if (renewalOption) {
+              await fillDropdownField(
+                  '#listings\\.etsy\\.marketplaceSpecifics\\.renewalOption',
+                  renewalOption,
+                  'Renewal Option'
+              );
+          }
+          const processingProfile =
+              specs.processing_time ||
+              specs.processingTime ||
+              specs.processingProfile ||
+              specs.processingProfilesAccountSpecific ||
+              '';
+          if (processingProfile) {
+              await fillDropdownField(
+                  resolveMarketplaceField('etsy', ['processing', 'ready to ship'], [
+                      '#listings\\.etsy\\.marketplaceSpecifics\\.processingProfilesAccountSpecific',
+                      '#listings\\.etsy\\.marketplaceSpecifics\\.processingTime',
+                  ]),
+                  processingProfile,
+                  'Processing Time'
+              );
+          } else if (/digital/i.test(String(listingType))) {
+              recordFill({
+                  field: 'Processing Time',
+                  status: 'skipped',
+                  reason: 'Digital Item — no physical processing/shipping profile required',
+              });
+          }
+          const shippingProfile =
+              specs.shipping_template ||
+              specs.shippingTemplate ||
+              specs.shippingProfile ||
+              specs.shippingProfilesAccountSpecific ||
+              '';
+          if (shippingProfile) {
+              await fillDropdownField(
+                  resolveMarketplaceField('etsy', ['shipping profile', 'shipping'], [
+                      '#listings\\.etsy\\.marketplaceSpecifics\\.shippingProfilesAccountSpecific',
+                      '#listings\\.etsy\\.marketplaceSpecifics\\.shippingTemplate',
+                  ]),
+                  shippingProfile,
+                  'Shipping Profile'
+              );
+          } else if (/digital/i.test(String(listingType))) {
+              recordFill({
+                  field: 'Shipping Profile',
+                  status: 'skipped',
+                  reason: 'Digital Item — no physical shipping profile required',
+              });
+          }
+          const listingStateEl = document.querySelector('#listings\\.etsy\\.marketplaceSpecifics\\.listingState');
+          if (listingStateEl) {
+              await fillDropdownField(listingStateEl, 'Draft Listing', 'Listing State');
+          }
           
           const etsyTags = uniqueStrings([
               ...listingTagValues({ tags: specs.tags }),
@@ -3285,8 +3753,8 @@
       return value == null ? '' : String(value).trim();
   }
 
-  function listingTagValues(data) {
-      const raw = data?.tags;
+  function listingTagValues(data, extra) {
+      const raw = extra != null ? extra : data?.tags;
       if (!raw) return [];
       return uniqueStrings((Array.isArray(raw) ? raw : String(raw).split(','))
           .map((tag) => String(tag).trim())
@@ -3390,8 +3858,8 @@
       await fillDropdownField(el, size, 'Size', true);
   }
 
-  async function fillMarketplaceTagField(marketplace, data, fieldName, labelPatterns, selectors = []) {
-      const tags = listingTagValues(data);
+  async function fillMarketplaceTagField(marketplace, data, fieldName, labelPatterns, selectors = [], extraTags) {
+      const tags = listingTagValues(data, extraTags);
       const el = resolveMarketplaceField(marketplace, labelPatterns, selectors);
       if (!tags.length) {
           recordFill({
@@ -3457,7 +3925,8 @@
           [
               '#listings\\.poshmark\\.marketplaceSpecifics\\.styleTags',
               '#listings\\.poshmark\\.overrides\\.styleTags',
-          ]
+          ],
+          data?.poshmark_specifics?.styleTags || data?.poshmark_specifics?.tags
       );
       
       if (data.poshmark_specifics) {
@@ -3555,8 +4024,9 @@
       for (const candidate of candidates) {
           log(`Trying Mercari Brand: "${candidate}"`);
           const result = await fillDropdownField(el, candidate, 'Mercari Brand', true);
-          if (result.status === 'filled') {
-              log(`  ✓ Mercari Brand: "${el.value || candidate}"`);
+          const shown = displayedFieldValue(el);
+          if (result.status === 'filled' && optionMatchesValue(shown, candidate, true) && !/^select\b/i.test(shown || '')) {
+              log(`  ✓ Mercari Brand: "${shown || candidate}"`);
               await setMercariNoBrandChecked(false);
               return;
           }
@@ -3763,6 +4233,12 @@
           // Marketplace specifics — sequential so dropdowns don't steal each other's menus
           await fillDropdownField(findDepopField(['source'], '#listings\\.depop\\.marketplaceSpecifics\\.source'), specs.source, 'Source');
           await fillDropdownField(findDepopField(['age'], '#listings\\.depop\\.marketplaceSpecifics\\.age'), specs.age, 'Age');
+          await fillDropdownField(
+              findDepopField(['parcel size', 'parcel'], '#listings\\.depop\\.marketplaceSpecifics\\.parcelSize'),
+              specs.parcelSize || specs.parcel_size,
+              'Parcel Size',
+              true
+          );
           
           // Style (multi-value)
           if (specs.style) {
@@ -3942,6 +4418,11 @@
           return { ok: true, count: 0 };
       }
 
+      const ready = await waitForListingFormReady();
+      if (!ready.ok) {
+          return { ok: false, error: ready.error || 'Vendoo listing form did not finish loading' };
+      }
+
       log(`Uploading ${files.length} photos from Studio...`);
 
       let imageInput = null;
@@ -4078,10 +4559,19 @@
               return { ok: false, error: 'Save did not finish' };
           }
 
-          const itemId = extractItemId();
-          const vendooUrl = itemId ? `https://web.vendoo.co/app/item/${itemId}` : window.location.href;
+          let itemId = extractItemId();
+          for (let i = 0; i < 15 && !itemId; i++) {
+              await sleep(500);
+              itemId = extractItemId();
+          }
+          if (!itemId) {
+              warn('Save finished but the URL is still /item/new');
+              return { ok: false, error: 'Save did not produce a durable Vendoo item ID' };
+          }
+          const vendooUrl = `https://web.vendoo.co/app/item/${itemId}`;
 
-          log(`Save complete. Item ID: ${itemId || 'unknown'}`);
+          log(`Save complete. Item ID: ${itemId}`);
+          await waitForPostSaveForm(20000);
           return { ok: true, vendoo_item_id: itemId, vendoo_url: vendooUrl };
       }
 
@@ -4091,42 +4581,97 @@
           await sleep(CONFIG.SLEEP_MEDIUM);
           target.click();
           await sleep(CONFIG.SLEEP_LONG * 3);
-          const itemId = extractItemId();
-          return { ok: true, vendoo_item_id: itemId, vendoo_url: window.location.href };
+          let itemId = extractItemId();
+          for (let i = 0; i < 15 && !itemId; i++) {
+              await sleep(500);
+              itemId = extractItemId();
+          }
+          if (!itemId) {
+              return { ok: false, error: 'Save did not produce a durable Vendoo item ID' };
+          }
+          return { ok: true, vendoo_item_id: itemId, vendoo_url: `https://web.vendoo.co/app/item/${itemId}` };
       }
 
       warn('Save button not found');
       return { ok: false, error: 'Save button not found' };
   }
 
+  function auditValuesAgree(expected, observed) {
+      if (expected == null || expected === '') return true;
+      if (Array.isArray(expected)) {
+          const want = expected.map((item) => normalizeComparableText(item)).filter(Boolean).sort();
+          const got = (Array.isArray(observed) ? observed : String(observed || '').split(/[,|]/))
+              .map((item) => normalizeComparableText(item)).filter(Boolean).sort();
+          return want.every((item) => got.includes(item));
+      }
+      return normalizeComparableText(expected) === normalizeComparableText(observed);
+  }
+
   async function auditGeneralForm(data) {
       log('Auditing general form...');
+      await activateMarketplaceSection('general');
+      if (!(await waitForMarketplaceFormMounted('general'))) {
+          return {
+              ok: false,
+              error: 'General form did not mount for audit',
+              fields: {},
+              mismatches: ['General form did not mount for audit'],
+              photos: 0,
+              statuses: {},
+          };
+      }
       const fields = {};
+      const mismatches = [];
 
       const checks = [
           { key: 'title', selector: '#generalDetails\\.title', label: 'Title' },
           { key: 'description', selector: '#generalDetails\\.description', label: 'Description' },
           { key: 'price', selector: '#generalDetails\\.price', label: 'Price' },
           { key: 'quantity', selector: '#generalDetails\\.quantity', label: 'Quantity' },
-          { key: 'category', selector: '#categoryV2, [role="category-input"]', label: 'Category' },
+          { key: 'brand', selector: VENDOO_SELECTORS.brand, label: 'Brand' },
           { key: 'size', selector: '#generalDetails\\.size\\.option\\.value', label: 'Size' },
       ];
 
+      await expandOptionalFields();
       for (const check of checks) {
-          const el = document.querySelector(check.selector);
-          const expected = data[check.key];
-          const observed = el ? el.value : null;
-          const state = expected != null && observed != null && String(observed) === String(expected)
-              ? 'audited_complete' : 'attempted_unverified';
-
-          fields[check.key] = { state, expected: String(expected ?? ''), observed: String(observed ?? '') };
+          let el = document.querySelector(check.selector);
+          if (check.key === 'size') {
+              el = await waitForGeneralSizeControl();
+          }
+          const expected = data?.[check.key];
+          const observed = el ? (readPersistedControlValue(el) || displayedFieldValue(el) || null) : null;
+          const ok = auditValuesAgree(expected, observed);
+          const state = ok ? 'audited_complete' : (el ? 'mismatch' : 'not_found');
+          fields[check.key] = { state, expected: expected ?? '', observed: observed ?? '' };
+          if (!ok && expected != null && expected !== '') {
+              mismatches.push(`${check.label} expected "${expected}" but found "${observed ?? ''}"`);
+          }
       }
 
-      const allOk = Object.values(fields).every(f => f.state === 'audited_complete');
-      if (!allOk) {
-          warn('Some audit checks are unverified - continuing');
+      const categoryShown = controlValue(VENDOO_SELECTORS.category);
+      if (data?.category_path && categoryShown) {
+          const ok = normalizeComparableText(categoryShown).includes(normalizeComparableText(String(data.category_path).split('>').pop()));
+          fields.category = { state: ok ? 'audited_complete' : 'mismatch', expected: data.category_path, observed: categoryShown };
+          if (!ok) mismatches.push(`Category expected "${data.category_path}" but found "${categoryShown}"`);
       }
-      return { ok: true, fields };
+
+      const photos = scrapeListingImageUrls();
+      const expectedPhotos = Array.isArray(data?._expected_photos) ? data._expected_photos.length : (data?._expected_photo_count || 0);
+      fields.photos = { state: expectedPhotos && photos.length !== expectedPhotos ? 'mismatch' : 'audited_complete', expected: expectedPhotos, observed: photos.length };
+      if (expectedPhotos && photos.length !== expectedPhotos) {
+          mismatches.push(`Photos expected ${expectedPhotos} but found ${photos.length}`);
+      }
+
+      const statuses = scrapeMarketplaceStatusesFromDom();
+      const listed = publishedMarketplaceStatuses(statuses);
+      fields.publication = { state: listed.length ? 'mismatch' : 'audited_complete', expected: 'NOT LISTED', observed: statuses };
+      if (listed.length) {
+          mismatches.push(`Publication status is not draft: ${listed.map(([id, status]) => `${id}=${status}`).join(', ')}`);
+      }
+
+      const allOk = mismatches.length === 0;
+      if (!allOk) warn(`General audit failed: ${mismatches.join('; ')}`);
+      return { ok: allOk, fields, mismatches, photos: photos.length, statuses };
   }
 
   async function fillMarketplaceForm(data, platform) {
@@ -4170,19 +4715,39 @@
       }
   }
 
-  function marketplaceSectionButtonMatches(btn, platform) {
-      const wanted = normalizeText(platform);
+  function marketplaceNavBareLabel(text) {
+      // Do not use normalizeText() here: it splits camelCase, so "eBay" becomes "e bay".
+      return String(text || '')
+          .toLowerCase()
+          .replace(/[_-]+/g, ' ')
+          .replace(/\b(beta|new|alpha)\b/g, ' ')
+          .replace(/\b(not listed|incomplete|complete|listed|failed|draft|sold|pending)\b/g, ' ')
+          .replace(/[^\w\s]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+  }
+
+  function marketplaceNavLabelMatches(text, platform) {
+      const wanted = String(platform || '').toLowerCase().trim();
       if (!wanted) return false;
-      const labelled = (btn.getAttribute && (btn.getAttribute('aria-label') || btn.getAttribute('title'))) || '';
-      const firstLine = normalizeText((btn.innerText || btn.textContent || labelled || '').split('\n')[0]);
-      if (!firstLine || firstLine.length > 32) return false;
-      // Strip product badges so "eBay BETA" still matches ebay.
-      const bare = firstLine.replace(/\b(beta|new|alpha)\b/g, ' ').replace(/\s+/g, ' ').trim();
+      const bare = marketplaceNavBareLabel(text);
       if (!bare) return false;
-      if (wanted === 'general') return bare === 'general' || bare === 'vendoo';
-      // Exact / prefix only — bare.includes('ebay') must not match random copy,
-      // and we must not confuse adjacent marketplace tabs after discovery.
+      if (wanted === 'general' || wanted === 'vendoo') {
+          return bare === 'general' || bare === 'vendoo' || bare.startsWith('general ') || bare.startsWith('vendoo ');
+      }
       return bare === wanted || bare.startsWith(`${wanted} `);
+  }
+
+  function marketplaceSectionButtonMatches(btn, platform) {
+      if (!btn) return false;
+      const labelled = (btn.getAttribute && (
+          btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.getAttribute('data-marketplace') || ''
+      )) || '';
+      const chunks = [
+          labelled,
+          ...(String(btn.innerText || btn.textContent || '').split('\n')),
+      ];
+      return chunks.some((chunk) => marketplaceNavLabelMatches(chunk, platform));
   }
 
   function marketplaceFormMounted(marketplace) {
@@ -4196,7 +4761,7 @@
       return Boolean(document.querySelector(`[id^="${prefix}"], [name^="${prefix}"]`));
   }
 
-  async function waitForMarketplaceFormMounted(marketplace, attempts = 12) {
+  async function waitForMarketplaceFormMounted(marketplace, attempts = 20) {
       for (let attempt = 0; attempt < attempts; attempt++) {
           if (marketplaceFormMounted(marketplace)) return true;
           await sleep(CONFIG.SLEEP_LONG);
@@ -4227,18 +4792,59 @@
       // Mounted alone is not enough — sibling marketplace forms stay in the DOM
       // after schema discovery. Require the panel to be effectively visible too.
       if (!(await waitForMarketplaceFormMounted(platform))) return false;
-      for (let attempt = 0; attempt < 8; attempt++) {
+      for (let attempt = 0; attempt < 12; attempt++) {
           if (marketplaceSectionLooksActive(platform)) return true;
           await sleep(CONFIG.SLEEP_RETRY);
       }
       return marketplaceSectionLooksActive(platform);
   }
 
+  function marketplaceStatusIsPublished(status) {
+      const s = String(status || '').replace(/\s+/g, ' ').trim().toUpperCase();
+      if (!s) return false;
+      if (s.includes('NOT LISTED')) return false;
+      if (['DRAFT', 'INCOMPLETE', 'COMPLETE'].includes(s)) return false;
+      return /\b(LISTED|LIVE|ACTIVE|SOLD|PUBLISHED)\b/.test(s);
+  }
+
+  function publishedMarketplaceStatuses(statuses) {
+      return Object.entries(statuses || {}).filter(([, status]) => marketplaceStatusIsPublished(status));
+  }
+
+  function marketplaceStatusConfirmsDraft(status) {
+      const s = String(status || '').replace(/\s+/g, ' ').trim().toUpperCase();
+      return ['NOT LISTED', 'DRAFT', 'DRAFT LISTING', 'INCOMPLETE', 'COMPLETE'].includes(s);
+  }
+
+  function checkDraftSafety(platforms) {
+      const statuses = scrapeMarketplaceStatusesFromDom();
+      const listed = publishedMarketplaceStatuses(statuses);
+      if (listed.length) {
+          return {
+              ok: false,
+              error: `Refusing to update a published Vendoo item: ${listed.map(([id, status]) => `${id}=${status}`).join(', ')}`,
+              statuses,
+          };
+      }
+      const selected = Array.isArray(platforms)
+          ? platforms.map((item) => String(item || '').toLowerCase()).filter(Boolean)
+          : [];
+      const required = selected.length ? selected : ['ebay', 'etsy', 'poshmark', 'mercari', 'depop'];
+      const unverified = required.filter((platform) => !marketplaceStatusConfirmsDraft(statuses[platform]));
+      if (!Object.keys(statuses).length || unverified.length) {
+          return {
+              ok: false,
+              error: unverified.length
+                  ? `Could not verify draft status for: ${unverified.join(', ')}`
+                  : 'Could not verify that the existing Vendoo item is a draft',
+              statuses,
+          };
+      }
+      return { ok: true, statuses };
+  }
+
   function marketplaceNameToId(name) {
-      const n = normalizeText(name);
-      if (!n) return null;
-      // Strip trailing badges like "vinted beta" from the name line.
-      const bare = n.replace(/\b(beta|new|alpha)\b/g, ' ').replace(/\s+/g, ' ').trim();
+      const bare = marketplaceNavBareLabel(name);
       if (!bare) return null;
       if (bare === 'vendoo' || bare === 'general') return 'general';
       const known = [
@@ -4246,7 +4852,7 @@
           'shopify', 'vinted', 'whatnot', 'sellwild', 'grailed', 'vestiaire', 'kidizen',
       ];
       for (const id of known) {
-          if (bare === id || bare.includes(id)) return id;
+          if (bare === id || bare.startsWith(`${id} `) || bare.includes(id)) return id;
       }
       return null;
   }
@@ -4255,7 +4861,7 @@
       // Live labels from Vendoo's Step 1/2 nav: COMPLETE / NOT LISTED / LISTED / …
       // Ignore product badges like BETA — those are not listing statuses.
       const statuses = {};
-      const statusRe = /^(complete|not listed|listed|failed|draft|sold|pending|incomplete)$/i;
+      const statusRe = /^(complete|not listed|listed|live|active|published|failed|draft|sold|pending|incomplete)(?: listing)?$/i;
       const controls = Array.from(document.querySelectorAll(
           '[role="tab"], button, [role="button"], a, span[role="button"], li, [role="listitem"]'
       ));
@@ -4293,6 +4899,37 @@
       return statuses;
   }
 
+  async function waitForMarketplaceNavControls(timeoutMs = 20000) {
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+          const buttons = Array.from(document.querySelectorAll(
+              '[role="tab"], button, [role="button"], a, span[role="button"], [role="listitem"]'
+          ));
+          const named = buttons.filter((btn) => marketplaceNameToId(
+              btn.getAttribute?.('aria-label') || btn.innerText || btn.textContent || ''
+          ));
+          if (named.length >= 3) return true;
+          await sleep(400);
+      }
+      return false;
+  }
+
+  async function waitForPostSaveForm(timeoutMs = 25000) {
+      await waitForListingFormReady(Math.min(timeoutMs, 20000));
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+          const saving = Boolean(document.querySelector('[data-testid="save-item-button"][disabled]'));
+          const overlay = Array.from(document.querySelectorAll('.MuiBackdrop-root, [class*="MuiBackdrop-root"]'))
+              .some((el) => isVisibleElement(el) && Number(window.getComputedStyle(el).opacity || 1) > 0);
+          if (!saving && !overlay && listingFormMarkersPresent()) {
+              if (await waitForMarketplaceNavControls(1500)) return true;
+          }
+          await sleep(400);
+      }
+      await waitForMarketplaceNavControls(5000);
+      return listingFormMarkersPresent();
+  }
+
   async function activateMarketplaceSection(platform) {
       log(`Activating ${platform} marketplace section...`);
       // Always click the marketplace nav control. After schema discovery, sibling
@@ -4301,37 +4938,44 @@
       // filling_ebay a no-op and the job races ahead to Etsy.
       // Also force-click when the form never mounts (Refresh path: aria can say
       // eBay is selected while generalDetails is still showing).
+      // After save, Vendoo remounts the listing chrome; wait for nav buttons
+      // before treating a missing Depop tab as a hard failure.
+      await waitForPostSaveForm(20000);
       await closeOpenMenus();
 
       const clickMatching = async ({ force = false } = {}) => {
           const buttons = Array.from(document.querySelectorAll(
-              '[role="tab"], button, [role="button"], a, span[role="button"]'
+              '[role="tab"], button, [role="button"], a, span[role="button"], [role="listitem"]'
           ));
-          const match = buttons.find((btn) => isVisibleElement(btn) && marketplaceSectionButtonMatches(btn, platform));
-          if (!match) return false;
+          const matches = buttons.filter((btn) => marketplaceSectionButtonMatches(btn, platform));
+          if (!matches.length) return false;
+          matches.sort((a, b) => {
+              const av = isVisibleElement(a) ? 0 : 1;
+              const bv = isVisibleElement(b) ? 0 : 1;
+              if (av !== bv) return av - bv;
+              return (a.innerText || '').length - (b.innerText || '').length;
+          });
+          const match = matches[0].closest('button, [role="tab"], [role="button"], a') || matches[0];
           const label = (match.innerText || match.textContent || match.getAttribute?.('aria-label') || '').trim().split('\n')[0];
           log(`  Clicking "${label}" to activate ${platform}${force ? ' (force)' : ''}`);
-          match.scrollIntoView({ block: 'center', behavior: 'instant' });
+          match.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_SHORT);
           match.click();
-          await sleep(CONFIG.SLEEP_LONG * 2);
+          await sleep(CONFIG.SLEEP_LONG * 3);
           return true;
       };
 
-      if (await clickMatching()) {
-          if (await marketplaceSectionReady(platform)) return true;
-          // Form can stay unmounted while aria still looks selected — force re-click.
-          if (await clickMatching({ force: true }) && await marketplaceSectionReady(platform)) return true;
-          warn(`${platform} nav activated but form fields did not mount`);
-          return false;
-      }
-      await expandOptionalFields();
-      await sleep(CONFIG.SLEEP_LONG);
-      await closeOpenMenus();
-      if (await clickMatching({ force: true })) {
-          if (await marketplaceSectionReady(platform)) return true;
-          warn(`${platform} nav activated but form fields did not mount`);
-          return false;
+      const started = Date.now();
+      while (Date.now() - started < 30000) {
+          if (await clickMatching()) {
+              if (await marketplaceSectionReady(platform)) return true;
+              if (await clickMatching({ force: true }) && await marketplaceSectionReady(platform)) return true;
+              warn(`${platform} nav activated but form fields did not mount`);
+          }
+          await expandOptionalFields();
+          await sleep(CONFIG.SLEEP_LONG);
+          await closeOpenMenus();
+          await waitForMarketplaceNavControls(2000);
       }
       warn(`Could not activate ${platform} marketplace section`);
       return false;
@@ -4339,41 +4983,245 @@
 
   async function auditMarketplaceForm(data, platform) {
       log(`Auditing ${platform} marketplace...`);
+      const mp = String(platform || '').toLowerCase();
+      await waitForPostSaveForm(25000);
+      const activated = await activateMarketplaceSection(mp);
+      if (!activated || !marketplaceSectionLooksActive(mp)) {
+          const error = `Could not activate ${platform} marketplace section`;
+          warn(error);
+          return { ok: false, error, fields: { _error: error } };
+      }
+      await expandOptionalFields();
       const fields = {};
-      let foundAnyField = false;
+      const mismatches = [];
 
       const platformSelectors = {
-          ebay: ['#listings\\.ebay\\.overrides\\.brand', '#listings\\.ebay\\.overrides\\.price', '#listings\\.ebay\\.overrides\\.quantity'],
-          etsy: ['#listings\\.etsy\\.overrides\\.price', '#listings\\.etsy\\.overrides\\.quantity', '#listings\\.etsy\\.marketplaceSpecifics\\.whoMade'],
-          poshmark: ['#listings\\.poshmark\\.overrides\\.brand', '#listings\\.poshmark\\.overrides\\.price', '#listings\\.poshmark\\.overrides\\.quantity'],
-          mercari: ['#listings\\.mercari\\.overrides\\.brand', '#listings\\.mercari\\.overrides\\.price', '#listings\\.mercari\\.overrides\\.quantity'],
-          depop: ['#listings\\.depop\\.overrides\\.price', '#listings\\.depop\\.overrides\\.quantity', '#listings\\.depop\\.marketplaceSpecifics\\.source'],
+          ebay: [
+              ['brand', ['#listings\\.ebay\\.overrides\\.brand'], ['Brand'], data?.brand || data?.ebay_specifics?.brand],
+              ['price', [
+                  '#listings\\.ebay\\.marketplaceSpecifics\\.pricingFormatDetails\\.fixedPrice\\.buyItNowPrice',
+                  '#listings\\.ebay\\.overrides\\.price',
+              ], ['Buy It Now Price', 'Listing Price', 'Price'], data?.price],
+              ['quantity', ['#listings\\.ebay\\.overrides\\.quantity'], ['Quantity'], data?.quantity],
+          ],
+          etsy: [
+              ['price', ['#listings\\.etsy\\.overrides\\.price'], ['Price'], data?.price],
+              ['quantity', ['#listings\\.etsy\\.overrides\\.quantity'], ['Quantity'], data?.quantity],
+              ['whoMade', ['#listings\\.etsy\\.marketplaceSpecifics\\.whoMade'], ['Who made it', 'Who made'], data?.etsy_specifics?.who_made || data?.etsy_specifics?.whoMade],
+              ['whatIsIt', ['#listings\\.etsy\\.marketplaceSpecifics\\.whatIsIt'], ['What Is It', 'What is it'], data?.etsy_specifics?.what_is || data?.etsy_specifics?.whatIsIt],
+              ['whenMade', ['#listings\\.etsy\\.marketplaceSpecifics\\.whenMade'], ['When Was It Made', 'When Made'], data?.etsy_specifics?.when_made || data?.etsy_specifics?.whenMade],
+              ['listingType', ['#listings\\.etsy\\.marketplaceSpecifics\\.listingType'], ['Listing Type'], data?.etsy_specifics?.listing_type || data?.etsy_specifics?.listingType],
+              ['renewalOption', ['#listings\\.etsy\\.marketplaceSpecifics\\.renewalOption'], ['Renewal options', 'Renewal Option'], data?.etsy_specifics?.renewal_option || data?.etsy_specifics?.renewalOption],
+              ['listingState', ['#listings\\.etsy\\.marketplaceSpecifics\\.listingState'], ['Listing State'], 'Draft Listing'],
+          ],
+          poshmark: [
+              ['brand', ['#listings\\.poshmark\\.overrides\\.brand'], ['Brand'], data?.brand],
+              ['price', ['#listings\\.poshmark\\.overrides\\.price'], ['Price'], data?.price],
+              ['quantity', ['#listings\\.poshmark\\.overrides\\.quantity'], ['Quantity'], data?.quantity],
+              ['primaryColor', ['#listings\\.poshmark\\.overrides\\.primaryColor'], ['Primary Color', 'Color'], mapColor(data?.primaryColor || data?.color, 'poshmark')],
+          ],
+          mercari: [
+              ['brand', ['#listings\\.mercari\\.overrides\\.brand'], ['Brand'], data?.brand],
+              ['price', ['#listings\\.mercari\\.overrides\\.price'], ['Price'], data?.price],
+              ['quantity', ['#listings\\.mercari\\.overrides\\.quantity'], ['Quantity'], data?.quantity],
+          ],
+          depop: [
+              ['price', ['#listings\\.depop\\.overrides\\.price'], ['Price'], data?.price],
+              ['quantity', ['#listings\\.depop\\.overrides\\.quantity'], ['Quantity'], data?.quantity],
+              ['source', ['#listings\\.depop\\.marketplaceSpecifics\\.source'], ['Source'], data?.depop_specifics?.source],
+              ['age', ['#listings\\.depop\\.marketplaceSpecifics\\.age'], ['Age'], data?.depop_specifics?.age],
+              ['size', ['#listings\\.depop\\.overrides\\.size'], ['Size'], data?.size || data?.depop_specifics?.size],
+              ['parcelSize', ['#listings\\.depop\\.marketplaceSpecifics\\.parcelSize'], ['Parcel Size'], data?.depop_specifics?.parcel_size || data?.depop_specifics?.parcelSize],
+          ],
       };
 
-      const selectors = platformSelectors[platform.toLowerCase()] || [];
-      for (const sel of selectors) {
-          const el = document.querySelector(sel);
-          fields[sel] = { found: !!el, value: el ? (el.value || 'present') : 'missing' };
+      const selectors = platformSelectors[mp] || [];
+      let foundAnyField = false;
+      for (const [key, sels, labels, expected] of selectors) {
+          let el = null;
+          for (const sel of sels) {
+              el = queryByRecordedSelector(sel) || document.querySelector(sel);
+              if (el) break;
+          }
+          if (!el) {
+              for (const label of labels || []) {
+                  el = findInputByExactLabel(label, isMarketplaceInput(mp));
+                  if (el) break;
+              }
+          }
+          if (!el && key === 'category') {
+              el = findMarketplaceCategoryControl(mp);
+          }
+          if (!el && key === 'size') {
+              el = findMarketplaceSizeControl(mp);
+          }
+          if (el) el = visibleDropdownControl(el) || el;
+          const readObserved = (node) => {
+              if (!node) return '';
+              const chips = listedChipValues(node);
+              if (chips.length) return chips.length === 1 ? chips[0] : chips.join(', ');
+              const root = fieldControlRoot(node) || node.parentElement;
+              if (root) {
+                  const rootChips = listedChipValues(root);
+                  if (rootChips.length) return rootChips.length === 1 ? rootChips[0] : rootChips.join(', ');
+                  const remove = root.querySelector('[aria-label^="Remove "], [title^="Remove "]');
+                  const removeLabel = remove && (remove.getAttribute('aria-label') || remove.getAttribute('title') || '');
+                  if (removeLabel) return removeLabel.replace(/^remove\s+/i, '').trim();
+              }
+              return readPersistedControlValue(node) || displayedFieldValue(node) || '';
+          };
+          let observed = readObserved(el);
+          if (!observed && expected) {
+              const want = String(Array.isArray(expected) ? expected[0] : expected).trim();
+              if (want) {
+                  const buttons = document.querySelectorAll('[aria-label^="Remove "], [title^="Remove "]');
+                  for (const btn of buttons) {
+                      const lab = String(btn.getAttribute('aria-label') || btn.getAttribute('title') || '')
+                          .replace(/^remove\s+/i, '').trim();
+                      if (lab && normalizeComparableText(lab) === normalizeComparableText(want)) {
+                          observed = lab;
+                          break;
+                      }
+                  }
+              }
+          }
+          if (!observed && expected) {
+              const want = String(Array.isArray(expected) ? expected[0] : expected).trim();
+              const wantNorm = normalizeComparableText(want);
+              if (wantNorm) {
+                  const matchExact = (node) => {
+                      if (!node) return '';
+                      const own = String(node.childNodes && node.childNodes.length
+                          ? Array.from(node.childNodes)
+                              .filter((part) => part.nodeType === 3)
+                              .map((part) => part.textContent || '')
+                              .join('')
+                          : (node.textContent || ''))
+                          .replace(/\u00a0/g, ' ')
+                          .trim();
+                      if (own && normalizeComparableText(own) === wantNorm) return own;
+                      const text = String(node.textContent || '').replace(/\u00a0/g, ' ').trim();
+                      if (text && normalizeComparableText(text) === wantNorm) return text;
+                      return '';
+                  };
+                  const scan = (root) => {
+                      if (!root) return '';
+                      const hit = matchExact(root);
+                      if (hit) return hit;
+                      const nodes = root.querySelectorAll
+                          ? root.querySelectorAll('.MuiChip-label, [class*="Chip-label"], span, div, p, button, label')
+                          : [];
+                      for (const node of nodes) {
+                          const text = matchExact(node);
+                          if (text) return text;
+                      }
+                      return '';
+                  };
+                  let node = el;
+                  for (let depth = 0; depth < 8 && node; depth++) {
+                      let sib = node.previousElementSibling;
+                      while (sib) {
+                          const hit = scan(sib) || matchExact(sib);
+                          if (hit) { observed = hit; break; }
+                          sib = sib.previousElementSibling;
+                      }
+                      if (observed) break;
+                      const hit = scan(node);
+                      if (hit) { observed = hit; break; }
+                      node = node.parentElement;
+                  }
+                  if (!observed) {
+                      for (const label of labels || []) {
+                          const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,label,legend,span,div,p'))
+                              .filter((item) => normalizeComparableText(item.textContent || '') === normalizeComparableText(label));
+                          for (const heading of headings) {
+                              let sib = heading.nextElementSibling;
+                              for (let i = 0; i < 6 && sib; i++) {
+                                  const hit = scan(sib) || matchExact(sib);
+                                  if (hit) { observed = hit; break; }
+                                  sib = sib.nextElementSibling;
+                              }
+                              if (observed) break;
+                              const hit = scan(heading.parentElement);
+                              if (hit) { observed = hit; break; }
+                          }
+                          if (observed) break;
+                      }
+                  }
+              }
+          }
+          if (!observed) {
+              for (const label of labels || []) {
+                  const labeled = findInputByExactLabel(label, isMarketplaceInput(mp));
+                  const labeledObserved = readObserved(labeled);
+                  if (labeledObserved) {
+                      el = labeled || el;
+                      observed = labeledObserved;
+                      break;
+                  }
+              }
+          }
+          if (!observed && el) {
+              observed = String(el.innerText || el.textContent || '').split('\n').map((line) => line.trim()).filter(Boolean)[0] || '';
+          }
+          const observedValue = observed || null;
           if (el) foundAnyField = true;
+          let ok;
+          if (key === 'category' && expected) {
+              ok = categoryDisplayMatches(observed, expected);
+          } else {
+              ok = auditValuesAgree(expected, observed);
+          }
+          // Unfilled Etsy sections often keep Listing State = "Live Listing" while the
+          // marketplace nav remains NOT LISTED. Publication is enforced via nav status.
+          if (!ok && key === 'listingState' && mp === 'etsy') {
+              const navStatus = scrapeMarketplaceStatusesFromDom()[mp] || '';
+              const navConfirmsDraft = /^(not listed|draft|incomplete|complete)(?: listing)?$/i.test(String(navStatus).trim());
+              if (navConfirmsDraft) {
+                  const liveOrDraft = /^(live|draft)\s+listing$/i.test(String(observed || '').trim());
+                  if (liveOrDraft || !String(observed || '').trim()) {
+                      ok = true;
+                  }
+              }
+          }
+          fields[key] = { found: !!el, expected: expected ?? '', observed: observed ?? '', state: ok ? 'audited_complete' : (el ? 'mismatch' : 'not_found') };
+          if (!ok && expected != null && expected !== '') {
+              mismatches.push(`${platform} ${key} expected "${expected}" but found "${observed ?? ''}"`);
+          }
       }
 
       if (!foundAnyField) {
-          warn(`${platform}: No marketplace fields found. Section may not be activated.`);
-          fields._error = `${platform} marketplace section appears inactive`;
+          const error = `${platform} marketplace section appears inactive`;
+          warn(error);
+          return { ok: false, error, fields: { ...fields, _error: error }, mismatches: [error] };
       }
 
-      return { ok: true, fields };
+      const statuses = scrapeMarketplaceStatusesFromDom();
+      const status = statuses[mp];
+      if (status && marketplaceStatusIsPublished(status)) {
+          mismatches.push(`${platform} publication status is ${status}`);
+      }
+
+      const allOk = mismatches.length === 0;
+      if (!allOk) warn(`${platform} audit failed: ${mismatches.join('; ')}`);
+      return { ok: allOk, fields, mismatches, statuses };
   }
 
   function extractItemId() {
-      const match = window.location.href.match(/\/app\/item\/([^/?]+)/);
-      if (match) return match[1];
-
-      const draftMatch = window.location.href.match(/\/item\/([^/?]+)/);
-      if (draftMatch) return draftMatch[1];
+      const nonDurable = new Set(['new', 'edit', 'create']);
+      const match = window.location.href.match(/\/(?:app\/)?item\/([^/?]+)/);
+      if (match) {
+          const id = String(match[1] || '').trim();
+          if (!id || nonDurable.has(id.toLowerCase())) return null;
+          return id;
+      }
 
       const el = document.querySelector('[data-item-id], [data-testid="item-id"]');
-      if (el) return el.getAttribute('data-item-id') || el.textContent?.trim();
+      if (el) {
+          const id = String(el.getAttribute('data-item-id') || el.textContent || '').trim();
+          if (!id || nonDurable.has(id.toLowerCase())) return null;
+          return id;
+      }
 
       return null;
   }
@@ -4463,13 +5311,10 @@
           if (!fieldKey || /image/i.test(fieldKey)) continue;
           if (!listings[marketplace]) listings[marketplace] = {};
           if (!listings[marketplace][bucket]) listings[marketplace][bucket] = {};
-          let value = '';
-          if ('value' in el && el.value != null) value = String(el.value).trim();
-          if (!value) value = (el.innerText || el.textContent || '').trim();
-          // MUI empty selects often display the field label as text ("Department").
-          if (value && !fieldLooksFilled(el)) value = '';
+          let value = readPersistedControlValue(el);
+          if (value && typeof value !== 'boolean' && !Array.isArray(value) && !fieldLooksFilled(el)) value = '';
           // Keep empty strings so Studio Fields can show unfilled optional keys.
-          if (!(fieldKey in listings[marketplace][bucket]) || value) {
+          if (!(fieldKey in listings[marketplace][bucket]) || value === true || value === false || (Array.isArray(value) ? value.length : value)) {
               listings[marketplace][bucket][fieldKey] = value;
           }
       }
@@ -4710,9 +5555,55 @@
       };
   }
 
+  async function verifySavedDraft(data, platforms, expectedPhotoCount) {
+      const itemId = extractItemId();
+      if (!itemId) {
+          return {
+              ok: false,
+              verified: false,
+              error: 'No durable Vendoo item ID after save',
+              url: window.location.href,
+          };
+      }
+      const ready = await waitForListingFormReady();
+      if (!ready.ok) {
+          return { ok: false, verified: false, error: ready.error, item_id: itemId, url: window.location.href };
+      }
+      const listing = { ...(data || {}), _expected_photo_count: expectedPhotoCount || 0 };
+      const general = await auditGeneralForm(listing);
+      const marketplaceResults = {};
+      const mismatches = [...(general.mismatches || [])];
+      const selected = Array.isArray(platforms) ? platforms.map((item) => String(item || '').toLowerCase()).filter(Boolean) : [];
+      for (const platform of selected) {
+          const result = await auditMarketplaceForm(listing, platform);
+          marketplaceResults[platform] = result;
+          if (!result.ok) mismatches.push(...(result.mismatches || [result.error || `${platform} audit failed`]));
+      }
+      const photos = scrapeListingImageUrls();
+      const statuses = scrapeMarketplaceStatusesFromDom();
+      const listed = publishedMarketplaceStatuses(statuses);
+      if (listed.length) {
+          mismatches.push(`Publication status is not draft: ${listed.map(([id, status]) => `${id}=${status}`).join(', ')}`);
+      }
+      const verified = mismatches.length === 0;
+      return {
+          ok: verified,
+          verified,
+          error: verified ? null : mismatches.join('; '),
+          mismatches,
+          item_id: itemId,
+          url: window.location.href,
+          photos: photos.length,
+          photo_urls: photos,
+          statuses,
+          general,
+          marketplaces: marketplaceResults,
+      };
+  }
+
   async function scrapeVendooItem() {
       const itemId = extractItemId();
-      if (itemId === 'new') {
+      if (!itemId) {
           return { ok: false, error: 'This is a new item, not a saved draft', url: window.location.href, item_id: null };
       }
       // Capture live nav statuses before marketplace discovery changes selection.
@@ -4884,26 +5775,43 @@
               normalizeFieldKey(row.field) === normalizeFieldKey(fieldName)
           );
           if (!entry || entry.status === 'skipped' || entry.status === 'not_found') continue;
-          const el = findControlForPatch(item);
+          if (/already set/i.test(String(entry.reason || ''))) continue;
+          const marketplace = String(item.marketplace || '').toLowerCase();
+          let el = findControlForPatch(item);
+          if (!el && normalizeFieldKey(fieldName) === 'category' && marketplace && marketplace !== 'general') {
+              el = findMarketplaceCategoryControl(marketplace);
+          }
           if (!el) {
               entry.status = 'failed';
               entry.reason = 'Field disappeared after fill';
               continue;
           }
-          const shown = displayedFieldValue(el);
-          const matches = Boolean(intended && optionMatchesValue(shown, intended, false));
+          const shown = normalizeFieldKey(fieldName) === 'category'
+              ? readCategoryDisplay(el)
+              : (displayedFieldValue(el) || el.innerText || el.textContent || '');
+          const matches = normalizeFieldKey(fieldName) === 'category'
+              ? categoryDisplayMatches(shown, intended)
+              : Boolean(intended && optionMatchesValue(shown, intended, false));
+          // Category breadcrumbs can lag one paint behind the control; accept nearby leaf text.
+          if (!matches && normalizeFieldKey(fieldName) === 'category' && intended) {
+              const leaf = String(intended).split('>').pop().trim();
+              if (leaf && categoryDisplayMatches(shown, leaf)) {
+                  entry.status = 'filled';
+                  continue;
+              }
+          }
           if (entry.status === 'filled') {
               if (!matches) {
                   entry.status = 'failed';
                   entry.reason = shouldFillAsDropdown(el, fieldName)
-                      ? 'Dropdown option was not selected'
+                      ? `Dropdown option was not selected (shown: "${String(shown || '').slice(0, 80)}")`
                       : 'Value did not stick';
               }
               continue;
           }
           if (shouldFillAsDropdown(el, fieldName) && !matches) {
               entry.status = 'failed';
-              entry.reason = 'Dropdown option was not selected';
+              entry.reason = `Dropdown option was not selected (shown: "${String(shown || '').slice(0, 80)}")`;
           } else if (!shouldFillAsDropdown(el, fieldName) && !fieldLooksFilled(el)) {
               entry.status = 'failed';
               entry.reason = 'Value did not stick';
@@ -5098,6 +6006,13 @@
               return true;
           }
 
+          if (msg.type === 'CHECK_DRAFT_SAFETY') {
+              Promise.resolve(checkDraftSafety(msg.platforms || []))
+                  .then(result => sendResponse(result))
+                  .catch(err => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
           if (msg.type === 'FILL_MARKETPLACE') {
               currentRegistrySelectors = msg.registry_selectors || {};
               fillMarketplaceForm(msg.data, msg.platform)
@@ -5136,6 +6051,13 @@
 
           if (msg.type === 'GET_VENDOO_ITEM') {
               scrapeVendooItem()
+                  .then((result) => sendResponse(result))
+                  .catch((err) => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'VERIFY_SAVED_DRAFT') {
+              verifySavedDraft(msg.data || {}, msg.platforms || [], msg.expected_photo_count)
                   .then((result) => sendResponse(result))
                   .catch((err) => sendResponse({ ok: false, error: err.message }));
               return true;

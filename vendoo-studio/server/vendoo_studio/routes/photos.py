@@ -30,11 +30,13 @@ async def upload_photos(
         raise HTTPException(400, "Maximum 20 photos per listing")
 
     results = []
+    failures: list[str] = []
     for f in files:
         try:
             meta = await process_upload(conv_id, f)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            failures.append(f"{f.filename or 'file'}: {e}")
+            continue
 
         try:
             photo = repo.add_photo(
@@ -51,7 +53,8 @@ async def upload_photos(
             filepath = Path(PHOTOS_DIR) / meta["stored_filename"]
             if filepath.exists():
                 os.remove(filepath)
-            raise HTTPException(500, "Failed to persist photo record")
+            failures.append(f"{f.filename or 'file'}: Failed to persist photo record")
+            continue
 
         results.append({
             "id": photo.id,
@@ -65,6 +68,17 @@ async def upload_photos(
             "created_at": photo.created_at.isoformat() if photo.created_at else "",
             "url": f"/api/photos/{photo.id}",
         })
+
+    if failures and not results:
+        raise HTTPException(400, failures[0] if len(failures) == 1 else "Some photos could not be uploaded: " + "; ".join(failures))
+    if failures:
+        return {
+            "ok": True,
+            "count": len(results),
+            "photos": results,
+            "errors": failures,
+            "message": f"Saved {len(results)} photo(s). {len(failures)} file(s) failed: " + "; ".join(failures),
+        }
 
     return {"ok": True, "count": len(results), "photos": results}
 

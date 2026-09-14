@@ -96,11 +96,4 @@ ALLOWED_PHOTO_MIME = {"image/jpeg", "image/png", "image/webp", "image/heic", "im
 CORS_ORIGINS = [
     f"http://{HOST}:{PORT}",
     f"http://{HOST}:5173",
-    "https://web.vendoo.co",
-    "https://app.vendoo.co",
-    "https://www.ebay.com",
-    "https://poshmark.com",
-    "https://www.mercari.com",
-    "https://www.depop.com",
-    "https://www.etsy.com",
 ]

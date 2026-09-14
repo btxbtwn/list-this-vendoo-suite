@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 import unittest
 import zipfile
@@ -96,6 +97,27 @@ class PackagedUpdateTest(unittest.TestCase):
             bundle.writestr("List This Studio.app/Contents/Info.plist", "plist")
         extracted = packaged_updates._extract_app(archive, Path(self.tmp.name) / "unpacked-guide")
         self.assertEqual(extracted.name, "List This Studio.app")
+
+    def test_extract_rejects_traversal_before_ditto(self):
+        archive = Path(self.tmp.name) / "unsafe.zip"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("../outside.txt", "unsafe")
+        with patch("subprocess.run") as run:
+            with self.assertRaises(packaged_updates.PackagedUpdateError):
+                packaged_updates._extract_app(archive, Path(self.tmp.name) / "unsafe-output")
+        run.assert_not_called()
+
+    def test_extract_rejects_symbolic_links_before_ditto(self):
+        archive = Path(self.tmp.name) / "symlink.zip"
+        link = zipfile.ZipInfo("List This Studio.app/Contents/link")
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr(link, "../../outside")
+        with patch("subprocess.run") as run:
+            with self.assertRaises(packaged_updates.PackagedUpdateError):
+                packaged_updates._extract_app(archive, Path(self.tmp.name) / "symlink-output")
+        run.assert_not_called()
 
     def test_prepare_app_bundle_makes_launcher_executable(self):
         app = Path(self.tmp.name) / "List This Studio.app"

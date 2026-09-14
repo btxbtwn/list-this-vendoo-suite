@@ -14,8 +14,8 @@ from vendoo_studio.repositories.queries import FillLogRepo, RegistryRepo
 
 LOGGER = logging.getLogger("vendoo_studio.fill_log")
 
-STATUSES = ("filled", "skipped", "not_found", "failed", "uncertain", "new")
-FILLABLE_STATUSES = ("skipped", "new", "failed", "uncertain", "not_found")
+STATUSES = ("filled", "skipped", "not_found", "invalid", "failed", "uncertain", "new")
+FILLABLE_STATUSES = ("skipped", "new", "invalid", "failed", "uncertain", "not_found")
 MAX_ENTRIES = 200
 MAX_PREVIEW = 80
 MAX_PATCH_FIELDS = 50
@@ -198,6 +198,9 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     if marketplace == "poshmark" and key == "category":
         from vendoo_studio.services.registry import map_poshmark_category_path
         return map_poshmark_category_path(result or str(source.get("category_path") or ""), source)
+    if marketplace == "mercari" and key == "category":
+        from vendoo_studio.services.registry import map_mercari_category_path
+        return map_mercari_category_path(result or str(source.get("category_path") or ""), source)
     if result:
         if marketplace == "ebay" and key == "year manufactured" and re.match(
             r"^(d|n/?a|n\.a\.?|does not apply|none|unknown|-+)$",
@@ -363,7 +366,7 @@ def render_markdown(job: Job, grouped: dict[str, list[FillLogEntry]]) -> str:
         lines.append("")
         lines.append(
             f"filled {counts['filled']} · skipped {counts['skipped']} · "
-            f"not found {counts['not_found']} · failed {counts['failed']} · "
+            f"not found {counts['not_found']} · invalid {counts['invalid']} · failed {counts['failed']} · "
             f"uncertain {counts['uncertain']} · new {counts['new']}"
         )
         lines.append("")
@@ -375,6 +378,7 @@ def render_markdown(job: Job, grouped: dict[str, list[FillLogEntry]]) -> str:
                 "filled": "Filled",
                 "skipped": "Not filled (no listing value)",
                 "not_found": "Did not work — field missing",
+                "invalid": "Invalid dropdown option",
                 "failed": "Did not work",
                 "uncertain": "Uncertain (typed fallback)",
                 "new": "New fields on the form",
@@ -593,7 +597,6 @@ class FillLogService:
             source="fill_learned_fields",
             parent_revision_id=parent_id,
         )
-        job.listing_snapshot = listing
         self._db.commit()
 
 

@@ -75,7 +75,7 @@ else
 fi
 
 if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:4318 -sTCP:LISTEN >/dev/null 2>&1; then
-  warn "Port 4318 is already in use. Quit the other Studio process before starting a new one."
+  bad "Port 4318 is already in use. Quit the other Studio process before starting a new one."
 else
   ok "Port 4318 is free"
 fi

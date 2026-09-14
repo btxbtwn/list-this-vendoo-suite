@@ -316,9 +316,15 @@ def is_vendoo_url(url: str) -> bool:
 def listing_url_for_job(item_id: str | None = None, url: str | None = None) -> str | None:
     raw = str(url or "").strip()
     if raw and is_vendoo_url(raw):
-        return raw
+        path_parts = [part.lower() for part in urlparse(raw).path.split("/") if part]
+        durable_path = any(
+            path_parts[index] == "item" and path_parts[index + 1] not in {"new", "edit", "create"}
+            for index in range(len(path_parts) - 1)
+        )
+        if durable_path:
+            return raw
     item = str(item_id or "").strip()
-    if item and item != "new" and all(ch.isalnum() or ch in "-_" for ch in item):
+    if item and item.lower() not in {"new", "edit", "create"} and all(ch.isalnum() or ch in "-_" for ch in item):
         return f"https://web.vendoo.co/app/item/{item}"
     return None
 

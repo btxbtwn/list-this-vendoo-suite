@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -88,6 +90,62 @@ def _asset_map(release: dict) -> dict[str, dict]:
     return {asset.get("name"): asset for asset in release.get("assets") or [] if asset.get("name")}
 
 
+def _asset_digest(asset: dict | None) -> str | None:
+    if not isinstance(asset, dict):
+        return None
+    digest = str(asset.get("digest") or "").strip()
+    if digest.lower().startswith("sha256:"):
+        return digest.split(":", 1)[1].strip().lower()
+    sha = str(asset.get("sha256") or "").strip().lower()
+    return sha or None
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_archive_digest(archive: Path, expected: str | None) -> None:
+    if not expected:
+        raise PackagedUpdateError("The release does not include a SHA-256 digest for the Mac zip.")
+    actual = _sha256_file(archive)
+    if actual.lower() != expected.lower():
+        raise PackagedUpdateError("Downloaded update did not match the signed digest.")
+
+
+def _verify_app_signature(app_path: Path) -> None:
+    if os.environ.get("VENDOO_STUDIO_SKIP_CODESIGN") == "1":
+        return
+    verify = subprocess.run(
+        ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app_path)],
+        capture_output=True,
+        text=True,
+    )
+    if verify.returncode != 0:
+        raise PackagedUpdateError("The update is not signed by a trusted identity.")
+
+
+def _validate_zip_members(archive: Path, destination: Path) -> None:
+    destination = destination.resolve()
+    with zipfile.ZipFile(archive) as bundle:
+        for info in bundle.infolist():
+            target = (destination / info.filename).resolve()
+            if destination != target and not str(target).startswith(str(destination) + os.sep):
+                raise PackagedUpdateError("Archive contains an unsafe path.")
+            mode = (info.external_attr >> 16) & 0o170000
+            if mode == stat.S_IFLNK:
+                raise PackagedUpdateError("Archive contains an unsafe symbolic link.")
+
+
+def _safe_extract_zip(archive: Path, destination: Path) -> None:
+    _validate_zip_members(archive, destination)
+    with zipfile.ZipFile(archive) as bundle:
+        bundle.extractall(destination)
+
+
 def _download(client: httpx.Client, url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with client.stream("GET", url) as response:
@@ -160,17 +218,20 @@ def check_for_packaged_update() -> dict:
         "error": None if zip_asset else f"Release {RELEASE_TAG} has no {ZIP_NAME}.",
         "short_sha": remote.get("short_sha"),
         "download_url": (zip_asset or {}).get("browser_download_url"),
+        "sha256": _asset_digest(zip_asset),
         "release_url": release.get("html_url"),
     }
 
 
-def _prepare_app_bundle(app_path: Path) -> None:
-    """Restore execute bits and drop Gatekeeper quarantine after a zip extract."""
+def _prepare_app_bundle(app_path: Path, *, clear_quarantine: bool = False) -> None:
+    """Restore execute bits. Quarantine is cleared only after signature verification."""
     macos = app_path / "Contents" / "MacOS"
     if macos.is_dir():
         for path in macos.iterdir():
             if path.is_file():
                 path.chmod(path.stat().st_mode | 0o111)
+    if not clear_quarantine:
+        return
     try:
         subprocess.run(
             ["/usr/bin/xattr", "-cr", str(app_path)],
@@ -185,6 +246,7 @@ def _extract_app(archive: Path, destination: Path) -> Path:
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True, exist_ok=True)
+    _validate_zip_members(archive, destination)
     try:
         extracted = subprocess.run(
             ["/usr/bin/ditto", "-xk", str(archive), str(destination)],
@@ -195,13 +257,17 @@ def _extract_app(archive: Path, destination: Path) -> Path:
     except FileNotFoundError:
         ditto_ok = False
     if not ditto_ok:
-        with zipfile.ZipFile(archive) as bundle:
-            bundle.extractall(destination)
+        _safe_extract_zip(archive, destination)
+    dest = destination.resolve()
+    for path in dest.rglob("*"):
+        resolved = path.resolve()
+        if resolved != dest and not str(resolved).startswith(str(dest) + os.sep):
+            raise PackagedUpdateError("Archive contains an unsafe path.")
     matches = [path for path in destination.rglob(APP_BUNDLE_NAME) if path.is_dir()]
     if not matches:
         raise PackagedUpdateError("The downloaded zip did not contain List This Studio.app.")
     app = min(matches, key=lambda path: len(path.parts))
-    _prepare_app_bundle(app)
+    _prepare_app_bundle(app, clear_quarantine=False)
     return app
 
 
@@ -246,7 +312,10 @@ def apply_packaged_update() -> dict:
     archive = staging / ZIP_NAME
     with httpx.Client(timeout=120.0, headers=_headers(), follow_redirects=True) as client:
         _download(client, download_url, archive)
+    _verify_archive_digest(archive, status.get("sha256"))
     new_app = _extract_app(archive, staging / "unpacked")
+    _verify_app_signature(new_app)
+    _prepare_app_bundle(new_app, clear_quarantine=True)
     script = _write_replacer(app_path, new_app, os.getpid())
     subprocess.Popen(
         [str(script)],

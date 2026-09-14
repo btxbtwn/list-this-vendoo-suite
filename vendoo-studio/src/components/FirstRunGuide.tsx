@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { dismissSetupGuide } from "../onboarding";
@@ -93,7 +93,7 @@ export function FirstRunGuide({
   const stepIndex = SETUP_GUIDE_STEPS.findIndex((item) => item.id === step);
   const isLast = step === "ready";
   const listingReady = chatgptSignedIn || mimoConfigured || providerConfigured;
-  const canCreateListing = providerConfigured;
+  const canCreateListing = true;
   const chromeReady = extensionConnected;
   const canAdvance =
     step === "listing-ai" ? listingReady : true;
@@ -121,17 +121,40 @@ export function FirstRunGuide({
     setStep(SETUP_GUIDE_STEPS[stepIndex - 1].id);
   };
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
+    const root = dialogRef.current;
+    if (!root) return;
+    const focusable = () => Array.from(root.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter((el) => !el.hasAttribute("disabled"));
+    const first = focusable()[0];
+    first?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      dismissSetupGuide();
-      onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        dismissSetupGuide();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const firstItem = items[0];
+      const lastItem = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === firstItem) {
+        event.preventDefault();
+        lastItem.focus();
+      } else if (!event.shiftKey && document.activeElement === lastItem) {
+        event.preventDefault();
+        firstItem.focus();
+      }
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
+  }, [onClose, step]);
 
   const doneFor = (id: StepId) => {
     if (id === "welcome") return stepIndex > 0;
@@ -146,6 +169,7 @@ export function FirstRunGuide({
     <div className="setup-guide" role="presentation">
       <div className="setup-guide-backdrop" />
       <div
+        ref={dialogRef}
         className="setup-guide-popup"
         role="dialog"
         aria-modal="true"

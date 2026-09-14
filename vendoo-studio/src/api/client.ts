@@ -58,6 +58,8 @@ export const api = {
       request<any>(`/conversations/${id}/settle`, { method: "POST" }),
     unsettle: (id: string) =>
       request<any>(`/conversations/${id}/unsettle`, { method: "POST" }),
+    cancelMessages: (id: string) =>
+      request<{ ok: boolean }>(`/conversations/${id}/messages/cancel`, { method: "POST" }),
     messages: (id: string) => request<any[]>(`/conversations/${id}/messages`),
     photos: (id: string) => request<any[]>(`/conversations/${id}/photos`),
     deletePhoto: (convId: string, photoId: string) =>
@@ -99,8 +101,14 @@ export const api = {
   },
 
   jobs: {
-    create: (conversationId: string) =>
-      request<any>("/jobs", { method: "POST", body: JSON.stringify({ conversation_id: conversationId }) }),
+    create: (conversationId: string, opts?: { confirmOverwrite?: boolean }) =>
+      request<any>("/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          confirm_overwrite: Boolean(opts?.confirmOverwrite),
+        }),
+      }),
     list: () => request<any[]>("/jobs"),
     get: (id: string) => request<any>(`/jobs/${id}`),
     fillLog: (id: string) => request<any>(`/jobs/${id}/fill-log`),

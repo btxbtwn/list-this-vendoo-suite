@@ -52,12 +52,14 @@ def process_bytes(contents: bytes, filename: str | None = None, content_type: st
 
     width = None
     height = None
+    from io import BytesIO
     try:
-        from io import BytesIO
         img = Image.open(BytesIO(contents))
+        img.load()
         width, height = img.size
-    except Exception:
-        pass
+    except Exception as exc:
+        if mime_type in {"image/jpeg", "image/png", "image/webp"}:
+            raise ValueError("File is not a valid image") from exc
 
     return {
         "original_filename": filename or stored_name,

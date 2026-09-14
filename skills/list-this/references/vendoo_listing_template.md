@@ -11,9 +11,8 @@ Purpose: produce copy/insert-ready field values for Vendoo + eBay + Etsy + Poshm
 * If unknown or not visible, leave blank after the colon (do not guess).  
 * Do not use an em dash in any title or description (use a standard hyphen if needed).  
 * Do not add a period after the last tag in any tag list.  
-* After you determine market price from sold comps, apply a 35% markup to create the listing price.  
-* Offers: Auto-accept = Listing Price minus 2; Minimum offer = Listing Price minus 4.  
-* Pricing format: eBay/Etsy use .99; Poshmark/Depop use whole dollars.
+* Pricing MUST follow the canonical formula in `skills/list-this/SKILL.md`: sold-comp median × 1.35, whole dollars only. Auto-accept = listing price minus $2. Minimum offer = listing price minus $4.
+* Physical-item descriptions MUST use the Size / Condition / Measurements formula in `SKILL.md`. Do not invent material, garment care, production date, original retail, or vintage status.
 
 # **INPUTS**
 

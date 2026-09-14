@@ -7,9 +7,33 @@ from sqlalchemy.orm import Session
 from vendoo_studio.database import get_db
 from vendoo_studio.models.validation import validate_listing
 from vendoo_studio.repositories.queries import ListingRepo, ConversationRepo
-from vendoo_studio.services.vendoo_import import vendoo_binding
 
 router = APIRouter(tags=["listings"])
+
+CORRUPT_SPECIFIC_KEYS = (
+    "ebay_specifics",
+    "depop_specifics",
+    "etsy_specifics",
+    "poshmark_specifics",
+    "mercari_specifics",
+)
+
+
+def _first_error(validation) -> str:
+    for err in validation.errors:
+        message = err.get("message") or ""
+        if message:
+            return message
+    return "Listing is invalid"
+
+
+def _reject_corrupt_listing(listing: dict) -> None:
+    if not isinstance(listing, dict):
+        raise HTTPException(422, "Listing must be an object")
+    for key in CORRUPT_SPECIFIC_KEYS:
+        value = listing.get(key)
+        if value is not None and not isinstance(value, dict):
+            raise HTTPException(422, f"{key} must be an object")
 
 
 class ListingUpdate(BaseModel):
@@ -52,12 +76,7 @@ def get_listing(conv_id: str, db: Session = Depends(get_db)):
         listing_data = latest.listing_json
 
     photo_count = len(conv_repo.get_photos(conv_id))
-    conv = conv_repo.get(conv_id)
-    validation = validate_listing(
-        listing_data,
-        photo_count,
-        require_photos=not bool(vendoo_binding(conv.notes if conv else None).get("vendooItemId")),
-    )
+    validation = validate_listing(listing_data, photo_count, require_photos=True)
 
     return ListingResponse(
         conversation_id=conv_id,
@@ -79,19 +98,15 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     listing_repo = ListingRepo(db)
     current = listing_repo.get_current(conv_id)
 
+    photo_count = len(conv_repo.get_photos(conv_id))
+    _reject_corrupt_listing(body.listing)
+    validation = validate_listing(body.listing, photo_count, require_photos=True)
+
     revision = listing_repo.save_revision(
         conv_id=conv_id,
         listing_json=body.listing,
         source="user_form",
         parent_revision_id=current.current_revision_id if current else None,
-    )
-
-    photo_count = len(conv_repo.get_photos(conv_id))
-    conv = conv_repo.get(conv_id)
-    validation = validate_listing(
-        body.listing,
-        photo_count,
-        require_photos=not bool(vendoo_binding(conv.notes if conv else None).get("vendooItemId")),
     )
 
     if current:
@@ -117,12 +132,7 @@ def validate(conv_id: str, db: Session = Depends(get_db)):
     listing_data = revisions[0].listing_json if revisions else {}
 
     photo_count = len(conv_repo.get_photos(conv_id))
-    conv = conv_repo.get(conv_id)
-    result = validate_listing(
-        listing_data,
-        photo_count,
-        require_photos=not bool(vendoo_binding(conv.notes if conv else None).get("vendooItemId")),
-    )
+    result = validate_listing(listing_data, photo_count, require_photos=True)
 
     return ValidationResponse(
         valid=result.valid,
@@ -153,7 +163,7 @@ def get_revisions(conv_id: str, db: Session = Depends(get_db)):
 def restore_revision(conv_id: str, revision_id: str, db: Session = Depends(get_db)):
     listing_repo = ListingRepo(db)
     target = listing_repo.get_revision(revision_id)
-    if not target:
+    if not target or target.conversation_id != conv_id:
         raise HTTPException(404, "Revision not found")
 
     current = listing_repo.get_current(conv_id)

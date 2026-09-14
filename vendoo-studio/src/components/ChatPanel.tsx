@@ -604,6 +604,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     liveState.controller?.abort();
     if (wasGenerating) {
       void fetch(`/api/conversations/${convId}/generate/cancel`, { method: "POST" });
+    } else {
+      void api.conversations.cancelMessages(convId);
     }
   }, [convId]);
 

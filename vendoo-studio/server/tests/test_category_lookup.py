@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import asyncio
+from unittest.mock import AsyncMock, Mock, patch
 
 from vendoo_studio.services.category_lookup import category_search_query, pick_category_path
 from vendoo_studio.services.registry import MEN_TSHIRT_PATH
@@ -106,6 +108,67 @@ class ApplyResolvedCategoryTest(unittest.TestCase):
         self.assertEqual(listing["category_path"], path)
         notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
         self.assertEqual(notes["categoryOverride"], path)
+
+
+class ResolveCategorySnapshotTest(unittest.IsolatedAsyncioTestCase):
+    async def test_resolve_creates_revision_without_mutating_approved_snapshot(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+
+        from vendoo_studio.database import Base
+        from vendoo_studio.models.conversation import Conversation
+        from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
+        from vendoo_studio.models.job import Job
+        from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
+        from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
+        from vendoo_studio.repositories.queries import ListingRepo
+        from vendoo_studio.services.category_lookup import resolve_listing_category
+
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        db = sessionmaker(bind=engine)()
+        try:
+            conv = Conversation(title="Sweatshirt")
+            db.add(conv)
+            db.commit()
+            original = {
+                "title": "Fruit of the Loom M Retro Graphic Sweatshirt",
+                "department": "Men",
+                "category_path": MEN_TSHIRT_PATH,
+            }
+            ListingRepo(db).save_revision(conv.id, original, source="model")
+            job = Job(
+                conversation_id=conv.id,
+                approved_revision_id="rev1",
+                listing_snapshot=dict(original),
+                status="completed",
+                vendoo_item_id="abc123",
+            )
+            db.add(job)
+            db.commit()
+            target = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweats & Hoodies > Sweatshirts"
+            waiter = asyncio.get_running_loop().create_future()
+            waiter.set_result({"ok": True, "matches": [{"path": target, "score": 5}], "path": target})
+            manager = Mock(connected=True)
+            manager.register_wait.return_value = waiter
+
+            with patch("vendoo_studio.routes.extension.extension_manager", manager), patch(
+                "vendoo_studio.routes.extension.dispatch_search_categories",
+                new=AsyncMock(return_value=True),
+            ):
+                result = await resolve_listing_category(db, conv.id, job=job)
+
+            self.assertTrue(result["ok"])
+            db.refresh(job)
+            self.assertEqual(job.listing_snapshot["category_path"], MEN_TSHIRT_PATH)
+            self.assertEqual(ListingRepo(db).get_revisions(conv.id)[0].listing_json["category_path"], target)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

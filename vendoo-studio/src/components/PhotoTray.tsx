@@ -168,8 +168,12 @@ export function PhotoTray({ convId }: Props) {
     setUploading(true);
     setUploadError(null);
     try {
-      await api.conversations.uploadPhotos(convId, Array.from(fileList));
+      const result = await api.conversations.uploadPhotos(convId, Array.from(fileList));
       await queryClient.invalidateQueries({ queryKey: ["photos", convId] });
+      const errors = Array.isArray((result as any)?.errors) ? (result as any).errors : [];
+      if (errors.length) {
+        setUploadError(errors.map((item: any) => item.message || item).join("; "));
+      }
     } catch (err: any) {
       setUploadError(err.message || "Upload failed");
     } finally {

@@ -7,6 +7,11 @@ from vendoo_studio.models.conversation import new_id, utcnow
 
 ACTIVE_JOB_STATUSES = ("queued", "awaiting_extension", "dispatched")
 DISPATCHABLE_JOB_STATUSES = ("queued", "awaiting_extension")
+TERMINAL_JOB_STATUSES = ("completed", "cancelled", "failed", "imported")
+
+
+def is_terminal_job_status(status: str | None) -> bool:
+    return str(status or "") in TERMINAL_JOB_STATUSES
 
 
 class Job(Base):

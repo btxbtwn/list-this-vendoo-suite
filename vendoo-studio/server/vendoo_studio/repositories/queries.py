@@ -105,7 +105,7 @@ class ConversationRepo:
             "queued": "listing",
             "awaiting_extension": "listing",
             "dispatched": "listing",
-            "imported": "listing",
+            "imported": "draft",
             "completed": "completed",
             "failed": "failed",
             "cancelled": "draft",
@@ -277,9 +277,16 @@ class JobRepo:
     def requeue_interrupted(self) -> list[Job]:
         jobs = self.db.query(Job).filter(Job.status == "dispatched").all()
         for job in jobs:
-            job.status = "queued"
-            job.current_step = "queued"
-            job.last_error = None
+            if job.current_step == "filling_fields":
+                job.status = "failed"
+                job.last_error = (
+                    "Chrome disconnected during leftover field fill. "
+                    "Retry the leftover fill from Fields."
+                )
+            else:
+                job.status = "queued"
+                job.current_step = "queued"
+                job.last_error = None
         if jobs:
             self.db.commit()
             for job in jobs:
@@ -293,9 +300,14 @@ class JobRepo:
         return self.db.query(Job).filter(Job.conversation_id == conv_id).order_by(Job.created_at.desc()).all()
 
     def update_status(self, job_id: str, status: str, current_step: str | None = None, error: str | None = None, vendoo_item_id: str | None = None, vendoo_url: str | None = None) -> Job | None:
+        from vendoo_studio.models.job import is_terminal_job_status
+
         job = self.db.query(Job).filter(Job.id == job_id).first()
         if not job:
             return None
+        if is_terminal_job_status(job.status) and status != job.status:
+            self.db.refresh(job)
+            return job
         job.status = status
         if current_step is not None:
             job.current_step = current_step
@@ -773,4 +785,3 @@ class FillLogRepo:
         if not job_ids:
             return
         self.db.query(FillLogEntry).filter(FillLogEntry.job_id.in_(job_ids)).delete(synchronize_session=False)
-

@@ -99,9 +99,11 @@ class EbaySpecifics(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def coerce_values(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            return _coerce_string_map(data, frozenset({"features", "accents"}))
-        return data
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise ValueError("must be an object")
+        return _coerce_string_map(data, frozenset({"features", "accents"}))
 
     type: Optional[str] = None
     department: Optional[str] = None
@@ -150,9 +152,11 @@ class DepopSpecifics(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def coerce_values(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            return _coerce_string_map(data, frozenset({"style", "material", "occasion"}))
-        return data
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise ValueError("must be an object")
+        return _coerce_string_map(data, frozenset({"style", "material", "occasion"}))
 
     source: Optional[str] = None
     age: Optional[str] = None
@@ -168,13 +172,15 @@ class EtsySpecifics(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def coerce_values(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            return _coerce_string_map(
-                data,
-                frozenset({"materials", "tags"}),
-                skip_keys=frozenset({"category_specifics"}),
-            )
-        return data
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise ValueError("must be an object")
+        return _coerce_string_map(
+            data,
+            frozenset({"materials", "tags"}),
+            skip_keys=frozenset({"category_specifics"}),
+        )
 
     who_made: Optional[str] = None
     what_is: Optional[str] = None
@@ -199,18 +205,40 @@ class EtsySpecifics(BaseModel):
 
 class PoshmarkSpecifics(BaseModel):
     model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_object(cls, data: Any) -> Any:
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise ValueError("must be an object")
+        return data
+
     categoryPath: list[str] = Field(default_factory=list)
     originalPrice: float = 0
 
 
 class MercariSpecifics(BaseModel):
     model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_object(cls, data: Any) -> Any:
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise ValueError("must be an object")
+        return data
+
     categoryPath: list[str] = Field(default_factory=list)
     shippingLabel: str = "USPS Ground Advantage"
 
 
 class ListingSchema(BaseModel):
-    title: str = Field(..., min_length=1)
+    model_config = ConfigDict(extra="allow")
+
+    title: str = Field(..., min_length=1, max_length=80)
     description: str = Field(..., min_length=1)
     price: float = Field(..., gt=0)
     cost: Optional[float] = None
@@ -224,6 +252,7 @@ class ListingSchema(BaseModel):
     sizeType: Optional[str] = None
     size_us: Optional[str] = None
     sku: Optional[str] = None
+    department: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
     weight_lb: int = Field(default=0, ge=0)
@@ -236,6 +265,13 @@ class ListingSchema(BaseModel):
     mercari_specifics: MercariSpecifics = Field(default_factory=MercariSpecifics)
     depop_specifics: DepopSpecifics = Field(default_factory=DepopSpecifics)
     etsy_specifics: EtsySpecifics = Field(default_factory=EtsySpecifics)
+
+    @field_validator("title", "description", mode="before")
+    @classmethod
+    def strip_required_text(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip()
+        return v
 
     @field_validator("condition")
     @classmethod

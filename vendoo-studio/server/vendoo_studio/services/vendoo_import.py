@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 
@@ -128,8 +128,11 @@ def vendoo_binding(notes: str | None) -> dict[str, str]:
 
 def merge_notes(existing: str | None, updates: dict[str, Any]) -> str:
     data = parse_notes(existing)
+    binding_keys = {"vendooItemId", "vendooUrl"}
     for key, value in updates.items():
         if value is None:
+            continue
+        if key in binding_keys and not str(value).strip() and data.get(key):
             continue
         data[key] = value
     return json.dumps(data)
@@ -171,7 +174,7 @@ def listing_from_vendoo(item: dict | None, form: dict | None) -> dict[str, Any]:
         "size_us": size,
         "sku": _text(general.get("sku")),
         "tags": _string_list(general.get("tags")),
-        "labels": _string_list(general.get("labels")),
+        "labels": _labels_from_vendoo(merged, general),
         "weight_lb": _int(weight.get("pounds")) or 0,
         "weight_oz": _int(weight.get("ounces")) if _int(weight.get("ounces")) is not None else 8,
         "package_dimensions_in": package,
@@ -232,29 +235,103 @@ def image_urls_from_vendoo(
 
 
 async def download_vendoo_photos(urls: list[str]) -> list[dict[str, Any]]:
+    from vendoo_studio.services.safe_fetch import (
+        DOWNLOAD_TIMEOUT_SEC,
+        MAX_DOWNLOAD_BYTES,
+        MAX_REDIRECTS,
+        UnsafeURLError,
+        validate_fetch_url,
+    )
+
     photos: list[dict[str, Any]] = []
-    http_urls = [url for url in urls if url.startswith(("http://", "https://"))]
-    if not http_urls:
-        return photos
     headers = {
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         "Referer": "https://web.vendoo.co/",
         "User-Agent": "Mozilla/5.0",
     }
-    async with httpx.AsyncClient(follow_redirects=True, timeout=20.0, headers=headers) as client:
-        for index, url in enumerate(http_urls[:MAX_PHOTO_COUNT]):
+    async with httpx.AsyncClient(
+        follow_redirects=False,
+        timeout=DOWNLOAD_TIMEOUT_SEC,
+        headers=headers,
+        trust_env=False,
+    ) as client:
+        for index, raw_url in enumerate(urls[:MAX_PHOTO_COUNT]):
             try:
-                response = await client.get(url)
-                response.raise_for_status()
+                content, content_type, final_url = await _download_public_image(client, raw_url)
             except Exception as exc:
-                log.warning("Vendoo photo download failed for %s: %s", url, exc)
+                log.warning("Vendoo photo download failed for %s: %s", raw_url, exc)
                 continue
-            filename = _filename_from_url(url, index)
+            filename = _filename_from_url(final_url, index)
             try:
-                photos.append(process_bytes(response.content, filename, response.headers.get("content-type")))
+                photos.append(process_bytes(content, filename, content_type))
             except Exception as exc:
-                log.warning("Vendoo photo rejected for %s: %s", url, exc)
+                log.warning("Vendoo photo rejected for %s: %s", final_url, exc)
     return photos
+
+
+async def _download_public_image(client: httpx.AsyncClient, url: str) -> tuple[bytes, str | None, str]:
+    from vendoo_studio.services.safe_fetch import (
+        MAX_DOWNLOAD_BYTES,
+        MAX_REDIRECTS,
+        UnsafeURLError,
+        resolve_fetch_target,
+    )
+
+    current = str(url or "").strip()
+    for _ in range(MAX_REDIRECTS + 1):
+        current, addresses = resolve_fetch_target(current, allow_http=False)
+        parsed = urlparse(current)
+        host = str(parsed.hostname or "")
+        host_header = f"[{host}]" if ":" in host else host
+        if parsed.port is not None:
+            host_header = f"{host_header}:{parsed.port}"
+
+        response = None
+        last_connect_error = None
+        for address in addresses:
+            pinned_host = f"[{address}]" if ":" in address else address
+            if parsed.port is not None:
+                pinned_host = f"{pinned_host}:{parsed.port}"
+            pinned_url = urlunparse(parsed._replace(netloc=pinned_host))
+            request = client.build_request(
+                "GET",
+                pinned_url,
+                headers={"Host": host_header, "Connection": "close"},
+                extensions={"sni_hostname": host},
+            )
+            try:
+                response = await client.send(request, stream=True, follow_redirects=False)
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                last_connect_error = exc
+        if response is None:
+            if last_connect_error is not None:
+                raise last_connect_error
+            raise UnsafeURLError(f"Could not connect to {host}")
+
+        try:
+            if response.is_redirect:
+                location = response.headers.get("location")
+                if not location:
+                    raise UnsafeURLError("Redirect was missing a Location header")
+                current = urljoin(current, location)
+                continue
+            response.raise_for_status()
+            content_type = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+            if content_type and not content_type.startswith("image/") and content_type not in {
+                "application/octet-stream",
+                "binary/octet-stream",
+            }:
+                raise UnsafeURLError(f"URL did not return an image ({content_type})")
+            content = bytearray()
+            async for chunk in response.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > MAX_DOWNLOAD_BYTES:
+                    raise UnsafeURLError("Image exceeded the download size limit")
+            return bytes(content), content_type, current
+        finally:
+            await response.aclose()
+    raise UnsafeURLError("Too many redirects")
 
 
 def _merge_payloads(form: dict | None, item: dict | None) -> dict[str, Any]:
@@ -329,6 +406,32 @@ def _string_list(value: Any) -> list[str]:
         return out
     text = _text(value)
     return [text] if text else []
+
+
+def _labels_from_vendoo(merged: dict[str, Any], general: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: Any) -> None:
+        for item in _string_list(value):
+            key = item.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            labels.append(item)
+
+    add(general.get("labels"))
+    add(merged.get("labels"))
+    add(merged.get("labelNames"))
+    add(merged.get("label_names"))
+    named = merged.get("labelDetails") or general.get("labelDetails")
+    if isinstance(named, list):
+        for item in named:
+            if isinstance(item, dict):
+                add(item.get("displayName") or item.get("name") or item.get("label") or item.get("id"))
+            else:
+                add(item)
+    return labels
 
 
 def _nested_option(value: Any) -> Any:
