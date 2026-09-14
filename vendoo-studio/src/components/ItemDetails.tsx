@@ -151,8 +151,21 @@ export function ItemDetails({ convId }: Props) {
   const [details, setDetails] = useState<ItemDetailsData>({ ...DEFAULTS });
 
   useEffect(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    saveGenRef.current += 1;
     if (conv) setDetails(parseNotes(conv.notes));
-  }, [conv]);
+    else setDetails({ ...DEFAULTS });
+  }, [convId, conv?.notes, conv?.updated_at]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveGenRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     setLabelMenuOpen(false);
@@ -168,6 +181,7 @@ export function ItemDetails({ convId }: Props) {
     setRecentTick((tick) => tick + 1);
     const persist = async () => {
       try {
+        if (gen !== saveGenRef.current) return;
         await api.conversations.update(convId, { notes: JSON.stringify({
           condition: updated.condition,
           cog: updated.cog,

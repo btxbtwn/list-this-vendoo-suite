@@ -6,6 +6,7 @@ type ConfirmState =
       status: "confirming";
       message: string;
       variant: ConfirmVariant;
+      confirmLabel: string;
       resolve: (value: boolean) => void;
     };
 
@@ -43,7 +44,10 @@ export function registerConfirmDialogHost() {
   };
 }
 
-export function confirmDialog(message: string, options?: { variant?: ConfirmVariant }): Promise<boolean> {
+export function confirmDialog(
+  message: string,
+  options?: { variant?: ConfirmVariant; confirmLabel?: string },
+): Promise<boolean> {
   if (!hostRegistered) return Promise.resolve(false);
   if (state.status === "confirming") return Promise.resolve(false);
 
@@ -52,6 +56,7 @@ export function confirmDialog(message: string, options?: { variant?: ConfirmVari
       status: "confirming",
       message,
       variant: options?.variant ?? "default",
+      confirmLabel: options?.confirmLabel?.trim() || "Confirm",
       resolve,
     };
     emit();
