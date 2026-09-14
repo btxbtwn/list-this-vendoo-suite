@@ -110,6 +110,8 @@ POSHMARK_MEN_LONG_TEE = "Men > Shirts > Tees - Long Sleeve"
 POSHMARK_WOMEN_SHORT_TEE = "Women > Tops > Tees - Short Sleeve"
 POSHMARK_WOMEN_LONG_TEE = "Women > Tops > Tees - Long Sleeve"
 POSHMARK_WOMEN_BLOUSE = "Women > Tops > Blouses"
+MERCARI_WOMEN_BLOUSE = "Women > Tops & Blouses > Blouse"
+MERCARI_WOMEN_TEE = "Women > Tops & Blouses > T-shirts"
 
 CATEGORY_NORMALIZATIONS: dict[str, dict[str, str]] = {
     "general": {
@@ -257,7 +259,13 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
 _TEE_RE = re.compile(r"\bt-?shirts?\b|\btees?\b|graphic tee", re.I)
 _LONG_SLEEVE_RE = re.compile(r"long\s*sleeve", re.I)
 _BLOUSE_RE = re.compile(r"\bblouses?\b", re.I)
+_BUTTON_UP_RE = re.compile(r"button[\s-]*(up|front|down)", re.I)
 _POSHMARK_ROOT_RE = re.compile(r"^(men|women|kids|pets|home|electronics)\s*>", re.I)
+
+
+def _is_blouse_listing(haystack: str) -> bool:
+    is_tee = bool(_TEE_RE.search(haystack))
+    return (bool(_BLOUSE_RE.search(haystack)) or bool(_BUTTON_UP_RE.search(haystack))) and not is_tee
 
 
 def map_poshmark_category_path(category: str, listing: dict | None = None) -> str:
@@ -298,7 +306,7 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
         is_women = bool(_WOMEN_RE.search(haystack))
         is_men = bool(_MEN_RE.search(haystack)) and not is_women
     is_tee = bool(_TEE_RE.search(haystack))
-    is_blouse = bool(_BLOUSE_RE.search(haystack)) and not is_tee
+    is_blouse = _is_blouse_listing(haystack)
     long_sleeve = bool(_LONG_SLEEVE_RE.search(haystack))
     if is_men and is_tee:
         return POSHMARK_MEN_LONG_TEE if long_sleeve else POSHMARK_MEN_SHORT_TEE
@@ -306,6 +314,34 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
         return POSHMARK_WOMEN_LONG_TEE if long_sleeve else POSHMARK_WOMEN_SHORT_TEE
     if is_women and is_blouse:
         return POSHMARK_WOMEN_BLOUSE
+    return raw
+
+
+def map_mercari_category_path(category: str, listing: dict | None = None) -> str:
+    """Map a Vendoo/listing category onto a selectable Mercari path."""
+    listing = listing if isinstance(listing, dict) else {}
+    raw = (category or "").strip() or str(listing.get("category_path") or "").strip()
+    specifics = listing.get("mercari_specifics")
+    if isinstance(specifics, dict):
+        explicit = specifics.get("category_path") or specifics.get("categoryPath")
+        explicit_path = ""
+        if isinstance(explicit, list):
+            explicit_path = " > ".join(str(part).strip() for part in explicit if str(part).strip())
+        elif isinstance(explicit, str):
+            explicit_path = explicit.strip()
+        if explicit_path:
+            return explicit_path
+    haystack = f"{raw} {_listing_text(listing)} {listing.get('description') or ''}"
+    gender = _listing_gender(listing, raw)
+    is_women = gender == "women"
+    if gender is None:
+        is_women = bool(_WOMEN_RE.search(haystack))
+    is_tee = bool(_TEE_RE.search(haystack))
+    is_blouse = _is_blouse_listing(haystack)
+    if is_women and is_blouse:
+        return MERCARI_WOMEN_BLOUSE
+    if is_women and is_tee:
+        return MERCARI_WOMEN_TEE
     return raw
 
 
@@ -458,9 +494,7 @@ class RegistryService:
                 json_key = label_to_json_key(label)
                 if not json_key:
                     continue
-                if _has_value(specifics.get(json_key)):
-                    continue
-                if json_key in specifics and specifics.get(json_key) == "":
+                if json_key in specifics:
                     continue
                 specifics[json_key] = ""
                 added.append(f"{specifics_key}.{json_key}")

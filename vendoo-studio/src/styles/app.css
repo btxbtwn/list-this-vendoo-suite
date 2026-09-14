@@ -2567,7 +2567,12 @@ details[open] .json-collapse-summary::before {
 }
 
 .tab-group::-webkit-scrollbar {
-  height: 0;
+  height: 4px;
+}
+
+.tab-group::-webkit-scrollbar-thumb {
+  background: var(--color-border-bright);
+  border-radius: 4px;
 }
 
 .tab-btn {
@@ -2681,7 +2686,7 @@ details[open] .json-collapse-summary::before {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 1.5;
-  color: var(--color-text-secondary);
+  color: var(--color-text);
 }
 
 .job-card-status.error {

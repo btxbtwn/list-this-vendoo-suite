@@ -226,14 +226,6 @@ async def resolve_listing_category(
         return {"ok": False, "query": search, "matches": matches, "error": "No matching Vendoo category"}
 
     saved = apply_resolved_category(db, conv_id, path)
-    if isinstance(job.listing_snapshot, dict):
-        from sqlalchemy.orm.attributes import flag_modified
-
-        snapshot = dict(job.listing_snapshot)
-        snapshot["category_path"] = path
-        job.listing_snapshot = snapshot
-        flag_modified(job, "listing_snapshot")
-        db.commit()
     return {
         "ok": True,
         "query": search,

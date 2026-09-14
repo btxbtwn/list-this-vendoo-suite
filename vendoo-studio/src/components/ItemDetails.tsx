@@ -115,7 +115,10 @@ function parseNotes(notes: string | null): ItemDetailsData {
 export function ItemDetails({ convId }: Props) {
   const queryClient = useQueryClient();
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveGenRef = useRef(0);
   const [labelMenuOpen, setLabelMenuOpen] = useState(false);
   const [activeSuggestion, setActiveSuggestion] = useState(0);
   const [recentTick, setRecentTick] = useState(0);
@@ -157,32 +160,38 @@ export function ItemDetails({ convId }: Props) {
   }, [convId]);
 
   const save = useCallback(async (updated: ItemDetailsData) => {
+    const gen = ++saveGenRef.current;
     setSaving(true);
+    setSaveError(null);
     setDetails(updated);
     rememberLabels(updated.vendooLabels);
     setRecentTick((tick) => tick + 1);
-    let extra: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(conv?.notes || "{}");
-      extra = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      extra = {};
-    }
-    await api.conversations.update(convId, { notes: JSON.stringify({
-      ...extra,
-      condition: updated.condition,
-      cog: updated.cog,
-      packageDimensions: updated.packageDimensions,
-      pitToPit: updated.pitToPit,
-      length: updated.length,
-      sleeve: updated.sleeve,
-      vendooLabels: updated.vendooLabels,
-      categoryOverride: updated.categoryOverride,
-      poshmarkOriginalPrice: updated.poshmarkOriginalPrice,
-    })});
-    queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
-    setSaving(false);
-  }, [conv?.notes, convId, queryClient]);
+    const persist = async () => {
+      try {
+        await api.conversations.update(convId, { notes: JSON.stringify({
+          condition: updated.condition,
+          cog: updated.cog,
+          packageDimensions: updated.packageDimensions,
+          pitToPit: updated.pitToPit,
+          length: updated.length,
+          sleeve: updated.sleeve,
+          vendooLabels: updated.vendooLabels,
+          categoryOverride: updated.categoryOverride,
+          poshmarkOriginalPrice: updated.poshmarkOriginalPrice,
+        })});
+        if (gen !== saveGenRef.current) return;
+        queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+      } catch (err: any) {
+        if (gen !== saveGenRef.current) return;
+        setSaveError(err?.message || "Could not save seller details");
+      } finally {
+        if (gen === saveGenRef.current) setSaving(false);
+      }
+    };
+    const queued = saveChainRef.current.catch(() => undefined).then(persist);
+    saveChainRef.current = queued;
+    await queued;
+  }, [convId, queryClient]);
 
   const scheduleSave = useCallback((updated: ItemDetailsData) => {
     setDetails(updated);
@@ -231,14 +240,14 @@ export function ItemDetails({ convId }: Props) {
         </div>
         <div className="item-field">
           <label className="label">Category</label>
-          <input {...f("categoryOverride")} placeholder="Clothing > Women > Tops" list="cats" />
+          <input {...f("categoryOverride")} placeholder="Select a category" list="cats" />
           <datalist id="cats">{CATEGORY_SUGGESTIONS.map(c => <option key={c} value={c} />)}</datalist>
         </div>
         <div className="item-field">
           <label className="label">Labels</label>
           <input
             {...f("vendooLabels")}
-            placeholder="To List, A19"
+            placeholder="Add labels"
             autoComplete="off"
             role="combobox"
             aria-expanded={labelMenuOpen && labelSuggestions.length > 0}
@@ -315,6 +324,14 @@ export function ItemDetails({ convId }: Props) {
         </div>
       </div>
       {saving && <span className="item-saving">SAVING…</span>}
+      {saveError && (
+        <span className="item-saving text-error">
+          {saveError}{" "}
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => void save(details)}>
+            Retry
+          </button>
+        </span>
+      )}
     </div>
   );
 }

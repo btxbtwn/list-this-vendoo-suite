@@ -98,6 +98,22 @@ function send(message) {
   }
 }
 
+async function fetchStudioPairingToken() {
+  const resp = await fetch(`${STUDIO_URL}/api/extension/pairing-token`);
+  if (!resp.ok) throw new Error(`pairing-token HTTP ${resp.status}`);
+  const data = await resp.json();
+  const token = String(data?.token || '').trim();
+  if (!token || token === 'direct') throw new Error('Studio returned an invalid pairing token');
+  await setPairingToken(token);
+  return token;
+}
+
+async function resolvePairingToken() {
+  const stored = await getPairingToken();
+  if (stored && stored !== 'direct') return stored;
+  return fetchStudioPairingToken();
+}
+
 function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
@@ -124,6 +140,12 @@ function connect() {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
+      if (msg.type === 'error' && /invalid pairing token/i.test(String(msg.message || ''))) {
+        fetchStudioPairingToken().then(() => sendIdent()).catch((err) => {
+          error(`Pairing token refresh failed: ${err.message}`);
+        });
+        return;
+      }
       Promise.resolve(handleStudioMessage(msg)).catch((err) => {
         error(`Failed to handle message: ${err.message}`);
       });
@@ -145,7 +167,13 @@ function connect() {
 }
 
 async function sendIdent() {
-  const token = await getPairingToken();
+  let token;
+  try {
+    token = await resolvePairingToken();
+  } catch (err) {
+    error(`Pairing token is unavailable: ${err.message}`);
+    return;
+  }
   const stored = await chrome.storage.local.get(RELOAD_GENERATION_KEY);
   send({
     version: 1,
@@ -159,7 +187,7 @@ async function sendIdent() {
 function identPayload(token, reloadGeneration) {
   const build = typeof STUDIO_EXTENSION_BUILD === 'string' ? STUDIO_EXTENSION_BUILD.trim() : '';
   return {
-    token: token || 'direct',
+    token: token || '',
     version: chrome.runtime.getManifest().version,
     build: build || null,
     reload_generation: reloadGeneration || null,
@@ -344,6 +372,30 @@ async function handleStudioMessage(msg) {
         return;
       }
 
+      if (payload.options?.publish !== false) {
+        send({
+          version: 1,
+          type: 'job.step_failed',
+          job_id: jobId,
+          message_id: Date.now().toString(36),
+          sent_at: new Date().toISOString(),
+          payload: { step: 'queued', error: 'Publishing is not supported; publish must be false' },
+        });
+        return;
+      }
+
+      if (activePatch || (activeJob && activeJob.job_id !== jobId)) {
+        send({
+          version: 1,
+          type: 'job.step_failed',
+          job_id: jobId,
+          message_id: Date.now().toString(36),
+          sent_at: new Date().toISOString(),
+          payload: { step: 'queued', error: 'Another automation job is already running' },
+        });
+        return;
+      }
+
       if (activeJob && activeJob.job_id === jobId) {
         activeJob = null;
         await persistActiveJob(null);
@@ -360,7 +412,7 @@ async function handleStudioMessage(msg) {
         photos: payload.photos || [],
         options: payload.options || {},
         registry_selectors: payload.registry_selectors || {},
-        vendoo_item_id: payload.vendoo_item_id || payload.options?.vendoo_item_id || null,
+        vendoo_item_id: durableItemId(payload.vendoo_item_id || payload.options?.vendoo_item_id) || null,
         vendoo_url: payload.vendoo_url || payload.options?.vendoo_url || null,
         current_step: 'accepted',
         attempt: 0,
@@ -524,11 +576,13 @@ function selectJobSteps(job, steps) {
   }
 
   const prefix = allSteps.filter((step) => (
-    step.step === 'opening_vendoo' || step.step === 'waiting_ready'
+    step.step === 'opening_vendoo'
+    || step.step === 'waiting_ready'
+    || step.step === 'checking_draft_safety'
   ));
   const prefixNames = new Set(prefix.map((step) => step.step));
   const resumed = allSteps.slice(resumeIdx).filter((step) => !prefixNames.has(step.step));
-  log(`Resuming job at ${resumeFrom} (${resumed.length} step(s) after open/ready)`);
+  log(`Resuming job at ${resumeFrom} (${resumed.length} step(s) after preflight)`);
   return [...prefix, ...resumed];
 }
 
@@ -603,6 +657,10 @@ async function runJob(jobId) {
         activeJob.vendoo_item_id = result.vendoo_item_id;
         await persistActiveJob(activeJob);
       }
+      if (result.vendoo_url && extractItemIdFromUrl(result.vendoo_url)) {
+        activeJob.vendoo_url = result.vendoo_url;
+        await persistActiveJob(activeJob);
+      }
     } catch (err) {
       failed = true;
       collectDiagnostics('passive');
@@ -618,9 +676,42 @@ async function runJob(jobId) {
     }
   }
 
+  if (!activeJob || activeJob.job_id !== jobId) {
+    log('Job cancelled or replaced after last step, stopping');
+    return;
+  }
+
+  if (!failed && activeJob.options?.mode !== 'schema_probe') {
+    const verified = await verifySavedDraft(activeJob);
+    if (!verified?.ok) {
+      failed = true;
+      collectDiagnostics('passive');
+      send({
+        version: 1,
+        type: 'job.step_failed',
+        job_id: jobId,
+        message_id: Date.now().toString(36),
+        sent_at: new Date().toISOString(),
+        payload: {
+          step: 'verifying_draft',
+          error: verified?.error || 'Saved Vendoo draft could not be independently verified',
+          fields: verified?.general?.fields || {},
+          mismatches: verified?.mismatches || [],
+          fill_log: null,
+        },
+      });
+    } else {
+      activeJob.vendoo_item_id = verified.item_id || activeJob.vendoo_item_id;
+      activeJob.vendoo_url = verified.url || activeJob.vendoo_url;
+      await persistActiveJob(activeJob);
+    }
+  }
+
   if (!failed) {
     const vurl = activeJob?.vendoo_url;
+    const itemId = activeJob?.vendoo_item_id;
     const tabId = activeJob?.tabId;
+    const verified = activeJob?.options?.mode === 'schema_probe' ? { verified: true, mode: 'schema_probe' } : { verified: true };
     await addCompletedJobId(jobId);
     activeJob = null;
     await persistActiveJob(null);
@@ -632,7 +723,7 @@ async function runJob(jobId) {
       job_id: jobId,
       message_id: Date.now().toString(36),
       sent_at: new Date().toISOString(),
-      payload: { vendoo_url: vurl },
+      payload: { vendoo_url: vurl, vendoo_item_id: itemId, ...verified },
     });
     await closeListingTab(tabId);
   }
@@ -644,9 +735,12 @@ function buildJobSteps(job) {
     const steps = [
       { step: 'opening_vendoo', fn: openVendooListing },
       { step: 'waiting_ready', fn: waitForContentScript },
-      { step: 'selecting_category', fn: selectGeneralCategoryOnly },
-      { step: 'saving_general', fn: saveGeneral },
     ];
+    if (job.options?.reuseExistingItem) {
+      steps.push({ step: 'checking_draft_safety', fn: checkDraftSafety });
+    }
+    steps.push({ step: 'selecting_category', fn: selectGeneralCategoryOnly });
+    steps.push({ step: 'saving_general', fn: saveGeneral });
     if (platforms.length) {
       steps.push({ step: 'discovering_schema', fn: discoverSchema });
     }
@@ -658,6 +752,9 @@ function buildJobSteps(job) {
 
   steps.push({ step: 'opening_vendoo', fn: openVendooListing });
   steps.push({ step: 'waiting_ready', fn: waitForContentScript });
+  if (job.options?.reuseExistingItem) {
+    steps.push({ step: 'checking_draft_safety', fn: checkDraftSafety });
+  }
   if (!job.options?.skipPhotos) {
     steps.push({ step: 'uploading_photos', fn: uploadPhotos });
   }
@@ -836,10 +933,18 @@ async function findNewItemTab() {
   return [...webTabs, ...appTabs].find(t => isNewItemUrl(t.url)) || null;
 }
 
+const NON_DURABLE_ITEM_IDS = new Set(['new', 'edit', 'create']);
+
+function durableItemId(value) {
+  const itemId = String(value || '').trim();
+  if (!itemId || NON_DURABLE_ITEM_IDS.has(itemId.toLowerCase())) return '';
+  return itemId;
+}
+
 function extractItemIdFromUrl(url) {
   try {
     const match = new URL(url).pathname.match(/\/item\/([^/?]+)/);
-    return match && match[1] !== 'new' ? match[1] : '';
+    return durableItemId(match?.[1]);
   } catch {
     return '';
   }
@@ -899,11 +1004,13 @@ async function openVisibleVendooWindow(url, existingTab, { foreground = false } 
 }
 
 async function focusVendooListing(payload) {
-  const itemUrl = payload.vendoo_url || (payload.vendoo_item_id
-    ? `https://web.vendoo.co/app/item/${payload.vendoo_item_id}`
-    : '');
+  const itemId = durableItemId(payload.vendoo_item_id) || extractItemIdFromUrl(payload.vendoo_url || '');
+  const itemUrl = itemId
+    ? (extractItemIdFromUrl(payload.vendoo_url || '') === itemId
+      ? payload.vendoo_url
+      : `https://web.vendoo.co/app/item/${itemId}`)
+    : '';
   const url = itemUrl || 'https://web.vendoo.co/app';
-  const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
   const existing = itemId ? await findTabByDraft(url, itemId) : await findVisibleVendooTab();
   const engineId = await rememberedEngineWindowId();
 
@@ -928,14 +1035,15 @@ async function focusVendooListing(payload) {
 }
 
 async function openListingForPatch(payload, { reload = true, preview = true, marketplace = '' } = {}) {
-  let url = payload.vendoo_url || (payload.vendoo_item_id
-    ? `https://web.vendoo.co/app/item/${payload.vendoo_item_id}`
-    : null);
-  if (!url) {
+  const requestedUrl = payload.vendoo_url || '';
+  const itemId = durableItemId(payload.vendoo_item_id) || extractItemIdFromUrl(requestedUrl);
+  if (!itemId) {
     return { ok: false, error: 'No Vendoo draft URL. Send the listing first.' };
   }
+  let url = extractItemIdFromUrl(requestedUrl) === itemId
+    ? requestedUrl
+    : `https://web.vendoo.co/app/item/${itemId}`;
   if (marketplace) url = withMarketplaceQuery(url, marketplace);
-  const itemId = payload.vendoo_item_id || extractItemIdFromUrl(url);
   const existing = await findTabByDraft(url, itemId);
   let currentUrl = existing?.url || '';
   if (existing?.id) {
@@ -974,16 +1082,36 @@ async function openListingForPatch(payload, { reload = true, preview = true, mar
 }
 
 async function runFillFields(jobId, payload) {
-  if (activeJob) {
+  if (activePatch) {
     send({
       version: 1,
       type: 'job.step_failed',
       job_id: jobId,
       message_id: Date.now().toString(36),
       sent_at: new Date().toISOString(),
-      payload: { step: 'filling_fields', error: 'Another fill is already running' },
+      payload: { step: 'filling_fields', error: 'Another leftover field fill is already running' },
     });
     return;
+  }
+  // Leftover fills use activePatch, not activeJob. A restored/stale activeJob from a
+  // finished Send must not block refill after reload.
+  if (activeJob && activeJob.job_id !== jobId) {
+    send({
+      version: 1,
+      type: 'job.step_failed',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: { step: 'filling_fields', error: 'Another automation job is already running' },
+    });
+    return;
+  }
+  if (activeJob) {
+    warn(
+      `Clearing stale activeJob ${activeJob.job_id} (${activeJob.current_step || 'unknown'}) before leftover fill`
+    );
+    await persistActiveJob(null);
+    await stopJobPreview();
   }
 
   const opened = await openListingForPatch({ ...payload, job_id: jobId });
@@ -1038,6 +1166,30 @@ async function runFillFields(jobId, payload) {
       payload: {
         step: 'filling_fields',
         error: formReady?.error || 'Vendoo listing form did not finish loading',
+      },
+    });
+    return;
+  }
+
+  const patchPlatforms = [...new Set((payload.fields || [])
+    .map((field) => String(field.marketplace || '').toLowerCase())
+    .filter((marketplace) => marketplace && marketplace !== 'general'))];
+  const safety = await sendToVendoo(job, {
+    type: 'CHECK_DRAFT_SAFETY',
+    platforms: patchPlatforms,
+  });
+  if (!safety?.ok) {
+    activePatch = null;
+    await stopJobPreview();
+    send({
+      version: 1,
+      type: 'job.step_failed',
+      job_id: jobId,
+      message_id: Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: {
+        step: 'filling_fields',
+        error: safety?.error || 'Could not verify that the existing Vendoo item is a draft',
       },
     });
     return;
@@ -1107,7 +1259,7 @@ async function runFillFields(jobId, payload) {
     sent_at: new Date().toISOString(),
     payload: {
       step: 'filling_fields',
-      vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id || null,
+      vendoo_item_id: durableItemId(lastSaved?.vendoo_item_id || payload.vendoo_item_id) || null,
       vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url || null,
       fill_log: fillLog,
     },
@@ -1218,7 +1370,7 @@ function compactVendooValue(value, depth) {
 
 async function readVendooItemInPage(wantedId) {
   const fromUrl = (location.pathname.match(/\/item\/([^/?]+)/) || [])[1] || '';
-  const itemId = wantedId && wantedId !== 'new' ? wantedId : (fromUrl && fromUrl !== 'new' ? fromUrl : '');
+  const itemId = durableItemId(wantedId) || durableItemId(fromUrl);
   if (!itemId) {
     return { ok: false, error: 'No Vendoo item id', url: location.href };
   }
@@ -1348,7 +1500,7 @@ async function runVendooGet(jobId, payload) {
     try {
       const tab = await chrome.tabs.get(existingTabId);
       const currentId = extractItemIdFromUrl(tab.url || '');
-      const wantId = payload.vendoo_item_id || extractItemIdFromUrl(payload.vendoo_url || '');
+      const wantId = durableItemId(payload.vendoo_item_id) || extractItemIdFromUrl(payload.vendoo_url || '');
       if (wantId && currentId === wantId) tabId = existingTabId;
     } catch (err) {
       /* tab closed */
@@ -1367,7 +1519,7 @@ async function runVendooGet(jobId, payload) {
   }
 
   const job = { job_id: jobId, tabId };
-  const itemId = payload.vendoo_item_id || extractItemIdFromUrl(payload.vendoo_url || '');
+  const itemId = durableItemId(payload.vendoo_item_id) || extractItemIdFromUrl(payload.vendoo_url || '');
   const apiRead = await Promise.race([
     readItemFromPage(tabId, itemId),
     sleep(8000).then(() => ({
@@ -1442,7 +1594,7 @@ async function runSearchCategories(jobId, payload) {
     try {
       const tab = await chrome.tabs.get(existingTabId);
       const currentId = extractItemIdFromUrl(tab.url || '');
-      const wantId = payload.vendoo_item_id || extractItemIdFromUrl(payload.vendoo_url || '');
+      const wantId = durableItemId(payload.vendoo_item_id) || extractItemIdFromUrl(payload.vendoo_url || '');
       if (wantId && currentId === wantId) tabId = existingTabId;
     } catch (err) {
       /* tab closed */
@@ -1470,6 +1622,27 @@ async function runSearchCategories(jobId, payload) {
       log(`Content script inject failed on tab ${tabId}: ${err.message}`);
     }
   }
+  const formReady = await sendToVendoo(job, { type: 'WAIT_FOR_FORM', timeoutMs: 30000 });
+  if (!formReady?.ok) {
+    reply({
+      ok: false,
+      query,
+      error: formReady?.error || 'Vendoo listing form did not finish loading',
+    });
+    return;
+  }
+  const safety = await sendToVendoo(job, {
+    type: 'CHECK_DRAFT_SAFETY',
+    platforms: payload.platforms || [],
+  });
+  if (!safety?.ok) {
+    reply({
+      ok: false,
+      query,
+      error: safety?.error || 'Could not verify that the existing Vendoo item is a draft',
+    });
+    return;
+  }
   const result = await sendToVendoo(job, { type: 'SEARCH_CATEGORIES', query });
   reply({
     ok: Boolean(result?.ok),
@@ -1482,7 +1655,7 @@ async function runSearchCategories(jobId, payload) {
 
 async function openVendooListing(job) {
   try {
-    const reuseId = job.vendoo_item_id || job.options?.vendoo_item_id;
+    const reuseId = durableItemId(job.vendoo_item_id || job.options?.vendoo_item_id);
     const reuseUrl = job.vendoo_url || job.options?.vendoo_url || (reuseId
       ? `https://web.vendoo.co/app/item/${reuseId}`
       : null);
@@ -1544,6 +1717,12 @@ async function waitForContentScript(job) {
   const tab = await waitForTabComplete(tabId);
   if (!isTabReady(tab)) {
     return { ok: false, error: `Vendoo tab not ready (${tab?.url || 'unknown url'})` };
+  }
+  const expectedId = durableItemId(
+    job.vendoo_item_id || job.options?.vendoo_item_id || activeJob?.vendoo_item_id,
+  );
+  if (expectedId && extractItemIdFromUrl(tab.url || '') !== expectedId) {
+    return { ok: false, error: `Vendoo tab is not the saved draft (${tab?.url || 'unknown url'})` };
   }
 
   let injected = false;
@@ -1676,10 +1855,6 @@ async function uploadPhotos(job) {
   if (job.options?.skipPhotos) {
     return { ok: true };
   }
-  if (job.vendoo_item_id) {
-    log(`Draft ${job.vendoo_item_id} already exists, skipping photo upload`);
-    return { ok: true };
-  }
   const photos = job.photos || [];
   if (photos.length === 0) {
     return { ok: true };
@@ -1732,6 +1907,40 @@ async function discoverSchema(job) {
 async function saveGeneral(job) {
   return sendToVendoo(job, {
     type: 'SAVE_GENERAL',
+  });
+}
+
+async function checkDraftSafety(job) {
+  return sendToVendoo(job, {
+    type: 'CHECK_DRAFT_SAFETY',
+    platforms: job.options?.platforms || [],
+  });
+}
+
+async function verifySavedDraft(job) {
+  const itemId = durableItemId(job.vendoo_item_id) || extractItemIdFromUrl(job.vendoo_url || '');
+  if (!itemId) {
+    return { ok: false, error: 'No durable Vendoo item ID after save' };
+  }
+  const url = extractItemIdFromUrl(job.vendoo_url || '') === itemId
+    ? job.vendoo_url
+    : `https://web.vendoo.co/app/item/${itemId}`;
+  const tabId = job.tabId;
+  if (tabId) {
+    try {
+      await chrome.tabs.update(tabId, { url });
+      await waitForTabComplete(tabId);
+      await waitForContentScript({ tabId, job_id: job.job_id });
+    } catch (err) {
+      return { ok: false, error: `Could not reopen saved draft: ${err.message}` };
+    }
+  }
+  const expectedPhotos = Array.isArray(job.photos) ? job.photos.length : 0;
+  return sendToVendoo(job, {
+    type: 'VERIFY_SAVED_DRAFT',
+    data: job.listing,
+    platforms: job.options?.platforms || [],
+    expected_photo_count: expectedPhotos,
   });
 }
 
@@ -1953,18 +2162,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'IGNORE_PAIRING') {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      chrome.storage.local.get(RELOAD_GENERATION_KEY).then((stored) => {
-        send({
-          version: 1,
-          type: 'extension.ready',
-          message_id: Date.now().toString(36),
-          sent_at: new Date().toISOString(),
-            payload: identPayload('direct', stored[RELOAD_GENERATION_KEY] || null),
-        });
-      });
-    }
-    sendResponse({ ok: true });
+    fetchStudioPairingToken().then(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) sendIdent();
+      else connect();
+      sendResponse({ ok: true });
+    }).catch((err) => {
+      sendResponse({ ok: false, error: err.message });
+    });
     return true;
   }
 
@@ -2105,9 +2309,17 @@ async function runDiagnostic(targetTabId) {
 
   const [execution] = await chrome.scripting.executeScript({
     target: { tabId: targetTab.id },
-    func: collectPageDiagnostics,
+    files: ['diagnostic-collector.js'],
   });
-  const result = execution?.result;
+  void execution;
+  const [collected] = await chrome.scripting.executeScript({
+    target: { tabId: targetTab.id },
+    func: async () => {
+      const raw = await collectPageDiagnostics({ mode: 'active' });
+      return typeof sanitizeDiagnostic === 'function' ? sanitizeDiagnostic(raw) : raw;
+    },
+  });
+  const result = collected?.result;
   if (!result) throw new Error('Diagnostic returned no data');
 
   const filename = buildDiagnosticFilename(result.url || targetTab.url);

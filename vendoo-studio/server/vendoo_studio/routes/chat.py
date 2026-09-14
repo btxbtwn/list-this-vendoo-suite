@@ -310,9 +310,9 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
     comps_text = ""
     evidence: dict = {}
     existing_analysis = latest_photo_analysis(history)
-    if photos and existing_analysis:
+    if photos and existing_analysis and photo_analysis_usable(existing_analysis):
         photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
-    elif photos and len(history) <= 2:
+    elif photos:
         provider = get_listing_provider()
         if provider:
             paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
@@ -332,8 +332,8 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             comps_text = await research_sold_comps(photo_analysis_text, evidence)
             if comps_text:
                 repo.add_message(conv_id, "system", comps_text, provider="brave", model="web-search")
-    elif photos:
-        photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
+        else:
+            photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
 
     comps_block = f"\n\n--- Sold comps ---\n\n{comps_text}\n" if comps_text else ""
 
@@ -536,17 +536,31 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    provider = _require_provider()
+    repo.add_message(conv_id, "user", body.text)
+    provider = get_listing_provider()
+    if provider is None:
+        repo.add_message(
+            conv_id,
+            "system",
+            "Sign in with ChatGPT in Settings, or add a MiMo API key, then retry this prompt.",
+            provider="system",
+            model="",
+        )
+        repo.update_status(conv_id, "draft")
+        raise HTTPException(
+            400,
+            "Sign in with ChatGPT in Settings, or add a MiMo API key.",
+        )
     provider_name, provider_model = _provider_meta(provider)
 
     repo.update_status(conv_id, "in_progress")
-    repo.add_message(conv_id, "user", body.text)
 
     messages = await _build_messages(conv_id, db, body.text)
 
     async def stream_response():
         stream_db = SessionLocal()
         full_text = ""
+        stream_error = ""
         try:
             async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
                 if item is None:
@@ -557,29 +571,42 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                     full_text += content
                 if payload:
                     yield payload
+            if not full_text.strip():
+                stream_error = "The listing assistant returned an empty response. Retry this prompt."
+                yield _sse_event("error", stream_error)
             yield "data: [DONE]\n\n"
         except Exception as e:
             log.exception("chat stream failed for %s", conv_id)
+            stream_error = str(e)
             yield _sse_data(f"Error: {e}")
             yield "data: [DONE]\n\n"
-
-        stream_repo = ConversationRepo(stream_db)
-        try:
-            if full_text and not full_text.lstrip().lower().startswith("error:"):
-                stream_repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=provider_model)
-                operations = await _apply_listing_payload_with_repair(
-                    stream_db, conv_id, full_text, provider
-                )
-                await _maybe_resolve_vendoo_category(stream_db, conv_id, operations=operations)
-            stream_repo.update_status(conv_id, "draft")
-        except Exception:
-            log.exception("failed to persist chat result for %s", conv_id)
+        finally:
+            stream_repo = ConversationRepo(stream_db)
             try:
+                usable = full_text.strip() and not full_text.lstrip().lower().startswith("error:")
+                if usable and not stream_error:
+                    stream_repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=provider_model)
+                    operations = await _apply_listing_payload_with_repair(
+                        stream_db, conv_id, full_text, provider
+                    )
+                    await _maybe_resolve_vendoo_category(stream_db, conv_id, operations=operations)
+                elif stream_error or not full_text.strip():
+                    stream_repo.add_message(
+                        conv_id,
+                        "system",
+                        stream_error or "The listing assistant returned an empty response. Retry this prompt.",
+                        provider="system",
+                        model="",
+                    )
                 stream_repo.update_status(conv_id, "draft")
             except Exception:
-                log.exception("failed to reset status after chat persist error for %s", conv_id)
-        finally:
-            stream_db.close()
+                log.exception("failed to persist chat result for %s", conv_id)
+                try:
+                    stream_repo.update_status(conv_id, "draft")
+                except Exception:
+                    log.exception("failed to reset status after chat persist error for %s", conv_id)
+            finally:
+                stream_db.close()
 
     return StreamingResponse(stream_response(), media_type="text/event-stream", headers=SSE_HEADERS)
 
@@ -777,6 +804,21 @@ async def cancel_generate_listing(conv_id: str):
     if run and run.task and not run.task.done():
         run.cancelling = True
         run.task.cancel()
+    db = SessionLocal()
+    try:
+        ConversationRepo(db).update_status(conv_id, "draft")
+    finally:
+        db.close()
+    return {"ok": True}
+
+
+@router.post("/api/conversations/{conv_id}/messages/cancel")
+async def cancel_chat_message(conv_id: str):
+    db = SessionLocal()
+    try:
+        ConversationRepo(db).update_status(conv_id, "draft")
+    finally:
+        db.close()
     return {"ok": True}
 
 

@@ -37,13 +37,26 @@ def catalog_payload() -> list[dict]:
 
 
 def normalize_selected(raw: object) -> list[str]:
+    """Normalize a marketplace selection.
+
+    Only fillable platforms may remain selected. Unsupported catalog entries
+    (Facebook, Grailed, Whatnot, Shopify) are dropped so they cannot reach
+    Send or the approved job snapshot.
+    """
     if not isinstance(raw, list):
         return list(DEFAULT_SELECTED)
     chosen = {str(item).strip().lower() for item in raw if str(item).strip()}
     unknown = sorted(chosen - set(KNOWN_MARKETPLACES))
     if unknown:
         raise ValueError(f"Unknown marketplace: {', '.join(unknown)}")
-    return [item_id for item_id in KNOWN_MARKETPLACES if item_id in chosen]
+    return [item_id for item_id in FILLABLE_MARKETPLACES if item_id in chosen]
+
+
+def unsupported_in_selection(raw: object) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    chosen = {str(item).strip().lower() for item in raw if str(item).strip()}
+    return [item_id for item_id, _label, fillable in MARKETPLACE_CATALOG if not fillable and item_id in chosen]
 
 
 def get_selected_marketplaces() -> list[str]:
@@ -51,12 +64,26 @@ def get_selected_marketplaces() -> list[str]:
     if "marketplaces" not in payload:
         return list(DEFAULT_SELECTED)
     try:
-        return normalize_selected(payload.get("marketplaces"))
+        normalized = normalize_selected(payload.get("marketplaces"))
     except ValueError:
         return list(DEFAULT_SELECTED)
+    # Persist strip of unsupported selections so Settings and Send stay aligned.
+    stored = payload.get("marketplaces")
+    if isinstance(stored, list):
+        stored_norm = [str(item).strip().lower() for item in stored if str(item).strip()]
+        if stored_norm != normalized:
+            update_settings(lambda body: body.__setitem__("marketplaces", normalized))
+    return normalized
 
 
 def set_selected_marketplaces(selected: object) -> list[str]:
+    blocked = unsupported_in_selection(selected)
+    if blocked:
+        labels = ", ".join(marketplace_label(item_id) for item_id in blocked)
+        raise ValueError(
+            f"{labels} cannot be selected for Send — automation is not available for "
+            "these marketplaces yet. Choose only eBay, Poshmark, Mercari, Depop, or Etsy."
+        )
     normalized = normalize_selected(selected)
     update_settings(lambda payload: payload.__setitem__("marketplaces", normalized))
     return normalized

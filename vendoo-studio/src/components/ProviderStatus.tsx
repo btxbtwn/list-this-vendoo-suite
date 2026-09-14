@@ -8,11 +8,12 @@ export function ProviderStatus() {
     refetchInterval: 10000,
   });
 
-  const modelName = data?.listing_model || "mimo-v2.5-pro";
+  const connected = Boolean(data?.configured);
+  const modelName = connected ? (data?.listing_model || "listing model") : "Not configured";
 
   return (
     <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <span className={`status-dot ${data?.configured ? "connected" : ""}`} />
+      <span className={`status-dot ${connected ? "connected" : ""}`} />
       <span>{modelName}</span>
     </span>
   );

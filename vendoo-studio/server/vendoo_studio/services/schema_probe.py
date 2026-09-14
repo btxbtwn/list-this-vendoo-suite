@@ -35,7 +35,7 @@ def listing_for_extension(snapshot: dict | None) -> dict:
     return {
         key: value
         for key, value in (snapshot or {}).items()
-        if not str(key).startswith("_")
+        if not str(key).startswith("_") and key != "platforms"
     }
 
 
@@ -100,6 +100,9 @@ def maybe_start_schema_probe(
 
     binding = vendoo_binding(conv.notes)
     snapshot = deepcopy(source_listing)
+    from vendoo_studio.services.marketplaces import selected_fillable_platforms
+
+    snapshot["platforms"] = selected_fillable_platforms()
     snapshot[SCHEMA_PROBE_FLAG] = True
     parent_id = revisions[0].id if revisions else "schema-probe"
 

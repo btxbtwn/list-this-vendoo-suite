@@ -262,7 +262,7 @@ class SettingsChatGPTRouteTest(unittest.TestCase):
             patch("vendoo_studio.services.chatgpt_oauth.chatgpt_signed_in", return_value=True),
             patch("vendoo_studio.services.keychain.get_chatgpt_tokens", return_value=tokens),
             patch("vendoo_studio.services.keychain.get_api_key", return_value="sk-mimo-key-1234"),
-            patch("vendoo_studio.services.keychain.get_chatgpt_models", return_value={}),
+            patch("vendoo_studio.providers.chatgpt_codex.get_chatgpt_models", return_value={}),
         ):
             resp = TestClient(app).get("/api/settings/provider")
         self.assertEqual(resp.status_code, 200)
@@ -283,7 +283,7 @@ class SettingsChatGPTRouteTest(unittest.TestCase):
             patch("vendoo_studio.services.chatgpt_oauth.chatgpt_signed_in", return_value=True),
             patch("vendoo_studio.services.keychain.get_chatgpt_tokens", return_value={"access_token": "a", "refresh_token": "r"}),
             patch("vendoo_studio.services.keychain.get_api_key", return_value=None),
-            patch("vendoo_studio.services.keychain.get_chatgpt_models", return_value={}),
+            patch("vendoo_studio.providers.chatgpt_codex.get_chatgpt_models", return_value={}),
         ):
             resp = TestClient(app).get("/api/settings/provider")
         self.assertEqual(resp.status_code, 200)

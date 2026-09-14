@@ -16,11 +16,14 @@ from vendoo_studio.services.registry import (
     POSHMARK_MEN_SHORT_TEE,
     POSHMARK_WOMEN_BLOUSE,
     POSHMARK_WOMEN_SHORT_TEE,
+    MERCARI_WOMEN_BLOUSE,
+    MERCARI_WOMEN_TEE,
     WOMEN_TOPS_PATH,
     RegistryService,
     align_listing_gender,
     is_learned_listing_field,
     label_to_json_key,
+    map_mercari_category_path,
     map_poshmark_category_path,
     map_vendoo_category_path,
 )
@@ -290,3 +293,23 @@ class PoshmarkCategoryMappingTest(unittest.TestCase):
         )
         self.assertEqual(mapped, path)
         self.assertNotEqual(mapped, POSHMARK_MEN_SHORT_TEE)
+
+
+class MercariCategoryMappingTest(unittest.TestCase):
+    def test_maps_button_up_blouse_to_mercari_blouses(self):
+        mapped = map_mercari_category_path(
+            WOMEN_TOPS_PATH,
+            {
+                "title": "Notations XL Retro Short Sleeve Button-Up Shirt",
+                "department": "Women",
+                "ebay_specifics": {"department": "Women", "type": "Blouse"},
+            },
+        )
+        self.assertEqual(mapped, MERCARI_WOMEN_BLOUSE)
+
+    def test_maps_graphic_tee_to_mercari_tshirts(self):
+        mapped = map_mercari_category_path(
+            WOMEN_TOPS_PATH,
+            {"title": "Southwestern Graphic T-Shirt", "department": "Women"},
+        )
+        self.assertEqual(mapped, MERCARI_WOMEN_TEE)

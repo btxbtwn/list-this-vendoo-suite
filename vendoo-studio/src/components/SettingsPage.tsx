@@ -198,8 +198,8 @@ function MarketplacesSection() {
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              disabled={mutation.isPending || available.length === 0 || selected.length === available.length}
-              onClick={() => save(available.map((item) => item.id))}
+              disabled={mutation.isPending || available.filter((item) => item.fillable).length === 0 || selected.filter((id) => available.find((item) => item.id === id)?.fillable).length === available.filter((item) => item.fillable).length}
+              onClick={() => save(available.filter((item) => item.fillable).map((item) => item.id))}
             >
               All
             </button>
@@ -224,18 +224,28 @@ function MarketplacesSection() {
               <label key={item.id} className="settings-marketplace-option">
                 <input
                   type="checkbox"
-                  checked={selectedSet.has(item.id)}
-                  disabled={mutation.isPending}
+                  checked={item.fillable && selectedSet.has(item.id)}
+                  disabled={mutation.isPending || !item.fillable}
                   onChange={(event) => {
-                    const next = new Set(selected);
+                    if (!item.fillable) return;
+                    const next = new Set(selected.filter((id) => available.find((entry) => entry.id === id)?.fillable));
                     if (event.target.checked) next.add(item.id);
                     else next.delete(item.id);
                     save(next);
                   }}
                 />
-                <span>{item.label}</span>
+                <span>
+                  {item.label}
+                  {!item.fillable ? " — unsupported for Send" : ""}
+                </span>
               </label>
             ))}
+            {available.some((item) => !item.fillable) ? (
+              <p className="settings-row-desc">
+                Facebook, Grailed, Whatnot, and Shopify are not available for Send. They cannot be selected,
+                cannot enter an approved job snapshot, and are blocked before a job is created.
+              </p>
+            ) : null}
           </div>
         )}
         {mutation.isError ? (

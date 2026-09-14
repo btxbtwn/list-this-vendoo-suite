@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function currentVendooItemId(url) {
     const match = String(url || '').match(/\/item\/([^/?]+)/);
-    if (!match || match[1] === 'new') return '';
+    if (!match || ['new', 'edit', 'create'].includes(String(match[1] || '').toLowerCase())) return '';
     return match[1];
   }
 

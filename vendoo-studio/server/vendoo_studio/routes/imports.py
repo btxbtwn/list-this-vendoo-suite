@@ -39,7 +39,7 @@ class VendooImportResponse(BaseModel):
 @router.post("/vendoo", response_model=VendooImportResponse)
 async def import_vendoo_listing(body: VendooImportRequest, db: Session = Depends(get_db)):
     item_id = (body.item_id or "").strip()
-    if not item_id or item_id == "new":
+    if not item_id or item_id.lower() in {"new", "edit", "create"}:
         raise HTTPException(400, "Open a saved Vendoo listing first.")
     if not body.item and not body.form:
         raise HTTPException(400, "No Vendoo listing data was provided.")
@@ -121,7 +121,7 @@ async def import_vendoo_listing(body: VendooImportRequest, db: Session = Depends
         source=(body.source or "import"),
         step="imported",
     )
-    conv_repo.update_status(conv.id, "listing")
+    conv_repo.update_status(conv.id, "draft")
 
     binding = vendoo_binding(conv.notes)
     return VendooImportResponse(

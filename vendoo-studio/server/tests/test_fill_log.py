@@ -173,6 +173,23 @@ class FillLogServiceTest(unittest.TestCase):
         size = self.db.query(FieldRegistry).filter(FieldRegistry.normalized_label == "size").one()
         self.assertEqual(size.known_selectors[0]["failure_count"], 1)
 
+    def test_invalid_dropdown_is_preserved_as_a_fillable_status(self):
+        service = FillLogService(self.db)
+        service.save_step(self.job, "filling_depop", {
+            "marketplace": "depop",
+            "entries": [{
+                "field": "Parcel Size",
+                "status": "invalid",
+                "reason": "Option not found and value did not stick",
+                "selector": "#parcel-size",
+            }],
+        })
+
+        report = service.report_for_job(self.job)
+        self.assertEqual(report["summary"]["invalid"], 1)
+        markdown = Path(self.tmp.name).joinpath(f"{self.job.id}.md").read_text()
+        self.assertIn("Invalid dropdown option", markdown)
+
     def test_save_step_backfills_learned_listing_fields(self):
         from vendoo_studio.repositories.queries import ListingRepo
 

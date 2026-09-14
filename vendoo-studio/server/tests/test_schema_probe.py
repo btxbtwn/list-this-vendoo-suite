@@ -40,12 +40,14 @@ class SchemaProbeHelpersTest(unittest.TestCase):
         cleaned = listing_for_extension({
             "title": "Tee",
             "category_path": MEN_PATH,
+            "platforms": ["ebay"],
             SCHEMA_PROBE_FLAG: True,
             "_other": 1,
         })
         self.assertEqual(cleaned["title"], "Tee")
         self.assertNotIn(SCHEMA_PROBE_FLAG, cleaned)
         self.assertNotIn("_other", cleaned)
+        self.assertNotIn("platforms", cleaned)
 
 
 class SchemaProbeServiceTest(unittest.TestCase):
@@ -86,6 +88,7 @@ class SchemaProbeServiceTest(unittest.TestCase):
         self.assertEqual(job.status, "queued")
         self.assertEqual(job.listing_snapshot.get("category_path"), MEN_PATH)
         self.assertTrue(job.listing_snapshot.get(SCHEMA_PROBE_FLAG))
+        self.assertIsInstance(job.listing_snapshot.get("platforms"), list)
 
     def test_maybe_start_skips_when_another_job_active(self):
         JobRepo(self.db).create(
@@ -137,6 +140,7 @@ const fillGeneral = async () => ({ ok: true });
 const selectGeneralCategoryOnly = async () => ({ ok: true });
 const saveGeneral = async () => ({ ok: true });
 const auditGeneral = async () => ({ ok: true });
+const checkDraftSafety = async () => ({ ok: true });
 const discoverSchema = async () => ({ ok: true });
 const clearMarketplace = async () => ({ ok: true });
 const fillMarketplace = async () => ({ ok: true });
@@ -147,10 +151,16 @@ const auditMarketplace = async () => ({ ok: true });
 const probe = buildJobSteps({
   options: { mode: 'schema_probe', platforms: ['ebay', 'poshmark'], skipPhotos: true },
 }).map((step) => step.step);
+const probeUpdate = buildJobSteps({
+  options: { mode: 'schema_probe', platforms: ['ebay'], reuseExistingItem: true, skipPhotos: true },
+}).map((step) => step.step);
 const fill = buildJobSteps({
   options: { platforms: ['ebay'], clearBeforeFill: false, skipPhotos: true },
 }).map((step) => step.step);
-console.log(JSON.stringify({ probe, fill }));
+const update = buildJobSteps({
+  options: { platforms: ['ebay'], reuseExistingItem: true, skipPhotos: false },
+}).map((step) => step.step);
+console.log(JSON.stringify({ probe, probeUpdate, fill, update }));
 """
         proc = subprocess.run(
             ["node", "-e", preamble + script],
@@ -164,8 +174,13 @@ console.log(JSON.stringify({ probe, fill }));
             ["opening_vendoo", "waiting_ready", "selecting_category", "saving_general", "discovering_schema"],
         )
         self.assertNotIn("filling_ebay", result["probe"])
+        self.assertLess(
+            result["probeUpdate"].index("checking_draft_safety"),
+            result["probeUpdate"].index("saving_general"),
+        )
         self.assertIn("filling_ebay", result["fill"])
         self.assertIn("discovering_schema", result["fill"])
+        self.assertLess(result["update"].index("checking_draft_safety"), result["update"].index("uploading_photos"))
 
     def test_content_script_has_set_general_category(self):
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
@@ -187,7 +202,12 @@ class SchemaProbeDispatchTest(unittest.TestCase):
         job = JobRepo(db).create(
             conv_id=conv.id,
             approved_revision_id="rev1",
-            listing_snapshot={"title": "Tee", "category_path": MEN_PATH, SCHEMA_PROBE_FLAG: True},
+            listing_snapshot={
+                "title": "Tee",
+                "category_path": MEN_PATH,
+                "platforms": ["ebay", "poshmark"],
+                SCHEMA_PROBE_FLAG: True,
+            },
         )
 
         captured = {}
@@ -210,6 +230,7 @@ class SchemaProbeDispatchTest(unittest.TestCase):
         payload = captured["message"]["payload"]
         self.assertEqual(payload["options"]["mode"], "schema_probe")
         self.assertTrue(payload["options"]["skipPhotos"])
+        self.assertEqual(payload["options"]["platforms"], ["ebay", "poshmark"])
         self.assertNotIn(SCHEMA_PROBE_FLAG, payload["listing"])
         self.assertEqual(payload["listing"]["category_path"], MEN_PATH)
         db.close()

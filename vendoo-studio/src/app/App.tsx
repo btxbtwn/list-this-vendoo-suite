@@ -73,9 +73,7 @@ export function App() {
   });
   const providerConfigured = Boolean(status?.provider_configured);
   const needsSetup = !status || !status.provider_configured || !status.extension_connected;
-  const createListingTitle = providerConfigured
-    ? "New listing"
-    : "Sign in with ChatGPT or add a MiMo key first";
+  const createListingTitle = "New listing";
   const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
 
@@ -192,7 +190,7 @@ export function App() {
     },
   });
   const createListing = () => {
-    if (!providerConfigured || createConv.isPending) return false;
+    if (createConv.isPending) return false;
     createConv.mutate();
     return true;
   };
@@ -227,7 +225,7 @@ export function App() {
           activeView={activeView}
           settingsSection={settingsSection}
           creating={createConv.isPending}
-          canCreate={providerConfigured}
+          canCreate={true}
           mobileOpen={!isMobile || mobileSidebarOpen}
           listingQuery={listingQuery}
           onSearchQueryChange={handleListingSearch}
@@ -246,7 +244,14 @@ export function App() {
               type="button"
               className="sidebar-icon-btn sidebar-toggle"
               aria-label="Back to listings"
-              onClick={() => setMobileSidebarOpen(true)}
+              onClick={() => {
+                if (activeView === "settings") {
+                  closeSettings();
+                  closeMobileSidebar();
+                  return;
+                }
+                setMobileSidebarOpen(true);
+              }}
             >
               <BackIcon />
             </button>
@@ -335,7 +340,7 @@ export function App() {
                   type="button"
                   className="btn btn-primary btn-sm"
                   style={{ marginTop: 8 }}
-                  disabled={createConv.isPending || !providerConfigured}
+                  disabled={createConv.isPending}
                   title={createListingTitle}
                   onClick={createListing}
                 >
@@ -393,7 +398,7 @@ export function App() {
             className="mobile-mail-btn"
             title={createListingTitle}
             aria-label={createListingTitle}
-            disabled={createConv.isPending || !providerConfigured}
+            disabled={createConv.isPending}
             onClick={createListing}
           >
             <ComposeIcon />

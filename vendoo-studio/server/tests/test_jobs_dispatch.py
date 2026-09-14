@@ -13,7 +13,13 @@ from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.job import Job
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import JobRepo
-from vendoo_studio.routes.extension import ExtensionManager, dispatch_queued_jobs, extension_status, handshake_extension
+from vendoo_studio.routes.extension import (
+    ExtensionManager,
+    dispatch_queued_jobs,
+    dispatch_search_categories,
+    extension_status,
+    handshake_extension,
+)
 
 
 class FakeSocket:
@@ -106,6 +112,18 @@ class JobRepoActiveTest(unittest.TestCase):
         self.assertEqual(requeued[0].id, job.id)
         self.assertEqual(requeued[0].status, "queued")
 
+    def test_requeue_interrupted_fails_leftover_fill_without_restarting_job(self):
+        job = self._job("dispatched")
+        job.current_step = "filling_fields"
+        self.db.commit()
+
+        recovered = JobRepo(self.db).requeue_interrupted()
+
+        self.assertEqual(len(recovered), 1)
+        self.assertEqual(recovered[0].status, "failed")
+        self.assertEqual(recovered[0].current_step, "filling_fields")
+        self.assertIn("Retry the leftover fill", recovered[0].last_error)
+
     def test_add_event_persists_without_refresh(self):
         job = self._job("dispatched")
         event = JobRepo(self.db).add_event(job.id, "cancelled")
@@ -138,7 +156,12 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         self.job = Job(
             conversation_id=self.conv.id,
             approved_revision_id="rev1",
-            listing_snapshot={"title": "Nike tee", "description": "Soft tee", "price": 24},
+            listing_snapshot={
+                "title": "Nike tee",
+                "description": "Soft tee",
+                "price": 24,
+                "platforms": ["ebay", "poshmark"],
+            },
             status="queued",
         )
         db.add(self.job)
@@ -183,7 +206,7 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(socket.sent[0]["payload"]["job_id"], self.job_id)
         self.assertFalse(socket.sent[0]["payload"]["options"]["publish"])
 
-    async def test_dispatch_uses_selected_fillable_platforms(self):
+    async def test_dispatch_uses_approved_snapshot_platforms(self):
         manager = ExtensionManager()
         socket = FakeSocket()
         manager.connection = socket
@@ -193,11 +216,57 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         ), patch(
             "vendoo_studio.services.marketplaces.selected_fillable_platforms",
             return_value=["ebay", "poshmark"],
-        ):
+        ) as selected:
             await dispatch_queued_jobs()
 
         self.assertEqual(socket.sent[0]["payload"]["options"]["platforms"], ["ebay", "poshmark"])
         self.assertFalse(socket.sent[0]["payload"]["options"]["publish"])
+        selected.assert_called_once_with(["ebay", "poshmark"])
+
+    async def test_category_search_uses_approved_snapshot_platforms(self):
+        manager = ExtensionManager()
+        socket = FakeSocket()
+        manager.connection = socket
+        manager.paired = True
+        self.job.vendoo_item_id = "draft123"
+        self.job.vendoo_url = "https://web.vendoo.co/app/item/draft123"
+
+        with patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ), patch(
+            "vendoo_studio.services.marketplaces.selected_fillable_platforms",
+            return_value=["ebay", "poshmark"],
+        ) as selected:
+            sent = await dispatch_search_categories(self.job, "request1", "Women Blouses")
+
+        self.assertTrue(sent)
+        payload = socket.sent[0]["payload"]
+        self.assertEqual(payload["platforms"], ["ebay", "poshmark"])
+        self.assertEqual(payload["vendoo_item_id"], "draft123")
+        self.assertEqual(payload["vendoo_url"], "https://web.vendoo.co/app/item/draft123")
+        selected.assert_called_once_with(["ebay", "poshmark"])
+
+    async def test_dispatch_does_not_reuse_new_route_id(self):
+        db = self.Session()
+        job = db.query(Job).filter(Job.id == self.job_id).one()
+        job.vendoo_item_id = "new"
+        job.vendoo_url = "https://web.vendoo.co/app/item/new?marketplace=general"
+        db.commit()
+        db.close()
+
+        manager = ExtensionManager()
+        socket = FakeSocket()
+        manager.connection = socket
+        manager.paired = True
+        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ):
+            await dispatch_queued_jobs()
+
+        options = socket.sent[0]["payload"]["options"]
+        self.assertFalse(options["reuseExistingItem"])
+        self.assertIsNone(options["vendoo_item_id"])
+        self.assertIsNone(options["vendoo_url"])
 
     async def test_dispatch_reuses_existing_vendoo_item(self):
         db = self.Session()
@@ -218,7 +287,7 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
 
         options = socket.sent[0]["payload"]["options"]
         self.assertTrue(options["reuseExistingItem"])
-        self.assertTrue(options["skipPhotos"])
+        self.assertFalse(options["skipPhotos"])
         self.assertFalse(options["clearBeforeFill"])
         self.assertEqual(options["vendoo_item_id"], "abc123")
         self.assertEqual(socket.sent[0]["payload"]["vendoo_item_id"], "abc123")
@@ -388,6 +457,27 @@ class ResumeStepForRetryTest(unittest.TestCase):
             vendoo_url=None,
         )
         self.assertIsNone(_resume_step_for_retry(job))
+
+    def test_failed_marketplace_audit_resumes_from_audit(self):
+        from types import SimpleNamespace
+
+        from vendoo_studio.routes.jobs import _resume_step_for_retry
+
+        job = SimpleNamespace(
+            status="failed",
+            current_step="auditing_mercari",
+            vendoo_item_id="abc123",
+            vendoo_url="https://web.vendoo.co/app/item/abc123",
+        )
+        self.assertEqual(_resume_step_for_retry(job), "auditing_mercari")
+
+        depop = SimpleNamespace(
+            status="failed",
+            current_step="auditing_depop",
+            vendoo_item_id="abc123",
+            vendoo_url="https://web.vendoo.co/app/item/abc123",
+        )
+        self.assertEqual(_resume_step_for_retry(depop), "auditing_depop")
 
 
 if __name__ == "__main__":

@@ -49,13 +49,14 @@ const STATUS_LABELS: Record<string, string> = {
   filled: "Filled",
   skipped: "Not filled",
   not_found: "Missing",
+  invalid: "Invalid option",
   failed: "Didn't work",
   uncertain: "Uncertain",
   new: "New fields",
 };
 
-const STATUS_ORDER = ["failed", "not_found", "uncertain", "new", "skipped", "filled"];
-const FILLABLE_STATUSES = new Set(["failed", "not_found", "uncertain", "new", "skipped"]);
+const STATUS_ORDER = ["invalid", "failed", "not_found", "uncertain", "new", "skipped", "filled"];
+const FILLABLE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain", "new", "skipped"]);
 const DEFAULT_SELECTED_MARKETPLACES = ["ebay", "etsy", "poshmark", "mercari", "depop"];
 const MARKETPLACE_ORDER = ["general", "ebay", "etsy", "poshmark", "mercari", "depop", "facebook", "shopify", "vinted", "whatnot", "sellwild", "grailed"];
 const MARKETPLACE_LABELS: Record<string, string> = {
@@ -290,19 +291,108 @@ function listingValueForField(
   return text;
 }
 
-function emptyFieldsPrompt(forms: DraftForm[], fromDraft: boolean): string {
-  const rows: { marketplace: string; form: string; field: string }[] = [];
+function listingTitle(listing?: Record<string, unknown>): string {
+  const title = String(listing?.title || "").trim();
+  return title || "(untitled listing)";
+}
+
+function leftoverStatusLabel(entry: FillLogEntry): string {
+  if (entry.status === "invalid") return "invalid-dropdown";
+  const reason = String(entry.reason || "").toLowerCase();
+  if (/invalid.*dropdown|not a valid option|no matching option|option not found|dropdown/.test(reason) && entry.status !== "filled") {
+    return "invalid-dropdown";
+  }
+  return entry.status;
+}
+
+function leftoverFieldPrompt(
+  listing: Record<string, unknown> | undefined,
+  entry: FillLogEntry,
+  currentValue: string,
+): string {
+  const title = listingTitle(listing);
+  const current = String(currentValue || entry.value_preview || "").trim() || "(empty)";
+  const reason = String(entry.reason || "").trim() || "(none)";
+  return `Fix this Vendoo field for listing "${title}".
+
+Listing: ${title}
+Marketplace: ${entry.marketplace}
+Field: ${entry.field}
+Current value: ${current}
+Status: ${leftoverStatusLabel(entry)}
+Failure reason: ${reason}
+
+Generate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.
+
+Reply with JSON in this exact shape:
+
+\`\`\`json
+{"missing_fields":[{"marketplace":"${entry.marketplace}","field":"${entry.field}","value":"..."}]}
+\`\`\`
+`;
+}
+
+function leftoverFieldsPrompt(
+  listing: Record<string, unknown> | undefined,
+  entries: FillLogEntry[],
+): string {
+  const title = listingTitle(listing);
+  const limited = entries.slice(0, 50);
+  const lines = limited.map((entry) => {
+    const current = String(entry.value_preview || "").trim() || "(empty)";
+    const reason = String(entry.reason || "").trim() || "(none)";
+    return `- Listing: ${title}
+  Marketplace: ${entry.marketplace}
+  Field: ${entry.field}
+  Current value: ${current}
+  Status: ${leftoverStatusLabel(entry)}
+  Failure reason: ${reason}`;
+  });
+  return `These leftover Vendoo fields still need values for listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite unrelated fields.
+
+Reply with JSON in this exact shape:
+
+\`\`\`json
+{"missing_fields":[{"marketplace":"mercari","field":"Category","value":"..."}]}
+\`\`\`
+
+Use the marketplace ids and field names exactly as listed.
+
+Leftover fields:
+${lines.join("\n")}`;
+}
+
+function emptyFieldsPrompt(
+  forms: DraftForm[],
+  fromDraft: boolean,
+  listing?: Record<string, unknown>,
+): string {
+  const title = listingTitle(listing);
+  const rows: { marketplace: string; form: string; field: string; current: string; status: string; reason: string }[] = [];
   for (const form of forms) {
     for (const field of form.fields) {
       if (!field.missing || isUnfillableField(field)) continue;
-      rows.push({ marketplace: form.id, form: form.label, field: field.label });
+      const leftover = field.leftover;
+      rows.push({
+        marketplace: form.id,
+        form: form.label,
+        field: field.label,
+        current: String(field.value || leftover?.value_preview || "").trim() || "(empty)",
+        status: leftover ? leftoverStatusLabel(leftover) : "missing",
+        reason: leftover?.reason || (fromDraft ? "empty on the live Vendoo draft" : "empty on the listing"),
+      });
     }
   }
   const limited = rows.slice(0, 50);
-  const lines = limited.map((row) => `- ${row.form} / ${row.field} (marketplace: ${row.marketplace})`);
+  const lines = limited.map((row) => `- Listing: ${title}
+  Marketplace: ${row.marketplace}
+  Field: ${row.field}
+  Current value: ${row.current}
+  Status: ${row.status}
+  Failure reason: ${row.reason}`);
   const intro = fromDraft
-    ? "These Vendoo form fields are empty. Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing."
-    : "These listing fields are still empty. Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.";
+    ? `These Vendoo form fields are empty on listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.`
+    : `These listing fields are still empty on listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.`;
   return `${intro}
 
 Reply with JSON in this exact shape:
@@ -420,7 +510,7 @@ function useVendooDraft(jobId: string, enabled: boolean) {
     queryKey: ["vendoo-item", jobId],
     queryFn: () => api.jobs.vendooItem(jobId),
     enabled,
-    staleTime: Infinity,
+    staleTime: 0,
     retry: 1,
   });
 }
@@ -1664,7 +1754,7 @@ export function FillLogPanel({
       const market = entry.marketplace.toLowerCase();
       const fieldKey = normalizeFieldName(entry.field);
       // Already present on the live Vendoo draft — do not keep offering Fill.
-      if (filledOnDraft.has(`${market}:${fieldKey}`)) continue;
+      if (filledOnDraft.has(`${market}:${fieldKey}`) && !["failed", "not_found", "uncertain"].includes(entry.status)) continue;
       const key = `${market}:${entry.field.toLowerCase()}`;
       if (seen.has(key)) continue;
       const typed = String(values[entry.id] || "").trim();
@@ -1700,7 +1790,7 @@ export function FillLogPanel({
     }
     autoAskedForJob.current = jobId;
     pendingAutoAsk.current = false;
-    onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft));
+    onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing));
   }, [
     jobStatus,
     jobId,
@@ -1883,11 +1973,21 @@ export function FillLogPanel({
               type="button"
               className="btn btn-sm"
               disabled={fillMutation.isPending || filling || emptyFields.length === 0}
-              onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft))}
+              onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing))}
             >
               {emptyFields.length
                 ? `Ask chat to fill ${emptyFields.length} empty ${emptyFields.length === 1 ? "field" : "fields"}`
                 : "Ask chat to fill empty fields"}
+            </button>
+          )}
+          {onAskChat && leftovers.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={fillMutation.isPending || filling}
+              onClick={() => onAskChat(leftoverFieldsPrompt(listing, leftovers))}
+            >
+              Ask chat about {leftovers.length} leftover {leftovers.length === 1 ? "field" : "fields"}
             </button>
           )}
           {hasDraft && (
@@ -1978,7 +2078,6 @@ export function FillLogPanel({
                 <button
                   key={form.id}
                   type="button"
-                  role="listitem"
                   className={`pr-row${selectedForm?.id === form.id ? " is-active" : ""}`}
                   onClick={() => setSelected(form.id)}
                 >
@@ -2031,13 +2130,49 @@ export function FillLogPanel({
                             <span className="pr-diff-name">{field.label}</span>
                             {field.value ? <span className="pr-diff-value">{field.value}</span> : null}
                             {leftover && (
-                              <input
-                                className="pr-input"
-                                value={values[leftover.id] || ""}
-                                disabled={fillMutation.isPending || filling}
-                                placeholder={STATUS_LABELS[leftover.status] || leftover.status}
-                                onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
-                              />
+                              <>
+                                <input
+                                  className="pr-input"
+                                  value={values[leftover.id] || ""}
+                                  disabled={fillMutation.isPending || filling}
+                                  placeholder={STATUS_LABELS[leftover.status] || leftover.status}
+                                  onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
+                                />
+                                {onAskChat && (
+                                  <button
+                                    type="button"
+                                    className="pr-read"
+                                    disabled={fillMutation.isPending || filling}
+                                    onClick={() => onAskChat(leftoverFieldPrompt(
+                                      listing,
+                                      leftover,
+                                      values[leftover.id] || field.value || leftover.value_preview || "",
+                                    ))}
+                                  >
+                                    Ask chat
+                                  </button>
+                                )}
+                                {(() => {
+                                  const typed = String(values[leftover.id] || "").trim();
+                                  const value = typed || listingValueForField(listing, selectedForm.id, field) || leftover.value_preview;
+                                  if (!value || !chromeConnected) return null;
+                                  return (
+                                    <button
+                                      type="button"
+                                      className="pr-read"
+                                      disabled={fillMutation.isPending || filling}
+                                      onClick={() => fillMutation.mutate([{
+                                        id: leftover.id,
+                                        marketplace: leftover.marketplace,
+                                        field: leftover.field || field.label,
+                                        value,
+                                      }])}
+                                    >
+                                      Fill this field
+                                    </button>
+                                  );
+                                })()}
+                              </>
                             )}
                             {proposed ? (
                               <span className="pr-proposed" title="Generated value ready to fill on Vendoo">

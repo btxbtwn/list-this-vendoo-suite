@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import socket
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -18,6 +20,7 @@ from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo, JobRepo
 from vendoo_studio.services.vendoo_import import (
+    _download_public_image,
     image_urls_from_vendoo,
     listing_from_vendoo,
     parse_notes,
@@ -174,6 +177,68 @@ class VendooImportMapperTest(unittest.TestCase):
         self.assertEqual(parse_notes(notes)["vendooLabels"], "To List")
 
 
+class SafePhotoDownloadTest(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _public_dns(*_args, **_kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0))]
+
+    async def test_download_connects_to_validated_ip_with_original_host_and_sni(self):
+        requests = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=b"jpeg")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), trust_env=False) as client:
+            with patch("vendoo_studio.services.safe_fetch.socket.getaddrinfo", side_effect=self._public_dns) as resolve:
+                content, content_type, final_url = await _download_public_image(
+                    client,
+                    "https://cdn.example/photo.jpg",
+                )
+
+        self.assertEqual(content, b"jpeg")
+        self.assertEqual(content_type, "image/jpeg")
+        self.assertEqual(final_url, "https://cdn.example/photo.jpg")
+        self.assertEqual(resolve.call_count, 1)
+        self.assertEqual(requests[0].url.host, "93.184.216.34")
+        self.assertEqual(requests[0].headers["host"], "cdn.example")
+        self.assertEqual(requests[0].extensions["sni_hostname"], "cdn.example")
+
+    async def test_dns_rebinding_cannot_change_the_connect_address(self):
+        resolutions = [
+            self._public_dns(),
+            [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 0))],
+        ]
+        connected_hosts = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            connected_hosts.append(request.url.host)
+            return httpx.Response(200, headers={"content-type": "image/png"}, content=b"png")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), trust_env=False) as client:
+            with patch("vendoo_studio.services.safe_fetch.socket.getaddrinfo", side_effect=resolutions) as resolve:
+                await _download_public_image(client, "https://rebind.example/photo.png")
+
+        self.assertEqual(resolve.call_count, 1)
+        self.assertEqual(connected_hosts, ["93.184.216.34"])
+
+    async def test_redirect_to_private_host_is_rejected_before_request(self):
+        requested = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requested.append(str(request.url))
+            return httpx.Response(302, headers={"location": "https://127.0.0.1/private.jpg"})
+
+        from vendoo_studio.services.safe_fetch import UnsafeURLError
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), trust_env=False) as client:
+            with patch("vendoo_studio.services.safe_fetch.socket.getaddrinfo", side_effect=self._public_dns):
+                with self.assertRaises(UnsafeURLError):
+                    await _download_public_image(client, "https://cdn.example/photo.jpg")
+
+        self.assertEqual(len(requested), 1)
+
+
 class VendooImportRouteTest(unittest.TestCase):
     def setUp(self):
         engine = create_engine(
@@ -264,11 +329,16 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertTrue(body["photo_warnings"])
         listing_resp = self.client.get(f"/api/conversations/{body['conversation_id']}/listing")
         self.assertEqual(listing_resp.status_code, 200, listing_resp.text)
-        self.assertTrue(listing_resp.json()["can_send"])
+        self.assertFalse(listing_resp.json()["can_send"])
 
     def test_import_requires_item_id(self):
         response = self.client.post("/api/imports/vendoo", json={"item_id": "new", "item": VENDOO_ITEM})
         self.assertEqual(response.status_code, 400)
+
+    def test_import_rejects_all_route_item_ids(self):
+        for item_id in ("new", "edit", "create", "NEW"):
+            response = self.client.post("/api/imports/vendoo", json={"item_id": item_id, "item": VENDOO_ITEM})
+            self.assertEqual(response.status_code, 400, item_id)
 
     @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
     def test_import_draft_available_without_chrome(self, download):
@@ -297,17 +367,60 @@ class VendooImportRouteTest(unittest.TestCase):
         }]
         imported = self._import().json()
         conv_id = imported["conversation_id"]
+        ListingRepo(self.db).save_revision(conv_id, {
+            "title": "Nike M Graphic T-Shirt Black Crewneck",
+            "description": (
+                "Nike graphic tee in black.\n\n"
+                "Size: M\n"
+                "Condition: Pre-Owned - Good; no major flaws visible in photos.\n"
+                "Measurements: Pit to pit: 22\"; Length: 28\"; Sleeve: 8\"\n\n"
+                "OFFERS WELCOME! Ships in 1-2 business days."
+            ),
+            "price": 24,
+            "brand": "Nike",
+            "size": "M",
+            "sku": "NIKE-M-1",
+            "weight_lb": 0,
+            "weight_oz": 8,
+            "package_dimensions_in": "13x10x3",
+            "department": "Men",
+            "ebay_specifics": {
+                "type": "T-Shirt",
+                "department": "Men",
+                "sizeType": "Regular",
+                "size": "M",
+                "brand": "Nike",
+            },
+            "depop_specifics": {
+                "source": "Preloved",
+                "age": "Modern",
+                "style": ["Casual"],
+                "parcelSize": "Medium",
+            },
+        }, source="user_form")
         with patch("vendoo_studio.routes.jobs.JobRepo.get_active", return_value=[]), patch(
             "vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock
         ):
-            response = self.client.post("/api/jobs", json={"conversation_id": conv_id})
+            denied = self.client.post("/api/jobs", json={"conversation_id": conv_id})
+        self.assertEqual(denied.status_code, 409, denied.text)
+        with patch("vendoo_studio.routes.jobs.JobRepo.get_active", return_value=[]), patch(
+            "vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock
+        ):
+            response = self.client.post(
+                "/api/jobs",
+                json={"conversation_id": conv_id, "confirm_overwrite": True},
+            )
         self.assertEqual(response.status_code, 200, response.text)
         job = JobRepo(self.db).get(response.json()["id"])
         self.assertEqual(job.vendoo_item_id, "abc123")
         self.assertEqual(job.vendoo_url, "https://web.vendoo.co/app/item/abc123")
+        approved = ListingRepo(self.db).get_revision(job.approved_revision_id)
+        self.assertIsNotNone(approved)
+        self.assertEqual(approved.source, "normalized")
+        self.assertEqual(approved.listing_json, job.listing_snapshot)
 
     @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
-    def test_create_job_allows_imported_listing_without_photos(self, download):
+    def test_create_job_rejects_imported_listing_without_photos(self, download):
         download.return_value = []
         imported = self._import().json()
         conv_id = imported["conversation_id"]
@@ -315,7 +428,8 @@ class VendooImportRouteTest(unittest.TestCase):
             "vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock
         ):
             response = self.client.post("/api/jobs", json={"conversation_id": conv_id})
-        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("photo", response.json()["detail"].lower())
 
 
 if __name__ == "__main__":

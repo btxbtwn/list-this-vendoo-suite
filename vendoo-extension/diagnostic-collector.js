@@ -2,6 +2,21 @@
 
 const COLLECTOR_VERSION = '1.0.0';
 
+function sanitizeDiagnostic(result) {
+  const sensitive = /address|phone|email|password|token|cookie|account|ssn|card|secret|oauth/i;
+  const fields = Array.isArray(result?.fields) ? result.fields.map((field) => {
+    const hay = `${field.label || ''} ${field.name || ''} ${field.id || ''} ${field.placeholder || ''}`;
+    if (!sensitive.test(hay)) return field;
+    return {
+      ...field,
+      value: '[redacted]',
+      options: [],
+      optionCount: 0,
+    };
+  }) : [];
+  return { ...result, fields };
+}
+
 async function collectPageDiagnostics(options = {}) {
   const mode = options.mode || 'active';
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
@@ -381,7 +396,7 @@ async function collectPageDiagnostics(options = {}) {
   const dropdownFields = fields.filter((field) => field.isDropdown);
 
   return {
-    collectorVersion: COLLECTOR_VERSION,
+    collectorVersion: typeof COLLECTOR_VERSION === 'undefined' ? '1.0.0' : COLLECTOR_VERSION,
     mode,
     url: window.location.href,
     title: document.title,

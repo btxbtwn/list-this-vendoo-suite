@@ -23,6 +23,34 @@ from vendoo_studio.services.chrome_bridge import (
 router = APIRouter(tags=["extension"])
 
 VENDOO_GET_TIMEOUT_SEC = 120
+ROUTE_ITEM_IDS = frozenset({"new", "edit", "create"})
+
+
+def durable_vendoo_item_id(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text or text.lower() in ROUTE_ITEM_IDS:
+        return None
+    return text
+
+
+def _ws_origin_allowed(origin: str) -> bool:
+    from vendoo_studio.config import CORS_ORIGINS
+
+    value = (origin or "").strip()
+    if not value:
+        return False
+    lowered = value.lower()
+    if lowered.startswith("chrome-extension://"):
+        return True
+    return value in CORS_ORIGINS
+
+
+def _websocket_allowed(ws: WebSocket) -> bool:
+    origin = (ws.headers.get("origin") or "").strip()
+    if _ws_origin_allowed(origin):
+        return True
+    host = (ws.client.host if ws.client else "") or ""
+    return host in {"127.0.0.1", "::1", "localhost"} and not origin
 
 
 class ExtensionManager:
@@ -69,27 +97,33 @@ class ExtensionManager:
         except FileNotFoundError:
             return None
 
-    def save_persistent_token(self, token: str):
-        os.makedirs(os.path.dirname(PAIRING_FILE), exist_ok=True)
-        with open(PAIRING_FILE, "w") as f:
-            f.write(token)
-
     def generate_pairing_token(self) -> str:
         existing = self.get_persistent_token()
         if existing:
             self._pairing_token = existing
             return existing
-        self._pairing_token = uuid.uuid4().hex[:8]
+        self._pairing_token = uuid.uuid4().hex
         self.save_persistent_token(self._pairing_token)
         return self._pairing_token
 
+    def save_persistent_token(self, token: str):
+        os.makedirs(os.path.dirname(PAIRING_FILE), exist_ok=True)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        fd = os.open(PAIRING_FILE, flags, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(token)
+        os.chmod(PAIRING_FILE, 0o600)
+
     def verify_token(self, token: str) -> bool:
+        candidate = (token or "").strip()
+        if not candidate:
+            return False
         persisted = self.get_persistent_token()
-        if persisted and persisted == token:
+        if persisted and persisted == candidate:
             return True
-        if self._pairing_token and self._pairing_token == token:
+        if self._pairing_token and self._pairing_token == candidate:
             return True
-        return token == "direct"
+        return False
 
     async def send_message(self, message: dict) -> bool:
         connection = self.connection
@@ -195,17 +229,20 @@ async def dispatch_queued_jobs():
             return
         job = jobs[0]
         photos_list = _build_photo_list(job.conversation_id, db)
-        registry_selectors = _build_registry_selectors(job.listing_snapshot or {}, db)
         from vendoo_studio.repositories.queries import ConversationRepo
         from vendoo_studio.services.marketplaces import selected_fillable_platforms
+        from vendoo_studio.services.chrome_bridge import listing_url_for_job
         from vendoo_studio.services.vendoo_import import vendoo_binding
         conv = ConversationRepo(db).get(job.conversation_id)
         binding = vendoo_binding(conv.notes if conv else None)
-        item_id = job.vendoo_item_id or binding.get("vendooItemId")
-        item_url = job.vendoo_url or binding.get("vendooUrl")
+        item_id = durable_vendoo_item_id(job.vendoo_item_id or binding.get("vendooItemId"))
+        item_url = listing_url_for_job(item_id, job.vendoo_url or binding.get("vendooUrl"))
         reuse_existing = bool(item_id or item_url)
         schema_probe = is_schema_probe_job(job)
-        platforms = selected_fillable_platforms()
+        snapshot = job.listing_snapshot if isinstance(job.listing_snapshot, dict) else {}
+        stamped_platforms = snapshot.get("platforms") if isinstance(snapshot.get("platforms"), list) else []
+        platforms = selected_fillable_platforms(stamped_platforms)
+        registry_selectors = _build_registry_selectors(snapshot, db, platforms)
         resume_from = None
         retried = repo.latest_event(job.id, "retried")
         if retried and isinstance(retried.payload, dict):
@@ -216,7 +253,7 @@ async def dispatch_queued_jobs():
             "saveDrafts": True,
             "publish": False,
             "reuseExistingItem": reuse_existing,
-            "skipPhotos": True if schema_probe else reuse_existing,
+            "skipPhotos": bool(schema_probe),
             # Imported drafts keep matching values; fill skips unchanged fields.
             "clearBeforeFill": False,
             "vendoo_item_id": item_id,
@@ -284,6 +321,13 @@ async def dispatch_vendoo_get(job, request_id: str) -> bool:
 async def dispatch_search_categories(job, request_id: str, query: str) -> bool:
     if not extension_manager.connected:
         return False
+    from vendoo_studio.services.chrome_bridge import listing_url_for_job
+    from vendoo_studio.services.marketplaces import selected_fillable_platforms
+
+    snapshot = job.listing_snapshot if isinstance(job.listing_snapshot, dict) else {}
+    stamped = snapshot.get("platforms") if isinstance(snapshot.get("platforms"), list) else []
+    item_id = durable_vendoo_item_id(job.vendoo_item_id)
+    item_url = listing_url_for_job(item_id, job.vendoo_url)
     return await extension_manager.send_message(ProtocolMessage(
         type="job.search_categories",
         job_id=job.id,
@@ -292,8 +336,9 @@ async def dispatch_search_categories(job, request_id: str, query: str) -> bool:
             "job_id": job.id,
             "request_id": request_id,
             "query": query,
-            "vendoo_item_id": job.vendoo_item_id,
-            "vendoo_url": job.vendoo_url,
+            "platforms": selected_fillable_platforms(stamped),
+            "vendoo_item_id": item_id,
+            "vendoo_url": item_url,
         },
     ).model_dump(mode="json"))
 
@@ -330,15 +375,13 @@ def _build_photo_list(conv_id: str, db) -> list[dict]:
     return [{"id": p.id, "name": p.original_filename, "stored_filename": p.stored_filename} for p in photos]
 
 
-def _build_registry_selectors(listing: dict, db) -> dict:
+def _build_registry_selectors(listing: dict, db, platforms: list[str]) -> dict:
     from vendoo_studio.repositories.queries import RegistryRepo
     repo = RegistryRepo(db)
     category_path = listing.get("category_path", "")
 
-    from vendoo_studio.services.marketplaces import selected_fillable_platforms
-
     result = {}
-    for marketplace in selected_fillable_platforms():
+    for marketplace in platforms:
         fields = {}
         specifics = listing.get(f"{marketplace}_specifics", {}) or {}
         if isinstance(specifics, dict):
@@ -408,18 +451,11 @@ async def reload_extension():
 
 @router.websocket("/api/extension/ws")
 async def extension_websocket(ws: WebSocket):
+    if not _websocket_allowed(ws):
+        await ws.close(code=1008)
+        return
+
     await ws.accept()
-
-    old = extension_manager.connection
-    if old is not None and old is not ws:
-        extension_manager._mark_disconnected()
-        try:
-            await old.close()
-        except Exception:
-            pass
-
-    extension_manager.connection = ws
-
     db = SessionLocal()
     try:
         while True:
@@ -430,29 +466,49 @@ async def extension_websocket(ws: WebSocket):
 
             if msg_type == "extension.ready":
                 payload = message.get("payload", {}) or {}
+                token = payload.get("token", "")
+                if not extension_manager.verify_token(token):
+                    await ws.send_json({"type": "error", "message": "Invalid pairing token"})
+                    continue
+                old = extension_manager.connection
+                extension_manager.connection = ws
                 extension_manager.version = _reported_version(payload)
                 extension_manager.build = _reported_build(payload)
                 extension_manager.reload_generation = _reported_reload_generation(payload)
-                token = payload.get("token", "")
-                if extension_manager.verify_token(token):
-                    accepted = await handshake_extension(
-                        ws,
-                        _reported_reload_generation(payload),
-                        _reported_version(payload),
-                        _reported_build(payload),
-                    )
-                    if accepted:
-                        extension_manager.paired = True
-                        from vendoo_studio.repositories.queries import JobRepo
-                        JobRepo(db).requeue_interrupted()
-                        await dispatch_queued_jobs()
-                else:
-                    await ws.send_json({"type": "error", "message": "Invalid pairing token"})
+                if old is not None and old is not ws:
+                    try:
+                        await old.close()
+                    except Exception:
+                        pass
+                accepted = await handshake_extension(
+                    ws,
+                    _reported_reload_generation(payload),
+                    _reported_version(payload),
+                    _reported_build(payload),
+                )
+                if accepted:
+                    extension_manager.paired = True
+                    from vendoo_studio.repositories.queries import JobRepo
+                    JobRepo(db).requeue_interrupted()
+                    await dispatch_queued_jobs()
                 continue
 
-            if not extension_manager.paired:
+            if extension_manager.connection is not ws or not extension_manager.paired:
                 await ws.send_json({"type": "error", "message": "Not paired"})
                 continue
+
+            job_id = message.get("job_id")
+            if (
+                job_id
+                and str(msg_type).startswith("job.")
+                and msg_type not in {"job.vendoo_item", "job.categories"}
+            ):
+                from vendoo_studio.models.job import is_terminal_job_status
+                from vendoo_studio.repositories.queries import JobRepo
+                current_job = JobRepo(db).get(job_id)
+                if current_job and is_terminal_job_status(current_job.status):
+                    JobRepo(db).add_event(job_id, "ignored_late_result", None, {"type": msg_type})
+                    continue
 
             if msg_type == "job.accepted":
                 job_id = message.get("job_id")
@@ -482,8 +538,10 @@ async def extension_websocket(ws: WebSocket):
                     from vendoo_studio.services.fill_log import FillLogService
                     repo = JobRepo(db)
                     step = payload.get("step", "")
-                    vid = payload.get("vendoo_item_id")
+                    vid = durable_vendoo_item_id(payload.get("vendoo_item_id"))
                     vurl = payload.get("vendoo_url")
+                    if isinstance(vurl, str) and "/item/new" in vurl:
+                        vurl = None
                     job = repo.get(job_id)
                     if step == "filling_fields":
                         repo.update_status(job_id, "completed", step, vendoo_item_id=vid, vendoo_url=vurl)
@@ -579,11 +637,15 @@ async def extension_websocket(ws: WebSocket):
 
             elif msg_type == "job.completed":
                 job_id = message.get("job_id")
+                payload = message.get("payload") or {}
                 if job_id:
                     from vendoo_studio.repositories.queries import ConversationRepo, JobRepo
                     from vendoo_studio.services.schema_probe import bind_probe_draft, is_schema_probe_job
                     repo = JobRepo(db)
-                    vurl = message.get("payload", {}).get("vendoo_url", "")
+                    vurl = payload.get("vendoo_url", "")
+                    if isinstance(vurl, str) and "/item/new" in vurl:
+                        vurl = ""
+                    item_id = durable_vendoo_item_id(payload.get("vendoo_item_id"))
                     job = repo.get(job_id)
                     if job and is_schema_probe_job(job):
                         bind_probe_draft(db, job)
@@ -610,10 +672,29 @@ async def extension_websocket(ws: WebSocket):
                             provider="system",
                             model="",
                         )
-                    else:
-                        repo.update_status(job_id, "completed", vendoo_url=vurl or None)
-                        repo.add_event(job_id, "completed")
-                        _set_conversation_status(db, job_id, "completed")
+                    elif job:
+                        verified = bool(payload.get("verified"))
+                        if not verified or not item_id:
+                            error = str(payload.get("error") or "Saved Vendoo draft was not independently verified")
+                            repo.update_status(
+                                job_id,
+                                "failed",
+                                current_step="verifying_draft",
+                                error=error,
+                                vendoo_url=vurl or job.vendoo_url,
+                                vendoo_item_id=item_id or job.vendoo_item_id,
+                            )
+                            repo.add_event(job_id, "verification_failed", "verifying_draft", payload)
+                            _set_conversation_status(db, job_id, "draft")
+                        else:
+                            repo.update_status(
+                                job_id,
+                                "completed",
+                                vendoo_url=vurl or job.vendoo_url,
+                                vendoo_item_id=item_id,
+                            )
+                            repo.add_event(job_id, "completed", None, payload)
+                            _set_conversation_status(db, job_id, "completed")
 
             elif msg_type == "job.cancelled":
                 job_id = message.get("job_id")

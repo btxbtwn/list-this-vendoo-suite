@@ -10,13 +10,47 @@ from sqlalchemy.pool import StaticPool
 
 from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
-from vendoo_studio.models.conversation import Conversation
+from vendoo_studio.models.conversation import Conversation, Photo
 from vendoo_studio.models.fill_log import FillLogEntry
 from vendoo_studio.models.job import Job
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ListingRepo
 from vendoo_studio.services.fill_log import FillLogService
+
+
+RETRY_LISTING = {
+    "title": "Nike M Graphic T-Shirt Maroon Crewneck",
+    "description": (
+        "Nike graphic tee in maroon.\n\n"
+        "Size: M\n"
+        "Condition: Pre-Owned - Good; no major flaws visible in photos.\n"
+        "Measurements: Pit to pit: 22\"; Length: 28\"; Sleeve: 8\"\n\n"
+        "OFFERS WELCOME! Ships in 1-2 business days."
+    ),
+    "price": 24,
+    "brand": "Nike",
+    "size": "M",
+    "sku": "NIKE-M-1",
+    "weight_lb": 0,
+    "weight_oz": 8,
+    "package_dimensions_in": "13x10x3",
+    "department": "Men",
+    "condition": "Pre-Owned - Good",
+    "ebay_specifics": {
+        "type": "T-Shirt",
+        "department": "Men",
+        "sizeType": "Regular",
+        "size": "M",
+        "brand": "Nike",
+    },
+    "depop_specifics": {
+        "source": "Preloved",
+        "age": "Modern",
+        "style": ["Casual"],
+        "parcelSize": "Medium",
+    },
+}
 
 
 class FillFieldsRouteTest(unittest.TestCase):
@@ -41,6 +75,14 @@ class FillFieldsRouteTest(unittest.TestCase):
             vendoo_item_id="abc123",
         )
         self.db.add(self.job)
+        self.db.add(Photo(
+            conversation_id=self.conv.id,
+            original_filename="a.jpg",
+            stored_filename="a.jpg",
+            mime_type="image/jpeg",
+            size_bytes=10,
+            display_order=0,
+        ))
         self.db.commit()
         self.leftover = FillLogService(self.db).save_step(self.job, "filling_ebay", {
             "marketplace": "ebay",
@@ -87,7 +129,9 @@ class FillFieldsRouteTest(unittest.TestCase):
             "value": "Casual",
         }])
         self.db.refresh(self.job)
-        self.assertEqual(self.job.listing_snapshot["ebay_specifics"]["Occasion"], "Casual")
+        self.assertNotIn("Occasion", self.job.listing_snapshot["ebay_specifics"])
+        latest = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        self.assertEqual(latest.listing_json["ebay_specifics"]["Occasion"], "Casual")
 
     @patch("vendoo_studio.routes.extension.dispatch_fill_fields", new_callable=AsyncMock)
     @patch("vendoo_studio.routes.extension.extension_manager")
@@ -110,6 +154,32 @@ class FillFieldsRouteTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Chrome is not connected", response.json()["detail"])
+
+    @patch("vendoo_studio.routes.extension.dispatch_fill_fields", new_callable=AsyncMock)
+    @patch("vendoo_studio.routes.extension.extension_manager")
+    def test_fill_fields_dispatch_failure_releases_active_job(self, manager, dispatch):
+        manager.connected = True
+        dispatch.return_value = False
+
+        response = self.client.post(
+            f"/api/jobs/{self.job.id}/fill-fields",
+            json={"fields": [{"id": self.leftover.id, "value": "Casual"}]},
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.db.refresh(self.job)
+        self.assertEqual(self.job.status, "failed")
+        self.assertEqual(self.job.current_step, "filling_fields")
+
+    def test_generic_retry_does_not_restart_a_leftover_fill_as_a_full_job(self):
+        self.job.status = "failed"
+        self.job.current_step = "filling_fields"
+        self.db.commit()
+
+        response = self.client.post(f"/api/jobs/{self.job.id}/retry")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("from Fields", response.json()["detail"])
 
     def test_fill_fields_job_not_found(self):
         response = self.client.post(
@@ -140,7 +210,9 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.assertEqual(sent_fields[0]["field"], "SKU")
         self.assertEqual(sent_fields[0]["value"], "ABC-1")
         self.db.refresh(self.job)
-        self.assertEqual(self.job.listing_snapshot["sku"], "ABC-1")
+        self.assertNotIn("sku", self.job.listing_snapshot)
+        latest = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        self.assertEqual(latest.listing_json["sku"], "ABC-1")
 
     @patch("vendoo_studio.routes.extension.extension_manager")
     def test_fill_named_field_requires_value(self, manager):
@@ -235,20 +307,28 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.assertIn("too long", response.json()["detail"])
 
     @patch("vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock)
-    def test_retry_refreshes_snapshot_from_latest_listing(self, dispatch):
+    def test_retry_preserves_approved_snapshot(self, dispatch):
         from vendoo_studio.services.registry import MEN_TSHIRT_PATH, WOMEN_TOPS_PATH
 
         ListingRepo(self.db).save_revision(self.conv.id, {
-            "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
+            **RETRY_LISTING,
             "department": "Men",
             "category_path": MEN_TSHIRT_PATH,
-            "condition": "Good",
-            "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+            "ebay_specifics": {
+                **RETRY_LISTING["ebay_specifics"],
+                "department": "Men",
+                "type": "T-Shirt",
+            },
         }, source="model_refinement")
         self.job.listing_snapshot = {
-            "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
+            **RETRY_LISTING,
+            "department": "Women",
             "category_path": WOMEN_TOPS_PATH,
-            "ebay_specifics": {"department": "Women", "type": "T-Shirt"},
+            "ebay_specifics": {
+                **RETRY_LISTING["ebay_specifics"],
+                "department": "Women",
+                "type": "T-Shirt",
+            },
         }
         self.job.status = "completed"
         self.db.commit()
@@ -257,15 +337,16 @@ class FillFieldsRouteTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.db.refresh(self.job)
-        self.assertEqual(self.job.listing_snapshot["category_path"], MEN_TSHIRT_PATH)
-        self.assertEqual(self.job.listing_snapshot["department"], "Men")
-        self.assertEqual(self.job.listing_snapshot["ebay_specifics"]["department"], "Men")
+        self.assertEqual(self.job.listing_snapshot["category_path"], WOMEN_TOPS_PATH)
+        self.assertEqual(self.job.listing_snapshot["department"], "Women")
+        self.assertEqual(self.job.listing_snapshot["ebay_specifics"]["department"], "Women")
         dispatch.assert_awaited()
 
     @patch("vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock)
     def test_failed_retry_resumes_and_keeps_earlier_fill_logs(self, dispatch):
         from vendoo_studio.repositories.queries import JobRepo
 
+        ListingRepo(self.db).save_revision(self.conv.id, RETRY_LISTING, source="user_form")
         FillLogService(self.db).save_step(self.job, "filling_general", {
             "marketplace": "general",
             "entries": [
@@ -281,6 +362,7 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.job.status = "failed"
         self.job.current_step = "filling_etsy"
         self.job.last_error = "FILL_MARKETPLACE timed out after 90s"
+        self.job.listing_snapshot = RETRY_LISTING
         self.db.commit()
 
         response = self.client.post(f"/api/jobs/{self.job.id}/retry")

@@ -68,6 +68,7 @@ function log() {}
 const steps = [
   { step: 'opening_vendoo' },
   { step: 'waiting_ready' },
+  { step: 'checking_draft_safety' },
   { step: 'uploading_photos' },
   { step: 'filling_general' },
   { step: 'saving_general' },
@@ -79,17 +80,25 @@ const steps = [
   { step: 'filling_etsy' },
   { step: 'saving_etsy' },
   { step: 'auditing_etsy' },
+  { step: 'filling_depop' },
+  { step: 'saving_depop' },
+  { step: 'auditing_depop' },
 ];
-const resumed = selectJobSteps({ options: { resumeFrom: 'filling_etsy' } }, steps);
+const resumed = selectJobSteps({ options: { resumeFrom: 'filling_etsy', reuseExistingItem: true } }, steps);
+const auditResume = selectJobSteps({ options: { resumeFrom: 'auditing_depop', reuseExistingItem: true } }, steps);
+const newItemResume = selectJobSteps({ options: { resumeFrom: 'filling_etsy' } }, steps.filter((step) => step.step !== 'checking_draft_safety'));
 const full = selectJobSteps({ options: {} }, steps);
 const missing = selectJobSteps({ options: { resumeFrom: 'filling_facebook' } }, steps);
 const result = {
   resumed: resumed.map((step) => step.step),
+  auditResume: auditResume.map((step) => step.step),
+  newItemResume: newItemResume.map((step) => step.step),
   fullCount: full.length,
   missingCount: missing.length,
   etsyMarketplace: marketplaceFromStep('filling_etsy'),
   generalMarketplace: marketplaceFromStep('filling_general'),
   schemaMarketplace: marketplaceFromStep('discovering_schema'),
+  depopAuditMarketplace: marketplaceFromStep('auditing_depop'),
 };
 console.log(JSON.stringify(result));
 """
@@ -102,13 +111,80 @@ console.log(JSON.stringify(result));
         result = json.loads(proc.stdout)
         self.assertEqual(
             result["resumed"],
-            ["opening_vendoo", "waiting_ready", "filling_etsy", "saving_etsy", "auditing_etsy"],
+            ["opening_vendoo", "waiting_ready", "checking_draft_safety", "filling_etsy", "saving_etsy", "auditing_etsy", "filling_depop", "saving_depop", "auditing_depop"],
         )
-        self.assertEqual(result["fullCount"], 13)
-        self.assertEqual(result["missingCount"], 13)
+        self.assertEqual(
+            result["auditResume"],
+            ["opening_vendoo", "waiting_ready", "checking_draft_safety", "auditing_depop"],
+        )
+        self.assertEqual(
+            result["newItemResume"],
+            ["opening_vendoo", "waiting_ready", "filling_etsy", "saving_etsy", "auditing_etsy", "filling_depop", "saving_depop", "auditing_depop"],
+        )
+        self.assertEqual(result["fullCount"], 17)
+        self.assertEqual(result["missingCount"], 17)
         self.assertEqual(result["etsyMarketplace"], "etsy")
         self.assertEqual(result["generalMarketplace"], "general")
         self.assertEqual(result["schemaMarketplace"], "general")
+        self.assertEqual(result["depopAuditMarketplace"], "depop")
+
+    def test_category_search_checks_draft_safety_before_picker_click(self) -> None:
+        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        start = text.index("function replyCategories")
+        end = text.index("async function openVendooListing", start)
+        helpers = text[start:end]
+        script = """
+let activeJob = null;
+let activePatch = null;
+let safetyOk = false;
+let calls = [];
+let replies = [];
+const chrome = { tabs: { get: async () => ({ url: '' }) } };
+function extractItemIdFromUrl() { return ''; }
+async function openListingForPatch() { return { ok: true, tabId: 7 }; }
+async function pingContentScript() { return { ok: true }; }
+async function injectVendooContentScript() {}
+async function sleep() {}
+function send(message) { replies.push(message); }
+async function sendToVendoo(_job, message) {
+  calls.push(message.type);
+  if (message.type === 'WAIT_FOR_FORM') return { ok: true };
+  if (message.type === 'CHECK_DRAFT_SAFETY') return safetyOk
+    ? { ok: true }
+    : { ok: false, error: 'published item' };
+  if (message.type === 'SEARCH_CATEGORIES') return { ok: true, path: 'Women > Tops', matches: [] };
+  return { ok: false };
+}
+""" + helpers + """
+(async () => {
+  const payload = {
+    request_id: 'r1',
+    query: 'Women Blouse',
+    vendoo_item_id: 'abc123',
+    platforms: ['etsy'],
+  };
+  await runSearchCategories('job1', payload);
+  const blockedCalls = [...calls];
+  const blockedReply = replies.at(-1).payload;
+  calls = [];
+  safetyOk = true;
+  await runSearchCategories('job1', { ...payload, request_id: 'r2' });
+  console.log(JSON.stringify({ blockedCalls, blockedReply, allowedCalls: calls }));
+})();
+"""
+        proc = subprocess.run(
+            ["node", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(proc.stdout)
+        self.assertEqual(result["blockedCalls"], ["WAIT_FOR_FORM", "CHECK_DRAFT_SAFETY"])
+        self.assertFalse(result["blockedReply"]["ok"])
+        self.assertEqual(
+            result["allowedCalls"],
+            ["WAIT_FOR_FORM", "CHECK_DRAFT_SAFETY", "SEARCH_CATEGORIES"],
+        )
 
 
 if __name__ == "__main__":
