@@ -2771,8 +2771,22 @@ details[open] .json-collapse-summary::before {
 .pr-actions {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+.pr-action {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pr-action-hint {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
 }
 
 .pr-actions .btn {

@@ -348,7 +348,7 @@ function leftoverFieldsPrompt(
   Status: ${leftoverStatusLabel(entry)}
   Failure reason: ${reason}`;
   });
-  return `These leftover Vendoo fields still need values for listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite unrelated fields.
+  return `These Vendoo fields failed last time for listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite unrelated fields.
 
 Reply with JSON in this exact shape:
 
@@ -358,7 +358,7 @@ Reply with JSON in this exact shape:
 
 Use the marketplace ids and field names exactly as listed.
 
-Leftover fields:
+Failed fields:
 ${lines.join("\n")}`;
 }
 
@@ -1783,7 +1783,7 @@ export function FillLogPanel({
       pendingAutoAsk.current = false;
       return;
     }
-    // Values already available for Fill on Vendoo — skip chat.
+    // Values already available to apply on Vendoo — skip chat.
     if (fillPayload.length > 0) {
       pendingAutoAsk.current = false;
       return;
@@ -1968,65 +1968,88 @@ export function FillLogPanel({
 
       {(onAskChat || hasDraft) && (
         <div className="pr-actions">
+          <p className="pr-notice">
+            Chat writes values into this listing. Apply on Vendoo types them into the draft. Nothing is published.
+          </p>
+          {hasDraft && (
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={resolveCategory.isPending || filling || !chromeConnected}
+                title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
+                onClick={() => resolveCategory.mutate()}
+              >
+                {resolveCategory.isPending ? "Setting category…" : "Set Vendoo category"}
+              </button>
+              <p className="pr-action-hint">Picks the matching category in Vendoo. Start here if the category is wrong.</p>
+            </div>
+          )}
           {onAskChat && (
-            <button
-              type="button"
-              className="btn btn-sm"
-              disabled={fillMutation.isPending || filling || emptyFields.length === 0}
-              onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing))}
-            >
-              {emptyFields.length
-                ? `Ask chat to fill ${emptyFields.length} empty ${emptyFields.length === 1 ? "field" : "fields"}`
-                : "Ask chat to fill empty fields"}
-            </button>
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={fillMutation.isPending || filling || emptyFields.length === 0}
+                title="Send blank fields to chat so it can write values. Does not change Vendoo yet."
+                onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing))}
+              >
+                {emptyFields.length
+                  ? `Ask chat for ${emptyFields.length} missing ${emptyFields.length === 1 ? "value" : "values"}`
+                  : "Ask chat for missing values"}
+              </button>
+              <p className="pr-action-hint">Chat writes values for blank fields. Does not change Vendoo yet.</p>
+            </div>
           )}
           {onAskChat && leftovers.length > 0 && (
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={fillMutation.isPending || filling}
+                title="Send fields Vendoo rejected last time back to chat."
+                onClick={() => onAskChat(leftoverFieldsPrompt(listing, leftovers))}
+              >
+                Ask chat to retry {leftovers.length} failed {leftovers.length === 1 ? "field" : "fields"}
+              </button>
+              <p className="pr-action-hint">These fields were rejected last time. Chat will try again.</p>
+            </div>
+          )}
+          <div className="pr-action">
             <button
               type="button"
-              className="btn btn-sm"
-              disabled={fillMutation.isPending || filling}
-              onClick={() => onAskChat(leftoverFieldsPrompt(listing, leftovers))}
+              className="btn btn-primary btn-sm"
+              disabled={fillMutation.isPending || filling || fillPayload.length === 0 || !chromeConnected}
+              title={
+                !chromeConnected
+                  ? "Connect Chrome to type these values into the Vendoo draft"
+                  : fillPayload.length
+                    ? "Type only these missing values into the Vendoo draft"
+                    : "Ask chat to write values first"
+              }
+              onClick={() => fillMutation.mutate(fillPayload)}
             >
-              Ask chat about {leftovers.length} leftover {leftovers.length === 1 ? "field" : "fields"}
-            </button>
-          )}
-          {hasDraft && (
-            <button
-              type="button"
-              className="btn btn-sm"
-              disabled={resolveCategory.isPending || filling || !chromeConnected}
-              title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
-              onClick={() => resolveCategory.mutate()}
-            >
-              {resolveCategory.isPending ? "Matching category…" : "Match Vendoo category"}
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={fillMutation.isPending || filling || fillPayload.length === 0 || !chromeConnected}
-            title={
-              !chromeConnected
-                ? "Connect Chrome to fill only these fields on Vendoo"
+              {fillMutation.isPending || filling
+                ? "Applying on Vendoo…"
                 : fillPayload.length
-                  ? "Fill only these missing fields on the Vendoo draft"
-                  : "Ask chat to generate values first"
-            }
-            onClick={() => fillMutation.mutate(fillPayload)}
-          >
-            {fillMutation.isPending || filling
-              ? "Filling empty fields..."
-              : fillPayload.length
-                ? `Fill ${fillPayload.length} empty field${fillPayload.length === 1 ? "" : "s"} on Vendoo`
-                : "Fill empty fields on Vendoo"}
-          </button>
+                  ? `Apply ${fillPayload.length} value${fillPayload.length === 1 ? "" : "s"} on Vendoo`
+                  : "Apply values on Vendoo"}
+            </button>
+            <p className="pr-action-hint">
+              {!chromeConnected
+                ? "Connect Chrome to type values into the Vendoo draft."
+                : fillPayload.length
+                  ? "Types ready values into the Vendoo draft. Does not publish."
+                  : "Ask chat to write values first, then apply them here."}
+            </p>
+          </div>
         </div>
       )}
 
       {fillPayload.length > 0 && !filling && !fillMutation.isPending && (
         <p className="pr-notice">
-          {fillPayload.length} generated value{fillPayload.length === 1 ? "" : "s"} ready to fill.
-          Review each “Ready to fill” value below, then click Fill on Vendoo.
+          {fillPayload.length} value{fillPayload.length === 1 ? "" : "s"} ready.
+          Review each “Ready to apply” value below, then click Apply on Vendoo.
         </p>
       )}
 
@@ -2049,7 +2072,7 @@ export function FillLogPanel({
             {draftQuery.isFetching
               ? "Discovering every marketplace form and optional field…"
               : !chromeConnected && hasDraft
-                ? "Connect Chrome to read empty Vendoo fields. Ask chat can still generate values, then Fill on Vendoo patches only those fields."
+                ? "Connect Chrome to read empty Vendoo fields. Ask chat can still write values, then Apply on Vendoo types only those fields."
                 : hasDraft
                   ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red."
                   : "Send this listing to Vendoo to review each marketplace form. After generate, Studio also discovers live Vendoo fields once the category is known."}
@@ -2168,15 +2191,15 @@ export function FillLogPanel({
                                         value,
                                       }])}
                                     >
-                                      Fill this field
+                                      Apply on Vendoo
                                     </button>
                                   );
                                 })()}
                               </>
                             )}
                             {proposed ? (
-                              <span className="pr-proposed" title="Generated value ready to fill on Vendoo">
-                                <span className="pr-proposed-label">Ready to fill</span>
+                              <span className="pr-proposed" title="Generated value ready to apply on Vendoo">
+                                <span className="pr-proposed-label">Ready to apply</span>
                                 {proposed}
                               </span>
                             ) : null}
@@ -2228,7 +2251,7 @@ export function FillLogPanel({
       )}
 
       {fillMutation.error && (
-        <div className="text-xs text-error">{(fillMutation.error as Error).message || "Failed to fill leftover fields"}</div>
+        <div className="text-xs text-error">{(fillMutation.error as Error).message || "Failed to apply values on Vendoo"}</div>
       )}
 
       {showJson && draft?.ok && (
