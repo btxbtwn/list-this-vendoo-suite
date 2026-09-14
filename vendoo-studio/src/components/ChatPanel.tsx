@@ -468,6 +468,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     }
     await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+    queryClient.invalidateQueries({ queryKey: ["fill-log"] });
     queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
     if (stillMine() && !failed) {
@@ -539,6 +540,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (stillMine()) patchLive(convId, { streaming: false, controller: null });
       await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
       queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       if (stillMine() && !isStreamError(assembled)) {

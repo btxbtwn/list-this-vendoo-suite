@@ -229,6 +229,14 @@ function lookupToJsonKey(key: string): string {
   return parts[0] + parts.slice(1).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
 }
 
+function isBlankListingValue(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value as object).length === 0;
+  return false;
+}
+
 function valueFromRecord(record: Record<string, unknown> | undefined, key: string): unknown {
   if (!record || !key) return undefined;
   const jsonKey = lookupToJsonKey(key);
@@ -236,11 +244,16 @@ function valueFromRecord(record: Record<string, unknown> | undefined, key: strin
   const colorKeys = new Set(["color", "primary color"]);
   for (const [candidate, value] of Object.entries(record)) {
     const candidateKey = normalizeLookupKey(candidate);
-    if (candidateKey === key || (colorKeys.has(key) && colorKeys.has(candidateKey))) return value;
-    if (candidate === jsonKey || (mapped && candidate === mapped)) return value;
+    const matched =
+      candidateKey === key ||
+      (colorKeys.has(key) && colorKeys.has(candidateKey)) ||
+      candidate === jsonKey ||
+      (mapped && candidate === mapped);
+    if (!matched || isBlankListingValue(value)) continue;
+    return value;
   }
-  if (jsonKey && jsonKey in record) return record[jsonKey];
-  if (mapped && mapped in record) return record[mapped];
+  if (jsonKey && jsonKey in record && !isBlankListingValue(record[jsonKey])) return record[jsonKey];
+  if (mapped && mapped in record && !isBlankListingValue(record[mapped])) return record[mapped];
   const nestedCategory = record.category_specifics;
   if (nestedCategory && typeof nestedCategory === "object" && !Array.isArray(nestedCategory) && nestedCategory !== record) {
     const found = valueFromRecord(nestedCategory as Record<string, unknown>, key);
@@ -291,6 +304,20 @@ function listingValueForField(
   return text;
 }
 
+function leftoverGeneratedValue(
+  listing: Record<string, unknown> | undefined,
+  entry: FillLogEntry,
+  field?: DraftField,
+): string {
+  return (
+    listingValueForField(
+      listing,
+      entry.marketplace,
+      field || { key: entry.field, label: entry.field, value: "", missing: true },
+    ) || String(entry.value_preview || "").trim()
+  );
+}
+
 function listingTitle(listing?: Record<string, unknown>): string {
   const title = String(listing?.title || "").trim();
   return title || "(untitled listing)";
@@ -339,7 +366,7 @@ function leftoverFieldsPrompt(
   const title = listingTitle(listing);
   const limited = entries.slice(0, 50);
   const lines = limited.map((entry) => {
-    const current = String(entry.value_preview || "").trim() || "(empty)";
+    const current = leftoverGeneratedValue(listing, entry) || "(empty)";
     const reason = String(entry.reason || "").trim() || "(none)";
     return `- Listing: ${title}
   Marketplace: ${entry.marketplace}
@@ -1538,13 +1565,25 @@ export function FillLogPanel({
   React.useEffect(() => {
     if (!report) return;
     setValues((prev) => {
+      let changed = false;
       const next = { ...prev };
       leftoverEntries(report).forEach((entry) => {
-        if (next[entry.id] == null) next[entry.id] = entry.value_preview || "";
+        const generated = leftoverGeneratedValue(listing, entry);
+        if (!generated) {
+          if (next[entry.id] == null) {
+            next[entry.id] = "";
+            changed = true;
+          }
+          return;
+        }
+        if (!String(next[entry.id] || "").trim()) {
+          next[entry.id] = generated;
+          changed = true;
+        }
       });
-      return next;
+      return changed ? next : prev;
     });
-  }, [report]);
+  }, [report, listing]);
 
   React.useEffect(() => {
     if (!sourceKey) return;
@@ -2119,9 +2158,15 @@ export function FillLogPanel({
                       const menuKey = `${selectedForm.id}:${field.key}`;
                       const menuOpen = openMenu?.kind === "field" && openMenu.key === menuKey;
                       const canHide = !isProtectedEbayField(selectedForm.id, field);
+                      const generated = leftover
+                        ? leftoverGeneratedValue(listing, leftover, field)
+                        : listingValueForField(listing, selectedForm.id, field);
+                      const leftoverValue = leftover
+                        ? (String(values[leftover.id] ?? "").trim() ? String(values[leftover.id]) : generated)
+                        : "";
                       const proposed =
-                        field.missing && !leftover
-                          ? listingValueForField(listing, selectedForm.id, field)
+                        field.missing && !leftover && generated
+                          ? generated
                           : "";
                       return (
                         <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
@@ -2133,7 +2178,7 @@ export function FillLogPanel({
                               <>
                                 <input
                                   className="pr-input"
-                                  value={values[leftover.id] || ""}
+                                  value={leftoverValue}
                                   disabled={fillMutation.isPending || filling}
                                   placeholder={STATUS_LABELS[leftover.status] || leftover.status}
                                   onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
@@ -2146,15 +2191,14 @@ export function FillLogPanel({
                                     onClick={() => onAskChat(leftoverFieldPrompt(
                                       listing,
                                       leftover,
-                                      values[leftover.id] || field.value || leftover.value_preview || "",
+                                      leftoverValue || field.value || "",
                                     ))}
                                   >
                                     Ask chat
                                   </button>
                                 )}
                                 {(() => {
-                                  const typed = String(values[leftover.id] || "").trim();
-                                  const value = typed || listingValueForField(listing, selectedForm.id, field) || leftover.value_preview;
+                                  const value = leftoverValue || leftover.value_preview;
                                   if (!value || !chromeConnected) return null;
                                   return (
                                     <button

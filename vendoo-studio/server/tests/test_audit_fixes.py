@@ -695,6 +695,7 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Failure reason:", panel)
         self.assertIn("Ask chat about", panel)
         self.assertIn("Fill this field", panel)
+        self.assertIn("function leftoverGeneratedValue", panel)
 
 
 if __name__ == "__main__":

@@ -131,7 +131,7 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.db.refresh(self.job)
         self.assertNotIn("Occasion", self.job.listing_snapshot["ebay_specifics"])
         latest = ListingRepo(self.db).get_revisions(self.conv.id)[0]
-        self.assertEqual(latest.listing_json["ebay_specifics"]["Occasion"], "Casual")
+        self.assertEqual(latest.listing_json["ebay_specifics"]["occasion"], "Casual")
 
     @patch("vendoo_studio.routes.extension.dispatch_fill_fields", new_callable=AsyncMock)
     @patch("vendoo_studio.routes.extension.extension_manager")

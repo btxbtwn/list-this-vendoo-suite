@@ -86,6 +86,24 @@ class FillLogHelpersTest(unittest.TestCase):
         self.assertEqual(listing_value_for_field(listing, "ebay", "Country of Origin"), "United States")
         self.assertEqual(listing_value_for_field({"ebay_specifics": {"yearManufactured": "D"}}, "ebay", "Year Manufactured"), "")
 
+    def test_listing_value_for_field_skips_empty_duplicate_keys(self):
+        listing = {
+            "department": "Women",
+            "ebay_specifics": {
+                "department": "",
+                "Department": "Women",
+            },
+        }
+        self.assertEqual(listing_value_for_field(listing, "ebay", "Department"), "Women")
+        self.assertEqual(
+            listing_value_for_field(
+                {"department": "Women", "ebay_specifics": {"department": ""}},
+                "ebay",
+                "Department",
+            ),
+            "Women",
+        )
+
     def test_listing_value_for_field_maps_poshmark_category(self):
         listing = {
             "title": "Amplife L Graphic T-Shirt Black Cotton",
@@ -291,8 +309,20 @@ class FillLogServiceTest(unittest.TestCase):
         )
         self.assertEqual(listing["title"], "Nike tee")
         self.assertEqual(listing["quantity"], 2)
-        self.assertEqual(listing["ebay_specifics"]["Occasion"], "Casual")
-        self.assertEqual(listing["ebay_specifics"]["Season"], "Summer")
+        self.assertEqual(listing["ebay_specifics"]["occasion"], "Casual")
+        self.assertEqual(listing["ebay_specifics"]["season"], "Summer")
+        self.assertNotIn("Occasion", listing["ebay_specifics"])
+        self.assertNotIn("Season", listing["ebay_specifics"])
+        self.assertNotIn("ebaySeason", listing["ebay_specifics"])
+
+    def test_write_values_into_listing_canonicalizes_department(self):
+        listing = write_values_into_listing(
+            {"ebay_specifics": {"department": "", "Department": "Kids"}},
+            [{"marketplace": "ebay", "field": "Department", "value": "Women"}],
+        )
+        self.assertEqual(listing["department"], "Women")
+        self.assertEqual(listing["ebay_specifics"]["department"], "Women")
+        self.assertNotIn("Department", listing["ebay_specifics"])
 
     def test_apply_field_results_updates_existing_rows_by_id(self):
         service = FillLogService(self.db)
@@ -315,6 +345,49 @@ class FillLogServiceTest(unittest.TestCase):
         report = service.report_for_job(self.job)
         self.assertEqual(report["summary"]["filled"], 2)
         self.assertEqual(report["summary"]["skipped"], 0)
+
+    def test_record_generated_values_updates_leftover_preview(self):
+        service = FillLogService(self.db)
+        saved = service.save_step(self.job, "filling_ebay", {
+            "marketplace": "ebay",
+            "entries": [
+                {"field": "Department", "status": "new", "reason": "Discovered on form after category select"},
+            ],
+        })
+        leftover = saved[0]
+        self.assertEqual(leftover.value_preview or "", "")
+        updated = service.record_generated_values(self.conv.id, [
+            {"marketplace": "ebay", "field": "Department", "value": "Women"},
+        ])
+        self.assertEqual(updated, 1)
+        self.db.refresh(leftover)
+        self.assertEqual(leftover.value_preview, "Women")
+        self.assertEqual(leftover.status, "new")
+
+    def test_apply_missing_fields_writes_department_and_leftover_preview(self):
+        from vendoo_studio.repositories.queries import ListingRepo
+        from vendoo_studio.routes import chat as chat_routes
+
+        leftover = FillLogService(self.db).save_step(self.job, "filling_ebay", {
+            "marketplace": "ebay",
+            "entries": [
+                {"field": "Department", "status": "new", "reason": "Discovered on form after category select"},
+            ],
+        })[0]
+        ListingRepo(self.db).save_revision(self.conv.id, {
+            "title": "Spectra USA Apparel Company 8 Biker Graphic T-Shirt Black Regular",
+            "ebay_specifics": {"department": ""},
+        }, source="model")
+        chat_routes._apply_listing_payload(
+            self.db,
+            self.conv.id,
+            '```json\n{"missing_fields":[{"marketplace":"ebay","field":"Department","value":"Women"}]}\n```',
+        )
+        listing = ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json
+        self.assertEqual(listing["ebay_specifics"]["department"], "Women")
+        self.assertEqual(listing["department"], "Women")
+        self.db.refresh(leftover)
+        self.assertEqual(leftover.value_preview, "Women")
 
 
 class FillLogRouteTest(unittest.TestCase):

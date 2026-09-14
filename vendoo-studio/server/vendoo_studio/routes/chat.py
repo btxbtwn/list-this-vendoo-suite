@@ -444,6 +444,7 @@ async def _maybe_resolve_vendoo_category(
 
 def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[dict] | None:
     from vendoo_studio.services.fill_log import (
+        FillLogService,
         extract_missing_fields,
         summarize_missing_fields,
         write_values_into_listing,
@@ -456,6 +457,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[di
         if revisions:
             updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
             _save_listing_revision(db, conv_id, updated)
+            FillLogService(db).record_generated_values(conv_id, missing_fields)
             ConversationRepo(db).add_message(
                 conv_id,
                 "system",

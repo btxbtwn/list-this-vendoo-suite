@@ -147,6 +147,16 @@ def _stringify_listing_value(value: Any) -> str:
     return str(value).strip()
 
 
+def _is_blank_listing_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, dict)):
+        return len(value) == 0
+    return False
+
+
 def _value_from_record(record: dict | None, key: str) -> Any:
     if not isinstance(record, dict) or not key:
         return None
@@ -157,13 +167,18 @@ def _value_from_record(record: dict | None, key: str) -> Any:
     color_keys = {"color", "primary color"}
     for candidate, value in record.items():
         candidate_key = field_lookup_key(str(candidate))
-        if candidate_key == key or (key in color_keys and candidate_key in color_keys):
-            return value
-        if str(candidate) == json_key or (mapped and str(candidate) == mapped):
-            return value
-    if json_key and json_key in record:
+        matched = (
+            candidate_key == key
+            or (key in color_keys and candidate_key in color_keys)
+            or str(candidate) == json_key
+            or (mapped and str(candidate) == mapped)
+        )
+        if not matched or _is_blank_listing_value(value):
+            continue
+        return value
+    if json_key and json_key in record and not _is_blank_listing_value(record.get(json_key)):
         return record.get(json_key)
-    if mapped and mapped in record:
+    if mapped and mapped in record and not _is_blank_listing_value(record.get(mapped)):
         return record.get(mapped)
     nested = record.get("category_specifics")
     if isinstance(nested, dict) and nested is not record:
@@ -301,6 +316,8 @@ def summarize_missing_fields(patches: list[dict]) -> str:
 
 
 def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
+    from vendoo_studio.services.registry import label_to_json_key
+
     updated = dict(listing or {})
     for patch in patches:
         marketplace = str(patch.get("marketplace") or "general").strip().lower()
@@ -309,6 +326,7 @@ def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
         if not field or value is None:
             continue
         key = normalize_field_label(field)
+        lookup = field_lookup_key(field)
         if marketplace in {"", "general", "unknown"}:
             mapped = GENERAL_LISTING_KEYS.get(key)
             if not mapped:
@@ -317,12 +335,16 @@ def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
             continue
         specifics_key = f"{marketplace}_specifics"
         specifics = dict(updated.get(specifics_key) or {})
-        existing = next(
-            (candidate for candidate in specifics if normalize_field_label(str(candidate)) == key),
-            None,
-        )
-        specifics[existing or field] = value
+        canonical = label_to_json_key(key) or label_to_json_key(field) or field
+        for alias in list(specifics):
+            if alias == canonical:
+                continue
+            if field_lookup_key(str(alias)) == lookup or normalize_field_label(str(alias)) == key:
+                specifics.pop(alias, None)
+        specifics[canonical] = value
         updated[specifics_key] = specifics
+        if marketplace == "ebay" and lookup == "department":
+            updated["department"] = value
     return updated
 
 
@@ -493,6 +515,34 @@ class FillLogService:
         for marketplace, entries in grouped.items():
             self._update_registry(marketplace, category_path, entries)
         self.write_markdown(job)
+        return updated
+
+    def record_generated_values(self, conversation_id: str, patches: list[dict]) -> int:
+        """Copy chat-generated leftover values onto matching fill-log rows."""
+        if not conversation_id or not patches:
+            return 0
+        entries = self._repo.list_for_conversation(conversation_id)
+        if not entries:
+            return 0
+        updated = 0
+        for patch in patches:
+            marketplace = str(patch.get("marketplace") or "general").strip().lower() or "general"
+            field = str(patch.get("field") or "").strip()
+            preview = preview_value(patch.get("value"))
+            if not field or not preview:
+                continue
+            want = field_lookup_key(field)
+            for entry in entries:
+                if entry.status not in FILLABLE_STATUSES:
+                    continue
+                if str(entry.marketplace or "").strip().lower() != marketplace:
+                    continue
+                if field_lookup_key(entry.field) != want:
+                    continue
+                entry.value_preview = preview
+                updated += 1
+        if updated:
+            self._db.commit()
         return updated
 
     def clear_job(self, job_id: str) -> None:
