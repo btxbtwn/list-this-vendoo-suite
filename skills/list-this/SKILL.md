@@ -356,6 +356,7 @@ Before outputting ANY listing, verify:
 
 **Etsy (Required for listing):**
 - who_made, what_is, when_made are MANDATORY
+- `when_made` must be an exact current Etsy dropdown value from `vendoo-dropdown-options.json` (for example `2010 - 2019 (Recently)`), not `2010s` or `2010-2019`
 - primaryColor and sku must be present; secondaryColor when a second color is visible
 - Up to 13 tags, up to 10 materials
 - Vintage items (20+ years) need "When Made" set
@@ -371,7 +372,7 @@ Before outputting ANY listing, verify:
 - Source and Age are required
 - Brand must be a Depop list brand (not a free-text Vendoo brand)
 - Maximum 5 tags
-- Parcel size affects shipping cost
+- Parcel size must be an exact current Depop dropdown value: Extra extra small, Extra small, Small, Medium, Large, Extra large
 
 **Mercari:**
 - Condition is required and uses Mercari labels (see `vendoo-dropdown-options.md`)

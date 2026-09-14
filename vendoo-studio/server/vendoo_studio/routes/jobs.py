@@ -869,6 +869,9 @@ def _ensure_listing_defaults(listing_snapshot: dict) -> None:
     mercari["shippingLabel"] = label or "USPS Ground Advantage"
     listing_snapshot["mercari_specifics"] = mercari
 
+    from vendoo_studio.models.validation import normalize_listing_dropdowns
+    normalize_listing_dropdowns(listing_snapshot)
+
 
 def _job_response(job) -> JobResponse:
     from vendoo_studio.services.schema_probe import is_schema_probe_job
