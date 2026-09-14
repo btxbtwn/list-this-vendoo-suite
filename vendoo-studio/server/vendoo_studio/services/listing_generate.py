@@ -263,6 +263,8 @@ def persist_generated_listing(
     )
     repo.add_message(conv_id, "system", note, provider="system", model="")
     RegistryService(db).merge_learned_fields(listing)
+    from vendoo_studio.models.validation import normalize_listing_dropdowns
+    normalize_listing_dropdowns(listing)
     ListingRepo(db).save_revision(conv_id, listing, source=source)
     return listing
 
