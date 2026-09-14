@@ -2198,6 +2198,17 @@ details[open] .json-collapse-summary::before {
   color: var(--color-text-muted);
 }
 
+.photo-tray-clear {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  -webkit-app-region: no-drag;
+}
+
+.photo-tray-clear:hover:not(:disabled) {
+  color: var(--color-tomato);
+  background: color-mix(in srgb, var(--color-tomato) 12%, transparent);
+}
+
 .photo-strip {
   display: flex;
   gap: 4px;
@@ -2463,7 +2474,6 @@ details[open] .json-collapse-summary::before {
 
 .pr-review-open {
   flex-shrink: 0;
-  margin-left: auto;
   height: 26px;
   padding: 0 10px;
   border: 1px solid var(--color-border);
@@ -2486,6 +2496,41 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-review-open:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pr-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
+  -webkit-app-region: no-drag;
+}
+
+.pr-review-clear {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pr-review-clear:hover:not(:disabled) {
+  color: var(--color-tomato);
+  background: color-mix(in srgb, var(--color-tomato) 12%, transparent);
+}
+
+.pr-review-clear:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

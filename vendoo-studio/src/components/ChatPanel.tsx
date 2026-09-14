@@ -301,6 +301,16 @@ function emitLive(convId: string) {
   getLive(convId).listeners.forEach((listener) => listener());
 }
 
+export function resetChatLive(convId: string) {
+  const live = liveStreams[convId];
+  if (!live) return;
+  const controller = live.controller;
+  live.restoreInputOnAbort = false;
+  controller?.abort();
+  Object.assign(live, emptyLive());
+  emitLive(convId);
+}
+
 function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>) {
   Object.assign(getLive(convId), patch);
   emitLive(convId);

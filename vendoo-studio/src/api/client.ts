@@ -66,6 +66,8 @@ export const api = {
       request<any>(`/conversations/${convId}/photos/${photoId}`, { method: "DELETE" }),
     delete: (id: string) =>
       request<any>(`/conversations/${id}`, { method: "DELETE" }),
+    reset: (id: string) =>
+      request<any>(`/conversations/${id}/reset`, { method: "POST" }),
     reorderPhotos: (convId: string, orderedIds: string[]) =>
       request<any>(`/conversations/${convId}/photos/order`, {
         method: "PATCH",

@@ -98,6 +98,15 @@ class HiddenFieldsServiceTest(unittest.TestCase):
         hidden_fields.restore_all_fields("conv-1")
         self.assertEqual(len(hidden_fields.hidden_fields("conv-2")["listing"]), 1)
 
+    def test_clear_listing_hidden_fields_leaves_always(self):
+        hidden_fields.hide_field("ebay", "Department", "always", label="Department")
+        hidden_fields.hide_field("depop", "Source", "listing", conversation_id="conv-1", label="Source")
+        hidden_fields.hide_field("depop", "Age", "listing", conversation_id="conv-2", label="Age")
+        hidden_fields.clear_listing_hidden_fields("conv-1")
+        self.assertEqual(len(hidden_fields.hidden_fields("conv-1")["always"]), 1)
+        self.assertEqual(hidden_fields.hidden_fields("conv-1")["listing"], [])
+        self.assertEqual(len(hidden_fields.hidden_fields("conv-2")["listing"]), 1)
+
 
 class HiddenFieldsRouteTest(unittest.TestCase):
     def setUp(self) -> None:

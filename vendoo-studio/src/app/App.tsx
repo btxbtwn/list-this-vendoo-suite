@@ -54,6 +54,7 @@ export function App() {
   const [listingQuery, setListingQuery] = useState("");
   const [queuedChatMessage, setQueuedChatMessage] = useState<string | null>(null);
   const [setupGuideOpen, setSetupGuideOpen] = useState(setupGuideAutoOpen === true);
+  const [workspaceNonce, setWorkspaceNonce] = useState(0);
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -299,8 +300,14 @@ export function App() {
               />
             ) : selectedConvId ? (
               <div className="listing-workspace">
-                <div className="listing-workspace-main">
-                  <PhotoTray convId={selectedConvId} />
+                <div className="listing-workspace-main" key={`${selectedConvId}:${workspaceNonce}`}>
+                  <PhotoTray
+                    convId={selectedConvId}
+                    onCleared={() => {
+                      setQueuedChatMessage(null);
+                      setWorkspaceNonce((value) => value + 1);
+                    }}
+                  />
                   <ItemDetails convId={selectedConvId} />
                   <div className="chat-column">
                     <ChatPanel
@@ -354,11 +361,16 @@ export function App() {
             <aside className="panel detail-panel">
               {selectedConvId ? (
                 <ListingEditor
+                  key={`${selectedConvId}:${workspaceNonce}`}
                   convId={selectedConvId}
                   onJobStarted={() => setMobilePane("browser")}
                   onAskChat={(text) => {
                     setQueuedChatMessage(text);
                     setMobilePane("workspace");
+                  }}
+                  onCleared={() => {
+                    setQueuedChatMessage(null);
+                    setWorkspaceNonce((value) => value + 1);
                   }}
                 />
               ) : (

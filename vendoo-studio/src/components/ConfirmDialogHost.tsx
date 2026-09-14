@@ -50,7 +50,7 @@ export function ConfirmDialogHost() {
             Cancel
           </button>
           <button type="button" className={confirmClass} onClick={() => respondToConfirmDialog(true)}>
-            Confirm
+            {state.confirmLabel}
           </button>
         </div>
       </div>

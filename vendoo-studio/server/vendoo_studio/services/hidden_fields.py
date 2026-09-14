@@ -159,6 +159,20 @@ def restore_field(
     return result
 
 
+def clear_listing_hidden_fields(conversation_id: str) -> None:
+    """Remove hidden-field overrides stored for one listing."""
+    listing_id = str(conversation_id or "").strip()
+    if not listing_id:
+        return
+
+    def mutator(settings: dict) -> None:
+        stored = _from_settings(settings)
+        stored["listings"].pop(listing_id, None)
+        _store(settings, stored)
+
+    update_settings(mutator)
+
+
 def restore_all_fields(conversation_id: str | None = None) -> dict[str, list[dict[str, str]]]:
     """Clear always-hidden fields and this listing's hidden fields."""
     listing_id = str(conversation_id or "").strip()
