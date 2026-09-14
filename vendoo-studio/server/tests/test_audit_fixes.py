@@ -693,8 +693,8 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Marketplace:", panel)
         self.assertIn("Current value:", panel)
         self.assertIn("Failure reason:", panel)
-        self.assertIn("Ask chat about", panel)
-        self.assertIn("Fill this field", panel)
+        self.assertIn("Ask chat to retry", panel)
+        self.assertIn("Apply on Vendoo", panel)
 
 
 if __name__ == "__main__":

@@ -559,7 +559,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         resolved.append(patch)
 
     if not resolved:
-        raise HTTPException(400, "No values to fill. Ask chat to generate the empty fields first.")
+        raise HTTPException(400, "No values to apply. Ask chat to write the missing values first.")
 
     if created_specs:
         created = fill_repo.add_entries(

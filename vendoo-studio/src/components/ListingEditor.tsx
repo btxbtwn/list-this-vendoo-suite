@@ -172,7 +172,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
             <p className="pr-empty">
               {importedItemId
                 ? "Import is still loading. Fields will appear once the Vendoo draft is ready."
-                : "Send this listing to Vendoo, then open Fields to review each marketplace and fill empty fields."}
+                : "Send this listing to Vendoo, then open Fields to review each marketplace and apply missing values."}
             </p>
           )
         ) : (
