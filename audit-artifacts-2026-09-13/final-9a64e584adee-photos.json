@@ -1,0 +1,62 @@
+[
+  {
+    "id": "a36f2c436408",
+    "conversation_id": "9a64e584adee",
+    "original_filename": "IMG_4251-Photoroom.jpg",
+    "mime_type": "image/jpeg",
+    "size_bytes": 798247,
+    "display_order": 0,
+    "width": 1512,
+    "height": 1512,
+    "created_at": "2026-09-14T00:35:54.487516",
+    "url": "/api/photos/a36f2c436408"
+  },
+  {
+    "id": "69fddd517450",
+    "conversation_id": "9a64e584adee",
+    "original_filename": "IMG_4252-Photoroom.jpg",
+    "mime_type": "image/jpeg",
+    "size_bytes": 960244,
+    "display_order": 1,
+    "width": 1512,
+    "height": 1512,
+    "created_at": "2026-09-14T00:35:54.491661",
+    "url": "/api/photos/69fddd517450"
+  },
+  {
+    "id": "307e334925d6",
+    "conversation_id": "9a64e584adee",
+    "original_filename": "IMG_4253-Photoroom.jpg",
+    "mime_type": "image/jpeg",
+    "size_bytes": 565362,
+    "display_order": 2,
+    "width": 1512,
+    "height": 1512,
+    "created_at": "2026-09-14T00:35:54.494309",
+    "url": "/api/photos/307e334925d6"
+  },
+  {
+    "id": "f5ae0d5ab6e3",
+    "conversation_id": "9a64e584adee",
+    "original_filename": "IMG_4254-Photoroom.jpg",
+    "mime_type": "image/jpeg",
+    "size_bytes": 772009,
+    "display_order": 3,
+    "width": 1512,
+    "height": 1512,
+    "created_at": "2026-09-14T00:35:54.495928",
+    "url": "/api/photos/f5ae0d5ab6e3"
+  },
+  {
+    "id": "d3a78f1939a4",
+    "conversation_id": "9a64e584adee",
+    "original_filename": "IMG_4255-Photoroom.jpg",
+    "mime_type": "image/jpeg",
+    "size_bytes": 639648,
+    "display_order": 4,
+    "width": 1512,
+    "height": 1512,
+    "created_at": "2026-09-14T00:35:54.497452",
+    "url": "/api/photos/d3a78f1939a4"
+  }
+]

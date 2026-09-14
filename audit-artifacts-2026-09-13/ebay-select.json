@@ -1,0 +1,5 @@
+{
+  "query": "select",
+  "outline": "- generic\n  - paragraph\n    - statictext \"Select or write your own\"\n- generic\n  - generic\n    - paragraph\n      - statictext \"Select or write your own\"\n- generic \"Category Selector for ebay\"\n- generic\n  - statictext \"Select the country where the item is physically located. Enter the postal code for that country below.\"",
+  "refs": []
+}

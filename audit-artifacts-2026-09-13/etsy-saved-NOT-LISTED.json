@@ -1,0 +1,310 @@
+{
+  "content_refs": [
+    {
+      "actions": [],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:18",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:19",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "offscreen"
+    }
+  ],
+  "mode": "snapshot",
+  "oopif": {
+    "frames": 2,
+    "status": "attached"
+  },
+  "outline": "- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - statictext \"NOT LISTED\"\n- generic\n  - statictext \"NOT LISTED\"",
+  "page": {
+    "title": "web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt",
+    "url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt?marketplace=etsy"
+  },
+  "refs": [
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:0",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:1",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:2",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:3",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:4",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:5",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:6",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:7",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:8",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:9",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:10",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:11",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:12",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:13",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:14",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:15",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:16",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p66:17",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    }
+  ],
+  "snapshot": {
+    "complete": true,
+    "continuation": null,
+    "format": "semantic_v2",
+    "id": "p66",
+    "node_budget": 300,
+    "omitted": {
+      "budget": 0,
+      "css_hidden": 35,
+      "no_layout": 51,
+      "offscreen": 324,
+      "page_occluded": 0,
+      "unknown": 65,
+      "unprovable_frame": 0
+    },
+    "scope": "query",
+    "selected_nodes": 20,
+    "total_nodes": 20
+  },
+  "status": "ok",
+  "tab_id": "tab-e29b2634-c668-4f95-89e5-2eb092736e0b",
+  "target_id": "bt-223fc2c4-03d6-495e-a80e-7b0f68dd7b1e"
+}

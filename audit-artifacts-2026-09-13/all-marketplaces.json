@@ -1,0 +1,67 @@
+{
+  "available": [
+    {
+      "id": "ebay",
+      "label": "eBay",
+      "fillable": true
+    },
+    {
+      "id": "poshmark",
+      "label": "Poshmark",
+      "fillable": true
+    },
+    {
+      "id": "mercari",
+      "label": "Mercari",
+      "fillable": true
+    },
+    {
+      "id": "depop",
+      "label": "Depop",
+      "fillable": true
+    },
+    {
+      "id": "etsy",
+      "label": "Etsy",
+      "fillable": true
+    },
+    {
+      "id": "facebook",
+      "label": "Facebook",
+      "fillable": false
+    },
+    {
+      "id": "grailed",
+      "label": "Grailed",
+      "fillable": false
+    },
+    {
+      "id": "whatnot",
+      "label": "Whatnot",
+      "fillable": false
+    },
+    {
+      "id": "shopify",
+      "label": "Shopify",
+      "fillable": false
+    }
+  ],
+  "selected": [
+    "ebay",
+    "poshmark",
+    "mercari",
+    "depop",
+    "etsy",
+    "facebook",
+    "grailed",
+    "whatnot",
+    "shopify"
+  ],
+  "fillable": [
+    "ebay",
+    "etsy",
+    "poshmark",
+    "mercari",
+    "depop"
+  ]
+}

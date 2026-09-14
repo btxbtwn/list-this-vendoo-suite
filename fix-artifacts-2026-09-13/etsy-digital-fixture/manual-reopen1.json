@@ -1,0 +1,17 @@
+{
+  "phase": "manual_reopen_after_navigate_away",
+  "fields": {
+    "Who Made It?": "Another company or person",
+    "What Is It?": "A finished product",
+    "When Was It Made?": "2020 - 2026 (Recently)",
+    "Listing Type": "Physical Item",
+    "Renewal options": "Manual",
+    "Listing State": "Draft Listing"
+  },
+  "digital_prints": true,
+  "not_listed": true,
+  "listing_type_persisted": false,
+  "who_made_persisted": false,
+  "manual_both_persisted": false,
+  "verdict": "vendoo_or_account_limitation"
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "eb8bad1d1e1f",
+    "conversation_id": "9a64e584adee",
+    "status": "dispatched",
+    "current_step": "opening_vendoo",
+    "vendoo_item_id": "tYhkw1rewBBuMnSmjpzt",
+    "vendoo_url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt",
+    "attempt_count": 1,
+    "last_error": null,
+    "listing_title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+    "mode": null,
+    "created_at": "2026-09-14T00:40:09.735490",
+    "updated_at": "2026-09-14T00:44:09.130692"
+  }
+]

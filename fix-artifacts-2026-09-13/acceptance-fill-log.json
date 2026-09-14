@@ -1,0 +1,269 @@
+{
+  "job_id": "5bc915dbf366",
+  "conversation_id": "5e9134c6e6c9",
+  "summary": {
+    "filled": 21,
+    "skipped": 1,
+    "not_found": 0,
+    "failed": 0,
+    "uncertain": 0,
+    "new": 0
+  },
+  "by_marketplace": {
+    "general": {
+      "summary": {
+        "filled": 21,
+        "skipped": 1,
+        "not_found": 0,
+        "failed": 0,
+        "uncertain": 0,
+        "new": 0
+      },
+      "entries": [
+        {
+          "id": "39675616e20f",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Category",
+          "status": "filled",
+          "reason": "",
+          "selector": "#categoryV2, [role=\"category-input\"]",
+          "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+          "created_at": "2026-09-14T03:59:17.464966"
+        },
+        {
+          "id": "0b2ef6142e54",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Zip Code",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.zipCode",
+          "value_preview": "70125",
+          "created_at": "2026-09-14T03:59:17.464979"
+        },
+        {
+          "id": "f467b3028536",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Title",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.title",
+          "value_preview": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "created_at": "2026-09-14T03:59:17.464986"
+        },
+        {
+          "id": "7f30a9b3f4e7",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Description",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.description",
+          "value_preview": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit...",
+          "created_at": "2026-09-14T03:59:17.464993"
+        },
+        {
+          "id": "1f1150feb18c",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "SKU",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.sku",
+          "value_preview": "NOTATIONS-XL",
+          "created_at": "2026-09-14T03:59:17.465000"
+        },
+        {
+          "id": "984ac4990815",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Condition",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.condition",
+          "value_preview": "Pre-Owned - Good",
+          "created_at": "2026-09-14T03:59:17.465006"
+        },
+        {
+          "id": "afb8fa4be3bc",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Brand",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.brand",
+          "value_preview": "Notations",
+          "created_at": "2026-09-14T03:59:17.465013"
+        },
+        {
+          "id": "31dd3065f6fd",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Primary Color",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.primaryColor",
+          "value_preview": "Multicolor",
+          "created_at": "2026-09-14T03:59:17.465019"
+        },
+        {
+          "id": "539ea622e55d",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Secondary Color",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.secondaryColor",
+          "value_preview": "Black",
+          "created_at": "2026-09-14T03:59:17.465025"
+        },
+        {
+          "id": "c74bf5a9ffca",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Size Type",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.size.scale.value",
+          "value_preview": "Regular",
+          "created_at": "2026-09-14T03:59:17.465032"
+        },
+        {
+          "id": "8d435244fd99",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Size",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.size.option.value",
+          "value_preview": "XL",
+          "created_at": "2026-09-14T03:59:17.465040"
+        },
+        {
+          "id": "8f3185b051a2",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Tags",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.tags",
+          "value_preview": "Floral, Abstract Print, Button-Up, Casual, Woven",
+          "created_at": "2026-09-14T03:59:17.465046"
+        },
+        {
+          "id": "cc394d83e11b",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Labels",
+          "status": "filled",
+          "reason": "",
+          "selector": "#labels",
+          "value_preview": "To List",
+          "created_at": "2026-09-14T03:59:17.465052"
+        },
+        {
+          "id": "ecd0a2f961b5",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Quantity",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.quantity",
+          "value_preview": "1",
+          "created_at": "2026-09-14T03:59:17.465059"
+        },
+        {
+          "id": "5d1a2e73d8d3",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Price",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.price",
+          "value_preview": "14",
+          "created_at": "2026-09-14T03:59:17.465066"
+        },
+        {
+          "id": "e5806b96c8f3",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Cost of Goods",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.cost",
+          "value_preview": "0",
+          "created_at": "2026-09-14T03:59:17.465072"
+        },
+        {
+          "id": "435d54e61fcf",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Weight (lbs)",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.weight.pounds",
+          "value_preview": "0",
+          "created_at": "2026-09-14T03:59:17.465079"
+        },
+        {
+          "id": "e045c18774ed",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Weight (oz)",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.weight.ounces",
+          "value_preview": "8",
+          "created_at": "2026-09-14T03:59:17.465085"
+        },
+        {
+          "id": "752731bd62f7",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Length",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.dimensions.length",
+          "value_preview": "13",
+          "created_at": "2026-09-14T03:59:17.465092"
+        },
+        {
+          "id": "eb56ad947416",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Width",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.dimensions.width",
+          "value_preview": "10",
+          "created_at": "2026-09-14T03:59:17.465098"
+        },
+        {
+          "id": "e3429aa158d0",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Height",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.dimensions.height",
+          "value_preview": "3",
+          "created_at": "2026-09-14T03:59:17.465104"
+        },
+        {
+          "id": "6b573f09038c",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Notes",
+          "status": "skipped",
+          "reason": "No value in listing",
+          "selector": "#generalDetails\\.notes",
+          "value_preview": "",
+          "created_at": "2026-09-14T03:59:17.465110"
+        }
+      ]
+    }
+  },
+  "log_path": "/Users/cris/Developer/list-this-vendoo-suite/vendoo-studio/data/fill-logs/5bc915dbf366.md"
+}

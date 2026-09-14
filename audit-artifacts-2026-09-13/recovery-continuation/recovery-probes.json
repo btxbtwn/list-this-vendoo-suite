@@ -1,0 +1,151 @@
+{
+  "duration_seconds": 0.873,
+  "observations": [
+    {
+      "probe": "Ask Chat unavailable",
+      "http_status": 200,
+      "stream": "data: Error: Audit simulated provider unavailable\n\ndata: [DONE]\n\n",
+      "duration_seconds": 0.023,
+      "prompt_persisted": true,
+      "assistant_messages": [],
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "final_status": "draft",
+      "scope": "Real streaming route; provider stub; JSON repair/category side effects disabled."
+    },
+    {
+      "probe": "Ask Chat timeout",
+      "http_status": 200,
+      "stream": "data: Error: Audit simulated provider timeout\n\ndata: [DONE]\n\n",
+      "duration_seconds": 0.011,
+      "prompt_persisted": true,
+      "assistant_messages": [],
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "final_status": "draft",
+      "scope": "Real streaming route; provider stub; JSON repair/category side effects disabled."
+    },
+    {
+      "probe": "Ask Chat empty",
+      "http_status": 200,
+      "stream": "data: [DONE]\n\n",
+      "duration_seconds": 0.011,
+      "prompt_persisted": true,
+      "assistant_messages": [],
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "final_status": "draft",
+      "scope": "Real streaming route; provider stub; JSON repair/category side effects disabled."
+    },
+    {
+      "probe": "Ask Chat malformed",
+      "http_status": 200,
+      "stream": "data: ```json\ndata: {\"title\":\ndata: ```\n\ndata: [DONE]\n\n",
+      "duration_seconds": 0.013,
+      "prompt_persisted": true,
+      "assistant_messages": [
+        "```json\n{\"title\":\n```"
+      ],
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "final_status": "draft",
+      "scope": "Real streaming route; provider stub; JSON repair/category side effects disabled."
+    },
+    {
+      "probe": "Ask Chat partial_then_error",
+      "http_status": 200,
+      "stream": "data: Partial audit response.\n\ndata: Error: Audit simulated connection interruption\n\ndata: [DONE]\n\n",
+      "duration_seconds": 0.015,
+      "prompt_persisted": true,
+      "assistant_messages": [
+        "Partial audit response."
+      ],
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "final_status": "draft",
+      "scope": "Real streaming route; provider stub; JSON repair/category side effects disabled."
+    },
+    {
+      "probe": "Generate unavailable",
+      "http_status": 200,
+      "stream": ": keepalive\n\nevent: status\ndata: Analyzing photos\u2026\n\nevent: status\ndata: thinking\n\ndata: Error: Audit simulated provider unavailable\n\ndata: [DONE]\n\n",
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "photos_preserved": true,
+      "final_status": "draft",
+      "scope": "Real generation and JSON repair code; provider stub; comp network and browser kickoff disabled."
+    },
+    {
+      "probe": "Generate timeout",
+      "http_status": 200,
+      "stream": ": keepalive\n\nevent: status\ndata: Analyzing photos\u2026\n\nevent: status\ndata: thinking\n\ndata: Error: Audit simulated provider timeout\n\ndata: [DONE]\n\n",
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "photos_preserved": true,
+      "final_status": "draft",
+      "scope": "Real generation and JSON repair code; provider stub; comp network and browser kickoff disabled."
+    },
+    {
+      "probe": "Generate empty",
+      "http_status": 200,
+      "stream": ": keepalive\n\nevent: status\ndata: Analyzing photos\u2026\n\nevent: status\ndata: thinking\n\ndata: Error: Listing generation returned no text\n\ndata: [DONE]\n\n",
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "photos_preserved": true,
+      "final_status": "draft",
+      "scope": "Real generation and JSON repair code; provider stub; comp network and browser kickoff disabled."
+    },
+    {
+      "probe": "Generate malformed",
+      "http_status": 200,
+      "stream": ": keepalive\n\nevent: status\ndata: Analyzing photos\u2026\n\nevent: status\ndata: thinking\n\ndata: ```json\ndata: {\"title\":\ndata: ```\n\nevent: status\ndata: Repairing listing JSON\u2026\n\ndata: [DONE]\n\n",
+      "listing_unchanged": true,
+      "revision_unchanged": true,
+      "photos_preserved": true,
+      "final_status": "draft",
+      "scope": "Real generation and JSON repair code; provider stub; comp network and browser kickoff disabled."
+    },
+    {
+      "probe": "stale seller autosave after draft binding",
+      "draft_binding_survives": false,
+      "final_keys": [
+        "condition",
+        "pitToPit",
+        "length"
+      ],
+      "scope": "Two clients represented by captured old and new notes through real PATCH route."
+    },
+    {
+      "probe": "restart reconciliation dispatched",
+      "final_status": "queued",
+      "final_step": "queued",
+      "binding_preserved": true,
+      "snapshot_preserved": true,
+      "scope": "Real repository reconciliation in disposable DB; no Chrome restart or remote send."
+    },
+    {
+      "probe": "restart reconciliation cancelled",
+      "final_status": "cancelled",
+      "final_step": "saving_general",
+      "binding_preserved": true,
+      "snapshot_preserved": true,
+      "scope": "Real repository reconciliation in disposable DB; no Chrome restart or remote send."
+    },
+    {
+      "probe": "restart reconciliation completed",
+      "final_status": "completed",
+      "final_step": "saving_general",
+      "binding_preserved": true,
+      "snapshot_preserved": true,
+      "scope": "Real repository reconciliation in disposable DB; no Chrome restart or remote send."
+    },
+    {
+      "probe": "restart reconciliation failed",
+      "final_status": "failed",
+      "final_step": "saving_general",
+      "binding_preserved": true,
+      "snapshot_preserved": true,
+      "scope": "Real repository reconciliation in disposable DB; no Chrome restart or remote send."
+    }
+  ]
+}

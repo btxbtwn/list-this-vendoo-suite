@@ -1,0 +1,22 @@
+{
+  "fields": [
+    {
+      "id": "cb4d92657a56",
+      "marketplace": "etsy",
+      "field": "Category",
+      "value": "Art & Collectibles > Prints > Digital Prints"
+    },
+    {
+      "id": "b95b017572ee",
+      "marketplace": "etsy",
+      "field": "Listing Type",
+      "value": "Digital Item"
+    },
+    {
+      "id": "bd4dad3702a8",
+      "marketplace": "etsy",
+      "field": "Who Made",
+      "value": "I did"
+    }
+  ]
+}

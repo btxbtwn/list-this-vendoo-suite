@@ -1,0 +1,29 @@
+{
+  "audit_date_local": "2026-09-13",
+  "mode": "isolated current-build UI with disposable data directory",
+  "extension_status": {
+    "connected": true,
+    "paired": true,
+    "expected_version": "0.2.25",
+    "expected_build": "567151c79f6f0bf5b7d50a035d583dd289a8814d39ab1a491877e28d8ecf4345",
+    "reported_version": "0.0.1-audit",
+    "reported_build": "outdated-audit-build",
+    "up_to_date": false,
+    "version_mismatch": true,
+    "files_in_sync": true
+  },
+  "observed_ui": {
+    "footer_status": "Extension outdated",
+    "footer_recovery_action": "Connect Chrome",
+    "connections_page_recovery_action": "Connect Chrome",
+    "connections_page_explanation": "Connect Chrome opens everyday Chrome and reloads Studio's listing extension so it matches this build.",
+    "managed_load_path_present": true
+  },
+  "result": "pass",
+  "safety": {
+    "external_mutations_blocked_by_harness": true,
+    "connect_chrome_not_clicked": true,
+    "real_extension_unchanged": true
+  },
+  "notes": "The visible mismatch state was accurate and supplied a direct recovery action. This isolated observation was not separately timestamp-instrumented."
+}

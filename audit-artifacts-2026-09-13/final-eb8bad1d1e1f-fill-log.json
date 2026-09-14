@@ -1,0 +1,677 @@
+{
+  "job_id": "eb8bad1d1e1f",
+  "conversation_id": "9a64e584adee",
+  "summary": {
+    "filled": 25,
+    "skipped": 1,
+    "not_found": 1,
+    "failed": 1,
+    "uncertain": 0,
+    "new": 30
+  },
+  "by_marketplace": {
+    "general": {
+      "summary": {
+        "filled": 21,
+        "skipped": 1,
+        "not_found": 0,
+        "failed": 0,
+        "uncertain": 0,
+        "new": 0
+      },
+      "entries": [
+        {
+          "id": "2f8f74effdfe",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Category",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#categoryV2, [role=\"category-input\"]",
+          "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+          "created_at": "2026-09-14T01:19:01.593708"
+        },
+        {
+          "id": "6082a3de2756",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Title",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.title",
+          "value_preview": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "created_at": "2026-09-14T01:19:01.593716"
+        },
+        {
+          "id": "f76ec34ea65e",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Description",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.description",
+          "value_preview": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit...",
+          "created_at": "2026-09-14T01:19:01.593719"
+        },
+        {
+          "id": "6bc9605bf0ac",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Zip Code",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.zipCode",
+          "value_preview": "70125",
+          "created_at": "2026-09-14T01:19:01.593721"
+        },
+        {
+          "id": "42f489402ee4",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "SKU",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.sku",
+          "value_preview": "NOTATIONS-XL",
+          "created_at": "2026-09-14T01:19:01.593723"
+        },
+        {
+          "id": "a8c785b55bed",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Condition",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.condition",
+          "value_preview": "Pre-Owned - Good",
+          "created_at": "2026-09-14T01:19:01.593726"
+        },
+        {
+          "id": "cd7a449d99a5",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Brand",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.brand",
+          "value_preview": "Notations",
+          "created_at": "2026-09-14T01:19:01.593728"
+        },
+        {
+          "id": "4436dfb3103f",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Primary Color",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.primaryColor",
+          "value_preview": "Multicolor",
+          "created_at": "2026-09-14T01:19:01.593731"
+        },
+        {
+          "id": "e71cf13111c1",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Secondary Color",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.secondaryColor",
+          "value_preview": "Black",
+          "created_at": "2026-09-14T01:19:01.593733"
+        },
+        {
+          "id": "f56e8c2b5168",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Size Type",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.size.scale.value",
+          "value_preview": "Regular",
+          "created_at": "2026-09-14T01:19:01.593735"
+        },
+        {
+          "id": "27841619d309",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Size",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.size.option.value",
+          "value_preview": "XL",
+          "created_at": "2026-09-14T01:19:01.593737"
+        },
+        {
+          "id": "1d7d67fcde22",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Tags",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.tags",
+          "value_preview": "Floral, Abstract Print, Button-Up, Casual, Woven",
+          "created_at": "2026-09-14T01:19:01.593740"
+        },
+        {
+          "id": "8fb6fce80ef9",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Labels",
+          "status": "filled",
+          "reason": "",
+          "selector": "#labels",
+          "value_preview": "To List",
+          "created_at": "2026-09-14T01:19:01.593742"
+        },
+        {
+          "id": "02a972b9b1f4",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Quantity",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.quantity",
+          "value_preview": "1",
+          "created_at": "2026-09-14T01:19:01.593744"
+        },
+        {
+          "id": "1cffafe07a75",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Price",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.price",
+          "value_preview": "14",
+          "created_at": "2026-09-14T01:19:01.593746"
+        },
+        {
+          "id": "e8aed1a7b7b8",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Weight (oz)",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.weight.ounces",
+          "value_preview": "8",
+          "created_at": "2026-09-14T01:19:01.593748"
+        },
+        {
+          "id": "142eab8da0e0",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Cost of Goods",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.cost",
+          "value_preview": "0",
+          "created_at": "2026-09-14T01:19:01.593751"
+        },
+        {
+          "id": "c9dc713d42d1",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Weight (lbs)",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.weight.pounds",
+          "value_preview": "0",
+          "created_at": "2026-09-14T01:19:01.593753"
+        },
+        {
+          "id": "7b46a3ae316c",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Length",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.dimensions.length",
+          "value_preview": "13",
+          "created_at": "2026-09-14T01:19:01.593755"
+        },
+        {
+          "id": "d1024f474476",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Width",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.dimensions.width",
+          "value_preview": "10",
+          "created_at": "2026-09-14T01:19:01.593757"
+        },
+        {
+          "id": "57fe4cc16de9",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Height",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.dimensions.height",
+          "value_preview": "3",
+          "created_at": "2026-09-14T01:19:01.593759"
+        },
+        {
+          "id": "9e4ef10a29bb",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Notes",
+          "status": "skipped",
+          "reason": "No value in listing",
+          "selector": "#generalDetails\\.notes",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:01.593762"
+        }
+      ]
+    },
+    "depop": {
+      "summary": {
+        "filled": 4,
+        "skipped": 0,
+        "not_found": 1,
+        "failed": 1,
+        "uncertain": 0,
+        "new": 30
+      },
+      "entries": [
+        {
+          "id": "7d81068d50bf",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Category",
+          "status": "not_found",
+          "reason": "Category field not found",
+          "selector": "",
+          "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+          "created_at": "2026-09-14T01:19:10.714125"
+        },
+        {
+          "id": "6b18e38f6675",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Description",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.depop.overrides.description",
+          "value_preview": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit...",
+          "created_at": "2026-09-14T01:19:10.714134"
+        },
+        {
+          "id": "00e803a8bb4a",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Tags",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.overrides.tags",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714140"
+        },
+        {
+          "id": "dad63f78489a",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Condition *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714145"
+        },
+        {
+          "id": "490a4803cf82",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Primary Color",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714150"
+        },
+        {
+          "id": "2778ead36634",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Secondary Color",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714155"
+        },
+        {
+          "id": "1d9d984109a7",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Source",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.marketplaceSpecifics.source",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714159"
+        },
+        {
+          "id": "7b4dcff088ff",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Age",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.marketplaceSpecifics.age",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714164"
+        },
+        {
+          "id": "04d2eeda7573",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Style",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.marketplaceSpecifics.style",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714169"
+        },
+        {
+          "id": "58b3d700e602",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "SKU",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.depop.overrides.sku",
+          "value_preview": "NOTATIONS-XL",
+          "created_at": "2026-09-14T01:19:10.714173"
+        },
+        {
+          "id": "a6d148b8a70d",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Quantity",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.depop.overrides.quantity",
+          "value_preview": "1",
+          "created_at": "2026-09-14T01:19:10.714178"
+        },
+        {
+          "id": "0904a7be7f62",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Size",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_size",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714182"
+        },
+        {
+          "id": "8dbe893614f0",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Material",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_attribute_material",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714186"
+        },
+        {
+          "id": "3d5c850c504d",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Occasion",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_attribute_occasion",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714191"
+        },
+        {
+          "id": "3540f0829e36",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Brand *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714195"
+        },
+        {
+          "id": "aabb305ad2d1",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Location *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714199"
+        },
+        {
+          "id": "bc55e567bd17",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Domestic Shipping *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714204"
+        },
+        {
+          "id": "26c4433f4e0e",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Your Address *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714208"
+        },
+        {
+          "id": "e65c81986b97",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Parcel Size *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:10.714212"
+        },
+        {
+          "id": "1f27e5282c4d",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Price",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.depop.overrides.price",
+          "value_preview": "14",
+          "created_at": "2026-09-14T01:19:10.714217"
+        },
+        {
+          "id": "c6b7ed7d3422",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "marketplace",
+          "status": "failed",
+          "reason": "Could not activate depop marketplace section",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913455"
+        },
+        {
+          "id": "229da9545754",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Tags",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "#listings.depop.overrides.tags",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913463"
+        },
+        {
+          "id": "50c0e82b7bfd",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Condition *",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913465"
+        },
+        {
+          "id": "9f0db194d930",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Primary Color",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913468"
+        },
+        {
+          "id": "252dcb6f7510",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Secondary Color",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913470"
+        },
+        {
+          "id": "1388489ebb5f",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Source",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "#listings.depop.marketplaceSpecifics.source",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913472"
+        },
+        {
+          "id": "ae663a63856c",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Age",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "#listings.depop.marketplaceSpecifics.age",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913474"
+        },
+        {
+          "id": "5dbaf6e9f817",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Style",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "#listings.depop.marketplaceSpecifics.style",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913476"
+        },
+        {
+          "id": "488218b220df",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Size",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_size",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913479"
+        },
+        {
+          "id": "5a17134031e7",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Material",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_attribute_material",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913481"
+        },
+        {
+          "id": "6154e8070391",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Occasion",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_attribute_occasion",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913483"
+        },
+        {
+          "id": "f7b2ad21cd07",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Brand *",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913485"
+        },
+        {
+          "id": "c6c7ee2f3bde",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Location *",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913488"
+        },
+        {
+          "id": "05f247b1c7eb",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Domestic Shipping *",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913490"
+        },
+        {
+          "id": "8b1e5d287023",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Your Address *",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913492"
+        },
+        {
+          "id": "3934b95aa6e7",
+          "step": "filling_depop",
+          "marketplace": "depop",
+          "field": "Parcel Size *",
+          "status": "new",
+          "reason": "Visible on form, not filled by automation",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:19:17.913494"
+        }
+      ]
+    }
+  },
+  "log_path": "/Users/cris/Developer/list-this-vendoo-suite/vendoo-studio/data/fill-logs/eb8bad1d1e1f.md"
+}

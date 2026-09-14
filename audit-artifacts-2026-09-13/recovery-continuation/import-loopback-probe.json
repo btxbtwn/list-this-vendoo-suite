@@ -1,0 +1,14 @@
+{
+  "http_status": 200,
+  "photo_count": 1,
+  "loopback_requests": [
+    "/audit-image.png"
+  ],
+  "imported_conversation_status": "listing",
+  "settle_status": 409,
+  "settle_response": {
+    "detail": "Cannot settle a listing that is still in progress"
+  },
+  "duration_seconds": 0.518,
+  "scope": "Unauthenticated real import endpoint in isolated TestClient; benign local PNG only; no production or remote account request."
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "531a96b3b0e6",
+    "conversation_id": "b0e8ac2fda3b",
+    "status": "imported",
+    "current_step": "imported",
+    "vendoo_item_id": "tYhkw1rewBBuMnSmjpzt",
+    "vendoo_url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt"
+  },
+  {
+    "id": "b587781cacc3",
+    "conversation_id": "9a64e584adee",
+    "status": "failed",
+    "current_step": "filling_general",
+    "vendoo_item_id": null,
+    "vendoo_url": null
+  },
+  {
+    "id": "eb8bad1d1e1f",
+    "conversation_id": "9a64e584adee",
+    "status": "cancelled",
+    "current_step": null,
+    "vendoo_item_id": "tYhkw1rewBBuMnSmjpzt",
+    "vendoo_url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt"
+  }
+]

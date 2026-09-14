@@ -1,0 +1,47 @@
+{
+  "content_refs": [
+    {
+      "actions": [],
+      "frame": "main",
+      "name": "Item Photos",
+      "ref": "p11:0",
+      "role": "heading",
+      "states": {},
+      "value": null,
+      "visibility": "in_viewport"
+    }
+  ],
+  "mode": "snapshot",
+  "oopif": {
+    "frames": 2,
+    "status": "attached"
+  },
+  "outline": "- heading \"Item Photos\"",
+  "page": {
+    "title": "Vendoo | Item",
+    "url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt"
+  },
+  "refs": [],
+  "snapshot": {
+    "complete": true,
+    "continuation": null,
+    "format": "semantic_v2",
+    "id": "p11",
+    "node_budget": 300,
+    "omitted": {
+      "budget": 0,
+      "css_hidden": 23,
+      "no_layout": 40,
+      "offscreen": 252,
+      "page_occluded": 0,
+      "unknown": 60,
+      "unprovable_frame": 0
+    },
+    "scope": "query",
+    "selected_nodes": 1,
+    "total_nodes": 1
+  },
+  "status": "ok",
+  "tab_id": "tab-8e3b1c97-a2fb-4d82-ba1f-5e2b9bfb7cb1",
+  "target_id": "bt-44ca09af-9fd7-4312-b43a-e7cd332034d6"
+}

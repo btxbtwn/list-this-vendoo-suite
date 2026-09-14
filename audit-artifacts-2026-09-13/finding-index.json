@@ -1,0 +1,206 @@
+[
+  {
+    "id": "C01",
+    "title": "Pairing accepts a fixed bypass and stores a weak token with broad permissions",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/routes/extension.py:74"
+  },
+  {
+    "id": "C02",
+    "title": "WebSocket connection can displace paired client before authentication",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/routes/extension.py:380"
+  },
+  {
+    "id": "C03",
+    "title": "Packaged update path lacks verified artifact integrity and removes quarantine",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/services/packaged_updates.py:247"
+  },
+  {
+    "id": "C04",
+    "title": "Invalid nested JSON is persisted before validation crashes",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/routes/listings.py:82"
+  },
+  {
+    "id": "C05",
+    "title": "Revision restore accepts a revision from another conversation",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/routes/listings.py:155"
+  },
+  {
+    "id": "C06",
+    "title": "Learned-field backfill mutates approved snapshots and changes array types",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/services/fill_log.py:590"
+  },
+  {
+    "id": "C07",
+    "title": "Retry bypasses validation and the one-active-job guard",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/routes/jobs.py:591"
+  },
+  {
+    "id": "C08",
+    "title": "Schema-probe draft binding causes all photos to be skipped",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/routes/extension.py:219"
+  },
+  {
+    "id": "C09",
+    "title": "New route name is accepted as a saved Vendoo item ID",
+    "severity": "High",
+    "source": "vendoo-extension/content-scripts/vendoo.js:4368"
+  },
+  {
+    "id": "C10",
+    "title": "eBay and Depop marketplace activation fails on accessible forms",
+    "severity": "High",
+    "source": "vendoo-extension/content-scripts/vendoo.js:4296"
+  },
+  {
+    "id": "C11",
+    "title": "Audit stages and completion do not verify saved accuracy",
+    "severity": "High",
+    "source": "vendoo-extension/content-scripts/vendoo.js:4102"
+  },
+  {
+    "id": "C12",
+    "title": "Marketplace and canonical constraints are largely unenforced",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/models/validation.py:21"
+  },
+  {
+    "id": "C13",
+    "title": "Invalid image bytes are accepted when MIME claims image",
+    "severity": "Medium",
+    "source": "vendoo-studio/server/vendoo_studio/services/photos.py:26"
+  },
+  {
+    "id": "C14",
+    "title": "Ask Chat omits photos when history already contains editor messages",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/routes/chat.py:302"
+  },
+  {
+    "id": "C15",
+    "title": "Completed stream remains duplicated until reload",
+    "severity": "Medium",
+    "source": "vendoo-studio/src/components/ChatPanel.tsx:467"
+  },
+  {
+    "id": "C16",
+    "title": "Cancelled chat leaves conversation permanently In Progress",
+    "severity": "Medium",
+    "source": "vendoo-studio/server/vendoo_studio/routes/chat.py:548"
+  },
+  {
+    "id": "C17",
+    "title": "Missing-provider prompt is rejected before persistence",
+    "severity": "High",
+    "source": "vendoo-studio/server/vendoo_studio/routes/chat.py:539"
+  },
+  {
+    "id": "C18",
+    "title": "Form diagnostics contain private account/address values",
+    "severity": "High",
+    "source": "vendoo-extension/content-scripts/vendoo.js:4450"
+  },
+  {
+    "id": "C19",
+    "title": "DOM readback collapses arrays and misreads unchecked switches",
+    "severity": "Medium",
+    "source": "vendoo-extension/content-scripts/vendoo.js:4467"
+  },
+  {
+    "id": "C20",
+    "title": "Cached Fields are presented with live-source identity",
+    "severity": "Medium",
+    "source": "vendoo-studio/server/vendoo_studio/routes/jobs.py:232"
+  },
+  {
+    "id": "C21",
+    "title": "Mercari resolves blouse to T-shirts",
+    "severity": "High",
+    "source": "vendoo-extension/content-scripts/vendoo.js:2021"
+  },
+  {
+    "id": "C22",
+    "title": "Etsy save retains fabricated when-made and non-Draft configuration",
+    "severity": "High",
+    "source": "vendoo-extension/content-scripts/vendoo.js:3082"
+  },
+  {
+    "id": "C23",
+    "title": "Platform-specific values are skipped or replaced by General defaults",
+    "severity": "Medium",
+    "source": "vendoo-extension/content-scripts/vendoo.js:3093"
+  },
+  {
+    "id": "U01",
+    "title": "Send appears enabled while invalid and errors are duplicated",
+    "severity": "Medium",
+    "source": "vendoo-studio/src/components/ListingEditor.tsx:664"
+  },
+  {
+    "id": "U02",
+    "title": "Unconfigured provider blocks drafting and still displays a model",
+    "severity": "Medium",
+    "source": "vendoo-studio/src/app/App.tsx:74"
+  },
+  {
+    "id": "U03",
+    "title": "Category and label placeholders resemble saved values",
+    "severity": "Low",
+    "source": "vendoo-studio/src/components/ItemDetails.tsx:92"
+  },
+  {
+    "id": "U04",
+    "title": "Later editor tabs require undisclosed horizontal scrolling",
+    "severity": "Low",
+    "source": "vendoo-studio/src/styles/app.css:2553"
+  },
+  {
+    "id": "U05",
+    "title": "Mobile Settings has no reachable exit to listings",
+    "severity": "Medium",
+    "source": "vendoo-studio/src/styles/app.css:3792"
+  },
+  {
+    "id": "U06",
+    "title": "Zoom restriction, focus hiding and field semantics impair accessibility",
+    "severity": "Medium",
+    "source": "vendoo-studio/index.html:5"
+  },
+  {
+    "id": "U07",
+    "title": "Partial upload failure hides that a valid photo was saved",
+    "severity": "Medium",
+    "source": "vendoo-studio/server/vendoo_studio/routes/photos.py:32"
+  },
+  {
+    "id": "U08",
+    "title": "Four selectable marketplaces are silently omitted from sending",
+    "severity": "Medium",
+    "source": "vendoo-studio/server/vendoo_studio/services/marketplaces.py:64"
+  },
+  {
+    "id": "T01",
+    "title": "Backend suite has a reproducible provider default expectation failure",
+    "severity": "Medium",
+    "source": "vendoo-studio/server/tests/test_chatgpt_oauth.py:272"
+  },
+  {
+    "id": "D01",
+    "title": "Doctor says Ready after identifying a startup-blocking occupied port",
+    "severity": "Low",
+    "source": "vendoo-studio/scripts/doctor.sh:78"
+  },
+  {
+    "id": "D02",
+    "title": "Canonical skill and reference template disagree on listing rules",
+    "severity": "Medium",
+    "source": "skills/list-this/SKILL.md:296"
+  }
+]

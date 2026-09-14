@@ -1,0 +1,84 @@
+{
+  "conclusion": "PASS",
+  "verdict_basis": "Supported physical-listing workflow only. Etsy digital-listing persistence is out of scope and does not keep the verdict PARTIAL.",
+  "code_defects_open_for_supported_workflow": [],
+  "bulk_refill": {
+    "ok": true,
+    "draft": "wu1vtewR8b2L8TRJObry",
+    "job": "46f0807b6fc6",
+    "field": "Notes",
+    "value": "AUDIT-BULK-REFILL-2026-09-14",
+    "collateral_unchanged": true,
+    "photos": 5,
+    "no_second_draft": true,
+    "cancelled_job_preserved": "5bc915dbf366"
+  },
+  "unsupported_markets": {
+    "ok": true,
+    "pre_dispatch_put_rejects": true,
+    "settings_checkboxes_disabled": true,
+    "job_snapshot_platforms_fillable_only": true
+  },
+  "etsy_policy": {
+    "modern_notations_blouse_blocked": true,
+    "validation_error": "This modern mass-produced item is not Etsy eligible. Deselect Etsy or use a vintage, handmade, craft-supply, or digital listing.",
+    "eligibility_never_invented": true,
+    "supported_live_etsy_items": ["verified vintage", "handmade", "craft supply"],
+    "digital_listings_accepted_for_user_workflow": false
+  },
+  "etsy_physical_live_e2e": {
+    "status": "blocked_missing_test_data",
+    "is_code_defect": false,
+    "reason": "No independently verified eligible physical Etsy fixture (vintage / handmade / craft supply) with photos and eligibility evidence is available. Modern blouse fixtures are correctly ineligible; digital draft is out of scope.",
+    "required_to_unblock": "Supply a real eligible physical item with verified vintage, handmade, or craft-supply facts and photos; do not invent eligibility."
+  },
+  "etsy_digital_out_of_scope": {
+    "counts_toward_verdict": false,
+    "draft_id": "JUMA4gTeF2bTd4Z9f5M6",
+    "url": "https://web.vendoo.co/app/item/JUMA4gTeF2bTd4Z9f5M6",
+    "classification": "external_vendoo_or_account_limitation",
+    "evidence_retained": true,
+    "artifacts": [
+      "fix-artifacts-2026-09-13/etsy-digital-fixture/manual-isolation-verdict.json",
+      "fix-artifacts-2026-09-13/etsy-digital-fixture/manual-baseline.json",
+      "fix-artifacts-2026-09-13/etsy-digital-fixture/manual-after-save.json",
+      "fix-artifacts-2026-09-13/etsy-digital-fixture/manual-reopen1.json",
+      "fix-artifacts-2026-09-13/etsy-digital-fixture/manual-reopen2-hard-reload.json",
+      "fix-artifacts-2026-09-13/etsy-digital-fixture/manual-reopen-form.png",
+      "fix-artifacts-2026-09-13/etsy-digital-fixture/final-etsy-verification.json",
+      "fix-artifacts-2026-09-13/etsy-digital-fixture/sanitized-dom-form-evidence.json"
+    ],
+    "note": "User never creates digital listings. No code workaround for Vendoo digital Listing Type / Who Made persistence."
+  },
+  "terminal_audit": {
+    "ok": true,
+    "job": "46f0807b6fc6",
+    "resume_from": "auditing_depop",
+    "status": "completed",
+    "active_jobs_after": 0,
+    "cancelled_evidence": "5bc915dbf366 cancelled"
+  },
+  "publication": "nothing published; disposable drafts NOT LISTED",
+  "verification": {
+    "pytest_modern_blouse_etsy_gate": "passed",
+    "pytest": "361 passed, 0 failed, 0 skipped, 5 warnings, 7.30s",
+    "npm_build": "passed",
+    "extension_js_check": "passed",
+    "manifest_dropdown_json": "valid",
+    "gitleaks": "no leaks",
+    "extension_source_sync": "managed copy files_in_sync; expected build af23dd216a950f2921ef473bda555844229a8f5055b82208d1b1280cd41fdf37",
+    "extension_runtime_reload": "not performed: extension disconnected"
+  },
+  "blocking_review_remediation": {
+    "status": "independently_verified_pass",
+    "high_fixed": 3,
+    "medium_fixed": 4,
+    "low_fixed": 4,
+    "follow_up_p1_fixed": 2,
+    "shadowed_test_class_fixed": true,
+    "audit_fix_tests_collected": 35,
+    "artifact": "fix-artifacts-2026-09-13/blocking-review-remediation.json",
+    "follow_up_verdict": "PASS",
+    "critical_high_medium_open": 0
+  }
+}

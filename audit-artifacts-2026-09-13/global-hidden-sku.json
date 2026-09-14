@@ -1,0 +1,10 @@
+{
+  "always": [
+    {
+      "marketplace": "general",
+      "field": "sku",
+      "label": "SKU"
+    }
+  ],
+  "listing": []
+}

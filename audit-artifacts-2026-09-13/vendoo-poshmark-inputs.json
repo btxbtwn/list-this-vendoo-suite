@@ -1,0 +1,128 @@
+[
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.title id=listings.poshmark.overrides.title type=text value=Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed role=input",
+    "node": "input",
+    "ref": "p38:157"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.description id=listings.poshmark.overrides.description",
+    "node": "textarea",
+    "ref": "p38:159"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Condition placeholder=New with Tags name=listings.poshmark.overrides.condition id=listings.poshmark.overrides.condition value=Good role=input",
+    "node": "input",
+    "ref": "p38:162"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Brand placeholder=Select or write your own name=listings.poshmark.overrides.brand id=listings.poshmark.overrides.brand value=Notations role=input",
+    "node": "input",
+    "ref": "p38:167"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Primary Color placeholder=Primary Color name=listings.poshmark.overrides.primaryColor id=listings.poshmark.overrides.primaryColor value= role=input",
+    "node": "input",
+    "ref": "p38:172"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Secondary Color placeholder=Secondary Color name=listings.poshmark.overrides.secondaryColor id=listings.poshmark.overrides.secondaryColor value=Black role=input",
+    "node": "input",
+    "ref": "p38:177"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.tags type=hidden value=Floral",
+    "node": "input",
+    "ref": "p38:187"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.tags type=hidden value=Abstract Print",
+    "node": "input",
+    "ref": "p38:188"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.tags type=hidden value=Button-Up",
+    "node": "input",
+    "ref": "p38:189"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.tags type=hidden value=Casual",
+    "node": "input",
+    "ref": "p38:190"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.tags type=hidden value=Woven",
+    "node": "input",
+    "ref": "p38:191"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.quantity id=listings.poshmark.overrides.quantity type=number value=1 role=input",
+    "node": "input",
+    "ref": "p38:194"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Size name=listings.poshmark.categorySpecifics.007a9287d97b4e80ef00a955_size_scale id=listings.poshmark.categorySpecifics.007a9287d97b4e80ef00a955_size value=US Standard role=input",
+    "node": "input",
+    "ref": "p38:201"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.categorySpecifics.007a9287d97b4e80ef00a955_size type=hidden value=XL",
+    "node": "input",
+    "ref": "p38:205"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.marketplaceSpecifics.originalPrice id=listings.poshmark.marketplaceSpecifics.originalPrice type=text value=0 role=input",
+    "node": "input",
+    "ref": "p38:208"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Discounted Shipping placeholder=Discounted Shipping name=listings.poshmark.marketplaceSpecifics.discountShipping.id id=listings.poshmark.marketplaceSpecifics.discountShipping.id value= role=input",
+    "node": "input",
+    "ref": "p38:212"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.price id=listings.poshmark.overrides.price type=text value=14 role=input",
+    "node": "input",
+    "ref": "p38:215"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.marketplaceSpecifics.smartSell.minPrice id=listings.poshmark.marketplaceSpecifics.smartSell.minPrice type=text value= role=input",
+    "node": "input",
+    "ref": "p38:219"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.overrides.sku id=listings.poshmark.overrides.sku type=text value=NOTATIONS-XL role=input",
+    "node": "input",
+    "ref": "p38:221"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.marketplaceSpecifics.costPriceAmount id=listings.poshmark.marketplaceSpecifics.costPriceAmount type=text value=0 role=input",
+    "node": "input",
+    "ref": "p38:223"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.poshmark.marketplaceSpecifics.otherInfo id=listings.poshmark.marketplaceSpecifics.otherInfo",
+    "node": "textarea",
+    "ref": "p38:225"
+  }
+]

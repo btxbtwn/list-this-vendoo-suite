@@ -1,0 +1,104 @@
+{
+  "content_refs": [
+    {
+      "actions": [],
+      "frame": "main",
+      "name": "Description",
+      "ref": "p10:3",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [],
+      "frame": "main",
+      "name": "How AI Description works?",
+      "ref": "p10:4",
+      "role": "heading",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    }
+  ],
+  "mode": "snapshot",
+  "oopif": {
+    "frames": 2,
+    "status": "attached"
+  },
+  "outline": "- generic\n  - generic\n    - generic\n      - labeltext\n        - statictext \"Description\"\n    - generic\n      - textbox \"Description\": Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown. Size: XL Condition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details. Measurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\" OFFERS WELCOME! Ships in 1-2 business days. 15% off bundles of 2+ items. [editable=\"plaintext\",focusable=true,required=false]\n- button \"Create your description with AI BETA\" [focusable=true]\n  - statictext \"Create your description with AI\"\n- heading \"How AI Description works?\"",
+  "page": {
+    "title": "Vendoo | Item",
+    "url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt"
+  },
+  "refs": [
+    {
+      "actions": [
+        "type",
+        "pointer",
+        "scroll"
+      ],
+      "frame": "main",
+      "name": "Description",
+      "ref": "p10:0",
+      "role": "textbox",
+      "states": {
+        "editable": "plaintext",
+        "focusable": true,
+        "required": false
+      },
+      "value": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown. Size: XL Condition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details. Measurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\" OFFERS WELCOME! Ships in 1-2 business days. 15% off bundles of 2+ items.",
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "Create your description with AI BETA",
+      "ref": "p10:1",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "Create your description with AI",
+      "ref": "p10:2",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    }
+  ],
+  "snapshot": {
+    "complete": true,
+    "continuation": null,
+    "format": "semantic_v2",
+    "id": "p10",
+    "node_budget": 300,
+    "omitted": {
+      "budget": 0,
+      "css_hidden": 23,
+      "no_layout": 40,
+      "offscreen": 252,
+      "page_occluded": 0,
+      "unknown": 60,
+      "unprovable_frame": 0
+    },
+    "scope": "query",
+    "selected_nodes": 5,
+    "total_nodes": 5
+  },
+  "status": "ok",
+  "tab_id": "tab-8e3b1c97-a2fb-4d82-ba1f-5e2b9bfb7cb1",
+  "target_id": "bt-44ca09af-9fd7-4312-b43a-e7cd332034d6"
+}

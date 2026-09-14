@@ -1,0 +1,289 @@
+{
+  "content_refs": [],
+  "mode": "snapshot",
+  "oopif": {
+    "frames": 2,
+    "status": "attached"
+  },
+  "outline": "- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"\n- generic\n  - generic\n    - button \"NOT LISTED\" [focusable=true]\n      - generic\n        - statictext \"NOT LISTED\"",
+  "page": {
+    "title": "Vendoo | Item",
+    "url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt"
+  },
+  "refs": [
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:0",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:1",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:2",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:3",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:4",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:5",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:6",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:7",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:8",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:9",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:10",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:11",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:12",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:13",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:14",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:15",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:16",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "NOT LISTED",
+      "ref": "p13:17",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "near_viewport"
+    }
+  ],
+  "snapshot": {
+    "complete": true,
+    "continuation": null,
+    "format": "semantic_v2",
+    "id": "p13",
+    "node_budget": 300,
+    "omitted": {
+      "budget": 0,
+      "css_hidden": 23,
+      "no_layout": 40,
+      "offscreen": 252,
+      "page_occluded": 0,
+      "unknown": 60,
+      "unprovable_frame": 0
+    },
+    "scope": "query",
+    "selected_nodes": 18,
+    "total_nodes": 18
+  },
+  "status": "ok",
+  "tab_id": "tab-8e3b1c97-a2fb-4d82-ba1f-5e2b9bfb7cb1",
+  "target_id": "bt-44ca09af-9fd7-4312-b43a-e7cd332034d6"
+}

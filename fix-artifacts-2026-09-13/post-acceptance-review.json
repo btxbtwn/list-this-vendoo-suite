@@ -1,0 +1,54 @@
+{
+  "captured_at": "2026-09-14T09:02:46-05:00",
+  "git_commit": "acfd1c24d90f7a803f1167f8ad2f10770a0e6b79",
+  "working_tree_committed": false,
+  "publication_controls_clicked": false,
+  "active_automation_jobs": 0,
+  "backend": {
+    "url": "http://127.0.0.1:4318",
+    "restarted_after_review": true,
+    "cors": {
+      "http://127.0.0.1:5173": "allowed",
+      "https://web.vendoo.co": "rejected",
+      "http://127.0.0.1.evil.example:4318": "rejected"
+    }
+  },
+  "extension": {
+    "connected": true,
+    "paired": true,
+    "files_in_sync": true,
+    "up_to_date": true,
+    "expected_build": "594a8d82fe5c036a31de4ed1c49ec29a22bd4750b88f6047ecaa09c6e3619fab",
+    "running_build": "594a8d82fe5c036a31de4ed1c49ec29a22bd4750b88f6047ecaa09c6e3619fab",
+    "loaded_copy": "Studio-managed Application Support copy",
+    "restored_browser_page": "https://web.vendoo.co/app"
+  },
+  "verification": {
+    "pytest": {
+      "passed": 345,
+      "failed": 0,
+      "skipped": 0,
+      "warnings": 5
+    },
+    "frontend_build": "passed",
+    "extension_javascript_syntax": "passed",
+    "manifest_json": "valid",
+    "dropdown_json": "valid",
+    "gitleaks": "no leaks"
+  },
+  "independent_review": {
+    "status": "blocked_before_submission",
+    "reason": "Both available ChatGPT browser sessions were signed out",
+    "prompt_sent": false
+  },
+  "review_fixes": [
+    "exact WebSocket origins and local-only CORS",
+    "HTTPS streaming remote-image imports",
+    "required Etsy maker/item/date fields",
+    "serialized seller-detail autosave",
+    "immutable approved job snapshots",
+    "refill concurrency enforcement",
+    "publication-state detection",
+    "pre-extraction ZIP traversal and symlink rejection"
+  ]
+}

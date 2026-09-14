@@ -1,0 +1,12 @@
+{
+  "phase": "after_manual_save_before_reload",
+  "fields": {
+    "Who Made It?": "I did",
+    "What Is It?": "A finished product",
+    "When Was It Made?": "2020 - 2026 (Recently)",
+    "Listing Type": "Digital Item",
+    "Renewal options": "Manual",
+    "Listing State": "Draft Listing"
+  },
+  "note": "Values still Digital Item / I did in UI after Save click"
+}

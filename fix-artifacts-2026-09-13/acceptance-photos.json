@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "count": 5,
+  "errors": null,
+  "message": null,
+  "photos": [
+    {
+      "id": "90ad1a4fe53c",
+      "original_filename": "IMG_4251-Photoroom.jpg",
+      "display_order": 0,
+      "mime_type": "image/jpeg",
+      "size_bytes": 798247
+    },
+    {
+      "id": "1917ad7b404c",
+      "original_filename": "IMG_4252-Photoroom.jpg",
+      "display_order": 1,
+      "mime_type": "image/jpeg",
+      "size_bytes": 960244
+    },
+    {
+      "id": "9a135d3d415e",
+      "original_filename": "IMG_4253-Photoroom.jpg",
+      "display_order": 2,
+      "mime_type": "image/jpeg",
+      "size_bytes": 565362
+    },
+    {
+      "id": "fe4d4d72173d",
+      "original_filename": "IMG_4254-Photoroom.jpg",
+      "display_order": 3,
+      "mime_type": "image/jpeg",
+      "size_bytes": 772009
+    },
+    {
+      "id": "1fe7ead0f918",
+      "original_filename": "IMG_4255-Photoroom.jpg",
+      "display_order": 4,
+      "mime_type": "image/jpeg",
+      "size_bytes": 639648
+    }
+  ]
+}

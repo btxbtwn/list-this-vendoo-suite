@@ -1,0 +1,26 @@
+{
+  "active_jobs": 0,
+  "extension": {
+    "connected": true,
+    "paired": true,
+    "version": "0.2.25",
+    "build": "567151c79f6f0bf5b7d50a035d583dd289a8814d39ab1a491877e28d8ecf4345",
+    "up_to_date": true,
+    "version_mismatch": false
+  },
+  "latest_recovery_job": {
+    "id": "b587781cacc3",
+    "status": "failed",
+    "current_step": "filling_general",
+    "vendoo_item_id": null
+  },
+  "import_job": {
+    "id": "531a96b3b0e6",
+    "status": "imported",
+    "current_step": "imported",
+    "vendoo_item_id": "tYhkw1rewBBuMnSmjpzt"
+  },
+  "live_draft_url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt",
+  "live_not_listed_controls": 9,
+  "publication_observed": false
+}

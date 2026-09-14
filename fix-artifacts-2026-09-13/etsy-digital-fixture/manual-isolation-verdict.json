@@ -1,0 +1,87 @@
+{
+  "draft_id": "JUMA4gTeF2bTd4Z9f5M6",
+  "url": "https://web.vendoo.co/app/item/JUMA4gTeF2bTd4Z9f5M6",
+  "isolation_method": "everyday_Chrome_manual_AX_select_Save_reopen",
+  "extension_involved": false,
+  "steps": [
+    "Open Etsy marketplace on disposable draft",
+    "Manually select Listing Type=Digital Item then Who Made=I did",
+    "Click Vendoo Save; observe Last Saved Less than one minute ago",
+    "Navigate away to /app then reopen item?marketplace=etsy",
+    "Hard reload item page after second Save"
+  ],
+  "pre_save_ui": {
+    "Who Made It?": "I did",
+    "What Is It?": "A finished product",
+    "When Was It Made?": "2020 - 2026 (Recently)",
+    "Listing Type": "Digital Item",
+    "Renewal options": "Manual",
+    "Listing State": "Draft Listing"
+  },
+  "save_confirmation_visible": {
+    "last_saved_label": true,
+    "relative_time": "Less than one minute ago",
+    "date_shown": "9/14/2026"
+  },
+  "after_navigate_away_reopen": {
+    "phase": "manual_reopen_after_navigate_away",
+    "fields": {
+      "Who Made It?": "Another company or person",
+      "What Is It?": "A finished product",
+      "When Was It Made?": "2020 - 2026 (Recently)",
+      "Listing Type": "Physical Item",
+      "Renewal options": "Manual",
+      "Listing State": "Draft Listing"
+    },
+    "digital_prints": true,
+    "not_listed": true,
+    "listing_type_persisted": false,
+    "who_made_persisted": false,
+    "manual_both_persisted": false,
+    "verdict": "vendoo_or_account_limitation"
+  },
+  "after_hard_reload": {
+    "phase": "manual_reopen_after_hard_reload",
+    "fields": {
+      "Who Made It?": "Another company or person",
+      "What Is It?": "A finished product",
+      "When Was It Made?": "2020 - 2026 (Recently)",
+      "Listing Type": "Physical Item",
+      "Shipping Profile": "BUYER PAYS SHIPPING",
+      "Processing Profile": "Ready to ship: 1-2 days",
+      "Renewal options": "Manual",
+      "Listing State": "Draft Listing"
+    },
+    "digital_prints": true,
+    "not_listed": true,
+    "draft": true,
+    "manual_renewal": true,
+    "listing_type_persisted": false,
+    "who_made_persisted": false,
+    "manual_both_persisted": false,
+    "shipping_still_shown": true,
+    "no_digital_file_upload_control_observed": true,
+    "verdict": "vendoo_or_account_limitation"
+  },
+  "persists_manual": false,
+  "classification": "external_vendoo_or_account_limitation",
+  "not_extension_defect": true,
+  "no_fake_success_workaround": true,
+  "observed_ui_signals": {
+    "digital_file_upload_control_visible_when_digital_item_selected": false,
+    "shipping_and_processing_profiles_remain_visible_for_digital_item": true,
+    "photos_upload_still_present": true,
+    "category_digital_prints_persists": true,
+    "tags_materials_digital_download_persist": true,
+    "draft_listing_persists": true,
+    "manual_renewal_persists": true,
+    "etsy_not_listed": true,
+    "no_explicit_validation_toast_captured": true,
+    "silent_revert_after_successful_last_saved": true
+  },
+  "exact_blocker": "Vendoo draft Save confirms (Last Saved <1 min) while UI shows Digital Item + I did, but after independent reopen both fields reload as Physical Item + Another company or person. No digital-file upload control appears in the Vendoo Etsy form when Digital Item is selected; shipping/processing profiles remain.",
+  "required_human_action": "In the connected Etsy/Vendoo account, enable digital listings and attach any digital download file(s) Vendoo/Etsy require for Digital Item drafts (Vendoo currently exposes no digital-file control on this draft). Re-select Listing Type=Digital Item and Who Made=I did in Vendoo's own UI and confirm both survive Save + full reload before expecting Studio/extension persistence. Until Vendoo itself persists these values, treat Digital Item / Who Made as an external limitation \u2014 do not report fill success for reopen verification of those fields.",
+  "publication": "NOT LISTED; no List/Publish/Crosslist/Sell clicked",
+  "active_jobs_after": 0,
+  "conclusion": "PARTIAL"
+}

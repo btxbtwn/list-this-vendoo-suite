@@ -1,0 +1,353 @@
+{
+  "color-contrast": {
+    "id": "color-contrast",
+    "title": "Background and foreground colors do not have a sufficient contrast ratio.",
+    "description": "Low-contrast text is difficult or impossible for many users to read. [Learn how to provide sufficient color contrast](https://dequeuniversity.com/rules/axe/4.12/color-contrast).",
+    "score": 0,
+    "scoreDisplayMode": "binary",
+    "details": {
+      "type": "table",
+      "headings": [
+        {
+          "key": "node",
+          "valueType": "node",
+          "subItemsHeading": {
+            "key": "relatedNode",
+            "valueType": "node"
+          },
+          "label": "Failing Elements"
+        }
+      ],
+      "items": [
+        {
+          "node": {
+            "type": "node",
+            "lhId": "1-9-DIV",
+            "path": "1,HTML,1,BODY,0,DIV,0,DIV,0,DIV,1,DIV,2,ASIDE,0,DIV,2,DIV,0,DIV,0,DIV,0,DIV",
+            "selector": "div.editor-footer > div.job-card > div.job-card-copy > div.job-card-label",
+            "boundingRect": {
+              "top": 728,
+              "bottom": 743,
+              "left": 1078,
+              "right": 1213,
+              "width": 135,
+              "height": 15
+            },
+            "snippet": "<div class=\"job-card-label\">",
+            "nodeLabel": "JOB STATUS",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 4.41 (foreground color: #818181, background color: #301214, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          "subItems": {
+            "type": "subitems",
+            "items": [
+              {
+                "relatedNode": {
+                  "type": "node",
+                  "lhId": "1-10-DIV",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,0,DIV,1,DIV,2,ASIDE,0,DIV,2,DIV,0,DIV",
+                  "selector": "aside.panel > div.listing-editor > div.editor-footer > div.job-card",
+                  "boundingRect": {
+                    "top": 717,
+                    "bottom": 856,
+                    "left": 1065,
+                    "right": 1420,
+                    "width": 355,
+                    "height": 139
+                  },
+                  "snippet": "<div class=\"job-card job-card-error\">",
+                  "nodeLabel": "JOB STATUS\nfailed: filling_ebay\nCould not activate ebay marketplace section\nRet\u2026"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "debugData": {
+        "type": "debugdata",
+        "impact": "serious",
+        "tags": [
+          "cat.color",
+          "wcag2aa",
+          "wcag143",
+          "TTv5",
+          "TT13.c",
+          "EN-301-549",
+          "EN-9.1.4.3",
+          "ACT",
+          "RGAAv4",
+          "RGAA-3.2.1"
+        ]
+      }
+    }
+  },
+  "meta-viewport": {
+    "id": "meta-viewport",
+    "title": "`[user-scalable=\"no\"]` is used in the `<meta name=\"viewport\">` element or the `[maximum-scale]` attribute is less than 5.",
+    "description": "Disabling zooming is problematic for users with low vision who rely on screen magnification to properly see the contents of a web page. [Learn more about the viewport meta tag](https://dequeuniversity.com/rules/axe/4.12/meta-viewport).",
+    "score": 0,
+    "scoreDisplayMode": "binary",
+    "details": {
+      "type": "table",
+      "headings": [
+        {
+          "key": "node",
+          "valueType": "node",
+          "subItemsHeading": {
+            "key": "relatedNode",
+            "valueType": "node"
+          },
+          "label": "Failing Elements"
+        }
+      ],
+      "items": [
+        {
+          "node": {
+            "type": "node",
+            "lhId": "1-11-META",
+            "path": "1,HTML,0,HEAD,3,META",
+            "selector": "head > meta",
+            "boundingRect": {
+              "top": 0,
+              "bottom": 0,
+              "left": 0,
+              "right": 0,
+              "width": 0,
+              "height": 0
+            },
+            "snippet": "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover\">",
+            "nodeLabel": "head > meta",
+            "explanation": "Fix any of the following:\n  maximum-scale on <meta> tag disables zooming on mobile devices"
+          }
+        }
+      ],
+      "debugData": {
+        "type": "debugdata",
+        "impact": "moderate",
+        "tags": [
+          "cat.sensory-and-visual-cues",
+          "wcag2aa",
+          "wcag144",
+          "EN-301-549",
+          "EN-9.1.4.4",
+          "ACT",
+          "RGAAv4",
+          "RGAA-10.4.2"
+        ]
+      }
+    }
+  },
+  "meta-description": {
+    "id": "meta-description",
+    "title": "Document does not have a meta description",
+    "description": "Meta descriptions may be included in search results to concisely summarize page content. [Learn more about the meta description](https://developer.chrome.com/docs/lighthouse/seo/meta-description/).",
+    "score": 0,
+    "scoreDisplayMode": "binary"
+  },
+  "robots-txt": {
+    "id": "robots-txt",
+    "title": "robots.txt is not valid",
+    "description": "If your robots.txt file is malformed, crawlers may not be able to understand how you want your website to be crawled or indexed. [Learn more about robots.txt](https://developer.chrome.com/docs/lighthouse/seo/invalid-robots-txt/).",
+    "score": 0,
+    "scoreDisplayMode": "binary",
+    "displayValue": "20 errors found",
+    "details": {
+      "type": "table",
+      "headings": [
+        {
+          "key": "index",
+          "valueType": "text",
+          "label": "Line #"
+        },
+        {
+          "key": "line",
+          "valueType": "code",
+          "label": "Content"
+        },
+        {
+          "key": "message",
+          "valueType": "code",
+          "label": "Error"
+        }
+      ],
+      "items": [
+        {
+          "index": "1",
+          "line": "<!DOCTYPE html>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "2",
+          "line": "<html lang=\"en\">",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "3",
+          "line": "  <head>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "4",
+          "line": "    <script type=\"module\">import { injectIntoGlobalHook } from \"/@react-refresh\";",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "5",
+          "line": "injectIntoGlobalHook(window);",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "6",
+          "line": "window.$RefreshReg$ = () => {};",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "7",
+          "line": "window.$RefreshSig$ = () => (type) => type;</script>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "9",
+          "line": "    <script type=\"module\" src=\"/@vite/client\"></script>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "11",
+          "line": "    <meta charset=\"UTF-8\" />",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "12",
+          "line": "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover\" />",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "13",
+          "line": "    <meta name=\"theme-color\" content=\"#0a0a0a\" />",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "14",
+          "line": "    <meta name=\"color-scheme\" content=\"dark\" />",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "15",
+          "line": "    <title>Vendoo Listing Studio</title>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "16",
+          "line": "    <link rel=\"icon\" type=\"image/png\" href=\"/favicon.png\" />",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "17",
+          "line": "  </head>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "18",
+          "line": "  <body>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "19",
+          "line": "    <div id=\"root\"></div>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "20",
+          "line": "    <script type=\"module\" src=\"/src/main.tsx\"></script>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "21",
+          "line": "  </body>",
+          "message": "Syntax not understood"
+        },
+        {
+          "index": "22",
+          "line": "</html>",
+          "message": "Syntax not understood"
+        }
+      ]
+    }
+  },
+  "agent-accessibility-tree": {
+    "id": "agent-accessibility-tree",
+    "title": "Accessibility tree is not well-formed",
+    "description": "A well-formed [accessibility tree](https://developer.chrome.com/docs/lighthouse/agentic-browsing/accessibility-for-agents) helps AI agents to navigate and interact with the page.",
+    "score": 0,
+    "scoreDisplayMode": "binary",
+    "details": {
+      "type": "list",
+      "items": [
+        {
+          "type": "list-section",
+          "title": "Failed Audits",
+          "value": {
+            "type": "table",
+            "headings": [
+              {
+                "key": "description",
+                "valueType": "text",
+                "label": "Description"
+              },
+              {
+                "key": "node",
+                "valueType": "node",
+                "label": "Failing Element"
+              }
+            ],
+            "items": [
+              {
+                "description": "ARIA role should be appropriate for the element",
+                "node": {
+                  "type": "node",
+                  "lhId": "1-0-BUTTON",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,0,DIV,1,DIV,2,ASIDE,0,DIV,1,DIV,0,DIV,3,DIV,0,DIV,1,DIV,0,BUTTON",
+                  "selector": "div.pr-split > div.pr-files > div.pr-tree > button.pr-row",
+                  "boundingRect": {
+                    "top": 353,
+                    "bottom": 388,
+                    "left": 1070,
+                    "right": 1219,
+                    "width": 149,
+                    "height": 35
+                  },
+                  "snippet": "<button type=\"button\" role=\"listitem\" class=\"pr-row is-active\">",
+                  "nodeLabel": "Vendoo\n+1"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "llms-txt": {
+    "id": "llms-txt",
+    "title": "llms.txt does not follow recommendations",
+    "description": "If your llms.txt file does not follow recommendations, large language models may not be able to understand how you want your website to be crawled or used for training. The [llms.txt](https://llmstxt.org/) file should be a Markdown file containing at least one H1 header. [Learn more about the llms.txt audit](https://developer.chrome.com/docs/lighthouse/agentic-browsing/llms-txt).",
+    "score": 0,
+    "scoreDisplayMode": "binary",
+    "details": {
+      "type": "table",
+      "headings": [
+        {
+          "key": "message",
+          "valueType": "text",
+          "label": "Error"
+        }
+      ],
+      "items": [
+        {
+          "message": "File is missing a required H1 header (e.g., \"# Title\")."
+        },
+        {
+          "message": "File does not appear to contain any links."
+        }
+      ]
+    }
+  }
+}

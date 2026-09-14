@@ -23,6 +23,7 @@ server/tests/test_open_listing.py
 server/tests/test_packaged_updates.py
 server/tests/test_preview_hub.py
 server/tests/test_registry.py
+server/tests/test_schema_probe.py
 server/tests/test_setup_guide.py
 server/tests/test_sold_comps.py
 server/tests/test_updates.py
@@ -85,6 +86,7 @@ server/vendoo_studio/services/packaged_updates.py
 server/vendoo_studio/services/photos.py
 server/vendoo_studio/services/preview_hub.py
 server/vendoo_studio/services/registry.py
+server/vendoo_studio/services/schema_probe.py
 server/vendoo_studio/services/sold_comps.py
 server/vendoo_studio/services/updates.py
 server/vendoo_studio/services/user_settings.py

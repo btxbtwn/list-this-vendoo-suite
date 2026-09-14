@@ -1,0 +1,146 @@
+[
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.overrides.title id=listings.etsy.overrides.title type=text value=Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed role=input",
+    "node": "input",
+    "ref": "p40:157"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.overrides.description id=listings.etsy.overrides.description",
+    "node": "textarea",
+    "ref": "p40:159"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Primary Color placeholder=Primary Color name=listings.etsy.overrides.primaryColor id=listings.etsy.overrides.primaryColor value= role=input",
+    "node": "input",
+    "ref": "p40:162"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Secondary Color placeholder=Secondary Color name=listings.etsy.overrides.secondaryColor id=listings.etsy.overrides.secondaryColor value=Black role=input",
+    "node": "input",
+    "ref": "p40:167"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.overrides.sku id=listings.etsy.overrides.sku type=text value=NOTATIONS-XL role=input",
+    "node": "input",
+    "ref": "p40:171"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Who Made It? placeholder=Who Made It? name=listings.etsy.marketplaceSpecifics.whoMade id=listings.etsy.marketplaceSpecifics.whoMade value=Another company or person role=input",
+    "node": "input",
+    "ref": "p40:175"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=What Is It? placeholder=What Is It? name=listings.etsy.marketplaceSpecifics.whatIsIt id=listings.etsy.marketplaceSpecifics.whatIsIt value=A finished product role=input",
+    "node": "input",
+    "ref": "p40:180"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=When Was It Made? placeholder=When Was It Made? name=listings.etsy.marketplaceSpecifics.whenMade id=listings.etsy.marketplaceSpecifics.whenMade value=Made To Order (Not Yet Made) role=input",
+    "node": "input",
+    "ref": "p40:185"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.marketplaceSpecifics.tags type=hidden value=Floral",
+    "node": "input",
+    "ref": "p40:196"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.marketplaceSpecifics.tags type=hidden value=Abstract Print",
+    "node": "input",
+    "ref": "p40:197"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.marketplaceSpecifics.tags type=hidden value=Button-Up",
+    "node": "input",
+    "ref": "p40:198"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.marketplaceSpecifics.tags type=hidden value=Casual",
+    "node": "input",
+    "ref": "p40:199"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.marketplaceSpecifics.tags type=hidden value=Woven",
+    "node": "input",
+    "ref": "p40:200"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.marketplaceSpecifics.materials type=hidden",
+    "node": "input",
+    "ref": "p40:204"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Listing Type placeholder=Listing Type name=listings.etsy.marketplaceSpecifics.listingType id=listings.etsy.marketplaceSpecifics.listingType value=Physical Item role=input",
+    "node": "input",
+    "ref": "p40:209"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.overrides.quantity id=listings.etsy.overrides.quantity type=number value=1 role=input",
+    "node": "input",
+    "ref": "p40:213"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.overrides.weight.pounds id=listings.etsy.overrides.weight.pounds type=number value=0 role=input",
+    "node": "input",
+    "ref": "p40:231"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.overrides.weight.ounces id=listings.etsy.overrides.weight.ounces type=number value=8 role=input",
+    "node": "input",
+    "ref": "p40:232"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=L name=listings.etsy.overrides.dimensions.length id=listings.etsy.overrides.dimensions.length type=number value=13 role=input",
+    "node": "input",
+    "ref": "p40:234"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=W name=listings.etsy.overrides.dimensions.width id=listings.etsy.overrides.dimensions.width type=number value=10 role=input",
+    "node": "input",
+    "ref": "p40:235"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=H name=listings.etsy.overrides.dimensions.height id=listings.etsy.overrides.dimensions.height type=number value=3 role=input",
+    "node": "input",
+    "ref": "p40:236"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.etsy.overrides.price id=listings.etsy.overrides.price type=text value=14 role=input",
+    "node": "input",
+    "ref": "p40:244"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Renewal options placeholder=Renewal options name=listings.etsy.marketplaceSpecifics.renewalOption id=listings.etsy.marketplaceSpecifics.renewalOption value=Automatic role=input",
+    "node": "input",
+    "ref": "p40:248"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Listing State placeholder=Listing State name=listings.etsy.marketplaceSpecifics.listingState id=listings.etsy.marketplaceSpecifics.listingState value=Live Listing role=input",
+    "node": "input",
+    "ref": "p40:254"
+  }
+]

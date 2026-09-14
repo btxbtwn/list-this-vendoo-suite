@@ -1,0 +1,38 @@
+[
+  {
+    "type": "step_completed",
+    "step": "opening_vendoo",
+    "error": null,
+    "ok": null
+  },
+  {
+    "type": "step_completed",
+    "step": "waiting_ready",
+    "error": null,
+    "ok": null
+  },
+  {
+    "type": "step_completed",
+    "step": "uploading_photos",
+    "error": null,
+    "ok": null
+  },
+  {
+    "type": "step_completed",
+    "step": "filling_general",
+    "error": null,
+    "ok": null
+  },
+  {
+    "type": "step_completed",
+    "step": "saving_general",
+    "error": null,
+    "ok": null
+  },
+  {
+    "type": "step_failed",
+    "step": "auditing_general",
+    "error": "Step failed",
+    "ok": null
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "hidden_fields": {
+    "always": [],
+    "listings": {}
+  },
+  "marketplaces": [
+    "ebay",
+    "etsy",
+    "poshmark",
+    "mercari",
+    "depop"
+  ],
+  "setup_guide_dismissed": true
+}

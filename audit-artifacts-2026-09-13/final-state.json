@@ -1,0 +1,25 @@
+{
+  "active_automation_jobs": 0,
+  "audit_conversations": [
+    {
+      "id": "842b7f1762be",
+      "status": "failed",
+      "updated_at": "2026-09-14T01:07:10.226732"
+    },
+    {
+      "id": "9a64e584adee",
+      "status": "in_progress",
+      "updated_at": ""
+    }
+  ],
+  "removed_provisional_audit_screenshots": [
+    "layout-1920x1080.png",
+    "layout-1440x900.png",
+    "layout-1280x800.png",
+    "layout-820x1180.png",
+    "layout-390x844.png",
+    "layout-820-verified.png"
+  ],
+  "publication_observed": false,
+  "note": "Primary conversation remains in_progress after cancelled chat; no active automation job."
+}

@@ -1,0 +1,23 @@
+{
+  "phase": "manual_reopen_after_hard_reload",
+  "fields": {
+    "Who Made It?": "Another company or person",
+    "What Is It?": "A finished product",
+    "When Was It Made?": "2020 - 2026 (Recently)",
+    "Listing Type": "Physical Item",
+    "Shipping Profile": "BUYER PAYS SHIPPING",
+    "Processing Profile": "Ready to ship: 1-2 days",
+    "Renewal options": "Manual",
+    "Listing State": "Draft Listing"
+  },
+  "digital_prints": true,
+  "not_listed": true,
+  "draft": true,
+  "manual_renewal": true,
+  "listing_type_persisted": false,
+  "who_made_persisted": false,
+  "manual_both_persisted": false,
+  "shipping_still_shown": true,
+  "no_digital_file_upload_control_observed": true,
+  "verdict": "vendoo_or_account_limitation"
+}

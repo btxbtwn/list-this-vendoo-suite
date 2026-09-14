@@ -1,0 +1,14 @@
+{
+  "conversation_id": "b0e8ac2fda3b",
+  "scope": "Imported disposable audit draft; local Studio seller-details UI only.",
+  "edited_in_one_rapid_sequence": {
+    "condition": "Good",
+    "pitToPit": "22.5",
+    "length": "27",
+    "sleeve": "9"
+  },
+  "persisted_after_reload": true,
+  "decimal_preserved": true,
+  "vendoo_binding_preserved": true,
+  "remote_vendoo_form_modified": false
+}

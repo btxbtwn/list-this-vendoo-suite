@@ -1,0 +1,7 @@
+{
+  "refusal": {
+    "code": "authorization_host_failed",
+    "message": "confirmation provider failed: tab tab-681b90db-a4c4-49bd-8683-c3d335644ed7 no longer has a live CDP page target"
+  },
+  "status": "refused"
+}

@@ -1,0 +1,22 @@
+{
+  "scope": "Current built Studio UI on a loopback-only isolated server with provider, Chrome, and extension unavailable; credential writes and external actions blocked by the audit harness.",
+  "provider_configured": false,
+  "chrome_available": false,
+  "extension_connected": false,
+  "create_sidebar_disabled": true,
+  "create_empty_state_disabled": true,
+  "create_recovery_text": "Sign in first so chat can generate the listing.",
+  "provider_recovery_action": "Sign in with ChatGPT",
+  "chrome_recovery_action": "Connect Chrome",
+  "provider_status": "Not configured",
+  "footer_model_while_unconfigured": "mimo-v2.5-pro",
+  "vision_model_while_unconfigured": "mimo-v2.5",
+  "listing_model_while_unconfigured": "mimo-v2.5-pro",
+  "reasoning_while_unconfigured": "Not used with MiMo",
+  "setup_guide_reopen_succeeded": true,
+  "setup_guide_escape_closed": true,
+  "setup_guide_tab_escaped_modal": true,
+  "escaped_focus_target": "Open Settings",
+  "settings_search_keyboard_select_succeeded": true,
+  "settings_search_escape_cleared_filter": true
+}

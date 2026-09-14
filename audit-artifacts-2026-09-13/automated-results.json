@@ -1,0 +1,20 @@
+[
+  {
+    "name": "frontend-install",
+    "command": "npm ci",
+    "exit_status": 0,
+    "duration_s": 2.395
+  },
+  {
+    "name": "frontend-build",
+    "command": "npm run build",
+    "exit_status": 0,
+    "duration_s": 3.69
+  },
+  {
+    "name": "backend-tests",
+    "command": ".venv/bin/python -m pytest -q",
+    "exit_status": 1,
+    "duration_s": 7.893
+  }
+]

@@ -1,0 +1,147 @@
+[
+  {
+    "field": ".etsy_specifics.shippingProfile",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.whoMadeIt?",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.sustainability",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.whatIsIt?",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.closure",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.clothingstyle",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.neckline",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.holiday",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.collarStyle",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.whenWasItMade?",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.pounds",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.listingType",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.listingState",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.policies",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.clothingStyle",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.renewalOptions",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.sleeveLength",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.occasion",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.processingProfile",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.ounces",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.sleevelength",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.etsySecondaryColor",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.materials",
+    "approved": [],
+    "current": ""
+  },
+  {
+    "field": ".etsy_specifics.pattern",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".mercari_specifics.smartOffers",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".mercari_specifics.smartPricing",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".poshmark_specifics.discountedShipping",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".poshmark_specifics.costPrice",
+    "approved": null,
+    "current": ""
+  },
+  {
+    "field": ".poshmark_specifics.smartSell",
+    "approved": null,
+    "current": ""
+  }
+]

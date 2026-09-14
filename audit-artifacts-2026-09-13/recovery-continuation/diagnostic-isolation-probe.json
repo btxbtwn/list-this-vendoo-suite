@@ -1,0 +1,5 @@
+{
+  "ok": false,
+  "error": "ReferenceError: COLLECTOR_VERSION is not defined",
+  "scope": "Serialized actual collector in isolated empty DOM fixture; no real page modified."
+}

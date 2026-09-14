@@ -1,0 +1,98 @@
+[
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.title id=listings.mercari.overrides.title type=text value=Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed role=input",
+    "node": "input",
+    "ref": "p36:157"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.description id=listings.mercari.overrides.description",
+    "node": "textarea",
+    "ref": "p36:159"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Condition placeholder=Condition name=listings.mercari.overrides.condition id=listings.mercari.overrides.condition value=Good (Gently used) role=input",
+    "node": "input",
+    "ref": "p36:162"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Brand placeholder=Select from the list name=listings.mercari.overrides.brand id=listings.mercari.overrides.brand value=Notations role=input",
+    "node": "input",
+    "ref": "p36:167"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.noBrand id=listings.mercari.overrides.noBrand type=checkbox value= role=checkbox",
+    "node": "input",
+    "ref": "p36:170"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.quantity id=listings.mercari.overrides.quantity type=number value=1 role=input",
+    "node": "input",
+    "ref": "p36:173"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.categorySpecifics.161_Size type=hidden value=6",
+    "node": "input",
+    "ref": "p36:179"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Delivery Method placeholder=Delivery Method name=listings.mercari.marketplaceSpecifics.shipping.deliveryMethod id=listings.mercari.marketplaceSpecifics.shipping.deliveryMethod value=Standard shipping role=input",
+    "node": "input",
+    "ref": "p36:189"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Who will pay for delivery? placeholder=Offer Buyers Free Shipping name=listings.mercari.marketplaceSpecifics.shipping.payerId id=listings.mercari.marketplaceSpecifics.shipping.payerId value=Buyer pays role=input",
+    "node": "input",
+    "ref": "p36:195"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.weight.pounds id=listings.mercari.overrides.weight.pounds type=number value=0 role=input",
+    "node": "input",
+    "ref": "p36:199"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.weight.ounces id=listings.mercari.overrides.weight.ounces type=number value=8 role=input",
+    "node": "input",
+    "ref": "p36:200"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Length name=listings.mercari.overrides.dimensions.length id=listings.mercari.overrides.dimensions.length type=number value=13 role=input",
+    "node": "input",
+    "ref": "p36:202"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Width name=listings.mercari.overrides.dimensions.width id=listings.mercari.overrides.dimensions.width type=number value=10 role=input",
+    "node": "input",
+    "ref": "p36:203"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Height name=listings.mercari.overrides.dimensions.height id=listings.mercari.overrides.dimensions.height type=number value=3 role=input",
+    "node": "input",
+    "ref": "p36:204"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Shipping Label placeholder=Shipping Label name=listings.mercari.marketplaceSpecifics.shipping.carrierId id=listings.mercari.marketplaceSpecifics.shipping.carrierId value= role=input",
+    "node": "input",
+    "ref": "p36:207"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.price id=listings.mercari.overrides.price type=text value=14 role=input",
+    "node": "input",
+    "ref": "p36:212"
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "status": "blocked_missing_test_data",
+  "is_code_defect": false,
+  "counts_toward_implementation_verdict": false,
+  "requirement": "Live Etsy end-to-end only for eligible physical items: verified vintage, handmade, or craft supply.",
+  "modern_blouse": {
+    "eligible": false,
+    "action": "Continue blocking as not Etsy eligible",
+    "validated": true
+  },
+  "digital_listings": {
+    "in_user_workflow": false,
+    "acceptance_required": false,
+    "evidence_retained_as_out_of_scope": true
+  },
+  "available_fixtures_reviewed": [
+    "Notations modern blouse (ineligible)",
+    "Other modern apparel conversations (no verified vintage/handmade/craft eligibility)",
+    "JUMA4gTeF2bTd4Z9f5M6 digital draft (out of scope)"
+  ],
+  "eligible_physical_fixture_found": false,
+  "eligibility_invented": false,
+  "required_to_unblock": "Provide photos and eligibility evidence for a real vintage, handmade, or craft-supply physical item."
+}

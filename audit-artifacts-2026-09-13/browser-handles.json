@@ -1,0 +1,18 @@
+{
+  "status": "ok",
+  "target_id": "bt-0be96648-aded-40de-a05a-2422b814603a",
+  "tabs": [
+    {
+      "active": null,
+      "tab_id": "tab-cfcc4e97-45c7-44a0-a044-a1bd6e1206a2",
+      "title": "Vendoo Listing Studio",
+      "url": "http://127.0.0.1:5173/"
+    },
+    {
+      "active": null,
+      "tab_id": "tab-dd1c78d5-dfd9-4126-b801-b6502a55d2bf",
+      "title": "Vendoo | Item",
+      "url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt?marketplace=depop"
+    }
+  ]
+}

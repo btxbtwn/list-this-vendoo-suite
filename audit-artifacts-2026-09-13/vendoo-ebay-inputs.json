@@ -1,0 +1,140 @@
+[
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.overrides.title id=listings.ebay.overrides.title type=text value=Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed role=input",
+    "node": "input",
+    "ref": "p42:157"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.overrides.description id=listings.ebay.overrides.description",
+    "node": "textarea",
+    "ref": "p42:159"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Brand placeholder=Select or write your own name=listings.ebay.overrides.brand id=listings.ebay.overrides.brand value=Notations role=input",
+    "node": "input",
+    "ref": "p42:162"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Color placeholder=Color name=listings.ebay.overrides.primaryColor id=listings.ebay.overrides.primaryColor value=Multicolor role=input",
+    "node": "input",
+    "ref": "p42:167"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.overrides.sku id=listings.ebay.overrides.sku type=text value=NOTATIONS-XL role=input",
+    "node": "input",
+    "ref": "p42:171"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.overrides.quantity id=listings.ebay.overrides.quantity type=number value=1 role=input",
+    "node": "input",
+    "ref": "p42:173"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.categorySpecifics.53159_Department type=hidden value=",
+    "node": "input",
+    "ref": "p42:179"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Size name=listings.ebay.categorySpecifics.53159_Size id=listings.ebay.categorySpecifics.53159_Size type=text value= role=input",
+    "node": "input",
+    "ref": "p42:181"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.categorySpecifics.53159_Size Type type=hidden value=",
+    "node": "input",
+    "ref": "p42:184"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.categorySpecifics.53159_Type type=hidden value=",
+    "node": "input",
+    "ref": "p42:187"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.overrides.condition type=hidden value=3000",
+    "node": "input",
+    "ref": "p42:190"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.marketplaceSpecifics.conditionDescription id=listings.ebay.marketplaceSpecifics.conditionDescription",
+    "node": "textarea",
+    "ref": "p42:193"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.overrides.weight.pounds id=listings.ebay.overrides.weight.pounds type=number value=0 role=input",
+    "node": "input",
+    "ref": "p42:229"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.overrides.weight.ounces id=listings.ebay.overrides.weight.ounces type=number value=8 role=input",
+    "node": "input",
+    "ref": "p42:230"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Length name=listings.ebay.overrides.dimensions.length id=listings.ebay.overrides.dimensions.length type=number value=13 role=input",
+    "node": "input",
+    "ref": "p42:232"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Width name=listings.ebay.overrides.dimensions.width id=listings.ebay.overrides.dimensions.width type=number value=10 role=input",
+    "node": "input",
+    "ref": "p42:233"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Height name=listings.ebay.overrides.dimensions.height id=listings.ebay.overrides.dimensions.height type=number value=3 role=input",
+    "node": "input",
+    "ref": "p42:234"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Pricing Format placeholder=Pricing Format name=listings.ebay.marketplaceSpecifics.pricingFormat id=listings.ebay.marketplaceSpecifics.pricingFormat value=Fixed Price role=input",
+    "node": "input",
+    "ref": "p42:237"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Duration placeholder=Duration name=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.duration id=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.duration value=Good 'Til Cancelled role=input",
+    "node": "input",
+    "ref": "p42:242"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.buyItNowPrice id=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.buyItNowPrice type=text value=14 role=input",
+    "node": "input",
+    "ref": "p42:246"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.allowBestOffer id=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.allowBestOffer type=checkbox value= role=checkbox",
+    "node": "input",
+    "ref": "p42:248"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.acceptOffersOfAtLeast id=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.acceptOffersOfAtLeast type=text value= role=input",
+    "node": "input",
+    "ref": "p42:251"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.declineOffersLowerThan id=listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.declineOffersLowerThan type=text value= role=input",
+    "node": "input",
+    "ref": "p42:253"
+  }
+]

@@ -1,0 +1,230 @@
+[
+  {
+    "frame": "main",
+    "label": "aria-label=Crosslist type=button",
+    "node": "button",
+    "ref": "p15:88"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Automations type=button",
+    "node": "button",
+    "ref": "p15:89"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Marketplaces type=button",
+    "node": "button",
+    "ref": "p15:90"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Collapse menu type=button",
+    "node": "button",
+    "ref": "p15:92"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:93"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Help",
+    "node": "button",
+    "ref": "p15:101"
+  },
+  {
+    "frame": "main",
+    "label": "id=general role=side-control-general",
+    "node": "button",
+    "ref": "p15:103"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:104"
+  },
+  {
+    "frame": "main",
+    "label": "id=ebay role=side-control-ebay",
+    "node": "button",
+    "ref": "p15:105"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:107"
+  },
+  {
+    "frame": "main",
+    "label": "id=etsy role=side-control-etsy",
+    "node": "button",
+    "ref": "p15:108"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:110"
+  },
+  {
+    "frame": "main",
+    "label": "id=poshmark role=side-control-poshmark",
+    "node": "button",
+    "ref": "p15:111"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:113"
+  },
+  {
+    "frame": "main",
+    "label": "id=mercari role=side-control-mercari",
+    "node": "button",
+    "ref": "p15:114"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:116"
+  },
+  {
+    "frame": "main",
+    "label": "id=depop role=side-control-depop",
+    "node": "button",
+    "ref": "p15:117"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:119"
+  },
+  {
+    "frame": "main",
+    "label": "id=facebook role=side-control-facebook",
+    "node": "button",
+    "ref": "p15:120"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:122"
+  },
+  {
+    "frame": "main",
+    "label": "id=shopify role=side-control-shopify",
+    "node": "button",
+    "ref": "p15:123"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:125"
+  },
+  {
+    "frame": "main",
+    "label": "id=vinted role=side-control-vinted",
+    "node": "button",
+    "ref": "p15:127"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:129"
+  },
+  {
+    "frame": "main",
+    "label": "id=whatnot role=side-control-whatnot",
+    "node": "button",
+    "ref": "p15:131"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:133"
+  },
+  {
+    "frame": "main",
+    "label": "id=sellwild role=side-control-sellwild",
+    "node": "button",
+    "ref": "p15:135"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p15:136"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label= type=button",
+    "node": "button",
+    "ref": "p15:138"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p15:142"
+  },
+  {
+    "frame": "main",
+    "label": "role=list",
+    "node": "button",
+    "ref": "p15:143"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p15:145"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p15:146"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Close menu type=button",
+    "node": "button",
+    "ref": "p15:148"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p15:149"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Crosslist type=button",
+    "node": "button",
+    "ref": "p15:157"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Automations type=button",
+    "node": "button",
+    "ref": "p15:158"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Marketplaces type=button",
+    "node": "button",
+    "ref": "p15:159"
+  }
+]

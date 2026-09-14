@@ -1,0 +1,10 @@
+{
+  "phase": "ui_after_selecting_digital_item",
+  "fields": {
+    "Who Made It?": "Another company or person",
+    "Listing Type": "Digital Item",
+    "Renewal options": "Manual",
+    "Listing State": "Draft Listing"
+  },
+  "observation": "Capture UI after selecting Digital Item for digital-file requirement signals"
+}

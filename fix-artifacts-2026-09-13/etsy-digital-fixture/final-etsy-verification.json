@@ -1,0 +1,40 @@
+{
+  "draft_id": "JUMA4gTeF2bTd4Z9f5M6",
+  "reopen_a": {
+    "fields": {
+      "Who Made It?": "Another company or person",
+      "Listing Type": "Physical Item",
+      "Renewal options": "Manual",
+      "Listing State": "Draft Listing"
+    },
+    "digital_prints": true,
+    "digital_download_tag": true,
+    "not_listed": true,
+    "listing_type_ok": false,
+    "who_made_ok": false
+  },
+  "reopen_b_after_fresh_nav": {
+    "fields": {
+      "Who Made It?": "Another company or person",
+      "Listing Type": "Physical Item",
+      "Renewal options": "Manual",
+      "Listing State": "Draft Listing"
+    },
+    "digital_prints": true,
+    "digital_download_tag": true,
+    "not_listed": true,
+    "listing_type_ok": false,
+    "who_made_ok": false
+  },
+  "checklist": {
+    "digital_item_persists": false,
+    "i_did_persists": false,
+    "digital_prints_persists": true,
+    "tags_materials_persist": true,
+    "renewal_manual": true,
+    "state_draft": true,
+    "etsy_not_listed": true,
+    "no_publication_clicked": true
+  },
+  "note": "Skipped extension fill/save cycle because manual Vendoo isolation already proves non-persistence; extension fill would not change classification and must not falsely report success."
+}

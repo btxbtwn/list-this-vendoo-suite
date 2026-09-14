@@ -1,0 +1,65 @@
+{
+  "content_refs": [
+    {
+      "actions": [],
+      "frame": "main",
+      "name": "When Was It Made?",
+      "ref": "p64:1",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "offscreen"
+    }
+  ],
+  "mode": "snapshot",
+  "oopif": {
+    "frames": 2,
+    "status": "attached"
+  },
+  "outline": "- generic\n- generic\n  - labeltext\n    - statictext \"When Was It Made?\"\n  - generic\n    - combobox [expanded=false,required=false]\n      - textbox \"When Was It Made?\": Made To Order (Not Yet Made) [editable=\"plaintext\",focusable=true,required=true]",
+  "page": {
+    "title": "web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt",
+    "url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt?marketplace=etsy"
+  },
+  "refs": [
+    {
+      "actions": [
+        "type",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "When Was It Made?",
+      "ref": "p64:0",
+      "role": "textbox",
+      "states": {
+        "editable": "plaintext",
+        "focusable": true,
+        "required": true
+      },
+      "value": "Made To Order (Not Yet Made)",
+      "visibility": "offscreen"
+    }
+  ],
+  "snapshot": {
+    "complete": true,
+    "continuation": null,
+    "format": "semantic_v2",
+    "id": "p64",
+    "node_budget": 300,
+    "omitted": {
+      "budget": 0,
+      "css_hidden": 35,
+      "no_layout": 51,
+      "offscreen": 329,
+      "page_occluded": 0,
+      "unknown": 65,
+      "unprovable_frame": 0
+    },
+    "scope": "query",
+    "selected_nodes": 2,
+    "total_nodes": 2
+  },
+  "status": "ok",
+  "tab_id": "tab-e29b2634-c668-4f95-89e5-2eb092736e0b",
+  "target_id": "bt-223fc2c4-03d6-495e-a80e-7b0f68dd7b1e"
+}

@@ -1,0 +1,18 @@
+{
+  "edited_value": "Good",
+  "persisted_condition": null,
+  "binding_present": true,
+  "ui_saving_stuck_after_rejection": true,
+  "console_error": "Uncaught (in promise)",
+  "network_error": "net::ERR_INTERNET_DISCONNECTED",
+  "stack": [
+    "client.ts:24:21",
+    "client.ts:56:7",
+    "ItemDetails.tsx:171:29",
+    "ItemDetails.tsx:190:45"
+  ],
+  "scope": "Actual UI edit with Chrome DevTools network Offline for the Studio test tab only.",
+  "saving_still_shown_after_network_restored": true,
+  "reload_completed": true,
+  "condition_input_blank_after_reload": true
+}

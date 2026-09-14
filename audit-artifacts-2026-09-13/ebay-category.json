@@ -1,0 +1,21 @@
+{
+  "query": "category",
+  "outline": "- heading \"Category\"\n- generic \"Category Selector for ebay\"\n  - generic\n    - labeltext\n      - statictext \"Category\"\n  - generic\n    - button \"Category\" [focusable=true]\n- heading \"CATEGORY SPECIFICS\"",
+  "refs": [
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "Category",
+      "ref": "p17:0",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "offscreen"
+    }
+  ]
+}

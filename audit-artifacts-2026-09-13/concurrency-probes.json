@@ -1,0 +1,27 @@
+[
+  {
+    "probe": "create second active job",
+    "first_status": 200,
+    "second_status": 409
+  },
+  {
+    "probe": "retry invalid listing while another job active",
+    "second_create_status": 200,
+    "retry_status": 200,
+    "response": {
+      "id": "5b36c28c728e",
+      "conversation_id": "b44cc6056705",
+      "status": "queued",
+      "current_step": "queued",
+      "vendoo_item_id": null,
+      "vendoo_url": null,
+      "attempt_count": 1,
+      "last_error": null,
+      "listing_title": "",
+      "mode": null,
+      "created_at": "2026-09-14T01:19:29.533653",
+      "updated_at": "2026-09-14T01:19:29.616104"
+    },
+    "active_count": 2
+  }
+]

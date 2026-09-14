@@ -1,0 +1,104 @@
+[
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.title id=listings.mercari.overrides.title type=text value=Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed role=input",
+    "node": "input",
+    "ref": "p79:134"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.description id=listings.mercari.overrides.description",
+    "node": "textarea",
+    "ref": "p79:136"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Condition placeholder=Condition name=listings.mercari.overrides.condition id=listings.mercari.overrides.condition value=Good (Gently used) role=input",
+    "node": "input",
+    "ref": "p79:139"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Brand placeholder=Select from the list name=listings.mercari.overrides.brand id=listings.mercari.overrides.brand value=Notations role=input",
+    "node": "input",
+    "ref": "p79:144"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.noBrand id=listings.mercari.overrides.noBrand type=checkbox value= role=checkbox",
+    "node": "input",
+    "ref": "p79:147"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.quantity id=listings.mercari.overrides.quantity type=number value=1 role=input",
+    "node": "input",
+    "ref": "p79:150"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Delivery Method placeholder=Delivery Method name=listings.mercari.marketplaceSpecifics.shipping.deliveryMethod id=listings.mercari.marketplaceSpecifics.shipping.deliveryMethod value=Standard shipping role=input",
+    "node": "input",
+    "ref": "p79:163"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Who will pay for delivery? placeholder=Offer Buyers Free Shipping name=listings.mercari.marketplaceSpecifics.shipping.payerId id=listings.mercari.marketplaceSpecifics.shipping.payerId value=Buyer pays role=input",
+    "node": "input",
+    "ref": "p79:169"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.weight.pounds id=listings.mercari.overrides.weight.pounds type=number value=0 role=input",
+    "node": "input",
+    "ref": "p79:173"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.weight.ounces id=listings.mercari.overrides.weight.ounces type=number value=8 role=input",
+    "node": "input",
+    "ref": "p79:174"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Length name=listings.mercari.overrides.dimensions.length id=listings.mercari.overrides.dimensions.length type=number value=13 role=input",
+    "node": "input",
+    "ref": "p79:176"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Width name=listings.mercari.overrides.dimensions.width id=listings.mercari.overrides.dimensions.width type=number value=10 role=input",
+    "node": "input",
+    "ref": "p79:177"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Height name=listings.mercari.overrides.dimensions.height id=listings.mercari.overrides.dimensions.height type=number value=3 role=input",
+    "node": "input",
+    "ref": "p79:178"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Shipping Label placeholder=Shipping Label name=listings.mercari.marketplaceSpecifics.shipping.carrierId id=listings.mercari.marketplaceSpecifics.shipping.carrierId value=USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb role=input",
+    "node": "input",
+    "ref": "p79:181"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.mercari.overrides.price id=listings.mercari.overrides.price type=text value=14 role=input",
+    "node": "input",
+    "ref": "p79:185"
+  },
+  {
+    "frame": "main",
+    "label": "id=listings.mercari.marketplaceSpecifics.smartPricing type=checkbox role=switch",
+    "node": "input",
+    "ref": "p79:188"
+  },
+  {
+    "frame": "main",
+    "label": "id=listings.mercari.marketplaceSpecifics.smartOffers type=checkbox role=switch",
+    "node": "input",
+    "ref": "p79:191"
+  }
+]

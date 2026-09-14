@@ -1,0 +1,123 @@
+{
+  "content_refs": [
+    {
+      "actions": [],
+      "frame": "main",
+      "name": "File too large (21.0MB). Max 20MB",
+      "ref": "p60:5",
+      "role": "statictext",
+      "states": {},
+      "value": null,
+      "visibility": "unknown"
+    }
+  ],
+  "mode": "snapshot",
+  "oopif": {
+    "frames": 0,
+    "status": "attached"
+  },
+  "outline": "- statictext \"File too large (21.0MB). Max 20MB\"\n- group \"Drag to set upload order\"\n  - button \"View photo 1 enlarged\" [focusable=true]\n- group \"Drag to set upload order\"\n  - button \"View photo 2 enlarged\" [focusable=true]\n- group \"Drag to set upload order\"\n  - button \"View photo 3 enlarged\" [focusable=true]\n- group \"Drag to set upload order\"\n  - button \"View photo 4 enlarged\" [focusable=true]\n- group \"Drag to set upload order\"\n  - button \"View photo 5 enlarged\" [focusable=true]",
+  "page": {
+    "title": "Vendoo Listing Studio",
+    "url": "http://127.0.0.1:5173/"
+  },
+  "refs": [
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "View photo 1 enlarged",
+      "ref": "p60:0",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "View photo 2 enlarged",
+      "ref": "p60:1",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "View photo 3 enlarged",
+      "ref": "p60:2",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "View photo 4 enlarged",
+      "ref": "p60:3",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    },
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "View photo 5 enlarged",
+      "ref": "p60:4",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "in_viewport"
+    }
+  ],
+  "snapshot": {
+    "complete": true,
+    "continuation": null,
+    "format": "semantic_v2",
+    "id": "p60",
+    "node_budget": 300,
+    "omitted": {
+      "budget": 0,
+      "css_hidden": 27,
+      "no_layout": 0,
+      "offscreen": 4,
+      "page_occluded": 0,
+      "unknown": 56,
+      "unprovable_frame": 0
+    },
+    "scope": "query",
+    "selected_nodes": 6,
+    "total_nodes": 6
+  },
+  "status": "ok",
+  "tab_id": "tab-14c96ae3-5517-474b-a53b-fd5ecf885ec3",
+  "target_id": "bt-ff1b81cd-8460-4459-a1e7-8af6a1ca12ea"
+}

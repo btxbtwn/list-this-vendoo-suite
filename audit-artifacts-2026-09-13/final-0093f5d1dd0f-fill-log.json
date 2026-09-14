@@ -1,0 +1,1330 @@
+{
+  "job_id": "0093f5d1dd0f",
+  "conversation_id": "842b7f1762be",
+  "summary": {
+    "filled": 56,
+    "skipped": 1,
+    "not_found": 5,
+    "failed": 1,
+    "uncertain": 0,
+    "new": 50
+  },
+  "by_marketplace": {
+    "general": {
+      "summary": {
+        "filled": 21,
+        "skipped": 1,
+        "not_found": 0,
+        "failed": 0,
+        "uncertain": 0,
+        "new": 0
+      },
+      "entries": [
+        {
+          "id": "678868c50795",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Category",
+          "status": "filled",
+          "reason": "",
+          "selector": "#categoryV2, [role=\"category-input\"]",
+          "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+          "created_at": "2026-09-14T01:02:13.982016"
+        },
+        {
+          "id": "38447e3bb486",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Zip Code",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.zipCode",
+          "value_preview": "70125",
+          "created_at": "2026-09-14T01:02:13.982027"
+        },
+        {
+          "id": "b1d753ff3b52",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Title",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.title",
+          "value_preview": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "created_at": "2026-09-14T01:02:13.982032"
+        },
+        {
+          "id": "7407c460cc60",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Description",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.description",
+          "value_preview": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit...",
+          "created_at": "2026-09-14T01:02:13.982036"
+        },
+        {
+          "id": "295a55d9387d",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "SKU",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.sku",
+          "value_preview": "NOTATIONS-XL",
+          "created_at": "2026-09-14T01:02:13.982047"
+        },
+        {
+          "id": "54bff04a4481",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Condition",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.condition",
+          "value_preview": "Pre-Owned - Good",
+          "created_at": "2026-09-14T01:02:13.982063"
+        },
+        {
+          "id": "1edb72d96421",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Brand",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.brand",
+          "value_preview": "Notations",
+          "created_at": "2026-09-14T01:02:13.982069"
+        },
+        {
+          "id": "bb0a452430ec",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Primary Color",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.primaryColor",
+          "value_preview": "Multicolor",
+          "created_at": "2026-09-14T01:02:13.982074"
+        },
+        {
+          "id": "b3da02ce81ac",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Secondary Color",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.secondaryColor",
+          "value_preview": "Black",
+          "created_at": "2026-09-14T01:02:13.982080"
+        },
+        {
+          "id": "1920d13d983d",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Size Type",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.size.scale.value",
+          "value_preview": "Regular",
+          "created_at": "2026-09-14T01:02:13.982086"
+        },
+        {
+          "id": "8d7a9bcc526e",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Size",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.size.option.value",
+          "value_preview": "XL",
+          "created_at": "2026-09-14T01:02:13.982092"
+        },
+        {
+          "id": "513377ea66e7",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Tags",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.tags",
+          "value_preview": "Floral, Abstract Print, Button-Up, Casual, Woven",
+          "created_at": "2026-09-14T01:02:13.982098"
+        },
+        {
+          "id": "c8570cb07da7",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Labels",
+          "status": "filled",
+          "reason": "",
+          "selector": "#labels",
+          "value_preview": "To List",
+          "created_at": "2026-09-14T01:02:13.982105"
+        },
+        {
+          "id": "b03bf903811f",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Quantity",
+          "status": "filled",
+          "reason": "Already set",
+          "selector": "#generalDetails.quantity",
+          "value_preview": "1",
+          "created_at": "2026-09-14T01:02:13.982109"
+        },
+        {
+          "id": "e607c54602e6",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Price",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.price",
+          "value_preview": "14",
+          "created_at": "2026-09-14T01:02:13.982113"
+        },
+        {
+          "id": "4a0efc82ce82",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Cost of Goods",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.cost",
+          "value_preview": "0",
+          "created_at": "2026-09-14T01:02:13.982146"
+        },
+        {
+          "id": "b61f1e98cc1e",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Weight (lbs)",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.weight.pounds",
+          "value_preview": "0",
+          "created_at": "2026-09-14T01:02:13.982165"
+        },
+        {
+          "id": "18c42fd7c1c5",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Weight (oz)",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.weight.ounces",
+          "value_preview": "8",
+          "created_at": "2026-09-14T01:02:13.982172"
+        },
+        {
+          "id": "7cca83abac11",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Length",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.dimensions.length",
+          "value_preview": "13",
+          "created_at": "2026-09-14T01:02:13.982178"
+        },
+        {
+          "id": "988f5378bc57",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Width",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.dimensions.width",
+          "value_preview": "10",
+          "created_at": "2026-09-14T01:02:13.982184"
+        },
+        {
+          "id": "afb9c9167bf7",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Height",
+          "status": "filled",
+          "reason": "",
+          "selector": "#generalDetails.dimensions.height",
+          "value_preview": "3",
+          "created_at": "2026-09-14T01:02:13.982190"
+        },
+        {
+          "id": "5d8399279952",
+          "step": "filling_general",
+          "marketplace": "general",
+          "field": "Notes",
+          "status": "skipped",
+          "reason": "No value in listing",
+          "selector": "#generalDetails\\.notes",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:13.982196"
+        }
+      ]
+    },
+    "ebay": {
+      "summary": {
+        "filled": 0,
+        "skipped": 0,
+        "not_found": 1,
+        "failed": 1,
+        "uncertain": 0,
+        "new": 0
+      },
+      "entries": [
+        {
+          "id": "dbcce4a21875",
+          "step": "discovering_schema",
+          "marketplace": "ebay",
+          "field": "Category",
+          "status": "not_found",
+          "reason": "Category field not found",
+          "selector": "",
+          "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+          "created_at": "2026-09-14T01:02:47.056052"
+        },
+        {
+          "id": "880ab47b1a01",
+          "step": "filling_ebay",
+          "marketplace": "ebay",
+          "field": "marketplace",
+          "status": "failed",
+          "reason": "Could not activate ebay marketplace section",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:48.047683"
+        }
+      ]
+    },
+    "etsy": {
+      "summary": {
+        "filled": 11,
+        "skipped": 0,
+        "not_found": 1,
+        "failed": 0,
+        "uncertain": 0,
+        "new": 22
+      },
+      "entries": [
+        {
+          "id": "b140c0a8e2b9",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Category",
+          "status": "not_found",
+          "reason": "Category field not found",
+          "selector": "",
+          "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+          "created_at": "2026-09-14T01:02:47.056061"
+        },
+        {
+          "id": "ca171fdf6501",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Title",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.title",
+          "value_preview": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "created_at": "2026-09-14T01:02:47.056063"
+        },
+        {
+          "id": "d77665c2975b",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Description",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.description",
+          "value_preview": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit...",
+          "created_at": "2026-09-14T01:02:47.056066"
+        },
+        {
+          "id": "1600f8a1417a",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Primary Color",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056069"
+        },
+        {
+          "id": "8d8470fb5f47",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Secondary Color",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056071"
+        },
+        {
+          "id": "6d811203e258",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "SKU",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.sku",
+          "value_preview": "NOTATIONS-XL",
+          "created_at": "2026-09-14T01:02:47.056074"
+        },
+        {
+          "id": "f772ff893e81",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Who Made It? *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056076"
+        },
+        {
+          "id": "ea31aa4ba176",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "What Is It? *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056078"
+        },
+        {
+          "id": "25c3c19dea1b",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "When Was It Made? *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056080"
+        },
+        {
+          "id": "227d31b5430a",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Tags",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.marketplaceSpecifics.tags",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056083"
+        },
+        {
+          "id": "40746dc826a7",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Materials",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.marketplaceSpecifics.materials",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056085"
+        },
+        {
+          "id": "4c76b98b3124",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Listing Type *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056087"
+        },
+        {
+          "id": "809c00407f61",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Quantity",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.quantity",
+          "value_preview": "1",
+          "created_at": "2026-09-14T01:02:47.056089"
+        },
+        {
+          "id": "705f7c17eace",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Clothing style",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_325502673988",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056091"
+        },
+        {
+          "id": "009c6dc92020",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Closure",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_325502674108",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056094"
+        },
+        {
+          "id": "cb5073af8304",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Sleeve length",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_325502675244",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056096"
+        },
+        {
+          "id": "7883829f7d40",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Neckline",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_325502675262",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056098"
+        },
+        {
+          "id": "c045ecc6f3bf",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Collar style",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_325502676002",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056100"
+        },
+        {
+          "id": "06813898eeac",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Occasion",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_46803063641",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056103"
+        },
+        {
+          "id": "adafeffbc201",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Holiday",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_46803063659",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056105"
+        },
+        {
+          "id": "16457b2f4842",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Size",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.categorySpecifics.554_52047899294",
+          "value_preview": "US letter",
+          "created_at": "2026-09-14T01:02:47.056107"
+        },
+        {
+          "id": "fa48ff0c3f9a",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Sustainability",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_570246213604",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056109"
+        },
+        {
+          "id": "b034a0e892d9",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Pattern",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.etsy.categorySpecifics.554_99837394318",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056111"
+        },
+        {
+          "id": "ab4cd2618f69",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Shipping Profile *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056113"
+        },
+        {
+          "id": "530e7a131a07",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Processing Profile *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056116"
+        },
+        {
+          "id": "a3e2347beeb3",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "pounds",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.weight.pounds",
+          "value_preview": "0",
+          "created_at": "2026-09-14T01:02:47.056118"
+        },
+        {
+          "id": "5f3dd8905fba",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "ounces",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.weight.ounces",
+          "value_preview": "8",
+          "created_at": "2026-09-14T01:02:47.056120"
+        },
+        {
+          "id": "e4230ba1e60c",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "length",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.dimensions.length",
+          "value_preview": "13",
+          "created_at": "2026-09-14T01:02:47.056122"
+        },
+        {
+          "id": "29526469c2d7",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "width",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.dimensions.width",
+          "value_preview": "10",
+          "created_at": "2026-09-14T01:02:47.056125"
+        },
+        {
+          "id": "363c95c96862",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "height",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.dimensions.height",
+          "value_preview": "3",
+          "created_at": "2026-09-14T01:02:47.056127"
+        },
+        {
+          "id": "b02d07835bb9",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Policies *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056129"
+        },
+        {
+          "id": "7d2e05195e00",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Price",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.etsy.overrides.price",
+          "value_preview": "14",
+          "created_at": "2026-09-14T01:02:47.056131"
+        },
+        {
+          "id": "c09dd191ff5e",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Renewal options *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056133"
+        },
+        {
+          "id": "2ea9ddf63da2",
+          "step": "discovering_schema",
+          "marketplace": "etsy",
+          "field": "Listing State *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056136"
+        }
+      ]
+    },
+    "poshmark": {
+      "summary": {
+        "filled": 9,
+        "skipped": 0,
+        "not_found": 1,
+        "failed": 0,
+        "uncertain": 0,
+        "new": 6
+      },
+      "entries": [
+        {
+          "id": "113ace191c23",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Category",
+          "status": "not_found",
+          "reason": "Category field not found",
+          "selector": "",
+          "value_preview": "Women > Tops > Blouses",
+          "created_at": "2026-09-14T01:02:47.056138"
+        },
+        {
+          "id": "679fa7369c95",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Title",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.overrides.title",
+          "value_preview": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "created_at": "2026-09-14T01:02:47.056140"
+        },
+        {
+          "id": "16053d17aef0",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Description",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.overrides.description",
+          "value_preview": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit...",
+          "created_at": "2026-09-14T01:02:47.056142"
+        },
+        {
+          "id": "892df17cc5a9",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Condition",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056145"
+        },
+        {
+          "id": "48cf006557cd",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Brand",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056147"
+        },
+        {
+          "id": "a1e90ff49224",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Primary Color",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056149"
+        },
+        {
+          "id": "d100dd8c4fe4",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Secondary Color",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056151"
+        },
+        {
+          "id": "ef74e6b56bd1",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Style Tags",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.poshmark.overrides.tags",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056153"
+        },
+        {
+          "id": "283fededb86d",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Quantity",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.overrides.quantity",
+          "value_preview": "1",
+          "created_at": "2026-09-14T01:02:47.056156"
+        },
+        {
+          "id": "e44703483539",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Size",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.categorySpecifics.007a9287d97b4e80ef00a955_size",
+          "value_preview": "US Standard",
+          "created_at": "2026-09-14T01:02:47.056158"
+        },
+        {
+          "id": "4152a68f4987",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Original Price",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.marketplaceSpecifics.originalPrice",
+          "value_preview": "0",
+          "created_at": "2026-09-14T01:02:47.056160"
+        },
+        {
+          "id": "f09b03b6e7bb",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Discounted Shipping",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056162"
+        },
+        {
+          "id": "f6b6933ac9b9",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Listing Price",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.overrides.price",
+          "value_preview": "14",
+          "created_at": "2026-09-14T01:02:47.056164"
+        },
+        {
+          "id": "d3a3add5d706",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Smart Sell",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.marketplaceSpecifics.smartSell.enabled",
+          "value_preview": "on",
+          "created_at": "2026-09-14T01:02:47.056166"
+        },
+        {
+          "id": "83d1ba259900",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "SKU",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.overrides.sku",
+          "value_preview": "NOTATIONS-XL",
+          "created_at": "2026-09-14T01:02:47.056169"
+        },
+        {
+          "id": "b6dd12664cb0",
+          "step": "discovering_schema",
+          "marketplace": "poshmark",
+          "field": "Cost Price",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.poshmark.marketplaceSpecifics.costPriceAmount",
+          "value_preview": "0",
+          "created_at": "2026-09-14T01:02:47.056171"
+        }
+      ]
+    },
+    "mercari": {
+      "summary": {
+        "filled": 11,
+        "skipped": 0,
+        "not_found": 1,
+        "failed": 0,
+        "uncertain": 0,
+        "new": 7
+      },
+      "entries": [
+        {
+          "id": "1225c9708795",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Category",
+          "status": "not_found",
+          "reason": "Category field not found",
+          "selector": "",
+          "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+          "created_at": "2026-09-14T01:02:47.056173"
+        },
+        {
+          "id": "dc28097bdbb9",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Title",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.title",
+          "value_preview": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "created_at": "2026-09-14T01:02:47.056175"
+        },
+        {
+          "id": "abfd1c1a524d",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Description",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.description",
+          "value_preview": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit...",
+          "created_at": "2026-09-14T01:02:47.056177"
+        },
+        {
+          "id": "0931693fe7e9",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Condition *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056179"
+        },
+        {
+          "id": "9c3edb00506d",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Brand *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056182"
+        },
+        {
+          "id": "5bec23113913",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Quantity",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.quantity",
+          "value_preview": "1",
+          "created_at": "2026-09-14T01:02:47.056184"
+        },
+        {
+          "id": "0c5fce979f3c",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Size",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.mercari.categorySpecifics.161_Size",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056186"
+        },
+        {
+          "id": "19460418768f",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Ships From *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056188"
+        },
+        {
+          "id": "50a50668aa79",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Delivery Method *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056190"
+        },
+        {
+          "id": "2ef8b8d6e9b7",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Who will pay for delivery? *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056192"
+        },
+        {
+          "id": "207aa666f365",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "pounds",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.weight.pounds",
+          "value_preview": "0",
+          "created_at": "2026-09-14T01:02:47.056195"
+        },
+        {
+          "id": "b952a95d6f80",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "ounces",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.weight.ounces",
+          "value_preview": "8",
+          "created_at": "2026-09-14T01:02:47.056197"
+        },
+        {
+          "id": "8aa90862fbc2",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "length",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.dimensions.length",
+          "value_preview": "13",
+          "created_at": "2026-09-14T01:02:47.056199"
+        },
+        {
+          "id": "a957df889092",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "width",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.dimensions.width",
+          "value_preview": "10",
+          "created_at": "2026-09-14T01:02:47.056201"
+        },
+        {
+          "id": "0c5961726f92",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "height",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.dimensions.height",
+          "value_preview": "3",
+          "created_at": "2026-09-14T01:02:47.056203"
+        },
+        {
+          "id": "d7b38900f3ef",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Shipping Label *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056206"
+        },
+        {
+          "id": "827c852c857c",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Listing Price",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.overrides.price",
+          "value_preview": "14",
+          "created_at": "2026-09-14T01:02:47.056208"
+        },
+        {
+          "id": "e6c8b5bb894b",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Smart Pricing",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.marketplaceSpecifics.smartPricing",
+          "value_preview": "on",
+          "created_at": "2026-09-14T01:02:47.056210"
+        },
+        {
+          "id": "89f8f3e75c84",
+          "step": "discovering_schema",
+          "marketplace": "mercari",
+          "field": "Smart Offers",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.mercari.marketplaceSpecifics.smartOffers",
+          "value_preview": "on",
+          "created_at": "2026-09-14T01:02:47.056212"
+        }
+      ]
+    },
+    "depop": {
+      "summary": {
+        "filled": 4,
+        "skipped": 0,
+        "not_found": 1,
+        "failed": 0,
+        "uncertain": 0,
+        "new": 15
+      },
+      "entries": [
+        {
+          "id": "39b6d1750031",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Category",
+          "status": "not_found",
+          "reason": "Category field not found",
+          "selector": "",
+          "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+          "created_at": "2026-09-14T01:02:47.056214"
+        },
+        {
+          "id": "9fff344777da",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Description",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.depop.overrides.description",
+          "value_preview": "Casual abstract floral button-up shirt in black, white, and gray. Relaxed fit...",
+          "created_at": "2026-09-14T01:02:47.056216"
+        },
+        {
+          "id": "96e68170b70d",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Tags",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.overrides.tags",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056218"
+        },
+        {
+          "id": "acc40bae24b0",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Condition *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056221"
+        },
+        {
+          "id": "1d650b5d75bc",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Primary Color",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056223"
+        },
+        {
+          "id": "dd4f558fd9f3",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Secondary Color",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056225"
+        },
+        {
+          "id": "bc1ca8a99860",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Source",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.marketplaceSpecifics.source",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056227"
+        },
+        {
+          "id": "e57b3f00a4ae",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Age",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.marketplaceSpecifics.age",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056229"
+        },
+        {
+          "id": "ad432cd199b7",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Style",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.marketplaceSpecifics.style",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056231"
+        },
+        {
+          "id": "6e21d57729cf",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "SKU",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.depop.overrides.sku",
+          "value_preview": "NOTATIONS-XL",
+          "created_at": "2026-09-14T01:02:47.056233"
+        },
+        {
+          "id": "5cf2acbdfda2",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Quantity",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.depop.overrides.quantity",
+          "value_preview": "1",
+          "created_at": "2026-09-14T01:02:47.056236"
+        },
+        {
+          "id": "c58121216803",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Size",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_size",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056238"
+        },
+        {
+          "id": "4bb5939ed2d9",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Material",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_attribute_material",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056240"
+        },
+        {
+          "id": "8817d47f0f3b",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Occasion",
+          "status": "new",
+          "reason": "Discovered on form after category select",
+          "selector": "#listings.depop.categorySpecifics.womenswear_blouses_attribute_occasion",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056242"
+        },
+        {
+          "id": "1a0983f89a2f",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Brand *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056244"
+        },
+        {
+          "id": "572c006368b3",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Location *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056246"
+        },
+        {
+          "id": "0fe68464c926",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Domestic Shipping *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056248"
+        },
+        {
+          "id": "d19b85b06fb0",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Your Address *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056251"
+        },
+        {
+          "id": "d0e4de0d0a96",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Parcel Size *",
+          "status": "new",
+          "reason": "Required field discovered after category select",
+          "selector": "",
+          "value_preview": "",
+          "created_at": "2026-09-14T01:02:47.056253"
+        },
+        {
+          "id": "86240ea01466",
+          "step": "discovering_schema",
+          "marketplace": "depop",
+          "field": "Price",
+          "status": "filled",
+          "reason": "Already has a value",
+          "selector": "#listings.depop.overrides.price",
+          "value_preview": "14",
+          "created_at": "2026-09-14T01:02:47.056255"
+        }
+      ]
+    }
+  },
+  "log_path": "/Users/cris/Developer/list-this-vendoo-suite/vendoo-studio/data/fill-logs/0093f5d1dd0f.md"
+}

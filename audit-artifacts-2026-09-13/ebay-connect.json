@@ -1,0 +1,21 @@
+{
+  "query": "connect",
+  "outline": "- generic\n  - button \"Connect More Marketplaces\" [focusable=true]\n- generic\n  - generic\n    - heading \"EBAY CONNECTION DETAILS\"\n      - statictext \"CONNECTION DETAILS\"\n- labeltext\n  - statictext \"Reconnect\"",
+  "refs": [
+    {
+      "actions": [
+        "click",
+        "pointer"
+      ],
+      "frame": "main",
+      "name": "Connect More Marketplaces",
+      "ref": "p18:0",
+      "role": "button",
+      "states": {
+        "focusable": true
+      },
+      "value": null,
+      "visibility": "near_viewport"
+    }
+  ]
+}

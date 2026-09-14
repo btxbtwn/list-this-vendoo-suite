@@ -1,0 +1,146 @@
+[
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.description id=listings.depop.overrides.description",
+    "node": "textarea",
+    "ref": "p34:157"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.tags type=hidden value=Floral",
+    "node": "input",
+    "ref": "p34:165"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.tags type=hidden value=Abstract Print",
+    "node": "input",
+    "ref": "p34:166"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.tags type=hidden value=Button-Up",
+    "node": "input",
+    "ref": "p34:167"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.tags type=hidden value=Casual",
+    "node": "input",
+    "ref": "p34:168"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.tags type=hidden value=Woven",
+    "node": "input",
+    "ref": "p34:169"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Condition placeholder=Condition name=listings.depop.overrides.condition id=listings.depop.overrides.condition value=Used - Good role=input",
+    "node": "input",
+    "ref": "p34:173"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Primary Color placeholder=Primary Color name=listings.depop.overrides.primaryColor id=listings.depop.overrides.primaryColor value=Multi role=input",
+    "node": "input",
+    "ref": "p34:178"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Secondary Color placeholder=Secondary Color name=listings.depop.overrides.secondaryColor id=listings.depop.overrides.secondaryColor value=Black role=input",
+    "node": "input",
+    "ref": "p34:183"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.marketplaceSpecifics.source type=hidden",
+    "node": "input",
+    "ref": "p34:188"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.marketplaceSpecifics.age type=hidden",
+    "node": "input",
+    "ref": "p34:191"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.marketplaceSpecifics.style type=hidden",
+    "node": "input",
+    "ref": "p34:194"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.sku id=listings.depop.overrides.sku type=text value=NOTATIONS-XL role=input",
+    "node": "input",
+    "ref": "p34:196"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.marketplaceSpecifics.noSKU id=listings.depop.marketplaceSpecifics.noSKU type=checkbox value= role=checkbox",
+    "node": "input",
+    "ref": "p34:197"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.quantity id=listings.depop.overrides.quantity type=number value=1 role=input",
+    "node": "input",
+    "ref": "p34:200"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.categorySpecifics.womenswear_blouses_size type=hidden value=19",
+    "node": "input",
+    "ref": "p34:206"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.categorySpecifics.womenswear_blouses_attribute_body-fit type=hidden",
+    "node": "input",
+    "ref": "p34:210"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.categorySpecifics.womenswear_blouses_attribute_material type=hidden",
+    "node": "input",
+    "ref": "p34:213"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.categorySpecifics.womenswear_blouses_attribute_occasion type=hidden",
+    "node": "input",
+    "ref": "p34:216"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Brand placeholder=Select from the list name=listings.depop.overrides.brand id=listings.depop.overrides.brand value=Notations role=input",
+    "node": "input",
+    "ref": "p34:219"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Domestic Shipping placeholder=Domestic Shipping name=listings.depop.marketplaceSpecifics.shippingMethod id=listings.depop.marketplaceSpecifics.shippingMethod value=Depop Shipping (USPS) role=input",
+    "node": "input",
+    "ref": "p34:232"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Parcel Size placeholder=Parcel Size name=listings.depop.marketplaceSpecifics.shippingMethods.0.parcelSizeId id=listings.depop.marketplaceSpecifics.shippingMethods.0.parcelSizeId value=Extra small role=input",
+    "node": "input",
+    "ref": "p34:245"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.marketplaceSpecifics.internationalShippingCost id=listings.depop.marketplaceSpecifics.internationalShippingCost type=text value= role=input",
+    "node": "input",
+    "ref": "p34:249"
+  },
+  {
+    "frame": "main",
+    "label": "name=listings.depop.overrides.price id=listings.depop.overrides.price type=text value=14 role=input",
+    "node": "input",
+    "ref": "p34:251"
+  }
+]

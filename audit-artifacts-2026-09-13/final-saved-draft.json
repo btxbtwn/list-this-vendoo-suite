@@ -1,0 +1,1189 @@
+{
+  "ok": true,
+  "source": "api+form",
+  "item_id": "tYhkw1rewBBuMnSmjpzt",
+  "url": "https://web.vendoo.co/app/item/tYhkw1rewBBuMnSmjpzt?marketplace=depop",
+  "error": null,
+  "api_error": null,
+  "item": {
+    "generalDetails": {
+      "images": [],
+      "brand": "Notations",
+      "category": "",
+      "categoryV2": {
+        "displayName": "Tops",
+        "displayPath": [
+          "Clothing, Shoes & Accessories",
+          "Women",
+          "Women's Clothing",
+          "Tops"
+        ],
+        "extras": {
+          "siteId": "0"
+        },
+        "hasChildren": false,
+        "id": "clothing_shoes__accessories__women__women's_clothing__tops",
+        "isLeaf": true,
+        "path": [
+          "clothing_shoes__accessories",
+          "clothing_shoes__accessories__women",
+          "clothing_shoes__accessories__women__women's_clothing",
+          "clothing_shoes__accessories__women__women's_clothing__tops"
+        ]
+      },
+      "condition": "v_preowned",
+      "cost": "0",
+      "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+      "dimensions": {
+        "height": "3",
+        "length": "13",
+        "width": "10"
+      },
+      "notes": "",
+      "price": "14",
+      "primaryColor": "v_Multicolor",
+      "quantity": "1",
+      "secondaryColor": "v_Black",
+      "size": {
+        "categoryId": "clothing_shoes__accessories__women__women's_clothing__tops",
+        "option": {
+          "label": "XL",
+          "value": "XL"
+        },
+        "scale": {
+          "label": "Regular",
+          "value": "Regular"
+        }
+      },
+      "sku": "NOTATIONS-XL",
+      "tags": [
+        "Floral",
+        "Abstract Print",
+        "Button-Up",
+        "Casual",
+        "Woven"
+      ],
+      "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+      "videos": [],
+      "weight": {
+        "ounces": "8",
+        "pounds": "0"
+      },
+      "zipCode": "[REDACTED]"
+    },
+    "listings": {
+      "depop": {
+        "overrides": {
+          "brand": "notations",
+          "categoryV2": {
+            "displayName": "Blouses",
+            "displayPath": [
+              "Women",
+              "Tops",
+              "Blouses"
+            ],
+            "extras": {
+              "gender": "female",
+              "group": "tops",
+              "legacyCategoryId": 88,
+              "productType": "blouses",
+              "variantSetId": "4"
+            },
+            "hasChildren": false,
+            "id": "womenswear_blouses",
+            "isLeaf": true,
+            "path": [
+              "womenswear",
+              "womenswear_tops",
+              "womenswear_blouses"
+            ]
+          },
+          "condition": "used_good",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "price": "14",
+          "primaryColor": "multi",
+          "quantity": "1",
+          "secondaryColor": "black",
+          "sku": "NOTATIONS-XL",
+          "tags": [
+            "Floral",
+            "Abstract Print",
+            "Button-Up",
+            "Casual",
+            "Woven"
+          ]
+        },
+        "marketplaceSpecifics": {
+          "age": [],
+          "location": "[REDACTED]",
+          "nationalShippingCost": "",
+          "priceCurrency": "USD",
+          "shippingMethod": "USPS",
+          "shippingMethods": [
+            {
+              "parcelSizeId": "small",
+              "payer": "buyer",
+              "shipFromAddressId": "[REDACTED]",
+              "shippingProviderId": "USPS"
+            }
+          ],
+          "source": [],
+          "style": []
+        },
+        "categorySpecifics": {
+          "womenswear_blouses_size": "19"
+        },
+        "dateCreated": {
+          "_nanoseconds": 841000000,
+          "_seconds": 1789346484
+        },
+        "dateLastModified": {
+          "_nanoseconds": 199000000,
+          "_seconds": 1789348748
+        },
+        "listingAttemptMessages": [],
+        "marketplaceID": "depop",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "ebay": {
+        "overrides": {
+          "brand": "Notations",
+          "categoryV2": {
+            "displayName": "Tops",
+            "displayPath": [
+              "Clothing, Shoes & Accessories",
+              "Women",
+              "Women's Clothing",
+              "Tops"
+            ],
+            "extras": {
+              "siteId": "0"
+            },
+            "hasChildren": false,
+            "id": "53159",
+            "isLeaf": true,
+            "path": [
+              "11450",
+              "260010",
+              "15724",
+              "53159"
+            ]
+          },
+          "condition": "3000",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "dimensions": {
+            "height": "3",
+            "length": "13",
+            "width": "10"
+          },
+          "primaryColor": "Multicolor",
+          "quantity": "1",
+          "sku": "NOTATIONS-XL",
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "weight": {
+            "ounces": "8",
+            "pounds": "0"
+          }
+        },
+        "marketplaceSpecifics": {
+          "acceptReturns": "ReturnsAccepted",
+          "conditionDescription": "SEE PHOTOS AND DESCRIPTION FOR CONDITION AND MEASUREMENTS ",
+          "paymentMethod": "PayPal",
+          "paymentPolicyId": "[REDACTED]",
+          "paypalEmail": "[REDACTED]",
+          "pricingFormat": "FixedPriceItem",
+          "pricingFormatDetails": {
+            "auction": {
+              "acceptOffersOfAtLeast": "",
+              "allowBestOffer": true,
+              "buyItNowPrice": "14",
+              "declineOffersLowerThan": "",
+              "duration": "Days_7",
+              "startingPrice": ""
+            },
+            "fixedPrice": {
+              "acceptOffersOfAtLeast": "",
+              "allowBestOffer": true,
+              "buyItNowPrice": "14",
+              "declineOffersLowerThan": "",
+              "duration": "GTC"
+            }
+          },
+          "returnPayedBy": "",
+          "returnRefundMethod": "",
+          "returnWithin": "",
+          "returnsPolicyId": "[REDACTED]",
+          "shipping": {
+            "cost": "FREE SHIPPING",
+            "handling": "2",
+            "location": "[REDACTED]",
+            "locationDescription": "[REDACTED]",
+            "method": "Standard",
+            "shipFromCountry": "[REDACTED]",
+            "type": "Flat"
+          },
+          "shippingPolicyId": "[REDACTED]",
+          "shippingService": "USPSParcel",
+          "statusItem": "Active",
+          "upc": ""
+        },
+        "categorySpecifics": {
+          "53159_condition": "3000",
+          "53159_upc": ""
+        },
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listingAttemptMessages": [],
+        "marketplaceID": "ebay",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "etsy": {
+        "overrides": {
+          "categoryV2": {
+            "displayName": "Blouses",
+            "displayPath": [
+              "Clothing",
+              "Women's Clothing",
+              "Tops & Tees",
+              "Blouses"
+            ],
+            "extras": {},
+            "hasChildren": false,
+            "id": "554",
+            "isLeaf": true,
+            "path": [
+              "374",
+              "500",
+              "553",
+              "554"
+            ]
+          },
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "dimensions": {
+            "height": "3",
+            "length": "13",
+            "width": "10"
+          },
+          "price": "14",
+          "primaryColor": "",
+          "quantity": "1",
+          "secondaryColor": "1",
+          "sku": "NOTATIONS-XL",
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "weight": {
+            "ounces": "8",
+            "pounds": "0"
+          }
+        },
+        "marketplaceSpecifics": {
+          "isSupply": true,
+          "listingState": "active",
+          "listingType": "physical",
+          "materials": [],
+          "processingProfileID": "[REDACTED]",
+          "quantity": 1,
+          "renewalOption": "automatic",
+          "returnPolicyID": "[REDACTED]",
+          "shippingTemplateID": "[REDACTED]",
+          "tags": [
+            "Floral",
+            "Abstract Print",
+            "Button-Up",
+            "Casual",
+            "Woven",
+            "floral shirt",
+            "abstract print",
+            "button up shirt",
+            "casual top",
+            "black white gray"
+          ],
+          "whatIsIt": "0",
+          "whenMade": "made_to_order",
+          "whoMade": "someone_else"
+        },
+        "categorySpecifics": {
+          "554_325502673988": "2405",
+          "554_325502674108": [
+            "2579"
+          ],
+          "554_325502675244": "2668",
+          "554_325502675262": "2676",
+          "554_52047899294": "",
+          "554_52047899294_scale": "52047899294:24"
+        },
+        "dateCreated": {
+          "_nanoseconds": 262000000,
+          "_seconds": 1789348040
+        },
+        "dateLastModified": {
+          "_nanoseconds": 259000000,
+          "_seconds": 1789348097
+        },
+        "listingAttemptMessages": [],
+        "marketplaceID": "etsy",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "facebook": {
+        "overrides": {
+          "brand": "Notations",
+          "categoryV2": {
+            "displayName": "Women's Tops & T-Shirts",
+            "displayPath": [
+              "Clothing, Shoes & Accessories",
+              "Women's Clothing",
+              "Women's Tops & T-Shirts"
+            ],
+            "extras": {
+              "is_navigational_name_based": true,
+              "legacy_id": "1266429133383966",
+              "legacy_name": "Women's clothing & shoes",
+              "legacy_shipping_eligible": true,
+              "navigational_name": "Women's Tops & T-Shirts"
+            },
+            "hasChildren": false,
+            "id": "481680532981967",
+            "isLeaf": true,
+            "path": [
+              "3854901341245411",
+              "355369735904529",
+              "481680532981967"
+            ]
+          },
+          "condition": "used_good",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "price": "14",
+          "quantity": "1",
+          "sku": "NOTATIONS-XL",
+          "tags": [
+            "Floral",
+            "Abstract Print",
+            "Button-Up",
+            "Casual",
+            "Woven"
+          ],
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed"
+        },
+        "marketplaceSpecifics": {
+          "deliveryMethod": "shipping_only",
+          "freeShipping": true,
+          "hideFromFriends": true,
+          "location": "[REDACTED]",
+          "shippingOption": "prepaid_label"
+        },
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listedID": "",
+        "listingAttemptMessages": [],
+        "listingURL": "",
+        "marketplaceID": "facebook",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "grailed": {
+        "overrides": {
+          "brands": [
+            "notations"
+          ],
+          "categoryV2": {
+            "displayName": "Blouses",
+            "displayPath": [
+              "Womenswear",
+              "Tops",
+              "Blouses"
+            ],
+            "extras": {},
+            "hasChildren": false,
+            "id": "womens_tops.blouses",
+            "isLeaf": true,
+            "path": [
+              "womenswear",
+              "womens_tops",
+              "womens_tops.blouses"
+            ]
+          },
+          "condition": "is_used",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "price": "14",
+          "primaryColor": "multi",
+          "quantity": "1",
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed"
+        },
+        "marketplaceSpecifics": {
+          "buynow": true,
+          "currency": "USD",
+          "makeoffer": true,
+          "measurementType": "cm",
+          "measurements": {},
+          "minimum_price": "",
+          "paypal_id": "",
+          "shipping": {
+            "asia": {
+              "amount": 0,
+              "enabled": false
+            },
+            "au": {
+              "amount": 0,
+              "enabled": false
+            },
+            "ca": {
+              "amount": 0,
+              "enabled": false
+            },
+            "eu": {
+              "amount": 0,
+              "enabled": false
+            },
+            "other": {
+              "amount": 0,
+              "enabled": false
+            },
+            "uk": {
+              "amount": 0,
+              "enabled": false
+            },
+            "us": {
+              "amount": 30,
+              "enabled": true
+            }
+          },
+          "shippingForm": {
+            "address": "[REDACTED]",
+            "freeShipping": true,
+            "label": "",
+            "method": ""
+          },
+          "smart_price": true
+        },
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listingAttemptMessages": [],
+        "marketplaceID": "grailed",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "kidizen": {
+        "overrides": {
+          "quantity": "1"
+        },
+        "marketplaceSpecifics": {
+          "canBePurchasedAlone": false,
+          "excludedFromDiscount": false,
+          "quantity": "1",
+          "returnAddress": "[REDACTED]"
+        },
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listedID": "",
+        "listingAttemptMessages": [],
+        "listingURL": "",
+        "marketplaceID": "kidizen",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "mercari": {
+        "overrides": {
+          "brand": "4637",
+          "categoryV2": {
+            "displayName": "T-shirts",
+            "displayPath": [
+              "Women",
+              "Tops & blouses",
+              "T-shirts"
+            ],
+            "hasChildren": false,
+            "id": "161",
+            "isLeaf": true,
+            "path": [
+              "1",
+              "12",
+              "161"
+            ]
+          },
+          "condition": "3",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "dimensions": {
+            "height": "3",
+            "length": "13",
+            "width": "10"
+          },
+          "price": "14",
+          "quantity": "1",
+          "sku": "NOTATIONS-XL",
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "weight": {
+            "ounces": "8",
+            "pounds": "0"
+          }
+        },
+        "marketplaceSpecifics": {
+          "floorPrice": "",
+          "mercariLocalInformation": "[REDACTED]",
+          "shipping": {
+            "carrierId": "2550",
+            "deliveryMethod": "mercari_shipping",
+            "location": "[REDACTED]",
+            "payerId": 1
+          },
+          "smartOffers": false,
+          "smartPricing": false,
+          "tags": []
+        },
+        "categorySpecifics": {
+          "161_Size": "6"
+        },
+        "dateCreated": {
+          "_nanoseconds": 97000000,
+          "_seconds": 1789348636
+        },
+        "dateLastModified": {
+          "_nanoseconds": 361000000,
+          "_seconds": 1789348648
+        },
+        "listingAttemptMessages": [],
+        "marketplaceID": "mercari",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "poshmark": {
+        "overrides": {
+          "brand": "Notations",
+          "categoryV2": {
+            "displayName": "Blouses",
+            "displayPath": [
+              "Women",
+              "Tops",
+              "Blouses"
+            ],
+            "hasChildren": false,
+            "id": "007a9287d97b4e80ef00a955",
+            "isLeaf": true,
+            "path": [
+              "000e8975d97b4e80ef00a955",
+              "00188975d97b4e80ef00a955",
+              "007a9287d97b4e80ef00a955"
+            ]
+          },
+          "condition": "ug",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "dimensions": {
+            "height": "3",
+            "length": "13",
+            "width": "10"
+          },
+          "price": "14",
+          "primaryColor": "",
+          "quantity": "1",
+          "secondaryColor": "Black",
+          "sku": "NOTATIONS-XL",
+          "tags": [
+            "Floral",
+            "Abstract Print",
+            "Button-Up",
+            "Casual",
+            "Woven"
+          ],
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "weight": {
+            "ounces": "8",
+            "pounds": "0"
+          }
+        },
+        "marketplaceSpecifics": {
+          "costPriceAmount": "0",
+          "discountShipping": {
+            "id": "5ff7647a5d29bbebfa25f9d0"
+          },
+          "originalPrice": "0"
+        },
+        "categorySpecifics": {
+          "007a9287d97b4e80ef00a955_size": "XL",
+          "007a9287d97b4e80ef00a955_size_scale": "standard"
+        },
+        "dateCreated": {
+          "_nanoseconds": 803000000,
+          "_seconds": 1789348254
+        },
+        "dateLastModified": {
+          "_nanoseconds": 883000000,
+          "_seconds": 1789348285
+        },
+        "listingAttemptMessages": [],
+        "marketplaceID": "poshmark",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "sellhound": {
+        "overrides": {
+          "quantity": "1"
+        },
+        "marketplaceSpecifics": {
+          "barcode": "",
+          "chargeTaxes": false,
+          "collections": [],
+          "comparePrice": "",
+          "customProductType": "",
+          "inventory": {
+            "continueSellingWithoutStock": false,
+            "quantity": 1,
+            "track": true
+          },
+          "shipping": {
+            "physicalProduct": false,
+            "weight": "0.0000",
+            "weightUnit": "POUNDS"
+          }
+        },
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listingAttemptMessages": [],
+        "marketplaceID": "shopify",
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "sellwild": {
+        "overrides": {
+          "categoryV2": {
+            "displayName": "Womens Clothing",
+            "displayPath": [
+              "Fashion",
+              "Womens Clothing"
+            ],
+            "hasChildren": false,
+            "id": "182",
+            "isLeaf": true,
+            "path": [
+              "23",
+              "182",
+              "182"
+            ]
+          },
+          "condition": "2",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "dimensions": {
+            "height": "3",
+            "length": "0",
+            "width": "0"
+          },
+          "price": "14",
+          "quantity": "1",
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "weight": {
+            "ounces": "0",
+            "pounds": "0"
+          }
+        },
+        "marketplaceSpecifics": {},
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listedID": "",
+        "listingURL": "",
+        "marketplaceID": "sellwild",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "shopify": {
+        "overrides": {
+          "brand": "Notations",
+          "categoryV2": {
+            "displayName": "Blouses",
+            "displayPath": [
+              "Apparel & Accessories",
+              "Clothing",
+              "Clothing Tops",
+              "Blouses"
+            ],
+            "extras": {
+              "categoryId": "gid://shopify/TaxonomyCategory/aa-1-13-1",
+              "isArchived": false,
+              "parentCategoryIds": [
+                "gid://shopify/TaxonomyCategory/aa",
+                "gid://shopify/TaxonomyCategory/aa-1",
+                "gid://shopify/TaxonomyCategory/aa-1-13"
+              ]
+            },
+            "hasChildren": false,
+            "id": "9526",
+            "isLeaf": true,
+            "path": [
+              "126",
+              "127",
+              "9525",
+              "9526"
+            ]
+          },
+          "cost": "0",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "price": "14",
+          "quantity": "1",
+          "sku": "NOTATIONS-XL",
+          "tags": [
+            "Floral",
+            "Abstract Print",
+            "Button-Up",
+            "Casual",
+            "Woven"
+          ],
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed"
+        },
+        "marketplaceSpecifics": {
+          "barcode": "",
+          "chargeTaxes": false,
+          "collections": [],
+          "comparePrice": "",
+          "customProductType": "",
+          "inventory": {
+            "continueSellingWithoutStock": false,
+            "quantity": 1,
+            "track": true
+          },
+          "shipping": {
+            "physicalProduct": false,
+            "weight": "0.5000",
+            "weightUnit": "POUNDS"
+          }
+        },
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listingAttemptMessages": [],
+        "marketplaceID": "shopify",
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "tradesy": {
+        "overrides": {
+          "quantity": "1"
+        },
+        "marketplaceSpecifics": {
+          "condition": {
+            "barcodeUpc": "",
+            "list": "",
+            "note": "",
+            "tags": "",
+            "wear": ""
+          },
+          "pricing": {
+            "lowestPrice": "",
+            "retail": "",
+            "smartPrice": false
+          },
+          "shipping": {
+            "flag": "",
+            "option": "",
+            "packageType": "",
+            "price": ""
+          },
+          "slug": ""
+        },
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listedID": "",
+        "listingAttemptMessages": [],
+        "listingURL": "",
+        "marketplaceID": "tradesy",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "vestiaire": {
+        "overrides": {
+          "brand": "notations",
+          "categoryV2": {
+            "displayName": "Tops",
+            "displayPath": [
+              "Womenswear",
+              "Clothing",
+              "Tops"
+            ],
+            "extras": {},
+            "hasChildren": false,
+            "id": "1&2&16",
+            "isLeaf": true,
+            "path": [
+              "1",
+              "1&2",
+              "1&2&16"
+            ]
+          },
+          "condition": "3",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "price": "14",
+          "quantity": "1"
+        },
+        "marketplaceSpecifics": {
+          "currency": "37",
+          "draftId": "",
+          "shipping": ""
+        },
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listedID": "",
+        "listingAttemptMessages": [],
+        "listingURL": "",
+        "marketplaceID": "vestiaire",
+        "sales": [],
+        "shipping": "7347924",
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "vestiaireApi": {
+        "overrides": {
+          "brand": "",
+          "quantity": "1"
+        },
+        "marketplaceSpecifics": {},
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listedID": "",
+        "listingAttemptMessages": [],
+        "listingURL": "",
+        "marketplaceID": "vestiaireApi",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "vinted": {
+        "overrides": {
+          "brand": "296557",
+          "categoryV2": {
+            "displayName": "Blouses",
+            "displayPath": [
+              "Women",
+              "Clothing",
+              "Tops & T-shirts",
+              "Blouses"
+            ],
+            "extras": {},
+            "hasChildren": false,
+            "id": "1043",
+            "isLeaf": true,
+            "path": [
+              "1904",
+              "4",
+              "12",
+              "1043"
+            ]
+          },
+          "condition": 3,
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "price": "14",
+          "primaryColor": "15",
+          "quantity": "1",
+          "secondaryColor": "1",
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed"
+        },
+        "marketplaceSpecifics": {},
+        "categorySpecifics": {
+          "1043_size": "97"
+        },
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listedID": "",
+        "listingAttemptMessages": [],
+        "listingURL": "",
+        "marketplaceID": "vinted",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      },
+      "whatnot": {
+        "overrides": {
+          "brand": "Notations",
+          "categoryV2": {
+            "displayName": "Shirts & Tops",
+            "displayPath": [
+              "Apparel & Accessories",
+              "Clothing",
+              "Shirts & Tops"
+            ],
+            "hasChildren": false,
+            "id": "UHJvZHVjdFRheG9ub215Tm9kZToxNzQ=",
+            "isLeaf": true,
+            "path": [
+              "UHJvZHVjdFRheG9ub215Tm9kZToxMjY=",
+              "UHJvZHVjdFRheG9ub215Tm9kZToxMjc=",
+              "UHJvZHVjdFRheG9ub215Tm9kZToxNzQ="
+            ]
+          },
+          "condition": "pre-owned---good",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "quantity": "1",
+          "sku": "NOTATIONS-XL",
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "weight": {
+            "ounces": "8",
+            "pounds": "0"
+          }
+        },
+        "marketplaceSpecifics": {
+          "hazardousMaterial": "NOT_HAZARDOUS",
+          "pricing": {
+            "details": {
+              "auction": {
+                "endTime": 0,
+                "startingPrice": "14"
+              },
+              "buyItNow": {
+                "price": "14"
+              }
+            },
+            "format": "buyItNow"
+          }
+        },
+        "categorySpecifics": {},
+        "dateCreated": "",
+        "dateLastModified": "",
+        "listedID": "",
+        "listingAttemptMessages": [],
+        "listingURL": "",
+        "marketplaceID": "whatnot",
+        "sales": [],
+        "status": {
+          "notListed": true
+        },
+        "type": "listing"
+      }
+    },
+    "dateCreated": 1789346441676,
+    "dateLastModified": 1789348748199,
+    "itemID": "tYhkw1rewBBuMnSmjpzt",
+    "labels": [
+      "UOYZA8oYMxY5fwBzyP2Q",
+      "3mUuW1GcwUpj2EHoeJrN"
+    ],
+    "origin": "vendoo",
+    "status": {
+      "inProgress": true
+    },
+    "type": "item",
+    "userID": "[REDACTED]",
+    "version": 10
+  },
+  "form": {
+    "generalDetails": {
+      "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+      "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+      "brand": "Notations",
+      "condition": "Pre-Owned - Good",
+      "primaryColor": "Multicolor",
+      "secondaryColor": "Black",
+      "zipCode": "[REDACTED]",
+      "tags": "",
+      "quantity": "1",
+      "size": "",
+      "sku": "NOTATIONS-XL",
+      "price": "14",
+      "cost": "0",
+      "notes": "",
+      "categoryV2": "Clothing, Shoes & AccessoriesWomenWomen's ClothingTops",
+      "weight": {
+        "pounds": "0",
+        "ounces": "8"
+      },
+      "dimensions": {
+        "length": "13",
+        "width": "10",
+        "height": "3"
+      }
+    },
+    "listings": {
+      "etsy": {
+        "overrides": {
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "primaryColor": "",
+          "secondaryColor": "Black",
+          "sku": "NOTATIONS-XL",
+          "quantity": "1",
+          "weight.pounds": "0",
+          "weight.ounces": "8",
+          "dimensions.length": "13",
+          "dimensions.width": "10",
+          "dimensions.height": "3",
+          "price": "14"
+        },
+        "marketplaceSpecifics": {
+          "whoMade": "Another company or person",
+          "whatIsIt": "A finished product",
+          "whenMade": "Made To Order (Not Yet Made)",
+          "tags": "black white gray",
+          "materials": "",
+          "listingType": "Physical Item",
+          "shippingTemplateID": "[REDACTED]",
+          "processingProfileID": "[REDACTED]",
+          "returnPolicyID": "[REDACTED]",
+          "renewalOption": "Automatic",
+          "listingState": "Live Listing"
+        },
+        "categorySpecifics": {
+          "516": "",
+          "148789511893": "",
+          "325502673988": "2405",
+          "325502674108": "2579",
+          "325502675244": "2668",
+          "325502675262": "2676",
+          "325502676002": "",
+          "46803063641": "",
+          "46803063659": "",
+          "52047899294": "US numeric",
+          "570246213604": "",
+          "99837394318": ""
+        }
+      },
+      "poshmark": {
+        "overrides": {
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "condition": "Good",
+          "brand": "Notations",
+          "primaryColor": "",
+          "secondaryColor": "Black",
+          "tags": "Woven",
+          "quantity": "1",
+          "price": "14",
+          "sku": "NOTATIONS-XL"
+        },
+        "marketplaceSpecifics": {
+          "originalPrice": "0",
+          "discountShipping.id": "No Discount",
+          "smartSell.enabled": "on",
+          "smartSell.minPrice": "",
+          "costPriceAmount": "0",
+          "otherInfo": ""
+        },
+        "categorySpecifics": {
+          "size": "XL"
+        }
+      },
+      "mercari": {
+        "overrides": {
+          "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "condition": "Good (Gently used)",
+          "brand": "Notations",
+          "noBrand": "",
+          "quantity": "1",
+          "weight.pounds": "0",
+          "weight.ounces": "8",
+          "dimensions.length": "13",
+          "dimensions.width": "10",
+          "dimensions.height": "3",
+          "price": "14"
+        },
+        "marketplaceSpecifics": {
+          "mercariLocalInformation": "[REDACTED]",
+          "shipping.deliveryMethod": "Standard shipping",
+          "shipping.payerId": "Buyer pays",
+          "shipping.carrierId": "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb",
+          "smartPricing": "on",
+          "smartOffers": "on"
+        },
+        "categorySpecifics": {
+          "Size": "6"
+        }
+      },
+      "depop": {
+        "overrides": {
+          "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+          "tags": "Woven",
+          "condition": "Used - Good",
+          "primaryColor": "Multi",
+          "secondaryColor": "Black",
+          "sku": "NOTATIONS-XL",
+          "quantity": "1",
+          "brand": "Notations",
+          "price": "14"
+        },
+        "marketplaceSpecifics": {
+          "source": "",
+          "age": "",
+          "style": "",
+          "noSKU": "",
+          "location.id": "[REDACTED]",
+          "shippingMethod": "Depop Shipping (USPS)",
+          "shippingMethods.0.shipFromAddressId": "[REDACTED]",
+          "shippingMethods.0.parcelSizeId": "Extra small",
+          "internationalShippingCost": ""
+        },
+        "categorySpecifics": {
+          "womenswear blouses size": "19",
+          "womenswear blouses attribute body-fit": "",
+          "womenswear blouses attribute material": "",
+          "womenswear blouses attribute occasion": ""
+        }
+      }
+    },
+    "images": [],
+    "statuses": {
+      "etsy": "NOT LISTED",
+      "poshmark": "NOT LISTED",
+      "mercari": "NOT LISTED",
+      "depop": "NOT LISTED",
+      "facebook": "NOT LISTED",
+      "shopify": "NOT LISTED",
+      "vinted": "NOT LISTED",
+      "whatnot": "NOT LISTED"
+    },
+    "itemID": "tYhkw1rewBBuMnSmjpzt"
+  },
+  "statuses": {
+    "etsy": "NOT LISTED",
+    "poshmark": "NOT LISTED",
+    "mercari": "NOT LISTED",
+    "depop": "NOT LISTED",
+    "facebook": "NOT LISTED",
+    "shopify": "NOT LISTED",
+    "vinted": "NOT LISTED",
+    "whatnot": "NOT LISTED"
+  }
+}

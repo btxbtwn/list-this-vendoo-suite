@@ -1,0 +1,105 @@
+[
+  {
+    "id": "689d406f3c3e",
+    "sequence": 0,
+    "event_type": "created",
+    "step": "queued",
+    "payload": null,
+    "created_at": "2026-09-14T01:51:46.565712"
+  },
+  {
+    "id": "5b486b85153e",
+    "sequence": 1,
+    "event_type": "dispatched",
+    "step": null,
+    "payload": null,
+    "created_at": "2026-09-14T01:51:46.617941"
+  },
+  {
+    "id": "1757ca8144dd",
+    "sequence": 2,
+    "event_type": "progress",
+    "step": "opening_vendoo",
+    "payload": {
+      "step": "opening_vendoo"
+    },
+    "created_at": "2026-09-14T01:51:46.621655"
+  },
+  {
+    "id": "4615c5f3e1e9",
+    "sequence": 3,
+    "event_type": "step_completed",
+    "step": "opening_vendoo",
+    "payload": {
+      "step": "opening_vendoo",
+      "fill_log": null,
+      "schema": null,
+      "categories": null
+    },
+    "created_at": "2026-09-14T01:51:52.881485"
+  },
+  {
+    "id": "95b38725e356",
+    "sequence": 4,
+    "event_type": "progress",
+    "step": "waiting_ready",
+    "payload": {
+      "step": "waiting_ready"
+    },
+    "created_at": "2026-09-14T01:51:52.888540"
+  },
+  {
+    "id": "de3bd60e1ce4",
+    "sequence": 5,
+    "event_type": "step_completed",
+    "step": "waiting_ready",
+    "payload": {
+      "step": "waiting_ready",
+      "fill_log": null,
+      "schema": null,
+      "categories": null
+    },
+    "created_at": "2026-09-14T01:51:52.923566"
+  },
+  {
+    "id": "cf4c20e550a8",
+    "sequence": 6,
+    "event_type": "progress",
+    "step": "uploading_photos",
+    "payload": {
+      "step": "uploading_photos"
+    },
+    "created_at": "2026-09-14T01:51:52.931810"
+  },
+  {
+    "id": "b3def6216319",
+    "sequence": 7,
+    "event_type": "step_completed",
+    "step": "uploading_photos",
+    "payload": {
+      "step": "uploading_photos",
+      "fill_log": null,
+      "schema": null,
+      "categories": null
+    },
+    "created_at": "2026-09-14T01:52:01.757430"
+  },
+  {
+    "id": "9e3c86e7d42a",
+    "sequence": 8,
+    "event_type": "progress",
+    "step": "filling_general",
+    "payload": {
+      "step": "filling_general"
+    },
+    "created_at": "2026-09-14T01:52:01.771596"
+  },
+  {
+    "id": "9303eada3fc3",
+    "sequence": 9,
+    "event_type": "cancelled",
+    "step": null,
+    "payload": null,
+    "created_at": "2026-09-14T01:52:02.041758"
+  }
+]

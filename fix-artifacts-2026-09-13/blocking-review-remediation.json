@@ -1,0 +1,85 @@
+{
+  "date": "2026-09-14",
+  "review_base": "acfd1c24d90f7a803f1167f8ad2f10770a0e6b79",
+  "status": "independently_verified_pass",
+  "findings": {
+    "high": {
+      "fixed": 3,
+      "open": 0,
+      "items": [
+        "approved snapshot marketplaces drive dispatch and registry selectors",
+        "remote image downloads pin validated public IP addresses and reject private redirects",
+        "category resolution does not mutate approved job snapshots"
+      ]
+    },
+    "medium": {
+      "fixed": 4,
+      "open": 0,
+      "items": [
+        "invalid dropdown is a distinct fill-log and Ask Chat status",
+        "Etsy Live Listing requires explicit draft nav evidence",
+        "existing live items fail before any fill or save path",
+        "interrupted leftover fills cannot reconnect as full jobs"
+      ]
+    },
+    "low": {
+      "fixed": 4,
+      "open": 0
+    },
+    "follow_up_review": {
+      "p1_fixed": 2,
+      "p2_fixed": 1,
+      "open": 0,
+      "items": [
+        "retry and resume retain draft-safety preflight before marketplace interaction",
+        "category search verifies explicit draft state before opening or selecting from the picker",
+        "duplicate safety-test class renamed so all previously shadowed tests collect"
+      ]
+    }
+  },
+  "verification": {
+    "pytest": {
+      "passed": 361,
+      "failed": 0,
+      "skipped": 0,
+      "warnings": 5,
+      "duration_seconds": 7.3
+    },
+    "frontend_build": "passed with existing chunk-size warning",
+    "extension_node_check": {
+      "passed": 13,
+      "failed": 0
+    },
+    "manifest_json": "passed",
+    "dropdown_json": "passed",
+    "canonical_skill": "passed",
+    "git_diff_check": "passed",
+    "gitleaks": "no leaks found",
+    "extension_expected_build": "af23dd216a950f2921ef473bda555844229a8f5055b82208d1b1280cd41fdf37",
+    "managed_extension_files_in_sync": true,
+    "everyday_chrome_reload": "not_performed_extension_disconnected",
+    "audit_fix_tests_collected": 35,
+    "previously_shadowed_tests_collected": 4
+  },
+  "live_state": {
+    "automation_jobs_created": 0,
+    "vendoo_drafts_modified": 0,
+    "marketplace_publications": 0,
+    "active_jobs_observed": 0
+  },
+  "independent_follow_up_review": {
+    "verdict": "PASS",
+    "critical_findings": 0,
+    "high_findings": 0,
+    "medium_findings": 0,
+    "pytest": "361 passed, 0 failed, 0 skipped, 5 warnings, 7.41s",
+    "audit_fix_tests_collected": 35,
+    "active_jobs_observed": 0,
+    "vendoo_drafts_opened_or_modified": 0,
+    "live_extension_handshake_claimed": false,
+    "residual_non_blocking_notes": [
+      "resume regression test uses a hand-built step list, although integrated executable review passed",
+      "route ids may be retained temporarily in job persistence but are rejected before open, fill, completion, and verification"
+    ]
+  }
+}

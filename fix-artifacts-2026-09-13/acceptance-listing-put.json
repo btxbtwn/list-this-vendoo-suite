@@ -1,0 +1,31 @@
+{
+  "revision_id": "9e848a2cc91c",
+  "validation": {
+    "valid": false,
+    "errors": [
+      {
+        "field": "marketplaces.facebook",
+        "message": "Facebook is selected but is not supported for Send to Vendoo. Deselect it before sending."
+      },
+      {
+        "field": "marketplaces.grailed",
+        "message": "Grailed is selected but is not supported for Send to Vendoo. Deselect it before sending."
+      },
+      {
+        "field": "marketplaces.whatnot",
+        "message": "Whatnot is selected but is not supported for Send to Vendoo. Deselect it before sending."
+      },
+      {
+        "field": "marketplaces.shopify",
+        "message": "Shopify is selected but is not supported for Send to Vendoo. Deselect it before sending."
+      }
+    ],
+    "warnings": [
+      {
+        "field": "ebay_specifics.material",
+        "message": "Material evidence is missing. Keep material blank and state the gap in the description."
+      }
+    ],
+    "info": []
+  }
+}

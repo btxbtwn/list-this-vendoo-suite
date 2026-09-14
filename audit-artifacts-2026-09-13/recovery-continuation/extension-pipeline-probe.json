@@ -1,0 +1,204 @@
+{
+  "scope": "Actual pipeline order and failure runner; stubbed Chrome/step I/O; no live selector, login, upload or save claims.",
+  "count": 22,
+  "results": [
+    {
+      "stage": "opening_vendoo",
+      "reported_failures": [
+        "opening_vendoo"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "waiting_ready",
+      "reported_failures": [
+        "waiting_ready"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "uploading_photos",
+      "reported_failures": [
+        "uploading_photos"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "filling_general",
+      "reported_failures": [
+        "filling_general"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "saving_general",
+      "reported_failures": [
+        "saving_general"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "auditing_general",
+      "reported_failures": [
+        "auditing_general"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "discovering_schema",
+      "reported_failures": [
+        "discovering_schema"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "filling_ebay",
+      "reported_failures": [
+        "filling_ebay"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "saving_ebay",
+      "reported_failures": [
+        "saving_ebay"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "auditing_ebay",
+      "reported_failures": [
+        "auditing_ebay"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "filling_poshmark",
+      "reported_failures": [
+        "filling_poshmark"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "saving_poshmark",
+      "reported_failures": [
+        "saving_poshmark"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "auditing_poshmark",
+      "reported_failures": [
+        "auditing_poshmark"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "filling_mercari",
+      "reported_failures": [
+        "filling_mercari"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "saving_mercari",
+      "reported_failures": [
+        "saving_mercari"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "auditing_mercari",
+      "reported_failures": [
+        "auditing_mercari"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "filling_depop",
+      "reported_failures": [
+        "filling_depop"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "saving_depop",
+      "reported_failures": [
+        "saving_depop"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "auditing_depop",
+      "reported_failures": [
+        "auditing_depop"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "filling_etsy",
+      "reported_failures": [
+        "filling_etsy"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "saving_etsy",
+      "reported_failures": [
+        "saving_etsy"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    },
+    {
+      "stage": "auditing_etsy",
+      "reported_failures": [
+        "auditing_etsy"
+      ],
+      "completed": false,
+      "extension_active_job_retained": true,
+      "tab_closed": false
+    }
+  ]
+}

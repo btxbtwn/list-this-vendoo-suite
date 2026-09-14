@@ -1,0 +1,464 @@
+[
+  {
+    "frame": "main",
+    "label": "aria-label=Crosslist type=button",
+    "node": "button",
+    "ref": "p6:82"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Automations type=button",
+    "node": "button",
+    "ref": "p6:83"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Marketplaces type=button",
+    "node": "button",
+    "ref": "p6:84"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Collapse menu type=button",
+    "node": "button",
+    "ref": "p6:86"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:87"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Help",
+    "node": "button",
+    "ref": "p6:95"
+  },
+  {
+    "frame": "main",
+    "label": "id=general role=side-control-general",
+    "node": "button",
+    "ref": "p6:97"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:98"
+  },
+  {
+    "frame": "main",
+    "label": "id=ebay role=side-control-ebay",
+    "node": "button",
+    "ref": "p6:99"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:101"
+  },
+  {
+    "frame": "main",
+    "label": "id=etsy role=side-control-etsy",
+    "node": "button",
+    "ref": "p6:102"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:104"
+  },
+  {
+    "frame": "main",
+    "label": "id=poshmark role=side-control-poshmark",
+    "node": "button",
+    "ref": "p6:105"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:107"
+  },
+  {
+    "frame": "main",
+    "label": "id=mercari role=side-control-mercari",
+    "node": "button",
+    "ref": "p6:108"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:110"
+  },
+  {
+    "frame": "main",
+    "label": "id=depop role=side-control-depop",
+    "node": "button",
+    "ref": "p6:111"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:113"
+  },
+  {
+    "frame": "main",
+    "label": "id=facebook role=side-control-facebook",
+    "node": "button",
+    "ref": "p6:114"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:116"
+  },
+  {
+    "frame": "main",
+    "label": "id=shopify role=side-control-shopify",
+    "node": "button",
+    "ref": "p6:117"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:119"
+  },
+  {
+    "frame": "main",
+    "label": "id=vinted role=side-control-vinted",
+    "node": "button",
+    "ref": "p6:121"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:123"
+  },
+  {
+    "frame": "main",
+    "label": "id=whatnot role=side-control-whatnot",
+    "node": "button",
+    "ref": "p6:125"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:127"
+  },
+  {
+    "frame": "main",
+    "label": "id=sellwild role=side-control-sellwild",
+    "node": "button",
+    "ref": "p6:129"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:130"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label= type=button",
+    "node": "button",
+    "ref": "p6:132"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:133"
+  },
+  {
+    "frame": "main",
+    "label": "id=imageInput type=file",
+    "node": "input",
+    "ref": "p6:135"
+  },
+  {
+    "frame": "main",
+    "label": "id=generalDetails.images",
+    "node": "button",
+    "ref": "p6:136"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:137"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.title id=generalDetails.title type=text value=Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed role=input",
+    "node": "input",
+    "ref": "p6:139"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:140"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.description id=generalDetails.description",
+    "node": "textarea",
+    "ref": "p6:142"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:143"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Brand placeholder=Select or write your own name=generalDetails.brand id=generalDetails.brand value=Notations role=input",
+    "node": "input",
+    "ref": "p6:147"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Condition placeholder=Condition name=generalDetails.condition id=generalDetails.condition value=Pre-Owned - Good role=input",
+    "node": "input",
+    "ref": "p6:152"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Primary Color placeholder=Primary Color name=generalDetails.primaryColor id=generalDetails.primaryColor value=Multicolor role=input",
+    "node": "input",
+    "ref": "p6:157"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Secondary Color placeholder=Secondary Color name=generalDetails.secondaryColor id=generalDetails.secondaryColor value=Black role=input",
+    "node": "input",
+    "ref": "p6:162"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:165"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.sku id=generalDetails.sku type=text value=NOTATIONS-XL role=input",
+    "node": "input",
+    "ref": "p6:167"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Using Default  type=button",
+    "node": "button",
+    "ref": "p6:168"
+  },
+  {
+    "frame": "main",
+    "label": "id=generalDetails.tags type=text value= role=combobox",
+    "node": "input",
+    "ref": "p6:177"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.tags type=hidden value=Floral",
+    "node": "input",
+    "ref": "p6:178"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.tags type=hidden value=Abstract Print",
+    "node": "input",
+    "ref": "p6:179"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.tags type=hidden value=Button-Up",
+    "node": "input",
+    "ref": "p6:180"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.tags type=hidden value=Casual",
+    "node": "input",
+    "ref": "p6:181"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.tags type=hidden value=Woven",
+    "node": "input",
+    "ref": "p6:182"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Copy Tags type=button",
+    "node": "button",
+    "ref": "p6:183"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.quantity id=generalDetails.quantity type=number value=1 role=input",
+    "node": "input",
+    "ref": "p6:185"
+  },
+  {
+    "frame": "main",
+    "label": "id=categoryV2 type=button role=category-input",
+    "node": "button",
+    "ref": "p6:187"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=US Size placeholder=  name=generalDetails.size.option.value id=generalDetails.size.option.value value=XL role=input",
+    "node": "input",
+    "ref": "p6:190"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Size Type placeholder=  name=generalDetails.size.scale.value id=generalDetails.size.scale.value value=Regular role=input",
+    "node": "input",
+    "ref": "p6:195"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:198"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.weight.pounds id=generalDetails.weight.pounds type=number value=0 role=input",
+    "node": "input",
+    "ref": "p6:200"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.weight.ounces id=generalDetails.weight.ounces type=number value=8 role=input",
+    "node": "input",
+    "ref": "p6:201"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:202"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Length name=generalDetails.dimensions.length id=generalDetails.dimensions.length type=number value=13 role=input",
+    "node": "input",
+    "ref": "p6:204"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Width name=generalDetails.dimensions.width id=generalDetails.dimensions.width type=number value=10 role=input",
+    "node": "input",
+    "ref": "p6:205"
+  },
+  {
+    "frame": "main",
+    "label": "placeholder=Height name=generalDetails.dimensions.height id=generalDetails.dimensions.height type=number value=3 role=input",
+    "node": "input",
+    "ref": "p6:206"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:207"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.price id=generalDetails.price type=text value=14 role=input",
+    "node": "input",
+    "ref": "p6:209"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.cost id=generalDetails.cost type=text value=0 role=input",
+    "node": "input",
+    "ref": "p6:211"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Close To List type=button",
+    "node": "button",
+    "ref": "p6:214"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Vendoo Labels name=labels id=labels type=text value=",
+    "node": "input",
+    "ref": "p6:215"
+  },
+  {
+    "frame": "main",
+    "label": "name=generalDetails.notes id=generalDetails.notes",
+    "node": "textarea",
+    "ref": "p6:218"
+  },
+  {
+    "frame": "main",
+    "label": "role=save",
+    "node": "button",
+    "ref": "p6:219"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:220"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:221"
+  },
+  {
+    "frame": "main",
+    "label": null,
+    "node": "button",
+    "ref": "p6:222"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Close menu type=button",
+    "node": "button",
+    "ref": "p6:224"
+  },
+  {
+    "frame": "main",
+    "label": "type=button",
+    "node": "button",
+    "ref": "p6:225"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Crosslist type=button",
+    "node": "button",
+    "ref": "p6:233"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Automations type=button",
+    "node": "button",
+    "ref": "p6:234"
+  },
+  {
+    "frame": "main",
+    "label": "aria-label=Marketplaces type=button",
+    "node": "button",
+    "ref": "p6:235"
+  }
+]

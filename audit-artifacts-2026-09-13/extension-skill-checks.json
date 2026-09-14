@@ -1,0 +1,92 @@
+[
+  {
+    "command": "node --check vendoo-extension/background.js",
+    "exit_status": 0,
+    "duration_s": 0.062,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/content-script-version.js",
+    "exit_status": 0,
+    "duration_s": 0.059,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/content-scripts/depop.js",
+    "exit_status": 0,
+    "duration_s": 0.059,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/content-scripts/ebay.js",
+    "exit_status": 0,
+    "duration_s": 0.057,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/content-scripts/etsy.js",
+    "exit_status": 0,
+    "duration_s": 0.06,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/content-scripts/mercari.js",
+    "exit_status": 0,
+    "duration_s": 0.057,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/content-scripts/poshmark.js",
+    "exit_status": 0,
+    "duration_s": 0.057,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/content-scripts/vendoo.js",
+    "exit_status": 0,
+    "duration_s": 0.061,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/diagnostic-collector.js",
+    "exit_status": 0,
+    "duration_s": 0.056,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/diagnostic-tool.js",
+    "exit_status": 0,
+    "duration_s": 0.059,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/popup.js",
+    "exit_status": 0,
+    "duration_s": 0.058,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/preview-screencast.js",
+    "exit_status": 0,
+    "duration_s": 0.061,
+    "output": ""
+  },
+  {
+    "command": "node --check vendoo-extension/test-script.js",
+    "exit_status": 0,
+    "duration_s": 0.06,
+    "output": ""
+  },
+  {
+    "command": "python -m json.tool vendoo-extension/manifest.json",
+    "exit_status": 0,
+    "duration_s": 0.044,
+    "error": ""
+  },
+  {
+    "command": "python -m json.tool skills/list-this/references/vendoo-dropdown-options.json",
+    "exit_status": 0,
+    "duration_s": 0.041,
+    "error": ""
+  }
+]

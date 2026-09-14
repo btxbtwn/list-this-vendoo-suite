@@ -1,0 +1,70 @@
+[
+  {
+    "probe": "missing provider prompt persistence",
+    "status": 400,
+    "response": "{\"detail\":\"Sign in with ChatGPT in Settings, or add a MiMo API key.\"}",
+    "messages": []
+  },
+  {
+    "probe": "cross conversation revision restore",
+    "status": 200,
+    "copied": true
+  },
+  {
+    "probe": "invalid typed JSON poisons listing",
+    "put_status": 500,
+    "get_status": 500
+  },
+  {
+    "probe": "partial upload",
+    "status": 400,
+    "response": "{\"detail\":\"Unsupported file type: text/plain\"}",
+    "stored_count": 1
+  },
+  {
+    "probe": "spoofed image MIME and traversal filename",
+    "status": 200,
+    "response": {
+      "ok": true,
+      "count": 1,
+      "photos": [
+        {
+          "id": "9ecb23a28070",
+          "conversation_id": "b6182b15b605",
+          "original_filename": "../../audit-fake.jpg",
+          "mime_type": "image/jpeg",
+          "size_bytes": 12,
+          "display_order": 1,
+          "width": null,
+          "height": null,
+          "created_at": "2026-09-14T01:03:25.710436",
+          "url": "/api/photos/9ecb23a28070"
+        }
+      ]
+    },
+    "escaped_file": false
+  },
+  {
+    "probe": "oversize upload",
+    "status": 400,
+    "response": "{\"detail\":\"File too large (21.0MB). Max 20MB\"}"
+  },
+  {
+    "probe": "photo traversal read",
+    "status": 404
+  },
+  {
+    "probe": "pairing literal bypass",
+    "accepted": true
+  },
+  {
+    "probe": "untrusted CORS preflight",
+    "status": 400,
+    "allow_origin": null
+  },
+  {
+    "probe": "marketplace CORS preflight",
+    "status": 200,
+    "allow_origin": "https://www.etsy.com"
+  }
+]

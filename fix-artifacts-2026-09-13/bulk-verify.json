@@ -1,0 +1,19 @@
+{
+  "bulk_job_id": "46f0807b6fc6",
+  "cancelled_job_id": "5bc915dbf366",
+  "draft_id": "wu1vtewR8b2L8TRJObry",
+  "controlled_field": "Notes",
+  "approved_value": "AUDIT-BULK-REFILL-2026-09-14",
+  "fill_log_status": "filled",
+  "live_notes": "AUDIT-BULK-REFILL-2026-09-14",
+  "photos": 5,
+  "sku": "NOTATIONS-XL",
+  "price": "14",
+  "quantity": "1",
+  "brand": "Notations",
+  "title_unchanged": true,
+  "general": "COMPLETE",
+  "marketplaces_not_listed": true,
+  "second_draft_created": false,
+  "cancelled_preserved": true
+}

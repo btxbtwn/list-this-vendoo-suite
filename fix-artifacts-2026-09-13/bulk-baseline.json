@@ -1,0 +1,63 @@
+{
+  "notes": "",
+  "sku": "NOTATIONS-XL",
+  "price": "14",
+  "quantity": "1",
+  "photos": 5,
+  "photo_ids": [
+    "images/iGdvg7VlwXfcCLWacExVLUM0rbh2/479c13d5-bcd5-4604-ad93-dfb4f9ff6070.jpeg",
+    "images/iGdvg7VlwXfcCLWacExVLUM0rbh2/382d3f23-2dce-436f-b232-ee25955c81af.jpeg",
+    "images/iGdvg7VlwXfcCLWacExVLUM0rbh2/814c41d9-9411-4431-a393-298ada68455a.jpeg",
+    "images/iGdvg7VlwXfcCLWacExVLUM0rbh2/342b6f20-6d61-462e-b64e-99eefe4a3adb.jpeg",
+    "images/iGdvg7VlwXfcCLWacExVLUM0rbh2/104045d8-d435-4e80-9773-585c34c26249.jpeg"
+  ],
+  "brand": "Notations",
+  "statuses": {
+    "general": "COMPLETE",
+    "ebay": "NOT LISTED",
+    "etsy": "NOT LISTED",
+    "poshmark": "NOT LISTED",
+    "mercari": "NOT LISTED",
+    "depop": "NOT LISTED",
+    "facebook": "NOT LISTED",
+    "shopify": "NOT LISTED",
+    "vinted": "NOT LISTED",
+    "whatnot": "NOT LISTED"
+  },
+  "depop": {
+    "source": "reworked",
+    "age": "modern",
+    "style": "retro",
+    "noSKU": false,
+    "location.id": "New Orleans, Louisiana, United States",
+    "shippingMethod": "Depop Shipping (USPS)",
+    "shippingMethods.0.shipFromAddressId": "Cristian Canizares, 3214 Louisiana Avenue Pkwy, New Orleans, 70125-3830, LA, US",
+    "shippingMethods.0.parcelSizeId": "Small",
+    "internationalShippingCost": ""
+  },
+  "mercari_overrides": {
+    "title": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+    "description": "Casual abstract floral button-up shirt in black, white, and gray.\n\nRelaxed fit in woven fabric, styled for casual wear. The material tag is not shown, so fiber composition is unknown. Garment care and production date are unverified because the care tag is not shown.\n\nSize: XL\n\nCondition: Pre-Owned - Good; Flaws: No specific flaws visible; material is unknown and condition is based on photo review. See photos for details.\n\nMeasurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+    "condition": "Good (Gently used)",
+    "brand": "Notations",
+    "noBrand": false,
+    "quantity": "1",
+    "weight.pounds": "0",
+    "weight.ounces": "8",
+    "dimensions.length": "13",
+    "dimensions.width": "10",
+    "dimensions.height": "3",
+    "price": "14"
+  },
+  "mercari_specs": {
+    "mercariLocalInformation": "3214 Louisiana Avenue Pkwy New Orleans 70125",
+    "shipping.deliveryMethod": "Standard shipping",
+    "shipping.payerId": "Buyer pays",
+    "shipping.carrierId": "",
+    "smartPricing": false,
+    "smartOffers": false
+  },
+  "ebay_price": null,
+  "poshmark_price": "14",
+  "item_id": "wu1vtewR8b2L8TRJObry"
+}

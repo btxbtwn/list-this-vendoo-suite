@@ -1,0 +1,715 @@
+[
+  {
+    "case": "baseline",
+    "path": null,
+    "test_value": null,
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 0.00010154099436476827,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing title",
+    "path": "title",
+    "test_value": null,
+    "deleted": true,
+    "photo_count": 5,
+    "duration": 0.0002648330118972808,
+    "can_send": false,
+    "valid": false,
+    "errors": [
+      {
+        "field": "title",
+        "message": "title: Field required"
+      },
+      {
+        "field": "title",
+        "message": "title is required"
+      }
+    ],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing description",
+    "path": "description",
+    "test_value": null,
+    "deleted": true,
+    "photo_count": 5,
+    "duration": 4.429099499247968e-05,
+    "can_send": false,
+    "valid": false,
+    "errors": [
+      {
+        "field": "description",
+        "message": "description: Field required"
+      },
+      {
+        "field": "description",
+        "message": "description is required"
+      }
+    ],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing price",
+    "path": "price",
+    "test_value": null,
+    "deleted": true,
+    "photo_count": 5,
+    "duration": 3.9874998037703335e-05,
+    "can_send": false,
+    "valid": false,
+    "errors": [
+      {
+        "field": "price",
+        "message": "price: Field required"
+      },
+      {
+        "field": "price",
+        "message": "price is required"
+      }
+    ],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing brand",
+    "path": "brand",
+    "test_value": null,
+    "deleted": true,
+    "photo_count": 5,
+    "duration": 3.491700044833124e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing size",
+    "path": "size",
+    "test_value": null,
+    "deleted": true,
+    "photo_count": 5,
+    "duration": 3.579100302886218e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing sku",
+    "path": "sku",
+    "test_value": null,
+    "deleted": true,
+    "photo_count": 5,
+    "duration": 3.195799945387989e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing weight_lb",
+    "path": "weight_lb",
+    "test_value": null,
+    "deleted": true,
+    "photo_count": 5,
+    "duration": 2.9999995604157448e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing weight_oz",
+    "path": "weight_oz",
+    "test_value": null,
+    "deleted": true,
+    "photo_count": 5,
+    "duration": 2.8084003133699298e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "blank title",
+    "path": "title",
+    "test_value": "   ",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.866699651349336e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "empty title",
+    "path": "title",
+    "test_value": "",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 5.933298962190747e-05,
+    "can_send": false,
+    "valid": false,
+    "errors": [
+      {
+        "field": "title",
+        "message": "title: String should have at least 1 character"
+      },
+      {
+        "field": "title",
+        "message": "title is required"
+      }
+    ],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "overlong title",
+    "path": "title",
+    "test_value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.9041999368928373e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "wrong title formula",
+    "path": "title",
+    "test_value": "Nice blouse",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6875000912696123e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "wrong description",
+    "path": "description",
+    "test_value": "Nice blouse",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6833993615582585e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "zero price",
+    "path": "price",
+    "test_value": 0,
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 0.0003799999976763502,
+    "can_send": false,
+    "valid": false,
+    "errors": [
+      {
+        "field": "price",
+        "message": "price: Input should be greater than 0"
+      },
+      {
+        "field": "price",
+        "message": "price is required"
+      }
+    ],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "negative price",
+    "path": "price",
+    "test_value": -1,
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 6.150000263005495e-05,
+    "can_send": false,
+    "valid": false,
+    "errors": [
+      {
+        "field": "price",
+        "message": "price: Input should be greater than 0"
+      }
+    ],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid package",
+    "path": "package_dimensions_in",
+    "test_value": "banana",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 3.954200656153262e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "nonterminal category",
+    "path": "category_path",
+    "test_value": "Clothing",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 3.3500007702969015e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "department mismatch",
+    "path": "department",
+    "test_value": "Men",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 3.0458002584055066e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "size mismatch",
+    "path": "ebay_specifics.size",
+    "test_value": "S",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.8959009796380997e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing ebay specifics",
+    "path": "ebay_specifics",
+    "test_value": {},
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.3542001144960523e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "wrong ebay keys",
+    "path": "ebay_specifics",
+    "test_value": {
+      "Size": "XL",
+      "Department": "Women"
+    },
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6541994884610176e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [
+      {
+        "field": "ebay_specifics.type",
+        "message": "eBay field 'type' is recommended for search visibility"
+      },
+      {
+        "field": "ebay_specifics.department",
+        "message": "eBay field 'department' is recommended for search visibility"
+      },
+      {
+        "field": "ebay_specifics.sizeType",
+        "message": "eBay field 'sizeType' is recommended for search visibility"
+      },
+      {
+        "field": "ebay_specifics.size",
+        "message": "eBay field 'size' is recommended for search visibility"
+      }
+    ],
+    "info": []
+  },
+  {
+    "case": "invalid season",
+    "path": "ebay_specifics.season",
+    "test_value": "Moon season",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.804200630635023e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid Depop source",
+    "path": "depop_specifics.source",
+    "test_value": "Invented",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.7125002816319466e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid Depop age",
+    "path": "depop_specifics.age",
+    "test_value": "Invented",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.679199678823352e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid Depop style",
+    "path": "depop_specifics.style",
+    "test_value": [
+      "Invented"
+    ],
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.691699774004519e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "four Depop styles",
+    "path": "depop_specifics.style",
+    "test_value": [
+      "Casual",
+      "Retro",
+      "Minimalist",
+      "Preppy"
+    ],
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.849999873433262e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [
+      {
+        "field": "depop_specifics.style",
+        "message": "Depop allows only 3 style tags"
+      }
+    ],
+    "info": []
+  },
+  {
+    "case": "invalid material",
+    "path": "depop_specifics.material",
+    "test_value": "Invented",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.649999805726111e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid occasion",
+    "path": "depop_specifics.occasion",
+    "test_value": [
+      "Invented"
+    ],
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6541005354374647e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid parcel",
+    "path": "depop_specifics.parcelSize",
+    "test_value": "Truck",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.633400436025113e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "regular grouping",
+    "path": "depop_specifics.sizeGrouping",
+    "test_value": "Regular",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6417008484713733e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid Etsy who",
+    "path": "etsy_specifics.who_made",
+    "test_value": "Invented",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.5999994250014424e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid Etsy what",
+    "path": "etsy_specifics.what_is",
+    "test_value": "Invented",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.608299837447703e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid Etsy when",
+    "path": "etsy_specifics.when_made",
+    "test_value": "Invented",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6374997105449438e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "ineligible modern Etsy",
+    "path": "etsy_specifics.when_made",
+    "test_value": "2020 - 2026",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6124995201826096e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "unsupported care",
+    "path": "ebay_specifics.garmentCare",
+    "test_value": "Machine Washable",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6374997105449438e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "unsupported composition",
+    "path": "ebay_specifics.material",
+    "test_value": "100% Silk",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6125009753741324e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "14 Etsy tags",
+    "path": "etsy_specifics.tags",
+    "test_value": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13"
+    ],
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.791700535453856e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "11 Etsy materials",
+    "path": "etsy_specifics.materials",
+    "test_value": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10"
+    ],
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.7833011699840426e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "boolean false",
+    "path": "audit_false",
+    "test_value": false,
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6374997105449438e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "numeric zero",
+    "path": "audit_zero",
+    "test_value": 0,
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.5999994250014424e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "unknown nested",
+    "path": "audit_extra",
+    "test_value": {
+      "array": [
+        "one",
+        "two"
+      ],
+      "empty": "",
+      "null": null
+    },
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6541005354374647e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "invalid ebay object type",
+    "path": "ebay_specifics",
+    "test_value": "invalid",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 5.49160031368956e-05,
+    "exception": "AttributeError: 'str' object has no attribute 'get'"
+  },
+  {
+    "case": "invalid depop object type",
+    "path": "depop_specifics",
+    "test_value": "invalid",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.649999805726111e-05,
+    "exception": "AttributeError: 'str' object has no attribute 'get'"
+  },
+  {
+    "case": "missing photos",
+    "path": null,
+    "test_value": null,
+    "deleted": false,
+    "photo_count": 0,
+    "duration": 2.8124995878897607e-05,
+    "can_send": false,
+    "valid": false,
+    "errors": [
+      {
+        "field": "photos",
+        "message": "At least one product photo is required"
+      }
+    ],
+    "warnings": [],
+    "info": []
+  },
+  {
+    "case": "missing material evidence",
+    "path": "ebay_specifics.material",
+    "test_value": "",
+    "deleted": false,
+    "photo_count": 5,
+    "duration": 2.6292007532902062e-05,
+    "can_send": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  }
+]

@@ -1,0 +1,90 @@
+{
+  "source": "AX_tree_sanitized",
+  "draft_id": "JUMA4gTeF2bTd4Z9f5M6",
+  "url": "https://web.vendoo.co/app/item/JUMA4gTeF2bTd4Z9f5M6?marketplace=etsy",
+  "visible_fields": [
+    {
+      "label": "Address and search bar",
+      "value": "web.vendoo.co/app/item/JUMA4gTeF2bTd4Z9f5M6?marketplace=etsy",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Title",
+      "value": "Teal Abstract Grid Instant Download Wall Art Print Digital PNG",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Primary Color",
+      "value": "Blue",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Secondary Color",
+      "value": "Yellow",
+      "role": "AXTextField"
+    },
+    {
+      "label": "SKU",
+      "value": "AUDIT-ETSY-DIGITAL-001",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Who Made It?",
+      "value": "Another company or person",
+      "role": "AXTextField"
+    },
+    {
+      "label": "What Is It?",
+      "value": "A finished product",
+      "role": "AXTextField"
+    },
+    {
+      "label": "When Was It Made?",
+      "value": "2020 - 2026 (Recently)",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Listing Type",
+      "value": "Physical Item",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Shipping Profile",
+      "value": "BUYER PAYS SHIPPING",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Processing Profile",
+      "value": "Ready to ship: 1-2 days",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Policies",
+      "value": "Accept Returns / No Exchanges / 7days",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Price",
+      "value": "4.99",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Renewal options",
+      "value": "Manual",
+      "role": "AXTextField"
+    },
+    {
+      "label": "Listing State",
+      "value": "Draft Listing",
+      "role": "AXTextField"
+    }
+  ],
+  "signals": {
+    "Digital Prints": true,
+    "NOT LISTED": true,
+    "digital download tag": true,
+    "digital_file_upload_button": false
+  },
+  "network_note": "No private request payloads captured. Save confirmation observed only via visible Last Saved UI text.",
+  "console_note": "No cookies, tokens, or account secrets collected."
+}

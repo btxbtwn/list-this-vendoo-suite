@@ -1,0 +1,274 @@
+[
+  {
+    "id": "9c7209ad59b5",
+    "sequence": 0,
+    "event_type": "created",
+    "step": "queued",
+    "created_at": "2026-09-14T01:00:41.668009",
+    "payload": {}
+  },
+  {
+    "id": "af03554becf7",
+    "sequence": 1,
+    "event_type": "dispatched",
+    "step": null,
+    "created_at": "2026-09-14T01:00:41.730170",
+    "payload": {}
+  },
+  {
+    "id": "eeef7e9bc9ee",
+    "sequence": 2,
+    "event_type": "progress",
+    "step": "opening_vendoo",
+    "created_at": "2026-09-14T01:00:41.732150",
+    "payload": {
+      "step": "opening_vendoo"
+    }
+  },
+  {
+    "id": "017d5efeebcc",
+    "sequence": 3,
+    "event_type": "step_completed",
+    "step": "opening_vendoo",
+    "created_at": "2026-09-14T01:00:45.645206",
+    "payload": {
+      "step": "opening_vendoo",
+      "categories": null
+    }
+  },
+  {
+    "id": "a0c18bd785be",
+    "sequence": 4,
+    "event_type": "progress",
+    "step": "waiting_ready",
+    "created_at": "2026-09-14T01:00:45.651642",
+    "payload": {
+      "step": "waiting_ready"
+    }
+  },
+  {
+    "id": "bab6a90e83d9",
+    "sequence": 5,
+    "event_type": "step_completed",
+    "step": "waiting_ready",
+    "created_at": "2026-09-14T01:00:45.775794",
+    "payload": {
+      "step": "waiting_ready",
+      "categories": null
+    }
+  },
+  {
+    "id": "a031d1199900",
+    "sequence": 6,
+    "event_type": "progress",
+    "step": "uploading_photos",
+    "created_at": "2026-09-14T01:00:45.786311",
+    "payload": {
+      "step": "uploading_photos"
+    }
+  },
+  {
+    "id": "d9e077118bff",
+    "sequence": 7,
+    "event_type": "step_completed",
+    "step": "uploading_photos",
+    "created_at": "2026-09-14T01:00:55.932111",
+    "payload": {
+      "step": "uploading_photos",
+      "categories": null
+    }
+  },
+  {
+    "id": "18d76dc1bd74",
+    "sequence": 8,
+    "event_type": "progress",
+    "step": "filling_general",
+    "created_at": "2026-09-14T01:00:55.936401",
+    "payload": {
+      "step": "filling_general"
+    }
+  },
+  {
+    "id": "53c45fc52b75",
+    "sequence": 9,
+    "event_type": "step_completed",
+    "step": "filling_general",
+    "created_at": "2026-09-14T01:02:13.974905",
+    "payload": {
+      "step": "filling_general",
+      "categories": null
+    }
+  },
+  {
+    "id": "2c5e7996ad62",
+    "sequence": 10,
+    "event_type": "progress",
+    "step": "saving_general",
+    "created_at": "2026-09-14T01:02:14.014862",
+    "payload": {
+      "step": "saving_general"
+    }
+  },
+  {
+    "id": "6c236900c0d8",
+    "sequence": 11,
+    "event_type": "step_completed",
+    "step": "saving_general",
+    "created_at": "2026-09-14T01:02:18.107467",
+    "payload": {
+      "step": "saving_general",
+      "vendoo_item_id": "new",
+      "vendoo_url": "https://web.vendoo.co/app/item/new",
+      "categories": null
+    }
+  },
+  {
+    "id": "60d6b224ba3a",
+    "sequence": 12,
+    "event_type": "progress",
+    "step": "auditing_general",
+    "created_at": "2026-09-14T01:02:18.116289",
+    "payload": {
+      "step": "auditing_general"
+    }
+  },
+  {
+    "id": "5e69d9f6ba95",
+    "sequence": 13,
+    "event_type": "step_completed",
+    "step": "auditing_general",
+    "created_at": "2026-09-14T01:02:18.220801",
+    "payload": {
+      "step": "auditing_general",
+      "categories": null
+    }
+  },
+  {
+    "id": "fd4eb9ed6da0",
+    "sequence": 14,
+    "event_type": "progress",
+    "step": "discovering_schema",
+    "created_at": "2026-09-14T01:02:18.226367",
+    "payload": {
+      "step": "discovering_schema"
+    }
+  },
+  {
+    "id": "28ad4a24bcda",
+    "sequence": 15,
+    "event_type": "vendoo_get",
+    "step": null,
+    "created_at": "2026-09-14T01:02:24.709561",
+    "payload": {
+      "error": "No Vendoo item id"
+    }
+  },
+  {
+    "id": "735da10e5201",
+    "sequence": 16,
+    "event_type": "vendoo_get",
+    "step": null,
+    "created_at": "2026-09-14T01:02:26.704428",
+    "payload": {
+      "error": "No Vendoo item id"
+    }
+  },
+  {
+    "id": "c994d7049424",
+    "sequence": 17,
+    "event_type": "step_completed",
+    "step": "discovering_schema",
+    "created_at": "2026-09-14T01:02:47.031723",
+    "payload": {
+      "step": "discovering_schema",
+      "categories": {
+        "ebay": {
+          "status": "not_found",
+          "path": ""
+        },
+        "etsy": {
+          "status": "not_found",
+          "path": ""
+        },
+        "poshmark": {
+          "status": "not_found",
+          "path": ""
+        },
+        "mercari": {
+          "status": "not_found",
+          "path": ""
+        },
+        "depop": {
+          "status": "not_found",
+          "path": ""
+        }
+      }
+    }
+  },
+  {
+    "id": "d8e74c632c78",
+    "sequence": 18,
+    "event_type": "schema_discovered",
+    "step": "discovering_schema",
+    "created_at": "2026-09-14T01:02:47.109456",
+    "payload": {
+      "platforms": [
+        "ebay",
+        "etsy",
+        "poshmark",
+        "mercari",
+        "depop"
+      ],
+      "categories": {
+        "ebay": {
+          "status": "not_found",
+          "path": ""
+        },
+        "etsy": {
+          "status": "not_found",
+          "path": ""
+        },
+        "poshmark": {
+          "status": "not_found",
+          "path": ""
+        },
+        "mercari": {
+          "status": "not_found",
+          "path": ""
+        },
+        "depop": {
+          "status": "not_found",
+          "path": ""
+        }
+      },
+      "field_counts": {
+        "ebay": 0,
+        "etsy": 33,
+        "poshmark": 15,
+        "mercari": 18,
+        "depop": 19
+      }
+    }
+  },
+  {
+    "id": "a7e5bc5f34c3",
+    "sequence": 19,
+    "event_type": "progress",
+    "step": "filling_ebay",
+    "created_at": "2026-09-14T01:02:47.113093",
+    "payload": {
+      "step": "filling_ebay"
+    }
+  },
+  {
+    "id": "8a0a12ed3dae",
+    "sequence": 20,
+    "event_type": "step_failed",
+    "step": "filling_ebay",
+    "created_at": "2026-09-14T01:02:48.046226",
+    "payload": {
+      "step": "filling_ebay",
+      "error": "Could not activate ebay marketplace section"
+    }
+  }
+]

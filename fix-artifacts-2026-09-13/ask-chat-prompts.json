@@ -1,0 +1,72 @@
+{
+  "listing": "Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed",
+  "draft": "wu1vtewR8b2L8TRJObry",
+  "prompts": {
+    "not_found": "Fix this Vendoo field for listing \"Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\".\n\nListing: Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\nMarketplace: ebay\nField: Category\nCurrent value: Clothing, Shoes & Accessories > Women > Women's Clothing > Tops\nStatus: not_found\nFailure reason: Category field not found\n\nGenerate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.\n",
+    "failed": "Fix this Vendoo field for listing \"Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\".\n\nListing: Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\nMarketplace: mercari\nField: Category\nCurrent value: Women > Tops & Blouses > Blouses\nStatus: failed\nFailure reason: Field disappeared after fill\n\nGenerate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.\n",
+    "skipped": "Fix this Vendoo field for listing \"Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\".\n\nListing: Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\nMarketplace: general\nField: Notes\nCurrent value: (empty)\nStatus: skipped\nFailure reason: No value in listing\n\nGenerate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.\n",
+    "invalid-dropdown": "Fix this Vendoo field for listing \"Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\".\n\nListing: Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\nMarketplace: depop\nField: Parcel Size\nCurrent value: Small\nStatus: invalid-dropdown\nFailure reason: Dropdown option was not selected\n\nGenerate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.\n",
+    "missing": "Fix this Vendoo field for listing \"Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\".\n\nListing: Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\nMarketplace: general\nField: Notes\nCurrent value: (empty)\nStatus: missing\nFailure reason: empty on the live Vendoo draft\n\nGenerate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.\n",
+    "uncertain": "Fix this Vendoo field for listing \"Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\".\n\nListing: Notations XL Retro Short Sleeve Button-Up Shirt Black White Gray Relaxed\nMarketplace: mercari\nField: Category\nCurrent value: Women > Tops & Blouses > T-Shirts\nStatus: uncertain\nFailure reason: Breadcrumb ambiguous between Blouse and T-Shirts\n\nGenerate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.\n"
+  },
+  "entries": {
+    "not_found": {
+      "id": "835aaa317b62",
+      "step": "discovering_schema",
+      "marketplace": "ebay",
+      "field": "Category",
+      "status": "not_found",
+      "reason": "Category field not found",
+      "selector": "",
+      "value_preview": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+      "created_at": "2026-09-14T04:11:20.224724"
+    },
+    "failed": {
+      "id": "f66d44c373ec",
+      "step": "filling_mercari",
+      "marketplace": "mercari",
+      "field": "Category",
+      "status": "failed",
+      "reason": "Field disappeared after fill",
+      "selector": "",
+      "value_preview": "Women > Tops & Blouses > Blouses",
+      "created_at": "2026-09-14T04:31:42.554232"
+    },
+    "skipped": {
+      "id": "6b573f09038c",
+      "step": "filling_general",
+      "marketplace": "general",
+      "field": "Notes",
+      "status": "skipped",
+      "reason": "No value in listing",
+      "selector": "#generalDetails\\.notes",
+      "value_preview": "",
+      "created_at": "2026-09-14T03:59:17.465110"
+    },
+    "invalid-dropdown": {
+      "id": "6f638bab3677",
+      "step": "filling_fields",
+      "marketplace": "depop",
+      "field": "Parcel Size",
+      "status": "failed",
+      "reason": "Dropdown option was not selected",
+      "selector": "",
+      "value_preview": "Small",
+      "created_at": "2026-09-14T05:21:37.113630"
+    },
+    "missing": {
+      "marketplace": "general",
+      "field": "Notes",
+      "status": "missing",
+      "reason": "empty on the live Vendoo draft",
+      "value_preview": ""
+    },
+    "uncertain": {
+      "marketplace": "mercari",
+      "field": "Category",
+      "status": "uncertain",
+      "reason": "Breadcrumb ambiguous between Blouse and T-Shirts",
+      "value_preview": "Women > Tops & Blouses > T-Shirts"
+    }
+  }
+}
