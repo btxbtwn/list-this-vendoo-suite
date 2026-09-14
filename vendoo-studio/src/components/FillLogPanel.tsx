@@ -1409,7 +1409,7 @@ export function FillLogPanel({
     queryFn: api.settings.marketplaces,
   });
   const hiddenQueryKey = ["settings-hidden-fields", conversationId] as const;
-  const { data: hiddenData, isSuccess: hiddenReady } = useQuery({
+  const { data: hiddenData } = useQuery({
     queryKey: hiddenQueryKey,
     queryFn: () => api.settings.hiddenFields(conversationId),
   });
@@ -1597,24 +1597,6 @@ export function FillLogPanel({
       addToast({ type: "error", title: (error as Error).message || "Could not restore category fields" });
     },
   });
-
-  const restoredCategoryRef = React.useRef<string | null>(null);
-  React.useEffect(() => {
-    const scopeKey = conversationId || "__global__";
-    if (restoredCategoryRef.current === scopeKey || !hiddenReady) return;
-    const matches = [...hidden.always, ...hidden.listing]
-      .filter(
-        (item) =>
-          item.marketplace === "ebay" && EBAY_CATEGORY_FIELD_NAMES.has(normalizeFieldName(item.field)),
-      )
-      .map((item) => ({ marketplace: item.marketplace, field: item.field }));
-    if (!matches.length) {
-      restoredCategoryRef.current = scopeKey;
-      return;
-    }
-    restoredCategoryRef.current = scopeKey;
-    restoreCategoryMutation.mutate(matches);
-  }, [conversationId, hiddenReady, hidden.always, hidden.listing]);
 
   const resolveCategory = useMutation({
     mutationFn: () => api.jobs.resolveCategory(jobId, String(listing?.category_path || "")),
