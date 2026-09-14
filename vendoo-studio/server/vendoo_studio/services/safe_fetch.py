@@ -27,8 +27,8 @@ class UnsafeURLError(ValueError):
 
 
 def is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    if ip.ipv6_mapped is not None:
-        ip = ip.ipv6_mapped
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
     if any(ip in network for network in METADATA_NETWORKS):
         return True
     return not ip.is_global

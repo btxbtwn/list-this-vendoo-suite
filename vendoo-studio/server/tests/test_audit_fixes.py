@@ -90,6 +90,7 @@ class SafeFetchTest(unittest.TestCase):
             "file:///etc/passwd",
             "ftp://example.com/a.jpg",
             "http://169.254.169.254/latest/meta-data/",
+            "http://[::ffff:127.0.0.1]/secret.jpg",
         ):
             with self.assertRaises(UnsafeURLError):
                 validate_fetch_url(url)
