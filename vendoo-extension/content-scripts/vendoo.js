@@ -2096,7 +2096,8 @@
   function listCategoryOptions() {
       const seen = new Set();
       const options = [];
-      for (const el of document.querySelectorAll(CATEGORY_RESULT_SELECTORS)) {
+      const root = categoryPickerRoot() || document;
+      for (const el of root.querySelectorAll(CATEGORY_RESULT_SELECTORS)) {
           if (seen.has(el) || !isVisibleElement(el)) continue;
           const text = optionMatchText(el);
           if (!text) continue;
@@ -2246,6 +2247,37 @@
       return null;
   }
 
+  /** Exact verified-path match: leaf or full label only — never aliases. */
+  function findExactCategoryOption(segment, options = listCategoryOptions()) {
+      const needle = normalizeText(segment);
+      if (!needle) return null;
+      return options.find((option) => categoryOptionLeaf(option) === needle || option.lower === needle) || null;
+  }
+
+  async function waitForCategoryOptions(attempts = 8) {
+      for (let attempt = 0; attempt < attempts; attempt++) {
+          const options = listCategoryOptions();
+          if (options.length) return options;
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      return listCategoryOptions();
+  }
+
+  async function filterCategoryPicker(query) {
+      const q = String(query || '').trim();
+      const search = document.querySelector('input[role="category-search-field"]');
+      if (!search || !q) return Boolean(search);
+      log(`Filtering category picker for: "${q}"`);
+      search.focus();
+      await clearInput(search);
+      setReactValue(search, q);
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      search.dispatchEvent(new KeyboardEvent('input', { bubbles: true }));
+      search.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(CONFIG.SLEEP_LONG * 2);
+      return true;
+  }
+
   function rankCategorySearchResults(options, segments) {
       const needles = segments.map((segment) => normalizeText(segment)).filter(Boolean);
       const leaf = needles[needles.length - 1] || '';
@@ -2330,15 +2362,27 @@
       await sleep(CONFIG.SLEEP_MEDIUM);
   }
 
-  async function resetCategoryPickerToRoot() {
+  function categoryPickerRoot() {
       const search = document.querySelector('input[role="category-search-field"]');
-      if (!search) return;
+      if (!search) {
+          const cancel = document.querySelector('[data-testid="cancel-category-selection-button"]');
+          return cancel?.closest('[role="dialog"], [class*="Popover"], [class*="Modal"], [class*="paper"]')
+              || cancel?.parentElement
+              || null;
+      }
       let root = search.parentElement;
       while (root && !root.querySelector('[data-testid="cancel-category-selection-button"]')) {
           root = root.parentElement;
       }
+      return root;
+  }
+
+  async function resetCategoryPickerToRoot() {
+      const search = document.querySelector('input[role="category-search-field"]');
+      const root = categoryPickerRoot();
+      if (!root && !search) return;
       if (!root) throw new Error('Category picker container not found');
-      await clearInput(search);
+      if (search) await clearInput(search);
       const clickVisible = (predicate) => {
           const match = Array.from(root.querySelectorAll('span, button, a, [role="button"]')).find((el) => {
               if (!isVisibleElement(el)) return false;
@@ -2361,6 +2405,7 @@
           log('Category picker: going back');
           await sleep(CONFIG.SLEEP_LONG);
       }
+      await waitForCategoryOptions();
   }
 
   function readCategoryDisplay(el) {
@@ -2689,6 +2734,7 @@
 
       const segments = categoryPath.split('>').map(s => s.trim()).filter(Boolean);
       if (segments.length === 0) return { ok: true, filled: false };
+      const verifiedWalk = Boolean(data.marketplace_categories);
 
       const catBtn = options.catBtn || await waitForGeneralCategoryControl();
       if (!catBtn) {
@@ -2697,7 +2743,7 @@
       }
 
       const alreadyShown = readCategoryDisplay(catBtn);
-      const matchesPath = (shown) => data.marketplace_categories
+      const matchesPath = (shown) => verifiedWalk
           ? normalizeCategoryDisplay(shown).toLowerCase() === normalizeCategoryDisplay(categoryPath).toLowerCase()
           : categoryDisplayMatches(shown, categoryPath);
       if (matchesPath(alreadyShown)) {
@@ -2714,19 +2760,21 @@
       await sleep(CONFIG.SLEEP_LONG * 2);
 
       let searchInput = await waitForCategorySearch();
+      if (!searchInput && !document.querySelector('[data-testid="cancel-category-selection-button"]')) {
+          // Picker mount can lag behind the category-button click.
+          for (let attempt = 0; attempt < 6 && !searchInput; attempt++) {
+              await sleep(CONFIG.SLEEP_LONG);
+              searchInput = document.querySelector('input[role="category-search-field"]');
+              if (document.querySelector('[data-testid="cancel-category-selection-button"]')) break;
+          }
+      }
       await resetCategoryPickerToRoot();
       searchInput = document.querySelector('input[role="category-search-field"]') || searchInput;
-      if (searchInput && !data.marketplace_categories) {
+      if (searchInput && !verifiedWalk) {
           const leaf = segments[segments.length - 1] || '';
           const query = /\bblouses?\b/i.test(leaf) ? leaf : segments.slice(-2).join(' ');
           log(`Searching categories for: "${query}"`);
-          searchInput.focus();
-          await clearInput(searchInput);
-          setReactValue(searchInput, query);
-          searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-          searchInput.dispatchEvent(new KeyboardEvent('input', { bubbles: true }));
-          searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-          await sleep(CONFIG.SLEEP_LONG * 2);
+          await filterCategoryPicker(query);
 
           const ranked = rankCategorySearchResults(listCategoryOptions(), segments);
           if (ranked.length > 0) {
@@ -2741,24 +2789,42 @@
           const el = document.querySelector('input[role="category-search-field"]');
           return Boolean(el && document.contains(el));
       };
+      const pickerStillOpen = () => searchStillOpen()
+          || Boolean(document.querySelector('[data-testid="cancel-category-selection-button"]'))
+          || listCategoryOptions().length > 0;
 
-      if (searchStillOpen()) {
+      async function resolveSegmentOption(segment) {
+          let targetOption = null;
+          for (let attempt = 0; attempt < 8 && !targetOption; attempt++) {
+              if (attempt) await sleep(CONFIG.SLEEP_LONG);
+              await waitForCategoryOptions(1);
+              targetOption = verifiedWalk
+                  ? findExactCategoryOption(segment)
+                  : findStrongCategoryOption(segment);
+          }
+          if (targetOption || !verifiedWalk) return targetOption;
+          // Verified paths must stay exact, but long trees are often virtualized —
+          // filter the open picker by this segment, then require an exact label hit.
+          if (await filterCategoryPicker(segment)) {
+              for (let attempt = 0; attempt < 6 && !targetOption; attempt++) {
+                  if (attempt) await sleep(CONFIG.SLEEP_LONG);
+                  targetOption = findExactCategoryOption(segment);
+              }
+          }
+          return targetOption;
+      }
+
+      if (pickerStillOpen()) {
           for (let i = 0; i < segments.length; i++) {
               const segment = segments[i];
               const isLeaf = i === segments.length - 1;
               log(`  Drilling into: "${segment}" (${i + 1}/${segments.length})`);
 
-              let targetOption = null;
-              for (let attempt = 0; attempt < 8 && !targetOption; attempt++) {
-                  await sleep(CONFIG.SLEEP_LONG);
-                  targetOption = data.marketplace_categories
-                      ? listCategoryOptions().find((option) => option.lower === normalizeText(segment))
-                      : findStrongCategoryOption(segment);
-              }
+              const targetOption = await resolveSegmentOption(segment);
 
               if (!targetOption) {
                   const visible = listCategoryOptions().map((option) => option.text).slice(0, 20);
-                  const laterVisible = !data.marketplace_categories && !isLeaf && segments.slice(i + 1).some((later) => (
+                  const laterVisible = !verifiedWalk && !isLeaf && segments.slice(i + 1).some((later) => (
                       findStrongCategoryOption(later, listCategoryOptions())
                   ));
                   if (laterVisible) {
@@ -2776,7 +2842,7 @@
       await sleep(CONFIG.SLEEP_LONG * 2);
 
       const terminalSearch = document.querySelector('input[role="category-search-field"]');
-      if (terminalSearch && document.contains(terminalSearch) && !data.marketplace_categories) {
+      if (terminalSearch && document.contains(terminalSearch) && !verifiedWalk) {
           log('Category modal still open, searching for terminal child...');
 
           const children = listCategoryOptions();
@@ -2838,9 +2904,20 @@
           return { ok: false, filled: false, error: 'Category modal did not close after selection' };
       }
 
-      const currentButton = options.marketplace
-          ? findMarketplaceCategoryControl(options.marketplace) : findGeneralCategoryControl();
-      const catBtnText = readCategoryDisplay(currentButton);
+      const resolveButton = () => {
+          if (options.marketplace) {
+              return findMarketplaceCategoryControl(options.marketplace) || catBtn;
+          }
+          return findGeneralCategoryControl() || catBtn;
+      };
+
+      let catBtnText = '';
+      for (let attempt = 0; attempt < 10; attempt++) {
+          catBtnText = readCategoryDisplay(resolveButton());
+          if (catBtnText && matchesPath(catBtnText)) break;
+          if (catBtnText && !/click to select|select category/i.test(catBtnText) && !verifiedWalk) break;
+          await sleep(CONFIG.SLEEP_LONG);
+      }
       log(`Category selected. Button text: "${catBtnText}"`);
 
       if (!catBtnText || catBtnText.toLowerCase().includes('click to select')) {
@@ -5552,7 +5629,8 @@
           const type = String(el.type || '').toLowerCase();
           if (['hidden', 'submit', 'button', 'reset', 'file', 'image'].includes(type)) continue;
           if (!isVisibleElement(el)) continue;
-          if (!isEnabledField(el)) continue;
+          // Keep disabled cascade fields — eBay category specifics often mount
+          // disabled until department/type are chosen, but discovery still needs them.
           if (!marketplaceFieldNode(el, marketplace) && !isCurrentMarketplaceControl(el)) continue;
 
           const label = scrapedFieldLabel(el) || fieldLabelForControl(el);
@@ -5585,6 +5663,7 @@
               selector: selectorFor(el, ''),
               filled: value !== '' && value != null && (!Array.isArray(value) || value.length > 0),
               value,
+              disabled: !isEnabledField(el),
               is_dropdown: isDropdownLike(el),
               options_source: nativeSelect ? 'native-select' : 'not-collected',
               required: Boolean(
@@ -5598,11 +5677,11 @@
       }
 
       // Second pass: opening a menu mutates the DOM, so only do it once the
-      // field list is settled.
+      // field list is settled. Skip disabled controls — they cannot open.
       let captured = 0;
       for (let i = 0; i < fields.length; i += 1) {
           const field = fields[i];
-          if (!field.is_dropdown || field.options_complete) continue;
+          if (!field.is_dropdown || field.options_complete || field.disabled) continue;
           if (captured >= MAX_OPTION_CAPTURES_PER_PLATFORM) {
               field.options_source = 'capture-limit';
               continue;
@@ -5701,7 +5780,19 @@
                   await sleep(CONFIG.SLEEP_LONG);
               }
 
-              const fields = await collectMarketplaceSchemaFields(platform);
+              // Category remounts cascade fields asynchronously; empty first pass is common.
+              let fields = [];
+              for (let attempt = 0; attempt < 8; attempt++) {
+                  if (attempt) {
+                      await expandOptionalFields();
+                      await sleep(CONFIG.SLEEP_LONG);
+                  }
+                  fields = await collectMarketplaceSchemaFields(platform);
+                  if (fields.length) break;
+              }
+              if (!fields.length && !marketplaceFormMounted(platform)) {
+                  throw new Error('Marketplace form did not mount after category select');
+              }
               for (const field of fields) {
                   if (normalizeFieldKey(field.label) === 'category') continue;
                   recordFill({
@@ -5720,9 +5811,13 @@
                   category: categories[platform],
                   fields,
                   error: !shown || ['failed', 'invalid', 'not_found'].includes(catResult?.status)
-                      ? 'Marketplace category selection was not verified' : null,
+                      ? 'Marketplace category selection was not verified'
+                      : (!fields.length ? 'No form fields were found' : null),
               };
               log(`  ${platform}: ${fields.length} schema fields`);
+              if (!fields.length) {
+                  throw new Error('No form fields were found');
+              }
           } catch (err) {
               warn(`Discover schema ${platform} failed: ${err.message}`);
               recordFill({ field: 'form', status: 'failed', reason: err.message });
