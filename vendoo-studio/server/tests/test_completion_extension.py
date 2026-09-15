@@ -7,6 +7,33 @@ EXTENSION = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
 
 class CompletionExtensionTest(unittest.TestCase):
+    def test_verified_category_walk_uses_exact_labels_without_aliases(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[source.index("  async function fillCategoryPath"):source.index("  function normalizeCategoryDisplay")]
+        script = """
+let opened = false, depth = 0;
+const path = 'Women > Tops > T-shirts', clicked = [];
+const segments = path.split(' > ');
+const catBtn = {scrollIntoView() {}, click() {opened = true;}};
+const document = {querySelector: () => opened ? {} : null, contains: () => opened};
+const normalizeText = text => text.toLowerCase(), normalizeCategoryDisplay = text => text;
+const normalizeVendooCategoryPath = data => data.category_path;
+const readCategoryDisplay = () => depth === 3 ? path : '';
+const waitForGeneralCategoryControl = async () => catBtn, findGeneralCategoryControl = () => catBtn;
+const clearExistingCategorySelection = async () => {}, closeOpenMenus = async () => {};
+const waitForCategorySearch = async () => ({}), resetCategoryPickerToRoot = async () => {};
+const sleep = async () => {}, log = () => {}, warn = () => {};
+const CONFIG = {SLEEP_SHORT: 0, SLEEP_MEDIUM: 0, SLEEP_LONG: 0};
+const listCategoryOptions = () => ['Blouses', segments[depth]].map(text => ({text, lower: text.toLowerCase()}));
+const clickCategoryOption = async option => {clicked.push(option.text); depth++; if (depth === 3) opened = false;};
+""" + function + """
+(async () => console.log(JSON.stringify({result: await fillCategoryPath({category_path: path,
+  marketplace_categories: {depop: path}, type: 'Blouse'}), clicked})))();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertTrue(result["result"]["ok"])
+        self.assertEqual(result["clicked"], ["Women", "Tops", "T-shirts"])
+
     def test_category_readback_reconstructs_css_breadcrumb_separators(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
         function = source[source.index("  function readCategoryDisplay"):source.index("  function categoryDisplayMatches")]
