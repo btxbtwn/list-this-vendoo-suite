@@ -64,6 +64,26 @@ function orderedSelection(
   return available.map((item) => item.id).filter((id) => chosen.has(id));
 }
 
+function CategoryTreesRow() {
+  const queryClient = useQueryClient();
+  const {data, error} = useQuery({queryKey: ["category-trees"], queryFn: api.catalog.status,
+    refetchInterval: 3000});
+  const sync = useMutation({mutationFn: api.catalog.sync,
+    onSuccess: () => queryClient.invalidateQueries({queryKey: ["category-trees"]})});
+  return <SettingsRow title="Marketplace category trees"
+    description="Extract the full General, eBay, Poshmark, Mercari, Depop, and Etsy trees from Vendoo. Keep Chrome connected. Interrupted extraction resumes from its last saved branch."
+    control={<button className="btn btn-sm btn-outline" disabled={data?.running || data?.complete || sync.isPending}
+      onClick={() => sync.mutate()}>{data?.complete ? "Complete" : data?.running ? "Extracting…" : "Extract / resume"}</button>}>
+    {Object.entries(data?.marketplaces || {}).map(([marketplace, tree]) =>
+      <p className="settings-row-desc" key={marketplace}>
+        {marketplace === "general" ? "General" : marketplace}: {tree.nodes.toLocaleString()} categories · {tree.status}
+        {tree.pending_branches > 0 ? ` · ${tree.pending_branches} branches remaining` : ""}
+        {tree.error ? ` — ${tree.error}` : ""}
+      </p>)}
+    {(error || sync.error) && <p role="alert">{(error || sync.error)?.message}</p>}
+  </SettingsRow>;
+}
+
 function BraveSearchSection({ chatgptSignedIn }: { chatgptSignedIn: boolean }) {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
@@ -699,6 +719,7 @@ function ConnectionsPanel() {
       >
         <ExtensionLoadPath compact hideHint />
       </SettingsRow>
+      <CategoryTreesRow />
     </SettingsSection>
   );
 }

@@ -84,6 +84,7 @@ def maybe_start_schema_probe(
         running = active[0]
         if (running.conversation_id == conv_id and is_schema_probe_job(running)
                 and (running.listing_snapshot or {}).get("category_path") == category_path
+                and (running.listing_snapshot or {}).get("marketplace_categories") == source_listing.get("marketplace_categories")
                 and (running.listing_snapshot or {}).get("platforms") == platforms):
             return {"started": False, "reason": "already_running", "job_id": running.id}
         return {
@@ -100,6 +101,8 @@ def maybe_start_schema_probe(
         prior_path = str((prior.listing_snapshot or {}).get("category_path") or "").strip()
         if prior_path != category_path:
             continue
+        if (prior.listing_snapshot or {}).get("marketplace_categories") != source_listing.get("marketplace_categories"):
+            continue
         if (prior.listing_snapshot or {}).get("platforms") != platforms:
             continue
         from datetime import datetime, timedelta, timezone
@@ -111,6 +114,11 @@ def maybe_start_schema_probe(
             return {"started": False, "reason": "already_done", "job_id": prior.id}
 
     binding = vendoo_binding(conv.notes)
+    if not binding.get("vendooItemId"):
+        for prior in job_repo.list_by_conversation(conv_id):
+            if is_schema_probe_job(prior) and prior.vendoo_item_id and prior.vendoo_item_id != "new":
+                binding = {"vendooItemId": prior.vendoo_item_id, "vendooUrl": prior.vendoo_url}
+                break
     snapshot = deepcopy(source_listing)
     snapshot["platforms"] = platforms
     snapshot[SCHEMA_PROBE_FLAG] = True
@@ -198,12 +206,9 @@ async def kickoff_schema_probe(conv_id: str, listing: dict | None, *, reason: st
 async def prepare_generation_schema(db: Session, conv_id: str, provider, analysis: str, notes: str) -> dict:
     """Resolve a category and await discovery before asking for the full listing."""
     import asyncio
-    import json
-
-    from vendoo_studio.models.catalog import CategoryNode
-    from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
     from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
-    from vendoo_studio.services.listing_completion import parse_resolution
+    from vendoo_studio.services.category_selection import select_categories
+    from vendoo_studio.services.marketplaces import selected_fillable_platforms
     from vendoo_studio.services.vendoo_import import parse_notes
 
     if not extension_manager.connected:
@@ -211,32 +216,11 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
     override = str(parse_notes(notes).get("categoryOverride") or "").strip()
     revisions = ListingRepo(db).get_revisions(conv_id)
     seed = deepcopy(revisions[0].listing_json) if revisions else {}
-    if override:
-        seed["category_path"] = override
-        if not revisions or revisions[0].listing_json.get("category_path") != override:
-            ListingRepo(db).save_revision(conv_id, seed, source="category_analysis",
-                                         parent_revision_id=revisions[0].id if revisions else None)
-    if not seed.get("category_path"):
-        candidates = [row.path for row in db.query(CategoryNode).filter_by(marketplace="general").all()]
-        messages = [{"role": "system", "content": (
-            "Identify only the item's Vendoo General category from photo evidence and seller details. "
-            "Return JSON {category_path, department, type, question}. Use a complete category breadcrumb. "
-            "Prefer an observed category when it fits. If uncertain, leave category_path empty and ask a specific question. "
-            "Do not generate a full listing or invent item facts."
-        )}, {"role": "user", "content": json.dumps({"photo_analysis": analysis,
-             "seller_details": notes, "observed_categories": candidates}, ensure_ascii=False)}]
-        text = ""
-        async with asyncio.timeout(120):
-            async for chunk in provider.chat(messages, stream=True):
-                kind, value = unpack_stream_item(chunk)
-                if kind != "thinking":
-                    text += value or ""
-        category = parse_resolution(text)
-        if not should_probe(category):
-            raise RuntimeError(str(category.get("question") or "Confirm the item's category before generating the listing."))
-        seed.update({key: category[key] for key in ("category_path", "department", "type") if category.get(key)})
-        ListingRepo(db).save_revision(conv_id, seed, source="category_analysis",
-                                     parent_revision_id=revisions[0].id if revisions else None)
+    paths = await select_categories(db, provider, analysis, notes, selected_fillable_platforms(), override)
+    seed["category_path"] = paths["general"]
+    seed["marketplace_categories"] = {mp: path for mp, path in paths.items() if mp != "general"}
+    ListingRepo(db).save_revision(conv_id, seed, source="category_analysis",
+                                 parent_revision_id=revisions[0].id if revisions else None)
 
     result = maybe_start_schema_probe(db, conv_id, listing=seed, reason="before_generation")
     job_id = result.get("job_id")
@@ -260,4 +244,8 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
     platforms = (JobRepo(db).get(job_id).listing_snapshot or {}).get("platforms") or []
     if not schema or any(not schema.get(mp, {}).get("fields") or schema[mp].get("error") for mp in ["general", *platforms]):
         raise RuntimeError("Category discovery did not return all selected marketplace fields. Retry discovery.")
+    for marketplace, expected in paths.items():
+        observed = str((schema.get(marketplace, {}).get("category") or {}).get("path") or "").strip()
+        if observed.casefold() != expected.casefold():
+            raise RuntimeError(f"{marketplace} category was not verified: expected {expected}, observed {observed or 'empty'}")
     return seed

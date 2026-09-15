@@ -1,3 +1,4 @@
+importScripts('category-reader.js');
 const STUDIO_URL = 'http://127.0.0.1:4318';
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -551,6 +552,23 @@ async function handleStudioMessage(msg) {
       break;
     }
 
+    case 'catalog.read_children': {
+      let result;
+      try {
+        if (activeJob || activePatch) throw new Error('Another automation job is already running');
+        const tabs = await chrome.tabs.query({url: ['https://web.vendoo.co/*', 'https://app.vendoo.co/*']});
+        const tab = tabs.find(tab => /\/app(?:\/|$)/.test(new URL(tab.url).pathname));
+        if (!tab) throw new Error('Open Vendoo in Chrome before extracting categories');
+        const results = await chrome.scripting.executeScript({target: {tabId: tab.id}, world: 'MAIN',
+          func: readVendooCategoryChildren, args: [msg.payload.marketplace, msg.payload.parent_id]});
+        result = results[0]?.result || {ok: false, error: 'No response from Vendoo'};
+      } catch (error) {
+        result = {ok: false, error: error.message};
+      }
+      send({type: 'catalog.children', payload: {...result, request_id: msg.payload.request_id}});
+      break;
+    }
+
     case 'extension.reload':
       await handleExtensionReload(msg.payload?.generation);
       break;
@@ -588,6 +606,18 @@ function selectJobSteps(job, steps) {
 }
 
 async function runJob(jobId) {
+  try {
+    await runJobSteps(jobId);
+  } catch (error) {
+    await releaseFailedJob(jobId);
+    send({type: 'job.step_failed', job_id: jobId,
+      payload: {step: 'automation', error: error.message || 'Automation failed'}});
+  } finally {
+    await releaseFailedJob(jobId);
+  }
+}
+
+async function runJobSteps(jobId) {
   if (!activeJob || activeJob.job_id !== jobId) {
     return;
   }
@@ -625,6 +655,7 @@ async function runJob(jobId) {
       if (!result.ok && !step.step.startsWith('auditing_')) {
         failed = true;
         collectDiagnostics('passive');
+        await releaseFailedJob(jobId);
         send({
           version: 1,
           type: 'job.step_failed',
@@ -635,6 +666,8 @@ async function runJob(jobId) {
             step: step.step,
             error: result.error || 'Step failed',
             fields: result.fields || {},
+            schema: result.schema || null,
+            categories: result.categories || null,
             fill_log: result.fill_log || null,
           },
         });
@@ -672,6 +705,7 @@ async function runJob(jobId) {
     } catch (err) {
       failed = true;
       collectDiagnostics('passive');
+      await releaseFailedJob(jobId);
       send({
         version: 1,
         type: 'job.step_failed',
@@ -696,6 +730,7 @@ async function runJob(jobId) {
     if (!verified?.readback) {
       failed = true;
       collectDiagnostics('passive');
+      await releaseFailedJob(jobId);
       send({
         version: 1,
         type: 'job.step_failed',
@@ -737,6 +772,15 @@ async function runJob(jobId) {
       payload: { vendoo_url: vurl, vendoo_item_id: itemId, mode, verification: completionVerification },
     });
   }
+}
+
+async function releaseFailedJob(jobId) {
+  if (activeJob?.job_id !== jobId) return;
+  const tabId = activeJob.tabId;
+  activeJob = null;
+  await persistActiveJob(null);
+  await stopJobPreview();
+  await closeListingTab(tabId);
 }
 
 function buildJobSteps(job) {

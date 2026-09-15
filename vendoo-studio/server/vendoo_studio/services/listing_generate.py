@@ -268,6 +268,12 @@ def persist_generated_listing(
     RegistryService(db).merge_learned_fields(listing)
     from vendoo_studio.models.validation import normalize_listing_dropdowns
     normalize_listing_dropdowns(listing)
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    if revisions:
+        selected = revisions[0].listing_json
+        if selected.get("marketplace_categories"):
+            listing["category_path"] = selected["category_path"]
+            listing["marketplace_categories"] = dict(selected["marketplace_categories"])
     ListingRepo(db).save_revision(conv_id, listing, source=source)
     return listing
 

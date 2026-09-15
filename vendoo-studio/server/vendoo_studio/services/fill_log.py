@@ -202,6 +202,8 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     source = listing if isinstance(listing, dict) else {}
     marketplace = str(marketplace or "general").strip().lower()
     key = field_lookup_key(field)
+    if key == "category" and marketplace in (source.get("marketplace_categories") or {}):
+        return str(source["marketplace_categories"][marketplace])
     if marketplace in {"", "general", "unknown"}:
         if key in {"weight lbs", "weight lb", "pounds"}:
             return _stringify_listing_value(source.get("weight_lb"))

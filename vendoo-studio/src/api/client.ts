@@ -33,6 +33,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  catalog: {
+    status: () => request<{running: boolean; complete: boolean; marketplaces: Record<string,
+      {status: string; nodes: number; pending_branches: number; error: string | null}>}>("/catalog/sync"),
+    sync: () => request<{started: boolean}>("/catalog/sync", {method: "POST"}),
+  },
   health: () => request<{ status: string; version: string }>("/health"),
 
   status: () =>

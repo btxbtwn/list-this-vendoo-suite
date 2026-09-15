@@ -248,7 +248,9 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
             waiter.set_result({"ok": True})
 
         with patch("vendoo_studio.routes.extension.dispatch_queued_jobs", side_effect=discover), \
-             patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]):
+             patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]), \
+             patch("vendoo_studio.services.category_selection.select_categories", new=AsyncMock(
+                 return_value={"general": "Clothing > Tops", "ebay": "Clothing > Shirts"})):
             seed = await prepare_generation_schema(self.db, self.conv.id, Provider({}), "Cotton tee", "")
         self.assertEqual(seed["category_path"], "Clothing > Tops")
         self.manager.cancel_wait.assert_called_once()

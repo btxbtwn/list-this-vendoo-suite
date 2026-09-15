@@ -7,6 +7,69 @@ EXTENSION = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
 
 class CompletionExtensionTest(unittest.TestCase):
+    def test_verified_category_walk_uses_exact_labels_without_aliases(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[source.index("  async function fillCategoryPath"):source.index("  function normalizeCategoryDisplay")]
+        script = """
+let opened = false, depth = 0;
+const path = 'Women > Tops > T-shirts', clicked = [];
+const segments = path.split(' > ');
+const catBtn = {scrollIntoView() {}, click() {opened = true;}};
+const document = {querySelector: () => opened ? {} : null, contains: () => opened};
+const normalizeText = text => text.toLowerCase(), normalizeCategoryDisplay = text => text;
+const normalizeVendooCategoryPath = data => data.category_path;
+const readCategoryDisplay = () => depth === 3 ? path : '';
+const waitForGeneralCategoryControl = async () => catBtn, findGeneralCategoryControl = () => catBtn;
+const clearExistingCategorySelection = async () => {}, closeOpenMenus = async () => {};
+const waitForCategorySearch = async () => ({}), resetCategoryPickerToRoot = async () => {};
+const sleep = async () => {}, log = () => {}, warn = () => {};
+const CONFIG = {SLEEP_SHORT: 0, SLEEP_MEDIUM: 0, SLEEP_LONG: 0};
+const listCategoryOptions = () => ['Blouses', segments[depth]].map(text => ({text, lower: text.toLowerCase()}));
+const clickCategoryOption = async option => {clicked.push(option.text); depth++; if (depth === 3) opened = false;};
+""" + function + """
+(async () => console.log(JSON.stringify({result: await fillCategoryPath({category_path: path,
+  marketplace_categories: {depop: path}, type: 'Blouse'}), clicked})))();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertTrue(result["result"]["ok"])
+        self.assertEqual(result["clicked"], ["Women", "Tops", "T-shirts"])
+
+    def test_category_readback_reconstructs_css_breadcrumb_separators(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[source.index("  function readCategoryDisplay"):source.index("  function categoryDisplayMatches")]
+        script = "const normalizeCategoryDisplay = text => text.trim();\n" + function + """
+const parts = ["Clothing", "Women's Clothing", "Tops & Tees", "T-shirts"];
+const button = {children: parts.map(textContent => ({tagName: 'SPAN', textContent})),
+  textContent: parts.join('')};
+console.log(JSON.stringify([readCategoryDisplay(button), readCategoryDisplay({textContent: 'Category'})]));
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertEqual(result, ["Clothing > Women's Clothing > Tops & Tees > T-shirts", ""])
+
+    def test_failed_probe_releases_job_before_reporting_failure(self):
+        source = (EXTENSION / "background.js").read_text()
+        function = source[source.index("async function runJob"):source.index("function buildJobSteps")]
+        script = """
+let activeJob = {job_id: 'probe', tabId: 3, options: {mode: 'schema_probe'}};
+const events = [];
+const selectJobSteps = (job, steps) => steps;
+const buildJobSteps = () => [{step: 'discovering_schema', fn: async () => ({ok: false,
+  error: 'etsy: category missing', schema: {etsy: {fields: [], error: 'category missing'}}})}];
+const persistActiveJob = async value => events.push({persist: value});
+const collectDiagnostics = () => {}, log = () => {};
+const send = message => events.push({message, busy: !!activeJob});
+const stopJobPreview = async () => {}, closeListingTab = async id => events.push({closed: id});
+""" + function + """
+(async () => {await runJob('probe'); console.log(JSON.stringify({activeJob, events}));})();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertIsNone(result["activeJob"])
+        failure = next(event for event in result["events"] if event.get("message", {}).get("type") == "job.step_failed")
+        self.assertFalse(failure["busy"])
+        self.assertEqual(failure["message"]["payload"]["schema"]["etsy"]["error"], "category missing")
+        self.assertIn({"persist": None}, result["events"])
+        self.assertIn({"closed": 3}, result["events"])
+
     def test_schema_collection_preserves_native_options_and_awaits_live_capture(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
         function = source[source.index("  async function collectMarketplaceSchemaFields"):source.index("  function compareSchemaValues")]
@@ -18,6 +81,7 @@ const live = {tagName: 'INPUT', id: 'occasion', value: '', getAttribute: () => n
 const document = {querySelectorAll: () => [native, live], getElementById: () => null};
 const isVisibleElement = () => true, isEnabledField = () => true;
 const marketplaceFieldNode = () => true, fieldLabelForControl = el => el.id;
+const scrapedFieldLabel = fieldLabelForControl;
 const normalizeFieldKey = value => value, isAccountSettingField = () => false;
 const readPersistedControlValue = el => el.value, isMultiChipField = () => false;
 const selectorFor = el => '#' + el.id, isDropdownLike = () => true;

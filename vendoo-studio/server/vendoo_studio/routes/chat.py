@@ -582,7 +582,8 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
     provider_name, provider_model = _provider_meta(provider)
 
     revisions = ListingRepo(db).get_revisions(conv_id)
-    if repo.get_photos(conv_id) and (not revisions or revisions[0].source == "category_analysis"):
+    if repo.get_photos(conv_id) and (not revisions or revisions[0].source == "category_analysis"
+                                   or not (revisions[0].listing_json or {}).get("title")):
         # Seller answers during category discovery resume the same generation
         # pipeline; chat must not bypass the schema prerequisite.
         return await generate_listing(conv_id, db)
@@ -890,8 +891,8 @@ def _listing_messages(
         "You are a product listing generator. Generate an evidence-backed Vendoo listing JSON "
         "from the photo analysis and listing rules below.\n\n"
         f"{photo_line}"
-        "Use Vendoo's General taxonomy for category_path. Women's shirts and T-shirts must use "
-        f'"{WOMEN_TOPS_PATH}", not "Shirts & Blouses". Men\'s T-shirts must use "{MEN_TSHIRT_PATH}".\n\n'
+        "Preserve category_path and marketplace_categories from the verified category selections below. "
+        "Each marketplace uses its own category tree; do not substitute another form's breadcrumb.\n\n"
         "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
         "when a second color is visible. Use Vendoo general condition values such as "
         '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '

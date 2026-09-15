@@ -217,6 +217,9 @@ async def handshake_extension(
 
 
 async def dispatch_queued_jobs():
+    from vendoo_studio.services.category_tree import syncing
+    if syncing():
+        return
     db = SessionLocal()
     try:
         from vendoo_studio.repositories.queries import JobRepo
@@ -567,6 +570,11 @@ async def extension_websocket(ws: WebSocket):
                 if current_job and is_terminal_job_status(current_job.status):
                     JobRepo(db).add_event(job_id, "ignored_late_result", None, {"type": msg_type})
                     continue
+
+            if msg_type == "catalog.children":
+                payload = message.get("payload") or {}
+                extension_manager.resolve_wait(str(payload.get("request_id") or ""), payload)
+                continue
 
             if msg_type == "job.accepted":
                 job_id = message.get("job_id")
