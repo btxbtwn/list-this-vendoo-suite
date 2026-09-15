@@ -13,8 +13,10 @@ from vendoo_studio.models.catalog import CategoryNode, CategorySchema
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.category_catalog import remember_schema
 from vendoo_studio.services.listing_completion import (
+    MAX_CATEGORY_REPAIRS,
     MAX_READBACK_RETRIES,
     MAX_REPAIR_ROUNDS,
+    categories_match,
     complete_job,
     review_fields,
     store_verification,
@@ -305,12 +307,54 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job.current_step, "completion_blocked")
         self.assertIn("Material", self.job.last_error)
 
-    async def test_changed_category_cannot_use_old_schema(self):
+    async def test_changed_category_auto_repairs_then_pauses(self):
         ListingRepo(self.db).save_revision(self.conv.id, {**self.listing, "category_path": "Clothing > Dresses"}, source="user")
         self.review()
         await self.run_completion({})
+        self.assertEqual(self.job.current_step, "filling_fields")
+        self.dispatch.assert_awaited_once()
+        patches = self.dispatch.await_args.args[1]
+        self.assertEqual(patches[0]["field"], "Category")
+        self.assertEqual(patches[0]["value"], "Clothing > Dresses")
+
+        for _ in range(MAX_CATEGORY_REPAIRS - 1):
+            self.review()
+            await complete_job(self.db, self.job.id)
+            self.db.refresh(self.job)
+        self.review()
+        await complete_job(self.db, self.job.id)
+        self.db.refresh(self.job)
         self.assertEqual(self.job.current_step, "completion_blocked")
-        self.dispatch.assert_not_awaited()
+        self.assertIn("automatic repair", self.job.last_error or "")
+        self.assertEqual(self.dispatch.await_count, MAX_CATEGORY_REPAIRS)
+
+    async def test_marketplace_category_mismatch_auto_repairs(self):
+        ListingRepo(self.db).save_revision(self.conv.id, {
+            **self.listing,
+            "marketplace_categories": {"ebay": "Clothing > Dresses"},
+        }, source="user")
+        self.review()
+        await self.run_completion({})
+        self.assertEqual(self.job.current_step, "filling_fields")
+        patch = self.dispatch.await_args.args[1][0]
+        self.assertEqual(patch["marketplace"], "ebay")
+        self.assertEqual(patch["field"], "Category")
+        self.assertEqual(patch["value"], "Clothing > Dresses")
+
+    def test_category_breadcrumb_separators_and_blouse_leaf_match(self):
+        self.assertTrue(categories_match(
+            "Women ‣ Tops & Blouses ‣ Blouse",
+            "Women > Tops & Blouses > Blouse",
+        ))
+        self.assertTrue(categories_match(
+            "Women > Tops & Blouses > Blouses",
+            "Women > Tops & Blouses > Blouse",
+        ))
+        self.assertFalse(categories_match(
+            "Women ‣ Tops & Blouses ‣ T-Shirts",
+            "Women > Tops & Blouses > Blouse",
+        ))
+        self.assertFalse(categories_match("", "Women > Tops & Blouses > Blouse"))
 
     def test_mapped_marketplace_value_is_not_a_false_gap(self):
         self.verification["schema"]["ebay"]["fields"] = [{"label": "Condition", "value": "Good",
