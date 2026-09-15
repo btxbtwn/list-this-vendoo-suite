@@ -636,13 +636,41 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     return Boolean(json && isListingJson(json));
   }) || (listing?.listing && isListingJson(JSON.stringify(listing.listing))));
   const streamFailed = isStreamError(streamText);
+  const streamVisible = streamFailed ? "" : assistantDisplayText(streamText);
+  // Persist finishes (and messages refetch) before the SSE stream is cleared —
+  // hide the live bubble once the same assistant prose is already on screen.
+  const streamAlreadyPersisted = Boolean(
+    streamVisible
+      && messages?.some((m: any) => {
+        if (m.role !== "assistant" && m.role !== "model") return false;
+        return assistantDisplayText(m.text) === streamVisible;
+      }),
+  );
+  const showStreamBubble = Boolean(streamText && !streamFailed && !streamAlreadyPersisted);
   const busy = streaming || generating;
   const canRetry = failedAction === "send" ? Boolean(lastSendText) : Boolean(hasPhotos);
+  const awaitingSellerAnswers = Boolean(
+    messages?.length
+      && (() => {
+        const lastUserIdx = [...messages].map((m: any) => m.role).lastIndexOf("user");
+        return messages.slice(lastUserIdx + 1).some((m: any) => {
+          if (m.role === "system") {
+            return /answer the questions above|please confirm|waiting for your answers/i.test(m.text || "");
+          }
+          if (m.role === "assistant" || m.role === "model") {
+            return assistantDisplayText(m.text).includes("?");
+          }
+          return false;
+        });
+      })(),
+  );
   const composerPlaceholder = !hasPhotos
     ? "Upload photos to begin"
-    : hasMessages
-      ? "Refine the listing..."
-      : "Add a note, or generate the listing...";
+    : awaitingSellerAnswers
+      ? "Answer the questions above..."
+      : hasMessages
+        ? "Refine the listing..."
+        : "Add a note, or generate the listing...";
 
   useEffect(() => {
     const reattach = () => {
@@ -775,10 +803,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
           </div>
         )}
 
-        {streamText && !streamFailed && (
-          assistantDisplayText(streamText) ? (
+        {showStreamBubble && (
+          streamVisible ? (
             <div className="msg msg-assistant">
-              <ChatMarkdown text={assistantDisplayText(streamText)} />
+              <ChatMarkdown text={streamVisible} />
             </div>
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>

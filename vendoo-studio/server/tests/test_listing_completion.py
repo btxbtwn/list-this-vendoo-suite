@@ -87,6 +87,16 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("tag", self.job.last_error)
         self.dispatch.assert_not_awaited()
 
+    async def test_awaiting_answers_does_not_duplicate_existing_question(self):
+        question = "Please confirm the packaged shipping weight in pounds and ounces."
+        ConversationRepo(self.db).add_message(self.conv.id, "assistant", question)
+        self.review()
+        await self.run_completion({"questions": [question]})
+        self.assertEqual(self.job.current_step, "awaiting_answers")
+        messages = [m.text for m in ConversationRepo(self.db).get_messages(self.conv.id)]
+        self.assertEqual(messages.count(question), 1)
+        self.dispatch.assert_not_awaited()
+
     async def test_answer_resumes_and_only_patches_gap(self):
         self.review()
         await self.run_completion({"questions": ["What material?"]})

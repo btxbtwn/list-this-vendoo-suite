@@ -172,6 +172,16 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertIn("etsy_specifics.what_is", fields)
         self.assertIn("etsy_specifics.when_made", fields)
 
+    def test_empty_string_cost_and_weight_are_treated_as_missing(self):
+        listing = dict(VALID_LISTING)
+        listing["cost"] = ""
+        listing["weight_lb"] = ""
+        listing["weight_oz"] = ""
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        messages = [err["message"] for err in result.errors]
+        self.assertFalse(any("unable to parse" in msg.lower() for msg in messages), messages)
+        self.assertTrue(any("Weight is required" in msg for msg in messages), messages)
+
     def test_digital_item_listing_is_etsy_eligible(self):
         listing = {
             "title": "Teal Abstract Grid Instant Download Wall Art Print Digital PNG",

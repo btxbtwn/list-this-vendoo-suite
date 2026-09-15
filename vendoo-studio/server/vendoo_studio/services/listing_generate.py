@@ -241,6 +241,13 @@ def seller_item_details(notes: str | None) -> str:
     return "Known item details from the seller:\n" + "\n".join(lines)
 
 
+def _assistant_prose_asks_questions(full_text: str) -> bool:
+    """True when the model asked the seller something outside the JSON payload."""
+    prose = re.sub(r"```(?:json)?\s*[\s\S]*?```", "\n", full_text or "", flags=re.I)
+    prose = re.sub(r"\n\s*[\[{][\s\S]*$", "\n", prose).strip()
+    return "?" in prose
+
+
 def persist_generated_listing(
     db,
     conv_id: str,
@@ -259,12 +266,6 @@ def persist_generated_listing(
         log.warning("listing generation produced no JSON for %s", conv_id)
         return None
 
-    note = (
-        "Listing repaired from malformed model output and ready for review."
-        if repaired
-        else "Listing extracted and ready for review."
-    )
-    repo.add_message(conv_id, "system", note, provider="system", model="")
     RegistryService(db).merge_learned_fields(listing)
     from vendoo_studio.models.validation import normalize_listing_dropdowns
     normalize_listing_dropdowns(listing)
@@ -275,6 +276,19 @@ def persist_generated_listing(
             listing["category_path"] = selected["category_path"]
             listing["marketplace_categories"] = dict(selected["marketplace_categories"])
     ListingRepo(db).save_revision(conv_id, listing, source=source)
+
+    waiting = _assistant_prose_asks_questions(full_text)
+    if repaired:
+        note = (
+            "Listing repaired from malformed model output. Answer the questions above before sending."
+            if waiting
+            else "Listing repaired from malformed model output and ready for review."
+        )
+    elif waiting:
+        note = "Answer the questions above before sending this listing."
+    else:
+        note = "Listing extracted and ready for review."
+    repo.add_message(conv_id, "system", note, provider="system", model="")
     return listing
 
 

@@ -70,6 +70,20 @@ def store_verification(db: Session, job, verification: dict) -> None:
                     verification.get("schema") or {})
 
 
+def _recent_message_covers(repo: ConversationRepo, conv_id: str, reason: str) -> bool:
+    """Skip re-posting the same seller question already shown in chat."""
+    needle = (reason or "").strip()
+    if not needle:
+        return False
+    for message in reversed(repo.get_messages(conv_id)[-8:]):
+        text = (message.text or "").strip()
+        if not text:
+            continue
+        if text == needle or needle in text or text in needle:
+            return True
+    return False
+
+
 def _pause(db: Session, job, reason: str, gaps: list[dict], *, waiting: bool = False) -> None:
     db.refresh(job)
     if job.status == "cancelled":
@@ -81,6 +95,9 @@ def _pause(db: Session, job, reason: str, gaps: list[dict], *, waiting: bool = F
     JobRepo(db).add_event(job.id, job.current_step, job.current_step, {"reason": reason, "fields": gaps})
     repo = ConversationRepo(db)
     repo.update_status(job.conversation_id, "draft")
+    if waiting and _recent_message_covers(repo, job.conversation_id, reason):
+        # Questions are already in chat — keep awaiting answers without duplicating lines.
+        return
     repo.add_message(job.conversation_id, "system", reason, provider="system", model="")
 
 
