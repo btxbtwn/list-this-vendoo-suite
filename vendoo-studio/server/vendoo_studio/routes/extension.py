@@ -216,6 +216,15 @@ async def handshake_extension(
     return True
 
 
+def schedule_advance_job_queue() -> None:
+    """Kick the FIFO dispatcher from sync or fire-and-forget contexts."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(dispatch_queued_jobs())
+
+
 async def dispatch_queued_jobs():
     from vendoo_studio.services.category_tree import syncing
     if syncing():
@@ -225,6 +234,9 @@ async def dispatch_queued_jobs():
         from vendoo_studio.repositories.queries import JobRepo
         from vendoo_studio.services.schema_probe import is_schema_probe_job, listing_for_extension
         repo = JobRepo(db)
+        # One Chrome fill at a time; later approvals wait in queued / awaiting_extension.
+        if repo.get_running():
+            return
         jobs = repo.get_dispatchable()
         if not jobs:
             return
@@ -660,6 +672,7 @@ async def extension_websocket(ws: WebSocket):
                         if job and payload.get("fill_log"):
                             FillLogService(db).apply_field_results(job, payload.get("fill_log"))
                         _set_conversation_status(db, job_id, "draft")
+                        await dispatch_queued_jobs()
                     else:
                         repo.update_status(job_id, "failed", step, error=err)
                         repo.add_event(job_id, "step_failed", step, payload)
@@ -677,6 +690,7 @@ async def extension_websocket(ws: WebSocket):
                             )
                         else:
                             _set_conversation_status(db, job_id, "failed")
+                        await dispatch_queued_jobs()
 
             elif msg_type == "job.vendoo_item":
                 payload = message.get("payload") or {}
@@ -748,6 +762,7 @@ async def extension_websocket(ws: WebSocket):
                             model="",
                         )
                         extension_manager.resolve_wait("schema:" + job_id, {"ok": True})
+                        await dispatch_queued_jobs()
                     elif job:
                         from vendoo_studio.services.listing_completion import store_verification, schedule_completion
                         repo.update_status(job_id, "dispatched", "verifying_draft",
@@ -767,6 +782,7 @@ async def extension_websocket(ws: WebSocket):
                     repo.add_event(job_id, "cancelled")
                     if not is_schema_probe_job(job):
                         _set_conversation_status(db, job_id, "draft")
+                    await dispatch_queued_jobs()
 
             elif msg_type == "job.preview_frame":
                 job_id = message.get("job_id")

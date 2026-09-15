@@ -4,7 +4,13 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id, utcnow
 from vendoo_studio.models.listing import Listing, ListingRevision
-from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, DISPATCHABLE_JOB_STATUSES, Job, JobEvent
+from vendoo_studio.models.job import (
+    ACTIVE_JOB_STATUSES,
+    DISPATCHABLE_JOB_STATUSES,
+    RUNNING_JOB_STATUSES,
+    Job,
+    JobEvent,
+)
 from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
 from vendoo_studio.models.registry import FieldRegistry
 from vendoo_studio.models.fill_log import FillLogEntry
@@ -262,6 +268,15 @@ class JobRepo:
         return (
             self.db.query(Job)
             .filter(Job.status.in_(ACTIVE_JOB_STATUSES))
+            .order_by(Job.created_at.asc())
+            .all()
+        )
+
+    def get_running(self) -> list[Job]:
+        """Jobs currently using Chrome (excludes waiting queue entries)."""
+        return (
+            self.db.query(Job)
+            .filter(Job.status.in_(RUNNING_JOB_STATUSES))
             .order_by(Job.created_at.asc())
             .all()
         )

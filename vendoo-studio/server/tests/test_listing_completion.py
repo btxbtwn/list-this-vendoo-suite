@@ -87,8 +87,49 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("tag", self.job.last_error)
         self.dispatch.assert_not_awaited()
 
+    async def test_shipping_weight_estimate_is_applied_without_photo_quote(self):
+        self.verification["schema"]["general"] = {
+            "category": {"path": "Clothing > Tops"},
+            "fields": [
+                {"label": "Title", "value": "Tee", "required": True},
+                {"label": "Weight (oz)", "value": "", "required": True, "selector": "#weightOz"},
+            ],
+        }
+        self.verification["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
+        self.review()
+        await self.run_completion({
+            "fields": [{
+                "marketplace": "general",
+                "field": "Weight (oz)",
+                "value": "10",
+                "evidence": "estimated packaged weight for graphic tee",
+            }],
+            "questions": ["Please confirm the packaged shipping weight in pounds and ounces."],
+        })
+        self.assertEqual(self.job.current_step, "filling_fields")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["value"], "10")
+        self.assertEqual(str(self.job.listing_snapshot.get("weight_oz")), "10")
+
+    async def test_shipping_weight_questions_are_not_asked_to_seller(self):
+        self.verification["schema"]["general"] = {
+            "category": {"path": "Clothing > Tops"},
+            "fields": [
+                {"label": "Title", "value": "Tee", "required": True},
+                {"label": "Weight (oz)", "value": "", "required": True},
+            ],
+        }
+        self.verification["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
+        self.review()
+        await self.run_completion({
+            "questions": ["Please confirm the packaged shipping weight in pounds and ounces."],
+        })
+        self.assertEqual(self.job.current_step, "completion_blocked")
+        self.assertNotEqual(self.job.current_step, "awaiting_answers")
+        self.assertNotIn("confirm", (self.job.last_error or "").casefold())
+        self.dispatch.assert_not_awaited()
+
     async def test_awaiting_answers_does_not_duplicate_existing_question(self):
-        question = "Please confirm the packaged shipping weight in pounds and ounces."
+        question = "What material is listed on the tag?"
         ConversationRepo(self.db).add_message(self.conv.id, "assistant", question)
         self.review()
         await self.run_completion({"questions": [question]})

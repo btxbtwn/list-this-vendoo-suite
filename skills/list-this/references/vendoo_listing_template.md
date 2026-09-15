@@ -313,8 +313,8 @@ Depop: No title field → use Universal Description only
 - `size_us`: US size for consistency
 - `tags`: Array of keywords
 - `labels`: Array of Vendoo labels
-- `weight_lb`, `weight_oz`: Package weight
-- `package_dimensions_in`: Format "LxWxH"
+- `weight_lb`, `weight_oz`: Packaged shipping weight. Estimate from item type/size when the seller did not provide a scale weight (do not ask). Example: a women's M graphic tee is often `0` lb / `8`–`12` oz packaged.
+- `package_dimensions_in`: Format "LxWxH". Use a reasonable poly-mailer / packaging estimate for the item unless the seller provided dimensions.
 - `category_path`: Full category path
 - `category_path` must end at a selectable Vendoo General leaf. Use `Clothing, Shoes & Accessories > Women > Women's Clothing > Tops` for women's shirts and T-shirts; `Shirts & Blouses` is not a valid Vendoo General segment. For men's T-shirts, use `Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts`.
 - `zipCode`: Ship from ZIP code

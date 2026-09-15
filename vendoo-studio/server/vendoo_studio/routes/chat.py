@@ -378,7 +378,8 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             "- Be conservative with brand and size. Ask when uncertain instead of guessing.\n"
             f"- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at {WOMEN_TOPS_PATH}, never Shirts & Blouses. Men's T-shirts use {MEN_TSHIRT_PATH}.\n"
             "- Follow the title and description formulas EXACTLY from the rules below.\n"
-            "- Resolve every applicable discovered field. Ask about unknown facts; never invent values to fill blanks.\n"
+            "- Resolve every applicable discovered field. Ask about unknown product facts; never invent brand, size, material, or age.\n"
+            "- Estimate packaged shipping weight and mailer dimensions from the item type; do not ask the seller for those.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
             + (f"\n{photo_analysis_text}\n\n" if photo_analysis_text else "") +
             comps_block +
@@ -899,8 +900,10 @@ def _listing_messages(
         "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
         "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
         "Do not modify, estimate, or replace seller-provided measurements.\n"
-        "Use the discovered category fields below. Leave unknown facts empty and ask precise questions in prose. "
-        "Never invent a value to make a listing look complete. Completion requires saved-form verification.\n"
+        "Use the discovered category fields below. Leave unknown product facts empty and ask precise questions in prose. "
+        "Estimate packaged shipping weight (weight_lb/weight_oz) and package_dimensions_in from the item type — "
+        "do not ask the seller for routine apparel shipping weight or mailer size. "
+        "Never invent brand, size, material, age, or other product facts. Completion requires saved-form verification.\n"
         "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
         "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
         "Output the full listing JSON inside a fenced code block:\n\n"

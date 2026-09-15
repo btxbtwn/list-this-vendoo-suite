@@ -311,7 +311,7 @@ Minimum       = Listing Price - $4
 9. **Reference vendoo_listing_template.md BEFORE generating** — structure/order priority
 10. **For Etsy digital downloads, use the Etsy Digital Download Description Formula** — do not use the physical-item description template
 11. **For Etsy digital downloads, return the Etsy Digital Download Output Format** — do not output JSON
-12. **Use actual package weight and dimensions** — populate `weight_lb`, `weight_oz`, and `package_dimensions_in` from seller-provided measurements or explicitly confirmed packaging details. If unknown, leave them unresolved and ask the seller; do not copy example values or invent measurements to complete the listing.
+12. **Estimate packaged shipping weight; do not ask the seller for it** — populate `weight_lb` and `weight_oz` with a reasonable packaged-shipping estimate from the item type, size, and material (include typical poly-mailer packaging). Examples: light tee/tank ~6–10 oz; heavy graphic tee ~10–14 oz; hoodie/sweatshirt ~1 lb 0–8 oz; jeans/pants ~1–1.5 lb; light jacket ~1–2 lb. Prefer seller-provided scale weight when given. For `package_dimensions_in`, use a sensible packaging size for the item (for example `13x10x1` or `13x10x3` for a folded shirt in a poly mailer) unless the seller supplied dimensions. Never ask the seller to confirm routine apparel shipping weight or mailer size. Still ask for true unknowns such as unread tag size/material or Etsy when-made era.
 
 ## Pre-Output Verification (MANDATORY)
 

@@ -97,6 +97,13 @@ class JobRepoActiveTest(unittest.TestCase):
         active = JobRepo(self.db).get_active()
         self.assertEqual([job.id for job in active], [dispatched.id])
 
+    def test_get_running_only_includes_dispatched(self):
+        queued = self._job("queued")
+        dispatched = self._job("dispatched")
+        running = JobRepo(self.db).get_running()
+        self.assertEqual([job.id for job in running], [dispatched.id])
+        self.assertNotIn(queued.id, [job.id for job in running])
+
     def test_get_dispatchable_excludes_dispatched_jobs(self):
         queued = self._job("queued")
         self._job("dispatched")
@@ -168,6 +175,7 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         db.commit()
         db.refresh(self.job)
         self.job_id = self.job.id
+        self.conv_id = self.conv.id
         db.close()
 
     def _job(self) -> Job:
@@ -314,6 +322,77 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         options = socket.sent[0]["payload"]["options"]
         self.assertEqual(options["resumeFrom"], "filling_etsy")
         self.assertTrue(options["reuseExistingItem"])
+
+    async def test_dispatch_skips_when_another_job_is_running(self):
+        db = self.Session()
+        running = Job(
+            conversation_id=self.conv_id,
+            approved_revision_id="rev2",
+            listing_snapshot={"title": "Other", "platforms": ["ebay"]},
+            status="dispatched",
+        )
+        db.add(running)
+        db.commit()
+        db.close()
+
+        manager = ExtensionManager()
+        socket = FakeSocket()
+        manager.connection = socket
+        manager.paired = True
+        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ):
+            await dispatch_queued_jobs()
+
+        self.assertEqual(socket.sent, [])
+        job = self._job()
+        self.assertEqual(job.status, "queued")
+
+    async def test_dispatch_starts_next_queued_after_running_clears(self):
+        from datetime import datetime, timedelta, timezone
+
+        db = self.Session()
+        base = datetime.now(timezone.utc).replace(tzinfo=None)
+        earlier = Job(
+            conversation_id=self.conv_id,
+            approved_revision_id="rev0",
+            listing_snapshot={"title": "Earlier", "platforms": ["ebay"]},
+            status="queued",
+            created_at=base,
+        )
+        later = db.query(Job).filter(Job.id == self.job_id).one()
+        later.created_at = base + timedelta(seconds=5)
+        db.add(earlier)
+        db.commit()
+        earlier_id = earlier.id
+        db.close()
+
+        manager = ExtensionManager()
+        socket = FakeSocket()
+        manager.connection = socket
+        manager.paired = True
+        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ):
+            await dispatch_queued_jobs()
+
+        self.assertEqual(socket.sent[0]["payload"]["job_id"], earlier_id)
+        db = self.Session()
+        first = db.query(Job).filter(Job.id == earlier_id).one()
+        second = db.query(Job).filter(Job.id == self.job_id).one()
+        self.assertEqual(first.status, "dispatched")
+        self.assertEqual(second.status, "queued")
+        first.status = "completed"
+        db.commit()
+        db.close()
+
+        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
+            "vendoo_studio.routes.extension.extension_manager", manager
+        ):
+            await dispatch_queued_jobs()
+
+        self.assertEqual(socket.sent[1]["payload"]["job_id"], self.job_id)
+        self.assertEqual(self._job().status, "dispatched")
 
 
 class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):

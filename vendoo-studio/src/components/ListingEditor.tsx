@@ -608,6 +608,16 @@ function SendToVendooButton({
     const isCompleted = fillJob.status === "completed";
     const isQueued = fillJob.status === "queued" || fillJob.status === "awaiting_extension";
     const completionStep = ["awaiting_answers", "completion_blocked", "resolving_fields", "verifying_draft", "verified_complete"].includes(fillJob.current_step || "");
+    const queueJobs = (jobs || [])
+      .filter((j: any) =>
+        ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || ""))
+        && j.mode !== "schema_probe",
+      )
+      .slice()
+      .sort((a: any, b: any) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    const queuePosition = Math.max(1, queueJobs.findIndex((j: any) => j.id === fillJob.id) + 1);
+    const queueDepth = queueJobs.length;
+    const waitingInQueue = isQueued && (queuePosition > 1 || queueJobs.some((j: any) => j.status === "dispatched" && j.id !== fillJob.id));
     const stepLabel: Record<string, string> = {
       awaiting_answers: "Waiting for your answers in chat",
       completion_blocked: "Completion needs review",
@@ -616,13 +626,20 @@ function SendToVendooButton({
       verified_complete: "Saved draft verified complete",
     };
     const leftoverFilling = isDispatched && (completionStep || fillJob.current_step === "filling_fields");
-    const canRestart = (isFailed || isDispatched || isCompleted || isQueued) && !leftoverFilling;
+    const canRestart = (isFailed || isDispatched || isCompleted) && !leftoverFilling;
     const canCancel = !isCompleted;
+    const statusText = waitingInQueue
+      ? `Queued (#${queuePosition} of ${queueDepth}) — waiting for the current send to finish`
+      : isQueued && fillJob.status === "awaiting_extension"
+        ? "Waiting for Chrome"
+        : isQueued
+          ? (queueDepth > 1 ? `Queued (#${queuePosition} of ${queueDepth})` : "Queued — starting soon")
+          : (stepLabel[fillJob.current_step || ""] || `${fillJob.status}: ${fillJob.current_step || "queued"}`);
     const buttonLabel = retryMutation.isPending
       ? "Sending..."
       : isFailed
         ? (completionStep ? "Resume verification" : "Retry")
-        : isCompleted || isQueued
+        : isCompleted
           ? sendLabel
           : "Restart Job";
     return (
@@ -630,7 +647,7 @@ function SendToVendooButton({
         <div className="job-card-copy">
           <div className="job-card-label">Job Status</div>
           <div className={`job-card-status${isFailed ? " error" : ""}`}>
-            {stepLabel[fillJob.current_step || ""] || `${fillJob.status}: ${fillJob.current_step || "queued"}`}
+            {statusText}
             {fillJob.last_error && <div className="mt-4 text-xs text-error">{fillJob.last_error}</div>}
           </div>
         </div>
