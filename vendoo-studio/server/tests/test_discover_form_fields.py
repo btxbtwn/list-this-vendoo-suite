@@ -127,6 +127,13 @@ const auditMarketplace = async () => ({ ok: true });
         schema_body = content[schema_start:schema_end]
         self.assertIn("await saveGeneralForm()", schema_body)
         self.assertIn("await closeOpenMenus()", schema_body)
+        self.assertIn("ensureMarketplaceFormReady(platform, { requireListingFields: true })", schema_body)
+        self.assertIn("async function ensureMarketplaceFormReady", content)
+        mounted = content[
+            content.index("function marketplaceFormMounted"):
+            content.index("async function waitForMarketplaceFormMounted")
+        ]
+        self.assertIn('Category Selector for ${mp}', mounted)
 
 
 if __name__ == "__main__":
