@@ -352,11 +352,25 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
 
     comps_block = f"\n\n--- Sold comps ---\n\n{comps_text}\n" if comps_text else ""
 
-    system_prompt = {
-        "role": "system",
-        "content": (
-            "You are a product listing assistant talking to a seller. Write in plain English.\n"
-            "Never reply with JSON-only output, status objects, or a bare JSON Patch array.\n\n"
+    from vendoo_studio.services.fill_log import is_missing_fields_request
+
+    ask_missing_fields = is_missing_fields_request(user_message)
+    if ask_missing_fields:
+        change_instructions = (
+            "The seller asked you to fill specific empty/leftover fields.\n"
+            "1. Write one short sentence confirming which fields you filled.\n"
+            "2. Then include a fenced json code block with this exact shape so Studio saves them "
+            "into the listing JSON automatically:\n"
+            "```json\n"
+            '{"missing_fields":[{"marketplace":"etsy","field":"Pattern","value":"Solid"}]}\n'
+            "```\n"
+            "Use the marketplace ids and field names from the seller request exactly. "
+            "Do not use a JSON Patch array. Do not rewrite unrelated listing fields.\n"
+            "Studio saves the listing JSON and refreshes the Forms/Fields UI; "
+            "filling the live Vendoo draft is a separate later step.\n\n"
+        )
+    else:
+        change_instructions = (
             "When the user asks you to change an existing listing:\n"
             "1. Write a short confirmation of what you changed (department, category, marketplace fields).\n"
             "2. Then include a JSON Patch array in a fenced json code block so the listing can be saved. "
@@ -368,10 +382,19 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             f'{{"op": "replace", "path": "/category_path", "value": "{MEN_TSHIRT_PATH}"}},'
             '{"op": "replace", "path": "/ebay_specifics/department", "value": "Men"}]\n'
             "```\n\n"
-            "When generating a listing from scratch, explain any missing facts without claiming it is complete, "
+        )
+
+    system_prompt = {
+        "role": "system",
+        "content": (
+            "You are a product listing assistant talking to a seller. Write in plain English.\n"
+            "Never reply with JSON-only output, status objects, or a bare JSON Patch array.\n\n"
+            + change_instructions
+            + "When generating a listing from scratch, explain any missing facts without claiming it is complete, "
             "then the full listing JSON in a fenced json code block.\n\n"
             "If you are not changing the listing, reply in plain English only. "
-            "If asked whether the listing was updated, say yes or no in a sentence after checking the latest listing JSON in this conversation.\n\n"
+            "If asked whether the listing was updated, say yes only when a system message in this "
+            "conversation confirms the listing JSON was saved; otherwise say no.\n\n"
             "Key rules:\n"
             "- Never publish. Stop at saved drafts.\n"
             "- Never ask the seller to upload or attach photos when product photos are already present.\n"
@@ -469,37 +492,49 @@ async def _maybe_resolve_vendoo_category(
         )
 
 
-def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[dict] | None:
+def _save_missing_fields(db: Session, conv_id: str, missing_fields: list[dict]) -> bool:
     from vendoo_studio.services.fill_log import (
         FillLogService,
-        extract_missing_fields,
         summarize_missing_fields,
         write_values_into_listing,
     )
 
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    if not revisions:
+        ConversationRepo(db).add_message(
+            conv_id,
+            "system",
+            "Could not save field values — generate a listing first, then Ask chat again.",
+            provider="system",
+            model="",
+        )
+        return False
+    updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
+    _save_listing_revision(db, conv_id, updated)
+    FillLogService(db).record_generated_values(conv_id, missing_fields)
+    ConversationRepo(db).add_message(
+        conv_id,
+        "system",
+        summarize_missing_fields(missing_fields),
+        provider="system",
+        model="",
+    )
+    return True
+
+
+def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> tuple[list[dict] | None, bool]:
+    from vendoo_studio.services.fill_log import extract_missing_fields
+
     missing_fields = extract_missing_fields(full_text)
     if missing_fields:
-        lr = ListingRepo(db)
-        revisions = lr.get_revisions(conv_id)
-        if revisions:
-            updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
-            _save_listing_revision(db, conv_id, updated)
-            FillLogService(db).record_generated_values(conv_id, missing_fields)
-            ConversationRepo(db).add_message(
-                conv_id,
-                "system",
-                summarize_missing_fields(missing_fields),
-                provider="system",
-                model="",
-            )
-            return None
+        return None, _save_missing_fields(db, conv_id, missing_fields)
 
     parsed_ops = extract_json_patch(full_text)
     if parsed_ops:
         lr = ListingRepo(db)
         revisions = lr.get_revisions(conv_id)
         if not revisions:
-            return None
+            return None, False
         updated = apply_json_patch(dict(revisions[0].listing_json), parsed_ops)
         _save_listing_revision(db, conv_id, updated, operations=parsed_ops)
         ConversationRepo(db).add_message(
@@ -509,7 +544,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[di
             provider="system",
             model="",
         )
-        return parsed_ops
+        return parsed_ops, True
 
     parsed = extract_listing_json(full_text)
     if parsed:
@@ -521,7 +556,8 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[di
             provider="system",
             model="",
         )
-    return None
+        return None, True
+    return None, False
 
 
 async def _apply_listing_payload_with_repair(
@@ -529,24 +565,44 @@ async def _apply_listing_payload_with_repair(
     conv_id: str,
     full_text: str,
     provider,
-) -> list[dict] | None:
-    operations = _apply_listing_payload(db, conv_id, full_text)
-    if operations is not None:
-        return operations
-    if extract_listing_json(full_text):
-        return None
-    if extract_json_patch(full_text):
-        return None
-    from vendoo_studio.services.fill_log import extract_missing_fields
+    *,
+    user_message: str = "",
+) -> tuple[list[dict] | None, bool]:
+    from vendoo_studio.services.fill_log import (
+        is_missing_fields_request,
+        looks_like_missing_fields_attempt,
+        repair_missing_fields,
+    )
 
-    if extract_missing_fields(full_text):
-        return None
+    operations, saved = _apply_listing_payload(db, conv_id, full_text)
+    if saved:
+        return operations, True
+
+    ask_fields = is_missing_fields_request(user_message)
+    if ask_fields or looks_like_missing_fields_attempt(full_text):
+        repaired_fields = await repair_missing_fields(provider, full_text, user_message)
+        if repaired_fields and _save_missing_fields(db, conv_id, repaired_fields):
+            return None, True
+        if ask_fields:
+            ConversationRepo(db).add_message(
+                conv_id,
+                "system",
+                "Could not save field values into the listing JSON. Retry Ask chat.",
+                provider="system",
+                model="",
+            )
+        return None, False
+
+    if extract_listing_json(full_text):
+        return None, False
+    if extract_json_patch(full_text):
+        return None, False
     if not looks_like_listing_attempt(full_text):
-        return None
+        return None, False
 
     repaired = await repair_listing_json(provider, full_text)
     if not repaired:
-        return None
+        return None, False
     _save_listing_revision(db, conv_id, repaired)
     ConversationRepo(db).add_message(
         conv_id,
@@ -555,7 +611,55 @@ async def _apply_listing_payload_with_repair(
         provider="system",
         model="",
     )
-    return None
+    return None, True
+
+
+async def _persist_chat_result(
+    db: Session,
+    conv_id: str,
+    full_text: str,
+    provider,
+    *,
+    provider_name: str,
+    provider_model: str,
+    stream_error: str,
+    user_message: str,
+) -> tuple[list[dict] | None, bool]:
+    stream_repo = ConversationRepo(db)
+    usable = full_text.strip() and not full_text.lstrip().lower().startswith("error:")
+    saved = False
+    operations: list[dict] | None = None
+    if usable and not stream_error:
+        stream_repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=provider_model)
+        operations, saved = await _apply_listing_payload_with_repair(
+            db, conv_id, full_text, provider, user_message=user_message
+        )
+        if saved:
+            await _maybe_resolve_vendoo_category(db, conv_id, operations=operations)
+        from vendoo_studio.repositories.queries import JobRepo
+        from vendoo_studio.routes.jobs import resume_completion
+
+        for job in JobRepo(db).list_by_conversation(conv_id):
+            if job.current_step == "awaiting_answers":
+                try:
+                    await resume_completion(job.id, db)
+                except HTTPException as exc:
+                    stream_repo.add_message(conv_id, "system", str(exc.detail), provider="system", model="")
+                break
+    elif stream_error or not full_text.strip():
+        stream_repo.add_message(
+            conv_id,
+            "system",
+            stream_error or "The listing assistant returned an empty response. Retry this prompt.",
+            provider="system",
+            model="",
+        )
+
+    from vendoo_studio.repositories.queries import JobRepo
+
+    active = any(job.conversation_id == conv_id for job in JobRepo(db).get_active())
+    stream_repo.update_status(conv_id, "listing" if active else "draft")
+    return operations, saved
 
 
 @router.post("/api/conversations/{conv_id}/messages")
@@ -614,50 +718,46 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
             if not full_text.strip():
                 stream_error = "The listing assistant returned an empty response. Retry this prompt."
                 yield _sse_event("error", stream_error)
+
+            # Persist before [DONE] so Forms/Fields refetch the updated listing JSON.
+            yield _sse_event("status", "Saving listing…")
+            persist_task = asyncio.create_task(
+                _persist_chat_result(
+                    stream_db,
+                    conv_id,
+                    full_text,
+                    provider,
+                    provider_name=provider_name,
+                    provider_model=provider_model,
+                    stream_error=stream_error,
+                    user_message=body.text,
+                )
+            )
+            async for _ in _wait_task_keepalives(persist_task, timeout=2.0):
+                yield KEEPALIVE
+            try:
+                _operations, saved = persist_task.result()
+            except Exception:
+                log.exception("failed to persist chat result for %s", conv_id)
+                try:
+                    ConversationRepo(stream_db).update_status(conv_id, "draft")
+                except Exception:
+                    log.exception("failed to reset status after chat persist error for %s", conv_id)
+                saved = False
+            if saved:
+                yield _sse_event("listing_updated", "1")
             yield "data: [DONE]\n\n"
         except Exception as e:
             log.exception("chat stream failed for %s", conv_id)
             stream_error = str(e)
             yield _sse_data(f"Error: {e}")
+            try:
+                ConversationRepo(stream_db).update_status(conv_id, "draft")
+            except Exception:
+                log.exception("failed to reset status after chat stream error for %s", conv_id)
             yield "data: [DONE]\n\n"
         finally:
-            stream_repo = ConversationRepo(stream_db)
-            try:
-                usable = full_text.strip() and not full_text.lstrip().lower().startswith("error:")
-                if usable and not stream_error:
-                    stream_repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=provider_model)
-                    operations = await _apply_listing_payload_with_repair(
-                        stream_db, conv_id, full_text, provider
-                    )
-                    await _maybe_resolve_vendoo_category(stream_db, conv_id, operations=operations)
-                    from vendoo_studio.repositories.queries import JobRepo
-                    from vendoo_studio.routes.jobs import resume_completion
-                    for job in JobRepo(stream_db).list_by_conversation(conv_id):
-                        if job.current_step == "awaiting_answers":
-                            try:
-                                await resume_completion(job.id, stream_db)
-                            except HTTPException as exc:
-                                stream_repo.add_message(conv_id, "system", str(exc.detail), provider="system", model="")
-                            break
-                elif stream_error or not full_text.strip():
-                    stream_repo.add_message(
-                        conv_id,
-                        "system",
-                        stream_error or "The listing assistant returned an empty response. Retry this prompt.",
-                        provider="system",
-                        model="",
-                    )
-                from vendoo_studio.repositories.queries import JobRepo
-                active = any(job.conversation_id == conv_id for job in JobRepo(stream_db).get_active())
-                stream_repo.update_status(conv_id, "listing" if active else "draft")
-            except Exception:
-                log.exception("failed to persist chat result for %s", conv_id)
-                try:
-                    stream_repo.update_status(conv_id, "draft")
-                except Exception:
-                    log.exception("failed to reset status after chat persist error for %s", conv_id)
-            finally:
-                stream_db.close()
+            stream_db.close()
 
     return StreamingResponse(stream_response(), media_type="text/event-stream", headers=SSE_HEADERS)
 

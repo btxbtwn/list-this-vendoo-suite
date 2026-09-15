@@ -101,7 +101,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
 
   React.useEffect(() => {
     if (data?.listing) setJsonText(JSON.stringify(data.listing, null, 2));
-  }, [data?.listing]);
+  }, [data?.listing, data?.current_revision_id]);
 
   React.useEffect(() => {
     if (listingJob?.mode === "schema_probe" && listingJob.status === "completed") {
@@ -263,6 +263,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
             ) : (
               <StructuredEditor
                 listing={listing}
+                revisionId={data?.current_revision_id}
                 tab={editTab}
                 jobId={listingJob?.id}
                 jobBusy={listingJob?.status === "dispatched"}
@@ -289,6 +290,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
 
 function StructuredEditor({
   listing,
+  revisionId,
   tab,
   jobId,
   jobBusy,
@@ -296,6 +298,7 @@ function StructuredEditor({
   onCategoryMatched,
 }: {
   listing: any;
+  revisionId?: string | null;
   tab: string;
   jobId?: string;
   jobBusy?: boolean;
@@ -335,7 +338,7 @@ function StructuredEditor({
       init[f.key] = val != null ? String(val) : f.defaultValue || "";
     });
     setLocal(init);
-  }, [listing, tab]);
+  }, [listing, revisionId, tab]);
 
   const handleBlur = (key: string) => {
     if (local[key] == null) return;

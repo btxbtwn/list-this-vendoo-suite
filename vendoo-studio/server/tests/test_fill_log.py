@@ -63,7 +63,7 @@ class FillLogHelpersTest(unittest.TestCase):
             {"marketplace": "general", "field": "SKU", "value": "ABC-1"},
             {"marketplace": "ebay", "field": "Type", "value": "T-Shirt"},
         ])
-        self.assertIn("Ready to apply on Vendoo:", summary)
+        self.assertIn("Saved to the listing JSON:", summary)
         self.assertIn("Vendoo / SKU: ABC-1", summary)
         self.assertIn("eBay / Type: T-Shirt", summary)
 
