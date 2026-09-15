@@ -743,6 +743,8 @@ def search_catalog(
 
 def relevant_skill_rules(db: Session, query: str, *, max_chars: int = 8000, top_k: int = 8) -> str:
     """Return the most relevant list-this skill/reference chunks for a listing query."""
+    from vendoo_studio.services.skill_formulas import listing_formula_rules, with_pinned_formulas
+
     query = str(query or "").strip()
     if not query:
         parts = []
@@ -751,29 +753,43 @@ def relevant_skill_rules(db: Session, query: str, *, max_chars: int = 8000, top_
                 parts.append(path.read_text(encoding="utf-8"))
             except OSError:
                 continue
-        return "\n\n---\n\n".join(parts)[:max_chars]
+        return with_pinned_formulas("\n\n---\n\n".join(parts), max_chars=max_chars)
 
     hits = search_catalog(db, query, kind="skill", top_k=top_k)
     if not hits:
         skill_md = skills_dir() / "list-this" / "SKILL.md"
-        return skill_md.read_text(encoding="utf-8")[:max_chars] if skill_md.is_file() else ""
+        raw = skill_md.read_text(encoding="utf-8")[:max_chars] if skill_md.is_file() else ""
+        return with_pinned_formulas(raw, max_chars=max_chars)
 
     parts: list[str] = []
     used = 0
+    # Reserve room for always-on title/description formulas.
+    pinned = listing_formula_rules()
+    budget = max(1200, max_chars - len(pinned) - 80)
     for hit in hits:
         title = hit.get("title") or hit.get("path") or "Rule"
         snippet = str(hit.get("snippet") or "").strip()
         if not snippet:
             continue
+        # Formulas are pinned separately — skip duplicate formula chunks.
+        if "TITLE Formula" in snippet and "DESCRIPTION Formula" in snippet:
+            continue
+        if str(title).casefold() in {
+            "formula reference (non-negotiable)",
+            "title formula",
+            "description formula (line breaks mandatory)",
+            "pricing formula",
+        }:
+            continue
         block = f"### {title}\n{snippet}"
-        if used + len(block) + 2 > max_chars:
-            remain = max_chars - used - 2
+        if used + len(block) + 2 > budget:
+            remain = budget - used - 2
             if remain > 200:
                 parts.append(block[:remain])
             break
         parts.append(block)
         used += len(block) + 2
-    return "\n\n".join(parts)
+    return with_pinned_formulas("\n\n".join(parts), max_chars=max_chars)
 
 
 def enrich_gaps_with_catalog_options(db: Session, gaps: list[dict], *, top_k: int = 3) -> list[dict]:

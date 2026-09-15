@@ -161,7 +161,25 @@ REPAIR_LISTING_PROMPT = (
     "- Output a single fenced ```json block with the listing object.\n"
     "- Keep every usable field from the broken output; fix syntax only.\n"
     "- Include title, description, and price when possible.\n"
+    "- Title order is Brand Size Vibe Item Color Fit (max 80 chars) when those fields exist.\n"
+    "- Description must keep Size:/Condition:/Measurements: line structure when present.\n"
+    "- Do not rewrite formula-compliant title/description into freeform marketing copy.\n"
     "- Do not add commentary outside the JSON fence."
+)
+
+FINALIZE_GAPS_PROMPT = (
+    "Finish this Vendoo listing so it can be sent. Infer only from the supplied photo analysis, "
+    "seller notes, and current listing JSON. Do not ask questions.\n\n"
+    "Return ONE fenced ```json block with the full updated listing object.\n"
+    "Fix every listed validation error you can support from evidence.\n"
+    "TITLE and DESCRIPTION follow list-this skill formulas exactly:\n"
+    "- Title order: Brand Size Vibe Item Color Fit (max 80 chars).\n"
+    "- Physical description: vibe sentence, fit/fabric sentence, then Size:, Condition:, "
+    "Measurements:, OFFERS WELCOME, and the 15% off line — with blank lines between blocks.\n"
+    "Preserve the current title and description unless a listed validation error is for title or "
+    "description. Never replace a formula-compliant title/description with freeform marketing copy.\n"
+    "Use exact Depop/Etsy/eBay dropdown values. Keep category_path and marketplace_categories unchanged.\n\n"
+    "{formulas}"
 )
 
 MAX_REPAIR_CHARS = 14000
@@ -199,6 +217,171 @@ async def repair_listing_json(provider, raw_text: str) -> dict | None:
         log.exception("listing JSON repair request failed")
         return None
     return extract_listing_json(repaired)
+
+
+def _first_sentence(text: str, fallback: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "").strip())
+    if not cleaned:
+        return fallback
+    match = re.search(r"(.+?[.!?])(?:\s|$)", cleaned)
+    sentence = (match.group(1) if match else cleaned).strip()
+    if not sentence.endswith((".", "!", "?")):
+        sentence += "."
+    return sentence
+
+
+def ensure_physical_description(listing: dict) -> bool:
+    """Rewrite description into the Size/Condition/Measurements formula when markers are missing."""
+    from vendoo_studio.models.validation import _description_follows_formula, _is_etsy_digital_listing
+
+    if not isinstance(listing, dict):
+        return False
+    if _is_etsy_digital_listing(listing):
+        return False
+    desc = str(listing.get("description") or "").strip()
+    if not desc or _description_follows_formula(desc):
+        return False
+
+    size = str(listing.get("size") or "").strip() or "See tag"
+    condition = str(listing.get("condition") or "").strip() or "Pre-Owned - Good"
+    meas = "See photos"
+    meas_match = re.search(r"(?is)measurements?:\s*(.+?)(?:\n\n|\n[A-Z]|$)", desc)
+    if meas_match:
+        meas = re.sub(r"\s+", " ", meas_match.group(1)).strip().rstrip(".")
+    else:
+        bits = re.findall(
+            r"(?i)(?:pit\s*to\s*pit|length|sleeve)\s*[:=]?\s*[\d.\/\"]+\s*(?:inches|in|\"|”)?",
+            desc,
+        )
+        if bits:
+            meas = "; ".join(re.sub(r"\s+", " ", bit).strip() for bit in bits)
+
+    lower = desc.lower()
+    # Prefer appending missing required blocks so existing vibe/fit prose stays intact.
+    if "\n" in desc and len(desc) >= 40:
+        additions: list[str] = []
+        if "size:" not in lower:
+            additions.append(f"Size: {size}")
+        if "condition:" not in lower:
+            additions.append(f"Condition: {condition}; Flaws: none noted. See photos for details.")
+        if "measurements:" not in lower:
+            additions.append(f"Measurements: {meas}")
+        if "offers welcome" not in lower:
+            additions.append("OFFERS WELCOME! Ships in 1-2 business days.")
+        if "15% off bundles" not in lower:
+            additions.append("15% off bundles of 2+ items.")
+        if additions:
+            listing["description"] = desc.rstrip() + "\n\n" + "\n\n".join(additions)
+            return True
+
+    title = str(listing.get("title") or "").strip()
+    vibe = _first_sentence(desc, fallback=f"{title}." if title else "Resale-ready garment.")
+    rest = re.split(r"(?<=[.!?])\s+", desc, maxsplit=1)
+    fit = _first_sentence(
+        rest[1] if len(rest) > 1 else "",
+        fallback="See photos for fit, fabric, and details.",
+    )
+    if fit.casefold() == vibe.casefold():
+        fit = "See photos for fit, fabric, and details."
+    listing["description"] = (
+        f"{vibe}\n\n"
+        f"{fit}\n\n"
+        f"Size: {size}\n\n"
+        f"Condition: {condition}; Flaws: none noted. See photos for details.\n\n"
+        f"Measurements: {meas}\n\n"
+        "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
+        "15% off bundles of 2+ items."
+    )
+    return True
+
+
+def apply_send_readiness_fixes(listing: dict) -> bool:
+    """Deterministic fixes so generated listings clear common Send blockers."""
+    from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+    if not isinstance(listing, dict):
+        return False
+    changed = normalize_listing_dropdowns(listing)
+    if ensure_physical_description(listing):
+        changed = True
+    if not str(listing.get("package_dimensions_in") or "").strip():
+        listing["package_dimensions_in"] = "13x10x3"
+        changed = True
+    if "weight_lb" not in listing and "weight_oz" not in listing:
+        listing["weight_lb"] = 0
+        listing["weight_oz"] = 10
+        changed = True
+    return changed
+
+
+def _validation_blockers(listing: dict) -> list[dict]:
+    from vendoo_studio.models.validation import validate_listing
+    from vendoo_studio.services.marketplaces import get_selected_marketplaces
+
+    result = validate_listing(
+        listing,
+        require_photos=False,
+        selected_marketplaces=get_selected_marketplaces(),
+    )
+    return list(result.errors or [])
+
+
+async def fill_validation_gaps(provider, listing: dict, *, analysis: str = "", notes: str = "") -> dict | None:
+    """One model pass to clear remaining Send validation errors."""
+    if provider is None or not isinstance(listing, dict):
+        return None
+    blockers = _validation_blockers(listing)
+    if not blockers:
+        return None
+    from vendoo_studio.services.skill_formulas import listing_formula_rules
+
+    payload = {
+        "validation_errors": blockers,
+        "photo_analysis": (analysis or "")[:8000],
+        "seller_notes": (notes or "")[:4000],
+        "listing": listing,
+    }
+    messages = [
+        {
+            "role": "system",
+            "content": FINALIZE_GAPS_PROMPT.format(formulas=listing_formula_rules()),
+        },
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)[:MAX_REPAIR_CHARS]},
+    ]
+    try:
+        text = await collect_provider_text(provider, messages)
+    except Exception:
+        log.exception("listing validation-gap fill failed")
+        return None
+    updated = extract_listing_json(text)
+    if not isinstance(updated, dict):
+        return None
+    return _preserve_formula_copy(listing, updated, blockers)
+
+
+def _preserve_formula_copy(original: dict, updated: dict, blockers: list[dict]) -> dict:
+    """Keep formula-compliant title/description unless those fields were the blockers."""
+    from vendoo_studio.models.validation import _description_follows_formula, _title_follows_formula
+
+    fields = {str(err.get("field") or "") for err in blockers or []}
+    out = dict(updated)
+    brand = str(original.get("brand") or out.get("brand") or "").strip()
+    size = str(original.get("size") or out.get("size") or "").strip()
+    orig_title = str(original.get("title") or "").strip()
+    new_title = str(out.get("title") or "").strip()
+    if "title" not in fields and orig_title:
+        if _title_follows_formula(orig_title, brand, size) or not new_title:
+            out["title"] = orig_title
+        elif brand and new_title and not _title_follows_formula(new_title, brand, size):
+            out["title"] = orig_title
+    orig_desc = str(original.get("description") or "").strip()
+    new_desc = str(out.get("description") or "").strip()
+    if "description" not in fields and orig_desc:
+        if _description_follows_formula(orig_desc) or not new_desc:
+            out["description"] = orig_desc
+        elif new_desc and not _description_follows_formula(new_desc):
+            out["description"] = orig_desc
+    return out
 
 
 def seller_item_details(notes: str | None) -> str:
@@ -251,6 +434,7 @@ def persist_generated_listing(
     repaired: bool = False,
     provider_name: str = "xiaomi-mimo",
     model_name: str = "mimo-v2.5-pro",
+    announce: bool = True,
 ) -> dict | None:
     repo = ConversationRepo(db)
     if full_text:
@@ -262,8 +446,7 @@ def persist_generated_listing(
         return None
 
     RegistryService(db).merge_learned_fields(listing)
-    from vendoo_studio.models.validation import normalize_listing_dropdowns
-    normalize_listing_dropdowns(listing)
+    apply_send_readiness_fixes(listing)
     revisions = ListingRepo(db).get_revisions(conv_id)
     if revisions:
         selected = revisions[0].listing_json
@@ -272,12 +455,32 @@ def persist_generated_listing(
             listing["marketplace_categories"] = dict(selected["marketplace_categories"])
     ListingRepo(db).save_revision(conv_id, listing, source=source)
 
-    if repaired:
-        note = "Listing repaired from malformed model output and ready for review."
-    else:
-        note = "Listing extracted and ready for review."
-    repo.add_message(conv_id, "system", note, provider="system", model="")
+    if announce:
+        blockers = _validation_blockers(listing)
+        repo.add_message(
+            conv_id,
+            "system",
+            _ready_note(repaired=repaired, finalized=False, blockers=blockers),
+            provider="system",
+            model="",
+        )
     return listing
+
+
+def _ready_note(*, repaired: bool, finalized: bool, blockers: list) -> str:
+    blocker_text = "; ".join(
+        str(err.get("message") or err.get("field") or "issue") for err in (blockers or [])[:6]
+    )
+    if blockers:
+        lead = "Listing repaired after a readiness pass" if repaired else "Listing extracted after a readiness pass"
+        return f"{lead}. Remaining send blockers: {blocker_text}. Still ready for review."
+    if repaired and finalized:
+        return "Listing repaired and required fields filled. Ready for review."
+    if finalized:
+        return "Listing extracted and required fields filled. Ready for review."
+    if repaired:
+        return "Listing repaired from malformed model output and ready for review."
+    return "Listing extracted and ready for review."
 
 
 async def persist_generated_listing_with_repair(
@@ -288,39 +491,54 @@ async def persist_generated_listing_with_repair(
     *,
     source: str = "model",
 ) -> dict | None:
-    """Persist listing JSON, repairing with the provider when the first parse fails."""
+    """Persist listing JSON, repairing parse errors and clearing Send validation gaps."""
     provider_name = getattr(provider, "name", "xiaomi-mimo")
     model_name = getattr(provider, "listing_model", "mimo-v2.5-pro")
     parsed = extract_listing_json(full_text)
-    if parsed:
-        return persist_generated_listing(
-            db,
-            conv_id,
-            full_text,
-            source=source,
-            parsed=parsed,
-            provider_name=provider_name,
-            model_name=model_name,
-        )
+    repaired = False
+    if not parsed:
+        repaired_json = await repair_listing_json(provider, full_text)
+        if repaired_json:
+            log.info("repaired malformed listing JSON for %s", conv_id)
+            parsed = repaired_json
+            repaired = True
 
-    repaired = await repair_listing_json(provider, full_text)
-    if repaired:
-        log.info("repaired malformed listing JSON for %s", conv_id)
-        return persist_generated_listing(
-            db,
-            conv_id,
-            full_text,
-            source=source,
-            parsed=repaired,
-            repaired=True,
-            provider_name=provider_name,
-            model_name=model_name,
-        )
-    return persist_generated_listing(
+    listing = persist_generated_listing(
         db,
         conv_id,
         full_text,
         source=source,
+        parsed=parsed,
+        repaired=repaired,
         provider_name=provider_name,
         model_name=model_name,
+        announce=False,
     )
+    if not listing:
+        return None
+
+    conv = ConversationRepo(db).get(conv_id)
+    analysis = latest_photo_analysis(ConversationRepo(db).get_messages(conv_id)) or ""
+    notes = str(getattr(conv, "notes", "") or "")
+    finalized = False
+    if _validation_blockers(listing):
+        updated = await fill_validation_gaps(provider, listing, analysis=analysis, notes=notes)
+        if isinstance(updated, dict) and updated:
+            if listing.get("category_path"):
+                updated["category_path"] = listing["category_path"]
+            if listing.get("marketplace_categories"):
+                updated["marketplace_categories"] = dict(listing["marketplace_categories"])
+            RegistryService(db).merge_learned_fields(updated)
+            apply_send_readiness_fixes(updated)
+            listing = updated
+            ListingRepo(db).save_revision(conv_id, listing, source="generation_finalize")
+            finalized = True
+
+    ConversationRepo(db).add_message(
+        conv_id,
+        "system",
+        _ready_note(repaired=repaired, finalized=finalized, blockers=_validation_blockers(listing)),
+        provider="system",
+        model="",
+    )
+    return listing

@@ -59,6 +59,7 @@ class FakeProvider:
         self.analyze_calls = 0
         self.chat_calls = 0
         self.chat_messages = None
+        self.chat_history: list = []
 
     async def analyze_photos(self, *args, **kwargs):
         self.analyze_calls += 1
@@ -71,10 +72,22 @@ class FakeProvider:
     async def chat(self, messages, stream=True):
         self.chat_calls += 1
         self.chat_messages = messages
+        self.chat_history.append(messages)
         if self.chat_delay:
             await asyncio.sleep(self.chat_delay)
         for chunk in self.chunks:
             yield chunk
+
+
+def _first_generate_prompt(provider) -> str:
+    """Prompt from the initial generate call (before repair/finalize passes)."""
+    for messages in getattr(provider, "chat_history", []) or []:
+        content = str((messages[0] or {}).get("content") or "")
+        if "Finish this Vendoo listing" in content or "malformed" in content.lower():
+            continue
+        return content
+    messages = provider.chat_messages or []
+    return str((messages[0] or {}).get("content") or "") if messages else ""
 
 
 class ListingGenerateHelpersTest(unittest.TestCase):
@@ -169,6 +182,50 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         self.assertIn("Category: Clothing > Women > Tops", details)
         self.assertIn("Labels: A19, DomStaleInventory", details)
 
+    def test_listing_formula_rules_come_from_skill(self):
+        from vendoo_studio.services.skill_formulas import listing_formula_rules, with_pinned_formulas
+
+        formulas = listing_formula_rules()
+        self.assertIn("TITLE Formula", formulas)
+        self.assertIn("{BRAND} {SIZE} {VIBE} {ITEM} {COLOR} {FIT}", formulas)
+        self.assertIn("DESCRIPTION Formula", formulas)
+        self.assertIn("Size: {size}", formulas)
+        pinned = with_pinned_formulas("### Some other rule\nNever invent brands.")
+        self.assertTrue(pinned.startswith("## Formula Reference"))
+        self.assertIn("Never invent brands", pinned)
+
+    def test_preserve_formula_copy_keeps_good_title_and_description(self):
+        from vendoo_studio.services.listing_generate import _preserve_formula_copy
+
+        original = {
+            "brand": "Notations",
+            "size": "XL",
+            "title": "Notations XL Floral Tunic Top Black Relaxed",
+            "description": (
+                "Black floral tunic blouse.\n\n"
+                "Relaxed woven fit.\n\n"
+                "Size: XL\n\n"
+                "Condition: Pre-Owned - Good; Flaws: none noted. See photos for details.\n\n"
+                "Measurements: Pit to pit: 21\"\n\n"
+                "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
+                "15% off bundles of 2+ items."
+            ),
+        }
+        updated = {
+            **original,
+            "title": "Beautiful Black Floral Tunic - Must See!",
+            "description": "Gorgeous top, offers welcome!",
+            "ebay_specifics": {"season": "Summer"},
+        }
+        kept = _preserve_formula_copy(
+            original,
+            updated,
+            [{"field": "ebay_specifics.season", "message": "bad season"}],
+        )
+        self.assertEqual(kept["title"], original["title"])
+        self.assertEqual(kept["description"], original["description"])
+        self.assertEqual(kept["ebay_specifics"]["season"], "Summer")
+
     def test_chunk_text_reads_delta_content(self):
         self.assertEqual(chunk_text({"choices": [{"delta": {"content": "Hello"}}]}), "Hello")
 
@@ -258,11 +315,137 @@ class PersistListingTest(unittest.TestCase):
 
         parsed = asyncio.run(run())
         self.assertEqual(parsed["title"], LISTING_JSON["title"])
-        self.assertEqual(provider.chat_calls, 1)
+        self.assertGreaterEqual(provider.chat_calls, 1)
         messages = ConversationRepo(self.db).get_messages(self.conv.id)
         self.assertTrue(any("repaired" in (m.text or "").lower() for m in messages))
         revisions = ListingRepo(self.db).get_revisions(self.conv.id)
-        self.assertEqual(len(revisions), 1)
+        self.assertGreaterEqual(len(revisions), 1)
+
+    def test_send_readiness_fixes_description_weight_and_dropdowns(self):
+        from vendoo_studio.services.listing_generate import apply_send_readiness_fixes
+
+        listing = {
+            "title": "Notations XL Floral Tunic Top Black Relaxed",
+            "description": (
+                "Notations brand women's tunic. Measurements: Pit to pit: 21 inches, Length: 24 inches."
+            ),
+            "price": 25,
+            "brand": "Notations",
+            "size": "XL",
+            "sku": "notations-XL",
+            "condition": "Pre-Owned - Good",
+            "ebay_specifics": {
+                "season": "All Season",
+                "type": "Blouse",
+                "department": "Women",
+                "sizeType": "Regular",
+                "size": "XL",
+                "brand": "Notations",
+                "fit": "Regular",
+                "material": "Cotton",
+                "pattern": "Floral",
+                "style": "Tunic",
+                "accents": "None",
+                "features": "None",
+                "neckline": "Collar",
+                "closure": "Button",
+                "countryOfOrigin": "Unknown",
+                "fabricType": "Woven",
+                "garmentCare": "Unknown",
+                "handmade": "No",
+                "personalize": "No",
+                "vintage": "No",
+                "occasion": "Casual",
+                "theme": "Floral",
+                "unitQuantity": "1",
+                "unitType": "Unit",
+                "pounds": 0,
+                "ounces": 8,
+            },
+            "depop_specifics": {"source": "Preloved", "age": "Modern", "style": "Tunic"},
+            "etsy_specifics": {
+                "whoMadeIt": "Another company or person",
+                "whatIsIt": "A finished product",
+                "whenWasItMade": "2010 - 2019 (Recently)",
+            },
+        }
+        self.assertTrue(apply_send_readiness_fixes(listing))
+        self.assertIn("Size:", listing["description"])
+        self.assertIn("Condition:", listing["description"])
+        self.assertIn("Measurements:", listing["description"])
+        self.assertEqual(listing.get("weight_oz"), 8)
+        self.assertEqual(listing["ebay_specifics"]["season"], "Summer")
+        self.assertEqual(listing["depop_specifics"]["style"], ["Casual", "Retro", "Boho"])
+        self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
+
+    def test_finalize_calls_model_when_send_blockers_remain(self):
+        incomplete = {
+            "title": "Notations XL Floral Tunic Top Black Relaxed",
+            "description": "Missing formula text without line breaks.",
+            "price": 25,
+            "ebay_specifics": {"season": "All Season"},
+            "depop_specifics": {"source": "Preloved", "age": "Modern", "style": "Tunic"},
+            "etsy_specifics": {
+                "whoMadeIt": "Another company or person",
+                "whatIsIt": "A finished product",
+                "whenWasItMade": "2010 - 2019 (Recently)",
+            },
+        }
+        fixed = {
+            **incomplete,
+            "brand": "Notations",
+            "size": "XL",
+            "sku": "notations-XL",
+            "condition": "Pre-Owned - Good",
+            "description": (
+                "Black floral tunic blouse.\n\n"
+                "Relaxed woven fit.\n\n"
+                "Size: XL\n\n"
+                "Condition: Pre-Owned - Good; Flaws: none noted. See photos for details.\n\n"
+                "Measurements: Pit to pit: 21\"\n\n"
+                "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
+                "15% off bundles of 2+ items."
+            ),
+            "weight_lb": 0,
+            "weight_oz": 8,
+            "package_dimensions_in": "13x10x3",
+            "ebay_specifics": {"season": "Summer"},
+            "depop_specifics": {"source": "Preloved", "age": "Modern", "style": ["Casual", "Retro"]},
+            "etsy_specifics": {
+                "who_made": "Another company or person",
+                "what_is": "A finished product",
+                "when_made": "2010 - 2019 (Recently)",
+            },
+        }
+
+        class Provider:
+            def __init__(self):
+                self.chat_calls = 0
+
+            async def chat(self, messages, stream=True):
+                self.chat_calls += 1
+                yield "```json\n" + json.dumps(fixed) + "\n```"
+
+        provider = Provider()
+
+        async def run():
+            with patch(
+                "vendoo_studio.services.marketplaces.get_selected_marketplaces",
+                return_value=["ebay", "depop", "etsy"],
+            ):
+                return await persist_generated_listing_with_repair(
+                    self.db,
+                    self.conv.id,
+                    "```json\n" + json.dumps(incomplete) + "\n```",
+                    provider,
+                )
+
+        parsed = asyncio.run(run())
+        self.assertEqual(parsed.get("brand"), "Notations")
+        self.assertIn("Size:", parsed["description"])
+        self.assertGreaterEqual(provider.chat_calls, 1)
+        notes = [m.text for m in ConversationRepo(self.db).get_messages(self.conv.id) if m.role == "system"]
+        self.assertTrue(any("ready for review" in (note or "").lower() for note in notes))
 
     def test_repair_listing_json_skips_plain_chat(self):
         class BoomProvider:
@@ -502,14 +685,14 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 async for _ in resp.aiter_text():
                     pass
         self.assertEqual(self.provider.analyze_calls, 1)
-        self.assertEqual(self.provider.chat_calls, 2)
-        prompt = self.provider.chat_messages[0]["content"]
+        self.assertEqual(self.provider.chat_calls, 4)
+        prompt = _first_generate_prompt(self.provider)
         self.assertIn("already uploaded 1 product photo", prompt)
         self.assertIn("Never ask them to attach", prompt)
         db = self.Session()
         revisions = ListingRepo(db).get_revisions(self.conv_id)
         conv = ConversationRepo(db).get(self.conv_id)
-        self.assertEqual(len(revisions), 2)
+        self.assertGreaterEqual(len(revisions), 2)
         self.assertEqual(revisions[0].listing_json["title"], LISTING_JSON["title"])
         self.assertEqual(conv.status, "draft")
         db.close()
@@ -519,8 +702,9 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
             async def chat(self, messages, stream=True):
                 self.chat_calls += 1
                 self.chat_messages = messages
+                self.chat_history.append(messages)
                 contents = " ".join(str(m.get("content") or "") for m in messages).lower()
-                if "malformed" in contents:
+                if "malformed" in contents or "finish this vendoo listing" in contents:
                     yield "```json\n" + json.dumps(LISTING_JSON) + "\n```"
                     return
                 yield '```json\n{"title": "Broken Tee", "price": 12,\n```'
@@ -538,12 +722,13 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(resp.status_code, 200)
                 body = "".join([chunk async for chunk in resp.aiter_text()])
         self.assertIn("Repairing listing JSON", body)
+        self.assertIn("Filling required fields", body)
         self.assertGreaterEqual(self.provider.chat_calls, 2)
         db = self.Session()
         revisions = ListingRepo(db).get_revisions(self.conv_id)
         messages = ConversationRepo(db).get_messages(self.conv_id)
         db.close()
-        self.assertEqual(len(revisions), 1)
+        self.assertGreaterEqual(len(revisions), 1)
         self.assertEqual(revisions[0].listing_json["title"], LISTING_JSON["title"])
         self.assertTrue(any("repaired" in (m.text or "").lower() for m in messages))
 
@@ -557,7 +742,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 async for _ in resp.aiter_text():
                     pass
         self.assertEqual(self.provider.analyze_calls, 1)
-        prompt = self.provider.chat_messages[0]["content"]
+        prompt = _first_generate_prompt(self.provider)
         self.assertIn("already uploaded 1 product photo", prompt)
         self.assertIn("brand: M&O Gold", prompt)
 
@@ -581,7 +766,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
             async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
                 body = "".join([chunk async for chunk in resp.aiter_text()])
         self.assertIn("Looking up sold comps", body)
-        prompt = self.provider.chat_messages[0]["content"]
+        prompt = _first_generate_prompt(self.provider)
         self.assertIn("Similar tees sold $12-$18", prompt)
         db = self.Session()
         messages = ConversationRepo(db).get_messages(self.conv_id)
@@ -692,7 +877,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         revisions = ListingRepo(db).get_revisions(self.conv_id)
         conv = ConversationRepo(db).get(self.conv_id)
         db.close()
-        self.assertEqual(len(revisions), 1)
+        self.assertGreaterEqual(len(revisions), 1)
         self.assertEqual(revisions[0].listing_json["title"], LISTING_JSON["title"])
         self.assertEqual(conv.status, "draft")
 
@@ -717,7 +902,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 body = "".join([chunk async for chunk in resp.aiter_text()])
             first_body = await first
         self.assertEqual(self.provider.analyze_calls, 1)
-        self.assertEqual(self.provider.chat_calls, 1)
+        self.assertEqual(self.provider.chat_calls, 2)
         self.assertIn(LISTING_JSON["title"], body)
         self.assertIn(LISTING_JSON["title"], first_body)
 

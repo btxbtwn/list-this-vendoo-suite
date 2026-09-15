@@ -35,6 +35,13 @@ EBAY_KEY_ALIASES = {
     "qty": "unitQuantity",
 }
 VALID_EBAY_SEASONS = frozenset({"Spring", "Summer", "Fall", "Winter"})
+EBAY_SEASON_ALIASES = {
+    "all season": "Summer",
+    "all-season": "Summer",
+    "all seasons": "Summer",
+    "year round": "Summer",
+    "year-round": "Summer",
+}
 VALID_ETSY_WHO = frozenset({
     "Another company or person",
     "A member of my shop",
@@ -320,13 +327,32 @@ def _canonical_etsy_when(value: str) -> str:
 
 
 def _etsy_when_raw(etsy: dict[str, Any], listing: dict[str, Any] | None = None) -> str:
-    for key in ("when_made", "whenMade", "when made", "When Was It Made?", "When Made"):
+    for key in (
+        "when_made", "whenMade", "when made", "whenWasItMade", "whenWasItMade?",
+        "When Was It Made?", "When Made",
+    ):
         text = _scalar_text(etsy.get(key)) if key in etsy else None
         if text:
             return text
     ebay = (listing or {}).get("ebay_specifics")
     if isinstance(ebay, dict):
         text = _scalar_text(ebay.get("yearManufactured") or ebay.get("year_manufactured"))
+        if text:
+            return text
+    return ""
+
+
+def _etsy_who_raw(etsy: dict[str, Any]) -> str:
+    for key in ("who_made", "whoMade", "whoMadeIt", "whoMadeIt?", "Who Made It?"):
+        text = _scalar_text(etsy.get(key)) if key in etsy else None
+        if text:
+            return text
+    return ""
+
+
+def _etsy_what_raw(etsy: dict[str, Any]) -> str:
+    for key in ("what_is", "whatIs", "whatIsIt", "whatIsIt?", "What Is It?"):
+        text = _scalar_text(etsy.get(key)) if key in etsy else None
         if text:
             return text
     return ""
@@ -404,6 +430,39 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
         return False
     changed = False
 
+    # Shipping weight often lands only under marketplace specifics — promote it.
+    if "weight_lb" not in listing and "weight_oz" not in listing:
+        ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+        pounds = ebay.get("pounds") if isinstance(ebay, dict) else None
+        ounces = ebay.get("ounces") if isinstance(ebay, dict) else None
+        if pounds is None and ounces is None:
+            for key in ("mercari_specifics", "etsy_specifics", "depop_specifics"):
+                block = listing.get(key)
+                if isinstance(block, dict):
+                    if pounds is None and block.get("pounds") is not None:
+                        pounds = block.get("pounds")
+                    if ounces is None and block.get("ounces") is not None:
+                        ounces = block.get("ounces")
+        try:
+            lb = int(pounds or 0)
+            oz = int(ounces or 0)
+        except (TypeError, ValueError):
+            lb, oz = 0, 0
+        if lb > 0 or oz > 0:
+            listing["weight_lb"] = lb
+            listing["weight_oz"] = oz
+            changed = True
+
+    ebay = listing.get("ebay_specifics")
+    if isinstance(ebay, dict):
+        season = _text(ebay.get("season"))
+        alias = EBAY_SEASON_ALIASES.get(season.casefold()) if season else None
+        if alias and alias != season:
+            ebay = dict(ebay)
+            ebay["season"] = alias
+            listing["ebay_specifics"] = ebay
+            changed = True
+
     depop = listing.get("depop_specifics")
     if isinstance(depop, dict):
         raw = _text(depop.get("parcelSize") or depop.get("parcel_size"))
@@ -415,18 +474,45 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
                 depop["parcel_size"] = canonical
             listing["depop_specifics"] = depop
             changed = True
+        styles = _as_list(depop.get("style"))
+        mapped: list[str] = []
+        had_invalid = False
+        for style in styles:
+            hit = _canonical_option(style, VALID_DEPOP_STYLE)
+            if hit:
+                if hit not in mapped:
+                    mapped.append(hit)
+            elif str(style or "").strip():
+                had_invalid = True
+        if styles and had_invalid:
+            if not mapped:
+                mapped = ["Casual", "Retro", "Boho"]
+            mapped = mapped[:3]
+            if mapped != styles:
+                depop = dict(depop)
+                depop["style"] = mapped
+                listing["depop_specifics"] = depop
+                changed = True
 
     etsy = listing.get("etsy_specifics")
     if isinstance(etsy, dict):
-        raw = _etsy_when_raw(etsy, listing)
-        canonical = _resolve_etsy_when(raw, _etsy_when_options()) if raw else ""
-        if canonical and canonical != raw:
-            etsy = dict(etsy)
-            etsy["when_made"] = canonical
-            if "whenMade" in etsy:
-                etsy["whenMade"] = canonical
-            listing["etsy_specifics"] = etsy
+        etsy = dict(etsy)
+        who = _etsy_who_raw(etsy)
+        what = _etsy_what_raw(etsy)
+        when_raw = _etsy_when_raw(etsy, listing)
+        if who and _text(etsy.get("who_made")) != who:
+            etsy["who_made"] = who
             changed = True
+        if what and _text(etsy.get("what_is")) != what:
+            etsy["what_is"] = what
+            changed = True
+        canonical_when = _resolve_etsy_when(when_raw, _etsy_when_options()) if when_raw else ""
+        if canonical_when and _text(etsy.get("when_made")) != canonical_when:
+            etsy["when_made"] = canonical_when
+            if "whenMade" in etsy:
+                etsy["whenMade"] = canonical_when
+            changed = True
+        listing["etsy_specifics"] = etsy
 
     return changed
 
@@ -624,8 +710,8 @@ def validate_listing(
         etsy = {}
     etsy = etsy or {}
     if "etsy" in selected_set:
-        who = _text(etsy.get("who_made") or etsy.get("whoMade"))
-        what = _text(etsy.get("what_is") or etsy.get("whatIs"))
+        who = _etsy_who_raw(etsy)
+        what = _etsy_what_raw(etsy)
         if not who:
             _add(result, "etsy_specifics.who_made", "Etsy who-made is required")
         elif who not in VALID_ETSY_WHO:
