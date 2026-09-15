@@ -32,7 +32,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
   const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
 
-  const { data: jobs, isLoading: jobsLoading, isFetching: jobsFetching, refetch: refetchJobs } = useQuery({
+  const { data: jobs, isLoading: jobsLoading, isFetching: jobsFetching } = useQuery({
     queryKey: ["jobs", convId],
     queryFn: () => api.jobs.list(convId),
     refetchInterval: 2000,
