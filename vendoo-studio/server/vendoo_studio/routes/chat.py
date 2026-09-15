@@ -20,6 +20,7 @@ from vendoo_studio.services.listing_generate import (
     analysis_with_photo_count,
     extract_listing_json,
     latest_photo_analysis,
+    listing_save_summary,
     looks_like_listing_attempt,
     persist_generated_listing_with_repair,
     photo_analysis_usable,
@@ -443,7 +444,9 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             "- Title MUST follow Brand Size Vibe Item Color Fit exactly (max 80 chars) from the Formula Reference below.\n"
             "- Description MUST follow the physical-item formula exactly (line breaks; Size:/Condition:/Measurements:/OFFERS WELCOME) unless this is an Etsy digital download.\n"
             "- Do not invent catchy titles or prose that break those formulas.\n"
-            "- Resolve every applicable discovered field from photo evidence and initial seller notes. Leave unsupported facts empty and note them; never invent brand, size, material, or age.\n"
+            "- Resolve every applicable discovered field with a real value or Does Not Apply when the field truly does not apply.\n"
+            "- Fill every discovered category/marketplace field in the JSON. Do not leave applicable fields empty.\n"
+            "- Never tell the seller the listing is complete, ready, or done while any discovered field is still empty.\n"
             "- Estimate packaged shipping weight and mailer dimensions from the item type; do not ask the seller for those.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
             + (f"\n{photo_analysis_text}\n\n" if photo_analysis_text else "") +
@@ -590,11 +593,11 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> tuple[l
 
     parsed = extract_listing_json(full_text)
     if parsed:
-        _save_listing_revision(db, conv_id, parsed)
+        saved = _save_listing_revision(db, conv_id, parsed)
         ConversationRepo(db).add_message(
             conv_id,
             "system",
-            "Listing generated. Review the fields on the right.",
+            listing_save_summary(db, conv_id, saved),
             provider="system",
             model="",
         )
@@ -959,7 +962,48 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
             if not extract_listing_json(full_text):
                 run.publish(_sse_event("status", "Repairing listing JSON…"))
             run.publish(_sse_event("status", "Filling required fields…"))
-            listing = await persist_generated_listing_with_repair(stream_db, conv_id, full_text, provider)
+            listing = await persist_generated_listing_with_repair(
+                stream_db, conv_id, full_text, provider, final_announce=False,
+            )
+            if listing:
+                run.publish(_sse_event("status", "Filling discovered fields…"))
+                from vendoo_studio.services.listing_field_gaps import fill_listing_field_gaps
+
+                evidence = "\n\n".join(
+                    part for part in (prompt_analysis, item_details, comps_text) if part
+                )
+                listing = await fill_listing_field_gaps(
+                    stream_db,
+                    conv_id,
+                    listing,
+                    provider,
+                    evidence=evidence,
+                )
+                run.publish(_sse_event("status", "Applying values on Vendoo…"))
+                from vendoo_studio.services.auto_apply import auto_apply_after_generation
+                apply_result = await auto_apply_after_generation(stream_db, conv_id, listing)
+                if apply_result.get("applied"):
+                    run.publish(_sse_event(
+                        "status",
+                        f"Applied {apply_result.get('count', 0)} value(s) on Vendoo.",
+                    ))
+                elif apply_result.get("reason") == "nothing_to_apply":
+                    pass
+                elif apply_result.get("error"):
+                    stream_repo.add_message(
+                        conv_id,
+                        "system",
+                        f"Could not apply generated values on Vendoo: {apply_result['error']}",
+                        provider="system",
+                        model="",
+                    )
+                stream_repo.add_message(
+                    conv_id,
+                    "system",
+                    listing_save_summary(stream_db, conv_id, listing),
+                    provider="system",
+                    model="",
+                )
             stream_repo.update_status(conv_id, "draft")
             run.publish("data: [DONE]\n\n")
         except asyncio.CancelledError:
@@ -1060,12 +1104,12 @@ def _listing_messages(
         "OFFERS WELCOME blocks. Do not write freeform marketing copy that breaks those formulas.\n\n"
         "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
         "Do not modify, estimate, or replace seller-provided measurements.\n"
-        "Use the discovered category fields below. Infer every supportable product fact from the photo analysis and "
-        "initial seller notes; leave unsupported facts empty and note them in the description. Never ask clarifying questions. "
+        "Use the discovered category fields below. Fill every applicable field with a real value or Does Not Apply. "
+        "Only leave a field empty when you must ask the seller a precise question in prose — and never claim the listing is complete while any applicable discovered field is still empty. "
         "Estimate packaged shipping weight (weight_lb/weight_oz) and package_dimensions_in from the item type — "
         "do not ask the seller for routine apparel shipping weight or mailer size. "
-        "Never invent brand, size, material, age, or other product facts beyond what photos and notes support. "
-        "Completion requires saved-form verification.\n"
+        "Never invent brand, size, material, age, or other product facts without photo or seller evidence. "
+        "Studio applies generated values onto the bound Vendoo draft automatically when Chrome is connected. "
         "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
         "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
         "Output the full listing JSON inside a fenced code block:\n\n"

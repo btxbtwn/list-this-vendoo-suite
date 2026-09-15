@@ -498,6 +498,51 @@ def seller_item_details(notes: str | None) -> str:
     return "Known item details from the seller:\n" + "\n".join(lines)
 
 
+def listing_save_summary(db, conv_id: str, listing: dict, *, waiting: bool = False) -> str:
+    """Honest post-save status based on validation and discovered field gaps."""
+    from vendoo_studio.models.validation import validate_listing
+    from vendoo_studio.services.listing_field_gaps import remaining_discovered_gap_count
+    from vendoo_studio.services.marketplaces import get_selected_marketplaces
+
+    photos = len(ConversationRepo(db).get_photos(conv_id))
+    validation = validate_listing(
+        listing,
+        photos,
+        require_photos=False,
+        selected_marketplaces=get_selected_marketplaces(),
+    )
+    missing = len(validation.errors)
+    discovered = remaining_discovered_gap_count(db, listing)
+    if waiting:
+        if missing or discovered:
+            parts = []
+            if missing:
+                parts.append(f"{missing} required field(s) still missing in Studio")
+            if discovered:
+                parts.append(f"{discovered} discovered field(s) still empty in Studio")
+            return (
+                "Listing saved with questions outstanding. "
+                + " — ".join(parts)
+                + ". Finish them in Fields before Send."
+            )
+        return "Listing saved with questions outstanding. Answer them in chat before Send."
+    if missing or discovered:
+        parts = []
+        if missing:
+            parts.append(f"{missing} required field(s) still missing in Studio")
+        if discovered:
+            parts.append(f"{discovered} discovered field(s) still empty in Studio")
+        return (
+            "Listing saved. "
+            + " — ".join(parts)
+            + ". Open Fields to review what still needs chat, then Send when ready."
+        )
+    return (
+        "Listing saved. Required and discovered Studio fields are filled — values are applied on Vendoo "
+        "automatically when Chrome is connected. Review Fields, then Send when the draft looks right."
+    )
+
+
 def persist_generated_listing(
     db,
     conv_id: str,
@@ -530,31 +575,14 @@ def persist_generated_listing(
     ListingRepo(db).save_revision(conv_id, listing, source=source)
 
     if announce:
-        blockers = _validation_blockers(listing)
         repo.add_message(
             conv_id,
             "system",
-            _ready_note(repaired=repaired, finalized=False, blockers=blockers),
+            listing_save_summary(db, conv_id, listing),
             provider="system",
             model="",
         )
     return listing
-
-
-def _ready_note(*, repaired: bool, finalized: bool, blockers: list) -> str:
-    blocker_text = "; ".join(
-        str(err.get("message") or err.get("field") or "issue") for err in (blockers or [])[:6]
-    )
-    if blockers:
-        lead = "Listing repaired after a readiness pass" if repaired else "Listing extracted after a readiness pass"
-        return f"{lead}. Remaining send blockers: {blocker_text}. Still ready for review."
-    if repaired and finalized:
-        return "Listing repaired and required fields filled. Ready for review."
-    if finalized:
-        return "Listing extracted and required fields filled. Ready for review."
-    if repaired:
-        return "Listing repaired from malformed model output and ready for review."
-    return "Listing extracted and ready for review."
 
 
 async def persist_generated_listing_with_repair(
@@ -564,6 +592,7 @@ async def persist_generated_listing_with_repair(
     provider,
     *,
     source: str = "model",
+    final_announce: bool = True,
 ) -> dict | None:
     """Persist listing JSON, repairing parse errors and clearing Send validation gaps."""
     provider_name = getattr(provider, "name", "xiaomi-mimo")
@@ -594,7 +623,6 @@ async def persist_generated_listing_with_repair(
     conv = ConversationRepo(db).get(conv_id)
     analysis = latest_photo_analysis(ConversationRepo(db).get_messages(conv_id)) or ""
     notes = str(getattr(conv, "notes", "") or "")
-    finalized = False
     if _validation_blockers(listing):
         updated = await fill_validation_gaps(provider, listing, analysis=analysis, notes=notes)
         if isinstance(updated, dict) and updated:
@@ -606,13 +634,13 @@ async def persist_generated_listing_with_repair(
             apply_send_readiness_fixes(updated)
             listing = updated
             ListingRepo(db).save_revision(conv_id, listing, source="generation_finalize")
-            finalized = True
 
-    ConversationRepo(db).add_message(
-        conv_id,
-        "system",
-        _ready_note(repaired=repaired, finalized=finalized, blockers=_validation_blockers(listing)),
-        provider="system",
-        model="",
-    )
+    if final_announce:
+        ConversationRepo(db).add_message(
+            conv_id,
+            "system",
+            listing_save_summary(db, conv_id, listing),
+            provider="system",
+            model="",
+        )
     return listing
