@@ -126,3 +126,16 @@ SQLite at `data/vendoo_studio.db` in development, or `~/Library/Application Supp
 - `listing_revisions` — edit history
 - `jobs` — automation jobs
 - `job_events` — per-job event log
+- `category_trees` / `category_tree_nodes` — full General/eBay/Poshmark/Mercari/Depop/Etsy category trees
+
+### Category tree seed
+
+A checked-in seed lives at `data/category-trees-seed.json.gz` (those two tables only). Quit Studio, then import into the packaged Mac DB:
+
+```bash
+cd vendoo-studio
+./scripts/category-trees.sh import \
+  --db "$HOME/Library/Application Support/List This Studio/vendoo_studio.db"
+```
+
+That replaces existing category tree rows, marks all six marketplaces `complete`, and leaves listings/photos/jobs/settings untouched. Export from a DB that already has complete trees with `./scripts/category-trees.sh export --db /path/to/vendoo_studio.db`.
