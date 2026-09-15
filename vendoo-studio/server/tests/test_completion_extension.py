@@ -18,13 +18,22 @@ const catBtn = {scrollIntoView() {}, click() {opened = true;}};
 const document = {querySelector: () => opened ? {} : null, contains: () => opened};
 const normalizeText = text => text.toLowerCase(), normalizeCategoryDisplay = text => text;
 const normalizeVendooCategoryPath = data => data.category_path;
+const categoryOptionLeaf = option => option.lower;
+const findExactCategoryOption = segment => {
+  const needle = normalizeText(segment);
+  return listCategoryOptions().find(option => option.lower === needle) || null;
+};
+const waitForCategoryOptions = async () => listCategoryOptions();
+const filterCategoryPicker = async () => false;
 const readCategoryDisplay = () => depth === 3 ? path : '';
 const waitForGeneralCategoryControl = async () => catBtn, findGeneralCategoryControl = () => catBtn;
+const findMarketplaceCategoryControl = () => catBtn;
 const clearExistingCategorySelection = async () => {}, closeOpenMenus = async () => {};
 const waitForCategorySearch = async () => ({}), resetCategoryPickerToRoot = async () => {};
 const sleep = async () => {}, log = () => {}, warn = () => {};
 const CONFIG = {SLEEP_SHORT: 0, SLEEP_MEDIUM: 0, SLEEP_LONG: 0};
 const listCategoryOptions = () => ['Blouses', segments[depth]].map(text => ({text, lower: text.toLowerCase()}));
+const findStrongCategoryOption = segment => listCategoryOptions().find(o => o.lower === segment.toLowerCase()) || null;
 const clickCategoryOption = async option => {clicked.push(option.text); depth++; if (depth === 3) opened = false;};
 """ + function + """
 (async () => console.log(JSON.stringify({result: await fillCategoryPath({category_path: path,
@@ -33,6 +42,78 @@ const clickCategoryOption = async option => {clicked.push(option.text); depth++;
         result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
         self.assertTrue(result["result"]["ok"])
         self.assertEqual(result["clicked"], ["Women", "Tops", "T-shirts"])
+
+    def test_verified_category_walk_filters_when_exact_option_missing(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[source.index("  async function fillCategoryPath"):source.index("  function normalizeCategoryDisplay")]
+        script = """
+let opened = false, depth = 0, filtered = [];
+const path = 'Women > Tops > T-shirts', clicked = [];
+const segments = path.split(' > ');
+const catBtn = {scrollIntoView() {}, click() {opened = true;}};
+const document = {querySelector: () => opened ? {} : null, contains: () => opened};
+const normalizeText = text => text.toLowerCase(), normalizeCategoryDisplay = text => text;
+const normalizeVendooCategoryPath = data => data.category_path;
+const categoryOptionLeaf = option => option.lower;
+let reveal = false;
+const listCategoryOptions = () => {
+  if (!reveal && depth === 0) return [{text: 'Men', lower: 'men'}];
+  return [segments[depth]].map(text => ({text, lower: text.toLowerCase()}));
+};
+const findExactCategoryOption = segment => {
+  const needle = normalizeText(segment);
+  return listCategoryOptions().find(option => option.lower === needle) || null;
+};
+const waitForCategoryOptions = async () => listCategoryOptions();
+const filterCategoryPicker = async (query) => {filtered.push(query); reveal = true; return true;};
+const readCategoryDisplay = () => depth === 3 ? path : '';
+const waitForGeneralCategoryControl = async () => catBtn, findGeneralCategoryControl = () => catBtn;
+const findMarketplaceCategoryControl = () => catBtn;
+const clearExistingCategorySelection = async () => {}, closeOpenMenus = async () => {};
+const waitForCategorySearch = async () => ({}), resetCategoryPickerToRoot = async () => {};
+const sleep = async () => {}, log = () => {}, warn = () => {};
+const CONFIG = {SLEEP_SHORT: 0, SLEEP_MEDIUM: 0, SLEEP_LONG: 0};
+const findStrongCategoryOption = () => null;
+const clickCategoryOption = async option => {clicked.push(option.text); depth++; if (depth === 3) opened = false;};
+""" + function + """
+(async () => console.log(JSON.stringify({result: await fillCategoryPath({category_path: path,
+  marketplace_categories: {poshmark: path}}), clicked, filtered})))();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertTrue(result["result"]["ok"])
+        self.assertEqual(result["filtered"], ["Women"])
+        self.assertEqual(result["clicked"], ["Women", "Tops", "T-shirts"])
+
+    def test_schema_collection_includes_disabled_cascade_fields(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[source.index("  async function collectMarketplaceSchemaFields"):source.index("  function compareSchemaValues")]
+        script = """
+const enabled = {tagName: 'INPUT', id: 'listings.ebay.overrides.brand', value: '',
+  getAttribute: () => null};
+const disabled = {tagName: 'INPUT', id: 'listings.ebay.marketplaceSpecifics.department', value: '',
+  disabled: true, getAttribute: (name) => name === 'aria-disabled' ? 'true' : null};
+const document = {querySelectorAll: () => [enabled, disabled], getElementById: () => null};
+const isVisibleElement = () => true;
+const isEnabledField = (el) => !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+const marketplaceFieldNode = (el) => el;
+const fieldLabelForControl = el => el.id.includes('brand') ? 'Brand' : 'Department';
+const scrapedFieldLabel = fieldLabelForControl;
+const normalizeFieldKey = value => value.toLowerCase(), isAccountSettingField = () => false;
+const readPersistedControlValue = () => '', isMultiChipField = () => false;
+const selectorFor = el => '#' + el.id, isDropdownLike = () => false;
+const displayedFieldValue = () => '';
+const readLiveFieldOptions = async () => ({options: [], source: 'none'});
+const closeOpenMenus = async () => {}, log = () => {}, warn = () => {};
+const MAX_OPTION_CAPTURES_PER_PLATFORM = 12;
+const fieldLooksFilled = () => false;
+""" + function + """
+(async () => console.log(JSON.stringify(await collectMarketplaceSchemaFields('ebay'))))();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        labels = [field["label"] for field in result]
+        self.assertEqual(labels, ["Brand", "Department"])
+        self.assertFalse(result[0]["disabled"])
+        self.assertTrue(result[1]["disabled"])
 
     def test_category_readback_reconstructs_css_breadcrumb_separators(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
