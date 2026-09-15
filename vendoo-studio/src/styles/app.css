@@ -2592,10 +2592,7 @@ details[open] .json-collapse-summary::before {
 .editor-body.is-files {
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
-  /* The actions block above the split is tall; scroll instead of crushing the
-     field list to a few rows. */
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .tab-group {
@@ -2807,7 +2804,6 @@ details[open] .json-collapse-summary::before {
   min-height: 0;
   flex: 1;
   gap: 8px;
-  container: fill-log / inline-size;
 }
 
 .pr-toolbar {
@@ -3048,15 +3044,10 @@ details[open] .json-collapse-summary::before {
   margin: 0;
 }
 
-/* Stacked by default: the detail panel is too narrow for two columns, so the
-   marketplace list becomes a chip strip and the fields get the full width. */
 .pr-split {
   display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  /* Enough room for the chip strip plus a usable field list; the editor body
-     scrolls when the actions above leave less than this. */
-  min-height: 360px;
+  min-height: 0;
+  flex: 1;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
@@ -3065,11 +3056,11 @@ details[open] .json-collapse-summary::before {
 .pr-files {
   display: flex;
   flex-direction: column;
-  flex: 0 0 auto;
-  width: 100%;
+  flex: 0 0 158px;
+  width: 158px;
   min-width: 0;
   min-height: 0;
-  border-bottom: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
 }
 
 .pr-files-head,
@@ -3086,11 +3077,6 @@ details[open] .json-collapse-summary::before {
   font-weight: 500;
 }
 
-/* The chip strip labels itself, so the stacked layout drops its header. */
-.pr-files-head {
-  display: none;
-}
-
 .pr-files-count {
   display: flex;
   gap: 8px;
@@ -3100,31 +3086,26 @@ details[open] .json-collapse-summary::before {
   font-variant-numeric: tabular-nums;
 }
 
-/* The forms list reads as a wrapping row of chips when stacked. */
 .pr-tree {
   display: flex;
-  flex-flow: row wrap;
-  gap: 4px;
+  flex-direction: column;
   min-height: 0;
-  overflow: hidden;
-  padding: 6px;
-  background: var(--color-ink-hover);
+  overflow: auto;
+  padding: 4px;
 }
 
 .pr-row {
   display: flex;
-  flex: 0 0 auto;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  width: auto;
-  max-width: 100%;
-  min-height: 26px;
+  gap: 4px 8px;
+  width: 100%;
+  min-height: 32px;
   margin: 0;
-  padding: 3px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-paper);
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--color-text);
   cursor: pointer;
   text-align: left;
@@ -3135,39 +3116,17 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-row.is-active {
-  border-color: var(--color-border-bright);
   background: #191919;
 }
 
 .pr-name {
-  flex: 0 1 auto;
+  flex: 1 1 100%;
   min-width: 0;
-  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  line-height: 1.3;
-}
-
-/* In the chip strip the status is a dot; the full label shows on the
-   selected form's header and in the tooltip. */
-.pr-tree .pr-live-status {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: currentColor;
-  overflow: hidden;
-  text-indent: 12px;
-}
-
-.pr-tree .pr-counts {
-  margin-left: 0;
-  gap: 5px;
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 1.2;
 }
 
 .pr-live-status {
@@ -3413,65 +3372,6 @@ details[open] .json-collapse-summary::before {
   background: var(--color-paper);
   color: var(--color-text);
   font-size: 12px;
-}
-
-/* Wide panels (mobile full-screen editor, tablets) can afford the two-column
-   forms/fields split again. */
-@container fill-log (min-width: 560px) {
-  .pr-split {
-    flex-direction: row;
-  }
-
-  .pr-files {
-    flex: 0 0 180px;
-    width: 180px;
-    border-right: 1px solid var(--color-border);
-    border-bottom: 0;
-  }
-
-  .pr-files-head {
-    display: flex;
-  }
-
-  .pr-tree {
-    flex-flow: column nowrap;
-    overflow: auto;
-    padding: 4px;
-    background: transparent;
-  }
-
-  .pr-row {
-    flex-wrap: wrap;
-    gap: 4px 8px;
-    width: 100%;
-    min-height: 32px;
-    padding: 6px 8px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-  }
-
-  .pr-name {
-    flex: 1 1 100%;
-    max-width: none;
-    font-size: 13px;
-  }
-
-  .pr-tree .pr-live-status {
-    width: auto;
-    height: auto;
-    padding: 1px 6px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-ink-hover);
-    text-indent: 0;
-  }
-
-  .pr-tree .pr-counts {
-    margin-left: auto;
-    gap: 8px;
-    font-size: 12px;
-  }
 }
 
 .fill-log-vendoo-json {
