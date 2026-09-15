@@ -109,6 +109,17 @@ def _active_generation(conv_id: str) -> _GenerationRun | None:
     return None
 
 
+def stop_generation(conv_id: str, *, discard: bool = False) -> None:
+    run = _generations.get(conv_id)
+    if not run:
+        return
+    run.cancelling = True
+    if run.task and not run.task.done():
+        run.task.cancel()
+    if discard:
+        _generations.pop(conv_id, None)
+
+
 def _spawn(coro) -> asyncio.Task:
     task = asyncio.get_running_loop().create_task(coro)
     _generation_tasks.add(task)
@@ -459,6 +470,7 @@ async def _maybe_resolve_vendoo_category(
 
 def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[dict] | None:
     from vendoo_studio.services.fill_log import (
+        FillLogService,
         extract_missing_fields,
         summarize_missing_fields,
         write_values_into_listing,
@@ -471,6 +483,7 @@ def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> list[di
         if revisions:
             updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
             _save_listing_revision(db, conv_id, updated)
+            FillLogService(db).record_generated_values(conv_id, missing_fields)
             ConversationRepo(db).add_message(
                 conv_id,
                 "system",
@@ -840,10 +853,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
 
 @router.post("/api/conversations/{conv_id}/generate/cancel")
 async def cancel_generate_listing(conv_id: str):
-    run = _generations.get(conv_id)
-    if run and run.task and not run.task.done():
-        run.cancelling = True
-        run.task.cancel()
+    stop_generation(conv_id)
     db = SessionLocal()
     try:
         ConversationRepo(db).update_status(conv_id, "draft")

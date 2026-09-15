@@ -559,7 +559,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         resolved.append(patch)
 
     if not resolved:
-        raise HTTPException(400, "No values to fill. Ask chat to generate the empty fields first.")
+        raise HTTPException(400, "No values to apply. Ask chat to write the missing values first.")
 
     if created_specs:
         created = fill_repo.add_entries(
@@ -906,6 +906,9 @@ def _ensure_listing_defaults(listing_snapshot: dict) -> None:
     label = str(mercari.get("shippingLabel") or "").strip()
     mercari["shippingLabel"] = label or "USPS Ground Advantage"
     listing_snapshot["mercari_specifics"] = mercari
+
+    from vendoo_studio.models.validation import normalize_listing_dropdowns
+    normalize_listing_dropdowns(listing_snapshot)
 
 
 def _job_response(job) -> JobResponse:

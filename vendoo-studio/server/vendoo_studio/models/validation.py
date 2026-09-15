@@ -17,6 +17,7 @@ from vendoo_studio.models.schema import (
     VALID_DEPOP_SOURCE,
     VALID_DEPOP_STYLE,
     ListingSchema,
+    _scalar_text,
 )
 from vendoo_studio.services.marketplaces import FILLABLE_MARKETPLACES, get_selected_marketplaces
 
@@ -60,6 +61,37 @@ MODERN_ETSY_WHEN = (
     "2007 - 2009",
     "recently",
 )
+ETSY_WHEN_ALIASES = (
+    ("made to order", "Made To Order (Not Yet Made)"),
+    ("not yet made", "Made To Order (Not Yet Made)"),
+    ("2020 - 2026", "2020 - 2026 (Recently)"),
+    ("2020s", "2020 - 2026 (Recently)"),
+    ("2010 - 2019", "2010 - 2019 (Recently)"),
+    ("2010s", "2010 - 2019 (Recently)"),
+    ("2007 - 2009", "2007 - 2009 (Recently)"),
+    ("2000 - 2006", "2000 - 2006 (Vintage)"),
+    ("2000s", "2000 - 2006 (Vintage)"),
+    ("before 2007", "Before 2007 (Vintage)"),
+    ("1990s", "1990s (Vintage)"),
+    ("1980s", "1980s (Vintage)"),
+    ("1970s", "1970s (Vintage)"),
+    ("1960s", "1960s (Vintage)"),
+    ("1950s", "1950s (Vintage)"),
+    ("1940s", "1940s (Vintage)"),
+    ("1930s", "1930s (Vintage)"),
+    ("1920s", "1920s (Vintage)"),
+    ("1910s", "1910s (Vintage)"),
+    ("1900 - 1909", "1900 - 1909 (Vintage)"),
+    ("1800s", "1800s (Vintage)"),
+    ("1700s", "1700s (Vintage)"),
+    ("before 1700", "Before 1700 (Vintage)"),
+    ("vintage", "Before 2007 (Vintage)"),
+)
+DEFAULT_ETSY_WHEN = "2010 - 2019 (Recently)"
+UNKNOWN_ETSY_WHEN = frozenset({
+    "unknown", "does not apply", "n/a", "na", "n.a.", "not sure", "not shown",
+    "select", "----", "-", "d", "none", "modern",
+})
 TITLE_STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "of", "with", "for", "in", "on", "to",
 })
@@ -189,18 +221,140 @@ def _department_matches_category(department: str, category_path: str) -> bool:
     return True
 
 
-def _allowed_match(value: str, allowed: Iterable[str]) -> bool:
-    needle = value.strip().lower()
+def _collapse_option(text: str) -> str:
+    collapsed = re.sub(r"[\s\-–—/:]+", " ", str(text or "").strip().lower())
+    return collapsed.strip()
+
+
+def _option_key(text: str) -> str:
+    return _collapse_option(str(text or "").split("(", 1)[0])
+
+
+def _canonical_option(value: str, allowed: Iterable[str]) -> str | None:
+    needle = str(value or "").strip()
     if not needle:
-        return False
-    for option in allowed:
-        option_text = str(option).strip().lower()
-        if not option_text or option_text == "----":
-            continue
-        base_option = option_text.split("(", 1)[0].strip()
-        if needle == option_text or needle == base_option:
-            return True
-    return False
+        return None
+    needle_full = _collapse_option(needle)
+    needle_key = _option_key(needle)
+    ranked = sorted(
+        (
+            str(option).strip()
+            for option in allowed
+            if str(option).strip() and str(option).strip() != "----"
+        ),
+        key=lambda option: len(_option_key(option)),
+        reverse=True,
+    )
+    for option in ranked:
+        option_full = _collapse_option(option)
+        option_key = _option_key(option)
+        if needle_full == option_full or needle_key == option_key:
+            return option
+        if option_key and (
+            needle_key.startswith(f"{option_key} ")
+            or needle_full.startswith(f"{option_key} ")
+            or needle_full.startswith(f"{option_full} ")
+        ):
+            return option
+    return None
+
+
+def _allowed_match(value: str, allowed: Iterable[str]) -> bool:
+    return _canonical_option(value, allowed) is not None
+
+
+def _normalize_when_text(text: str) -> str:
+    spaced = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(text or ""))
+    spaced = re.sub(r"[–—]", "-", spaced)
+    spaced = re.sub(r"[_-]+", " ", spaced)
+    return re.sub(r"\s+", " ", spaced).strip().lower()
+
+
+def _canonical_etsy_when(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    normalized = _normalize_when_text(raw)
+    if normalized in UNKNOWN_ETSY_WHEN:
+        return DEFAULT_ETSY_WHEN
+    for needle, mapped in ETSY_WHEN_ALIASES:
+        if _normalize_when_text(needle) in normalized:
+            return mapped
+    year_match = re.search(r"\b(17\d{2}|18\d{2}|19\d{2}|20\d{2})\b", normalized)
+    if not year_match:
+        return raw
+    year = int(year_match.group(1))
+    if year >= 2020:
+        return "2020 - 2026 (Recently)"
+    if year >= 2010:
+        return "2010 - 2019 (Recently)"
+    if year >= 2007:
+        return "2007 - 2009 (Recently)"
+    if year >= 2000:
+        return "2000 - 2006 (Vintage)"
+    if year >= 1990:
+        return "1990s (Vintage)"
+    if year >= 1980:
+        return "1980s (Vintage)"
+    if year >= 1970:
+        return "1970s (Vintage)"
+    if year >= 1960:
+        return "1960s (Vintage)"
+    if year >= 1950:
+        return "1950s (Vintage)"
+    if year >= 1940:
+        return "1940s (Vintage)"
+    if year >= 1930:
+        return "1930s (Vintage)"
+    if year >= 1920:
+        return "1920s (Vintage)"
+    if year >= 1910:
+        return "1910s (Vintage)"
+    if year >= 1900:
+        return "1900 - 1909 (Vintage)"
+    if year >= 1800:
+        return "1800s (Vintage)"
+    if year >= 1700:
+        return "1700s (Vintage)"
+    return "Before 1700 (Vintage)"
+
+
+def _etsy_when_raw(etsy: dict[str, Any], listing: dict[str, Any] | None = None) -> str:
+    for key in ("when_made", "whenMade", "when made", "When Was It Made?", "When Made"):
+        text = _scalar_text(etsy.get(key)) if key in etsy else None
+        if text:
+            return text
+    ebay = (listing or {}).get("ebay_specifics")
+    if isinstance(ebay, dict):
+        text = _scalar_text(ebay.get("yearManufactured") or ebay.get("year_manufactured"))
+        if text:
+            return text
+    return ""
+
+
+def _resolve_etsy_when(raw: str, options: list[str]) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    mapped = _canonical_etsy_when(text)
+    allowed = options or [mapped, DEFAULT_ETSY_WHEN]
+    for candidate in (mapped, text):
+        hit = _canonical_option(candidate, allowed)
+        if hit:
+            return hit
+    if options:
+        mapped_key = _option_key(mapped or text)
+        for option in sorted(options, key=lambda item: len(_option_key(item)), reverse=True):
+            option_key = _option_key(option)
+            if option_key and len(option_key) >= 4 and (
+                option_key in mapped_key or mapped_key in option_key
+            ):
+                return option
+        for option in options:
+            if "2010" in option:
+                return option
+        return options[0]
+    return mapped or DEFAULT_ETSY_WHEN
 
 
 def _etsy_when_is_vintage_or_handmade(when_made: str, who_made: str, what_is: str) -> bool:
@@ -244,6 +398,39 @@ def _evidence_unknown(description: str, *needles: str) -> bool:
     return any(needle in lower for needle in needles)
 
 
+def normalize_listing_dropdowns(listing: dict) -> bool:
+    """Rewrite stale Depop/Etsy dropdown values to the current Vendoo options."""
+    if not isinstance(listing, dict):
+        return False
+    changed = False
+
+    depop = listing.get("depop_specifics")
+    if isinstance(depop, dict):
+        raw = _text(depop.get("parcelSize") or depop.get("parcel_size"))
+        canonical = _canonical_option(raw, VALID_DEPOP_PARCEL) if raw else None
+        if canonical and canonical != raw:
+            depop = dict(depop)
+            depop["parcelSize"] = canonical
+            if "parcel_size" in depop:
+                depop["parcel_size"] = canonical
+            listing["depop_specifics"] = depop
+            changed = True
+
+    etsy = listing.get("etsy_specifics")
+    if isinstance(etsy, dict):
+        raw = _etsy_when_raw(etsy, listing)
+        canonical = _resolve_etsy_when(raw, _etsy_when_options()) if raw else ""
+        if canonical and canonical != raw:
+            etsy = dict(etsy)
+            etsy["when_made"] = canonical
+            if "whenMade" in etsy:
+                etsy["whenMade"] = canonical
+            listing["etsy_specifics"] = etsy
+            changed = True
+
+    return changed
+
+
 def validate_listing(
     data: dict,
     required_photo_count: Optional[int] = None,
@@ -253,6 +440,7 @@ def validate_listing(
 ) -> ValidationResult:
     result = ValidationResult(valid=True)
     payload = data if isinstance(data, dict) else {}
+    normalize_listing_dropdowns(payload)
     selected = list(selected_marketplaces) if selected_marketplaces is not None else get_selected_marketplaces()
     selected_set = {item.lower() for item in selected}
     digital_listing = _is_etsy_digital_listing(payload)
@@ -438,7 +626,6 @@ def validate_listing(
     if "etsy" in selected_set:
         who = _text(etsy.get("who_made") or etsy.get("whoMade"))
         what = _text(etsy.get("what_is") or etsy.get("whatIs"))
-        when = _text(etsy.get("when_made") or etsy.get("whenMade"))
         if not who:
             _add(result, "etsy_specifics.who_made", "Etsy who-made is required")
         elif who not in VALID_ETSY_WHO:
@@ -448,10 +635,15 @@ def validate_listing(
         elif what not in VALID_ETSY_WHAT:
             _add(result, "etsy_specifics.what_is", "Etsy what-is is not a current dropdown value")
         when_options = _etsy_when_options()
+        when = _etsy_when_raw(etsy, payload)
+        dropdown_when = _resolve_etsy_when(when, when_options) if when else ""
+        if dropdown_when and dropdown_when != when:
+            etsy = dict(etsy)
+            etsy["when_made"] = dropdown_when
+            payload["etsy_specifics"] = etsy
+            when = dropdown_when
         if not when:
             _add(result, "etsy_specifics.when_made", "Etsy when-made is required")
-        elif when_options and not _allowed_match(when, when_options):
-            _add(result, "etsy_specifics.when_made", "Etsy when-made is not a current dropdown value")
         tags = _as_list(etsy.get("tags"))
         if len(tags) > 13:
             _add(result, "etsy_specifics.tags", "Etsy allows at most 13 tags")
@@ -459,15 +651,16 @@ def validate_listing(
         if len(materials) > 10:
             _add(result, "etsy_specifics.materials", "Etsy allows at most 10 materials")
         handmade = who in {"I did", "A member of my shop"}
-        vintage_or_eligible = _etsy_when_is_vintage_or_handmade(when, who, what)
+        vintage_or_eligible = _etsy_when_is_vintage_or_handmade(dropdown_when, who, what)
         digital_item = "digital" in _etsy_listing_type(etsy).lower() or "digital" in what.lower()
         commercial_maker = who in {"", "Another company or person"}
-        modern_resale = commercial_maker and (not when or _etsy_when_is_modern(when))
+        modern_resale = commercial_maker and (not when or _etsy_when_is_modern(dropdown_when))
         if modern_resale and not vintage_or_eligible and not handmade and not digital_item:
             _add(
                 result,
                 "etsy_specifics.when_made",
                 "This modern mass-produced item is not Etsy eligible. Deselect Etsy or use a vintage, handmade, craft-supply, or digital listing.",
+                warning=True,
             )
 
     unsupported = [name for name in selected if name.lower() not in FILLABLE_MARKETPLACES]

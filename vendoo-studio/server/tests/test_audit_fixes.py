@@ -150,15 +150,15 @@ class ValidationCasesTest(unittest.TestCase):
         )
 
     def test_modern_blouse_is_not_etsy_eligible(self):
-        result = validate_listing(VALID_LISTING, 5, selected_marketplaces=["etsy"])
+        result = validate_listing(dict(VALID_LISTING), 5, selected_marketplaces=["etsy"])
         self.assertFalse(result.can_send)
-        self.assertTrue(any("not Etsy eligible" in err["message"] for err in result.errors))
+        self.assertTrue(any("not Etsy eligible" in item["message"] for item in result.warnings + result.errors))
 
     def test_modern_blouse_fails_etsy_without_etsy_specifics(self):
         listing = {key: value for key, value in VALID_LISTING.items() if key != "etsy_specifics"}
         result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
         self.assertFalse(result.can_send)
-        self.assertTrue(any("not Etsy eligible" in err["message"] for err in result.errors))
+        self.assertTrue(any("not Etsy eligible" in item["message"] for item in result.warnings + result.errors))
 
     def test_etsy_requires_who_what_and_when(self):
         listing = dict(VALID_LISTING)
@@ -248,6 +248,78 @@ class ValidationCasesTest(unittest.TestCase):
         listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "season": "S"}
         result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
         self.assertTrue(any(error["field"] == "ebay_specifics.season" for error in result.errors))
+
+    def test_legacy_depop_parcel_size_is_rewritten(self):
+        listing = dict(VALID_LISTING)
+        listing["depop_specifics"] = {
+            **VALID_LISTING["depop_specifics"],
+            "parcelSize": "Small (S): Under 12 oz — $6.49",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["depop"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertEqual(listing["depop_specifics"]["parcelSize"], "Small")
+        self.assertFalse(any(error["field"] == "depop_specifics.parcelSize" for error in result.errors))
+
+    def test_legacy_etsy_when_made_aliases_match_current_dropdown(self):
+        listing = dict(VALID_LISTING)
+        listing["etsy_specifics"] = {
+            "who_made": "I did",
+            "what_is": "A finished product",
+            "when_made": "2010s",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertEqual(listing["etsy_specifics"]["when_made"], "2010 - 2019 (Recently)")
+        self.assertFalse(any("not a current dropdown value" in error["message"] for error in result.errors))
+
+        listing["etsy_specifics"]["when_made"] = "2010-2019"
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertEqual(listing["etsy_specifics"]["when_made"], "2010 - 2019 (Recently)")
+
+    def test_legacy_modern_when_made_warns_but_does_not_block_send(self):
+        listing = dict(VALID_LISTING)
+        listing["etsy_specifics"] = {
+            "who_made": "Another company or person",
+            "what_is": "A finished product",
+            "when_made": "2010s",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertEqual(listing["etsy_specifics"]["when_made"], "2010 - 2019 (Recently)")
+        self.assertFalse(any("not a current dropdown value" in error["message"] for error in result.errors), result.errors)
+        self.assertTrue(any("not Etsy eligible" in item["message"] for item in result.warnings))
+
+    def test_unmapped_etsy_when_made_is_coerced_to_a_current_dropdown(self):
+        listing = dict(VALID_LISTING)
+        listing["etsy_specifics"] = {
+            "who_made": "I did",
+            "what_is": "A finished product",
+            "when_made": "Does Not Apply",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertEqual(listing["etsy_specifics"]["when_made"], "2010 - 2019 (Recently)")
+        self.assertFalse(any("not a current dropdown value" in error["message"] for error in result.errors))
+
+        listing["etsy_specifics"]["when_made"] = "Tomorrow"
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertFalse(any("not a current dropdown value" in error["message"] for error in result.errors), result.errors)
+
+    def test_etsy_when_made_falls_back_to_ebay_year(self):
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "yearManufactured": "2010-2019",
+        }
+        listing["etsy_specifics"] = {
+            "who_made": "I did",
+            "what_is": "A finished product",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertEqual(listing["etsy_specifics"]["when_made"], "2010 - 2019 (Recently)")
 
 
 class ExtensionSafetySourceTest(unittest.TestCase):
@@ -693,8 +765,9 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Marketplace:", panel)
         self.assertIn("Current value:", panel)
         self.assertIn("Failure reason:", panel)
-        self.assertIn("Ask chat about", panel)
-        self.assertIn("Fill this field", panel)
+        self.assertIn("Ask chat to retry", panel)
+        self.assertIn("Apply on Vendoo", panel)
+        self.assertIn("function leftoverGeneratedValue", panel)
 
 
 if __name__ == "__main__":

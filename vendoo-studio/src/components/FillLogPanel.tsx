@@ -229,6 +229,14 @@ function lookupToJsonKey(key: string): string {
   return parts[0] + parts.slice(1).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
 }
 
+function isBlankListingValue(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value as object).length === 0;
+  return false;
+}
+
 function valueFromRecord(record: Record<string, unknown> | undefined, key: string): unknown {
   if (!record || !key) return undefined;
   const jsonKey = lookupToJsonKey(key);
@@ -236,11 +244,16 @@ function valueFromRecord(record: Record<string, unknown> | undefined, key: strin
   const colorKeys = new Set(["color", "primary color"]);
   for (const [candidate, value] of Object.entries(record)) {
     const candidateKey = normalizeLookupKey(candidate);
-    if (candidateKey === key || (colorKeys.has(key) && colorKeys.has(candidateKey))) return value;
-    if (candidate === jsonKey || (mapped && candidate === mapped)) return value;
+    const matched =
+      candidateKey === key ||
+      (colorKeys.has(key) && colorKeys.has(candidateKey)) ||
+      candidate === jsonKey ||
+      (mapped && candidate === mapped);
+    if (!matched || isBlankListingValue(value)) continue;
+    return value;
   }
-  if (jsonKey && jsonKey in record) return record[jsonKey];
-  if (mapped && mapped in record) return record[mapped];
+  if (jsonKey && jsonKey in record && !isBlankListingValue(record[jsonKey])) return record[jsonKey];
+  if (mapped && mapped in record && !isBlankListingValue(record[mapped])) return record[mapped];
   const nestedCategory = record.category_specifics;
   if (nestedCategory && typeof nestedCategory === "object" && !Array.isArray(nestedCategory) && nestedCategory !== record) {
     const found = valueFromRecord(nestedCategory as Record<string, unknown>, key);
@@ -291,6 +304,20 @@ function listingValueForField(
   return text;
 }
 
+function leftoverGeneratedValue(
+  listing: Record<string, unknown> | undefined,
+  entry: FillLogEntry,
+  field?: DraftField,
+): string {
+  return (
+    listingValueForField(
+      listing,
+      entry.marketplace,
+      field || { key: entry.field, label: entry.field, value: "", missing: true },
+    ) || String(entry.value_preview || "").trim()
+  );
+}
+
 function listingTitle(listing?: Record<string, unknown>): string {
   const title = String(listing?.title || "").trim();
   return title || "(untitled listing)";
@@ -339,7 +366,7 @@ function leftoverFieldsPrompt(
   const title = listingTitle(listing);
   const limited = entries.slice(0, 50);
   const lines = limited.map((entry) => {
-    const current = String(entry.value_preview || "").trim() || "(empty)";
+    const current = leftoverGeneratedValue(listing, entry) || "(empty)";
     const reason = String(entry.reason || "").trim() || "(none)";
     return `- Listing: ${title}
   Marketplace: ${entry.marketplace}
@@ -348,7 +375,7 @@ function leftoverFieldsPrompt(
   Status: ${leftoverStatusLabel(entry)}
   Failure reason: ${reason}`;
   });
-  return `These leftover Vendoo fields still need values for listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite unrelated fields.
+  return `These Vendoo fields failed last time for listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite unrelated fields.
 
 Reply with JSON in this exact shape:
 
@@ -358,7 +385,7 @@ Reply with JSON in this exact shape:
 
 Use the marketplace ids and field names exactly as listed.
 
-Leftover fields:
+Failed fields:
 ${lines.join("\n")}`;
 }
 
@@ -1535,13 +1562,25 @@ export function FillLogPanel({
   React.useEffect(() => {
     if (!report) return;
     setValues((prev) => {
+      let changed = false;
       const next = { ...prev };
       leftoverEntries(report).forEach((entry) => {
-        if (next[entry.id] == null) next[entry.id] = entry.value_preview || "";
+        const generated = leftoverGeneratedValue(listing, entry);
+        if (!generated) {
+          if (next[entry.id] == null) {
+            next[entry.id] = "";
+            changed = true;
+          }
+          return;
+        }
+        if (!String(next[entry.id] || "").trim()) {
+          next[entry.id] = generated;
+          changed = true;
+        }
       });
-      return next;
+      return changed ? next : prev;
     });
-  }, [report]);
+  }, [report, listing]);
 
   React.useEffect(() => {
     if (!sourceKey) return;
@@ -1928,65 +1967,88 @@ export function FillLogPanel({
 
       {(onAskChat || hasDraft) && (
         <div className="pr-actions">
+          <p className="pr-notice">
+            Chat writes values into this listing. Apply on Vendoo types them into the draft. Nothing is published.
+          </p>
+          {hasDraft && (
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={resolveCategory.isPending || filling || !chromeConnected}
+                title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
+                onClick={() => resolveCategory.mutate()}
+              >
+                {resolveCategory.isPending ? "Setting category…" : "Set Vendoo category"}
+              </button>
+              <p className="pr-action-hint">Picks the matching category in Vendoo. Start here if the category is wrong.</p>
+            </div>
+          )}
           {onAskChat && (
-            <button
-              type="button"
-              className="btn btn-sm"
-              disabled={fillMutation.isPending || filling || emptyFields.length === 0}
-              onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing))}
-            >
-              {emptyFields.length
-                ? `Ask chat to fill ${emptyFields.length} empty ${emptyFields.length === 1 ? "field" : "fields"}`
-                : "Ask chat to fill empty fields"}
-            </button>
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={fillMutation.isPending || filling || emptyFields.length === 0}
+                title="Send blank fields to chat so it can write values. Does not change Vendoo yet."
+                onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing))}
+              >
+                {emptyFields.length
+                  ? `Ask chat for ${emptyFields.length} missing ${emptyFields.length === 1 ? "value" : "values"}`
+                  : "Ask chat for missing values"}
+              </button>
+              <p className="pr-action-hint">Chat writes values for blank fields. Does not change Vendoo yet.</p>
+            </div>
           )}
           {onAskChat && leftovers.length > 0 && (
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={fillMutation.isPending || filling}
+                title="Send fields Vendoo rejected last time back to chat."
+                onClick={() => onAskChat(leftoverFieldsPrompt(listing, leftovers))}
+              >
+                Ask chat to retry {leftovers.length} failed {leftovers.length === 1 ? "field" : "fields"}
+              </button>
+              <p className="pr-action-hint">These fields were rejected last time. Chat will try again.</p>
+            </div>
+          )}
+          <div className="pr-action">
             <button
               type="button"
-              className="btn btn-sm"
-              disabled={fillMutation.isPending || filling}
-              onClick={() => onAskChat(leftoverFieldsPrompt(listing, leftovers))}
+              className="btn btn-primary btn-sm"
+              disabled={fillMutation.isPending || filling || fillPayload.length === 0 || !chromeConnected}
+              title={
+                !chromeConnected
+                  ? "Connect Chrome to type these values into the Vendoo draft"
+                  : fillPayload.length
+                    ? "Type only these missing values into the Vendoo draft"
+                    : "Ask chat to write values first"
+              }
+              onClick={() => fillMutation.mutate(fillPayload)}
             >
-              Ask chat about {leftovers.length} leftover {leftovers.length === 1 ? "field" : "fields"}
-            </button>
-          )}
-          {hasDraft && (
-            <button
-              type="button"
-              className="btn btn-sm"
-              disabled={resolveCategory.isPending || filling || !chromeConnected}
-              title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
-              onClick={() => resolveCategory.mutate()}
-            >
-              {resolveCategory.isPending ? "Matching category…" : "Match Vendoo category"}
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={fillMutation.isPending || filling || fillPayload.length === 0 || !chromeConnected}
-            title={
-              !chromeConnected
-                ? "Connect Chrome to fill only these fields on Vendoo"
+              {fillMutation.isPending || filling
+                ? "Applying on Vendoo…"
                 : fillPayload.length
-                  ? "Fill only these missing fields on the Vendoo draft"
-                  : "Ask chat to generate values first"
-            }
-            onClick={() => fillMutation.mutate(fillPayload)}
-          >
-            {fillMutation.isPending || filling
-              ? "Filling empty fields..."
-              : fillPayload.length
-                ? `Fill ${fillPayload.length} empty field${fillPayload.length === 1 ? "" : "s"} on Vendoo`
-                : "Fill empty fields on Vendoo"}
-          </button>
+                  ? `Apply ${fillPayload.length} value${fillPayload.length === 1 ? "" : "s"} on Vendoo`
+                  : "Apply values on Vendoo"}
+            </button>
+            <p className="pr-action-hint">
+              {!chromeConnected
+                ? "Connect Chrome to type values into the Vendoo draft."
+                : fillPayload.length
+                  ? "Types ready values into the Vendoo draft. Does not publish."
+                  : "Ask chat to write values first, then apply them here."}
+            </p>
+          </div>
         </div>
       )}
 
       {fillPayload.length > 0 && !filling && !fillMutation.isPending && (
         <p className="pr-notice">
-          {fillPayload.length} generated value{fillPayload.length === 1 ? "" : "s"} ready to fill.
-          Review each “Ready to fill” value below, then click Fill on Vendoo.
+          {fillPayload.length} value{fillPayload.length === 1 ? "" : "s"} ready.
+          Review each “Ready to apply” value below, then click Apply on Vendoo.
         </p>
       )}
 
@@ -2009,7 +2071,7 @@ export function FillLogPanel({
             {draftQuery.isFetching
               ? "Discovering every marketplace form and optional field…"
               : !chromeConnected && hasDraft
-                ? "Connect Chrome to read empty Vendoo fields. Ask chat can still generate values, then Fill on Vendoo patches only those fields."
+                ? "Connect Chrome to read empty Vendoo fields. Ask chat can still write values, then Apply on Vendoo types only those fields."
                 : hasDraft
                   ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red."
                   : "Send this listing to Vendoo to review each marketplace form. After generate, Studio also discovers live Vendoo fields once the category is known."}
@@ -2079,9 +2141,15 @@ export function FillLogPanel({
                       const menuKey = `${selectedForm.id}:${field.key}`;
                       const menuOpen = openMenu?.kind === "field" && openMenu.key === menuKey;
                       const canHide = !isProtectedEbayField(selectedForm.id, field);
+                      const generated = leftover
+                        ? leftoverGeneratedValue(listing, leftover, field)
+                        : listingValueForField(listing, selectedForm.id, field);
+                      const leftoverValue = leftover
+                        ? (String(values[leftover.id] ?? "").trim() ? String(values[leftover.id]) : generated)
+                        : "";
                       const proposed =
-                        field.missing && !leftover
-                          ? listingValueForField(listing, selectedForm.id, field)
+                        field.missing && !leftover && generated
+                          ? generated
                           : "";
                       return (
                         <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
@@ -2093,7 +2161,7 @@ export function FillLogPanel({
                               <>
                                 <input
                                   className="pr-input"
-                                  value={values[leftover.id] || ""}
+                                  value={leftoverValue}
                                   disabled={fillMutation.isPending || filling}
                                   placeholder={STATUS_LABELS[leftover.status] || leftover.status}
                                   onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
@@ -2106,15 +2174,14 @@ export function FillLogPanel({
                                     onClick={() => onAskChat(leftoverFieldPrompt(
                                       listing,
                                       leftover,
-                                      values[leftover.id] || field.value || leftover.value_preview || "",
+                                      leftoverValue || field.value || "",
                                     ))}
                                   >
                                     Ask chat
                                   </button>
                                 )}
                                 {(() => {
-                                  const typed = String(values[leftover.id] || "").trim();
-                                  const value = typed || listingValueForField(listing, selectedForm.id, field) || leftover.value_preview;
+                                  const value = leftoverValue || leftover.value_preview;
                                   if (!value || !chromeConnected) return null;
                                   return (
                                     <button
@@ -2128,15 +2195,15 @@ export function FillLogPanel({
                                         value,
                                       }])}
                                     >
-                                      Fill this field
+                                      Apply on Vendoo
                                     </button>
                                   );
                                 })()}
                               </>
                             )}
                             {proposed ? (
-                              <span className="pr-proposed" title="Generated value ready to fill on Vendoo">
-                                <span className="pr-proposed-label">Ready to fill</span>
+                              <span className="pr-proposed" title="Generated value ready to apply on Vendoo">
+                                <span className="pr-proposed-label">Ready to apply</span>
                                 {proposed}
                               </span>
                             ) : null}
@@ -2188,7 +2255,7 @@ export function FillLogPanel({
       )}
 
       {fillMutation.error && (
-        <div className="text-xs text-error">{(fillMutation.error as Error).message || "Failed to fill leftover fields"}</div>
+        <div className="text-xs text-error">{(fillMutation.error as Error).message || "Failed to apply values on Vendoo"}</div>
       )}
 
       {showJson && draft?.ok && (

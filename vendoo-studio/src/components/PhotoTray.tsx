@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { ClearListingButton } from "./ClearListingButton";
 
 const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
 
 interface Props {
   convId: string;
+  onCleared?: () => void;
 }
 
 function moveItem<T>(items: T[], from: number, to: number): T[] {
@@ -19,7 +21,7 @@ function moveItem<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
-export function PhotoTray({ convId }: Props) {
+export function PhotoTray({ convId, onCleared }: Props) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lightboxRef = useRef<HTMLDivElement>(null);
@@ -193,6 +195,7 @@ export function PhotoTray({ convId }: Props) {
           {photos?.length || 0} photos{canReorder ? " · drag to reorder" : ""}
         </span>
         {uploadError && <span className="text-2xs text-error font-mono">{uploadError}</span>}
+        <ClearListingButton convId={convId} className="photo-tray-clear btn btn-ghost btn-sm" onCleared={onCleared} />
       </div>
       {photos && photos.length > 0 && (
         <div className="photo-strip">

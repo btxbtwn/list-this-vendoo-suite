@@ -125,9 +125,9 @@ function summarizeMissingFields(
     const label = MARKETPLACE_DISPLAY[market] || humanKey(market);
     return [`${label} / ${field}: ${value}`];
   });
-  if (!lines.length) return "Saved leftover field values to the listing.";
-  if (lines.length === 1) return `Ready to fill on Vendoo — ${lines[0]}.`;
-  return `Ready to fill on Vendoo:\n${lines.map((line) => `- ${line}`).join("\n")}`;
+  if (!lines.length) return "Saved field values to the listing.";
+  if (lines.length === 1) return `Ready to apply on Vendoo — ${lines[0]}.`;
+  return `Ready to apply on Vendoo:\n${lines.map((line) => `- ${line}`).join("\n")}`;
 }
 
 function stripJsonPayloads(text: string): string {
@@ -301,6 +301,16 @@ function emitLive(convId: string) {
   getLive(convId).listeners.forEach((listener) => listener());
 }
 
+export function resetChatLive(convId: string) {
+  const live = liveStreams[convId];
+  if (!live) return;
+  const controller = live.controller;
+  live.restoreInputOnAbort = false;
+  controller?.abort();
+  Object.assign(live, emptyLive());
+  emitLive(convId);
+}
+
 function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>) {
   Object.assign(getLive(convId), patch);
   emitLive(convId);
@@ -468,6 +478,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     }
     await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
     await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+    queryClient.invalidateQueries({ queryKey: ["fill-log"] });
     queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
     if (stillMine() && !failed) {
@@ -539,6 +550,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       if (stillMine()) patchLive(convId, { streaming: false, controller: null });
       await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
       queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       if (stillMine() && !isStreamError(assembled)) {

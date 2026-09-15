@@ -235,7 +235,7 @@ Depop: No title field → use Universal Description only
   "etsy_specifics": {
     "who_made": "Another company or person",
     "what_is": "A finished product",
-    "when_made": "2010-2019",
+    "when_made": "2010 - 2019 (Recently)",
     "section": "T-Shirts",
     "materials": ["Cotton"],
     "tags": ["vintage", "racing", "nhra", "graphic tee", "streetwear"],
@@ -273,7 +273,7 @@ Depop: No title field → use Universal Description only
     "condition": "Used - Fair",
     "location": "New Orleans, LA",
     "shippingMethod": "Depop USPS",
-    "parcelSize": "Small (S): Under 12 oz — $6.49"
+    "parcelSize": "Small"
   }
 }
 ```
@@ -323,7 +323,7 @@ Depop: No title field → use Universal Description only
 All eBay Item Specifics fields. Use Appendix values.
 
 **Etsy Specifics:**
-- `who_made`, `what_is`, `when_made` (required for Etsy)
+- `who_made`, `what_is`, `when_made` (required for Etsy). `when_made` must be an exact Etsy dropdown value from `vendoo-dropdown-options.json`, such as `2010 - 2019 (Recently)`, not `2010s` or `2010-2019`.
 - `section`: Shop section
 - `materials`: Array of materials
 - `tags`: Up to 13 tags
@@ -340,7 +340,7 @@ All eBay Item Specifics fields. Use Appendix values.
 - `age`: Modern, Vintage, Y2K, 90s, etc.
 - `style`: Array of 3 styles
 - `occasion`: Array of 3 occasions
-- `parcelSize`: Shipping size tier
+- `parcelSize`: Exact Depop dropdown value (`Extra extra small`, `Extra small`, `Small`, `Medium`, `Large`, `Extra large`). Do not include weight or price notes.
 
 # **APPENDIX: ALLOWED VALUES REFERENCES (Do not copy into outputs)**
 
@@ -413,13 +413,13 @@ Use these lists only to select valid dropdown values. Outputs should still be th
 * Brand: from list or “Other”  
 * Location: New Orleans, LA  
 * Shipping: Depop USPS  
-* Depop parcel sizes & prices (choose based on weight)  
-* Extra extra small (XXS): Under 4 oz — $4.99​  
-* Extra small (XS): Under 8 oz — $5.99​  
-* Small (S): Under 12 oz — $6.49​  
-* Medium (M): Under 1 lb — $7.99​  
-* Large (L): Under 2 lb — $11.99​  
-* Extra large (XL): Under 10 lb — $13.99​
+* Depop parcel sizes (use these exact dropdown values; weight notes are not part of the value)  
+* Extra extra small — Under 4oz  
+* Extra small — Under 8oz  
+* Small — Under 12oz  
+* Medium — Under 1lb  
+* Large — Under 2lb  
+* Extra large — Under 10lb
 
 # **2026 STRATEGY UPDATES (Daily Protocol)**
 
