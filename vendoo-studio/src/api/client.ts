@@ -120,6 +120,11 @@ export const api = {
       const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : "";
       return request<any[]>(`/jobs${query}`);
     },
+    ensureDraft: (conversationId: string) =>
+      request<any>("/jobs/ensure-draft", {
+        method: "POST",
+        body: JSON.stringify({ conversation_id: conversationId }),
+      }),
     get: (id: string) => request<any>(`/jobs/${id}`),
     fillLog: (id: string) => request<any>(`/jobs/${id}/fill-log`),
     fillFields: (id: string, fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>

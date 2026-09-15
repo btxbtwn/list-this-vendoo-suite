@@ -136,6 +136,62 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     return _job_response(job)
 
 
+class EnsureDraftJobRequest(BaseModel):
+    conversation_id: str
+
+
+@router.post("/ensure-draft", response_model=JobResponse)
+def ensure_draft_job(body: EnsureDraftJobRequest, db: Session = Depends(get_db)):
+    """Attach Fields to an existing Vendoo draft binding without starting a Send."""
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+    from vendoo_studio.services.schema_probe import is_schema_probe_job
+
+    conv_repo = ConversationRepo(db)
+    conv = conv_repo.get(body.conversation_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+
+    binding = vendoo_binding(conv.notes)
+    item_id = str(binding.get("vendooItemId") or "").strip()
+    item_url = str(binding.get("vendooUrl") or "").strip()
+    if not item_id or item_id.lower() in {"new", "edit", "create"}:
+        raise HTTPException(400, "No Vendoo draft is bound to this listing yet.")
+    if not item_url:
+        item_url = f"https://web.vendoo.co/app/item/{item_id}"
+
+    job_repo = JobRepo(db)
+    for prior in job_repo.list_by_conversation(body.conversation_id):
+        if prior.status == "cancelled":
+            continue
+        if prior.vendoo_item_id == item_id or (not prior.vendoo_item_id and not is_schema_probe_job(prior)):
+            if not prior.vendoo_item_id or not prior.vendoo_url:
+                prior.vendoo_item_id = prior.vendoo_item_id or item_id
+                prior.vendoo_url = prior.vendoo_url or item_url
+                db.commit()
+                db.refresh(prior)
+            return _job_response(prior)
+
+    listing_repo = ListingRepo(db)
+    revisions = listing_repo.get_revisions(body.conversation_id)
+    if not revisions:
+        raise HTTPException(400, "No listing to attach to the Vendoo draft yet.")
+    snapshot = dict(revisions[0].listing_json or {})
+    job = job_repo.create(
+        conv_id=body.conversation_id,
+        approved_revision_id=revisions[0].id,
+        listing_snapshot=snapshot,
+        vendoo_item_id=item_id,
+        vendoo_url=item_url,
+        status="completed",
+        current_step="fields_applied",
+    )
+    job_repo.add_event(job.id, "ensured_draft", "fields_applied", {
+        "vendoo_item_id": item_id,
+        "vendoo_url": item_url,
+    })
+    return _job_response(job)
+
+
 @router.get("", response_model=list[JobResponse])
 def list_jobs(conversation_id: str | None = None, db: Session = Depends(get_db)):
     repo = JobRepo(db)
