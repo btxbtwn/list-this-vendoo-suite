@@ -665,11 +665,15 @@ Required changes:
 - Fetch authorized job photos from the backend.
 - Preserve photo ordering and verify visible upload count.
 - Fill category path.
-- After listing generation persists a category, kick off a schema-probe job that selects the Vendoo category, aligns marketplace categories, and scrapes live fields into the listing without filling marketplace values.
+- After photo analysis, resolve the category and await a schema-probe job before generating the full listing. Discovery selects the General and marketplace categories, captures field types, required flags, constraints and observed options, and returns them to generation/chat. Unknown facts must become seller questions.
+- Cache observed category paths and their parents in SQLite `category_nodes`, and reusable field definitions in `category_schemas`. Do not cache item values or item-specific selectors there. `/api/catalog/categories` explicitly reports observed, incomplete taxonomy coverage; `/api/catalog/schema` exposes observed category fields. Searchable dropdown options are partial unless exhaustiveness is established.
 - After General category is committed during Send to Vendoo, align each marketplace category, scrape the live field schema, and register discovered fields before marketplace fill.
 - Fill SKU only when explicitly supplied.
 - Return structured field results.
 - Separate filling, saving, and auditing.
+- After each full fill or targeted repair, reload the saved draft and read General plus every selected marketplace, including newly exposed optional fields. Only this readback may mark the listing complete.
+- Feed missing, rejected and mismatched fields back to the listing assistant. Repair only gaps, preserve correct values, and require photo/seller evidence for new facts. Pause in `awaiting_answers` for missing facts and resume after chat answers; stop unchanged retries and pause after five repair rounds. `POST /api/jobs/{id}/complete` starts a fresh verification/repair attempt on an already approved draft. Schema probes never authorize filling.
+- Required fields cannot be marked not applicable. Optional exemptions require evidence and are recorded in job events. A failed, empty or partial readback must leave the listing incomplete. Completion never publishes.
 - Detect validation blockers and pending search text.
 - Verify committed chips, tokens, and selected options.
 - Capture Vendoo item ID and URL after general save.

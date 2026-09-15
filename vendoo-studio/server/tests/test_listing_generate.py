@@ -335,6 +335,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
             patch("vendoo_studio.routes.chat._load_skill_rules", return_value="rules"),
             patch("vendoo_studio.routes.chat.research_sold_comps", new=AsyncMock(return_value="")),
             patch("vendoo_studio.routes.chat.comps_search_available", return_value=False),
+            patch("vendoo_studio.routes.chat.prepare_generation_schema", new=AsyncMock(return_value={})),
         ]
         for p in self.patches:
             p.start()

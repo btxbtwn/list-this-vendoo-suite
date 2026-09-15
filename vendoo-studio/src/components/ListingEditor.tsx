@@ -201,7 +201,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
                 listing={listing}
                 tab={editTab}
                 jobId={listingJob?.id}
-                jobBusy={listingJob?.status === "dispatched" && listingJob?.current_step === "filling_fields"}
+                jobBusy={listingJob?.status === "dispatched"}
                 onChange={(updated) => updateMutation.mutate(updated)}
                 onCategoryMatched={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
               />
@@ -602,13 +602,21 @@ function SendToVendooButton({
     const isDispatched = fillJob.status === "dispatched";
     const isCompleted = fillJob.status === "completed";
     const isQueued = fillJob.status === "queued" || fillJob.status === "awaiting_extension";
-    const leftoverFilling = isDispatched && fillJob.current_step === "filling_fields";
+    const completionStep = ["awaiting_answers", "completion_blocked", "resolving_fields", "verifying_draft", "verified_complete"].includes(fillJob.current_step || "");
+    const stepLabel: Record<string, string> = {
+      awaiting_answers: "Waiting for your answers in chat",
+      completion_blocked: "Completion needs review",
+      resolving_fields: "Resolving missing fields",
+      verifying_draft: "Checking the saved draft",
+      verified_complete: "Saved draft verified complete",
+    };
+    const leftoverFilling = isDispatched && (completionStep || fillJob.current_step === "filling_fields");
     const canRestart = (isFailed || isDispatched || isCompleted || isQueued) && !leftoverFilling;
     const canCancel = !isCompleted;
     const buttonLabel = retryMutation.isPending
       ? "Sending..."
       : isFailed
-        ? "Retry"
+        ? (completionStep ? "Resume verification" : "Retry")
         : isCompleted || isQueued
           ? sendLabel
           : "Restart Job";
@@ -617,7 +625,7 @@ function SendToVendooButton({
         <div className="job-card-copy">
           <div className="job-card-label">Job Status</div>
           <div className={`job-card-status${isFailed ? " error" : ""}`}>
-            {fillJob.status}: {fillJob.current_step || "queued"}
+            {stepLabel[fillJob.current_step || ""] || `${fillJob.status}: ${fillJob.current_step || "queued"}`}
             {fillJob.last_error && <div className="mt-4 text-xs text-error">{fillJob.last_error}</div>}
           </div>
         </div>
@@ -628,7 +636,7 @@ function SendToVendooButton({
               className="btn btn-primary btn-sm job-card-action"
               disabled={retryMutation.isPending || cancelMutation.isPending}
               onClick={async () => {
-                if (!(await confirmOverwriteIfNeeded())) return;
+                if (!completionStep && !(await confirmOverwriteIfNeeded())) return;
                 setError(null);
                 retryMutation.mutate(fillJob.id);
               }}

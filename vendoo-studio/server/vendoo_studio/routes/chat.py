@@ -29,6 +29,7 @@ from vendoo_studio.services.listing_generate import (
 from vendoo_studio.services.listing_patch import apply_json_patch, extract_json_patch
 from vendoo_studio.services.listing_provider import get_listing_provider
 from vendoo_studio.services.registry import MEN_TSHIRT_PATH, WOMEN_TOPS_PATH, align_listing_gender
+from vendoo_studio.services.schema_probe import prepare_generation_schema
 
 
 def _require_provider():
@@ -238,13 +239,15 @@ def _learned_fields_prompt(db: Session, conv_id: str) -> str:
     revisions = ListingRepo(db).get_revisions(conv_id)
     if revisions and isinstance(revisions[0].listing_json, dict):
         category_path = revisions[0].listing_json.get("category_path") or None
-    text = RegistryService(db).generation_context(category_path)
+    from vendoo_studio.services.category_catalog import schema_context
+    text = RegistryService(db).generation_context(category_path) + schema_context(db, category_path or "")
     if not text:
         return ""
     return f"\n\n--- Learned fields ---\n\n{text}"
 
 
 def _current_listing_prompt(db: Session, conv_id: str) -> str:
+    import json
     revisions = ListingRepo(db).get_revisions(conv_id)
     if not revisions or not isinstance(revisions[0].listing_json, dict):
         return ""
@@ -252,6 +255,7 @@ def _current_listing_prompt(db: Session, conv_id: str) -> str:
     ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
     return (
         "\n\n--- Current listing ---\n"
+        f"Saved listing JSON: {json.dumps(listing, ensure_ascii=False)}\n"
         f"department: {listing.get('department') or ''}\n"
         f"category_path: {listing.get('category_path') or ''}\n"
         f"ebay_specifics.department: {(ebay or {}).get('department') or ''}\n"
@@ -353,7 +357,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             f'{{"op": "replace", "path": "/category_path", "value": "{MEN_TSHIRT_PATH}"}},'
             '{"op": "replace", "path": "/ebay_specifics/department", "value": "Men"}]\n'
             "```\n\n"
-            "When generating a complete listing from scratch, write one sentence that the listing is ready, "
+            "When generating a listing from scratch, explain any missing facts without claiming it is complete, "
             "then the full listing JSON in a fenced json code block.\n\n"
             "If you are not changing the listing, reply in plain English only. "
             "If asked whether the listing was updated, say yes or no in a sentence after checking the latest listing JSON in this conversation.\n\n"
@@ -363,7 +367,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             "- Be conservative with brand and size. Ask when uncertain instead of guessing.\n"
             f"- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at {WOMEN_TOPS_PATH}, never Shirts & Blouses. Men's T-shirts use {MEN_TSHIRT_PATH}.\n"
             "- Follow the title and description formulas EXACTLY from the rules below.\n"
-            "- Always fill ALL eBay specifics when generating a complete listing.\n"
+            "- Resolve every applicable discovered field. Ask about unknown facts; never invent values to fill blanks.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
             + (f"\n{photo_analysis_text}\n\n" if photo_analysis_text else "") +
             comps_block +
@@ -373,6 +377,17 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
         ) + _current_listing_prompt(db, conv_id) + _learned_fields_prompt(db, conv_id),
     }
 
+    from vendoo_studio.repositories.queries import JobRepo
+    from vendoo_studio.services.listing_completion import review_fields
+    import json
+    for job in JobRepo(db).list_by_conversation(conv_id):
+        if job.current_step == "awaiting_answers":
+            review = JobRepo(db).latest_event(job.id, "completion_review")
+            if review:
+                system_prompt["content"] += "\nUnresolved saved-form fields:\n" + json.dumps(
+                    review_fields(review.payload or {}, job.listing_snapshot or {}), ensure_ascii=False)
+                system_prompt["content"] += "\nUse the seller's answer to update these fields. Never claim completion before verification."
+            break
     messages = [system_prompt]
     for msg in history[-20:]:
         role = msg.role
@@ -553,6 +568,12 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
         )
     provider_name, provider_model = _provider_meta(provider)
 
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    if repo.get_photos(conv_id) and (not revisions or revisions[0].source == "category_analysis"):
+        # Seller answers during category discovery resume the same generation
+        # pipeline; chat must not bypass the schema prerequisite.
+        return await generate_listing(conv_id, db)
+
     repo.update_status(conv_id, "in_progress")
 
     messages = await _build_messages(conv_id, db, body.text)
@@ -590,6 +611,15 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                         stream_db, conv_id, full_text, provider
                     )
                     await _maybe_resolve_vendoo_category(stream_db, conv_id, operations=operations)
+                    from vendoo_studio.repositories.queries import JobRepo
+                    from vendoo_studio.routes.jobs import resume_completion
+                    for job in JobRepo(stream_db).list_by_conversation(conv_id):
+                        if job.current_step == "awaiting_answers":
+                            try:
+                                await resume_completion(job.id, stream_db)
+                            except HTTPException as exc:
+                                stream_repo.add_message(conv_id, "system", str(exc.detail), provider="system", model="")
+                            break
                 elif stream_error or not full_text.strip():
                     stream_repo.add_message(
                         conv_id,
@@ -598,7 +628,9 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                         provider="system",
                         model="",
                     )
-                stream_repo.update_status(conv_id, "draft")
+                from vendoo_studio.repositories.queries import JobRepo
+                active = any(job.conversation_id == conv_id for job in JobRepo(stream_db).get_active())
+                stream_repo.update_status(conv_id, "listing" if active else "draft")
             except Exception:
                 log.exception("failed to persist chat result for %s", conv_id)
                 try:
@@ -662,6 +694,9 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     skill_rules = _load_skill_rules()
     notes = conv.notes or ""
     item_details = seller_item_details(notes)
+    seller_answers = "\n".join(message.text for message in repo.get_messages(conv_id) if message.role == "user")
+    if seller_answers:
+        item_details += "\nSeller answers:\n" + seller_answers
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
     photo_count = len(photos)
     # Release the request-scoped session before background work opens its own.
@@ -715,6 +750,15 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
 
             prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
 
+            run.publish(_sse_event("status", "Identifying category and discovering its fields…"))
+            schema_task = asyncio.create_task(prepare_generation_schema(
+                stream_db, conv_id, provider, prompt_analysis + "\nSeller answers:\n" + seller_answers, notes,
+            ))
+            child_tasks.append(schema_task)
+            async for _ in _wait_task_keepalives(schema_task):
+                run.publish(KEEPALIVE)
+            schema_task.result()
+
             comps_text = ""
             if comps_search_available():
                 run.publish(_sse_event("status", "Looking up sold comps…"))
@@ -754,11 +798,6 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 run.publish(_sse_event("status", "Repairing listing JSON…"))
             listing = await persist_generated_listing_with_repair(stream_db, conv_id, full_text, provider)
             stream_repo.update_status(conv_id, "draft")
-            if listing:
-                from vendoo_studio.services.schema_probe import kickoff_schema_probe
-                run.publish(_sse_event("status", "Discovering marketplace fields…"))
-                # Fire-and-forget: do not add to child_tasks (those are cancelled in finally).
-                asyncio.create_task(kickoff_schema_probe(conv_id, listing, reason="generate"))
             run.publish("data: [DONE]\n\n")
         except asyncio.CancelledError:
             log.warning("listing generation cancelled for %s; saving any completed text", conv_id)
@@ -781,6 +820,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
             log.warning("listing generation failed for %s: %s", conv_id, e)
             try:
                 run.publish(_sse_data(f"Error: {e}"))
+                stream_repo.add_message(conv_id, "system", str(e), provider="system", model="")
                 run.publish("data: [DONE]\n\n")
                 stream_repo.update_status(conv_id, "draft")
             except Exception:
@@ -839,7 +879,7 @@ def _listing_messages(
         else ""
     )
     system_content = (
-        "You are a product listing generator. Generate a COMPLETE, ready-to-use Vendoo listing JSON "
+        "You are a product listing generator. Generate an evidence-backed Vendoo listing JSON "
         "from the photo analysis and listing rules below.\n\n"
         f"{photo_line}"
         "Use Vendoo's General taxonomy for category_path. Women's shirts and T-shirts must use "
@@ -850,6 +890,8 @@ def _listing_messages(
         "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
         "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
         "Do not modify, estimate, or replace seller-provided measurements.\n"
+        "Use the discovered category fields below. Leave unknown facts empty and ask precise questions in prose. "
+        "Never invent a value to make a listing look complete. Completion requires saved-form verification.\n"
         "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
         "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
         "Output the full listing JSON inside a fenced code block:\n\n"
@@ -880,6 +922,7 @@ def _listing_messages(
         f"{analysis_text}"
         f"{comps_block}\n\n"
         f"--- Listing Rules ---\n\n{skill_rules}"
+        f"{_current_listing_prompt(db, conv_id)}"
         f"{_learned_fields_prompt(db, conv_id)}"
     )
     return [

@@ -3076,7 +3076,7 @@
       await batchFillFields(numericFields);
       
       // Package dimensions
-      const packageDims = data.package_dimensions_in || '13x10x3';
+      const packageDims = data.package_dimensions_in || '';
       const dims = packageDims.split('x');
       if (dims.length === 3) {
           const dimFields = [
@@ -3801,7 +3801,7 @@
   }
 
   function queryMarketplaceSizeControls(marketplace) {
-      const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
+      const controls = document.querySelectorAll('input, textarea, select, [role="combobox"], [role="checkbox"], [role="switch"]');
       return Array.from(controls).filter((el) => isMarketplaceSizeValueControl(el, marketplace));
   }
 
@@ -5441,17 +5441,30 @@
           if (!key || seen.has(key)) continue;
           if (isAccountSettingField(key) || isAccountSettingField(label)) continue;
           seen.add(key);
-          const value = (() => {
-              let raw = '';
-              if ('value' in el && el.value != null) raw = String(el.value).trim();
-              if (!raw) raw = (displayedFieldValue(el) || '').trim();
-              if (raw && !fieldLooksFilled(el)) return '';
-              return raw;
-          })();
+          const nativeSelect = el.tagName === 'SELECT';
+          let value = nativeSelect
+              ? (el.multiple ? Array.from(el.selectedOptions).map((option) => option.textContent.trim())
+                  : (el.value ? el.selectedOptions[0]?.textContent.trim() || '' : ''))
+              : readPersistedControlValue(el);
+          if (!nativeSelect && typeof value === 'string' && value && !fieldLooksFilled(el)) value = '';
+          const described = String(el.getAttribute?.('aria-errormessage') || el.getAttribute?.('aria-describedby') || '')
+              .split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ').trim();
           fields.push({
               label,
+              key: el.id || el.name || key,
+              type: nativeSelect ? 'select' : (el.getAttribute?.('role') || type || el.tagName.toLowerCase()),
+              multiple: Boolean(el.multiple || el.getAttribute?.('aria-multiselectable') === 'true' || isMultiChipField(label, el)),
+              options: nativeSelect ? Array.from(el.options).filter((option) => !option.disabled && option.value !== '')
+                  .map((option) => ({ label: option.textContent.trim(), value: option.value })) : [],
+              options_complete: nativeSelect,
+              min: el.getAttribute?.('min'),
+              max: el.getAttribute?.('max'),
+              max_length: el.getAttribute?.('maxlength'),
+              pattern: el.getAttribute?.('pattern'),
+              error: el.getAttribute?.('aria-invalid') === 'true'
+                  ? (described || 'Form rejected this value') : (el.validationMessage || ''),
               selector: selectorFor(el, ''),
-              filled: Boolean(value),
+              filled: value !== '' && value != null && (!Array.isArray(value) || value.length > 0),
               value,
               required: Boolean(
                   el.required
@@ -5464,6 +5477,56 @@
       return fields;
   }
 
+  async function collectSchemaWithOptions(marketplace) {
+      const fields = collectMarketplaceSchemaFields(marketplace);
+      for (const field of fields) {
+          if (field.options_complete || field.type !== 'combobox') continue;
+          const el = queryByRecordedSelector(field.selector);
+          if (!el || normalizeFieldKey(field.label) === 'category') continue;
+          await closeOpenMenus();
+          el.click();
+          await sleep(CONFIG.SLEEP_MEDIUM);
+          const listId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+          const list = listId ? document.getElementById(listId) : document.querySelector('[role="listbox"]');
+          if (list) {
+              field.options = uniqueStrings(Array.from(list.querySelectorAll('[role="option"]'))
+                  .filter((option) => option.getAttribute('aria-disabled') !== 'true')
+                  .map((option) => (option.textContent || '').trim())).map((label) => ({ label }));
+          }
+          // Searchable and virtualized menus are observations, not exhaustive option sets.
+          await closeOpenMenus();
+      }
+      return fields;
+  }
+
+  function compareSchemaValues(schema, listing) {
+      for (const [marketplace, section] of Object.entries(schema)) {
+          const specifics = listing[`${marketplace}_specifics`] || {};
+          const source = { ...listing, ...(specifics.category_specifics || {}), ...specifics };
+          for (const field of section.fields || []) {
+              const key = normalizeFieldKey(field.label);
+              const entry = Object.entries(source).find(([name, value]) =>
+                  normalizeFieldKey(name) === key && value != null && value !== '' &&
+                  (typeof value !== 'object' || Array.isArray(value))
+              );
+              if (!entry) continue;
+              const input = entry[1];
+              const expected = mapPatchValue(marketplace, field.label, input);
+              field.expected_input = Array.isArray(input) ? input.join(', ') : String(input);
+              field.expected = Array.isArray(expected) ? expected.join(', ') : String(expected);
+              if (Array.isArray(field.value) || Array.isArray(expected)) {
+                  const values = (value) => (Array.isArray(value) ? value : String(value).split(','))
+                      .map((item) => String(item).trim().toLowerCase()).sort();
+                  field.matches_expected = JSON.stringify(values(field.value)) === JSON.stringify(values(expected));
+              } else if (typeof field.value === 'boolean') {
+                  field.matches_expected = String(field.value).toLowerCase() === String(expected).toLowerCase();
+              } else {
+                  field.matches_expected = fieldValuesEqual(field.value, expected);
+              }
+          }
+      }
+  }
+
   async function discoverMarketplaceSchema(data, platforms) {
       const list = Array.isArray(platforms) && platforms.length
           ? platforms.map((platform) => String(platform || '').toLowerCase()).filter(Boolean)
@@ -5472,6 +5535,14 @@
       const allEntries = [];
       const categories = {};
       const schema = {};
+
+      await activateMarketplaceSection('general');
+      beginFillLog('general');
+      await expandOptionalFields();
+      schema.general = {
+          category: { path: normalizeCategoryDisplay(controlValue(VENDOO_SELECTORS.category)), status: 'observed' },
+          fields: await collectSchemaWithOptions('general'),
+      };
 
       log(`=== Discovering marketplace schemas after category (${list.join(', ')}) ===`);
 
@@ -5497,7 +5568,7 @@
                   await sleep(CONFIG.SLEEP_LONG);
               }
 
-              const fields = collectMarketplaceSchemaFields(platform);
+              const fields = await collectSchemaWithOptions(platform);
               for (const field of fields) {
                   if (normalizeFieldKey(field.label) === 'category') continue;
                   recordFill({
@@ -5515,6 +5586,8 @@
               schema[platform] = {
                   category: categories[platform],
                   fields,
+                  error: !shown || ['failed', 'invalid', 'not_found'].includes(catResult?.status)
+                      ? 'Marketplace category selection was not verified' : null,
               };
               log(`  ${platform}: ${fields.length} schema fields`);
           } catch (err) {
@@ -5544,7 +5617,9 @@
       }
 
       return {
-          ok: true,
+          ok: Object.values(schema).every((section) => !section.error && section.fields.length > 0),
+          error: Object.values(schema).some((section) => section.error || !section.fields.length)
+              ? 'Could not discover every selected marketplace schema' : null,
           schema,
           categories,
           fill_log: {
@@ -5571,12 +5646,27 @@
       }
       const listing = { ...(data || {}), _expected_photo_count: expectedPhotoCount || 0 };
       const general = await auditGeneralForm(listing);
+      beginFillLog('general');
+      await activateMarketplaceSection('general');
+      await expandOptionalFields();
+      const schema = { general: {
+          category: { path: normalizeCategoryDisplay(controlValue(VENDOO_SELECTORS.category)) },
+          fields: await collectSchemaWithOptions('general'),
+      } };
       const marketplaceResults = {};
       const mismatches = [...(general.mismatches || [])];
       const selected = Array.isArray(platforms) ? platforms.map((item) => String(item || '').toLowerCase()).filter(Boolean) : [];
       for (const platform of selected) {
           const result = await auditMarketplaceForm(listing, platform);
           marketplaceResults[platform] = result;
+          beginFillLog(platform);
+          await expandOptionalFields();
+          await sleep(CONFIG.SLEEP_LONG);
+          schema[platform] = {
+              category: { path: marketplaceCategoryDisplay(platform) },
+              fields: marketplaceFormMounted(platform) ? await collectSchemaWithOptions(platform) : [],
+              error: marketplaceFormMounted(platform) ? null : 'Marketplace form did not mount',
+          };
           if (!result.ok) mismatches.push(...(result.mismatches || [result.error || `${platform} audit failed`]));
       }
       const photos = scrapeListingImageUrls();
@@ -5586,8 +5676,11 @@
           mismatches.push(`Publication status is not draft: ${listed.map(([id, status]) => `${id}=${status}`).join(', ')}`);
       }
       const verified = mismatches.length === 0;
+      compareSchemaValues(schema, listing);
       return {
           ok: verified,
+          readback: true,
+          schema,
           verified,
           error: verified ? null : mismatches.join('; '),
           mismatches,
@@ -5766,10 +5859,25 @@
       return { status: 'filled' };
   }
 
+  async function fillBooleanField(el, value, fieldName) {
+      const text = String(value).trim().toLowerCase();
+      if (!['true', 'false', 'yes', 'no', '1', '0'].includes(text)) {
+          recordFill({ field: fieldName, status: 'invalid', reason: 'A yes/no answer is required', value });
+          return;
+      }
+      const expected = ['true', 'yes', '1'].includes(text);
+      if (readPersistedControlValue(el) !== expected) {
+          el.click();
+          await sleep(CONFIG.SLEEP_SHORT);
+      }
+      recordFill({ field: fieldName, selector: selectorFor(el, ''), value: expected,
+          status: readPersistedControlValue(el) === expected ? 'filled' : 'failed' });
+  }
+
   function reverifyPatchedFields(items) {
       for (const item of items) {
           const fieldName = item.field || 'Field';
-          const intended = String(item.value || '').trim();
+          const intended = String(item.value ?? '').trim();
           const entry = [...fillLedger].reverse().find((row) =>
               (item.id && row.id === item.id) ||
               normalizeFieldKey(row.field) === normalizeFieldKey(fieldName)
@@ -5784,6 +5892,12 @@
           if (!el) {
               entry.status = 'failed';
               entry.reason = 'Field disappeared after fill';
+              continue;
+          }
+          const booleanControl = el.type === 'checkbox' || ['checkbox', 'switch'].includes(el.getAttribute?.('role'));
+          if (booleanControl) {
+              const expected = ['true', 'yes', '1'].includes(intended.toLowerCase());
+              entry.status = readPersistedControlValue(el) === expected ? 'filled' : 'failed';
               continue;
           }
           const shown = normalizeFieldKey(fieldName) === 'category'
@@ -5870,6 +5984,11 @@
                   const value = mapPatchValue(marketplace, fieldName, item.value);
                   item.value = value;
                   const fieldKey = normalizeFieldKey(fieldName);
+                  if (['publish', 'published', 'publication status', 'listing status', 'listing state'].includes(fieldKey)
+                      && !['draft', 'draft listing'].includes(String(value).trim().toLowerCase())) {
+                      recordFill({ field: fieldName, status: 'invalid', reason: 'Automation only permits draft status', value });
+                      continue;
+                  }
                   const isEbayCascade = marketplace === 'ebay' && ['category', 'size type', 'department', 'type', 'size'].includes(fieldKey);
                   if (marketplace === 'ebay' && !isEbayCascade && !ebayOptionalsReady) {
                       await waitForEbayOptionalCategoryFields();
@@ -5910,7 +6029,9 @@
                       });
                       continue;
                   }
-                  if (shouldFillAsDropdown(el, fieldName) || isMultiChipField(fieldName, el)) {
+                  if (el.type === 'checkbox' || ['checkbox', 'switch'].includes(el.getAttribute?.('role'))) {
+                      await fillBooleanField(el, value, fieldName);
+                  } else if (shouldFillAsDropdown(el, fieldName) || isMultiChipField(fieldName, el)) {
                       await fillDropdownField(el, value, fieldName, false, isMultiChipField(fieldName, el));
                   } else {
                       await fillTextFieldByElement(el, value, fieldName);

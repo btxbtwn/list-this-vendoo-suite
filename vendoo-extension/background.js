@@ -614,7 +614,14 @@ async function runJob(jobId) {
 
     try {
       const result = await step.fn(activeJob);
-      if (!result.ok) {
+      if (!result.ok && activeJob.options?.mode !== 'schema_probe'
+          && step.step.startsWith('saving_') && durableItemId(activeJob.vendoo_item_id)) {
+        // A required field may prevent saving. Read the persisted draft and let
+        // Studio resolve its gaps before attempting another targeted fill.
+        log(`Save needs repair: ${result.error || step.step}`);
+        break;
+      }
+      if (!result.ok && !step.step.startsWith('auditing_')) {
         failed = true;
         collectDiagnostics('passive');
         send({
@@ -681,9 +688,11 @@ async function runJob(jobId) {
     return;
   }
 
+  let completionVerification = null;
   if (!failed && activeJob.options?.mode !== 'schema_probe') {
     const verified = await verifySavedDraft(activeJob);
-    if (!verified?.ok) {
+    completionVerification = verified;
+    if (!verified?.readback) {
       failed = true;
       collectDiagnostics('passive');
       send({
@@ -711,11 +720,12 @@ async function runJob(jobId) {
     const vurl = activeJob?.vendoo_url;
     const itemId = activeJob?.vendoo_item_id;
     const tabId = activeJob?.tabId;
-    const verified = activeJob?.options?.mode === 'schema_probe' ? { verified: true, mode: 'schema_probe' } : { verified: true };
+    const mode = activeJob?.options?.mode;
     await addCompletedJobId(jobId);
     activeJob = null;
     await persistActiveJob(null);
     await stopJobPreview();
+    await closeListingTab(tabId);
 
     send({
       version: 1,
@@ -723,9 +733,8 @@ async function runJob(jobId) {
       job_id: jobId,
       message_id: Date.now().toString(36),
       sent_at: new Date().toISOString(),
-      payload: { vendoo_url: vurl, vendoo_item_id: itemId, ...verified },
+      payload: { vendoo_url: vurl, vendoo_item_id: itemId, mode, verification: completionVerification },
     });
-    await closeListingTab(tabId);
   }
 }
 
@@ -1195,12 +1204,13 @@ async function runFillFields(jobId, payload) {
     return;
   }
 
-  const batches = groupFillFieldBatches(payload.fields || []);
+  const batches = payload.fields?.length ? groupFillFieldBatches(payload.fields) : [];
   const batchResults = [];
   let lastSaved = null;
   log(`Filling leftover fields in ${batches.length} batch(es)`);
 
   for (let i = 0; i < batches.length; i++) {
+    if (activePatch !== job) return;
     const fields = batches[i];
     const marketplace = fields[0]?.marketplace || 'general';
     send({
@@ -1221,35 +1231,32 @@ async function runFillFields(jobId, payload) {
       type: 'FILL_FIELDS',
       fields,
     });
+    if (activePatch !== job) return;
     batchResults.push(result);
     log(`Saving leftover ${marketplace} form`);
     const saved = await sendToVendoo(job, saveCommandForMarketplace(marketplace));
     lastSaved = saved;
     if (!result.ok || !saved.ok) {
-      activePatch = null;
-      await stopJobPreview();
-      send({
-        version: 1,
-        type: 'job.step_failed',
-        job_id: jobId,
-        message_id: Date.now().toString(36),
-        sent_at: new Date().toISOString(),
-        payload: {
-          step: 'filling_fields',
-          error: !result.ok
-            ? (result.error || 'Leftover field fill failed')
-            : (saved.error || 'Filled fields, but Vendoo did not save the draft'),
-          fill_log: mergeFillLogs(batchResults),
-        },
-      });
-      return;
+      log(`Leftover fill needs repair: ${result.error || saved.error || 'Save failed'}`);
+      break;
     }
   }
 
   const fillLog = mergeFillLogs(batchResults);
+  if (activePatch !== job) return;
+  const verification = await verifySavedDraft({
+    ...job,
+    vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id,
+    vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url,
+    listing: payload.listing || {},
+    options: { platforms: payload.platforms || patchPlatforms },
+    photos: Array(payload.expected_photo_count || 0).fill(null),
+  });
+  if (activePatch !== job) return;
   activePatch = null;
   await stopJobPreview();
   await sleep(1500);
+  await closeListingTab(job.tabId);
 
   send({
     version: 1,
@@ -1262,9 +1269,9 @@ async function runFillFields(jobId, payload) {
       vendoo_item_id: durableItemId(lastSaved?.vendoo_item_id || payload.vendoo_item_id) || null,
       vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url || null,
       fill_log: fillLog,
+      verification,
     },
   });
-  await closeListingTab(job.tabId);
 }
 
 function groupFillFieldBatches(fields) {
@@ -1324,9 +1331,9 @@ function commandTimeoutMs(command) {
   if (command.type === 'SAVE_GENERAL' || command.type === 'SAVE_MARKETPLACE') {
     return 60000;
   }
-  if (command.type === 'DISCOVER_SCHEMA') {
+  if (command.type === 'DISCOVER_SCHEMA' || command.type === 'VERIFY_SAVED_DRAFT') {
     const count = Array.isArray(command.platforms) ? command.platforms.length : 5;
-    return Math.min(180000, Math.max(120000, 30000 + count * 25000));
+    return Math.min(300000, Math.max(120000, 60000 + count * 40000));
   }
   if (command.type === 'SET_GENERAL_CATEGORY') {
     return 90000;
@@ -1929,8 +1936,10 @@ async function verifySavedDraft(job) {
   if (tabId) {
     try {
       await chrome.tabs.update(tabId, { url });
-      await waitForTabComplete(tabId);
-      await waitForContentScript({ tabId, job_id: job.job_id });
+      const loaded = await reloadTabAndWait(tabId, 20000);
+      if (!isTabReady(loaded)) return { ok: false, error: 'Saved draft reload did not finish' };
+      const ready = await waitForContentScript({ tabId, job_id: job.job_id });
+      if (!ready.ok) return ready;
     } catch (err) {
       return { ok: false, error: `Could not reopen saved draft: ${err.message}` };
     }

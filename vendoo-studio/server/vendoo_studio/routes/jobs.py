@@ -601,6 +601,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
 
     job.status = "dispatched"
     job.current_step = "filling_fields"
+    job.listing_snapshot = {**snapshot, "platforms": (job.listing_snapshot or {}).get("platforms") or []}
     job.last_error = None
     db.commit()
 
@@ -630,12 +631,49 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
     return _job_response(job)
 
 
+@router.post("/{job_id}/complete", response_model=JobResponse)
+async def resume_completion(job_id: str, db: Session = Depends(get_db)):
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
+    from vendoo_studio.services.schema_probe import is_schema_probe_job
+
+    repo = JobRepo(db)
+    job = repo.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if is_schema_probe_job(job) or job.status == "cancelled" or not job.vendoo_item_id:
+        raise HTTPException(400, "Approve a listing for this draft before starting completion.")
+    if job.status in ACTIVE_JOB_STATUSES or repo.get_active():
+        raise HTTPException(409, "Wait for the current automation job to finish")
+    if not extension_manager.connected:
+        raise HTTPException(400, "Connect Chrome to verify this draft")
+    revisions = ListingRepo(db).get_revisions(job.conversation_id)
+    if revisions:
+        job.listing_snapshot = {**revisions[0].listing_json, "platforms": (job.listing_snapshot or {}).get("platforms") or []}
+    job.status = "dispatched"
+    job.current_step = "verifying_draft"
+    job.last_error = None
+    db.commit()
+    repo.add_event(job.id, "completion_resumed", "verifying_draft")
+    if not await dispatch_fill_fields(job, []):
+        job.status = "failed"
+        job.current_step = "completion_blocked"
+        job.last_error = "Chrome disconnected before verification"
+        db.commit()
+        raise HTTPException(503, job.last_error)
+    ConversationRepo(db).update_status(job.conversation_id, "listing")
+    return _job_response(job)
+
+
 @router.post("/{job_id}/retry")
 async def retry_job(
     job_id: str,
     db: Session = Depends(get_db),
     resume_from: str | None = Query(None),
 ):
+    completion_job = JobRepo(db).get(job_id)
+    if completion_job and completion_job.current_step in {"awaiting_answers", "completion_blocked", "resolving_fields", "verifying_draft"}:
+        return await resume_completion(job_id, db)
     repo = JobRepo(db)
     job = repo.get(job_id)
     if not job:

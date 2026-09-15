@@ -311,7 +311,7 @@ Minimum       = Listing Price - $4
 9. **Reference vendoo_listing_template.md BEFORE generating** — structure/order priority
 10. **For Etsy digital downloads, use the Etsy Digital Download Description Formula** — do not use the physical-item description template
 11. **For Etsy digital downloads, return the Etsy Digital Download Output Format** — do not output JSON
-12. **Weight and packaging MUST be included** — default to `weight_lb: 0`, `weight_oz: 8`, `package_dimensions_in: "13x10x3"` unless the user specifies otherwise
+12. **Use actual package weight and dimensions** — populate `weight_lb`, `weight_oz`, and `package_dimensions_in` from seller-provided measurements or explicitly confirmed packaging details. If unknown, leave them unresolved and ask the seller; do not copy example values or invent measurements to complete the listing.
 
 ## Pre-Output Verification (MANDATORY)
 

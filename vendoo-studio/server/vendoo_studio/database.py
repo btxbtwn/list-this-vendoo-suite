@@ -39,6 +39,7 @@ def init_db():
     from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation  # noqa: F401
     from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
     from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
+    from vendoo_studio.models.catalog import CategoryNode, CategorySchema  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _ensure_sqlite_columns()

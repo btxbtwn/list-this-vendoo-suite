@@ -47,6 +47,13 @@ GENERAL_LISTING_KEYS = {
     "notes": "notes",
     "internal notes": "notes",
     "vendoo internal notes": "notes",
+    "weight (lbs)": "weight_lb",
+    "weight (oz)": "weight_oz",
+    "weight lbs": "weight_lb",
+    "weight lb": "weight_lb",
+    "pounds": "weight_lb",
+    "weight oz": "weight_oz",
+    "ounces": "weight_oz",
 }
 
 FIELD_LOOKUP_ALIASES = {
@@ -180,6 +187,15 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     source = listing if isinstance(listing, dict) else {}
     marketplace = str(marketplace or "general").strip().lower()
     key = field_lookup_key(field)
+    if marketplace in {"", "general", "unknown"}:
+        if key in {"weight lbs", "weight lb", "pounds"}:
+            return _stringify_listing_value(source.get("weight_lb"))
+        if key in {"weight oz", "ounces"}:
+            return _stringify_listing_value(source.get("weight_oz"))
+        if key in {"length", "width", "height"}:
+            dimensions = re.split(r"\s*[x×]\s*", str(source.get("package_dimensions_in") or ""), flags=re.I)
+            if len(dimensions) == 3:
+                return dimensions[{"length": 0, "width": 1, "height": 2}[key]]
     value: Any = None
     if marketplace in {"", "general", "unknown"}:
         value = _value_from_record(source, key)
@@ -301,7 +317,12 @@ def summarize_missing_fields(patches: list[dict]) -> str:
 
 
 def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
+    from vendoo_studio.services.registry import label_to_json_key
     updated = dict(listing or {})
+    dimensions = re.split(r"\s*[x×]\s*", str(updated.get("package_dimensions_in") or ""), flags=re.I)
+    if len(dimensions) != 3:
+        dimensions = [updated.get(key) for key in ("length", "width", "height")]
+    dimensions_changed = False
     for patch in patches:
         marketplace = str(patch.get("marketplace") or "general").strip().lower()
         field = str(patch.get("field") or "").strip()
@@ -310,7 +331,10 @@ def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
             continue
         key = normalize_field_label(field)
         if marketplace in {"", "general", "unknown"}:
-            mapped = GENERAL_LISTING_KEYS.get(key)
+            if key in {"length", "width", "height"}:
+                dimensions[{"length": 0, "width": 1, "height": 2}[key]] = value
+                dimensions_changed = True
+            mapped = GENERAL_LISTING_KEYS.get(key) or label_to_json_key(field)
             if not mapped:
                 continue
             updated[mapped] = _coerce_listing_value(mapped, value)
@@ -318,17 +342,23 @@ def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
         specifics_key = f"{marketplace}_specifics"
         specifics = dict(updated.get(specifics_key) or {})
         existing = next(
-            (candidate for candidate in specifics if normalize_field_label(str(candidate)) == key),
+            (candidate for candidate in specifics if field_lookup_key(str(candidate)) == field_lookup_key(field)),
             None,
         )
         specifics[existing or field] = value
         updated[specifics_key] = specifics
+    if dimensions_changed and all(value is not None and str(value).strip() for value in dimensions):
+        updated["package_dimensions_in"] = "x".join(str(value).strip() for value in dimensions)
+        for key in ("length", "width", "height"):
+            updated.pop(key, None)
     return updated
 
 
 def _coerce_listing_value(mapped: str, value: Any) -> Any:
     text = str(value).strip()
     if mapped in {"tags", "labels"}:
+        if isinstance(value, list):
+            return [str(part).strip() for part in value if str(part).strip()]
         return [part.strip() for part in text.split(",") if part.strip()]
     if mapped == "quantity":
         try:

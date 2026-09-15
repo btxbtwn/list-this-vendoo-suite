@@ -277,7 +277,7 @@ class JobRepo:
     def requeue_interrupted(self) -> list[Job]:
         jobs = self.db.query(Job).filter(Job.status == "dispatched").all()
         for job in jobs:
-            if job.current_step == "filling_fields":
+            if job.current_step in {"filling_fields", "resolving_fields", "verifying_draft"}:
                 job.status = "failed"
                 job.last_error = (
                     "Chrome disconnected during leftover field fill. "
