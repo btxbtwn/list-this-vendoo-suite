@@ -68,7 +68,97 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_ORDER = ["invalid", "failed", "not_found", "uncertain", "new", "skipped", "not_applicable", "filled"];
 const FILLABLE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain", "new", "skipped"]);
+const DISCOVERY_STATUSES = new Set(["new"]);
+const FILL_FAILURE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain", "skipped"]);
+const EMPTY_CELL = "— empty —";
+const UNREAD_CELL = "— not read —";
 const DOES_NOT_APPLY_RE = /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i;
+
+interface FormSyncCounts {
+  onVendoo: number;
+  vendooEmpty: number;
+  readyToApply: number;
+  needsChat: number;
+  notApplicable: number;
+}
+
+function listingTextForField(
+  listing: Record<string, unknown> | undefined,
+  marketplace: string,
+  field: DraftField,
+): string {
+  return listingValueForField(listing, marketplace, field);
+}
+
+function listingFieldEmpty(
+  listing: Record<string, unknown> | undefined,
+  marketplace: string,
+  field: DraftField,
+): boolean {
+  return !listingTextForField(listing, marketplace, field);
+}
+
+function vendooTextForField(field: DraftField): string {
+  if (field.notApplicable) return "Does not apply";
+  return field.value || "";
+}
+
+function formSyncCounts(
+  form: DraftForm,
+  listing: Record<string, unknown> | undefined,
+  fromVendooDraft: boolean,
+): FormSyncCounts {
+  const counts: FormSyncCounts = {
+    onVendoo: 0,
+    vendooEmpty: 0,
+    readyToApply: 0,
+    needsChat: 0,
+    notApplicable: 0,
+  };
+  for (const field of form.fields) {
+    if (field.notApplicable) {
+      counts.notApplicable += 1;
+      continue;
+    }
+    if (isUnfillableField(field)) continue;
+    const listingValue = listingTextForField(listing, form.id, field);
+    if (fromVendooDraft) {
+      if (!field.missing) {
+        counts.onVendoo += 1;
+        continue;
+      }
+      counts.vendooEmpty += 1;
+      if (listingValue) counts.readyToApply += 1;
+      else counts.needsChat += 1;
+      continue;
+    }
+    if (listingValue) counts.onVendoo += 1;
+    else counts.vendooEmpty += 1;
+  }
+  return counts;
+}
+
+function fieldsNeedingListingValues(
+  forms: DraftForm[],
+  listing: Record<string, unknown> | undefined,
+): { form: DraftForm; field: DraftField }[] {
+  return forms.flatMap((form) =>
+    form.fields
+      .filter((field) => !field.notApplicable && !isUnfillableField(field))
+      .filter((field) => listingFieldEmpty(listing, form.id, field))
+      .map((field) => ({ form, field })),
+  );
+}
+
+function issueLabel(entry: FillLogEntry): string {
+  if (entry.status === "new") return "Discovered on form";
+  if (entry.status === "skipped") return "Not filled";
+  return STATUS_LABELS[entry.status] || entry.status;
+}
+
+function issueKind(entry: FillLogEntry): "discovery" | "failure" {
+  return DISCOVERY_STATUSES.has(entry.status) ? "discovery" : "failure";
+}
 const DEFAULT_SELECTED_MARKETPLACES = ["ebay", "etsy", "poshmark", "mercari", "depop"];
 const MARKETPLACE_ORDER = ["general", "ebay", "etsy", "poshmark", "mercari", "depop", "facebook", "shopify", "vinted", "whatnot", "sellwild", "grailed"];
 const MARKETPLACE_LABELS: Record<string, string> = {
@@ -421,19 +511,18 @@ function emptyFieldsPrompt(
 ): string {
   const title = listingTitle(listing);
   const rows: { marketplace: string; form: string; field: string; current: string; status: string; reason: string }[] = [];
-  for (const form of forms) {
-    for (const field of form.fields) {
-      if (!field.missing || field.notApplicable || isUnfillableField(field)) continue;
-      const leftover = field.leftover;
-      rows.push({
-        marketplace: form.id,
-        form: form.label,
-        field: field.label,
-        current: String(field.value || leftover?.value_preview || "").trim() || "(empty)",
-        status: leftover ? leftoverStatusLabel(leftover) : "missing",
-        reason: leftover?.reason || (fromDraft ? "empty on the live Vendoo draft" : "empty on the listing"),
-      });
-    }
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+    const leftover = field.leftover;
+    rows.push({
+      marketplace: form.id,
+      form: form.label,
+      field: field.label,
+      current: listingTextForField(listing, form.id, field) || EMPTY_CELL,
+      status: leftover ? leftoverStatusLabel(leftover) : "missing in listing",
+      reason: leftover?.reason || (fromDraft
+        ? "empty in listing JSON (field exists on the Vendoo form)"
+        : "empty in listing JSON"),
+    });
   }
   const limited = rows.slice(0, 50);
   const lines = limited.map((row) => `- Listing: ${title}
@@ -441,9 +530,9 @@ function emptyFieldsPrompt(
   Field: ${row.field}
   Current value: ${row.current}
   Status: ${row.status}
-  Failure reason: ${row.reason}`);
+  Reason: ${row.reason}`);
   const intro = fromDraft
-    ? `These Vendoo form fields are empty on listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.`
+    ? `These fields are empty in the listing JSON for "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.`
     : `These listing fields are still empty on listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.`;
   return `${intro}
 
@@ -478,6 +567,10 @@ function leftoverEntries(report: FillLogReport): FillLogEntry[] {
     if (statusDelta !== 0) return statusDelta;
     return `${left.marketplace} ${left.field}`.localeCompare(`${right.marketplace} ${right.field}`);
   });
+}
+
+function fillFailureEntries(report: FillLogReport): FillLogEntry[] {
+  return leftoverEntries(report).filter((entry) => FILL_FAILURE_STATUSES.has(entry.status));
 }
 
 function patchableEmptyFields(
@@ -1664,20 +1757,39 @@ function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsState): Dra
     .filter((form) => form.fields.length > 0 || Boolean(form.liveStatus));
 }
 
-function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): DraftForm[] {
+function fieldNeedsAttention(
+  form: DraftForm,
+  field: DraftField,
+  listing: Record<string, unknown> | undefined,
+  fromVendooDraft: boolean,
+): boolean {
+  if (field.notApplicable || isUnfillableField(field)) return false;
+  if (fromVendooDraft) return field.missing;
+  return listingFieldEmpty(listing, form.id, field);
+}
+
+function filterForms(
+  forms: DraftForm[],
+  query: string,
+  missingOnly: boolean,
+  listing?: Record<string, unknown>,
+  fromVendooDraft = false,
+): DraftForm[] {
   const needle = query.trim().toLowerCase();
   const filtered = missingOnly || Boolean(needle);
   return forms
     .map((form) => {
       const fields = form.fields.filter((field) => {
-        if (missingOnly && !field.missing) return false;
+        if (missingOnly && !fieldNeedsAttention(form, field, listing, fromVendooDraft)) return false;
         if (!needle) return true;
+        const listingValue = listingTextForField(listing, form.id, field);
         return (
           form.label.toLowerCase().includes(needle) ||
           (form.liveStatus || "").toLowerCase().includes(needle) ||
           (field.section || "").toLowerCase().includes(needle) ||
           field.label.toLowerCase().includes(needle) ||
-          field.value.toLowerCase().includes(needle)
+          field.value.toLowerCase().includes(needle) ||
+          listingValue.toLowerCase().includes(needle)
         );
       });
       if (needle && !fields.length && !form.label.toLowerCase().includes(needle)
@@ -1687,6 +1799,35 @@ function filterForms(forms: DraftForm[], query: string, missingOnly: boolean): D
       return toForm(form.id, visible, form.liveStatus);
     })
     .filter((form): form is DraftForm => Boolean(form));
+}
+
+function FormSyncCountsView({
+  counts,
+  fromVendooDraft,
+}: {
+  counts: FormSyncCounts;
+  fromVendooDraft: boolean;
+}) {
+  return (
+    <span className="pr-counts">
+      {counts.onVendoo > 0 && (
+        <span className="pr-add" title={fromVendooDraft ? "Filled on Vendoo" : "Filled in listing JSON"}>
+          +{counts.onVendoo}
+        </span>
+      )}
+      {fromVendooDraft && counts.readyToApply > 0 && (
+        <span className="pr-ready" title="Listing has a value; Vendoo is still empty">
+          ●{counts.readyToApply}
+        </span>
+      )}
+      {counts.notApplicable > 0 && <span className="pr-na">~{counts.notApplicable}</span>}
+      {counts.vendooEmpty > 0 && (
+        <span className="pr-del" title={fromVendooDraft ? "Empty on Vendoo" : "Empty in listing JSON"}>
+          -{counts.vendooEmpty}
+        </span>
+      )}
+    </span>
+  );
 }
 
 export function FillLogPanel({
@@ -1758,8 +1899,9 @@ export function FillLogPanel({
   const visibleSourceForms = withoutHiddenFields(sourceForms, hidden);
   const hiddenCount = hidden.always.length + hidden.listing.length;
   const sourceKey = visibleSourceForms.map((form) => form.id).join("|");
-  const forms = filterForms(visibleSourceForms, query, missingOnly);
+  const forms = filterForms(visibleSourceForms, query, missingOnly, listing, fromVendooDraft);
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
+  const selectedCounts = selectedForm ? formSyncCounts(selectedForm, listing, fromVendooDraft) : null;
 
   React.useEffect(() => {
     if (!report) return;
@@ -1952,13 +2094,9 @@ export function FillLogPanel({
     rereadDraft();
   }, [jobStatus, hasDraft, chromeConnected, onAskChat]);
 
-  const emptyFields = visibleSourceForms.flatMap((form) =>
-    form.fields
-      .filter((field) => field.missing && !field.notApplicable && !isUnfillableField(field))
-      .map((field) => ({ form, field })),
-  );
+  const askChatFields = fieldsNeedingListingValues(visibleSourceForms, listing);
   const hiddenKeys = hiddenKeySet(hidden);
-  const leftovers = (report ? leftoverEntries(report) : []).filter(
+  const fillFailures = (report ? fillFailureEntries(report) : []).filter(
     (entry) => !hiddenKeys.has(hiddenFieldKey(entry.marketplace.toLowerCase(), normalizeFieldName(entry.field))),
   );
   // With a live draft read, Apply is only those empty fields. Do not merge leftover
@@ -1968,7 +2106,7 @@ export function FillLogPanel({
     : (() => {
         const payload: { id?: string; marketplace: string; field: string; value: string }[] = [];
         const seen = new Set<string>();
-        for (const entry of leftovers) {
+        for (const entry of report ? leftoverEntries(report) : []) {
           const key = `${entry.marketplace.toLowerCase()}:${entry.field.toLowerCase()}`;
           if (seen.has(key)) continue;
           const typed = String(values[entry.id] || "").trim();
@@ -2024,9 +2162,15 @@ export function FillLogPanel({
         <button
           type="button"
           className={`pr-icon-btn${missingOnly ? " is-on" : ""}`}
-          title={missingOnly ? "Show all fields" : "Show missing fields only"}
+          title={missingOnly
+            ? "Show all fields"
+            : fromVendooDraft
+              ? "Show empty-on-Vendoo fields only"
+              : "Show empty-in-listing fields only"}
           aria-pressed={missingOnly}
-          aria-label={missingOnly ? "Showing missing fields only" : "Showing all fields"}
+          aria-label={missingOnly
+            ? (fromVendooDraft ? "Showing empty-on-Vendoo fields only" : "Showing empty-in-listing fields only")
+            : "Showing all fields"}
           onClick={() => setMissingOnly((value) => !value)}
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -2114,10 +2258,26 @@ export function FillLogPanel({
         </p>
       )}
 
+      {visibleSourceForms.length > 0 && (
+        <div className={`pr-mode-banner${fromVendooDraft ? " is-vendoo" : " is-listing"}`}>
+          {fromVendooDraft ? (
+            <>
+              <strong>Vendoo draft view.</strong> Red rows are empty on the live Vendoo form.
+              Listing and Vendoo are shown side by side. Chat writes the listing JSON; Apply types values into Vendoo.
+            </>
+          ) : (
+            <>
+              <strong>Listing-only view.</strong> Read the Vendoo draft to see what is actually on the form.
+              Until then, counts reflect the listing JSON, not the live Vendoo draft.
+            </>
+          )}
+        </div>
+      )}
+
       {(onAskChat || hasDraft) && (
         <div className="pr-actions">
           <p className="pr-notice">
-            Chat writes values into this listing. Apply on Vendoo types them into the draft. Nothing is published.
+            Ask chat when the listing JSON is empty. Apply on Vendoo when the listing has a value but Vendoo does not. Nothing is published.
           </p>
           {hasDraft && (
             <div className="pr-action">
@@ -2138,29 +2298,29 @@ export function FillLogPanel({
               <button
                 type="button"
                 className="btn btn-sm"
-                disabled={busy || emptyFields.length === 0}
-                title="Send blank fields to chat so it can write values. Does not change Vendoo yet."
+                disabled={busy || askChatFields.length === 0}
+                title="Send fields with empty listing JSON to chat. Does not change Vendoo yet."
                 onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing))}
               >
-                {emptyFields.length
-                  ? `Ask chat for ${emptyFields.length} missing ${emptyFields.length === 1 ? "value" : "values"}`
-                  : "Ask chat for missing values"}
+                {askChatFields.length
+                  ? `Ask chat for ${askChatFields.length} listing ${askChatFields.length === 1 ? "value" : "values"}`
+                  : "Ask chat for listing values"}
               </button>
-              <p className="pr-action-hint">Chat writes values for blank fields. Does not change Vendoo yet.</p>
+              <p className="pr-action-hint">Writes values into the listing JSON only. Does not type into Vendoo.</p>
             </div>
           )}
-          {onAskChat && leftovers.length > 0 && (
+          {onAskChat && fillFailures.length > 0 && (
             <div className="pr-action">
               <button
                 type="button"
                 className="btn btn-sm"
                 disabled={busy}
-                title="Send fields Vendoo rejected last time back to chat."
-                onClick={() => onAskChat(leftoverFieldsPrompt(listing, leftovers))}
+                title="Send fields that failed during a previous Apply or Send back to chat."
+                onClick={() => onAskChat(leftoverFieldsPrompt(listing, fillFailures))}
               >
-                Ask chat to retry {leftovers.length} failed {leftovers.length === 1 ? "field" : "fields"}
+                Ask chat to retry {fillFailures.length} failed {fillFailures.length === 1 ? "field" : "fields"}
               </button>
-              <p className="pr-action-hint">These fields were rejected last time. Chat will try again.</p>
+              <p className="pr-action-hint">Only fields that failed during Apply or Send — not newly discovered form fields.</p>
             </div>
           )}
           <div className="pr-action">
@@ -2174,8 +2334,8 @@ export function FillLogPanel({
                   : resolving
                     ? "Wait for field repair to finish before applying"
                   : fillPayload.length
-                    ? "Type only these missing values into the Vendoo draft"
-                    : "Ask chat to write values first"
+                    ? "Type listing values into empty Vendoo draft fields"
+                    : "Ask chat to write listing values first"
               }
               onClick={() => fillMutation.mutate(fillPayload)}
             >
@@ -2189,12 +2349,12 @@ export function FillLogPanel({
             </button>
             <p className="pr-action-hint">
               {!chromeConnected
-                ? "Connect Chrome to type values into the Vendoo draft."
+                ? "Connect Chrome to type listing values into the Vendoo draft."
                 : resolving
                   ? "Waiting on the listing assistant to resolve saved-draft gaps. Does not publish."
                 : fillPayload.length
-                  ? "Types only empty draft fields. Does not re-walk filled fields or publish."
-                  : "Ask chat to write values first, then apply them here."}
+                  ? "Listing has these values; Vendoo draft fields are still empty."
+                  : "Ask chat to write listing values first, then apply them here."}
             </p>
           </div>
         </div>
@@ -2202,16 +2362,16 @@ export function FillLogPanel({
 
       {fillPayload.length > 0 && !busy && (
         <p className="pr-notice">
-          {fillPayload.length} value{fillPayload.length === 1 ? "" : "s"} ready.
-          Review each “Ready to apply” value below, then click Apply on Vendoo.
+          {fillPayload.length} listing value{fillPayload.length === 1 ? "" : "s"} ready for Vendoo.
+          Review the Listing and Vendoo columns below, then click Apply on Vendoo.
         </p>
       )}
 
       {hasDraft && !fromVendooDraft && !draftQuery.isFetching && (
         <p className="pr-notice">
           {chromeConnected
-            ? "Showing blank listing fields. Read the Vendoo draft to send only the empty Vendoo form fields to chat."
-            : "Showing blank listing fields. Connect Chrome, then read the draft so chat gets the actual empty Vendoo fields."}
+            ? "Read the Vendoo draft to compare listing JSON against the live form."
+            : "Connect Chrome, then read the Vendoo draft to compare listing JSON against the live form."}
         </p>
       )}
 
@@ -2228,7 +2388,7 @@ export function FillLogPanel({
               : !chromeConnected && hasDraft
                 ? "Connect Chrome to read empty Vendoo fields. Ask chat can still write values, then Apply on Vendoo types only those fields."
                 : hasDraft
-                  ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red; does-not-apply fields show in yellow."
+                  ? "Read the Vendoo draft to compare listing JSON against each marketplace form."
                   : "Send this listing to Vendoo to review each marketplace form. After generate, Studio also discovers live Vendoo fields once the category is known."}
           </p>
           {!chromeConnected && hasDraft && <ConnectChromeButton />}
@@ -2251,7 +2411,9 @@ export function FillLogPanel({
               <span className="pr-files-count">{forms.length}</span>
             </div>
             <div className="pr-tree" role="list">
-              {forms.map((form) => (
+              {forms.map((form) => {
+                const counts = formSyncCounts(form, listing, fromVendooDraft);
+                return (
                 <button
                   key={form.id}
                   type="button"
@@ -2260,13 +2422,10 @@ export function FillLogPanel({
                 >
                   <span className="pr-name">{form.label}</span>
                   <LiveStatusChip status={form.liveStatus} />
-                  <span className="pr-counts">
-                    {form.filled > 0 && <span className="pr-add">+{form.filled}</span>}
-                    {form.notApplicable > 0 && <span className="pr-na">~{form.notApplicable}</span>}
-                    {form.missing > 0 && <span className="pr-del">-{form.missing}</span>}
-                  </span>
+                  <FormSyncCountsView counts={counts} fromVendooDraft={fromVendooDraft} />
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
           {selectedForm && (
@@ -2274,11 +2433,9 @@ export function FillLogPanel({
               <div className="pr-diff-head">
                 <span className="pr-diff-path">{selectedForm.label}</span>
                 <LiveStatusChip status={selectedForm.liveStatus} />
-                <span className="pr-files-count">
-                  {selectedForm.filled > 0 && <span className="pr-add">+{selectedForm.filled}</span>}
-                  {selectedForm.notApplicable > 0 && <span className="pr-na">~{selectedForm.notApplicable}</span>}
-                  {selectedForm.missing > 0 && <span className="pr-del">-{selectedForm.missing}</span>}
-                </span>
+                {selectedCounts && (
+                  <FormSyncCountsView counts={selectedCounts} fromVendooDraft={fromVendooDraft} />
+                )}
               </div>
               <div className="pr-diff-body">
                 {!selectedForm.fields.length ? (
@@ -2293,86 +2450,87 @@ export function FillLogPanel({
                   groupFields(selectedForm.fields).map((group) => (
                   <div key={group.label || "fields"} className="pr-section-block">
                     {group.label ? <div className="pr-section">{group.label}</div> : null}
+                    <div className="pr-field-table-head" aria-hidden="true">
+                      <span className="pr-field-table-gap" />
+                      <span>Field</span>
+                      <span>Listing</span>
+                      <span>Vendoo</span>
+                      <span />
+                    </div>
                     {group.fields.map((field) => {
                       const leftover = field.leftover;
                       const menuKey = `${selectedForm.id}:${field.key}`;
                       const menuOpen = openMenu?.kind === "field" && openMenu.key === menuKey;
                       const canHide = !isProtectedEbayField(selectedForm.id, field);
-                      const generated = leftover
-                        ? leftoverGeneratedValue(listing, leftover, field)
-                        : listingValueForField(listing, selectedForm.id, field);
-                      const leftoverValue = leftover
-                        ? (String(values[leftover.id] ?? "").trim() ? String(values[leftover.id]) : generated)
-                        : "";
-                      const proposed =
-                        field.missing && !field.notApplicable && !leftover && generated
-                          ? generated
-                          : "";
+                      const listingText = listingTextForField(listing, selectedForm.id, field);
+                      const listingEmpty = listingFieldEmpty(listing, selectedForm.id, field);
+                      const vendooText = vendooTextForField(field);
+                      const applyValue = listingText || (leftover
+                        ? (String(values[leftover.id] ?? "").trim() || leftoverGeneratedValue(listing, leftover, field))
+                        : "");
                       const rowClass = field.notApplicable
                         ? "is-na"
-                        : field.missing
-                          ? "is-del"
-                          : "is-add";
-                      const gutter = field.notApplicable ? "~" : field.missing ? "-" : "+";
+                        : !fromVendooDraft
+                          ? "is-unknown"
+                          : field.missing
+                            ? "is-del"
+                            : "is-add";
+                      const gutter = field.notApplicable ? "~" : !fromVendooDraft ? "?" : field.missing ? "-" : "+";
+                      const listingCell = field.notApplicable
+                        ? "Does not apply"
+                        : (listingText || EMPTY_CELL);
+                      const vendooCell = !fromVendooDraft
+                        ? UNREAD_CELL
+                        : (vendooText || EMPTY_CELL);
                       return (
-                        <div key={field.key} className={`pr-diff-line ${rowClass}`}>
-                          <span className="pr-diff-gutter">{gutter}</span>
-                          <div className="pr-diff-main">
-                            <span className="pr-diff-name">{field.label}</span>
-                            {field.value ? <span className="pr-diff-value">{field.value}</span> : null}
-                            {field.notApplicable && !field.value ? (
-                              <span className="pr-diff-value">Does not apply</span>
-                            ) : null}
+                        <div key={field.key} className={`pr-field-row ${rowClass}`}>
+                          <span className="pr-field-gutter">{gutter}</span>
+                          <span className="pr-field-name">{field.label}</span>
+                          <span className={`pr-field-cell${listingEmpty && !field.notApplicable ? " is-empty" : " is-filled"}`}>
+                            {listingCell}
+                          </span>
+                          <span className={`pr-field-cell${
+                            !fromVendooDraft
+                              ? " is-unknown"
+                              : field.missing && !field.notApplicable
+                                ? " is-empty"
+                                : " is-filled"
+                          }`}>
+                            {vendooCell}
+                          </span>
+                          <div className="pr-field-row-actions">
                             {leftover && !field.notApplicable && (
-                              <>
-                                <input
-                                  className="pr-input"
-                                  value={leftoverValue}
-                                  disabled={busy}
-                                  placeholder={STATUS_LABELS[leftover.status] || leftover.status}
-                                  onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
-                                />
-                                {onAskChat && (
-                                  <button
-                                    type="button"
-                                    className="pr-read"
-                                    disabled={busy}
-                                    onClick={() => onAskChat(leftoverFieldPrompt(
-                                      listing,
-                                      leftover,
-                                      leftoverValue || field.value || "",
-                                    ))}
-                                  >
-                                    Ask chat
-                                  </button>
-                                )}
-                                {(() => {
-                                  const value = leftoverValue || leftover.value_preview;
-                                  if (!value || !chromeConnected) return null;
-                                  return (
-                                    <button
-                                      type="button"
-                                      className="pr-read"
-                                      disabled={busy}
-                                      onClick={() => fillMutation.mutate([{
-                                        id: leftover.id,
-                                        marketplace: leftover.marketplace,
-                                        field: leftover.field || field.label,
-                                        value,
-                                      }])}
-                                    >
-                                      Apply on Vendoo
-                                    </button>
-                                  );
-                                })()}
-                              </>
-                            )}
-                            {proposed ? (
-                              <span className="pr-proposed" title="Generated value ready to apply on Vendoo">
-                                <span className="pr-proposed-label">Ready to apply</span>
-                                {proposed}
+                              <span className={`pr-issue-badge is-${issueKind(leftover)}`} title={leftover.reason || issueLabel(leftover)}>
+                                {issueLabel(leftover)}
                               </span>
-                            ) : null}
+                            )}
+                            {onAskChat && !field.notApplicable && listingEmpty && (
+                              <button
+                                type="button"
+                                className="pr-read"
+                                disabled={busy}
+                                onClick={() => onAskChat(leftover && FILL_FAILURE_STATUSES.has(leftover.status)
+                                  ? leftoverFieldPrompt(listing, leftover, applyValue || vendooText)
+                                  : emptyFieldsPrompt([{ ...selectedForm, fields: [field] }], fromVendooDraft, listing))}
+                              >
+                                Ask chat
+                              </button>
+                            )}
+                            {!field.notApplicable && applyValue && fromVendooDraft && field.missing && chromeConnected && (
+                              <button
+                                type="button"
+                                className="pr-read"
+                                disabled={busy}
+                                onClick={() => fillMutation.mutate([{
+                                  id: leftover?.id,
+                                  marketplace: selectedForm.id,
+                                  field: leftover?.field || field.label,
+                                  value: applyValue,
+                                }])}
+                              >
+                                Apply
+                              </button>
+                            )}
                             {menuOpen && canHide && (
                               <div className="pr-hide-choices">
                                 <button
@@ -2391,23 +2549,21 @@ export function FillLogPanel({
                                 </button>
                               </div>
                             )}
+                            {canHide && (
+                              <button
+                                type="button"
+                                className="pr-hide-btn"
+                                aria-label={menuOpen ? `Cancel hiding ${field.label}` : `Hide ${field.label}`}
+                                aria-expanded={menuOpen}
+                                title="Hide this field"
+                                onClick={() => setOpenMenu(menuOpen ? null : { kind: "field", key: menuKey })}
+                              >
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                                </svg>
+                              </button>
+                            )}
                           </div>
-                          {canHide && (
-                          <div className="pr-field-actions">
-                            <button
-                              type="button"
-                              className="pr-hide-btn"
-                              aria-label={menuOpen ? `Cancel hiding ${field.label}` : `Hide ${field.label}`}
-                              aria-expanded={menuOpen}
-                              title="Hide this field"
-                              onClick={() => setOpenMenu(menuOpen ? null : { kind: "field", key: menuKey })}
-                            >
-                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                              </svg>
-                            </button>
-                          </div>
-                          )}
                         </div>
                       );
                     })}
