@@ -961,6 +961,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 raise RuntimeError(full_text.strip() or "Listing generation returned no text")
             if not extract_listing_json(full_text):
                 run.publish(_sse_event("status", "Repairing listing JSON…"))
+            needed_repair = not extract_listing_json(full_text)
             run.publish(_sse_event("status", "Filling required fields…"))
             listing = await persist_generated_listing_with_repair(
                 stream_db, conv_id, full_text, provider, final_announce=False,
@@ -1000,7 +1001,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 stream_repo.add_message(
                     conv_id,
                     "system",
-                    listing_save_summary(stream_db, conv_id, listing),
+                    listing_save_summary(stream_db, conv_id, listing, repaired=needed_repair),
                     provider="system",
                     model="",
                 )

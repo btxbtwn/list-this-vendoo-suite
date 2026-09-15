@@ -498,7 +498,9 @@ def seller_item_details(notes: str | None) -> str:
     return "Known item details from the seller:\n" + "\n".join(lines)
 
 
-def listing_save_summary(db, conv_id: str, listing: dict, *, waiting: bool = False) -> str:
+def listing_save_summary(
+    db, conv_id: str, listing: dict, *, waiting: bool = False, repaired: bool = False
+) -> str:
     """Honest post-save status based on validation and discovered field gaps."""
     from vendoo_studio.models.validation import validate_listing
     from vendoo_studio.services.listing_field_gaps import remaining_discovered_gap_count
@@ -513,6 +515,7 @@ def listing_save_summary(db, conv_id: str, listing: dict, *, waiting: bool = Fal
     )
     missing = len(validation.errors)
     discovered = remaining_discovered_gap_count(db, listing)
+    lead = "Listing repaired and saved" if repaired else "Listing saved"
     if waiting:
         if missing or discovered:
             parts = []
@@ -521,11 +524,11 @@ def listing_save_summary(db, conv_id: str, listing: dict, *, waiting: bool = Fal
             if discovered:
                 parts.append(f"{discovered} discovered field(s) still empty in Studio")
             return (
-                "Listing saved with questions outstanding. "
+                f"{lead} with questions outstanding. "
                 + " — ".join(parts)
                 + ". Finish them in Fields before Send."
             )
-        return "Listing saved with questions outstanding. Answer them in chat before Send."
+        return f"{lead} with questions outstanding. Answer them in chat before Send."
     if missing or discovered:
         parts = []
         if missing:
@@ -533,9 +536,14 @@ def listing_save_summary(db, conv_id: str, listing: dict, *, waiting: bool = Fal
         if discovered:
             parts.append(f"{discovered} discovered field(s) still empty in Studio")
         return (
-            "Listing saved. "
+            f"{lead}. "
             + " — ".join(parts)
             + ". Open Fields to review what still needs chat, then Send when ready."
+        )
+    if repaired:
+        return (
+            "Listing repaired. Required and discovered Studio fields are filled — values are applied on Vendoo "
+            "automatically when Chrome is connected. Review Fields, then Send when the draft looks right."
         )
     return (
         "Listing saved. Required and discovered Studio fields are filled — values are applied on Vendoo "
