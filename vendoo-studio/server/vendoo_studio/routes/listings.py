@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import copy
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from vendoo_studio.database import get_db
-from vendoo_studio.models.validation import validate_listing
+from vendoo_studio.models.validation import normalize_listing_dropdowns, validate_listing
 from vendoo_studio.repositories.queries import ListingRepo, ConversationRepo
 
 router = APIRouter(tags=["listings"])
@@ -73,7 +75,17 @@ def get_listing(conv_id: str, db: Session = Depends(get_db)):
     listing_data = {}
     if revisions:
         latest = revisions[0]
-        listing_data = latest.listing_json
+        listing_data = copy.deepcopy(latest.listing_json)
+
+    if isinstance(listing_data, dict) and normalize_listing_dropdowns(listing_data):
+        revision = listing_repo.save_revision(
+            conv_id,
+            listing_data,
+            source="dropdown_normalize",
+            parent_revision_id=revision_id,
+        )
+        revision_id = revision.id
+        revisions = listing_repo.get_revisions(conv_id)
 
     photo_count = len(conv_repo.get_photos(conv_id))
     validation = validate_listing(listing_data, photo_count, require_photos=True)
@@ -100,6 +112,7 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
 
     photo_count = len(conv_repo.get_photos(conv_id))
     _reject_corrupt_listing(body.listing)
+    normalize_listing_dropdowns(body.listing)
     validation = validate_listing(body.listing, photo_count, require_photos=True)
 
     revision = listing_repo.save_revision(
@@ -129,7 +142,8 @@ def validate(conv_id: str, db: Session = Depends(get_db)):
 
     listing_repo = ListingRepo(db)
     revisions = listing_repo.get_revisions(conv_id)
-    listing_data = revisions[0].listing_json if revisions else {}
+    listing_data = copy.deepcopy(revisions[0].listing_json) if revisions else {}
+    normalize_listing_dropdowns(listing_data)
 
     photo_count = len(conv_repo.get_photos(conv_id))
     result = validate_listing(listing_data, photo_count, require_photos=True)

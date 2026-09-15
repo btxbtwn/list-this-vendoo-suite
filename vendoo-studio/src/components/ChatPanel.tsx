@@ -125,9 +125,9 @@ function summarizeMissingFields(
     const label = MARKETPLACE_DISPLAY[market] || humanKey(market);
     return [`${label} / ${field}: ${value}`];
   });
-  if (!lines.length) return "Saved leftover field values to the listing.";
-  if (lines.length === 1) return `Ready to fill on Vendoo — ${lines[0]}.`;
-  return `Ready to fill on Vendoo:\n${lines.map((line) => `- ${line}`).join("\n")}`;
+  if (!lines.length) return "Saved field values to the listing.";
+  if (lines.length === 1) return `Ready to apply on Vendoo — ${lines[0]}.`;
+  return `Ready to apply on Vendoo:\n${lines.map((line) => `- ${line}`).join("\n")}`;
 }
 
 function stripJsonPayloads(text: string): string {
@@ -299,6 +299,16 @@ function getLive(convId: string): LiveStream {
 
 function emitLive(convId: string) {
   getLive(convId).listeners.forEach((listener) => listener());
+}
+
+export function resetChatLive(convId: string) {
+  const live = liveStreams[convId];
+  if (!live) return;
+  const controller = live.controller;
+  live.restoreInputOnAbort = false;
+  controller?.abort();
+  Object.assign(live, emptyLive());
+  emitLive(convId);
 }
 
 function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>) {

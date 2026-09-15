@@ -10,11 +10,13 @@ import {
 } from "../marketplaceFields";
 import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
+import { ClearListingButton } from "./ClearListingButton";
 
 interface Props {
   convId: string;
   onJobStarted?: () => void;
   onAskChat?: (text: string) => void;
+  onCleared?: () => void;
 }
 
 interface EditorField {
@@ -24,7 +26,7 @@ interface EditorField {
   defaultValue?: string;
 }
 
-export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
+export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Props) {
   const queryClient = useQueryClient();
   const [reviewTab, setReviewTab] = React.useState<"forms" | "fields">("forms");
   const [editTab, setEditTab] = React.useState("general");
@@ -117,14 +119,17 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
         <div className="pr-review-title-row">
           <h2 className="pr-review-title pywebview-drag-region" title={listingTitle}>{listingTitle}</h2>
           {data?.can_send && <span className="editor-ready">Ready</span>}
-          {listingJob && (
-            <OpenListingButton
-              jobId={listingJob.id}
-              vendooItemId={listingJob.vendoo_item_id || importedItemId}
-              vendooUrl={listingJob.vendoo_url || importedUrl}
-              className="pr-review-open"
-            />
-          )}
+          <div className="pr-review-actions">
+            {listingJob && (
+              <OpenListingButton
+                jobId={listingJob.id}
+                vendooItemId={listingJob.vendoo_item_id || importedItemId}
+                vendooUrl={listingJob.vendoo_url || importedUrl}
+                className="pr-review-open"
+              />
+            )}
+            <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />
+          </div>
         </div>
         <div className="pr-review-meta pywebview-drag-region">
           {importedItemId
@@ -172,7 +177,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat }: Props) {
             <p className="pr-empty">
               {importedItemId
                 ? "Import is still loading. Fields will appear once the Vendoo draft is ready."
-                : "Send this listing to Vendoo, then open Fields to review each marketplace and fill empty fields."}
+                : "Send this listing to Vendoo, then open Fields to review each marketplace and apply missing values."}
             </p>
           )
         ) : (
