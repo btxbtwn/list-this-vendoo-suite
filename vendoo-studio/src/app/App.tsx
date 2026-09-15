@@ -63,8 +63,8 @@ export function App() {
     refetchInterval: 2000,
   });
   const { data: jobs } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: api.jobs.list,
+    queryKey: selectedConvId ? ["jobs", selectedConvId] : ["jobs"],
+    queryFn: () => api.jobs.list(selectedConvId || undefined),
     refetchInterval: 2000,
   });
   const { data: status } = useQuery({

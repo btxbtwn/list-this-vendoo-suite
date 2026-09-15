@@ -32,9 +32,9 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
   const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
 
-  const { data: jobs } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: api.jobs.list,
+  const { data: jobs, isLoading: jobsLoading, isFetching: jobsFetching, refetch: refetchJobs } = useQuery({
+    queryKey: ["jobs", convId],
+    queryFn: () => api.jobs.list(convId),
     refetchInterval: 2000,
   });
   const listingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
@@ -174,11 +174,32 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
               onJobStarted={onJobStarted}
             />
           ) : (
-            <p className="pr-empty">
-              {importedItemId
-                ? "Import is still loading. Fields will appear once the Vendoo draft is ready."
-                : "Send this listing to Vendoo, then open Fields to review each marketplace and apply missing values."}
-            </p>
+            <div className="pr-empty">
+              <p>
+                {jobsLoading
+                  ? "Loading fields…"
+                  : importedItemId
+                    ? "This listing already has a Vendoo draft, but its job isn’t loaded yet. Refresh to pull the draft fields."
+                    : "Send this listing to Vendoo, then open Fields to review each marketplace and apply missing values."}
+              </p>
+              {importedItemId && !jobsLoading && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ marginTop: 12 }}
+                  disabled={jobsFetching}
+                  onClick={() => {
+                    void refetchJobs();
+                    void queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+                    void queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+                    void queryClient.invalidateQueries({ queryKey: ["fill-log"] });
+                    void queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
+                  }}
+                >
+                  {jobsFetching ? "Refreshing…" : "Refresh fields"}
+                </button>
+              )}
+            </div>
           )
         ) : (
           <>
@@ -498,13 +519,17 @@ function SendToVendooButton({
   });
 
   const { data: jobs } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: api.jobs.list,
+    queryKey: ["jobs", convId],
+    queryFn: () => api.jobs.list(convId),
     refetchInterval: 2000,
   });
 
   const rememberJob = (job: any) => {
     if (!job?.id) return;
+    queryClient.setQueryData(["jobs", convId], (old: any[] | undefined) => {
+      const rest = (old || []).filter((item) => item.id !== job.id);
+      return [job, ...rest];
+    });
     queryClient.setQueryData(["jobs"], (old: any[] | undefined) => {
       const rest = (old || []).filter((item) => item.id !== job.id);
       return [job, ...rest];

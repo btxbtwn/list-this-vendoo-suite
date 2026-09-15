@@ -116,7 +116,10 @@ export const api = {
           confirm_overwrite: Boolean(opts?.confirmOverwrite),
         }),
       }),
-    list: () => request<any[]>("/jobs"),
+    list: (conversationId?: string) => {
+      const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : "";
+      return request<any[]>(`/jobs${query}`);
+    },
     get: (id: string) => request<any>(`/jobs/${id}`),
     fillLog: (id: string) => request<any>(`/jobs/${id}/fill-log`),
     fillFields: (id: string, fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
