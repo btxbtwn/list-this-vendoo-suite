@@ -5380,6 +5380,31 @@
           .trim();
   }
 
+  // eBay puts the name in the input id (15687_Unit_Quantity), Etsy keys its
+  // category inputs by bare taxonomy id (148789511893), so the id alone leaves
+  // Studio nothing to show but digits. Those keys need the on-page label.
+  function scrapedFieldKeyNeedsLabel(fieldKey) {
+      return Boolean(fieldKey) && !/[A-Za-z]/.test(fieldKey);
+  }
+
+  function scrapedFieldLabel(el) {
+      const controlId = el.id || (el.getAttribute && el.getAttribute('name')) || '';
+      // Vendoo renders a sibling <label id="<controlId>-label"> for these. Prefer
+      // it: on a filled multi-select the parent walk in fieldLabelForControl
+      // matches a selected value chip, so Materials comes back as "Polyester".
+      const sibling = controlId ? document.getElementById(`${controlId}-label`) : null;
+      for (const raw of [sibling && sibling.textContent, fieldLabelForControl(el)]) {
+          const label = String(raw || '')
+              .replace(/\s+/g, ' ')
+              .replace(/\s*\*$/, '')
+              .replace(/\s*\((optional|required)\)$/i, '')
+              .trim();
+          // fieldLabelForControl falls back to the id tail; that is digits again.
+          if (label && /[A-Za-z]/.test(label) && label.length <= 60) return label;
+      }
+      return '';
+  }
+
   function deepMergeListings(base, overlay) {
       const out = base && typeof base === 'object' ? { ...base } : {};
       for (const [marketplace, section] of Object.entries(overlay || {})) {
@@ -5421,6 +5446,16 @@
           // Keep empty strings so Studio Fields can show unfilled optional keys.
           if (!(fieldKey in listings[marketplace][bucket]) || value === true || value === false || (Array.isArray(value) ? value.length : value)) {
               listings[marketplace][bucket][fieldKey] = value;
+          }
+          if (scrapedFieldKeyNeedsLabel(fieldKey)) {
+              if (!listings[marketplace].fieldLabels) listings[marketplace].fieldLabels = {};
+              const labelKey = `${bucket}.${fieldKey}`;
+              // Several nodes share one key (input, hidden input, value chips).
+              // First usable label wins so a later chip cannot overwrite it.
+              if (!listings[marketplace].fieldLabels[labelKey]) {
+                  const label = scrapedFieldLabel(el);
+                  if (label) listings[marketplace].fieldLabels[labelKey] = label;
+              }
           }
       }
       return listings;
