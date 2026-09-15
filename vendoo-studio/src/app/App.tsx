@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ExtensionStatus } from "../components/ExtensionStatus";
 import { ProviderStatus } from "../components/ProviderStatus";
-import { ReinstallButton } from "../components/ReinstallButton";
 import { ListingEditor } from "../components/ListingEditor";
 import { ChatPanel } from "../components/ChatPanel";
 import { PhotoTray } from "../components/PhotoTray";
@@ -450,7 +449,6 @@ export function App() {
           <ProviderStatus />
         </div>
         <div className="status-right">
-          <ReinstallButton />
           <div>V 0.1.0</div>
         </div>
       </footer>
