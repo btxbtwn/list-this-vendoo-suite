@@ -158,7 +158,7 @@ function assistantDisplayText(text: string): string {
       return parsed.message.trim();
     }
     if (isListingJson(json) || isListingJson(text)) {
-      return "Listing generated. Review the fields on the right.";
+      return "Listing saved. Open Fields to see what is still missing in Studio and on Vendoo.";
     }
   } catch {
     /* ignore */
