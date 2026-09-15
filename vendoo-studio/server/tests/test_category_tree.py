@@ -113,8 +113,96 @@ class CategorySelectionTest(unittest.IsolatedAsyncioTestCase):
         class Provider:
             async def chat(self, messages, stream=True):
                 yield '{"categories": {"general": "invented", "ebay": "ebay-leaf"}}'
-        with self.assertRaisesRegex(RuntimeError, "verified general category"):
-            await select_categories(self.db, Provider(), "Women's Tops Shirts", "", ["ebay"])
+        # Invented ids fall back to the top catalog hit instead of asking the seller.
+        result = await select_categories(self.db, Provider(), "Women's Tops Shirts", "", ["ebay"])
+        self.assertEqual(result["general"], "Clothing > Women's Tops")
+        self.assertEqual(result["ebay"], "Fashion > Shirts")
+
+    async def test_seller_style_question_does_not_block_selection(self):
+        calls = {"n": 0}
+
+        class Provider:
+            async def chat(self, messages, stream=True):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    yield json.dumps({
+                        "categories": {},
+                        "question": (
+                            "No categories fit this women's top. Please confirm if the item "
+                            "is vintage or provide additional details."
+                        ),
+                    })
+                    return
+                choices = json.loads(messages[-1]["content"])["choices"]
+                yield json.dumps({"categories": {mp: rows[0]["id"] for mp, rows in choices.items()}})
+
+        result = await select_categories(self.db, Provider(), "Women's cotton tops shirts", "", ["ebay"])
+        self.assertEqual(result["general"], "Clothing > Women's Tops")
+        self.assertEqual(result["ebay"], "Fashion > Shirts")
+        # Seller interview text must not trigger extra model loops — catalog ranking finishes it.
+        self.assertEqual(calls["n"], 1)
+
+    async def test_womens_top_seeds_canonical_marketplace_leaves(self):
+        from vendoo_studio.services.registry import (
+            WOMEN_TOPS_PATH, POSHMARK_WOMEN_SHORT_TEE, MERCARI_WOMEN_TEE, DEPOP_WOMEN_TEE, ETSY_WOMEN_TEE,
+        )
+        for mp, path, cid in (
+            ("general", WOMEN_TOPS_PATH, "g-tops"),
+            ("ebay", WOMEN_TOPS_PATH, "e-tops"),
+            ("poshmark", POSHMARK_WOMEN_SHORT_TEE, "p-tee"),
+            ("poshmark", "Women > Tops > Crop Tops", "p-crop"),
+            ("mercari", MERCARI_WOMEN_TEE, "m-tee"),
+            ("mercari", "Women > Tops & blouses > Knit top", "m-knit"),
+            ("depop", DEPOP_WOMEN_TEE, "d-tee"),
+            ("depop", "Women > Tops > Crop tops", "d-crop"),
+            ("etsy", ETSY_WOMEN_TEE, "y-tee"),
+            ("etsy", "Clothing > Women's Clothing > Tops & Tees > Halter Tops", "y-halter"),
+        ):
+            if not self.db.get(CategoryTree, mp):
+                self.db.add(CategoryTree(marketplace=mp, status="complete", roots_loaded=True))
+            self.db.add(CategoryTreeNode(
+                marketplace=mp, category_id=cid, parent_id="__root",
+                label=path.split(" > ")[-1], path=path, is_leaf=True, has_children=False,
+                children_loaded=True,
+            ))
+        self.db.commit()
+        rebuild_catalog_index(self.db)
+
+        seen = {}
+
+        class Provider:
+            async def chat(self, messages, stream=True):
+                payload = json.loads(messages[-1]["content"])
+                seen["choices"] = payload["choices"]
+                yield json.dumps({"categories": {}, "question": "marketplaces do not include women's top"})
+
+        result = await select_categories(
+            self.db, Provider(), "women's top", "women's top",
+            ["ebay", "poshmark", "mercari", "depop", "etsy"],
+        )
+        self.assertEqual(result["general"], WOMEN_TOPS_PATH)
+        self.assertEqual(result["ebay"], WOMEN_TOPS_PATH)
+        self.assertEqual(result["poshmark"], POSHMARK_WOMEN_SHORT_TEE)
+        self.assertEqual(result["mercari"], MERCARI_WOMEN_TEE)
+        self.assertEqual(result["depop"], DEPOP_WOMEN_TEE)
+        self.assertEqual(result["etsy"], ETSY_WOMEN_TEE)
+        self.assertEqual(seen["choices"]["poshmark"][0]["path"], POSHMARK_WOMEN_SHORT_TEE)
+        self.assertNotEqual(seen["choices"]["poshmark"][0]["path"], "Women > Tops > Crop Tops")
+
+    async def test_tree_leaf_fallback_when_search_misses(self):
+        class Provider:
+            async def chat(self, messages, stream=True):
+                yield json.dumps({"categories": {}, "question": ""})
+
+        with patch(
+            "vendoo_studio.services.category_selection.search_catalog",
+            return_value=[],
+        ):
+            result = await select_categories(
+                self.db, Provider(), "Women's Tops Shirts", "", ["ebay"],
+            )
+        self.assertEqual(result["general"], "Clothing > Women's Tops")
+        self.assertEqual(result["ebay"], "Fashion > Shirts")
 
     async def test_selectable_parent_still_descends_to_most_specific_category(self):
         for mp in ("general", "ebay"):

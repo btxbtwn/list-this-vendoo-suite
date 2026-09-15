@@ -83,11 +83,11 @@ When made: {when_made}
 
 | Error | Cause | Resolution |
 |-------|-------|------------|
-| Brand unclear | Tag unreadable in photos | Ask user for brand name |
-| Size conflict | Extractor and Verifier disagree | Ask user to confirm size |
+| Brand unclear | Tag unreadable in photos | Infer from logos, hardware, and seller notes when supportable; otherwise leave brand empty and flag uncertainty — never ask |
+| Size conflict | Extractor and Verifier disagree | Prefer the clearer tag reading; if still ambiguous use measurement fallback and flag uncertainty — never ask |
 | Size tag missing | No readable size tag in photos | Fall back to measurement-derived approximate size and flag uncertainty |
 | No comps found | Search returned no sold listings | Use estimated baseline; note uncertainty in description |
-| Missing required photos | No tag/label photo | Request additional photos |
+| Missing required photos | No tag/label photo | Infer from the photos provided; flag missing tag evidence in the description — never ask for more photos |
 | Invalid local path | Provided path does not resolve to an item photo folder | Tell user the path could not be used and return JSON or copy-paste text in chat only |
 | Unwritable local folder | Folder exists but the output file cannot be written | Surface the write failure explicitly and do not claim the save succeeded |
 | Vision tool returns "no image attached" | vision_analyze fails on local file paths | Switch immediately to mcp_minimax_token_plan_understand_image as fallback — do not retry the failing tool |
@@ -124,7 +124,7 @@ If the size tag is missing, cropped out, or unreadable but the garment measureme
 
 ### Step 3: Cross-check (MANDATORY)
 Extractor and Verifier must agree on brand/size.
-If unresolved conflict → Ask user.
+If they disagree, prefer the clearer tag/logo evidence; if still unresolved, use measurement fallback for size and leave unsupported brand empty — flag uncertainty in the description. Never ask the seller clarifying questions.
 
 If no readable size tag exists in the photos, skip strict size-tag agreement and derive an approximate size from the provided or visible measurements instead.
 
@@ -300,10 +300,10 @@ Minimum       = Listing Price - $4
 
 ## Rules (VIOLATION = INCORRECT LISTING)
 
-1. **NEVER invent brand names** — if unclear, ask user
+1. **NEVER invent brand names** — use brand only when readable from tags/logos or stated in seller notes; if unsupported, leave brand empty and flag uncertainty. Never ask the seller.
 2. **Verifier confirmation REQUIRED for brand** and for size when a readable size tag exists
 3. **Cross-check is MANDATORY** — extractor and verifier must agree when a readable size tag exists; otherwise use the measurement fallback rules
-4. **If unresolved disagreement remains after measurement fallback, ASK USER** — do not guess
+4. **If unresolved disagreement remains after measurement fallback, INFER from photos and initial seller notes** — prefer the stronger evidence, flag uncertainty in the description, and never ask clarifying questions
 5. **📌 TITLE MUST MATCH FORMULA EXACTLY** — Brand Size Vibe Item Color Fit order
 6. **📌 DESCRIPTION MUST MATCH THE APPLICABLE FORMULA EXACTLY** — use the physical-item template by default, or the Etsy Digital Download Description Formula for Etsy digital products
 7. **Pricing MUST follow formula** (comp × 1.35, whole dollars only)
@@ -311,7 +311,8 @@ Minimum       = Listing Price - $4
 9. **Reference vendoo_listing_template.md BEFORE generating** — structure/order priority
 10. **For Etsy digital downloads, use the Etsy Digital Download Description Formula** — do not use the physical-item description template
 11. **For Etsy digital downloads, return the Etsy Digital Download Output Format** — do not output JSON
-12. **Estimate packaged shipping weight; do not ask the seller for it** — populate `weight_lb` and `weight_oz` with a reasonable packaged-shipping estimate from the item type, size, and material (include typical poly-mailer packaging). Examples: light tee/tank ~6–10 oz; heavy graphic tee ~10–14 oz; hoodie/sweatshirt ~1 lb 0–8 oz; jeans/pants ~1–1.5 lb; light jacket ~1–2 lb. Prefer seller-provided scale weight when given. For `package_dimensions_in`, use a sensible packaging size for the item (for example `13x10x1` or `13x10x3` for a folded shirt in a poly mailer) unless the seller supplied dimensions. Never ask the seller to confirm routine apparel shipping weight or mailer size. Still ask for true unknowns such as unread tag size/material or Etsy when-made era.
+12. **Estimate packaged shipping weight; do not ask the seller for it** — populate `weight_lb` and `weight_oz` with a reasonable packaged-shipping estimate from the item type, size, and material (include typical poly-mailer packaging). Examples: light tee/tank ~6–10 oz; heavy graphic tee ~10–14 oz; hoodie/sweatshirt ~1 lb 0–8 oz; jeans/pants ~1–1.5 lb; light jacket ~1–2 lb. Prefer seller-provided scale weight when given. For `package_dimensions_in`, use a sensible packaging size for the item (for example `13x10x1` or `13x10x3` for a folded shirt in a poly mailer) unless the seller supplied dimensions. Never ask the seller to confirm routine apparel shipping weight or mailer size. Infer unread tag size/material, department, when-made era, and other product facts from photos and initial seller notes when supportable; leave unsupported facts empty and flag them — never ask.
+13. **Never ask clarifying questions** — generate from the photos and notes provided up front. The seller reviews the draft; do not pause to interview them.
 
 ## Pre-Output Verification (MANDATORY)
 
@@ -396,13 +397,13 @@ Before outputting ANY listing, verify:
 ### Example 2: Unclear brand
 **User sends:** Photos but tag is blurry
 
-**Action:** Ask user: "I can't read the brand on the tag. What brand is this?"
+**Action:** Infer from any readable logo, hardware, or seller notes. If still unsupported, leave brand empty, keep other fields, and note the unclear brand in the description. Do not ask.
 
 ### Example 3: Size conflict
 **Extractor says:** "Size 32"
 **Verifier says:** "Tag shows 33"
 
-**Action:** Ask user: "I see conflicting size info. The tag appears to say 33. Can you confirm?"
+**Action:** Prefer the clearer tag reading (33), flag the conflict briefly in the description if helpful, and finish the listing. Do not ask.
 
 ## Resources
 

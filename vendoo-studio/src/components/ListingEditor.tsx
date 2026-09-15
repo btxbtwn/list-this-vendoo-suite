@@ -694,7 +694,7 @@ function SendToVendooButton({
     const queueDepth = queueJobs.length;
     const waitingInQueue = isQueued && (queuePosition > 1 || queueJobs.some((j: any) => j.status === "dispatched" && j.id !== fillJob.id));
     const stepLabel: Record<string, string> = {
-      awaiting_answers: "Waiting for your answers in chat",
+      awaiting_answers: "Waiting for draft review",
       completion_blocked: "Completion needs review",
       resolving_fields: "Resolving missing fields",
       verifying_draft: "Checking the saved draft",

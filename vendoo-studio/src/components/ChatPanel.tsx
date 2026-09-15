@@ -823,14 +823,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     messages?.length
       && (() => {
         const lastUserIdx = [...messages].map((m: any) => m.role).lastIndexOf("user");
+        // Legacy conversations may still have system prompts that asked for answers.
         return messages.slice(lastUserIdx + 1).some((m: any) => {
-          if (m.role === "system") {
-            return /answer the questions above|please confirm|waiting for your answers/i.test(m.text || "");
-          }
-          if (m.role === "assistant" || m.role === "model") {
-            return assistantDisplayText(m.text).includes("?");
-          }
-          return false;
+          if (m.role !== "system") return false;
+          return /answer the questions above|please confirm|waiting for your answers/i.test(m.text || "");
         });
       })(),
   );
