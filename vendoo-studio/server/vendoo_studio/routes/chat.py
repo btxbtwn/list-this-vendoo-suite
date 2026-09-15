@@ -748,9 +748,10 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                 yield _sse_event("listing_updated", "1")
             yield "data: [DONE]\n\n"
         except Exception as e:
-            log.exception("chat stream failed for %s", conv_id)
-            stream_error = str(e)
-            yield _sse_data(f"Error: {e}")
+            message = str(e).strip() or type(e).__name__
+            log.exception("chat stream failed for %s: %s", conv_id, message)
+            stream_error = message
+            yield _sse_data(f"Error: {message}")
             try:
                 ConversationRepo(stream_db).update_status(conv_id, "draft")
             except Exception:
@@ -930,10 +931,16 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 log.exception("failed to reset status after cancelled listing for %s", conv_id)
             raise
         except Exception as e:
-            log.warning("listing generation failed for %s: %s", conv_id, e)
+            message = str(e).strip() or type(e).__name__
+            if isinstance(e, TimeoutError) and not str(e).strip():
+                message = (
+                    "Timed out while generating the listing. "
+                    "If Chrome was discovering fields, cancel discovery and retry."
+                )
+            log.warning("listing generation failed for %s: %s", conv_id, message)
             try:
-                run.publish(_sse_data(f"Error: {e}"))
-                stream_repo.add_message(conv_id, "system", str(e), provider="system", model="")
+                run.publish(_sse_data(f"Error: {message}"))
+                stream_repo.add_message(conv_id, "system", message, provider="system", model="")
                 run.publish("data: [DONE]\n\n")
                 stream_repo.update_status(conv_id, "draft")
             except Exception:

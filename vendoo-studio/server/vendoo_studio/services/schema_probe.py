@@ -225,16 +225,42 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
     result = maybe_start_schema_probe(db, conv_id, listing=seed, reason="before_generation")
     job_id = result.get("job_id")
     if not job_id:
-        raise RuntimeError("Category discovery could not start: " + str(result.get("reason")))
+        reason = str(result.get("reason") or "unknown")
+        start_errors = {
+            "busy": (
+                "Category discovery could not start because another Vendoo job is already running "
+                f"(job {result.get('active_job_id') or 'unknown'}). Cancel that job from Listing, then retry."
+            ),
+            "no_category": "Category discovery could not start: no verified category path yet.",
+            "conversation_not_found": "Category discovery could not start: conversation not found.",
+            "error": "Category discovery could not start because of an internal Studio error. Check Studio logs.",
+        }
+        raise RuntimeError(start_errors.get(reason, f"Category discovery could not start: {reason}"))
+    category_path = str(seed.get("category_path") or "").strip()
     if result.get("reason") != "already_done":
         waiter_id = "schema:" + job_id
         waiter = extension_manager.register_wait(waiter_id)
         try:
             if result.get("started"):
                 await dispatch_queued_jobs()
-            response = await asyncio.wait_for(waiter, timeout=300)
+            try:
+                response = await asyncio.wait_for(waiter, timeout=300)
+            except asyncio.TimeoutError as exc:
+                job = JobRepo(db).get(job_id)
+                step = str((job.current_step if job else "") or "discovering_schema")
+                status = str((job.status if job else "") or "unknown")
+                raise RuntimeError(
+                    f"Timed out after 5 minutes waiting for Chrome to discover fields for "
+                    f"{category_path or 'the selected category'} "
+                    f"(job {job_id} stuck at {step}, status {status}). "
+                    "Open the Vendoo tab in Chrome, or Cancel discovery and retry."
+                ) from exc
             if not response.get("ok"):
-                raise RuntimeError(response.get("error") or "Category field discovery failed.")
+                raise RuntimeError(
+                    response.get("error")
+                    or f"Category field discovery failed for {category_path or 'the selected category'} "
+                    f"(job {job_id})."
+                )
         finally:
             extension_manager.cancel_wait(waiter_id)
     db.expire_all()
@@ -242,8 +268,26 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
     schema = next(((event.payload or {}).get("schema") for event in reversed(events)
                    if event.step == "discovering_schema" and (event.payload or {}).get("schema")), None)
     platforms = (JobRepo(db).get(job_id).listing_snapshot or {}).get("platforms") or []
-    if not schema or any(not schema.get(mp, {}).get("fields") or schema[mp].get("error") for mp in ["general", *platforms]):
-        raise RuntimeError("Category discovery did not return all selected marketplace fields. Retry discovery.")
+    required = ["general", *platforms]
+    if not schema:
+        raise RuntimeError(
+            f"Category discovery finished without a schema payload for {category_path or 'the category'} "
+            f"(job {job_id}). Retry discovery."
+        )
+    missing = [
+        mp for mp in required
+        if not schema.get(mp, {}).get("fields") or schema[mp].get("error")
+    ]
+    if missing:
+        details = []
+        for mp in missing:
+            section = schema.get(mp) or {}
+            err = section.get("error")
+            details.append(f"{mp}: {err}" if err else f"{mp}: no fields")
+        raise RuntimeError(
+            "Category discovery did not return all selected marketplace fields "
+            f"({', '.join(details)}). Retry discovery."
+        )
     for marketplace, expected in paths.items():
         observed = str((schema.get(marketplace, {}).get("category") or {}).get("path") or "").strip()
         if observed.casefold() != expected.casefold():
