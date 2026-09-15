@@ -3089,16 +3089,25 @@ details[open] .json-collapse-summary::before {
 .pr-tree {
   display: flex;
   flex-direction: column;
+  /* Separate the rows more than the two lines inside a row, so a wrapped
+     status and count line reads with its own marketplace name. */
+  gap: 6px;
   min-height: 0;
   overflow: auto;
   padding: 4px;
 }
 
 .pr-row {
-  display: flex;
-  flex-wrap: wrap;
+  /* Name on the first line, status and counts together on the second. As flex
+     rows these needed 141px of the 133px available, so the counts wrapped onto
+     a third line and read as if they belonged to the next marketplace. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name name"
+    "status counts";
   align-items: center;
-  gap: 4px 8px;
+  gap: 1px 6px;
   width: 100%;
   min-height: 32px;
   margin: 0;
@@ -3120,13 +3129,28 @@ details[open] .json-collapse-summary::before {
 }
 
 .pr-name {
-  flex: 1 1 100%;
+  grid-area: name;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
   line-height: 1.2;
+}
+
+/* Trimmed just enough that "NOT LISTED" and the counts both fit the 133px
+   line at the column's 158px width. */
+.pr-row > .pr-live-status {
+  grid-area: status;
+  justify-self: start;
+  padding: 1px 5px;
+  letter-spacing: 0;
+}
+
+.pr-row > .pr-counts {
+  grid-area: counts;
+  justify-self: end;
+  gap: 4px;
 }
 
 .pr-live-status {
