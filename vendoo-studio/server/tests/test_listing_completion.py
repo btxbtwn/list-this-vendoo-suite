@@ -12,7 +12,13 @@ from vendoo_studio.database import Base
 from vendoo_studio.models.catalog import CategoryNode, CategorySchema
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.category_catalog import remember_schema
-from vendoo_studio.services.listing_completion import MAX_REPAIR_ROUNDS, complete_job, review_fields, store_verification
+from vendoo_studio.services.listing_completion import (
+    MAX_READBACK_RETRIES,
+    MAX_REPAIR_ROUNDS,
+    complete_job,
+    review_fields,
+    store_verification,
+)
 from vendoo_studio.services.fill_log import listing_value_for_field, write_values_into_listing
 from vendoo_studio.services.schema_probe import SCHEMA_PROBE_FLAG, prepare_generation_schema
 
@@ -171,12 +177,32 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.dispatch.await_count, 1)
         self.assertEqual(self.job.current_step, "completion_blocked")
 
-    async def test_empty_or_partial_readback_cannot_complete(self):
+    async def test_empty_or_partial_readback_retries_then_pauses(self):
         del self.verification["schema"]["ebay"]
         self.review()
-        await self.run_completion({})
+        with patch("vendoo_studio.services.listing_completion.READBACK_RETRY_DELAY_SECONDS", 0):
+            await self.run_completion({})
+        self.assertEqual(self.job.current_step, "verifying_draft")
+        self.assertEqual(self.job.status, "dispatched")
+        self.dispatch.assert_awaited_once()
+        self.assertTrue(any(
+            event.event_type == "completion_readback_retry"
+            for event in JobRepo(self.db).get_events(self.job.id)
+        ))
+
+        for _ in range(MAX_READBACK_RETRIES - 1):
+            self.review()
+            with patch("vendoo_studio.services.listing_completion.READBACK_RETRY_DELAY_SECONDS", 0):
+                await complete_job(self.db, self.job.id)
+            self.db.refresh(self.job)
+
+        self.review()
+        with patch("vendoo_studio.services.listing_completion.READBACK_RETRY_DELAY_SECONDS", 0):
+            await complete_job(self.db, self.job.id)
+        self.db.refresh(self.job)
         self.assertEqual(self.job.current_step, "completion_blocked")
-        self.dispatch.assert_not_awaited()
+        self.assertIn("automatic retries", self.job.last_error or "")
+        self.assertEqual(self.dispatch.await_count, MAX_READBACK_RETRIES)
 
     async def test_required_field_cannot_be_exempted(self):
         ConversationRepo(self.db).add_message(self.conv.id, "user", "It has no material tag.")

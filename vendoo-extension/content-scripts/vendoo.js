@@ -5992,11 +5992,16 @@
       const listing = { ...(data || {}), _expected_photo_count: expectedPhotoCount || 0 };
       const general = await auditGeneralForm(listing);
       beginFillLog('general');
-      await activateMarketplaceSection('general');
-      await expandOptionalFields();
+      const generalReady = await ensureMarketplaceFormReady('general');
+      if (generalReady) {
+          await expandOptionalFields();
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      const generalFields = generalReady ? await collectMarketplaceSchemaFields('general') : [];
       const schema = { general: {
           category: { path: readCategoryDisplay(findGeneralCategoryControl()) },
-          fields: await collectMarketplaceSchemaFields('general'),
+          fields: generalFields,
+          error: generalReady && generalFields.length ? null : (generalReady ? 'General form returned no fields' : 'General form did not mount'),
       } };
       const marketplaceResults = {};
       const mismatches = [...(general.mismatches || [])];
@@ -6005,12 +6010,31 @@
           const result = await auditMarketplaceForm(listing, platform);
           marketplaceResults[platform] = result;
           beginFillLog(platform);
-          await expandOptionalFields();
-          await sleep(CONFIG.SLEEP_LONG);
+          // Wait for listings.* controls — a category-only mount is not enough to prove
+          // the marketplace form is readable for completion.
+          let formReady = await ensureMarketplaceFormReady(platform, { requireListingFields: true });
+          if (!formReady) {
+              await activateMarketplaceSection(platform);
+              await sleep(CONFIG.SLEEP_LONG);
+              formReady = await ensureMarketplaceFormReady(platform, { requireListingFields: true });
+          }
+          if (formReady) {
+              await expandOptionalFields();
+              await sleep(CONFIG.SLEEP_LONG);
+          }
+          let fields = formReady ? await collectMarketplaceSchemaFields(platform) : [];
+          if (formReady && !fields.length) {
+              // Cascade remounts can briefly leave zero scrapeable controls; one more settle pass.
+              await expandOptionalFields();
+              await sleep(CONFIG.SLEEP_LONG);
+              fields = await collectMarketplaceSchemaFields(platform);
+          }
           schema[platform] = {
               category: { path: marketplaceCategoryDisplay(platform) },
-              fields: marketplaceFormMounted(platform) ? await collectMarketplaceSchemaFields(platform) : [],
-              error: marketplaceFormMounted(platform) ? null : 'Marketplace form did not mount',
+              fields,
+              error: formReady && fields.length
+                  ? null
+                  : (formReady ? 'Marketplace form returned no fields' : 'Marketplace form did not mount'),
           };
           if (!result.ok) mismatches.push(...(result.mismatches || [result.error || `${platform} audit failed`]));
       }

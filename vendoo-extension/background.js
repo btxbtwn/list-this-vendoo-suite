@@ -725,7 +725,12 @@ async function runJobSteps(jobId) {
 
   let completionVerification = null;
   if (!failed && activeJob.options?.mode !== 'schema_probe') {
-    const verified = await verifySavedDraft(activeJob);
+    let verified = await verifySavedDraft(activeJob);
+    if (!verified?.readback) {
+      log(`Saved draft readback missed (${verified?.error || 'no readback'}); retrying once`);
+      await sleep(2000);
+      verified = await verifySavedDraft(activeJob);
+    }
     completionVerification = verified;
     if (!verified?.readback) {
       failed = true;
@@ -1300,6 +1305,24 @@ async function runFillFields(jobId, payload) {
       options: { platforms: payload.platforms || patchPlatforms },
       photos: Array(payload.expected_photo_count || 0).fill(null),
     });
+    const schema = verification?.schema || {};
+    const platforms = payload.platforms || patchPlatforms || [];
+    const incomplete = !verification?.readback || ['general', ...platforms].some((mp) => {
+      const section = schema[mp] || {};
+      return !section.fields?.length || section.error;
+    });
+    if (incomplete) {
+      log(`Fill verification incomplete (${verification?.error || 'empty marketplace schema'}); retrying once`);
+      await sleep(2000);
+      verification = await verifySavedDraft({
+        ...job,
+        vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id,
+        vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url,
+        listing: payload.listing || {},
+        options: { platforms: payload.platforms || patchPlatforms },
+        photos: Array(payload.expected_photo_count || 0).fill(null),
+      });
+    }
   }
   if (activePatch !== job) return;
   activePatch = null;
@@ -1529,17 +1552,30 @@ async function readVendooItemInPage(wantedId) {
 }
 
 async function readItemFromPage(tabId, itemId) {
-  try {
-    const [execution] = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      func: readVendooItemInPage,
-      args: [itemId || ''],
-    });
-    return execution?.result || { ok: false, error: 'No result from the Vendoo page' };
-  } catch (err) {
-    return { ok: false, error: `Page read failed: ${err.message}` };
+  const attempts = 3;
+  let last = { ok: false, error: 'No result from the Vendoo page' };
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const [execution] = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: readVendooItemInPage,
+        args: [itemId || ''],
+      });
+      const result = execution?.result;
+      if (result && typeof result === 'object') {
+        if (result.ok || attempt === attempts - 1) return result;
+        last = result;
+      } else {
+        last = { ok: false, error: 'No result from the Vendoo page' };
+      }
+    } catch (err) {
+      last = { ok: false, error: `Page read failed: ${err.message}` };
+      if (attempt === attempts - 1) return last;
+    }
+    await sleep(750 * (attempt + 1));
   }
+  return last;
 }
 
 function replyVendooItem(jobId, requestId, payload) {
