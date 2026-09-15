@@ -42,6 +42,10 @@ export const EBAY_CATEGORY_CORE: { key: string; label: string }[] = [
 ];
 
 export const ETSY_CATEGORY_OPTIONALS: { key: string; label: string }[] = [
+  { key: "clothingStyle", label: "Clothing style" },
+  { key: "sleeveLength", label: "Sleeve length" },
+  { key: "neckline", label: "Neckline" },
+  { key: "closure", label: "Closure" },
   { key: "graphic", label: "Graphic" },
   { key: "collarStyle", label: "Collar style" },
   { key: "holiday", label: "Holiday" },
