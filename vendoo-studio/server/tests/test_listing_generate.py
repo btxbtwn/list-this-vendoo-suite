@@ -452,6 +452,22 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Analyzing photos", body)
         self.assertIn(LISTING_JSON["title"], body)
 
+    async def test_generation_pulse_repeats_status_without_bloating_history(self):
+        run = chat_routes._GenerationRun()
+        run.publish(chat_routes._sse_event("status", "Identifying category and discovering its fields…"))
+        queue = run.subscribe()
+        while not queue.empty():
+            queue.get_nowait()
+        run.pulse()
+        self.assertEqual(queue.get_nowait(), chat_routes.KEEPALIVE)
+        pulsed = queue.get_nowait()
+        self.assertIn("event: status", pulsed)
+        self.assertIn("Identifying category and discovering its fields", pulsed)
+        self.assertEqual(
+            run.history,
+            [chat_routes._sse_event("status", "Identifying category and discovering its fields…")],
+        )
+
     async def test_generate_stream_forwards_thinking_without_persisting(self):
         self.provider.chunks = [
             StreamChunk("looking at the photos", "thinking"),

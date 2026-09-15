@@ -23,6 +23,21 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     try:
+        from vendoo_studio.database import SessionLocal
+        from vendoo_studio.services.catalog_index import ensure_catalog_index
+        import threading
+
+        def _build_catalog_index() -> None:
+            try:
+                with SessionLocal() as db:
+                    ensure_catalog_index(db)
+            except Exception:
+                pass
+
+        threading.Thread(target=_build_catalog_index, name="catalog-index", daemon=True).start()
+    except Exception:
+        pass
+    try:
         from vendoo_studio.services.chrome_bridge import install_bundled_extension
         install_bundled_extension()
     except Exception:

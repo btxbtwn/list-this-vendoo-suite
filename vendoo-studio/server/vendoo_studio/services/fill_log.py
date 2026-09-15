@@ -676,13 +676,24 @@ class FillLogService:
                 "summary": summarize(models),
                 "entries": [_entry_dict(entry) for entry in models],
             }
-        return {
+        report = {
             "job_id": job.id,
             "conversation_id": job.conversation_id,
             "summary": summarize(entries),
             "by_marketplace": by_marketplace,
             "log_path": str(self.log_path(job.id)) if entries else None,
         }
+        try:
+            from vendoo_studio.services.catalog_index import fill_helpers_for_fields
+            failed = [
+                _entry_dict(entry) for entry in entries
+                if entry.status in {"failed", "invalid", "not_found", "uncertain", "skipped"}
+            ]
+            report["fill_helpers"] = fill_helpers_for_fields(self._db, failed)
+        except Exception:
+            LOGGER.exception("fill helper catalog search failed for job %s", job.id)
+            report["fill_helpers"] = []
+        return report
 
     def write_markdown(self, job: Job) -> Path:
         entries = self._repo.list_for_job(job.id)

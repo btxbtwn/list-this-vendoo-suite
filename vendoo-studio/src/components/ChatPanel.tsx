@@ -220,7 +220,9 @@ function formatClientStreamError(
   const actionLabel = opts.action === "send" ? "Chat request" : "Listing generation";
   const stage = (opts.lastStatus || "").trim();
   const stageBit = stage ? ` during “${stage}”` : "";
-  const probeBit = opts.probeActive
+  const stageImpliesProbe = /identifying category|discovering.*(field|schema)|field discovery/i.test(stage);
+  const probeActive = Boolean(opts.probeActive || stageImpliesProbe);
+  const probeBit = probeActive
     ? ` Chrome is still on field discovery${opts.probeStep ? ` (${opts.probeStep})` : ""}.`
     : "";
 
@@ -230,7 +232,7 @@ function formatClientStreamError(
   if (network) {
     return (
       `Error: ${actionLabel} connection dropped${stageBit}.${probeBit} `
-      + (opts.probeActive
+      + (probeActive
         ? "Cancel discovery, then retry — or stay on Wi‑Fi until Chrome finishes."
         : "Retry to resume. If this keeps happening on mobile, use a stronger connection or desktop Studio.")
     );
@@ -516,27 +518,41 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         probeStep: String(probe?.current_step || ""),
       };
     };
-    let assembled = "";
-    try {
+    const isNetworkFailure = (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err || "");
+      return /^(load failed|failed to fetch|networkerror when attempting to fetch resource|network request failed|the internet connection appears to be offline\.?)$/i.test(msg.trim())
+        || /failed to fetch|networkerror|load failed/i.test(msg);
+    };
+    const readStream = async (): Promise<string> => {
       const res = await fetch(url, { ...SSE_FETCH, signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
-        if (stillMine()) {
-          patchLive(convId, {
-            streamText: formatClientStreamError(err, { ...errorContext(), httpStatus: res.status }),
-            streamThinking: "",
-            streamStatus: "",
-            failedAction: "generate",
-            streaming: false,
-            generating: false,
-            controller: null,
-          });
-        }
-        return;
+        throw Object.assign(new Error(detailFromResponseBody(err) || "Request failed"), {
+          httpStatus: res.status,
+          body: err,
+        });
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const parts = await consumeResponseSse(res, (event, nextParts) => applySseToLive(convId, event, nextParts));
-      assembled = parts.content;
+      return parts.content;
+    };
+    let assembled = "";
+    try {
+      try {
+        assembled = await readStream();
+      } catch (first: any) {
+        // Generation continues server-side; one reconnect recovers mobile drops mid-discovery.
+        if (
+          url.includes("/generate")
+          && stillMine()
+          && first?.name !== "AbortError"
+          && isNetworkFailure(first)
+        ) {
+          assembled = await readStream();
+        } else {
+          throw first;
+        }
+      }
       if (stillMine()) {
         if (!assembled.trim()) {
           assembled = formatClientStreamError("Listing generation did not finish.", errorContext());
@@ -569,7 +585,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         return;
       }
       if (stillMine()) {
-        assembled = formatClientStreamError(e, errorContext());
+        assembled = formatClientStreamError(e?.body || e, {
+          ...errorContext(),
+          httpStatus: e?.httpStatus,
+        });
         patchLive(convId, {
           streamText: assembled,
           streamThinking: "",

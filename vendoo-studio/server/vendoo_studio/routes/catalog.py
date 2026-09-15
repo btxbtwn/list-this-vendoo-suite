@@ -24,6 +24,29 @@ def categories(marketplace: str = "general", db: Session = Depends(get_db)):
     } for row in rows]}
 
 
+@router.get("/search")
+def search(
+    q: str,
+    marketplace: str | None = None,
+    kind: str = "all",
+    top_k: int = 15,
+    db: Session = Depends(get_db),
+):
+    from vendoo_studio.services.catalog_index import search_catalog
+
+    query = str(q or "").strip()
+    if not query:
+        raise HTTPException(400, "q is required")
+    if kind not in {"category", "schema", "option", "skill", "fill", "all"}:
+        raise HTTPException(400, "kind must be category, schema, option, skill, fill, or all")
+    top_k = max(1, min(int(top_k or 15), 50))
+    try:
+        hits = search_catalog(db, query, marketplace=marketplace or None, kind=kind, top_k=top_k)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"query": query, "kind": kind, "marketplace": marketplace, "results": hits}
+
+
 @router.get("/sync")
 def sync_status(db: Session = Depends(get_db)):
     result = {}

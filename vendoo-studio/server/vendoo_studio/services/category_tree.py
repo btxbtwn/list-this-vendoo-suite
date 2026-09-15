@@ -98,6 +98,23 @@ async def extract_trees() -> None:
                     await asyncio.sleep(0.1)
                 tree.status = "complete"
                 db.commit()
+                try:
+                    from vendoo_studio.services.catalog_index import mark_catalog_index_stale
+                    import threading
+                    mark_catalog_index_stale()
+
+                    def _rebuild() -> None:
+                        from vendoo_studio.database import SessionLocal
+                        from vendoo_studio.services.catalog_index import rebuild_catalog_index
+                        try:
+                            with SessionLocal() as session:
+                                rebuild_catalog_index(session)
+                        except Exception:
+                            pass
+
+                    threading.Thread(target=_rebuild, name="catalog-index-rebuild", daemon=True).start()
+                except Exception:
+                    pass
             except (Exception, asyncio.CancelledError) as error:
                 db.rollback()
                 tree = db.get(CategoryTree, marketplace)
