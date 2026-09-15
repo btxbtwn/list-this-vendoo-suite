@@ -7,6 +7,7 @@ from vendoo_studio.models.conversation import new_id, utcnow
 
 ACTIVE_JOB_STATUSES = ("queued", "awaiting_extension", "dispatched")
 DISPATCHABLE_JOB_STATUSES = ("queued", "awaiting_extension")
+RUNNING_JOB_STATUSES = ("dispatched",)
 TERMINAL_JOB_STATUSES = ("completed", "cancelled", "failed", "imported")
 
 

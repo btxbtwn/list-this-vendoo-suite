@@ -273,6 +273,15 @@ class ListingSchema(BaseModel):
             return v.strip()
         return v
 
+    @field_validator("cost", "weight_lb", "weight_oz", mode="before")
+    @classmethod
+    def empty_numeric_to_none(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @field_validator("condition")
     @classmethod
     def validate_condition(cls, v: Optional[str]) -> Optional[str]:

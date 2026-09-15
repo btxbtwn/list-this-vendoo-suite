@@ -102,9 +102,16 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
             "This listing is already bound to a Vendoo draft. Confirm overwrite to update that draft.",
         )
 
-    active = JobRepo(db).get_active()
-    if active:
-        raise HTTPException(409, "Another job is already in progress")
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.services.schema_probe import is_schema_probe_job
+
+    job_repo = JobRepo(db)
+    for prior in job_repo.list_by_conversation(body.conversation_id):
+        if prior.status in ACTIVE_JOB_STATUSES and not is_schema_probe_job(prior):
+            raise HTTPException(
+                409,
+                "This listing is already queued or sending to Vendoo",
+            )
 
     approved_revision = listing_repo.save_revision(
         conv_id=body.conversation_id,
@@ -114,7 +121,6 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
     )
     conv_repo.update_status(body.conversation_id, "listing")
 
-    job_repo = JobRepo(db)
     job = job_repo.create(
         conv_id=body.conversation_id,
         approved_revision_id=approved_revision.id,
@@ -471,9 +477,10 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         raise HTTPException(404, "Job not found")
     if job.status in ACTIVE_JOB_STATUSES:
         raise HTTPException(400, "Wait for the current fill to finish")
+    # Leftover fill must not jump ahead of waiting Send approvals.
     active = [item for item in JobRepo(db).get_active() if item.id != job.id]
     if active:
-        raise HTTPException(409, "Another job is already in progress")
+        raise HTTPException(409, "Another job is already queued or in progress")
     if job.status not in {"completed", "failed"}:
         raise HTTPException(400, f"Job is {job.status}, cannot fill leftover fields")
     if not job.vendoo_url and not job.vendoo_item_id:
@@ -643,7 +650,7 @@ async def resume_completion(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Job not found")
     if is_schema_probe_job(job) or job.status == "cancelled" or not job.vendoo_item_id:
         raise HTTPException(400, "Approve a listing for this draft before starting completion.")
-    if job.status in ACTIVE_JOB_STATUSES or repo.get_active():
+    if job.status in ACTIVE_JOB_STATUSES or [j for j in repo.get_active() if j.id != job.id]:
         raise HTTPException(409, "Wait for the current automation job to finish")
     if not extension_manager.connected:
         raise HTTPException(400, "Connect Chrome to verify this draft")
@@ -687,9 +694,8 @@ async def retry_job(
     if job.status == "cancelled":
         raise HTTPException(400, "Cancelled jobs cannot be retried")
 
-    active = [item for item in JobRepo(db).get_active() if item.id != job.id]
-    if active:
-        raise HTTPException(409, "Another job is already in progress")
+    # Rejoin the FIFO behind any already-waiting approvals (do not jump the queue).
+    from vendoo_studio.models.conversation import utcnow
 
     photo_count = len(ConversationRepo(db).get_photos(job.conversation_id))
     from vendoo_studio.models.validation import validate_listing
@@ -723,6 +729,7 @@ async def retry_job(
     job.current_step = "queued"
     job.attempt_count += 1
     job.last_error = None
+    job.created_at = utcnow()
 
     from vendoo_studio.services.fill_log import FillLogService
     fill_logs = FillLogService(db)
@@ -760,12 +767,13 @@ async def cancel_job(job_id: str, db: Session = Depends(get_db)):
     repo.add_event(job_id, "cancelled")
 
     from vendoo_studio.models.protocol import ProtocolMessage
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
     await extension_manager.send_message(ProtocolMessage(
         type="job.cancel",
         job_id=job_id,
         payload={"job_id": job_id},
     ).model_dump(mode="json"))
+    await dispatch_queued_jobs()
 
     return _job_response(job)
 

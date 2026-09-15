@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -171,6 +171,16 @@ class ValidationCasesTest(unittest.TestCase):
         fields = {err["field"] for err in result.errors}
         self.assertIn("etsy_specifics.what_is", fields)
         self.assertIn("etsy_specifics.when_made", fields)
+
+    def test_empty_string_cost_and_weight_are_treated_as_missing(self):
+        listing = dict(VALID_LISTING)
+        listing["cost"] = ""
+        listing["weight_lb"] = ""
+        listing["weight_oz"] = ""
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        messages = [err["message"] for err in result.errors]
+        self.assertFalse(any("unable to parse" in msg.lower() for msg in messages), messages)
+        self.assertTrue(any("Weight is required" in msg for msg in messages), messages)
 
     def test_digital_item_listing_is_etsy_eligible(self):
         listing = {
@@ -504,9 +514,16 @@ class JobSafetyRouteTest(unittest.TestCase):
         )
         self.db.add_all([failed, active])
         self.db.commit()
-        with patch("vendoo_studio.models.validation.get_selected_marketplaces", return_value=["ebay", "poshmark", "mercari", "depop"]):
+        with patch("vendoo_studio.models.validation.get_selected_marketplaces", return_value=["ebay", "poshmark", "mercari", "depop"]), patch(
+            "vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock
+        ):
             response = self.client.post(f"/api/jobs/{failed.id}/retry")
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "queued")
+        self.assertEqual(body["id"], failed.id)
+        self.db.refresh(active)
+        self.assertEqual(active.status, "dispatched")
 
     def test_terminal_status_is_not_overwritten(self):
         job = Job(

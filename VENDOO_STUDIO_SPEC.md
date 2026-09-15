@@ -14,7 +14,7 @@ Create a purpose-built local web application that lets the user:
 8. Have the Chrome extension open a new Vendoo listing, upload the approved photos, fill and verify the general form, and fill and verify each selected marketplace.
 9. Watch progress and retry failed steps from the web app.
 
-The system is local-only, intended for one user and one active listing job at a time, and must always stop before publication.
+The system is local-only, intended for one user, runs one Chrome automation job at a time (additional approved Sends wait in a FIFO queue), and must always stop before publication.
 
 ## 2. Product Decisions
 
@@ -32,7 +32,7 @@ The system is local-only, intended for one user and one active listing job at a 
 - Draft saving only; never publish automatically.
 - Human approval required before sending to Vendoo.
 - Existing extension popup remains as a manual fallback.
-- One automation job runs at a time.
+- One automation job runs at a time. Additional Send to Vendoo approvals enqueue and start when the current job finishes, fails, or is cancelled.
 
 ### Security Decision
 

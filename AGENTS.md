@@ -65,5 +65,5 @@ CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `ma
 - API keys remain in macOS Keychain and never enter SQLite, logs, frontend responses, or extension messages.
 - Bind Studio only to `127.0.0.1`.
 - Require human approval before sending to Vendoo.
-- Allow one automation job at a time.
+- Allow one automation job at a time. Additional approved Sends may wait in a FIFO queue and start when the current job finishes, fails, or is cancelled.
 - Do not introduce Redis, MongoDB, Celery, Docker, cloud hosting, or provider substitutions unless explicitly requested.

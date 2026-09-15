@@ -26,6 +26,44 @@ def field_id(field: dict) -> tuple[str, str]:
     return str(field.get("marketplace") or "general"), field_lookup_key(field.get("field") or field.get("label") or "")
 
 
+def is_shipping_estimate_field(label: str) -> bool:
+    key = field_lookup_key(label)
+    return key in {
+        "weight",
+        "weight lb",
+        "weight lbs",
+        "weight (lbs)",
+        "weight oz",
+        "weight (oz)",
+        "pounds",
+        "ounces",
+        "package weight",
+        "package weight (lb)",
+        "package weight (oz)",
+        "package dimensions",
+        "package dimensions (in)",
+        "dimensions",
+    } or "weight" in key or key.startswith("package dimension")
+
+
+def is_shipping_estimate_question(text: str) -> bool:
+    lowered = str(text or "").casefold()
+    if not lowered:
+        return False
+    return any(
+        token in lowered
+        for token in (
+            "shipping weight",
+            "package weight",
+            "packaged shipping weight",
+            "weight in pounds",
+            "pounds and ounces",
+            "package dimensions",
+            "mailer size",
+        )
+    )
+
+
 def values_equal(observed, expected: str) -> bool:
     def normalize(value):
         return " ".join(str(value).split()).casefold()
@@ -70,6 +108,20 @@ def store_verification(db: Session, job, verification: dict) -> None:
                     verification.get("schema") or {})
 
 
+def _recent_message_covers(repo: ConversationRepo, conv_id: str, reason: str) -> bool:
+    """Skip re-posting the same seller question already shown in chat."""
+    needle = (reason or "").strip()
+    if not needle:
+        return False
+    for message in reversed(repo.get_messages(conv_id)[-8:]):
+        text = (message.text or "").strip()
+        if not text:
+            continue
+        if text == needle or needle in text or text in needle:
+            return True
+    return False
+
+
 def _pause(db: Session, job, reason: str, gaps: list[dict], *, waiting: bool = False) -> None:
     db.refresh(job)
     if job.status == "cancelled":
@@ -81,6 +133,11 @@ def _pause(db: Session, job, reason: str, gaps: list[dict], *, waiting: bool = F
     JobRepo(db).add_event(job.id, job.current_step, job.current_step, {"reason": reason, "fields": gaps})
     repo = ConversationRepo(db)
     repo.update_status(job.conversation_id, "draft")
+    from vendoo_studio.routes.extension import schedule_advance_job_queue
+    schedule_advance_job_queue()
+    if waiting and _recent_message_covers(repo, job.conversation_id, reason):
+        # Questions are already in chat — keep awaiting answers without duplicating lines.
+        return
     repo.add_message(job.conversation_id, "system", reason, provider="system", model="")
 
 
@@ -142,6 +199,8 @@ async def complete_job(db: Session, job_id: str) -> None:
         ConversationRepo(db).update_status(job.conversation_id, "completed")
         ConversationRepo(db).add_message(job.conversation_id, "system",
             "Saved draft verified complete across the selected marketplaces. Nothing was published.", provider="system", model="")
+        from vendoo_studio.routes.extension import dispatch_queued_jobs
+        await dispatch_queued_jobs()
         return
 
     events = repo.get_events(job.id)
@@ -154,7 +213,7 @@ async def complete_job(db: Session, job_id: str) -> None:
     if not extension_manager.connected:
         _pause(db, job, "Connect Chrome to continue verifying and repairing this draft.", gaps)
         return
-    if any(other.id != job.id for other in repo.get_active()):
+    if any(other.id != job.id for other in repo.get_running()):
         _pause(db, job, "Another automation job is running. Resume this draft when it finishes.", gaps)
         return
     job.status = "dispatched"
@@ -176,10 +235,14 @@ async def complete_job(db: Session, job_id: str) -> None:
         "Return JSON with fields: [{marketplace, field, value, evidence}], not_applicable: [{marketplace, field, reason, evidence}], "
         "and questions: [plain English questions for the seller]. "
         "Change only listed gaps. Preserve correct values. Use exact dropdown options. "
-        "Every new factual value MUST cite an exact quote from the supplied photo analysis or seller evidence. "
-        "An existing expected value may be retried without a quote. Do not invent measurements, material, age, origin, brand, shipping weight or other facts. "
+        "Every new factual value MUST cite an exact quote from the supplied photo analysis or seller evidence, "
+        "except packaged shipping weight and package dimensions, which you should estimate from item type/size "
+        "(evidence may be 'estimated packaged weight for <item type>'). "
+        "An existing expected value may be retried without a quote. "
+        "Do not invent garment measurements, material, age, origin, brand, or other product facts. "
+        "Never ask the seller for routine apparel shipping weight or mailer size — decide those yourself. "
         "Never use Unknown/N/A/Does not apply to hide a missing fact. Only mark an optional field not applicable when evidence establishes that. "
-        "Ask about anything unresolved. Do not publish or claim completion."
+        "Ask about unresolved product facts only. Do not publish or claim completion."
     )}, {"role": "user", "content": json.dumps({"gaps": gaps, "evidence": evidence}, ensure_ascii=False)}]
     text = ""
     async with asyncio.timeout(120):
@@ -213,7 +276,8 @@ async def complete_job(db: Session, job_id: str) -> None:
                 continue
         quote = str(candidate.get("evidence") or "").strip()
         same = str(value) == str(field["expected"])
-        if not same and (not quote or quote not in evidence):
+        estimable = is_shipping_estimate_field(key[1])
+        if not same and not estimable and (not quote or quote not in evidence):
             continue
         options = field.get("options") or []
         labels = {str(option.get("label")) if isinstance(option, dict) else str(option) for option in options}
@@ -240,14 +304,28 @@ async def complete_job(db: Session, job_id: str) -> None:
         if not unresolved:
             await complete_job(db, job.id)
             return
-        questions = resolution.get("questions") or []
-        repeated = [f for f in unresolved if any(key == field_id(f) for key, _ in tried)]
+        # Shipping weight/dimensions are estimated — never pause just to ask the seller.
+        askable = [f for f in unresolved if not is_shipping_estimate_field(f.get("field") or "")]
+        if not askable:
+            _pause(
+                db,
+                job,
+                "Could not estimate packaged shipping weight/dimensions for the remaining gaps. Retry verification.",
+                unresolved,
+                waiting=False,
+            )
+            return
+        questions = [
+            q for q in (resolution.get("questions") or [])
+            if not is_shipping_estimate_question(str(q))
+        ]
+        repeated = [f for f in askable if any(key == field_id(f) for key, _ in tried)]
         reason = "\n".join(str(q) for q in questions) or "Please confirm the values for: " + ", ".join(
-            f"{f['marketplace']} / {f['field']}" for f in unresolved)
+            f"{f['marketplace']} / {f['field']}" for f in askable)
         if repeated:
             reason = "Repair made no progress for " + ", ".join(
                 f"{f['marketplace']} / {f['field']} ({f['error']})" for f in repeated) + ".\n" + reason
-        _pause(db, job, reason, unresolved, waiting=True)
+        _pause(db, job, reason, askable, waiting=True)
         return
     snapshot = write_values_into_listing(listing, patches)
     ListingRepo(db).save_revision(job.conversation_id, snapshot, source="completion_repair",

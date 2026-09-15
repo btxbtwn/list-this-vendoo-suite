@@ -216,6 +216,17 @@ class PersistListingTest(unittest.TestCase):
         self.assertTrue(any(m.role == "assistant" for m in messages))
         self.assertTrue(any("Listing extracted" in m.text for m in messages))
 
+    def test_persist_waits_for_seller_when_model_asks_questions(self):
+        text = (
+            "Please confirm the packaged shipping weight in pounds and ounces?\n"
+            "```json\n" + json.dumps(LISTING_JSON) + "\n```"
+        )
+        persist_generated_listing(self.db, self.conv.id, text)
+        messages = ConversationRepo(self.db).get_messages(self.conv.id)
+        notes = [m.text for m in messages if m.role == "system"]
+        self.assertTrue(any("Answer the questions above" in note for note in notes))
+        self.assertFalse(any("ready for review" in note for note in notes))
+
     def test_generated_listing_preserves_categories_after_field_discovery(self):
         ListingRepo(self.db).save_revision(self.conv.id, {
             "category_path": "Clothing > Women's Tops",
