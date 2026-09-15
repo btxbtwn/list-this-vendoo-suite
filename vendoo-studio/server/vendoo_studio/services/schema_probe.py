@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.models.job import Job
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
-from vendoo_studio.services.vendoo_import import merge_notes, vendoo_binding
+from vendoo_studio.services.vendoo_import import merge_notes, parse_notes, vendoo_binding
 
 log = logging.getLogger("vendoo_studio.schema_probe")
 
@@ -24,10 +24,33 @@ PROBE_STEPS = frozenset({
 })
 
 
+# Vendoo keeps Save disabled on new drafts until a few general fields exist.
+# First-generate probes often have category only — seed the rest from notes.
+_PROBE_DEFAULT_CONDITION = "Good"
+
+
 def is_schema_probe_job(job: Job | None) -> bool:
     if not job or not isinstance(job.listing_snapshot, dict):
         return False
     return bool(job.listing_snapshot.get(SCHEMA_PROBE_FLAG))
+
+
+def seed_probe_general_fields(snapshot: dict, notes: str | None = None) -> dict:
+    """Ensure schema-probe listings carry enough general fields for Save."""
+    if not isinstance(snapshot, dict):
+        return {}
+    out = snapshot
+    parsed = parse_notes(notes)
+    if not str(out.get("condition") or "").strip():
+        condition = str(parsed.get("condition") or "").strip() or _PROBE_DEFAULT_CONDITION
+        out["condition"] = condition
+    if not str(out.get("title") or "").strip():
+        out["title"] = "Draft listing"
+    if not str(out.get("zipCode") or out.get("zip_code") or "").strip():
+        out["zipCode"] = "70125"
+    if out.get("quantity") in (None, ""):
+        out["quantity"] = 1
+    return out
 
 
 def listing_for_extension(snapshot: dict | None) -> dict:
@@ -120,6 +143,7 @@ def maybe_start_schema_probe(
                 binding = {"vendooItemId": prior.vendoo_item_id, "vendooUrl": prior.vendoo_url}
                 break
     snapshot = deepcopy(source_listing)
+    seed_probe_general_fields(snapshot, conv.notes)
     snapshot["platforms"] = platforms
     snapshot[SCHEMA_PROBE_FLAG] = True
     parent_id = revisions[0].id if revisions else "schema-probe"
@@ -219,6 +243,8 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
     paths = await select_categories(db, provider, analysis, notes, selected_fillable_platforms(), override)
     seed["category_path"] = paths["general"]
     seed["marketplace_categories"] = {mp: path for mp, path in paths.items() if mp != "general"}
+    conv = ConversationRepo(db).get(conv_id)
+    seed_probe_general_fields(seed, conv.notes if conv else notes)
     ListingRepo(db).save_revision(conv_id, seed, source="category_analysis",
                                  parent_revision_id=revisions[0].id if revisions else None)
 

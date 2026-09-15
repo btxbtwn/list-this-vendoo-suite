@@ -799,9 +799,13 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   const streamFailed = isStreamError(streamText);
   const errorHint = activeProbe
     ? `Active discovery job: ${activeProbe.current_step || activeProbe.status}. Cancel it here if Chrome is stuck, then retry.`
-    : /connection dropped|HTTP \d+/i.test(streamText || "")
+    : /connection dropped/i.test(streamText || "")
       ? "This is a client/network failure, not a model refusal. Retry resumes the same generate when Studio still has it running."
-      : "";
+      : /HTTP 5\d\d/i.test(streamText || "")
+        ? "Studio hit an internal error before the model answered. Retry; if it keeps failing, check Studio logs or restart Studio."
+        : /HTTP \d+/i.test(streamText || "")
+          ? "The generate request was rejected before streaming started. Check Settings (provider sign-in / API key), then retry."
+          : "";
   const streamVisible = streamFailed ? "" : assistantDisplayText(streamText);
   // Persist finishes (and messages refetch) before the SSE stream is cleared —
   // hide the live bubble once the same assistant prose is already on screen.

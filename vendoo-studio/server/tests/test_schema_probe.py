@@ -49,6 +49,26 @@ class SchemaProbeHelpersTest(unittest.TestCase):
         self.assertNotIn("_other", cleaned)
         self.assertNotIn("platforms", cleaned)
 
+    def test_seed_probe_general_fields_from_notes_and_defaults(self):
+        from vendoo_studio.services.schema_probe import seed_probe_general_fields
+
+        seeded = seed_probe_general_fields({"category_path": MEN_PATH}, '{"condition":"Good"}')
+        self.assertEqual(seeded["condition"], "Good")
+        self.assertEqual(seeded["title"], "Draft listing")
+        self.assertEqual(seeded["zipCode"], "70125")
+        self.assertEqual(seeded["quantity"], 1)
+
+        kept = seed_probe_general_fields({
+            "title": "Kept",
+            "condition": "New With Tags/Box",
+            "zipCode": "10001",
+            "quantity": 2,
+        }, '{"condition":"Good"}')
+        self.assertEqual(kept["title"], "Kept")
+        self.assertEqual(kept["condition"], "New With Tags/Box")
+        self.assertEqual(kept["zipCode"], "10001")
+        self.assertEqual(kept["quantity"], 2)
+
 
 class SchemaProbeServiceTest(unittest.TestCase):
     def setUp(self):
@@ -201,6 +221,8 @@ console.log(JSON.stringify({ probe, probeUpdate, fill, update }));
         self.assertIn("SET_GENERAL_CATEGORY", content)
         self.assertIn("Draft listing", content)
         self.assertIn("Vendoo keeps Save disabled", content)
+        self.assertIn("String(data.condition || '').trim() || 'Good'", content)
+        self.assertIn("await fillTextField(VENDOO_SELECTORS.quantity, quantity, 'Quantity')", content)
 
 
 class SchemaProbeDispatchTest(unittest.TestCase):
