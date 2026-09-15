@@ -73,6 +73,19 @@ class CategorySelectionTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "verified general category"):
             await select_categories(self.db, Provider(), "tee", "", ["ebay"])
 
+    async def test_selectable_parent_still_descends_to_most_specific_category(self):
+        for mp in ("general", "ebay"):
+            self.db.get(CategoryTreeNode, (mp, mp + "-root")).is_leaf = True
+        self.db.commit()
+
+        class Provider:
+            async def chat(self, messages, stream=True):
+                choices = json.loads(messages[-1]["content"])["choices"]
+                yield json.dumps({"categories": {mp: rows[0]["id"] for mp, rows in choices.items()}})
+
+        result = await select_categories(self.db, Provider(), "tee", "", ["ebay"], override="Clothing")
+        self.assertEqual(result, {"general": "Clothing > Women's Tops", "ebay": "Fashion > Shirts"})
+
     async def test_incomplete_tree_blocks_category_selection(self):
         self.db.get(CategoryTree, "ebay").status = "paused"
         self.db.commit()

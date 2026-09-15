@@ -18,7 +18,7 @@ async def select_categories(db, provider, analysis: str, notes: str, platforms: 
         node = db.query(CategoryTreeNode).filter_by(marketplace="general", path=override).first()
         if not node:
             raise RuntimeError("The selected General category is not in Vendoo's tree. Choose a current category.")
-        if node.is_leaf:
+        if node.is_leaf and not node.has_children:
             selected["general"] = node.path
         else:
             parents["general"] = node.category_id
@@ -30,7 +30,8 @@ async def select_categories(db, provider, analysis: str, notes: str, platforms: 
                 continue
             nodes = db.query(CategoryTreeNode).filter_by(marketplace=marketplace, parent_id=parents[marketplace]).all()
             nodes_by_marketplace[marketplace] = {node.category_id: node for node in nodes}
-            choices[marketplace] = [{"id": node.category_id, "path": node.path, "leaf": node.is_leaf} for node in nodes]
+            choices[marketplace] = [{"id": node.category_id, "path": node.path,
+                                     "leaf": node.is_leaf and not node.has_children} for node in nodes]
         if not choices:
             return selected
         messages = [{"role": "system", "content": (
@@ -56,10 +57,10 @@ async def select_categories(db, provider, analysis: str, notes: str, platforms: 
             node = nodes.get(category_id)
             if node is None:
                 raise RuntimeError(f"Could not choose a verified {marketplace} category. Retry category selection.")
-            if node.is_leaf:
-                selected[marketplace] = node.path
-            elif node.has_children:
+            if node.has_children:
                 parents[marketplace] = node.category_id
+            elif node.is_leaf:
+                selected[marketplace] = node.path
             else:
                 raise RuntimeError(f"{marketplace} category is not selectable: {node.path}")
     raise RuntimeError("Category selection did not reach a terminal category on every form")
