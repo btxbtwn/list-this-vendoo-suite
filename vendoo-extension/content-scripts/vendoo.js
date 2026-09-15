@@ -148,11 +148,46 @@
   }
 
   function summarizeFillLog(entries) {
-    const summary = { filled: 0, skipped: 0, not_found: 0, invalid: 0, failed: 0, uncertain: 0, new: 0 };
+    const summary = {
+      filled: 0,
+      skipped: 0,
+      not_applicable: 0,
+      not_found: 0,
+      invalid: 0,
+      failed: 0,
+      uncertain: 0,
+      new: 0,
+    };
     for (const entry of entries) {
       if (summary[entry.status] != null) summary[entry.status] += 1;
     }
     return summary;
+  }
+
+  function isDoesNotApplyValue(value) {
+    return /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i.test(String(value || '').trim());
+  }
+
+  function markFieldDoesNotApply(el) {
+    if (!el || !(el instanceof Element)) return;
+    const target = el.closest?.('.MuiFormControl-root, .MuiGrid-item, [class*="FormControl"]') || el;
+    if (!(target instanceof HTMLElement)) return;
+    target.style.setProperty('outline', '2px solid #e6a700', 'important');
+    target.style.setProperty('background-color', 'rgba(230, 167, 0, 0.18)', 'important');
+    target.dataset.vendooNotApplicable = '1';
+  }
+
+  function skipDoesNotApply(fieldName, selectorText, value, el) {
+    markFieldDoesNotApply(el);
+    log(`  ○ ${fieldName}: does not apply (skipped)`);
+    recordFill({
+      field: fieldName,
+      status: 'not_applicable',
+      reason: 'Does not apply',
+      selector: selectorText || '',
+      value,
+    });
+    return { status: 'not_applicable' };
   }
 
   const FIELD_KEY_ALIASES = {
@@ -336,7 +371,7 @@
     }
     const summary = summarizeFillLog(fillLedger);
     log(`=== FILL LOG ${currentFillMarketplace} ===`);
-    log(`filled ${summary.filled} · skipped ${summary.skipped} · not found ${summary.not_found} · invalid ${summary.invalid} · failed ${summary.failed} · uncertain ${summary.uncertain} · new ${summary.new}`);
+    log(`filled ${summary.filled} · skipped ${summary.skipped} · not applicable ${summary.not_applicable} · not found ${summary.not_found} · invalid ${summary.invalid} · failed ${summary.failed} · uncertain ${summary.uncertain} · new ${summary.new}`);
     fillLedger
       .filter((entry) => entry.status === 'invalid' || entry.status === 'failed' || entry.status === 'not_found')
       .forEach((entry) => warn(`  ${entry.field}: ${entry.reason || entry.status}`));
@@ -755,8 +790,8 @@
       if (mp === 'ebay' && key === 'year manufactured') {
           return normalizeEbaySpecificValue('yearManufactured', value);
       }
-      if (mp === 'ebay' && isDoesNotApplyValue(value) && key !== 'year manufactured') {
-          return 'Does Not Apply';
+      if (isDoesNotApplyValue(value)) {
+          return null;
       }
       return value;
   }
@@ -1046,6 +1081,7 @@
       const key = etsyCategoryValueKey(fieldName);
       const raw = Array.isArray(rawValue) ? rawValue.join(', ') : String(rawValue).trim();
       if (!raw) return raw;
+      if (isDoesNotApplyValue(raw)) return null;
 
       const options = ETSY_CATEGORY_OPTIONS[key];
       if (options) {
@@ -1922,6 +1958,10 @@
           recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
           return { status: 'skipped' };
       }
+      if (isDoesNotApplyValue(value)) {
+          const el = resolveWithRegistry(selector, fieldName);
+          return skipDoesNotApply(fieldName, selectorText, value, el);
+      }
       
       const el = resolveWithRegistry(selector, fieldName);
       if (!el) {
@@ -1945,6 +1985,15 @@
 
   async function fillDropdownField(selectorOrEl, value, fieldName, isStrict = false, isMulti = false) {
       const selectorText = typeof selectorOrEl === 'string' ? selectorOrEl : selectorFor(selectorOrEl, '');
+      if (isDoesNotApplyValue(value)) {
+          let el;
+          if (typeof selectorOrEl === 'string') {
+              el = resolveWithRegistry(selectorOrEl, fieldName);
+          } else if (selectorOrEl instanceof Element) {
+              el = selectorOrEl;
+          }
+          return skipDoesNotApply(fieldName, selectorText, value, el);
+      }
       value = mapPatchValue(currentFillMarketplace, fieldName, value);
       if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
           recordFill({ field: fieldName, status: 'skipped', reason: 'No value in listing', selector: selectorText, value });
@@ -3358,15 +3407,11 @@
   // PLATFORM-SPECIFIC FILLERS - OPTIMIZED
   // ============================================
 
-  function isDoesNotApplyValue(value) {
-      return /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i.test(String(value || '').trim());
-  }
-
   function normalizeEbaySpecificValue(key, value) {
       if (value == null || value === '') return value;
       const raw = Array.isArray(value) ? value.join(', ') : String(value).trim();
+      if (isDoesNotApplyValue(raw)) return null;
       if (key === 'yearManufactured') {
-          if (isDoesNotApplyValue(raw)) return null;
           if (/pre-?1900s/i.test(raw)) return 'Pre-1900s';
           const years = raw.match(/(?:19|20)\d{2}/g);
           if (years && years.length >= 2) return `${years[0]}-${years[1]}`;
@@ -3407,7 +3452,6 @@
           return matched.length === 1 ? matched[0] : matched;
       }
       if (key === 'countryOfOrigin' && /^unknown$/i.test(raw)) return null;
-      if (isDoesNotApplyValue(raw) && key !== 'yearManufactured') return 'Does Not Apply';
       return value;
   }
 
@@ -3525,12 +3569,16 @@
               const isCascade = EBAY_CASCADE_SPECIFIC_KEYS.includes(key);
               if (mapped && typeof mapped === 'object' && !Array.isArray(mapped)) continue;
               if (specs[key] && (mapped == null || mapped === '')) {
-                  recordFill({
-                    field: fieldName,
-                    status: 'skipped',
-                    reason: 'No matching eBay option',
-                    value: specs[key],
-                  });
+                  if (isDoesNotApplyValue(specs[key])) {
+                      skipDoesNotApply(fieldName, '', specs[key], null);
+                  } else {
+                      recordFill({
+                        field: fieldName,
+                        status: 'skipped',
+                        reason: 'No matching eBay option',
+                        value: specs[key],
+                      });
+                  }
                   filledNames.add(fieldKey);
                   continue;
               }

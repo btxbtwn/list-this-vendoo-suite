@@ -3219,6 +3219,10 @@ details[open] .json-collapse-summary::before {
   color: #3fb950;
 }
 
+.pr-na {
+  color: #d4a017;
+}
+
 .pr-del {
   color: #f85149;
 }
@@ -3278,6 +3282,10 @@ details[open] .json-collapse-summary::before {
   background: rgba(63, 185, 80, 0.12);
 }
 
+.pr-diff-line.is-na {
+  background: rgba(230, 167, 0, 0.16);
+}
+
 .pr-diff-line.is-del {
   background: rgba(248, 81, 73, 0.12);
 }
@@ -3291,6 +3299,12 @@ details[open] .json-collapse-summary::before {
 .pr-diff-line.is-add .pr-diff-gutter,
 .pr-diff-line.is-add .pr-diff-name {
   color: #3fb950;
+}
+
+.pr-diff-line.is-na .pr-diff-gutter,
+.pr-diff-line.is-na .pr-diff-name,
+.pr-diff-line.is-na .pr-diff-value {
+  color: #d4a017;
 }
 
 .pr-diff-line.is-del .pr-diff-gutter,

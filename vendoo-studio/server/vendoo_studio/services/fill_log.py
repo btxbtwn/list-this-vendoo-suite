@@ -14,8 +14,12 @@ from vendoo_studio.repositories.queries import FillLogRepo, RegistryRepo
 
 LOGGER = logging.getLogger("vendoo_studio.fill_log")
 
-STATUSES = ("filled", "skipped", "not_found", "invalid", "failed", "uncertain", "new")
+STATUSES = ("filled", "skipped", "not_applicable", "not_found", "invalid", "failed", "uncertain", "new")
 FILLABLE_STATUSES = ("skipped", "new", "invalid", "failed", "uncertain", "not_found")
+DOES_NOT_APPLY_RE = re.compile(
+    r"^(d|n/?a|n\.a\.?|does not apply|none|unknown|-+)$",
+    flags=re.I,
+)
 MAX_ENTRIES = 200
 MAX_PREVIEW = 80
 MAX_PATCH_FIELDS = 50
@@ -234,15 +238,9 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     if marketplace == "mercari" and key == "category":
         from vendoo_studio.services.registry import map_mercari_category_path
         return map_mercari_category_path(result or str(source.get("category_path") or ""), source)
-    if result:
-        if marketplace == "ebay" and key == "year manufactured" and re.match(
-            r"^(d|n/?a|n\.a\.?|does not apply|none|unknown|-+)$",
-            result,
-            flags=re.I,
-        ):
-            return ""
-        return result
-    return ""
+    if result and DOES_NOT_APPLY_RE.match(result):
+        return ""
+    return result or ""
 
 
 def extract_missing_fields(text: str) -> list[dict] | None:
@@ -419,6 +417,7 @@ def render_markdown(job: Job, grouped: dict[str, list[FillLogEntry]]) -> str:
         lines.append("")
         lines.append(
             f"filled {counts['filled']} · skipped {counts['skipped']} · "
+            f"not applicable {counts['not_applicable']} · "
             f"not found {counts['not_found']} · invalid {counts['invalid']} · failed {counts['failed']} · "
             f"uncertain {counts['uncertain']} · new {counts['new']}"
         )
@@ -430,6 +429,7 @@ def render_markdown(job: Job, grouped: dict[str, list[FillLogEntry]]) -> str:
             heading = {
                 "filled": "Filled",
                 "skipped": "Not filled (no listing value)",
+                "not_applicable": "Does not apply",
                 "not_found": "Did not work — field missing",
                 "invalid": "Invalid dropdown option",
                 "failed": "Did not work",
