@@ -348,20 +348,27 @@ class ExtensionSafetySourceTest(unittest.TestCase):
         script = source[start:end] + """
 let testStatuses = {};
 function scrapeMarketplaceStatusesFromDom() { return testStatuses; }
+const waitForPostSaveForm = async () => true;
+const waitForMarketplaceNavControls = async () => true;
+const sleep = async () => {};
+const log = () => {};
+const CONFIG = {SLEEP_LONG: 0};
 const results = [];
+(async () => {
 testStatuses = { etsy: 'LIVE' };
-results.push(checkDraftSafety(['etsy']));
+results.push(await checkDraftSafety(['etsy']));
 testStatuses = {};
-results.push(checkDraftSafety(['etsy']));
+results.push(await checkDraftSafety(['etsy']));
 testStatuses = { etsy: 'NOT LISTED' };
-results.push(checkDraftSafety(['etsy']));
+results.push(await checkDraftSafety(['etsy']));
 testStatuses = { general: 'COMPLETE' };
-results.push(checkDraftSafety([]));
+results.push(await checkDraftSafety([]));
 testStatuses = { etsy: 'PENDING' };
-results.push(checkDraftSafety(['etsy']));
+results.push(await checkDraftSafety(['etsy']));
 testStatuses = { etsy: 'DRAFT LISTING' };
-results.push(checkDraftSafety(['etsy']));
+results.push(await checkDraftSafety(['etsy']));
 console.log(JSON.stringify(results));
+})();
 """
         result = subprocess.run(
             ["node", "-e", script],
@@ -378,6 +385,35 @@ console.log(JSON.stringify(results));
         self.assertFalse(general_only["ok"])
         self.assertFalse(pending["ok"])
         self.assertTrue(draft_listing["ok"])
+
+    def test_draft_safety_waits_for_marketplace_statuses_to_paint(self):
+        source = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text()
+        start = source.index("  async function checkDraftSafety")
+        end = source.index("  function marketplaceNameToId", start)
+        script = source[start:end] + """
+let tick = 0;
+function scrapeMarketplaceStatusesFromDom() {
+  tick += 1;
+  return tick >= 3 ? { ebay: 'NOT LISTED', etsy: 'NOT LISTED', poshmark: 'NOT LISTED',
+    mercari: 'NOT LISTED', depop: 'NOT LISTED' } : {};
+}
+const publishedMarketplaceStatuses = (statuses) => Object.entries(statuses || {})
+  .filter(([, status]) => /\\b(LISTED|LIVE|ACTIVE|SOLD|PUBLISHED)\\b/i.test(status)
+    && !/NOT LISTED/i.test(status));
+const marketplaceStatusConfirmsDraft = (status) => ['NOT LISTED', 'DRAFT', 'DRAFT LISTING', 'INCOMPLETE', 'COMPLETE']
+  .includes(String(status || '').toUpperCase());
+const waitForPostSaveForm = async () => true;
+const waitForMarketplaceNavControls = async () => true;
+const sleep = async () => {};
+const log = () => {};
+const CONFIG = {SLEEP_LONG: 0};
+(async () => console.log(JSON.stringify(await checkDraftSafety(['ebay','etsy','poshmark','mercari','depop']))))();
+"""
+        result = json.loads(subprocess.run(
+            ["node", "-e", script], check=True, capture_output=True, text=True,
+        ).stdout)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["statuses"]["ebay"], "NOT LISTED")
 
     def test_invalid_dropdown_has_a_distinct_fill_status(self):
         source = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text()

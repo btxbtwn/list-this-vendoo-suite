@@ -5004,31 +5004,45 @@
       return ['NOT LISTED', 'DRAFT', 'DRAFT LISTING', 'INCOMPLETE', 'COMPLETE'].includes(s);
   }
 
-  function checkDraftSafety(platforms) {
-      const statuses = scrapeMarketplaceStatusesFromDom();
-      const listed = publishedMarketplaceStatuses(statuses);
-      if (listed.length) {
-          return {
-              ok: false,
-              error: `Refusing to update a published Vendoo item: ${listed.map(([id, status]) => `${id}=${status}`).join(', ')}`,
-              statuses,
-          };
-      }
+  async function checkDraftSafety(platforms) {
       const selected = Array.isArray(platforms)
           ? platforms.map((item) => String(item || '').toLowerCase()).filter(Boolean)
           : [];
       const required = selected.length ? selected : ['ebay', 'etsy', 'poshmark', 'mercari', 'depop'];
-      const unverified = required.filter((platform) => !marketplaceStatusConfirmsDraft(statuses[platform]));
-      if (!Object.keys(statuses).length || unverified.length) {
-          return {
-              ok: false,
-              error: unverified.length
-                  ? `Could not verify draft status for: ${unverified.join(', ')}`
-                  : 'Could not verify that the existing Vendoo item is a draft',
-              statuses,
-          };
+
+      // Reused probe drafts often open before marketplace nav statuses paint.
+      // Wait for statuses, but still fail closed if they never confirm draft.
+      let statuses = {};
+      await waitForPostSaveForm(20000);
+      for (let attempt = 0; attempt < 24; attempt++) {
+          statuses = scrapeMarketplaceStatusesFromDom();
+          const listed = publishedMarketplaceStatuses(statuses);
+          if (listed.length) {
+              return {
+                  ok: false,
+                  error: `Refusing to update a published Vendoo item: ${listed.map(([id, status]) => `${id}=${status}`).join(', ')}`,
+                  statuses,
+              };
+          }
+          const unverified = required.filter((platform) => !marketplaceStatusConfirmsDraft(statuses[platform]));
+          if (Object.keys(statuses).length && !unverified.length) {
+              return { ok: true, statuses };
+          }
+          if (attempt === 0 || attempt === 8 || attempt === 16) {
+              log(`Draft safety waiting for marketplace statuses (have ${Object.keys(statuses).join(', ') || 'none'})`);
+              await waitForMarketplaceNavControls(2000);
+          }
+          await sleep(CONFIG.SLEEP_LONG);
       }
-      return { ok: true, statuses };
+
+      const unverified = required.filter((platform) => !marketplaceStatusConfirmsDraft(statuses[platform]));
+      return {
+          ok: false,
+          error: unverified.length
+              ? `Could not verify draft status for: ${unverified.join(', ')}`
+              : 'Could not verify that the existing Vendoo item is a draft',
+          statuses,
+      };
   }
 
   function marketplaceNameToId(name) {
