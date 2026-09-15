@@ -1,6 +1,11 @@
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import {
+  fetchVendooItemLive,
+  VENDOO_ITEM_STALE_MS,
+  vendooItemQueryKey,
+} from "../api/vendooItemQuery";
 import { addToast } from "../ui/toast";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import {
@@ -539,10 +544,11 @@ function sourceFormsForJob(
 
 function useVendooDraft(jobId: string, enabled: boolean) {
   return useQuery({
-    queryKey: ["vendoo-item", jobId],
-    queryFn: () => api.jobs.vendooItem(jobId),
+    queryKey: vendooItemQueryKey(jobId),
+    // Live hydrate: cache-only reads can overwrite a just-finished Chrome scrape.
+    queryFn: () => api.jobs.vendooItem(jobId, { refresh: true }),
     enabled,
-    staleTime: 0,
+    staleTime: VENDOO_ITEM_STALE_MS,
     retry: 1,
   });
 }
@@ -1700,10 +1706,9 @@ export function FillLogPanel({
     setShowJson(false);
     setRefreshingDraft(true);
     try {
-      // Always hit Chrome with refresh=true. A plain refetch returns the server
-      // cache from before Fill, so empty-field counts never drop.
-      const fresh = await api.jobs.vendooItem(jobId, { refresh: true });
-      queryClient.setQueryData(["vendoo-item", jobId], fresh);
+      // Always hit Chrome with refresh=true via the shared query so remounts
+      // don't replace the live scrape with a server-cache response.
+      const fresh = await fetchVendooItemLive(queryClient, jobId, { force: true });
       if (fresh?.error || fresh?.api_error) {
         addToast({
           type: "error",
@@ -1805,7 +1810,7 @@ export function FillLogPanel({
       queryClient.invalidateQueries({ queryKey: ["listing"] });
       queryClient.invalidateQueries({ queryKey: ["conversation"] });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["vendoo-item", jobId] });
+      queryClient.invalidateQueries({ queryKey: vendooItemQueryKey(jobId) });
       onFilled?.();
     },
     onError: (err: Error) => {
