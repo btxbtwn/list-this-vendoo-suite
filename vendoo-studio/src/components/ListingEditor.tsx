@@ -42,6 +42,30 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
     listingJob?.mode === "schema_probe"
     && ["queued", "awaiting_extension", "dispatched"].includes(String(listingJob?.status || "")),
   );
+  const [ensureError, setEnsureError] = React.useState<string | null>(null);
+  const ensureDraftMutation = useMutation({
+    mutationFn: () => api.jobs.ensureDraft(convId),
+    onSuccess: (job) => {
+      setEnsureError(null);
+      queryClient.setQueryData(["jobs", convId], (old: any[] | undefined) => {
+        const rest = (old || []).filter((item) => item.id !== job.id);
+        return [job, ...rest];
+      });
+      queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+      queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
+      queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
+    },
+    onError: (err: Error) => {
+      setEnsureError(err.message || "Could not load the Vendoo draft fields.");
+      addToast({
+        type: "error",
+        title: "Could not refresh fields",
+        description: err.message || "Could not attach this listing to its Vendoo draft.",
+      });
+    },
+  });
 
   const { data } = useQuery({
     queryKey: ["listing", convId],
@@ -113,6 +137,17 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
     }
   }, [importedItemId, listingJob?.status, listingJob?.id]);
 
+  const ensureAttemptKey = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (jobsLoading || listingJob || !importedItemId) return;
+    const key = `${convId}:${importedItemId}`;
+    if (ensureAttemptKey.current === key) return;
+    ensureAttemptKey.current = key;
+    ensureDraftMutation.mutate();
+    // Refresh fields clears ensureAttemptKey before calling mutate again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobsLoading, listingJob?.id, importedItemId, convId]);
+
   return (
     <div className="listing-editor">
       <div className="pr-review-header">
@@ -176,27 +211,27 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
           ) : (
             <div className="pr-empty">
               <p>
-                {jobsLoading
+                {jobsLoading || ensureDraftMutation.isPending
                   ? "Loading fields…"
                   : importedItemId
                     ? "This listing already has a Vendoo draft, but its job isn’t loaded yet. Refresh to pull the draft fields."
                     : "Send this listing to Vendoo, then open Fields to review each marketplace and apply missing values."}
               </p>
+              {ensureError && <p className="text-xs text-error" style={{ marginTop: 8 }}>{ensureError}</p>}
               {importedItemId && !jobsLoading && (
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
                   style={{ marginTop: 12 }}
-                  disabled={jobsFetching}
+                  disabled={jobsFetching || ensureDraftMutation.isPending}
                   onClick={() => {
-                    void refetchJobs();
-                    void queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
-                    void queryClient.invalidateQueries({ queryKey: ["listing", convId] });
-                    void queryClient.invalidateQueries({ queryKey: ["fill-log"] });
-                    void queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
+                    setEnsureError(null);
+                    ensureAttemptKey.current = null;
+                    ensureDraftMutation.reset();
+                    ensureDraftMutation.mutate();
                   }}
                 >
-                  {jobsFetching ? "Refreshing…" : "Refresh fields"}
+                  {ensureDraftMutation.isPending || jobsFetching ? "Refreshing…" : "Refresh fields"}
                 </button>
               )}
             </div>
