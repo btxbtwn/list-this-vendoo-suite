@@ -16,8 +16,11 @@ from vendoo_studio.services.listing_completion import (
     MAX_CATEGORY_REPAIRS,
     MAX_READBACK_RETRIES,
     MAX_REPAIR_ROUNDS,
+    adopt_observed_draft_values,
     categories_match,
     complete_job,
+    deterministic_gap_patches,
+    prefer_listing_over_observed,
     review_fields,
     store_verification,
 )
@@ -362,6 +365,149 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(review_fields(self.verification, {**self.listing, "condition": "Pre-Owned - Good"}), [])
         # A stale mapping must not conceal a newer seller edit.
         self.assertEqual(len(review_fields(self.verification, {**self.listing, "condition": "New With Tags/Box"})), 1)
+
+    def test_adopt_observed_size_unless_user_form_is_newest(self):
+        listing = {
+            **self.listing,
+            "size": "approx 10",
+            "ebay_specifics": {"size": "approx 10"},
+        }
+        verification = {
+            "schema": {
+                "general": {"fields": [{"label": "Size", "value": "10"}]},
+                "ebay": {"fields": [{"label": "Size", "value": "10"}]},
+            }
+        }
+        updated, patches = adopt_observed_draft_values(
+            listing, verification, prefer_listing=False,
+        )
+        self.assertEqual(len(patches), 2)
+        self.assertEqual(updated["size"], "10")
+        self.assertEqual(updated["ebay_specifics"]["size"], "10")
+        self.assertEqual(
+            review_fields(verification, updated),
+            [],
+        )
+
+        kept, none = adopt_observed_draft_values(
+            listing, verification, prefer_listing=True,
+        )
+        self.assertEqual(none, [])
+        self.assertEqual(kept["size"], "approx 10")
+        self.assertTrue(prefer_listing_over_observed([
+            type("Rev", (), {"source": "user_form"})(),
+        ]))
+        self.assertFalse(prefer_listing_over_observed([
+            type("Rev", (), {"source": "model"})(),
+        ]))
+
+    async def test_complete_job_adopts_observed_instead_of_refilling(self):
+        ListingRepo(self.db).save_revision(
+            self.conv.id,
+            {**self.listing, "size": "approx 10", "ebay_specifics": {"size": "approx 10"}},
+            source="model",
+        )
+        self.verification = {
+            "readback": True,
+            "verified": True,
+            "schema": {
+                "general": {
+                    "category": {"path": "Clothing > Tops"},
+                    "fields": [
+                        {"label": "Title", "value": "Tee", "required": True},
+                        {"label": "Size", "value": "10"},
+                    ],
+                },
+                "ebay": {
+                    "category": {"path": "Clothing > Shirts"},
+                    "fields": [{"label": "Size", "value": "10"}],
+                },
+            },
+        }
+        self.review()
+        provider = await self.run_completion({})
+        self.assertEqual(self.job.status, "completed")
+        self.assertEqual(self.job.current_step, "verified_complete")
+        self.assertEqual(provider.messages, [])
+        latest = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        self.assertEqual(latest.source, "vendoo_observed")
+        self.assertEqual(latest.listing_json["size"], "10")
+        self.assertEqual(latest.listing_json["ebay_specifics"]["size"], "10")
+
+    async def test_complete_job_keeps_user_form_size_and_refills(self):
+        ListingRepo(self.db).save_revision(
+            self.conv.id,
+            {**self.listing, "size": "12", "ebay_specifics": {"size": "12"}},
+            source="user_form",
+        )
+        self.verification = {
+            "readback": True,
+            "verified": True,
+            "schema": {
+                "general": {
+                    "category": {"path": "Clothing > Tops"},
+                    "fields": [
+                        {"label": "Title", "value": "Tee", "required": True},
+                        {"label": "Size", "value": "10"},
+                    ],
+                },
+                "ebay": {
+                    "category": {"path": "Clothing > Shirts"},
+                    "fields": [
+                        {"label": "Size", "value": "10"},
+                        {"label": "Material", "value": "", "required": True, "selector": "#material"},
+                    ],
+                },
+            },
+        }
+        self.review()
+        await self.run_completion({
+            "fields": [
+                {"marketplace": "general", "field": "Size", "value": "12", "evidence": "seller form"},
+                {"marketplace": "ebay", "field": "Size", "value": "12", "evidence": "seller form"},
+                {"marketplace": "ebay", "field": "Material", "value": "Cotton", "evidence": "tag"},
+            ]
+        })
+        self.assertEqual(self.job.current_step, "filling_fields")
+        latest = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        self.assertNotEqual(latest.source, "vendoo_observed")
+        self.assertEqual(latest.listing_json.get("size"), "12")
+
+    async def test_known_listing_values_skip_model_pass(self):
+        ListingRepo(self.db).save_revision(
+            self.conv.id,
+            {**self.listing, "ebay_specifics": {"material": "Cotton"}},
+            source="model",
+        )
+        self.verification["schema"]["ebay"]["fields"] = [
+            {"label": "Material", "value": "", "required": True, "selector": "#material"},
+        ]
+        self.review()
+        provider = await self.run_completion({
+            "fields": [{"marketplace": "ebay", "field": "Material", "value": "Silk", "evidence": "wrong"}],
+        })
+        self.assertEqual(self.job.current_step, "filling_fields")
+        self.assertEqual(provider.messages, [])
+        self.dispatch.assert_awaited_once()
+        patches = self.dispatch.await_args.args[1]
+        self.assertEqual(patches, [{
+            "marketplace": "ebay",
+            "field": "Material",
+            "selector": "#material",
+            "value": "Cotton",
+        }])
+
+    def test_deterministic_gap_patches_split(self):
+        ready, needs = deterministic_gap_patches(
+            [
+                {"marketplace": "ebay", "field": "Material", "expected": "Cotton", "error": "Empty field"},
+                {"marketplace": "ebay", "field": "Pattern", "expected": "", "error": "Empty field"},
+                {"marketplace": "ebay", "field": "Size", "expected": "approx 10", "error": "Invalid option"},
+            ],
+            {"size": "10", "ebay_specifics": {"material": "Cotton"}},
+        )
+        self.assertEqual([patch["field"] for patch in ready], ["Material"])
+        self.assertEqual([gap["field"] for gap in needs], ["Pattern", "Size"])
 
     def test_patch_updates_existing_camel_case_key_and_package_measurements(self):
         result = write_values_into_listing({"ebay_specifics": {"fabricType": ""}, "package_dimensions_in": "13x10x3"}, [

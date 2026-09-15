@@ -85,7 +85,7 @@ When made: {when_made}
 |-------|-------|------------|
 | Brand unclear | Tag unreadable in photos | Infer from logos, hardware, and seller notes when supportable; otherwise leave brand empty and flag uncertainty — never ask |
 | Size conflict | Extractor and Verifier disagree | Prefer the clearer tag reading; if still ambiguous use measurement fallback and flag uncertainty — never ask |
-| Size tag missing | No readable size tag in photos | Fall back to measurement-derived approximate size and flag uncertainty |
+| Size tag missing | No readable size tag in photos | Fall back to a clean measurement-derived marketplace size; flag uncertainty in the description only |
 | No comps found | Search returned no sold listings | Use estimated baseline; note uncertainty in description |
 | Missing required photos | No tag/label photo | Infer from the photos provided; flag missing tag evidence in the description — never ask for more photos |
 | Invalid local path | Provided path does not resolve to an item photo folder | Tell user the path could not be used and return JSON or copy-paste text in chat only |
@@ -132,6 +132,7 @@ Measurement fallback rules:
 - prefer the clearest waist-based sizing signal for bottoms and the clearest pit-to-pit or chest-based sizing signal for tops
 - use the nearest standard marketplace size only when the measurements support a reasonable estimate
 - if a standard size estimate would be too speculative, use the measurement size itself in the listing copy, such as `30 in waist` or `30x29`
+- `size` and marketplace size fields must be a clean dropdown value only (`10`, `M`, `30x29`) — never prefix with `approx`, `approximately`, `about`, `around`, `est`, or `~`
 - always state in the description that the size is approximate and derived from measurements because no readable size tag was visible
 
 ### Step 4: Comp Checker
@@ -164,6 +165,7 @@ Apply pricing formula from MEMORY.md.
 **Measurement-Derived Size Fallback (MANDATORY when no size tag is visible):**
 - When no readable size tag exists in the photos, derive size from measurements instead of blocking the listing.
 - Use the most defensible size expression for the item type. For pants, prefer waist-first sizing such as `30` or `30x29` when supported by the measurements.
+- Put that clean value in `size` / marketplace size fields — never `approx 10` or similar; approximate language belongs only in the description.
 - Use `sizeType = Regular` unless the measurements or garment styling clearly indicate Petite, Tall, Plus, or Maternity.
 - Record the fallback clearly in the description measurements line when helpful.
 - If later browser automation requires a forced dropdown choice that does not support the exact measurement expression, choose the closest reasonable marketplace value and preserve the measurement truth in the description and notes.

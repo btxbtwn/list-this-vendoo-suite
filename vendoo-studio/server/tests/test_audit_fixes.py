@@ -499,6 +499,34 @@ class JobSafetyRouteTest(unittest.TestCase):
         app.dependency_overrides.clear()
         self.db.close()
 
+    def test_user_form_refresh_sanitizes_size_and_job_snapshot(self):
+        job = Job(
+            conversation_id=self.conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot={**VALID_LISTING, "platforms": ["ebay"], "size": "XL"},
+            status="failed",
+            current_step="completion_blocked",
+        )
+        self.db.add(job)
+        self.db.commit()
+        updated = {
+            **VALID_LISTING,
+            "size": "approx 10",
+            "ebay_specifics": {**VALID_LISTING["ebay_specifics"], "size": "M"},
+        }
+        response = self.client.put(
+            f"/api/conversations/{self.conv.id}/listing",
+            json={"listing": updated},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.db.refresh(job)
+        self.assertEqual(job.listing_snapshot.get("size"), "10")
+        self.assertEqual(job.listing_snapshot.get("ebay_specifics", {}).get("size"), "10")
+        self.assertEqual(job.listing_snapshot.get("platforms"), ["ebay"])
+        latest = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        self.assertEqual(latest.source, "user_form")
+        self.assertEqual(latest.listing_json.get("size"), "10")
+
     def test_retry_requires_validation_and_one_active_job(self):
         failed = Job(
             conversation_id=self.conv.id,

@@ -378,6 +378,49 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(listing["depop_specifics"]["style"], ["Casual", "Retro", "Boho"])
         self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
 
+    def test_sanitize_listing_sizes_strips_approx_prefix(self):
+        from vendoo_studio.services.listing_generate import (
+            apply_send_readiness_fixes,
+            propagate_general_size,
+            sanitize_listing_sizes,
+            sanitize_size_value,
+        )
+
+        self.assertEqual(sanitize_size_value("approx 10"), "10")
+        self.assertEqual(sanitize_size_value("Approximately: M"), "M")
+        self.assertEqual(sanitize_size_value("~ 30x29"), "30x29")
+        self.assertEqual(sanitize_size_value("10"), "10")
+
+        listing = {
+            "title": "Test",
+            "description": "x",
+            "price": 10,
+            "size": "approx 10",
+            "ebay_specifics": {"size": "approx 10", "type": "Jeans"},
+            "depop_specifics": {"size": "about 10", "source": "Preloved"},
+        }
+        self.assertTrue(sanitize_listing_sizes(listing))
+        self.assertEqual(listing["size"], "10")
+        self.assertEqual(listing["ebay_specifics"]["size"], "10")
+        self.assertEqual(listing["depop_specifics"]["size"], "10")
+
+        listing["size"] = "12"
+        self.assertTrue(propagate_general_size(listing))
+        self.assertEqual(listing["ebay_specifics"]["size"], "12")
+        self.assertEqual(listing["depop_specifics"]["size"], "12")
+
+        dirty = {
+            "title": "Test Tee",
+            "description": "Short description without formula markers here.",
+            "price": 12,
+            "size": "approx M",
+            "condition": "Pre-Owned - Good",
+            "ebay_specifics": {"size": "approx M"},
+        }
+        self.assertTrue(apply_send_readiness_fixes(dirty))
+        self.assertEqual(dirty["size"], "M")
+        self.assertEqual(dirty["ebay_specifics"]["size"], "M")
+
     def test_finalize_calls_model_when_send_blockers_remain(self):
         incomplete = {
             "title": "Notations XL Floral Tunic Top Black Relaxed",
