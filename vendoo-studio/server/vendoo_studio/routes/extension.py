@@ -696,7 +696,8 @@ async def extension_websocket(ws: WebSocket):
                             ConversationRepo(db).add_message(
                                 job.conversation_id,
                                 "system",
-                                f"Could not discover Vendoo fields ({step}): {err}",
+                                f"Could not discover Vendoo fields at step “{step or 'unknown'}” "
+                                f"(job {job_id}): {err}",
                                 provider="system",
                                 model="",
                             )

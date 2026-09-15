@@ -181,6 +181,74 @@ function isStreamError(text: string): boolean {
   return text.startsWith("Error:");
 }
 
+function detailFromResponseBody(body: unknown): string {
+  if (!body || typeof body !== "object") return "";
+  const detail = (body as { detail?: unknown; message?: unknown }).detail
+    ?? (body as { message?: unknown }).message;
+  if (typeof detail === "string") return detail.trim();
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "msg" in item) return String((item as { msg: unknown }).msg);
+        return "";
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return detail != null ? String(detail) : "";
+}
+
+/** Turn opaque browser/HTTP failures into actionable chat errors. */
+function formatClientStreamError(
+  source: unknown,
+  opts: {
+    action: "generate" | "send";
+    httpStatus?: number;
+    lastStatus?: string;
+    probeActive?: boolean;
+    probeStep?: string;
+  },
+): string {
+  const raw = (() => {
+    if (typeof source === "string") return source.trim();
+    if (source instanceof Error) return source.message.trim();
+    if (source && typeof source === "object") return detailFromResponseBody(source);
+    return "";
+  })().replace(/^Error:\s*/i, "");
+
+  const actionLabel = opts.action === "send" ? "Chat request" : "Listing generation";
+  const stage = (opts.lastStatus || "").trim();
+  const stageBit = stage ? ` during “${stage}”` : "";
+  const probeBit = opts.probeActive
+    ? ` Chrome is still on field discovery${opts.probeStep ? ` (${opts.probeStep})` : ""}.`
+    : "";
+
+  const network = /^(load failed|failed to fetch|networkerror when attempting to fetch resource|network request failed|the internet connection appears to be offline\.?)$/i.test(raw)
+    || /failed to fetch|networkerror|load failed/i.test(raw);
+
+  if (network) {
+    return (
+      `Error: ${actionLabel} connection dropped${stageBit}.${probeBit} `
+      + (opts.probeActive
+        ? "Cancel discovery, then retry — or stay on Wi‑Fi until Chrome finishes."
+        : "Retry to resume. If this keeps happening on mobile, use a stronger connection or desktop Studio.")
+    );
+  }
+
+  if (opts.httpStatus) {
+    const detail = raw || "Request failed";
+    return `Error: ${actionLabel} failed (HTTP ${opts.httpStatus})${stageBit}: ${detail}.${probeBit}`.trim();
+  }
+
+  if (!raw) {
+    return `Error: ${actionLabel} failed${stageBit}.${probeBit} Retry, or cancel discovery if Chrome is stuck.`.trim();
+  }
+
+  if (/^error:/i.test(raw)) return raw.startsWith("Error:") ? raw : `Error: ${raw}`;
+  return `Error: ${raw}`;
+}
+
 type SseParts = { content: string; thinking: string; status: string };
 type SseParseState = { eventType: string; parts: SseParts };
 
@@ -368,6 +436,19 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     refetchInterval: streaming || generating ? 2000 : false,
   });
 
+  const { data: jobs } = useQuery({
+    queryKey: ["jobs"],
+    queryFn: () => api.jobs.list(),
+    refetchInterval: streaming || generating ? 2000 : 5000,
+  });
+
+  const activeProbe = (jobs || []).find(
+    (j: any) =>
+      j.conversation_id === convId
+      && j.mode === "schema_probe"
+      && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
+  );
+
   useEffect(() => {
     const sync = () => {
       const next = getLive(convId);
@@ -420,6 +501,21 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       userCancelled: false,
     });
     const stillMine = () => getLive(convId).controller === controller;
+    const errorContext = () => {
+      const live = getLive(convId);
+      const probe = (queryClient.getQueryData<any[]>(["jobs"]) || []).find(
+        (j: any) =>
+          j.conversation_id === convId
+          && j.mode === "schema_probe"
+          && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
+      );
+      return {
+        action: "generate" as const,
+        lastStatus: live.streamStatus || initialStatus,
+        probeActive: Boolean(probe),
+        probeStep: String(probe?.current_step || ""),
+      };
+    };
     let assembled = "";
     try {
       const res = await fetch(url, { ...SSE_FETCH, signal: controller.signal });
@@ -427,7 +523,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         if (stillMine()) {
           patchLive(convId, {
-            streamText: `Error: ${err.detail || err.message || "Failed"}`,
+            streamText: formatClientStreamError(err, { ...errorContext(), httpStatus: res.status }),
             streamThinking: "",
             streamStatus: "",
             failedAction: "generate",
@@ -443,7 +539,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       assembled = parts.content;
       if (stillMine()) {
         if (!assembled.trim()) {
-          assembled = "Error: Listing generation did not finish.";
+          assembled = formatClientStreamError("Listing generation did not finish.", errorContext());
           patchLive(convId, { streamText: assembled });
         }
         if (isStreamError(assembled)) patchLive(convId, { failedAction: "generate" });
@@ -473,7 +569,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         return;
       }
       if (stillMine()) {
-        assembled = `Error: ${e.message}`;
+        assembled = formatClientStreamError(e, errorContext());
         patchLive(convId, {
           streamText: assembled,
           streamThinking: "",
@@ -527,6 +623,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     });
     setInput("");
     const stillMine = () => getLive(convId).controller === controller;
+    const errorContext = () => ({
+      action: "send" as const,
+      lastStatus: getLive(convId).streamStatus || "",
+    });
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`, {
         method: "POST",
@@ -539,7 +639,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         if (stillMine()) {
           patchLive(convId, {
-            streamText: `Error: ${err.detail || err.message || "Failed"}`,
+            streamText: formatClientStreamError(err, { ...errorContext(), httpStatus: res.status }),
             streamThinking: "",
             streamStatus: "",
             failedAction: "send",
@@ -589,7 +689,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       }
       if (stillMine()) {
         patchLive(convId, {
-          streamText: `Error: ${e.message}`,
+          streamText: formatClientStreamError(e, errorContext()),
           streamThinking: "",
           streamStatus: "",
           failedAction: "send",
@@ -621,15 +721,55 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     } else {
       void api.conversations.cancelMessages(convId);
     }
-  }, [convId]);
+    const probe = (jobs || []).find(
+      (j: any) =>
+        j.conversation_id === convId
+        && j.mode === "schema_probe"
+        && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
+    );
+    if (probe?.id) {
+      void api.jobs.cancel(probe.id).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      });
+    }
+  }, [convId, jobs, queryClient]);
 
-  const handleRetry = useCallback(() => {
+  const handleCancelDiscovery = useCallback(async () => {
+    const probeId = activeProbe?.id;
+    patchLive(convId, {
+      userCancelled: true,
+      restoreInputOnAbort: false,
+      streamText: "",
+      streamThinking: "",
+      streamStatus: "",
+      thinkingStarted: false,
+      failedAction: null,
+      streaming: false,
+      generating: false,
+      controller: null,
+    });
+    getLive(convId).controller?.abort();
+    await Promise.allSettled([
+      fetch(`/api/conversations/${convId}/generate/cancel`, { method: "POST" }),
+      probeId ? api.jobs.cancel(probeId) : Promise.resolve(),
+    ]);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+      queryClient.invalidateQueries({ queryKey: ["messages", convId] }),
+      queryClient.invalidateQueries({ queryKey: ["conversations"] }),
+    ]);
+  }, [activeProbe?.id, convId, queryClient]);
+
+  const handleRetry = useCallback(async () => {
     if (failedAction === "send" && lastSendText) {
       void sendMessage(lastSendText);
       return;
     }
+    if (activeProbe?.id) {
+      await handleCancelDiscovery();
+    }
     void handleGenerate();
-  }, [failedAction, lastSendText, sendMessage, handleGenerate]);
+  }, [failedAction, lastSendText, sendMessage, handleGenerate, activeProbe?.id, handleCancelDiscovery]);
 
   const hasPhotos = (photos && (photos as any[]).length > 0);
   const hasMessages = messages && (messages as any[]).length > 0;
@@ -638,6 +778,11 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     return Boolean(json && isListingJson(json));
   }) || (listing?.listing && isListingJson(JSON.stringify(listing.listing))));
   const streamFailed = isStreamError(streamText);
+  const errorHint = activeProbe
+    ? `Active discovery job: ${activeProbe.current_step || activeProbe.status}. Cancel it here if Chrome is stuck, then retry.`
+    : /connection dropped|HTTP \d+/i.test(streamText || "")
+      ? "This is a client/network failure, not a model refusal. Retry resumes the same generate when Studio still has it running."
+      : "";
   const streamVisible = streamFailed ? "" : assistantDisplayText(streamText);
   // Persist finishes (and messages refetch) before the SSE stream is cleared —
   // hide the live bubble once the same assistant prose is already on screen.
@@ -821,22 +966,56 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         {streamFailed && (
           <div className="chat-error" role="alert">
             <div className="chat-error-text">{streamText}</div>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleRetry}
-              disabled={busy || !canRetry}
-            >
-              {busy ? "Retrying..." : "Retry"}
-            </button>
+            {errorHint ? <div className="chat-error-hint">{errorHint}</div> : null}
+            <div className="chat-error-actions">
+              {activeProbe ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { void handleCancelDiscovery(); }}
+                  disabled={busy}
+                >
+                  Cancel discovery
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => { void handleRetry(); }}
+                disabled={busy || !canRetry}
+              >
+                {busy ? "Retrying..." : activeProbe ? "Cancel & retry" : "Retry"}
+              </button>
+            </div>
           </div>
         )}
 
         {hasMessages && !hasListingJson && !streamFailed && !busy && hasPhotos && (
           <div className="chat-error">
             <div className="chat-error-text">Listing generation did not finish.</div>
-            <button className="btn btn-primary btn-sm" onClick={handleGenerate}>
-              Retry
-            </button>
+            {activeProbe ? (
+              <div className="chat-error-hint">
+                Field discovery is still running in Chrome. Cancel it from here, then retry.
+              </div>
+            ) : null}
+            <div className="chat-error-actions">
+              {activeProbe ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { void handleCancelDiscovery(); }}
+                >
+                  Cancel discovery
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => { void (activeProbe ? handleRetry() : handleGenerate()); }}
+              >
+                {activeProbe ? "Cancel & retry" : "Retry"}
+              </button>
+            </div>
           </div>
         )}
       </div>
