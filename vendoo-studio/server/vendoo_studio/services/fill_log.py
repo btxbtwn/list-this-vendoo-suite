@@ -243,6 +243,26 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     return result or ""
 
 
+def is_missing_fields_request(text: str) -> bool:
+    """True when the user message is Studio's Ask-chat empty/leftover fields prompt."""
+    body = text or ""
+    return '"missing_fields"' in body and "Reply with JSON in this exact shape" in body
+
+
+def looks_like_missing_fields_attempt(text: str) -> bool:
+    """True when assistant text looks like it tried to emit missing_fields values."""
+    if not text or text.lstrip().lower().startswith("error:"):
+        return False
+    if extract_missing_fields(text):
+        return True
+    lowered = text.lower()
+    if "missing_fields" in lowered:
+        return True
+    if "```" in text and ("marketplace" in lowered or '"field"' in lowered):
+        return True
+    return False
+
+
 def extract_missing_fields(text: str) -> list[dict] | None:
     if not text or text.lstrip().lower().startswith("error:"):
         return None
@@ -295,6 +315,58 @@ def extract_missing_fields(text: str) -> list[dict] | None:
     return None
 
 
+REPAIR_MISSING_FIELDS_PROMPT = (
+    "The previous assistant reply was supposed to fill missing listing fields, but the "
+    "JSON was missing or invalid. Repair it into ONE valid JSON object only.\n\n"
+    "Rules:\n"
+    "- Output a single fenced ```json block with this exact shape:\n"
+    '  {"missing_fields":[{"marketplace":"...","field":"...","value":"..."}]}\n'
+    "- Use marketplace ids and field names from the seller request exactly.\n"
+    "- Only include fields that have a concrete value.\n"
+    "- Do not use a JSON Patch array.\n"
+    "- Do not add commentary outside the JSON fence."
+)
+MAX_REPAIR_CHARS = 14000
+
+
+async def repair_missing_fields(provider, raw_text: str, user_request: str = "") -> list[dict] | None:
+    """Ask the listing provider to repair a missing_fields payload. Returns rows or None."""
+    parsed = extract_missing_fields(raw_text)
+    if parsed:
+        return parsed
+    if provider is None:
+        return None
+    if not looks_like_missing_fields_attempt(raw_text) and not is_missing_fields_request(user_request):
+        return None
+
+    clipped = (raw_text or "").strip()
+    if len(clipped) > MAX_REPAIR_CHARS:
+        clipped = clipped[:MAX_REPAIR_CHARS]
+    request = (user_request or "").strip()
+    if len(request) > MAX_REPAIR_CHARS:
+        request = request[:MAX_REPAIR_CHARS]
+    user_content = clipped
+    if request:
+        user_content = (
+            "Seller request (field list to fill):\n"
+            f"{request}\n\n"
+            "Broken assistant reply to repair:\n"
+            f"{clipped or '(empty)'}"
+        )
+    messages = [
+        {"role": "system", "content": REPAIR_MISSING_FIELDS_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+    try:
+        from vendoo_studio.services.listing_generate import collect_provider_text
+
+        repaired = await collect_provider_text(provider, messages)
+    except Exception:
+        LOGGER.exception("missing_fields repair request failed")
+        return None
+    return extract_missing_fields(repaired)
+
+
 def summarize_missing_fields(patches: list[dict]) -> str:
     market_labels = {
         "general": "Vendoo",
@@ -324,11 +396,11 @@ def summarize_missing_fields(patches: list[dict]) -> str:
         label = market_labels.get(market) or market.replace("_", " ").title()
         lines.append(f"{label} / {field}: {text}")
     if not lines:
-        return "Saved field values to the listing. Review them in Fields, then apply them on Vendoo."
+        return "Saved field values to the listing JSON. Review them in Fields, then Fill on Vendoo."
     if len(lines) == 1:
-        return f"Ready to apply on Vendoo — {lines[0]}."
+        return f"Saved to the listing JSON — {lines[0]}. Fill on Vendoo when ready."
     bullet = "\n".join(f"- {line}" for line in lines[:MAX_PATCH_FIELDS])
-    return f"Ready to apply on Vendoo:\n{bullet}"
+    return f"Saved to the listing JSON:\n{bullet}"
 
 
 def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:

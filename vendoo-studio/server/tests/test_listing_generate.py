@@ -328,6 +328,72 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(saved["category_path"], sweatshirt_path)
         self.assertEqual(saved["ebay_specifics"]["type"], "Sweatshirt")
 
+    def test_apply_payload_saves_missing_fields_into_listing_json(self):
+        listing_repo = ListingRepo(self.db)
+        listing_repo.save_revision(self.conv.id, {
+            "title": "Chaos Ink Graphic Tee",
+            "etsy_specifics": {"Occasion": ""},
+        }, source="model")
+        ops, saved = chat_routes._apply_listing_payload(self.db, self.conv.id, (
+            "Filled the empty Etsy fields.\n"
+            "```json\n"
+            '{"missing_fields":['
+            '{"marketplace":"etsy","field":"Holiday","value":"Does Not Apply"},'
+            '{"marketplace":"etsy","field":"Occasion","value":"Does Not Apply"},'
+            '{"marketplace":"etsy","field":"Pattern","value":"Solid"}'
+            "]}\n"
+            "```"
+        ))
+        self.assertIsNone(ops)
+        self.assertTrue(saved)
+        saved_listing = listing_repo.get_revisions(self.conv.id)[0].listing_json
+        etsy = saved_listing["etsy_specifics"]
+        self.assertEqual(etsy.get("Holiday") or etsy.get("holiday"), "Does Not Apply")
+        self.assertEqual(etsy.get("Occasion") or etsy.get("occasion"), "Does Not Apply")
+        self.assertEqual(etsy.get("Pattern") or etsy.get("pattern"), "Solid")
+        messages = ConversationRepo(self.db).get_messages(self.conv.id)
+        self.assertTrue(any("Saved to the listing JSON" in (m.text or "") for m in messages))
+
+    def test_apply_missing_fields_repairs_and_saves_when_ask_chat_format_breaks(self):
+        listing_repo = ListingRepo(self.db)
+        listing_repo.save_revision(self.conv.id, {
+            "title": "Chaos Ink Graphic Tee",
+            "etsy_specifics": {},
+        }, source="model")
+        user_request = (
+            'These listing fields are still empty on listing "Chaos Ink Graphic Tee". '
+            "Generate values for ONLY these fields.\n\n"
+            "Reply with JSON in this exact shape so Studio can save the values into the listing JSON:\n\n"
+            '```json\n{"missing_fields":[{"marketplace":"etsy","field":"Pattern","value":"..."}]}\n```\n\n'
+            "Empty fields:\n- Marketplace: etsy\n  Field: Pattern"
+        )
+
+        class RepairProvider:
+            async def chat(self, messages, stream=True):
+                yield (
+                    "```json\n"
+                    '{"missing_fields":[{"marketplace":"etsy","field":"Pattern","value":"Solid"}]}\n'
+                    "```"
+                )
+
+        async def run():
+            return await chat_routes._apply_listing_payload_with_repair(
+                self.db,
+                self.conv.id,
+                "Pattern should be Solid for this tee.",
+                RepairProvider(),
+                user_message=user_request,
+            )
+
+        ops, saved = asyncio.run(run())
+        self.assertIsNone(ops)
+        self.assertTrue(saved)
+        saved_listing = listing_repo.get_revisions(self.conv.id)[0].listing_json
+        etsy = saved_listing["etsy_specifics"]
+        self.assertEqual(etsy.get("Pattern") or etsy.get("pattern"), "Solid")
+        messages = ConversationRepo(self.db).get_messages(self.conv.id)
+        self.assertTrue(any("Saved to the listing JSON" in (m.text or "") for m in messages))
+
 
 class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

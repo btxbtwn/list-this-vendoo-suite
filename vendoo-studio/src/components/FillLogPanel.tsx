@@ -408,7 +408,7 @@ Reply with JSON in this exact shape:
 {"missing_fields":[{"marketplace":"mercari","field":"Category","value":"..."}]}
 \`\`\`
 
-Use the marketplace ids and field names exactly as listed.
+Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
 
 Failed fields:
 ${lines.join("\n")}`;
@@ -453,7 +453,7 @@ Reply with JSON in this exact shape:
 {"missing_fields":[{"marketplace":"general","field":"SKU","value":"..."}]}
 \`\`\`
 
-Use the marketplace ids and field names exactly as listed. After the values are saved, they can be filled on Vendoo without resending the whole listing.
+Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
 
 Empty fields:
 ${lines.join("\n")}`;

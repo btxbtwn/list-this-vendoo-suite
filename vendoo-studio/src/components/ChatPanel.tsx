@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { SoldCompsCard } from "./SoldCompsCard";
@@ -125,9 +125,9 @@ function summarizeMissingFields(
     const label = MARKETPLACE_DISPLAY[market] || humanKey(market);
     return [`${label} / ${field}: ${value}`];
   });
-  if (!lines.length) return "Saved field values to the listing.";
-  if (lines.length === 1) return `Ready to apply on Vendoo — ${lines[0]}.`;
-  return `Ready to apply on Vendoo:\n${lines.map((line) => `- ${line}`).join("\n")}`;
+  if (!lines.length) return "Saved field values to the listing JSON.";
+  if (lines.length === 1) return `Saved to the listing JSON — ${lines[0]}. Fill on Vendoo when ready.`;
+  return `Saved to the listing JSON:\n${lines.map((line) => `- ${line}`).join("\n")}`;
 }
 
 function stripJsonPayloads(text: string): string {
@@ -321,8 +321,18 @@ function applySseToLive(convId: string, event: string, parts: SseParts) {
   if (event === "thinking" || event === "status") live.thinkingStarted = true;
   if (event === "thinking") live.streamThinking = parts.thinking;
   if (event === "status") live.streamStatus = parts.status;
-  if (event !== "thinking" && event !== "status") live.streamText = parts.content;
+  if (event !== "thinking" && event !== "status" && event !== "listing_updated") {
+    live.streamText = parts.content;
+  }
   emitLive(convId);
+}
+
+async function refreshListingQueries(queryClient: QueryClient, convId: string) {
+  await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
+  await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+  await queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+  queryClient.invalidateQueries({ queryKey: ["conversations"] });
+  queryClient.invalidateQueries({ queryKey: ["fill-log"] });
 }
 
 export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Props) {
@@ -476,11 +486,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     if (stillMine()) {
       patchLive(convId, { streaming: false, generating: false, controller: null });
     }
-    await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
-    await queryClient.invalidateQueries({ queryKey: ["listing", convId] });
-    queryClient.invalidateQueries({ queryKey: ["fill-log"] });
-    queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
-    queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    await refreshListingQueries(queryClient, convId);
     if (stillMine() && !failed) {
       patchLive(convId, {
         streamText: "",
@@ -548,11 +554,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       const assembled = parts.content;
       if (stillMine() && isStreamError(assembled)) patchLive(convId, { failedAction: "send" });
       if (stillMine()) patchLive(convId, { streaming: false, controller: null });
-      await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
-      queryClient.invalidateQueries({ queryKey: ["listing", convId] });
-      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
-      queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      await refreshListingQueries(queryClient, convId);
       if (stillMine() && !isStreamError(assembled)) {
         patchLive(convId, {
           streamText: "",
