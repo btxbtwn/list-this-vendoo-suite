@@ -1551,6 +1551,7 @@ export function FillLogPanel({
   jobId,
   conversationId,
   jobStatus,
+  jobStep,
   vendooItemId,
   vendooUrl,
   listing,
@@ -1595,7 +1596,6 @@ export function FillLogPanel({
     jobStatus === "dispatched"
     && (jobStep === "resolving_fields" || jobStep === "verifying_draft");
   const filling = jobStatus === "dispatched" && !resolving;
-  const busy = fillMutation.isPending || filling || resolving;
   const hasDraft = Boolean(vendooItemId || vendooUrl);
   const chromeConnected = Boolean(extStatus?.connected);
   const awaitingFill = React.useRef(false);
@@ -1718,6 +1718,7 @@ export function FillLogPanel({
       }, 8000);
     },
   });
+  const busy = fillMutation.isPending || filling || resolving;
 
   const hideMutation = useMutation({
     mutationFn: (body: {
