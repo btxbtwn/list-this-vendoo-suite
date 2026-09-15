@@ -67,18 +67,16 @@ console.log(JSON.stringify(result));
         self.assertIn("WAIT_FOR_FORM", run_fill)
         self.assertLess(
             run_fill.index("WAIT_FOR_FORM"),
-            run_fill.index("for (let i = 0;"),
+            run_fill.index("for (const { marketplace, batches }"),
         )
-        loop = run_fill[run_fill.index("for (let i = 0;") :]
+        loop = run_fill[run_fill.index("for (const { marketplace, batches }") :]
         self.assertIn("saveCommandForMarketplace(marketplace)", loop)
         self.assertIn("type: 'FILL_FIELDS'", loop)
         self.assertLess(
             loop.index("type: 'FILL_FIELDS'"),
             loop.index("saveCommandForMarketplace(marketplace)"),
         )
-        after_loop = run_fill[run_fill.index("const fillLog") :]
-        self.assertNotIn("SAVE_GENERAL", after_loop)
-        self.assertNotIn("saveCommandForMarketplace", after_loop)
+        self.assertIn("Saving Vendoo draft after apply", run_fill)
         self.assertIn("payload.verify !== false", run_fill)
         self.assertLess(
             run_fill.index("const shouldVerify = payload.verify !== false"),
