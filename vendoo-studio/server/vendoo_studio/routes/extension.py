@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import uuid
 from typing import Optional
@@ -21,6 +22,8 @@ from vendoo_studio.services.chrome_bridge import (
 )
 
 router = APIRouter(tags=["extension"])
+
+log = logging.getLogger("vendoo_studio.extension")
 
 VENDOO_GET_TIMEOUT_SEC = 120
 ROUTE_ITEM_IDS = frozenset({"new", "edit", "create"})
@@ -243,6 +246,9 @@ async def dispatch_queued_jobs():
         stamped_platforms = snapshot.get("platforms") if isinstance(snapshot.get("platforms"), list) else []
         platforms = selected_fillable_platforms(stamped_platforms)
         registry_selectors = _build_registry_selectors(snapshot, db, platforms)
+        registry_options = _build_registry_options(
+            db, platforms, str(snapshot.get("category_path") or "").strip() or None
+        )
         resume_from = None
         retried = repo.latest_event(job.id, "retried")
         if retried and isinstance(retried.payload, dict):
@@ -276,6 +282,7 @@ async def dispatch_queued_jobs():
                 "vendoo_url": item_url,
                 "options": options,
                 "registry_selectors": registry_selectors,
+                "registry_options": registry_options,
             },
         ).model_dump(mode="json"))
         if sent:
@@ -373,6 +380,50 @@ def _build_photo_list(conv_id: str, db) -> list[dict]:
     repo = ConversationRepo(db)
     photos = repo.get_photos(conv_id)
     return [{"id": p.id, "name": p.original_filename, "stored_filename": p.stored_filename} for p in photos]
+
+
+def _learn_schema_options(db, job, schema: dict) -> dict:
+    """Persist live dropdown options captured by the schema probe.
+
+    The probe walks every marketplace panel in one step, so options are filed
+    per platform here rather than through the diagnostics path, which derives a
+    single marketplace from the step name.
+    """
+    from vendoo_studio.repositories.queries import RegistryRepo
+
+    snapshot = job.listing_snapshot if isinstance(job.listing_snapshot, dict) else {}
+    category_path = str(snapshot.get("category_path") or "").strip() or None
+
+    repo = RegistryRepo(db)
+    learned: dict[str, int] = {}
+    for platform, section in (schema or {}).items():
+        fields = (section or {}).get("fields") or []
+        with_options = [f for f in fields if isinstance(f, dict) and f.get("options")]
+        if not with_options:
+            continue
+        try:
+            repo.upsert_schema_fields(str(platform), category_path, with_options)
+        except Exception:
+            log.exception("registry upsert failed for %s", platform)
+            db.rollback()
+            continue
+        learned[str(platform)] = len(with_options)
+    if learned:
+        log.info("schema probe learned options for %s (category=%s)", learned, category_path)
+    return learned
+
+
+def _build_registry_options(db, platforms: list[str], category_path: str | None) -> dict:
+    """Known dropdown options per marketplace so the extension can repair stale values."""
+    from vendoo_studio.repositories.queries import RegistryRepo
+
+    repo = RegistryRepo(db)
+    result = {}
+    for marketplace in [*platforms, "general"]:
+        options = repo.options_by_label(marketplace, category_path)
+        if options:
+            result[marketplace] = options
+    return result
 
 
 def _build_registry_selectors(listing: dict, db, platforms: list[str]) -> dict:
@@ -557,13 +608,16 @@ async def extension_websocket(ws: WebSocket):
                         if job and payload.get("fill_log"):
                             FillLogService(db).save_step(job, step, payload.get("fill_log"))
                         if step == "discovering_schema" and job and payload.get("schema"):
+                            schema = payload.get("schema") or {}
+                            learned = _learn_schema_options(db, job, schema)
                             repo.add_event(job_id, "schema_discovered", step, {
-                                "platforms": list((payload.get("schema") or {}).keys()),
+                                "platforms": list(schema.keys()),
                                 "categories": payload.get("categories") or {},
                                 "field_counts": {
                                     platform: len((section or {}).get("fields") or [])
-                                    for platform, section in (payload.get("schema") or {}).items()
+                                    for platform, section in schema.items()
                                 },
+                                "option_counts": learned,
                             })
                         _set_conversation_status(db, job_id, "listing")
 

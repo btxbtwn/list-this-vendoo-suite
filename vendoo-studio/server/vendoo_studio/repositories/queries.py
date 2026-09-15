@@ -569,6 +569,83 @@ class RegistryRepo:
             entry = self.get_by_identity(marketplace, None, label)
         return sorted(entry.known_options) if entry else []
 
+    def upsert_schema_fields(
+        self,
+        marketplace: str,
+        category_path: str | None,
+        fields: list[dict],
+    ) -> int:
+        """Merge schema-probe fields (with live dropdown options) into the registry.
+
+        Unlike the diagnostics path this is keyed by an explicit marketplace, because
+        one probe walks every marketplace panel in a single step.
+        """
+        touched = 0
+        for field in fields or []:
+            if not isinstance(field, dict):
+                continue
+            label = _normalize_label(str(field.get("label") or ""))
+            if not label or label == "category":
+                continue
+
+            options = [
+                str(option).strip()
+                for option in (field.get("options") or [])
+                if str(option).strip()
+            ]
+            source = str(field.get("options_source") or "").strip() or None
+            # A complete read of an open menu is ground truth: replace rather than
+            # union, so options Vendoo has removed stop being offered as matches.
+            authoritative = bool(options) and source in {"live-dropdown", "native-select"}
+
+            known = self.get_by_identity(marketplace, category_path, label)
+            selectors = _build_selector_entry(field, known)
+
+            if known and known.category_path == category_path:
+                known.known_selectors = _merge_selectors(known.known_selectors or [], selectors)
+                if field.get("is_dropdown"):
+                    known.is_dropdown = 1
+                if authoritative:
+                    known.known_options = sorted(set(options))
+                    known.options_source = source
+                elif options:
+                    known.known_options = sorted(set((known.known_options or []) + options))
+                    known.options_source = known.options_source or source
+                known.observation_count = (known.observation_count or 0) + 1
+            else:
+                # Category-specific option sets differ from the category-less entry,
+                # so a probe for a new category creates its own row.
+                self.create(
+                    marketplace=marketplace,
+                    category_path=category_path,
+                    normalized_label=label,
+                    is_dropdown=1 if field.get("is_dropdown") else 0,
+                    known_selectors=selectors,
+                    known_options=sorted(set(options)),
+                    options_source=source,
+                    observation_count=1,
+                )
+            touched += 1
+
+        self.db.commit()
+        return touched
+
+    def options_by_label(
+        self,
+        marketplace: str,
+        category_path: str | None = None,
+    ) -> dict[str, list[str]]:
+        """Known dropdown options for a marketplace, keyed by normalized label."""
+        entries = self.list_fields(marketplace, category_path)
+
+        # Category-less rows first so category-specific ones overwrite them.
+        result: dict[str, list[str]] = {}
+        for entry in sorted(entries, key=lambda e: 1 if e.category_path else 0):
+            if not entry.known_options:
+                continue
+            result[entry.normalized_label] = sorted(entry.known_options)
+        return result
+
     def get_best_selectors(self, marketplace: str, field_label: str, category_path: str | None = None) -> list[dict]:
         label = _normalize_label(field_label)
         entry = self.get_by_identity(marketplace, category_path, label)

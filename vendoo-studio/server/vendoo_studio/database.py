@@ -46,14 +46,21 @@ def init_db():
 
 def _ensure_sqlite_columns() -> None:
     inspector = inspect(engine)
-    if "conversations" not in inspector.get_table_names():
-        return
-    existing = {column["name"] for column in inspector.get_columns("conversations")}
+    tables = set(inspector.get_table_names())
     statements = []
-    if "settled_at" not in existing:
-        statements.append("ALTER TABLE conversations ADD COLUMN settled_at DATETIME")
-    if "unsettled_at" not in existing:
-        statements.append("ALTER TABLE conversations ADD COLUMN unsettled_at DATETIME")
+
+    if "conversations" in tables:
+        existing = {column["name"] for column in inspector.get_columns("conversations")}
+        if "settled_at" not in existing:
+            statements.append("ALTER TABLE conversations ADD COLUMN settled_at DATETIME")
+        if "unsettled_at" not in existing:
+            statements.append("ALTER TABLE conversations ADD COLUMN unsettled_at DATETIME")
+
+    if "field_registry" in tables:
+        existing = {column["name"] for column in inspector.get_columns("field_registry")}
+        if "options_source" not in existing:
+            statements.append("ALTER TABLE field_registry ADD COLUMN options_source VARCHAR")
+
     if not statements:
         return
     with engine.begin() as connection:
