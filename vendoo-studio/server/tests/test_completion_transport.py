@@ -69,7 +69,7 @@ class CompletionTransportTest(unittest.TestCase):
                     self.assertEqual(repair["type"], "job.fill_fields")
                     self.assertEqual(repair["payload"]["fields"][0]["value"], "Cotton")
                     self.assertEqual(repair["payload"]["platforms"], ["ebay"])
-                    self.assertEqual(repair["payload"]["listing"]["ebay_specifics"]["Material"], "Cotton")
+                    self.assertEqual(repair["payload"]["listing"]["ebay_specifics"]["material"], "Cotton")
                     self.assertNotEqual(client.get(f"/api/jobs/{job_id}").json()["status"], "completed")
                     verification["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
                     ws.send_json({"type": "job.step_completed", "job_id": job_id, "payload": {

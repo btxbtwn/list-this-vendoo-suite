@@ -129,7 +129,7 @@ class FillFieldsRouteTest(unittest.TestCase):
             "value": "Casual",
         }])
         self.db.refresh(self.job)
-        self.assertEqual(self.job.listing_snapshot["ebay_specifics"]["Occasion"], "Casual")
+        self.assertEqual(self.job.listing_snapshot["ebay_specifics"]["occasion"], "Casual")
         latest = ListingRepo(self.db).get_revisions(self.conv.id)[0]
         self.assertEqual(latest.listing_json["ebay_specifics"]["occasion"], "Casual")
 
