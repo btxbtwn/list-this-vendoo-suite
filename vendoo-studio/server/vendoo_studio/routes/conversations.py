@@ -87,6 +87,7 @@ def get_conversation(conv_id: str, db: Session = Depends(get_db)):
 
 
 class ConversationUpdate(BaseModel):
+    title: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -122,6 +123,15 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
     conv = repo.get(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
+    changed = False
+    if body.title is not None:
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(400, "Title cannot be empty")
+        if title != (conv.title or ""):
+            conv.title = title
+            conv.updated_at = utcnow()
+            changed = True
     if body.notes is not None:
         from vendoo_studio.services.vendoo_import import merge_notes, parse_notes
         incoming = parse_notes(body.notes)
@@ -129,7 +139,10 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
             conv.notes = merge_notes(conv.notes, incoming)
         else:
             conv.notes = body.notes
+        changed = True
+    if changed:
         db.commit()
+        db.refresh(conv)
     return _conv_response(conv)
 
 
