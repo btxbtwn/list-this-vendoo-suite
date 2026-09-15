@@ -45,7 +45,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
   const [ensureError, setEnsureError] = React.useState<string | null>(null);
   const ensureDraftMutation = useMutation({
     mutationFn: () => api.jobs.ensureDraft(convId),
-    onSuccess: (job) => {
+    onSuccess: async (job) => {
       setEnsureError(null);
       queryClient.setQueryData(["jobs", convId], (old: any[] | undefined) => {
         const rest = (old || []).filter((item) => item.id !== job.id);
@@ -55,7 +55,24 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
       queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
-      queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
+      // ensure-draft only binds the local job; pull live form values through Chrome.
+      try {
+        const fresh = await api.jobs.vendooItem(job.id, { refresh: true });
+        queryClient.setQueryData(["vendoo-item", job.id], fresh);
+        if (fresh?.error || fresh?.api_error) {
+          addToast({
+            type: "error",
+            title: "Could not fully refresh Vendoo draft",
+            description: String(fresh.error || fresh.api_error),
+          });
+        }
+      } catch (error) {
+        addToast({
+          type: "error",
+          title: "Could not read Vendoo draft",
+          description: (error as Error).message || "Connect Chrome and try Refresh fields again.",
+        });
+      }
     },
     onError: (err: Error) => {
       setEnsureError(err.message || "Could not load the Vendoo draft fields.");
@@ -126,7 +143,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
     if (!listingJob?.id || !(listingJob.vendoo_item_id || importedItemId)) return;
     void queryClient.prefetchQuery({
       queryKey: ["vendoo-item", listingJob.id],
-      queryFn: () => api.jobs.vendooItem(listingJob.id),
+      queryFn: () => api.jobs.vendooItem(listingJob.id, { refresh: true }),
       staleTime: 0,
     });
   }, [listingJob?.id, listingJob?.vendoo_item_id, importedItemId, queryClient]);
@@ -214,7 +231,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
                 {jobsLoading || ensureDraftMutation.isPending
                   ? "Loading fields…"
                   : importedItemId
-                    ? "This listing already has a Vendoo draft, but its job isn’t loaded yet. Refresh to pull the draft fields."
+                    ? "This listing already has a Vendoo draft, but its job isn’t loaded yet. Refresh attaches the draft and reads live fields from Vendoo (Chrome must be connected)."
                     : "Send this listing to Vendoo, then open Fields to review each marketplace and apply missing values."}
               </p>
               {ensureError && <p className="text-xs text-error" style={{ marginTop: 8 }}>{ensureError}</p>}
