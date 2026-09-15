@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from vendoo_studio.services.registry import align_listing_gender
+from vendoo_studio.services.category_catalog import remember_path
 
 log = logging.getLogger("vendoo_studio.category_lookup")
 
@@ -214,6 +215,10 @@ async def resolve_listing_category(
         extension_manager.cancel_wait(request_id)
 
     matches = payload.get("matches") if isinstance(payload.get("matches"), list) else []
+    for match in matches:
+        if _match_path(match):
+            remember_path(db, "general", _match_path(match))
+    db.commit()
     path = pick_category_path(matches, listing, search, str(payload.get("path") or "").strip())
     if not payload.get("ok") and not path:
         return {

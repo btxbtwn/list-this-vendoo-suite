@@ -1490,7 +1490,6 @@ export function FillLogPanel({
   jobId,
   conversationId,
   jobStatus,
-  jobStep,
   vendooItemId,
   vendooUrl,
   listing,
@@ -1531,15 +1530,13 @@ export function FillLogPanel({
   const [selected, setSelected] = React.useState<string | null>(null);
   const [values, setValues] = React.useState<Record<string, string>>({});
   const [openMenu, setOpenMenu] = React.useState<OpenMenu>(null);
-  const filling = jobStatus === "dispatched" && jobStep === "filling_fields";
+  const filling = jobStatus === "dispatched";
   const hasDraft = Boolean(vendooItemId || vendooUrl);
   const chromeConnected = Boolean(extStatus?.connected);
   const awaitingFill = React.useRef(false);
   const sawFilling = React.useRef(false);
   const fillingRef = React.useRef(filling);
   fillingRef.current = filling;
-  const pendingAutoAsk = React.useRef(false);
-  const autoAskedForJob = React.useRef<string | null>(null);
 
   const draftQuery = useVendooDraft(jobId, hasDraft);
   const draft = draftQuery.data;
@@ -1743,7 +1740,6 @@ export function FillLogPanel({
     // Leftover-fill completion already triggers rereadDraft above.
     if (awaitingFill.current) return;
     rereadDraft();
-    if (onAskChat) pendingAutoAsk.current = true;
   }, [jobStatus, hasDraft, chromeConnected, onAskChat]);
 
   const emptyFields = visibleSourceForms.flatMap((form) =>
@@ -1788,42 +1784,6 @@ export function FillLogPanel({
     }
     return payload;
   })();
-
-  React.useEffect(() => {
-    if (!pendingAutoAsk.current || !onAskChat) return;
-    if (jobStatus !== "completed") return;
-    if (autoAskedForJob.current === jobId) return;
-    if (filling || fillMutation.isPending) return;
-    // Wait until draft + fill-log have settled after the completion reread.
-    if (hasDraft && (draftQuery.isFetching || !draftQuery.isFetched)) return;
-    if (!report) return;
-    if (emptyFields.length === 0) {
-      pendingAutoAsk.current = false;
-      return;
-    }
-    // Values already available to apply on Vendoo — skip chat.
-    if (fillPayload.length > 0) {
-      pendingAutoAsk.current = false;
-      return;
-    }
-    autoAskedForJob.current = jobId;
-    pendingAutoAsk.current = false;
-    onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing));
-  }, [
-    jobStatus,
-    jobId,
-    onAskChat,
-    filling,
-    fillMutation.isPending,
-    hasDraft,
-    draftQuery.isFetching,
-    draftQuery.isFetched,
-    report,
-    emptyFields.length,
-    fillPayload.length,
-    visibleSourceForms,
-    fromVendooDraft,
-  ]);
 
   const hideField = (formId: string, field: DraftField, scope: "always" | "listing") => {
     if (scope === "listing" && !conversationId) return;

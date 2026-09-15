@@ -75,10 +75,17 @@ def maybe_start_schema_probe(
         return {"started": False, "reason": "no_category"}
 
     category_path = str(source_listing.get("category_path") or "").strip()
+    from vendoo_studio.services.marketplaces import selected_fillable_platforms
+    platforms = selected_fillable_platforms()
 
     job_repo = JobRepo(db)
     active = job_repo.get_active()
     if active:
+        running = active[0]
+        if (running.conversation_id == conv_id and is_schema_probe_job(running)
+                and (running.listing_snapshot or {}).get("category_path") == category_path
+                and (running.listing_snapshot or {}).get("platforms") == platforms):
+            return {"started": False, "reason": "already_running", "job_id": running.id}
         return {
             "started": False,
             "reason": "busy",
@@ -93,6 +100,11 @@ def maybe_start_schema_probe(
         prior_path = str((prior.listing_snapshot or {}).get("category_path") or "").strip()
         if prior_path != category_path:
             continue
+        if (prior.listing_snapshot or {}).get("platforms") != platforms:
+            continue
+        from datetime import datetime, timedelta, timezone
+        if prior.created_at and prior.created_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc) - timedelta(days=1):
+            continue
         if prior.status in {"queued", "awaiting_extension", "dispatched"}:
             return {"started": False, "reason": "already_running", "job_id": prior.id}
         if prior.status == "completed" and prior.current_step in {"discovering_schema", "schema_probe_done"}:
@@ -100,9 +112,7 @@ def maybe_start_schema_probe(
 
     binding = vendoo_binding(conv.notes)
     snapshot = deepcopy(source_listing)
-    from vendoo_studio.services.marketplaces import selected_fillable_platforms
-
-    snapshot["platforms"] = selected_fillable_platforms()
+    snapshot["platforms"] = platforms
     snapshot[SCHEMA_PROBE_FLAG] = True
     parent_id = revisions[0].id if revisions else "schema-probe"
 
@@ -183,3 +193,71 @@ async def kickoff_schema_probe(conv_id: str, listing: dict | None, *, reason: st
         return {"started": False, "reason": "error"}
     finally:
         db.close()
+
+
+async def prepare_generation_schema(db: Session, conv_id: str, provider, analysis: str, notes: str) -> dict:
+    """Resolve a category and await discovery before asking for the full listing."""
+    import asyncio
+    import json
+
+    from vendoo_studio.models.catalog import CategoryNode
+    from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
+    from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
+    from vendoo_studio.services.listing_completion import parse_resolution
+    from vendoo_studio.services.vendoo_import import parse_notes
+
+    if not extension_manager.connected:
+        raise RuntimeError("Connect Chrome to discover the category fields before generating the listing.")
+    override = str(parse_notes(notes).get("categoryOverride") or "").strip()
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    seed = deepcopy(revisions[0].listing_json) if revisions else {}
+    if override:
+        seed["category_path"] = override
+        if not revisions or revisions[0].listing_json.get("category_path") != override:
+            ListingRepo(db).save_revision(conv_id, seed, source="category_analysis",
+                                         parent_revision_id=revisions[0].id if revisions else None)
+    if not seed.get("category_path"):
+        candidates = [row.path for row in db.query(CategoryNode).filter_by(marketplace="general").all()]
+        messages = [{"role": "system", "content": (
+            "Identify only the item's Vendoo General category from photo evidence and seller details. "
+            "Return JSON {category_path, department, type, question}. Use a complete category breadcrumb. "
+            "Prefer an observed category when it fits. If uncertain, leave category_path empty and ask a specific question. "
+            "Do not generate a full listing or invent item facts."
+        )}, {"role": "user", "content": json.dumps({"photo_analysis": analysis,
+             "seller_details": notes, "observed_categories": candidates}, ensure_ascii=False)}]
+        text = ""
+        async with asyncio.timeout(120):
+            async for chunk in provider.chat(messages, stream=True):
+                kind, value = unpack_stream_item(chunk)
+                if kind != "thinking":
+                    text += value or ""
+        category = parse_resolution(text)
+        if not should_probe(category):
+            raise RuntimeError(str(category.get("question") or "Confirm the item's category before generating the listing."))
+        seed.update({key: category[key] for key in ("category_path", "department", "type") if category.get(key)})
+        ListingRepo(db).save_revision(conv_id, seed, source="category_analysis",
+                                     parent_revision_id=revisions[0].id if revisions else None)
+
+    result = maybe_start_schema_probe(db, conv_id, listing=seed, reason="before_generation")
+    job_id = result.get("job_id")
+    if not job_id:
+        raise RuntimeError("Category discovery could not start: " + str(result.get("reason")))
+    if result.get("reason") != "already_done":
+        waiter_id = "schema:" + job_id
+        waiter = extension_manager.register_wait(waiter_id)
+        try:
+            if result.get("started"):
+                await dispatch_queued_jobs()
+            response = await asyncio.wait_for(waiter, timeout=300)
+            if not response.get("ok"):
+                raise RuntimeError(response.get("error") or "Category field discovery failed.")
+        finally:
+            extension_manager.cancel_wait(waiter_id)
+    db.expire_all()
+    events = JobRepo(db).get_events(job_id)
+    schema = next(((event.payload or {}).get("schema") for event in reversed(events)
+                   if event.step == "discovering_schema" and (event.payload or {}).get("schema")), None)
+    platforms = (JobRepo(db).get(job_id).listing_snapshot or {}).get("platforms") or []
+    if not schema or any(not schema.get(mp, {}).get("fields") or schema[mp].get("error") for mp in ["general", *platforms]):
+        raise RuntimeError("Category discovery did not return all selected marketplace fields. Retry discovery.")
+    return seed

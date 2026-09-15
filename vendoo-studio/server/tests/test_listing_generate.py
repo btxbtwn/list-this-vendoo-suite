@@ -340,6 +340,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
             patch("vendoo_studio.routes.chat._load_skill_rules", return_value="rules"),
             patch("vendoo_studio.routes.chat.research_sold_comps", new=AsyncMock(return_value="")),
             patch("vendoo_studio.routes.chat.comps_search_available", return_value=False),
+            patch("vendoo_studio.routes.chat.prepare_generation_schema", new=AsyncMock(return_value={})),
         ]
         for p in self.patches:
             p.start()
@@ -533,14 +534,16 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 f"/api/conversations/{self.conv_id}/messages",
                 json={"text": "Make the listing"},
             )
-        self.assertEqual(resp.status_code, 502)
-        self.assertEqual(
-            resp.json()["detail"],
-            "Photo analysis failed. Retry to analyze the photos again.",
+        # Initial photo chat uses the streaming discovery/generation pipeline.
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(
+            "Error: Photo analysis failed. Retry to analyze the photos again.",
+            resp.text,
         )
         self.assertEqual(self.provider.chat_calls, 0)
         db = self.Session()
         conv = ConversationRepo(db).get(self.conv_id)
+        self.assertEqual(ListingRepo(db).get_revisions(self.conv_id), [])
         db.close()
         self.assertEqual(conv.status, "draft")
 

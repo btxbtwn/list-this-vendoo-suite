@@ -277,7 +277,7 @@ class JobRepo:
     def requeue_interrupted(self) -> list[Job]:
         jobs = self.db.query(Job).filter(Job.status == "dispatched").all()
         for job in jobs:
-            if job.current_step == "filling_fields":
+            if job.current_step in {"filling_fields", "resolving_fields", "verifying_draft"}:
                 job.status = "failed"
                 job.last_error = (
                     "Chrome disconnected during leftover field fill. "
@@ -589,10 +589,10 @@ class RegistryRepo:
                 continue
 
             options = [
-                str(option).strip()
+                str(option.get("label") or "").strip() if isinstance(option, dict) else str(option).strip()
                 for option in (field.get("options") or [])
-                if str(option).strip()
             ]
+            options = [option for option in options if option]
             source = str(field.get("options_source") or "").strip() or None
             # A complete read of an open menu is ground truth: replace rather than
             # union, so options Vendoo has removed stop being offered as matches.

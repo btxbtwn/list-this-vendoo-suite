@@ -255,9 +255,9 @@ class ListingSchema(BaseModel):
     department: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
-    weight_lb: int = Field(default=0, ge=0)
-    weight_oz: int = Field(default=8, ge=0)
-    package_dimensions_in: Optional[str] = Field(default="13x10x3")
+    weight_lb: Optional[int] = Field(default=None, ge=0)
+    weight_oz: Optional[int] = Field(default=None, ge=0)
+    package_dimensions_in: Optional[str] = None
     internal_notes: Optional[str] = None
 
     ebay_specifics: EbaySpecifics = Field(default_factory=EbaySpecifics)

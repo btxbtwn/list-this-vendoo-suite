@@ -296,6 +296,10 @@ async def dispatch_queued_jobs():
 async def dispatch_fill_fields(job, fields: list[dict]) -> bool:
     if not extension_manager.connected:
         return False
+    from sqlalchemy.orm import object_session
+    from vendoo_studio.repositories.queries import ConversationRepo
+    db = object_session(job)
+    photo_count = len(ConversationRepo(db).get_photos(job.conversation_id)) if db is not None else 0
     return await extension_manager.send_message(ProtocolMessage(
         type="job.fill_fields",
         job_id=job.id,
@@ -305,6 +309,9 @@ async def dispatch_fill_fields(job, fields: list[dict]) -> bool:
             "vendoo_item_id": job.vendoo_item_id,
             "vendoo_url": job.vendoo_url,
             "fields": fields,
+            "listing": {key: value for key, value in (job.listing_snapshot or {}).items() if not key.startswith("_")},
+            "platforms": (job.listing_snapshot or {}).get("platforms") or [],
+            "expected_photo_count": photo_count,
         },
     ).model_dump(mode="json"))
 
@@ -595,12 +602,15 @@ async def extension_websocket(ws: WebSocket):
                         vurl = None
                     job = repo.get(job_id)
                     if step == "filling_fields":
-                        repo.update_status(job_id, "completed", step, vendoo_item_id=vid, vendoo_url=vurl)
+                        repo.update_status(job_id, "dispatched", "verifying_draft", vendoo_item_id=vid, vendoo_url=vurl)
                         repo.add_event(job_id, "step_completed", step, payload)
                         job = repo.get(job_id)
                         if job and payload.get("fill_log"):
                             FillLogService(db).apply_field_results(job, payload.get("fill_log"))
-                        _set_conversation_status(db, job_id, "completed")
+                        if job:
+                            from vendoo_studio.services.listing_completion import store_verification, schedule_completion
+                            store_verification(db, job, payload.get("verification") or {})
+                            schedule_completion(job_id)
                     else:
                         repo.update_status(job_id, "dispatched", step, vendoo_item_id=vid, vendoo_url=vurl)
                         repo.add_event(job_id, "step_completed", step, payload)
@@ -608,6 +618,8 @@ async def extension_websocket(ws: WebSocket):
                         if job and payload.get("fill_log"):
                             FillLogService(db).save_step(job, step, payload.get("fill_log"))
                         if step == "discovering_schema" and job and payload.get("schema"):
+                            from vendoo_studio.services.category_catalog import remember_schema
+                            remember_schema(db, str((job.listing_snapshot or {}).get("category_path") or ""), payload["schema"])
                             schema = payload.get("schema") or {}
                             learned = _learn_schema_options(db, job, schema)
                             repo.add_event(job_id, "schema_discovered", step, {
@@ -633,13 +645,13 @@ async def extension_websocket(ws: WebSocket):
                     step = payload.get("step", "")
                     job = repo.get(job_id)
                     if step == "filling_fields":
-                        restore = "completed" if (job and (job.vendoo_url or job.vendoo_item_id)) else "failed"
+                        restore = "failed"
                         repo.update_status(job_id, restore, step, error=err)
                         repo.add_event(job_id, "step_failed", step, payload)
                         job = repo.get(job_id)
                         if job and payload.get("fill_log"):
                             FillLogService(db).apply_field_results(job, payload.get("fill_log"))
-                        _set_conversation_status(db, job_id, restore)
+                        _set_conversation_status(db, job_id, "draft")
                     else:
                         repo.update_status(job_id, "failed", step, error=err)
                         repo.add_event(job_id, "step_failed", step, payload)
@@ -647,6 +659,7 @@ async def extension_websocket(ws: WebSocket):
                         if job and payload.get("fill_log"):
                             FillLogService(db).save_step(job, step, payload.get("fill_log"))
                         if is_schema_probe_job(job):
+                            extension_manager.resolve_wait("schema:" + job_id, {"ok": False, "error": err})
                             ConversationRepo(db).add_message(
                                 job.conversation_id,
                                 "system",
@@ -702,14 +715,14 @@ async def extension_websocket(ws: WebSocket):
                     item_id = durable_vendoo_item_id(payload.get("vendoo_item_id"))
                     job = repo.get(job_id)
                     if job and is_schema_probe_job(job):
-                        bind_probe_draft(db, job)
                         repo.update_status(
                             job_id,
                             "completed",
                             current_step="schema_probe_done",
                             vendoo_url=vurl or job.vendoo_url,
-                            vendoo_item_id=job.vendoo_item_id,
+                            vendoo_item_id=item_id or job.vendoo_item_id,
                         )
+                        bind_probe_draft(db, job)
                         repo.add_event(job_id, "completed", "schema_probe_done", {
                             "mode": "schema_probe",
                             "vendoo_url": vurl or job.vendoo_url,
@@ -726,29 +739,14 @@ async def extension_websocket(ws: WebSocket):
                             provider="system",
                             model="",
                         )
+                        extension_manager.resolve_wait("schema:" + job_id, {"ok": True})
                     elif job:
-                        verified = bool(payload.get("verified"))
-                        if not verified or not item_id:
-                            error = str(payload.get("error") or "Saved Vendoo draft was not independently verified")
-                            repo.update_status(
-                                job_id,
-                                "failed",
-                                current_step="verifying_draft",
-                                error=error,
-                                vendoo_url=vurl or job.vendoo_url,
-                                vendoo_item_id=item_id or job.vendoo_item_id,
-                            )
-                            repo.add_event(job_id, "verification_failed", "verifying_draft", payload)
-                            _set_conversation_status(db, job_id, "draft")
-                        else:
-                            repo.update_status(
-                                job_id,
-                                "completed",
-                                vendoo_url=vurl or job.vendoo_url,
-                                vendoo_item_id=item_id,
-                            )
-                            repo.add_event(job_id, "completed", None, payload)
-                            _set_conversation_status(db, job_id, "completed")
+                        from vendoo_studio.services.listing_completion import store_verification, schedule_completion
+                        repo.update_status(job_id, "dispatched", "verifying_draft",
+                                           vendoo_url=vurl or job.vendoo_url,
+                                           vendoo_item_id=item_id or job.vendoo_item_id)
+                        store_verification(db, job, payload.get("verification") or {})
+                        schedule_completion(job_id)
 
             elif msg_type == "job.cancelled":
                 job_id = message.get("job_id")

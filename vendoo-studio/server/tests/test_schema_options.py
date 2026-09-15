@@ -70,6 +70,14 @@ class SchemaOptionIngestTest(unittest.TestCase):
         self.assertIn("2020 - 2027 (Recently)", options)
         self.assertNotIn("2020 - 2026 (Recently)", options)
 
+    def test_native_schema_options_store_labels_without_losing_catalog_values(self):
+        self.repo.upsert_schema_fields("etsy", ETSY_PATH, [
+            _field("When Made", [{"label": "Before 2004 (Vintage)", "value": "vintage"}],
+                   source="native-select"),
+        ])
+        self.assertEqual(self.repo.get_valid_options("etsy", "When Made", ETSY_PATH),
+                         ["Before 2004 (Vintage)"])
+
     def test_partial_capture_does_not_replace_known_options(self):
         self.repo.upsert_schema_fields("etsy", ETSY_PATH, [
             _field("When Made", ["2020 - 2026 (Recently)", "Before 2004 (Vintage)"]),
