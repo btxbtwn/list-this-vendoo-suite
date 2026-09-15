@@ -736,6 +736,7 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Failure reason:", panel)
         self.assertIn("Ask chat to retry", panel)
         self.assertIn("Apply on Vendoo", panel)
+        self.assertIn("function leftoverGeneratedValue", panel)
 
 
 if __name__ == "__main__":
