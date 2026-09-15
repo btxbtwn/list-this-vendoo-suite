@@ -4,20 +4,25 @@ import { api } from "../api/client";
 import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
 
-const POLL_MS = 10 * 60 * 1000;
+const POLL_MS = 60 * 1000;
 
 type UpdateStatus = Awaited<ReturnType<typeof api.updates.status>>;
 
 async function waitForReload() {
-  for (let i = 0; i < 45; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+  // Give the restart thread a moment to begin shutting down.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  let sawDown = false;
+  for (let i = 0; i < 60; i++) {
     try {
       await api.health();
-      window.location.reload();
-      return;
+      if (sawDown) {
+        window.location.reload();
+        return;
+      }
     } catch {
-      /* server is restarting */
+      sawDown = true;
     }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   window.location.reload();
 }

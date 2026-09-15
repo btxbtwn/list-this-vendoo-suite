@@ -38,7 +38,7 @@ async def _after_app_replace(result: dict, cancelled_jobs: list[str]) -> dict:
 
             await request_extension_reload(generation)
         result["extension_reload"] = True
-        update_service.schedule_restart()
+        update_service.schedule_restart(force=True)
         result["reloading"] = True
     if cancelled_jobs:
         result["cancelled_jobs"] = cancelled_jobs
