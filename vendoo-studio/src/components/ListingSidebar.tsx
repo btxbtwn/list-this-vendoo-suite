@@ -230,7 +230,7 @@ export function ListingSidebar({
   });
   const { data: jobs } = useQuery({
     queryKey: ["jobs"],
-    queryFn: api.jobs.list,
+    queryFn: () => api.jobs.list(),
     refetchInterval: 2000,
   });
   const jobIdByConversation = useMemo(() => {

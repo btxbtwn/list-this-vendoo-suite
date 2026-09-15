@@ -137,8 +137,13 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
 
 
 @router.get("", response_model=list[JobResponse])
-def list_jobs(db: Session = Depends(get_db)):
+def list_jobs(conversation_id: str | None = None, db: Session = Depends(get_db)):
     repo = JobRepo(db)
+    if conversation_id:
+        conv = ConversationRepo(db).get(conversation_id)
+        if not conv:
+            raise HTTPException(404, "Conversation not found")
+        return [_job_response(j) for j in repo.list_by_conversation(conversation_id)]
     return [_job_response(j) for j in repo.list_all()]
 
 
