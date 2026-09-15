@@ -271,12 +271,14 @@ def extension_reload_token_if_needed(
     reported_build: str | None = None,
 ) -> str | None:
     """One reload token when Chrome is not on this Studio copy."""
-    if extension_in_lockstep(reported_build, reported_version):
-        return None
     pending = pending_extension_reload_token()
     if pending and pending == reported_generation:
         return None
-    return pending or mark_extension_reload_pending()
+    if pending:
+        return pending
+    if extension_in_lockstep(reported_build, reported_version):
+        return None
+    return mark_extension_reload_pending()
 
 
 def extension_build_status(
@@ -468,5 +470,4 @@ def launch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = True)
 
 
 def relaunch_studio_chrome(url: str = DEFAULT_VENDOO_URL, *, visible: bool = True) -> dict:
-    clear_extension_reload_pending()
     return launch_studio_chrome(url, visible=visible)

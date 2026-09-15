@@ -280,8 +280,8 @@ def _rebuild_frontend_if_needed(root: Path) -> bool:
     return True
 
 
-def schedule_restart() -> None:
-    if _is_dev() and not is_packaged():
+def schedule_restart(*, force: bool = False) -> None:
+    if not force and _is_dev() and not is_packaged():
         return
 
     def _restart() -> None:

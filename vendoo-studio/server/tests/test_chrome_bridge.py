@@ -111,7 +111,16 @@ class ChromeBridgeTest(unittest.TestCase):
         token = chrome_bridge.extension_reload_token_if_needed("0.2.5", None, None)
         self.assertTrue(token)
         self.assertIsNone(chrome_bridge.extension_reload_token_if_needed("0.2.5", token, None))
+        chrome_bridge.clear_extension_reload_pending()
         self.assertIsNone(chrome_bridge.extension_reload_token_if_needed("0.2.6", None, build))
+
+    def test_reload_token_honors_pending_update_before_lockstep(self):
+        (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
+        chrome_bridge.install_bundled_extension()
+        build = chrome_bridge.expected_extension_build()
+        pending = chrome_bridge.mark_extension_reload_pending()
+        token = chrome_bridge.extension_reload_token_if_needed("0.2.6", None, build)
+        self.assertEqual(token, pending)
 
     def test_build_status_ignores_shadow_copy_and_reload_token(self):
         (self.extension / "manifest.json").write_text('{"version": "0.2.6"}', encoding="utf-8")
