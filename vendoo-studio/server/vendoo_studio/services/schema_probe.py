@@ -114,6 +114,11 @@ def maybe_start_schema_probe(
             return {"started": False, "reason": "already_done", "job_id": prior.id}
 
     binding = vendoo_binding(conv.notes)
+    if not binding.get("vendooItemId"):
+        for prior in job_repo.list_by_conversation(conv_id):
+            if is_schema_probe_job(prior) and prior.vendoo_item_id and prior.vendoo_item_id != "new":
+                binding = {"vendooItemId": prior.vendoo_item_id, "vendooUrl": prior.vendoo_url}
+                break
     snapshot = deepcopy(source_listing)
     snapshot["platforms"] = platforms
     snapshot[SCHEMA_PROBE_FLAG] = True

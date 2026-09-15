@@ -90,6 +90,19 @@ class SchemaProbeServiceTest(unittest.TestCase):
         self.assertTrue(job.listing_snapshot.get(SCHEMA_PROBE_FLAG))
         self.assertIsInstance(job.listing_snapshot.get("platforms"), list)
 
+    def test_retry_reuses_draft_created_by_failed_probe(self):
+        first = maybe_start_schema_probe(self.db, self.conv.id)
+        prior = JobRepo(self.db).get(first["job_id"])
+        prior.status = "failed"
+        prior.vendoo_item_id = "saved-probe-draft"
+        prior.vendoo_url = "https://web.vendoo.co/app/item/saved-probe-draft"
+        self.db.commit()
+        result = maybe_start_schema_probe(self.db, self.conv.id)
+        self.assertTrue(result["started"])
+        retry = JobRepo(self.db).get(result["job_id"])
+        self.assertEqual(retry.vendoo_item_id, prior.vendoo_item_id)
+        self.assertEqual(retry.vendoo_url, prior.vendoo_url)
+
     def test_maybe_start_skips_when_another_job_active(self):
         JobRepo(self.db).create(
             conv_id=self.conv.id,
