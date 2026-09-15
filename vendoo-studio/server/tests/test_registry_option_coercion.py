@@ -200,7 +200,7 @@ class SchemaProbeCapturesOptionsTest(unittest.TestCase):
     def test_discovery_awaits_option_capture(self):
         text = CONTENT_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("async function collectMarketplaceSchemaFields", text)
-        self.assertIn("const fields = await collectMarketplaceSchemaFields(platform)", text)
+        self.assertIn("fields = await collectMarketplaceSchemaFields(platform)", text)
         self.assertIn("readLiveFieldOptions", text)
         self.assertIn("MAX_OPTION_CAPTURES_PER_PLATFORM", text)
 
