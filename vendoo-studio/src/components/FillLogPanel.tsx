@@ -638,11 +638,6 @@ const PROTECTED_EBAY_CORE_NAMES = new Set(
   ).map((field) => normalizeFieldName(field.label)),
 );
 
-const EBAY_CATEGORY_FIELD_NAMES = new Set([
-  ...EBAY_CATEGORY_CORE.map((field) => normalizeFieldName(field.label)),
-  ...EBAY_CATEGORY_OPTIONALS.map((field) => normalizeFieldName(field.label)),
-]);
-
 function isProtectedEbayField(marketplace: string, field: DraftField | string): boolean {
   if (marketplace.toLowerCase() !== "ebay") return false;
   const name =
@@ -1711,22 +1706,6 @@ export function FillLogPanel({
     },
   });
 
-  const restoreCategoryMutation = useMutation({
-    mutationFn: (fields: { marketplace: string; field: string }[]) =>
-      api.settings.restoreMatchingHiddenFields(fields, conversationId),
-    onSuccess: (payload, fields) => {
-      queryClient.setQueryData(hiddenQueryKey, { always: payload.always, listing: payload.listing });
-      addToast({
-        type: "success",
-        title: `Restored ${fields.length} eBay category field${fields.length === 1 ? "" : "s"}`,
-        description: "Department and optionals were hidden — they should appear under eBay → Category.",
-      });
-    },
-    onError: (error) => {
-      addToast({ type: "error", title: (error as Error).message || "Could not restore category fields" });
-    },
-  });
-
   const resolveCategory = useMutation({
     mutationFn: () => api.jobs.resolveCategory(jobId, String(listing?.category_path || "")),
     onSuccess: (result) => {
@@ -1866,10 +1845,6 @@ export function FillLogPanel({
     });
   };
 
-  const hiddenEbayCategoryCount = [...hidden.always, ...hidden.listing].filter(
-    (item) => item.marketplace === "ebay" && EBAY_CATEGORY_FIELD_NAMES.has(normalizeFieldName(item.field)),
-  ).length;
-
   return (
     <div className="fill-log-pr">
       <div className="pr-toolbar">
@@ -1976,32 +1951,6 @@ export function FillLogPanel({
       {draftQuery.isFetching && (
         <p className="pr-notice">
           Opening each marketplace form and expanding optional fields so Studio can list every empty field…
-        </p>
-      )}
-
-      {hiddenEbayCategoryCount > 0 && (
-        <p className="pr-notice">
-          {hiddenEbayCategoryCount} eBay category field{hiddenEbayCategoryCount === 1 ? " is" : "s are"} hidden
-          (Department, Accents, Pattern, …).{" "}
-          <button
-            type="button"
-            className="pr-read"
-            style={{ background: "none", border: "none", padding: 0, color: "inherit", textDecoration: "underline", cursor: "pointer" }}
-            disabled={restoreCategoryMutation.isPending}
-            onClick={() =>
-              restoreCategoryMutation.mutate(
-                [...hidden.always, ...hidden.listing]
-                  .filter(
-                    (item) =>
-                      item.marketplace === "ebay" &&
-                      EBAY_CATEGORY_FIELD_NAMES.has(normalizeFieldName(item.field)),
-                  )
-                  .map((item) => ({ marketplace: item.marketplace, field: item.field })),
-              )
-            }
-          >
-            Show category fields
-          </button>
         </p>
       )}
 
