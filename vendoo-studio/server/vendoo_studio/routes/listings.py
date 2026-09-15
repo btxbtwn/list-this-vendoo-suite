@@ -103,6 +103,14 @@ def get_listing(conv_id: str, db: Session = Depends(get_db)):
 
 @router.put("/api/conversations/{conv_id}/listing")
 def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_db)):
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.repositories.queries import JobRepo
+    from vendoo_studio.services.listing_generate import (
+        propagate_general_size,
+        sanitize_listing_sizes,
+    )
+    from vendoo_studio.services.schema_probe import is_schema_probe_job
+
     conv_repo = ConversationRepo(db)
     if not conv_repo.get(conv_id):
         raise HTTPException(404, "Conversation not found")
@@ -112,6 +120,8 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
 
     photo_count = len(conv_repo.get_photos(conv_id))
     _reject_corrupt_listing(body.listing)
+    sanitize_listing_sizes(body.listing)
+    propagate_general_size(body.listing)
     normalize_listing_dropdowns(body.listing)
     validation = validate_listing(body.listing, photo_count, require_photos=True)
 
@@ -125,7 +135,19 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     if current:
         current.validation_status = "valid" if validation.valid else "error"
         current.validation_errors = validation.errors + validation.warnings
-        db.commit()
+
+    # Keep in-flight / paused automation on the edited Studio form payload.
+    refresh_statuses = set(ACTIVE_JOB_STATUSES) | {"failed"}
+    for job in JobRepo(db).list_by_conversation(conv_id):
+        if job.status not in refresh_statuses or is_schema_probe_job(job):
+            continue
+        platforms = (job.listing_snapshot or {}).get("platforms") if isinstance(job.listing_snapshot, dict) else None
+        snapshot = dict(body.listing)
+        if isinstance(platforms, list):
+            snapshot["platforms"] = platforms
+        job.listing_snapshot = snapshot
+
+    db.commit()
 
     return {
         "ok": True,

@@ -295,6 +295,78 @@ def ensure_physical_description(listing: dict) -> bool:
     return True
 
 
+_SIZE_APPROX_PREFIX_RE = re.compile(
+    r"^(?:approx(?:imately)?\.?|about|around|est\.?|estimated|~)\s*:?\s*",
+    re.I,
+)
+_SIZE_SPECIFIC_KEYS = (
+    "ebay_specifics",
+    "poshmark_specifics",
+    "mercari_specifics",
+    "depop_specifics",
+    "etsy_specifics",
+)
+
+
+def sanitize_size_value(raw: Any) -> str:
+    """Strip estimate qualifiers so size is a marketplace dropdown value."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    cleaned = _SIZE_APPROX_PREFIX_RE.sub("", text).strip()
+    return cleaned or text
+
+
+def sanitize_listing_sizes(listing: dict) -> bool:
+    """Normalize size fields to clean marketplace values (no 'approx 10')."""
+    if not isinstance(listing, dict):
+        return False
+    changed = False
+    size = sanitize_size_value(listing.get("size"))
+    if size and size != str(listing.get("size") or "").strip():
+        listing["size"] = size
+        changed = True
+    for key in ("size_us", "sizeUs"):
+        if key not in listing:
+            continue
+        cleaned = sanitize_size_value(listing.get(key))
+        if cleaned and cleaned != str(listing.get(key) or "").strip():
+            listing[key] = cleaned
+            changed = True
+    for specifics_key in _SIZE_SPECIFIC_KEYS:
+        block = listing.get(specifics_key)
+        if not isinstance(block, dict) or "size" not in block:
+            continue
+        cleaned = sanitize_size_value(block.get("size"))
+        if cleaned and cleaned != str(block.get("size") or "").strip():
+            listing[specifics_key] = {**block, "size": cleaned}
+            changed = True
+    return changed
+
+
+def propagate_general_size(listing: dict) -> bool:
+    """Mirror general size into marketplace size slots Vendoo keeps in sync."""
+    if not isinstance(listing, dict):
+        return False
+    size = sanitize_size_value(listing.get("size"))
+    if not size:
+        return False
+    if str(listing.get("size") or "").strip() != size:
+        listing["size"] = size
+    changed = False
+    for specifics_key in _SIZE_SPECIFIC_KEYS:
+        block = listing.get(specifics_key)
+        if not isinstance(block, dict):
+            continue
+        if specifics_key != "ebay_specifics" and "size" not in block:
+            continue
+        if str(block.get("size") or "").strip() == size:
+            continue
+        listing[specifics_key] = {**block, "size": size}
+        changed = True
+    return changed
+
+
 def apply_send_readiness_fixes(listing: dict) -> bool:
     """Deterministic fixes so generated listings clear common Send blockers."""
     from vendoo_studio.models.validation import normalize_listing_dropdowns
@@ -302,6 +374,8 @@ def apply_send_readiness_fixes(listing: dict) -> bool:
     if not isinstance(listing, dict):
         return False
     changed = normalize_listing_dropdowns(listing)
+    if sanitize_listing_sizes(listing):
+        changed = True
     if ensure_physical_description(listing):
         changed = True
     if not str(listing.get("package_dimensions_in") or "").strip():
