@@ -216,6 +216,8 @@ def _sse_for_stream_item(item) -> tuple[str | None, str]:
 
 
 def _load_skill_rules(query: str = "", db: Session | None = None) -> str:
+    from vendoo_studio.services.skill_formulas import with_pinned_formulas
+
     skill_md = skills_dir() / "list-this" / "SKILL.md"
     template_md = skills_dir() / "list-this" / "references" / "vendoo_listing_template.md"
 
@@ -225,14 +227,14 @@ def _load_skill_rules(query: str = "", db: Session | None = None) -> str:
             parts.append(skill_md.read_text())
         if template_md.exists():
             parts.append(template_md.read_text())
-        return "\n\n---\n\n".join(parts) if parts else ""
+        return with_pinned_formulas("\n\n---\n\n".join(parts) if parts else "")
 
     if db is not None and str(query or "").strip():
         try:
             from vendoo_studio.services.catalog_index import relevant_skill_rules
             rules = relevant_skill_rules(db, query)
             if str(rules or "").strip():
-                return rules
+                return with_pinned_formulas(rules)
         except Exception:
             log.exception("catalog skill rules unavailable; falling back to SKILL.md")
     return _file_rules()
@@ -438,7 +440,9 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             "- Never ask the seller to upload or attach photos when product photos are already present.\n"
             "- Be conservative with brand and size: use photo/tag/logo evidence and seller notes only; leave unsupported facts empty and flag uncertainty — never invent, never ask.\n"
             f"- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at {WOMEN_TOPS_PATH}, never Shirts & Blouses. Men's T-shirts use {MEN_TSHIRT_PATH}.\n"
-            "- Follow the title and description formulas EXACTLY from the rules below.\n"
+            "- Title MUST follow Brand Size Vibe Item Color Fit exactly (max 80 chars) from the Formula Reference below.\n"
+            "- Description MUST follow the physical-item formula exactly (line breaks; Size:/Condition:/Measurements:/OFFERS WELCOME) unless this is an Etsy digital download.\n"
+            "- Do not invent catchy titles or prose that break those formulas.\n"
             "- Resolve every applicable discovered field from photo evidence and initial seller notes. Leave unsupported facts empty and note them; never invent brand, size, material, or age.\n"
             "- Estimate packaged shipping weight and mailer dimensions from the item type; do not ask the seller for those.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
@@ -954,6 +958,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 raise RuntimeError(full_text.strip() or "Listing generation returned no text")
             if not extract_listing_json(full_text):
                 run.publish(_sse_event("status", "Repairing listing JSON…"))
+            run.publish(_sse_event("status", "Filling required fields…"))
             listing = await persist_generated_listing_with_repair(stream_db, conv_id, full_text, provider)
             stream_repo.update_status(conv_id, "draft")
             run.publish("data: [DONE]\n\n")
@@ -1049,6 +1054,10 @@ def _listing_messages(
         "when a second color is visible. Use Vendoo general condition values such as "
         '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
         "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
+        "TITLE and DESCRIPTION are non-negotiable skill formulas — copy the structure from "
+        "Formula Reference below. Title order is Brand Size Vibe Item Color Fit (max 80 chars). "
+        "Physical descriptions must keep the mandatory blank lines and Size:/Condition:/Measurements:/"
+        "OFFERS WELCOME blocks. Do not write freeform marketing copy that breaks those formulas.\n\n"
         "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
         "Do not modify, estimate, or replace seller-provided measurements.\n"
         "Use the discovered category fields below. Infer every supportable product fact from the photo analysis and "

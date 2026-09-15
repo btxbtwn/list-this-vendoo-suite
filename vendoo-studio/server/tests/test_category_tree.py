@@ -336,6 +336,9 @@ class CatalogIndexTest(unittest.TestCase):
         from vendoo_studio.services.catalog_index import relevant_skill_rules
         text = relevant_skill_rules(self.db, "category path women's tops measurements")
         self.assertTrue(text.strip())
+        self.assertIn("TITLE Formula", text)
+        self.assertIn("{BRAND} {SIZE} {VIBE} {ITEM} {COLOR} {FIT}", text)
+        self.assertIn("DESCRIPTION Formula", text)
 
     def test_fill_helper_search_finds_extension_symbols(self):
         hits = search_catalog(self.db, "fill brand category", kind="fill", top_k=10)
