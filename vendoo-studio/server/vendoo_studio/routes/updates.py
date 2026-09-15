@@ -25,6 +25,26 @@ def _cancel_leftover_jobs(db: Session) -> list[str]:
     return cancelled
 
 
+async def _after_app_replace(result: dict, cancelled_jobs: list[str]) -> dict:
+    if result.get("updated"):
+        generation = mark_extension_reload_pending()
+        packaged = bool(result.get("packaged"))
+        if not packaged:
+            try:
+                install_bundled_extension()
+            except ChromeBridgeError:
+                pass
+            from vendoo_studio.routes.extension import request_extension_reload
+
+            await request_extension_reload(generation)
+        result["extension_reload"] = True
+        update_service.schedule_restart()
+        result["reloading"] = True
+    if cancelled_jobs:
+        result["cancelled_jobs"] = cancelled_jobs
+    return result
+
+
 @router.get("")
 def update_status():
     return update_service.check_for_updates()
@@ -39,20 +59,16 @@ async def apply_update(db: Session = Depends(get_db)):
         raise HTTPException(409, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(500, str(exc)) from exc
+    return await _after_app_replace(result, cancelled_jobs)
 
-    if result.get("updated"):
-        generation = mark_extension_reload_pending()
-        packaged = bool(result.get("packaged"))
-        if not packaged:
-            try:
-                install_bundled_extension()
-            except ChromeBridgeError:
-                pass
-            from vendoo_studio.routes.extension import request_extension_reload
-            await request_extension_reload(generation)
-        result["extension_reload"] = True
-        update_service.schedule_restart()
-        result["reloading"] = True
-    if cancelled_jobs:
-        result["cancelled_jobs"] = cancelled_jobs
-    return result
+
+@router.post("/reinstall")
+async def reinstall_app(db: Session = Depends(get_db)):
+    cancelled_jobs = _cancel_leftover_jobs(db)
+    try:
+        result = update_service.reinstall_app()
+    except UpdateBlocked as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return await _after_app_replace(result, cancelled_jobs)

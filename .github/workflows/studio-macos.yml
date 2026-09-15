@@ -41,6 +41,18 @@ jobs:
           "$PYTHON" -m pip install -U pip
           "$PYTHON" -m pip install -e ".[package]"
           ./scripts/package-macos-app.sh
+      - name: Verify update zip has no symlinks
+        working-directory: vendoo-studio
+        env:
+          PYTHON: ${{ github.workspace }}/vendoo-studio/.venv/bin/python
+        run: |
+          "$PYTHON" - release/List-This-Studio-macos.zip <<'PY'
+          import sys
+          from pathlib import Path
+          from vendoo_studio.services.bundle_symlinks import assert_zip_has_no_symlinks
+          assert_zip_has_no_symlinks(Path(sys.argv[1]))
+          print("OK: release zip has no symbolic link members")
+          PY
       - name: Publish GitHub release
         working-directory: vendoo-studio
         env:

@@ -220,16 +220,17 @@ def notify(message: str) -> None:
     )
 
 
-def confirm_update_dialog(message: str) -> bool:
+def confirm_update_dialog(message: str, *, confirm_label: str = "Update") -> bool:
     """Native confirm for menu-bar updates when the web UI may be unusable."""
     if not shutil.which("osascript"):
         return True
     script = (
         f'display dialog {shlex_quote(message)} with title {shlex_quote(APP_NAME)} '
-        f'buttons {{"Cancel", "Update"}} default button "Update" cancel button "Cancel"'
+        f'buttons {{"Cancel", {shlex_quote(confirm_label)}}} default button {shlex_quote(confirm_label)} '
+        f'cancel button "Cancel"'
     )
     result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-    return result.returncode == 0 and "Update" in (result.stdout or "")
+    return result.returncode == 0 and confirm_label in (result.stdout or "")
 
 
 def _update_status_message(status: dict) -> str:
@@ -249,6 +250,17 @@ def _update_status_message(status: dict) -> str:
 def _http_apply_update() -> dict:
     request = urllib.request.Request(
         f"{APP_URL}/api/updates/apply",
+        data=b"{}",
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=300) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _http_reinstall_app() -> dict:
+    request = urllib.request.Request(
+        f"{APP_URL}/api/updates/reinstall",
         data=b"{}",
         method="POST",
         headers={"Content-Type": "application/json", "Accept": "application/json"},
@@ -321,6 +333,35 @@ def menu_update_and_restart() -> None:
     threading.Thread(target=work, daemon=True, name="studio-menu-apply-update").start()
 
 
+def menu_reinstall_app() -> None:
+    def work() -> None:
+        try:
+            message = (
+                "Download a fresh Mac build from GitHub and replace this app?\n\n"
+                "Listing data and settings stay on this Mac. The app will quit and reopen."
+            )
+            if not confirm_update_dialog(message, confirm_label="Reinstall"):
+                notify("Reinstall cancelled.")
+                return
+            notify("Reinstalling from GitHub…")
+            if studio_is_up():
+                result = _http_reinstall_app()
+            else:
+                from vendoo_studio.services.updates import reinstall_app, schedule_restart
+
+                result = reinstall_app()
+                if result.get("updated"):
+                    schedule_restart()
+            if result.get("updated"):
+                notify("Reinstall complete. Restarting…")
+            else:
+                notify(f"{APP_NAME} could not be reinstalled.")
+        except Exception as exc:
+            notify(f"Reinstall failed: {exc}")
+
+    threading.Thread(target=work, daemon=True, name="studio-menu-reinstall").start()
+
+
 def studio_app_menu():
     """Native macOS menu bar items that work even when the web UI is blank."""
     try:
@@ -330,8 +371,9 @@ def studio_app_menu():
 
     app_items = [
         MenuAction("Check for Updates…", menu_check_for_updates),
-        MenuSeparator(),
         MenuAction("Update and Restart…", menu_update_and_restart),
+        MenuAction("Reinstall from GitHub…", menu_reinstall_app),
+        MenuSeparator(),
     ]
     return [
         # macOS only: items under the app name in the system menu bar.
@@ -341,6 +383,7 @@ def studio_app_menu():
             [
                 MenuAction("Check for Updates…", menu_check_for_updates),
                 MenuAction("Update and Restart…", menu_update_and_restart),
+                MenuAction("Reinstall from GitHub…", menu_reinstall_app),
             ],
         ),
     ]

@@ -332,5 +332,10 @@ export const api = {
       request<{ ok: boolean; updated: boolean; sha?: string; reloading?: boolean }>("/updates/apply", {
         method: "POST",
       }),
+    reinstall: () =>
+      request<{ ok: boolean; updated: boolean; sha?: string; reloading?: boolean; reinstalled?: boolean }>(
+        "/updates/reinstall",
+        { method: "POST" },
+      ),
   },
 };

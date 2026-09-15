@@ -21,6 +21,8 @@ class PackagedUpdateTest(unittest.TestCase):
         self._packaged = os.environ.get("VENDOO_STUDIO_PACKAGED")
         self._info = os.environ.get("VENDOO_STUDIO_BUILD_INFO")
         self._data = os.environ.get("VENDOO_STUDIO_DATA_DIR")
+        self._app = os.environ.get("VENDOO_STUDIO_APP_PATH")
+        self._skip_codesign = os.environ.get("VENDOO_STUDIO_SKIP_CODESIGN")
         os.environ["VENDOO_STUDIO_PACKAGED"] = "1"
         os.environ["VENDOO_STUDIO_BUILD_INFO"] = str(self.info)
 
@@ -37,6 +39,14 @@ class PackagedUpdateTest(unittest.TestCase):
             os.environ.pop("VENDOO_STUDIO_DATA_DIR", None)
         else:
             os.environ["VENDOO_STUDIO_DATA_DIR"] = self._data
+        if self._app is None:
+            os.environ.pop("VENDOO_STUDIO_APP_PATH", None)
+        else:
+            os.environ["VENDOO_STUDIO_APP_PATH"] = self._app
+        if self._skip_codesign is None:
+            os.environ.pop("VENDOO_STUDIO_SKIP_CODESIGN", None)
+        else:
+            os.environ["VENDOO_STUDIO_SKIP_CODESIGN"] = self._skip_codesign
         self.tmp.cleanup()
 
     def test_local_build_info_reads_stamp(self):
@@ -107,17 +117,56 @@ class PackagedUpdateTest(unittest.TestCase):
                 packaged_updates._extract_app(archive, Path(self.tmp.name) / "unsafe-output")
         run.assert_not_called()
 
-    def test_extract_rejects_symbolic_links_before_ditto(self):
+    def test_extract_rejects_escaping_symbolic_links_before_ditto(self):
         archive = Path(self.tmp.name) / "symlink.zip"
         link = zipfile.ZipInfo("List This Studio.app/Contents/link")
         link.create_system = 3
         link.external_attr = (stat.S_IFLNK | 0o777) << 16
         with zipfile.ZipFile(archive, "w") as bundle:
-            bundle.writestr(link, "../../outside")
+            # Three levels up leaves the extract root (app → payload → destination → parent).
+            bundle.writestr(link, "../../../outside")
         with patch("subprocess.run") as run:
-            with self.assertRaises(packaged_updates.PackagedUpdateError):
+            with self.assertRaisesRegex(packaged_updates.PackagedUpdateError, "unsafe symbolic link"):
                 packaged_updates._extract_app(archive, Path(self.tmp.name) / "symlink-output")
         run.assert_not_called()
+
+    def test_extract_rejects_absolute_symbolic_links_before_ditto(self):
+        archive = Path(self.tmp.name) / "abs-symlink.zip"
+        link = zipfile.ZipInfo("List This Studio.app/Contents/link")
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr(link, "/etc/passwd")
+        with patch("subprocess.run") as run:
+            with self.assertRaisesRegex(packaged_updates.PackagedUpdateError, "unsafe symbolic link"):
+                packaged_updates._extract_app(archive, Path(self.tmp.name) / "abs-symlink-output")
+        run.assert_not_called()
+
+    def test_validate_allows_relative_in_bundle_symbolic_links(self):
+        archive = Path(self.tmp.name) / "safe-symlink.zip"
+        link = zipfile.ZipInfo("List This Studio.app/Contents/Frameworks/Python.framework/Versions/Current")
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("List This Studio.app/Contents/Info.plist", "plist")
+            bundle.writestr(link, "3.12")
+        destination = Path(self.tmp.name) / "safe-symlink-output"
+        destination.mkdir()
+        # Must not raise — PyInstaller macOS zips ship dozens of in-bundle relative links.
+        packaged_updates._validate_zip_members(archive, destination)
+
+    def test_extract_app_accepts_archive_with_relative_symbolic_links(self):
+        archive = Path(self.tmp.name) / "safe-symlink-extract.zip"
+        link = zipfile.ZipInfo("List This Studio.app/Contents/Frameworks/Current")
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("List This Studio.app/Contents/Info.plist", "plist")
+            bundle.writestr("List This Studio.app/Contents/Frameworks/3.12/marker", "ok")
+            bundle.writestr(link, "3.12")
+        extracted = packaged_updates._extract_app(archive, Path(self.tmp.name) / "safe-symlink-extract-output")
+        self.assertEqual(extracted.name, "List This Studio.app")
+        self.assertTrue((extracted / "Contents" / "Info.plist").is_file())
 
     def test_prepare_app_bundle_makes_launcher_executable(self):
         app = Path(self.tmp.name) / "List This Studio.app"
@@ -127,6 +176,51 @@ class PackagedUpdateTest(unittest.TestCase):
         launcher.chmod(0o644)
         packaged_updates._prepare_app_bundle(app)
         self.assertTrue(os.access(launcher, os.X_OK))
+
+    def test_force_reinstall_downloads_even_when_current(self):
+        release = {
+            "name": "List This Studio (macOS)",
+            "body": "sha: aaa1111",
+            "assets": [{
+                "name": "List-This-Studio-macos.zip",
+                "browser_download_url": "https://example.com/List-This-Studio-macos.zip",
+                "digest": "sha256:" + ("ab" * 32),
+            }],
+        }
+        archive = Path(self.tmp.name) / "payload.zip"
+        archive.write_bytes(b"zip-bytes")
+        app = Path(self.tmp.name) / "installed" / "List This Studio.app"
+        (app / "Contents" / "MacOS").mkdir(parents=True)
+        (app / "Contents" / "MacOS" / "List This Studio").write_text("old", encoding="utf-8")
+        new_app = Path(self.tmp.name) / "fresh" / "List This Studio.app"
+        (new_app / "Contents" / "MacOS").mkdir(parents=True)
+        os.environ["VENDOO_STUDIO_APP_PATH"] = str(app)
+        os.environ["VENDOO_STUDIO_DATA_DIR"] = str(Path(self.tmp.name) / "data")
+        os.environ["VENDOO_STUDIO_SKIP_CODESIGN"] = "1"
+
+        def fake_download(_client, _url, destination: Path) -> None:
+            destination.write_bytes(archive.read_bytes())
+
+        with (
+            patch.object(packaged_updates, "fetch_release", return_value=release),
+            patch.object(
+                packaged_updates,
+                "remote_build_info",
+                return_value={"sha": "aaa1111", "short_sha": "aaa1111", "version": "0.1.0", "ref": "main"},
+            ),
+            patch.object(packaged_updates, "_download", side_effect=fake_download),
+            patch.object(packaged_updates, "_sha256_file", return_value="ab" * 32),
+            patch.object(packaged_updates, "_extract_app", return_value=new_app),
+            patch.object(packaged_updates, "_verify_app_signature"),
+            patch.object(packaged_updates, "_prepare_app_bundle"),
+            patch.object(packaged_updates.subprocess, "Popen") as popen,
+        ):
+            skipped = packaged_updates.apply_packaged_update()
+            forced = packaged_updates.reinstall_packaged_app()
+        self.assertFalse(skipped["updated"])
+        self.assertTrue(forced["updated"])
+        self.assertTrue(forced["reinstalled"])
+        popen.assert_called_once()
 
     def test_replacer_clears_quarantine_before_relaunch(self):
         root = Path(self.tmp.name)

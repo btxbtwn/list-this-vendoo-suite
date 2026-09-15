@@ -68,6 +68,29 @@ jobs:
         env:
           VENDOO_STUDIO_DATA_DIR: ${{ runner.temp }}/vendoo-studio-data
 
+  studio-update-zip:
+    name: Studio update zip
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vendoo-studio
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ".[dev]"
+      - name: Check update zip symlink safety
+        run: |
+          python -m pytest -q \
+            server/tests/test_packaged_updates.py \
+            server/tests/test_bundle_symlinks.py
+        env:
+          VENDOO_STUDIO_DATA_DIR: ${{ runner.temp }}/vendoo-studio-update-zip
+
   extension:
     name: Extension
     runs-on: ubuntu-latest
@@ -110,6 +133,7 @@ jobs:
       - secrets
       - studio-frontend
       - studio-backend
+      - studio-update-zip
       - extension
       - skills
     runs-on: ubuntu-latest

@@ -62,6 +62,19 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
+# Older Studio builds rejected every symlink zip member. Materialize links
+# before signing/zipping so those clients can still install this update.
+"$PYTHON" - "$APP" <<'PY'
+import sys
+from pathlib import Path
+
+from vendoo_studio.services.bundle_symlinks import flatten_symlinks
+
+app = Path(sys.argv[1])
+count = flatten_symlinks(app)
+print(f"Flattened {count} symlinks in {app.name}")
+PY
+
 if command -v codesign >/dev/null 2>&1; then
   codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 fi
@@ -75,6 +88,15 @@ cp "$ROOT/desktop/HowToOpen.txt" "$PAYLOAD/How to Open.txt"
   cd "$PAYLOAD"
   ditto -c -k . "$ZIP"
 )
+"$PYTHON" - "$ZIP" <<'PY'
+import sys
+from pathlib import Path
+
+from vendoo_studio.services.bundle_symlinks import assert_zip_has_no_symlinks
+
+assert_zip_has_no_symlinks(Path(sys.argv[1]))
+print("Update zip has no symbolic link members")
+PY
 cp "$ROOT/desktop/build_info.json" "$RELEASE/build_info.json"
 echo "Built $APP"
 echo "Share $ZIP"
