@@ -170,6 +170,21 @@ class CatalogIndexTest(unittest.TestCase):
         hits = search_catalog(self.db, "Women Tops Brand", kind="schema", top_k=5)
         self.assertTrue(any(hit.get("general_path") == "Clothing > Women > Tops" for hit in hits))
 
+    def test_option_search_finds_condition_dropdown(self):
+        hits = search_catalog(self.db, "general condition dropdown", kind="option", top_k=5)
+        self.assertTrue(hits)
+        self.assertTrue(any("Pre-Owned - Good" in (hit.get("options") or []) for hit in hits))
+
+    def test_skill_search_returns_rule_snippets(self):
+        from vendoo_studio.services.catalog_index import relevant_skill_rules
+        text = relevant_skill_rules(self.db, "category path women's tops measurements")
+        self.assertTrue(text.strip())
+
+    def test_fill_helper_search_finds_extension_symbols(self):
+        hits = search_catalog(self.db, "fill brand category", kind="fill", top_k=10)
+        self.assertTrue(hits)
+        self.assertTrue(any(hit.get("symbol") for hit in hits))
+
     def test_invented_doc_ids_are_not_returned(self):
         docs = Path(self.tmp.name) / "catalog-index" / "docs" / "categories" / "general"
         docs.mkdir(parents=True, exist_ok=True)

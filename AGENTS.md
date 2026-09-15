@@ -26,7 +26,7 @@ semble find-related vendoo-studio/server/vendoo_studio/services/category_selecti
 
 Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TOML, or `--content all` when categories/schemas may live in code *and* references (e.g. `skills/list-this/references/`, `VENDOO_STUDIO_SPEC.md`). Navigate straight to returned paths/lines; use grep only for exact string sweeps (error messages, renames). If `semble` is missing from `$PATH`, use `uvx --from "semble[mcp]" semble`.
 
-**Studio listing agent:** Uses the in-app catalog index (`vendoo_studio.services.catalog_index`), not Cursor MCP. It materializes SQLite `category_tree_nodes` leaves and `category_schemas` into local docs, searches them with Semble, and only accepts hits that still verify against SQLite. `GET /api/catalog/search` exposes the same search. It does not search listings, photos, or secrets.
+**Studio listing agent:** Uses the in-app catalog index (`vendoo_studio.services.catalog_index`), not Cursor MCP. It materializes SQLite category leaves, observed schemas, skill-reference dropdown options, `skills/list-this` rule chunks, and extension fill helpers into local docs, searches them with Semble, and only accepts hits that verify. `GET /api/catalog/search?kind=category|schema|option|skill|fill|all` exposes the same search. Generation pulls relevant skill chunks; repair enriches gap dropdowns; fill-log reports include related helpers. It does not search listings, photos, or secrets.
 
 ## Engineering Principles
 
