@@ -115,6 +115,36 @@ const fieldLooksFilled = () => false;
         self.assertFalse(result[0]["disabled"])
         self.assertTrue(result[1]["disabled"])
 
+    def test_ensure_marketplace_form_ready_reactivates_after_category_remount(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        start = source.index("  async function ensureMarketplaceFormReady")
+        end = source.index("  function marketplaceSectionLooksActive")
+        function = source[start:end]
+        script = """
+let activates = 0, expands = 0, tick = 0;
+const document = {querySelector: (sel) => {
+  if (tick < 2) return null;
+  if (String(sel).includes('listings.ebay.')) return {id: 'listings.ebay.overrides.price'};
+  return null;
+}};
+const closeOpenMenus = async () => {};
+const marketplaceSectionLooksActive = () => tick >= 2;
+const marketplaceFormMounted = () => tick >= 2;
+const activateMarketplaceSection = async () => {activates++; tick++; return true;};
+const expandOptionalFields = async () => {expands++;};
+const sleep = async () => {tick++;};
+const CONFIG = {SLEEP_LONG: 0};
+""" + function + """
+(async () => console.log(JSON.stringify({
+  ready: await ensureMarketplaceFormReady('ebay', {requireListingFields: true}),
+  activates, expands,
+})))();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertTrue(result["ready"])
+        self.assertGreaterEqual(result["activates"], 1)
+        self.assertGreaterEqual(result["expands"], 1)
+
     def test_category_readback_reconstructs_css_breadcrumb_separators(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
         function = source[source.index("  function readCategoryDisplay"):source.index("  function categoryDisplayMatches")]

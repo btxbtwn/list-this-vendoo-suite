@@ -4916,7 +4916,9 @@
           ));
       }
       const prefix = `listings.${mp}.`;
-      return Boolean(document.querySelector(`[id^="${prefix}"], [name^="${prefix}"]`));
+      if (document.querySelector(`[id^="${prefix}"], [name^="${prefix}"]`)) return true;
+      // Category-only chrome (aria wrapper) counts as mounted while cascade fields remount.
+      return Boolean(document.querySelector(`[aria-label="Category Selector for ${mp}"]`));
   }
 
   async function waitForMarketplaceFormMounted(marketplace, attempts = 20) {
@@ -4925,6 +4927,34 @@
           await sleep(CONFIG.SLEEP_LONG);
       }
       return marketplaceFormMounted(marketplace);
+  }
+
+  async function ensureMarketplaceFormReady(platform, { requireListingFields = false } = {}) {
+      const mp = String(platform || '').toLowerCase();
+      await closeOpenMenus();
+      const hasListingFields = () => Boolean(document.querySelector(
+          `[id^="listings.${mp}."], [name^="listings.${mp}."]`
+      ));
+      const ready = () => {
+          if (!marketplaceSectionLooksActive(mp)) return false;
+          if (requireListingFields) return hasListingFields();
+          return marketplaceFormMounted(mp);
+      };
+      // Category pickers remount the active marketplace panel. Re-click nav and
+      // wait for listings.* controls before scraping schema fields.
+      if (!ready()) {
+          const activated = await activateMarketplaceSection(mp);
+          if (!activated && !ready()) return false;
+      }
+      for (let attempt = 0; attempt < 24; attempt++) {
+          if (ready()) return true;
+          if (attempt === 4 || attempt === 12) {
+              await activateMarketplaceSection(mp);
+          }
+          await expandOptionalFields();
+          await sleep(CONFIG.SLEEP_LONG);
+      }
+      return ready();
   }
 
   function marketplaceSectionLooksActive(platform) {
@@ -5766,6 +5796,9 @@
                   throw new Error(catResult.error || 'Marketplace category selection failed');
               }
               await sleep(CONFIG.SLEEP_LONG);
+              if (!(await ensureMarketplaceFormReady(platform, { requireListingFields: true }))) {
+                  throw new Error('Marketplace form did not mount after category select');
+              }
               const shown = marketplaceCategoryDisplay(platform);
               categories[platform] = {
                   status: catResult?.status || 'skipped',
@@ -5784,14 +5817,17 @@
               let fields = [];
               for (let attempt = 0; attempt < 8; attempt++) {
                   if (attempt) {
+                      if (attempt === 3) {
+                          await ensureMarketplaceFormReady(platform, { requireListingFields: true });
+                      }
                       await expandOptionalFields();
                       await sleep(CONFIG.SLEEP_LONG);
                   }
                   fields = await collectMarketplaceSchemaFields(platform);
                   if (fields.length) break;
               }
-              if (!fields.length && !marketplaceFormMounted(platform)) {
-                  throw new Error('Marketplace form did not mount after category select');
+              if (!fields.length) {
+                  throw new Error('No form fields were found');
               }
               for (const field of fields) {
                   if (normalizeFieldKey(field.label) === 'category') continue;
@@ -5812,12 +5848,9 @@
                   fields,
                   error: !shown || ['failed', 'invalid', 'not_found'].includes(catResult?.status)
                       ? 'Marketplace category selection was not verified'
-                      : (!fields.length ? 'No form fields were found' : null),
+                      : null,
               };
               log(`  ${platform}: ${fields.length} schema fields`);
-              if (!fields.length) {
-                  throw new Error('No form fields were found');
-              }
           } catch (err) {
               warn(`Discover schema ${platform} failed: ${err.message}`);
               recordFill({ field: 'form', status: 'failed', reason: err.message });
