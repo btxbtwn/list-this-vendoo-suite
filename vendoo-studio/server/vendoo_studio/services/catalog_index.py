@@ -606,6 +606,25 @@ def _lexical_docs(
     return [item for _, item in hits[:top_k]]
 
 
+# Tokens that pollute category search when the query is a raw photo-analysis dump.
+_LEXICAL_STOPWORDS = frozenset({
+    "photo", "photos", "photograph", "photographed", "photography", "analysis", "detailed",
+    "images", "image", "background", "visible", "appears", "appear", "seller", "details",
+    "json", "condition", "notes", "please", "classify", "product", "type", "across",
+    "marketplaces", "additional", "observations", "lighting", "wrinkles", "removed",
+    "pair", "flat", "white", "show", "shows", "shown", "item", "based", "about",
+    "the", "and", "with", "from", "this", "that", "for", "are", "was", "were", "have",
+})
+
+
+def _lexical_tokens(query: str) -> list[str]:
+    return [
+        token.casefold()
+        for token in re.findall(r"[a-z0-9']+", str(query or "").casefold())
+        if len(token) > 1 and token.casefold() not in _LEXICAL_STOPWORDS
+    ]
+
+
 def _lexical_fallback(
     db: Session,
     query: str,
@@ -616,7 +635,7 @@ def _lexical_fallback(
     path_prefix: str,
 ) -> list[dict]:
     """Substring rank when the Semble index is empty or returns nothing."""
-    tokens = [token.casefold() for token in re.findall(r"[a-z0-9']+", query.casefold()) if len(token) > 1]
+    tokens = _lexical_tokens(query)
     hits: list[tuple[int, dict]] = []
     if kind in {"category", "all"}:
         q = _leaf_query(db)

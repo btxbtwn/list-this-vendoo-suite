@@ -83,6 +83,48 @@ def category_search_query(listing: dict | None, requested: str | None = None) ->
     return " ".join(parts).strip()
 
 
+_STYLE_RE = re.compile(
+    r"\b(straight[\s-]?leg|skinny|boot\s?cut|flare|wide[\s-]?leg|boyfriend|relaxed|slim)\b",
+    re.I,
+)
+_SEARCH_STOPWORDS = frozenset({
+    "photo", "photos", "photograph", "photographed", "photography", "analysis", "detailed",
+    "images", "image", "background", "visible", "appears", "appear", "seller", "details",
+    "json", "condition", "notes", "please", "classify", "product", "type", "across",
+    "marketplaces", "additional", "observations", "lighting", "wrinkles", "removed",
+    "pair", "flat", "white", "show", "shows", "shown", "item", "based", "about",
+})
+
+
+def condense_category_search_query(*texts: str, override: str = "") -> str:
+    """Short catalog query from free-form analysis — drops photo-analysis noise words."""
+    override = str(override or "").strip()
+    joined = "\n".join(str(text or "").strip() for text in (*texts, override) if str(text or "").strip())
+    leaf = _path_leaf(override)
+    garment = _first_garment(override, joined)
+    gender = _gender(joined)
+    parts: list[str] = []
+    if gender:
+        parts.append(gender)
+    if garment:
+        parts.append(garment)
+    elif leaf:
+        parts.append(leaf)
+    if garment and re.search(r"jeans?", garment, re.I):
+        style = _STYLE_RE.search(joined)
+        if style:
+            parts.append(re.sub(r"[\s-]+", " ", style.group(1)).strip())
+    if parts:
+        return " ".join(parts)
+    if override:
+        return override
+    tokens = [
+        token for token in re.findall(r"[a-z0-9']+", joined.casefold())
+        if len(token) > 2 and token not in _SEARCH_STOPWORDS
+    ]
+    return " ".join(tokens[:8]).strip()
+
+
 def _gender(text: str) -> str | None:
     has_women = bool(_WOMEN_RE.search(text or ""))
     has_men = bool(_MEN_RE.search(text or ""))

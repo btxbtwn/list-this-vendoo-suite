@@ -16,7 +16,8 @@ from vendoo_studio.services.catalog_index import (
     reset_catalog_index_cache,
     search_catalog,
 )
-from vendoo_studio.services.category_selection import select_categories
+from vendoo_studio.services.category_selection import select_categories, _candidate_query
+from vendoo_studio.services.category_lookup import condense_category_search_query
 from vendoo_studio.services.category_tree import store_children
 
 
@@ -48,6 +49,28 @@ class CategoryTreeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             store_children(self.db, "general", "__root", {"nodes": []})
         self.assertFalse(self.db.get(CategoryTree, "general").roots_loaded)
+
+
+class CandidateQueryTest(unittest.TestCase):
+    def test_candidate_query_keeps_garment_and_drops_photo_noise(self):
+        analysis = (
+            "Photo analysis (detailed): The images show a pair of blue denim trousers "
+            "photographed flat on a white background. Women's straight-leg jeans with five pockets."
+        )
+        query = _candidate_query(analysis, '{"size":"28"}')
+        self.assertIn("women", query.lower())
+        self.assertIn("jean", query.lower())
+        self.assertIn("straight", query.lower())
+        self.assertNotIn("photo", query.lower())
+        self.assertNotIn("photographed", query.lower())
+        self.assertNotIn("analysis", query.lower())
+
+    def test_condense_prefers_override_leaf(self):
+        query = condense_category_search_query(
+            "random photo analysis noise",
+            override="Clothing, Shoes & Accessories > Women > Women's Clothing > Jeans",
+        )
+        self.assertIn("jean", query.lower())
 
 
 class CategorySelectionTest(unittest.IsolatedAsyncioTestCase):
@@ -115,6 +138,52 @@ class CategorySelectionTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "Finish category-tree extraction.*ebay"):
             await select_categories(self.db, None, "tee", "", ["ebay"])
 
+    async def test_noisy_photo_analysis_still_surfaces_jeans_choices(self):
+        for mp, path, cid in (
+            ("general", "Clothing > Women > Jeans", "g-jeans"),
+            ("poshmark", "Women > Jeans > Straight Leg", "p-jeans"),
+            ("depop", "Women > Bottoms > Jeans", "d-jeans"),
+            ("poshmark", "Electronics > Cameras, Photo & Video > Film Photography", "p-photo"),
+            ("depop", "Everything else > Art > Photography", "d-photo"),
+        ):
+            if not self.db.get(CategoryTree, mp):
+                self.db.add(CategoryTree(marketplace=mp, status="complete", roots_loaded=True))
+            self.db.add(CategoryTreeNode(
+                marketplace=mp, category_id=cid, parent_id="__root",
+                label=path.split(" > ")[-1], path=path, is_leaf=True, has_children=False,
+                children_loaded=True,
+            ))
+        self.db.commit()
+        rebuild_catalog_index(self.db)
+
+        seen = {}
+
+        class Provider:
+            async def chat(self, messages, stream=True):
+                payload = json.loads(messages[-1]["content"])
+                seen["choices"] = payload["choices"]
+                yield json.dumps({
+                    "categories": {
+                        "general": "g-jeans",
+                        "poshmark": "p-jeans",
+                        "depop": "d-jeans",
+                    }
+                })
+
+        analysis = (
+            "Photo analysis (detailed): The images show a pair of blue denim trousers "
+            "photographed flat on a white background. Women's straight-leg jeans."
+        )
+        result = await select_categories(
+            self.db, Provider(), analysis, '{"size":"28"}', ["poshmark", "depop"],
+        )
+        self.assertEqual(result["poshmark"], "Women > Jeans > Straight Leg")
+        self.assertEqual(result["depop"], "Women > Bottoms > Jeans")
+        posh_paths = [row["path"] for row in seen["choices"]["poshmark"]]
+        depop_paths = [row["path"] for row in seen["choices"]["depop"]]
+        self.assertIn("Women > Jeans > Straight Leg", posh_paths)
+        self.assertIn("Women > Bottoms > Jeans", depop_paths)
+        self.assertNotIn("Electronics > Cameras, Photo & Video > Film Photography", posh_paths)
 
 class CatalogIndexTest(unittest.TestCase):
     def setUp(self):
