@@ -19,7 +19,87 @@ from vendoo_studio.services.registry import SELLER_SETTING_LABELS
 
 log = logging.getLogger(__name__)
 MAX_REPAIR_ROUNDS = 5
+MAX_READBACK_RETRIES = 3
+READBACK_RETRY_DELAY_SECONDS = 2.5
 _tasks: dict[str, asyncio.Task] = {}
+
+
+def incomplete_readback(verification: dict, platforms: list[str], *, vendoo_item_id: str | None) -> bool:
+    """True when Chrome did not return a usable form schema for every selected marketplace."""
+    schema = verification.get("schema") or {}
+    if not verification.get("readback") or not vendoo_item_id:
+        return True
+    return any(
+        not schema.get(mp, {}).get("fields") or schema[mp].get("error")
+        for mp in platforms
+    )
+
+
+def _readback_retry_count(repo: JobRepo, job_id: str, resume_sequence: int) -> int:
+    return sum(
+        1
+        for event in repo.get_events(job_id)
+        if event.event_type == "completion_readback_retry" and event.sequence > resume_sequence
+    )
+
+
+async def _retry_incomplete_readback(db: Session, job, platforms: list[str], verification: dict) -> bool:
+    """Re-dispatch draft verification for transient empty/unmounted marketplace forms.
+
+    Returns True when a retry was scheduled (caller should stop). False means retries
+    are exhausted and the job should pause for review.
+    """
+    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
+
+    repo = JobRepo(db)
+    events = repo.get_events(job.id)
+    resume_sequence = max((e.sequence for e in events if e.event_type == "completion_resumed"), default=-1)
+    attempt = _readback_retry_count(repo, job.id, resume_sequence)
+    details = []
+    schema = verification.get("schema") or {}
+    for mp in platforms:
+        section = schema.get(mp) or {}
+        err = section.get("error")
+        fields = section.get("fields") or []
+        if err:
+            details.append(f"{mp}: {err}")
+        elif not fields:
+            details.append(f"{mp}: no fields")
+    detail = "; ".join(details) if details else "incomplete readback"
+    if attempt >= MAX_READBACK_RETRIES:
+        return False
+    if not extension_manager.connected:
+        _pause(db, job, "Connect Chrome to continue verifying and repairing this draft.", [])
+        return True
+    if any(other.id != job.id for other in repo.get_running()):
+        _pause(db, job, "Another automation job is running. Resume this draft when it finishes.", [])
+        return True
+    next_attempt = attempt + 1
+    repo.add_event(
+        job.id,
+        "completion_readback_retry",
+        "verifying_draft",
+        {"attempt": next_attempt, "max": MAX_READBACK_RETRIES, "detail": detail},
+    )
+    job.status = "dispatched"
+    job.current_step = "verifying_draft"
+    job.last_error = None
+    db.commit()
+    ConversationRepo(db).add_message(
+        job.conversation_id,
+        "system",
+        f"Marketplace forms were not fully readable ({detail}). "
+        f"Retrying verification ({next_attempt}/{MAX_READBACK_RETRIES})…",
+        provider="system",
+        model="",
+    )
+    await asyncio.sleep(READBACK_RETRY_DELAY_SECONDS)
+    db.refresh(job)
+    if job.status == "cancelled":
+        return True
+    if not await dispatch_fill_fields(job, []):
+        _pause(db, job, "Chrome disconnected before verification could be retried.", [])
+    return True
 
 
 def field_id(field: dict) -> tuple[str, str]:
@@ -182,9 +262,16 @@ async def complete_job(db: Session, job_id: str) -> None:
     verification = event.payload or {}
     schema = verification.get("schema") or {}
     platforms = ["general", *((job.listing_snapshot or {}).get("platforms") or [])]
-    if (not verification.get("readback") or not job.vendoo_item_id
-            or any(not schema.get(mp, {}).get("fields") or schema[mp].get("error") for mp in platforms)):
-        _pause(db, job, "Could not read every selected marketplace from the saved draft. Retry verification.", [])
+    if incomplete_readback(verification, platforms, vendoo_item_id=job.vendoo_item_id):
+        if await _retry_incomplete_readback(db, job, platforms, verification):
+            return
+        _pause(
+            db,
+            job,
+            "Could not read every selected marketplace from the saved draft after automatic retries. "
+            "Resume verification once the Vendoo draft is open in Chrome.",
+            [],
+        )
         return
     revisions = ListingRepo(db).get_revisions(job.conversation_id)
     listing = deepcopy(revisions[0].listing_json if revisions else job.listing_snapshot)
