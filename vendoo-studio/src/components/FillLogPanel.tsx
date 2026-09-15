@@ -76,78 +76,10 @@ const DOES_NOT_APPLY_RE = /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i;
 
 interface FormSyncCounts {
   onVendoo: number;
+  vendooEmpty: number;
   readyToApply: number;
   needsChat: number;
   notApplicable: number;
-  synced: number;
-}
-
-type FieldActionState = "na" | "unknown" | "synced" | "ready-apply" | "needs-chat" | "vendoo-only";
-
-function fieldActionState(
-  field: DraftField,
-  listing: Record<string, unknown> | undefined,
-  marketplace: string,
-  fromVendooDraft: boolean,
-): FieldActionState {
-  if (field.notApplicable) return "na";
-  if (!fromVendooDraft) {
-    return listingFieldEmpty(listing, marketplace, field) ? "needs-chat" : "unknown";
-  }
-  const listingValue = listingTextForField(listing, marketplace, field);
-  if (!field.missing && listingValue) return "synced";
-  if (!field.missing && !listingValue) return "vendoo-only";
-  if (field.missing && listingValue) return "ready-apply";
-  return "needs-chat";
-}
-
-function fieldRowClass(state: FieldActionState): string {
-  switch (state) {
-    case "na":
-      return "is-na";
-    case "synced":
-      return "is-synced";
-    case "ready-apply":
-      return "is-ready-apply";
-    case "needs-chat":
-      return "is-needs-chat";
-    case "vendoo-only":
-      return "is-vendoo-only";
-    default:
-      return "is-unknown";
-  }
-}
-
-function listingStatusLabel(
-  field: DraftField,
-  listing: Record<string, unknown> | undefined,
-  marketplace: string,
-): string {
-  if (field.notApplicable) return "Does not apply";
-  return listingFieldEmpty(listing, marketplace, field) ? "Missing in Studio" : "Generated";
-}
-
-function vendooStatusLabel(field: DraftField, fromVendooDraft: boolean): string {
-  if (field.notApplicable) return "Does not apply";
-  if (!fromVendooDraft) return "Draft not read";
-  return field.missing ? "Missing on Vendoo" : "On Vendoo draft";
-}
-
-function nextStepLabel(state: FieldActionState): string {
-  switch (state) {
-    case "na":
-      return "No action";
-    case "synced":
-      return "In sync";
-    case "ready-apply":
-      return "Apply on Vendoo";
-    case "needs-chat":
-      return "Ask chat";
-    case "vendoo-only":
-      return "Optional sync";
-    default:
-      return "Read draft";
-  }
 }
 
 function listingTextForField(
@@ -178,10 +110,10 @@ function formSyncCounts(
 ): FormSyncCounts {
   const counts: FormSyncCounts = {
     onVendoo: 0,
+    vendooEmpty: 0,
     readyToApply: 0,
     needsChat: 0,
     notApplicable: 0,
-    synced: 0,
   };
   for (const field of form.fields) {
     if (field.notApplicable) {
@@ -189,48 +121,21 @@ function formSyncCounts(
       continue;
     }
     if (isUnfillableField(field)) continue;
-    switch (fieldActionState(field, listing, form.id, fromVendooDraft)) {
-      case "synced":
-        counts.synced += 1;
+    const listingValue = listingTextForField(listing, form.id, field);
+    if (fromVendooDraft) {
+      if (!field.missing) {
         counts.onVendoo += 1;
-        break;
-      case "vendoo-only":
-        counts.onVendoo += 1;
-        break;
-      case "ready-apply":
-        counts.readyToApply += 1;
-        break;
-      case "needs-chat":
-        counts.needsChat += 1;
-        break;
-      case "unknown":
-        if (listingFieldEmpty(listing, form.id, field)) counts.needsChat += 1;
-        else counts.onVendoo += 1;
-        break;
-      default:
-        break;
+        continue;
+      }
+      counts.vendooEmpty += 1;
+      if (listingValue) counts.readyToApply += 1;
+      else counts.needsChat += 1;
+      continue;
     }
+    if (listingValue) counts.onVendoo += 1;
+    else counts.vendooEmpty += 1;
   }
   return counts;
-}
-
-function totalsSyncCounts(
-  forms: DraftForm[],
-  listing: Record<string, unknown> | undefined,
-  fromVendooDraft: boolean,
-): FormSyncCounts {
-  return forms.reduce<FormSyncCounts>(
-    (totals, form) => {
-      const counts = formSyncCounts(form, listing, fromVendooDraft);
-      totals.onVendoo += counts.onVendoo;
-      totals.readyToApply += counts.readyToApply;
-      totals.needsChat += counts.needsChat;
-      totals.notApplicable += counts.notApplicable;
-      totals.synced += counts.synced;
-      return totals;
-    },
-    { onVendoo: 0, readyToApply: 0, needsChat: 0, notApplicable: 0, synced: 0 },
-  );
 }
 
 function fieldsNeedingListingValues(
@@ -1859,8 +1764,8 @@ function fieldNeedsAttention(
   fromVendooDraft: boolean,
 ): boolean {
   if (field.notApplicable || isUnfillableField(field)) return false;
-  const state = fieldActionState(field, listing, form.id, fromVendooDraft);
-  return state === "needs-chat" || state === "ready-apply";
+  if (fromVendooDraft) return field.missing;
+  return listingFieldEmpty(listing, form.id, field);
 }
 
 function filterForms(
@@ -1899,98 +1804,29 @@ function filterForms(
 function FormSyncCountsView({
   counts,
   fromVendooDraft,
-  compact = false,
 }: {
   counts: FormSyncCounts;
   fromVendooDraft: boolean;
-  compact?: boolean;
-}) {
-  const chips: React.ReactNode[] = [];
-  if (fromVendooDraft && counts.synced > 0) {
-    chips.push(
-      <span key="synced" className="pr-count-chip is-synced" title="Generated in Studio and on the Vendoo draft">
-        {compact ? `Sync ${counts.synced}` : `In sync ${counts.synced}`}
-      </span>,
-    );
-  }
-  if (counts.readyToApply > 0) {
-    chips.push(
-      <span key="ready" className="pr-count-chip is-ready" title="Generated in Studio but still empty on Vendoo">
-        {compact ? `Apply ${counts.readyToApply}` : `Apply ${counts.readyToApply}`}
-      </span>,
-    );
-  }
-  if (counts.needsChat > 0) {
-    chips.push(
-      <span key="chat" className="pr-count-chip is-chat" title="Still empty in Studio’s listing JSON">
-        {compact ? `Chat ${counts.needsChat}` : `Ask chat ${counts.needsChat}`}
-      </span>,
-    );
-  }
-  if (!fromVendooDraft && counts.onVendoo > 0) {
-    chips.push(
-      <span key="generated" className="pr-count-chip is-synced" title="Filled in Studio’s listing JSON">
-        Generated {counts.onVendoo}
-      </span>,
-    );
-  }
-  if (counts.notApplicable > 0) {
-    chips.push(
-      <span key="na" className="pr-count-chip is-na" title="Marked does not apply">
-        N/A {counts.notApplicable}
-      </span>,
-    );
-  }
-  if (!chips.length) return null;
-  return <span className="pr-counts pr-counts-labeled">{chips}</span>;
-}
-
-function FieldsLegend({
-  fromVendooDraft,
-  totals,
-}: {
-  fromVendooDraft: boolean;
-  totals: FormSyncCounts;
 }) {
   return (
-    <div className={`pr-legend${fromVendooDraft ? " is-vendoo" : " is-listing"}`}>
-      <div className="pr-legend-head">
-        <strong>{fromVendooDraft ? "How to read each field" : "Listing-only view"}</strong>
-        <span className="pr-legend-sub">
-          {fromVendooDraft
-            ? "Studio JSON and the live Vendoo draft are tracked separately."
-            : "Read the Vendoo draft to see what is actually on the form."}
+    <span className="pr-counts">
+      {counts.onVendoo > 0 && (
+        <span className="pr-add" title={fromVendooDraft ? "Filled on Vendoo" : "Filled in listing JSON"}>
+          +{counts.onVendoo}
         </span>
-      </div>
-      <dl className="pr-legend-grid">
-        <div>
-          <dt className="pr-legend-term is-generated">Generated</dt>
-          <dd>Chat wrote a value into Studio’s listing JSON.</dd>
-        </div>
-        <div>
-          <dt className="pr-legend-term is-chat">Missing in Studio</dt>
-          <dd>Listing JSON is still empty — Ask chat first.</dd>
-        </div>
-        {fromVendooDraft ? (
-          <>
-            <div>
-              <dt className="pr-legend-term is-ready">Apply on Vendoo</dt>
-              <dd>Generated in Studio but not typed on the Vendoo draft yet.</dd>
-            </div>
-            <div>
-              <dt className="pr-legend-term is-synced">In sync</dt>
-              <dd>Present in both Studio JSON and the live Vendoo draft.</dd>
-            </div>
-          </>
-        ) : null}
-      </dl>
-      {fromVendooDraft ? (
-        <div className="pr-summary-strip" aria-label="Field totals">
-          <span className="pr-summary-label">This listing:</span>
-          <FormSyncCountsView counts={totals} fromVendooDraft={fromVendooDraft} />
-        </div>
-      ) : null}
-    </div>
+      )}
+      {fromVendooDraft && counts.readyToApply > 0 && (
+        <span className="pr-ready" title="Listing has a value; Vendoo is still empty">
+          ●{counts.readyToApply}
+        </span>
+      )}
+      {counts.notApplicable > 0 && <span className="pr-na">~{counts.notApplicable}</span>}
+      {counts.vendooEmpty > 0 && (
+        <span className="pr-del" title={fromVendooDraft ? "Empty on Vendoo" : "Empty in listing JSON"}>
+          -{counts.vendooEmpty}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -2066,7 +1902,6 @@ export function FillLogPanel({
   const forms = filterForms(visibleSourceForms, query, missingOnly, listing, fromVendooDraft);
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
   const selectedCounts = selectedForm ? formSyncCounts(selectedForm, listing, fromVendooDraft) : null;
-  const totals = totalsSyncCounts(visibleSourceForms, listing, fromVendooDraft);
 
   React.useEffect(() => {
     if (!report) return;
@@ -2423,10 +2258,6 @@ export function FillLogPanel({
         </p>
       )}
 
-      {visibleSourceForms.length > 0 && (
-        <FieldsLegend fromVendooDraft={fromVendooDraft} totals={totals} />
-      )}
-
       {(onAskChat || hasDraft) && (
         <div className="pr-actions">
           <p className="pr-notice">
@@ -2606,15 +2437,9 @@ export function FillLogPanel({
                     <div className="pr-field-table-head" aria-hidden="true">
                       <span className="pr-field-table-gap" />
                       <span>Field</span>
-                      <span>
-                        Listing
-                        <span className="pr-field-col-sub">Studio JSON</span>
-                      </span>
-                      <span>
-                        Vendoo
-                        <span className="pr-field-col-sub">{fromVendooDraft ? "Live draft" : "Not read"}</span>
-                      </span>
-                      <span>Next step</span>
+                      <span>Listing</span>
+                      <span>Vendoo</span>
+                      <span />
                     </div>
                     {group.fields.map((field) => {
                       const leftover = field.leftover;
@@ -2624,11 +2449,17 @@ export function FillLogPanel({
                       const listingText = listingTextForField(listing, selectedForm.id, field);
                       const listingEmpty = listingFieldEmpty(listing, selectedForm.id, field);
                       const vendooText = vendooTextForField(field);
-                      const actionState = fieldActionState(field, listing, selectedForm.id, fromVendooDraft);
                       const applyValue = listingText || (leftover
                         ? (String(values[leftover.id] ?? "").trim() || leftoverGeneratedValue(listing, leftover, field))
                         : "");
-                      const rowClass = fieldRowClass(actionState);
+                      const rowClass = field.notApplicable
+                        ? "is-na"
+                        : !fromVendooDraft
+                          ? "is-unknown"
+                          : field.missing
+                            ? "is-del"
+                            : "is-add";
+                      const gutter = field.notApplicable ? "~" : !fromVendooDraft ? "?" : field.missing ? "-" : "+";
                       const listingCell = field.notApplicable
                         ? "Does not apply"
                         : (listingText || EMPTY_CELL);
@@ -2637,46 +2468,27 @@ export function FillLogPanel({
                         : (vendooText || EMPTY_CELL);
                       return (
                         <div key={field.key} className={`pr-field-row ${rowClass}`}>
-                          <span className="pr-field-gutter" aria-hidden="true">
-                            {actionState === "na" ? "~" : actionState === "synced" ? "✓" : actionState === "ready-apply" ? "→" : "!"}
-                          </span>
+                          <span className="pr-field-gutter">{gutter}</span>
                           <span className="pr-field-name">{field.label}</span>
-                          <div className="pr-field-col-stack">
-                            <span className={`pr-field-cell${listingEmpty && !field.notApplicable ? " is-empty" : " is-filled"}`}>
-                              {listingCell}
-                            </span>
-                            <span className={`pr-field-status is-${listingEmpty && !field.notApplicable ? "chat" : "generated"}`}>
-                              {listingStatusLabel(field, listing, selectedForm.id)}
-                            </span>
-                          </div>
-                          <div className="pr-field-col-stack">
-                            <span className={`pr-field-cell${
-                              !fromVendooDraft
-                                ? " is-unknown"
-                                : field.missing && !field.notApplicable
-                                  ? " is-empty"
-                                  : " is-filled"
-                            }`}>
-                              {vendooCell}
-                            </span>
-                            <span className={`pr-field-status is-${
-                              !fromVendooDraft
-                                ? "unknown"
-                                : field.missing && !field.notApplicable
-                                  ? "ready"
-                                  : "synced"
-                            }`}>
-                              {vendooStatusLabel(field, fromVendooDraft)}
-                            </span>
-                          </div>
+                          <span className={`pr-field-cell${listingEmpty && !field.notApplicable ? " is-empty" : " is-filled"}`}>
+                            {listingCell}
+                          </span>
+                          <span className={`pr-field-cell${
+                            !fromVendooDraft
+                              ? " is-unknown"
+                              : field.missing && !field.notApplicable
+                                ? " is-empty"
+                                : " is-filled"
+                          }`}>
+                            {vendooCell}
+                          </span>
                           <div className="pr-field-row-actions">
-                            <span className={`pr-next-step is-${actionState}`}>{nextStepLabel(actionState)}</span>
-                            {leftover && !field.notApplicable && issueKind(leftover) === "failure" && (
+                            {leftover && !field.notApplicable && (
                               <span className={`pr-issue-badge is-${issueKind(leftover)}`} title={leftover.reason || issueLabel(leftover)}>
                                 {issueLabel(leftover)}
                               </span>
                             )}
-                            {onAskChat && actionState === "needs-chat" && (
+                            {onAskChat && !field.notApplicable && listingEmpty && (
                               <button
                                 type="button"
                                 className="pr-read"
@@ -2688,7 +2500,7 @@ export function FillLogPanel({
                                 Ask chat
                               </button>
                             )}
-                            {actionState === "ready-apply" && applyValue && fromVendooDraft && chromeConnected && (
+                            {!field.notApplicable && applyValue && fromVendooDraft && field.missing && chromeConnected && (
                               <button
                                 type="button"
                                 className="pr-read"
