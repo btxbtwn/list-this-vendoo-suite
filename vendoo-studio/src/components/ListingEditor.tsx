@@ -11,6 +11,7 @@ import {
 import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
 import { ClearListingButton } from "./ClearListingButton";
+import { fetchVendooItemLive } from "../api/vendooItemQuery";
 
 interface Props {
   convId: string;
@@ -44,8 +45,13 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
   );
   const [ensureError, setEnsureError] = React.useState<string | null>(null);
   const ensureDraftMutation = useMutation({
-    mutationFn: () => api.jobs.ensureDraft(convId),
-    onSuccess: async (job) => {
+    mutationFn: async () => {
+      const job = await api.jobs.ensureDraft(convId);
+      // Live read stays inside the mutation so Refresh stays pending until Chrome finishes.
+      const fresh = await fetchVendooItemLive(queryClient, job.id, { force: true });
+      return { job, fresh };
+    },
+    onSuccess: ({ job, fresh }) => {
       setEnsureError(null);
       queryClient.setQueryData(["jobs", convId], (old: any[] | undefined) => {
         const rest = (old || []).filter((item) => item.id !== job.id);
@@ -55,22 +61,11 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
       queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
-      // ensure-draft only binds the local job; pull live form values through Chrome.
-      try {
-        const fresh = await api.jobs.vendooItem(job.id, { refresh: true });
-        queryClient.setQueryData(["vendoo-item", job.id], fresh);
-        if (fresh?.error || fresh?.api_error) {
-          addToast({
-            type: "error",
-            title: "Could not fully refresh Vendoo draft",
-            description: String(fresh.error || fresh.api_error),
-          });
-        }
-      } catch (error) {
+      if (fresh?.error || fresh?.api_error) {
         addToast({
           type: "error",
-          title: "Could not read Vendoo draft",
-          description: (error as Error).message || "Connect Chrome and try Refresh fields again.",
+          title: "Could not fully refresh Vendoo draft",
+          description: String(fresh.error || fresh.api_error),
         });
       }
     },
@@ -138,15 +133,6 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
   const listingTitle = String(listing.title || "Listing");
   const importedItemId = listingJob?.vendoo_item_id || notesVendooItemId(conversation?.notes);
   const importedUrl = listingJob?.vendoo_url || notesVendooUrl(conversation?.notes);
-
-  React.useEffect(() => {
-    if (!listingJob?.id || !(listingJob.vendoo_item_id || importedItemId)) return;
-    void queryClient.prefetchQuery({
-      queryKey: ["vendoo-item", listingJob.id],
-      queryFn: () => api.jobs.vendooItem(listingJob.id, { refresh: true }),
-      staleTime: 0,
-    });
-  }, [listingJob?.id, listingJob?.vendoo_item_id, importedItemId, queryClient]);
 
   React.useEffect(() => {
     if (importedItemId && listingJob?.status === "imported") {
