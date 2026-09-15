@@ -97,9 +97,10 @@ vendoo-studio/           Local web app (FastAPI + React)
 ## Security
 
 - Binds only to `127.0.0.1` (localhost).
+- Optional **Settings → Connections → Tailscale HTTPS** uses private Tailscale Serve to proxy HTTPS to that loopback port. Funnel stays off; only devices on your Tailnet can open the link. Same Studio process and data as on the Mac — not a second install.
 - API keys and ChatGPT tokens live in macOS Keychain, never in SQLite, browser storage, or logs.
 - Never sent to the React frontend or Chrome extension.
-- Photos are served only on localhost (`GET /api/photos/{id}`).
+- Photos are served only through the Studio origin (`GET /api/photos/{id}`).
 - No publication automation — only draft saving.
 
 ## Development

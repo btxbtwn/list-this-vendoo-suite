@@ -805,6 +805,7 @@ function IntegrationsPanel() {
 function ConnectionsPanel() {
   return (
     <SettingsSection id="connections" title="Connections">
+      <TailscaleHttpsRow />
       <SettingsRow
         title="Vendoo in Chrome"
         description="Connect Chrome opens Vendoo in your everyday Chrome and reloads Studio's listing extension so it matches this build. Send to Vendoo fills a background tab in that same Chrome and closes it when the draft is saved."
@@ -818,6 +819,150 @@ function ConnectionsPanel() {
       </SettingsRow>
       <CategoryTreesRow />
     </SettingsSection>
+  );
+}
+
+type TailscaleStatus = Awaited<ReturnType<typeof api.settings.tailscale>>;
+
+function TailscaleHttpsRow() {
+  const queryClient = useQueryClient();
+  const [copied, setCopied] = useState(false);
+  const { data, isPending, isError, error } = useQuery({
+    queryKey: ["settings-tailscale"],
+    queryFn: api.settings.tailscale,
+    refetchInterval: 5000,
+  });
+  const enableMutation = useMutation({
+    mutationFn: api.settings.enableTailscale,
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["settings-tailscale"], payload);
+    },
+  });
+  const disableMutation = useMutation({
+    mutationFn: api.settings.disableTailscale,
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["settings-tailscale"], payload);
+    },
+  });
+  const busy = enableMutation.isPending || disableMutation.isPending;
+  const actionError =
+    (enableMutation.error as Error | null)?.message ||
+    (disableMutation.error as Error | null)?.message ||
+    null;
+
+  async function copyUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const control = (() => {
+    if (isPending || !data) {
+      return <span className="settings-row-value">Checking…</span>;
+    }
+    if (data.enabled) {
+      return (
+        <button
+          type="button"
+          className="btn btn-sm btn-outline"
+          disabled={busy || data.state === "conflict" || data.funnel}
+          onClick={() => disableMutation.mutate()}
+        >
+          {disableMutation.isPending ? "Disabling…" : "Disable"}
+        </button>
+      );
+    }
+    const canEnable = data.installed && Boolean(data.dns_name) && data.state !== "conflict" && !data.funnel;
+    return (
+      <button
+        type="button"
+        className="btn btn-sm btn-outline"
+        disabled={busy || !canEnable}
+        onClick={() => enableMutation.mutate()}
+      >
+        {enableMutation.isPending ? "Enabling…" : "Enable"}
+      </button>
+    );
+  })();
+
+  return (
+    <SettingsRow
+      id="tailscale-https"
+      title="Tailscale HTTPS"
+      description="Share this Mac's Studio with your phone over your private Tailnet. Studio stays on 127.0.0.1; Tailscale proxies HTTPS. Funnel stays off."
+      control={control}
+    >
+      {isError ? (
+        <p className="settings-row-desc text-error" role="alert">
+          {(error as Error).message || "Could not read Tailscale status"}
+        </p>
+      ) : null}
+      {data ? <TailscaleStatusDetails data={data} copied={copied} onCopy={copyUrl} /> : null}
+      {actionError ? (
+        <p className="settings-row-desc text-error" role="alert">
+          {actionError}
+        </p>
+      ) : null}
+    </SettingsRow>
+  );
+}
+
+function TailscaleStatusDetails({
+  data,
+  copied,
+  onCopy,
+}: {
+  data: TailscaleStatus;
+  copied: boolean;
+  onCopy: (url: string) => void;
+}) {
+  if (!data.installed) {
+    return (
+      <p className="settings-row-desc">
+        Install Tailscale on this Mac and your phone, sign in to the same account, then enable here.
+      </p>
+    );
+  }
+  if (!data.dns_name) {
+    return (
+      <p className="settings-row-desc text-error" role="alert">
+        {data.error || "Sign in to Tailscale on this Mac first."}
+      </p>
+    );
+  }
+  if (data.error && !data.enabled) {
+    return (
+      <p className="settings-row-desc text-error" role="alert">
+        {data.error}
+      </p>
+    );
+  }
+  if (!data.enabled || !data.url) {
+    return (
+      <p className="settings-row-desc">
+        After Enable, open the HTTPS link on any device on your Tailnet — same Studio, same listings.
+      </p>
+    );
+  }
+  return (
+    <div className="settings-tailscale-url">
+      <code className="settings-row-code">{data.url}</code>
+      <div className="settings-tailscale-actions">
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => onCopy(data.url!)}>
+          {copied ? "Copied" : "Copy link"}
+        </button>
+        <a className="btn btn-sm btn-ghost" href={data.url} target="_blank" rel="noreferrer">
+          Open
+        </a>
+      </div>
+      <p className="settings-row-desc">
+        On your phone: Tailscale app signed in → Safari/Chrome → paste this link. You are not running a second Studio.
+      </p>
+    </div>
   );
 }
 

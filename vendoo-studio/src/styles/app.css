@@ -3666,6 +3666,31 @@ details[open] .json-collapse-summary::before {
   color: var(--color-text-muted);
 }
 
+.settings-tailscale-url {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  max-width: 36rem;
+}
+
+.settings-tailscale-url .settings-row-code {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-ink-raised) 80%, transparent);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.settings-tailscale-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .settings-danger {
   color: var(--color-tomato);
 }

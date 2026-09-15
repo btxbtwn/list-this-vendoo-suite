@@ -403,3 +403,30 @@ def dismiss_setup_guide():
     from vendoo_studio.services.user_settings import dismiss_setup_guide as persist_setup_guide_dismissed
 
     return persist_setup_guide_dismissed()
+
+
+@router.get("/tailscale")
+def get_tailscale():
+    from vendoo_studio.services.tailscale_serve import status as tailscale_status
+
+    return tailscale_status()
+
+
+@router.post("/tailscale/enable")
+def enable_tailscale():
+    from vendoo_studio.services.tailscale_serve import TailscaleServeError, enable
+
+    try:
+        return enable()
+    except TailscaleServeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/tailscale/disable")
+def disable_tailscale():
+    from vendoo_studio.services.tailscale_serve import TailscaleServeError, disable
+
+    try:
+        return disable()
+    except TailscaleServeError as exc:
+        raise HTTPException(400, str(exc)) from exc

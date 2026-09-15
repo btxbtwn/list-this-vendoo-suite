@@ -78,7 +78,7 @@ CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `ma
 
 - Never commit API keys, OAuth credentials, listing photos, generated diagnostics, or private exports.
 - API keys remain in macOS Keychain and never enter SQLite, logs, frontend responses, or extension messages.
-- Bind Studio only to `127.0.0.1`.
+- Bind Studio only to `127.0.0.1`. Optional private Tailscale Serve (Settings → Connections) may proxy Tailnet HTTPS to that loopback port; never Funnel and never bind to `0.0.0.0`.
 - Require human approval before sending to Vendoo.
 - Allow one automation job at a time. Additional approved Sends may wait in a FIFO queue and start when the current job finishes, fails, or is cancelled.
 - Do not introduce Redis, MongoDB, Celery, Docker, cloud hosting, or provider substitutions unless explicitly requested.

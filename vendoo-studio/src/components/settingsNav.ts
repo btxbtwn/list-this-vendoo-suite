@@ -118,6 +118,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     targetId: "connections",
     searchTerms: ["extension", "connect chrome", "browser"],
   },
+  {
+    id: "tailscale-https",
+    title: "Tailscale HTTPS",
+    section: "connections",
+    targetId: "tailscale-https",
+    searchTerms: ["mobile", "phone", "remote", "tailnet", "serve", "network"],
+  },
 ];
 
 function normalize(text: string): string {
