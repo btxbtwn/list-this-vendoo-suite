@@ -277,6 +277,45 @@ export const api = {
       }),
     dismissSetupGuide: () =>
       request<{ ok: boolean; dismissed: boolean }>("/settings/setup-guide/dismiss", { method: "POST" }),
+    tailscale: () =>
+      request<{
+        available: boolean;
+        installed: boolean;
+        enabled: boolean;
+        https_port: number;
+        target: string;
+        dns_name: string | null;
+        url: string | null;
+        state: string;
+        error: string | null;
+        funnel: boolean;
+      }>("/settings/tailscale"),
+    enableTailscale: () =>
+      request<{
+        available: boolean;
+        installed: boolean;
+        enabled: boolean;
+        https_port: number;
+        target: string;
+        dns_name: string | null;
+        url: string | null;
+        state: string;
+        error: string | null;
+        funnel: boolean;
+      }>("/settings/tailscale/enable", { method: "POST" }),
+    disableTailscale: () =>
+      request<{
+        available: boolean;
+        installed: boolean;
+        enabled: boolean;
+        https_port: number;
+        target: string;
+        dns_name: string | null;
+        url: string | null;
+        state: string;
+        error: string | null;
+        funnel: boolean;
+      }>("/settings/tailscale/disable", { method: "POST" }),
   },
 
   extension: {
