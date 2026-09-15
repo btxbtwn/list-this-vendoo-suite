@@ -543,6 +543,22 @@ def listing_save_summary(db, conv_id: str, listing: dict, *, waiting: bool = Fal
     )
 
 
+def _ready_note(*, repaired: bool, finalized: bool, blockers: list) -> str:
+    blocker_text = "; ".join(
+        str(err.get("message") or err.get("field") or "issue") for err in (blockers or [])[:6]
+    )
+    if blockers:
+        lead = "Listing repaired after a readiness pass" if repaired else "Listing extracted after a readiness pass"
+        return f"{lead}. Remaining send blockers: {blocker_text}. Still ready for review."
+    if repaired and finalized:
+        return "Listing repaired and required fields filled. Ready for review."
+    if finalized:
+        return "Listing extracted and required fields filled. Ready for review."
+    if repaired:
+        return "Listing repaired from malformed model output and ready for review."
+    return "Listing extracted and ready for review."
+
+
 def persist_generated_listing(
     db,
     conv_id: str,
@@ -578,7 +594,7 @@ def persist_generated_listing(
         repo.add_message(
             conv_id,
             "system",
-            listing_save_summary(db, conv_id, listing),
+            _ready_note(repaired=repaired, finalized=False, blockers=_validation_blockers(listing)),
             provider="system",
             model="",
         )
@@ -623,6 +639,7 @@ async def persist_generated_listing_with_repair(
     conv = ConversationRepo(db).get(conv_id)
     analysis = latest_photo_analysis(ConversationRepo(db).get_messages(conv_id)) or ""
     notes = str(getattr(conv, "notes", "") or "")
+    finalized = False
     if _validation_blockers(listing):
         updated = await fill_validation_gaps(provider, listing, analysis=analysis, notes=notes)
         if isinstance(updated, dict) and updated:
@@ -634,12 +651,13 @@ async def persist_generated_listing_with_repair(
             apply_send_readiness_fixes(updated)
             listing = updated
             ListingRepo(db).save_revision(conv_id, listing, source="generation_finalize")
+            finalized = True
 
     if final_announce:
         ConversationRepo(db).add_message(
             conv_id,
             "system",
-            listing_save_summary(db, conv_id, listing),
+            _ready_note(repaired=repaired, finalized=finalized, blockers=_validation_blockers(listing)),
             provider="system",
             model="",
         )
