@@ -5490,7 +5490,11 @@
       // it: on a filled multi-select the parent walk in fieldLabelForControl
       // matches a selected value chip, so Materials comes back as "Polyester".
       const sibling = controlId ? document.getElementById(`${controlId}-label`) : null;
-      for (const raw of [sibling && sibling.textContent, fieldLabelForControl(el)]) {
+      const labelledBy = el.getAttribute && el.getAttribute('aria-labelledby');
+      const labelledText = labelledBy
+          ? labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ')
+          : '';
+      for (const raw of [sibling && sibling.textContent, labelledText, fieldLabelForControl(el)]) {
           const label = String(raw || '')
               .replace(/\s+/g, ' ')
               .replace(/\s*\*$/, '')

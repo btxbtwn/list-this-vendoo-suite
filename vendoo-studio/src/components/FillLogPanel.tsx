@@ -1188,28 +1188,48 @@ function listingSection(listing: Record<string, unknown> | undefined): unknown {
  * `fieldLabels` as "<bucket>.<key>". listingSection flattens the buckets away,
  * so re-key them to the bare field key that flattenFields will see.
  *
- * Runs against the merged listing on purpose: a named twin of a numeric key can
- * arrive from the API or a later scrape pass, and adopting the label then would
- * render two identically labeled rows. Those keep their raw id.
+ * Always attach scraped labels — even when a camelCase twin exists. Duplicate
+ * taxonomy-id rows are dropped later by withoutTaxonomyIdNoise; keeping the raw
+ * id visible was what made Etsy Fields look like random numbers.
  */
-function listingFieldLabels(listing: Record<string, unknown> | undefined, section: unknown): FieldLabels {
+function listingFieldLabels(listing: Record<string, unknown> | undefined, _section?: unknown): FieldLabels {
   const raw = listing?.fieldLabels;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const named = new Set(
-    section && typeof section === "object" && !Array.isArray(section)
-      ? Object.keys(section as Record<string, unknown>).map(normalizeFieldName)
-      : [],
-  );
   const out: Record<string, string> = {};
   for (const [path, label] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof label !== "string" || !label.trim()) continue;
     const text = label.trim();
-    if (named.has(normalizeFieldName(text))) continue;
     out[path] = text;
     const bare = path.split(".").slice(1).join(".");
     if (bare) out[bare] = text;
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+/** Etsy category specifics use bare taxonomy ids (148789511893) as DOM keys. */
+function isLetterlessFieldKey(key: string): boolean {
+  const leaf = key.split(".").pop() || key;
+  return Boolean(leaf) && !/[A-Za-z]/.test(leaf);
+}
+
+/**
+ * Hide taxonomy-id noise: unlabeled digit keys, and labeled digit keys that
+ * duplicate a real named sibling (closure + 325502673988 both meaning Closure).
+ */
+function withoutTaxonomyIdNoise(fields: DraftField[]): DraftField[] {
+  const namedLabels = new Set(
+    fields
+      .filter((field) => !isLetterlessFieldKey(field.key))
+      .map((field) => normalizeFieldName(field.label))
+      .filter(Boolean),
+  );
+  return fields.filter((field) => {
+    if (!isLetterlessFieldKey(field.key)) return true;
+    const labelName = normalizeFieldName(field.label);
+    if (!labelName || !/[a-z]/.test(labelName)) return false;
+    if (namedLabels.has(labelName)) return false;
+    return true;
+  });
 }
 
 function deepMergeRecords(
@@ -1371,7 +1391,9 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
   for (const id of listingIds) {
     const listing = listings[id] as Record<string, unknown> | undefined;
     const section = listing ? listingSection(listing) : undefined;
-    const raw = listing ? flattenFields(section, "", listingFieldLabels(listing, section)) : [];
+    const raw = listing
+      ? withoutTaxonomyIdNoise(flattenFields(section, "", listingFieldLabels(listing, section)))
+      : [];
     const fields = organizeFields(id, raw, fillLogEntriesForMarket(report, id));
     const liveStatus = liveStatusForMarketplace(id, item);
     if (!fields.length && !liveStatus) continue;
@@ -1443,7 +1465,7 @@ function specificsListingFields(listing: Record<string, unknown>, marketplace: s
   for (const [key, value] of Object.entries(specs as Record<string, unknown>)) {
     if (key === "category_specifics" && value && typeof value === "object" && !Array.isArray(value)) {
       for (const [nested, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-        const label = nested;
+        const label = fieldLabel(nested);
         fields.push({
           key: `${marketplace}_specifics.category_specifics.${nested}`,
           label,
@@ -1473,7 +1495,10 @@ function formsFromListing(listing?: Record<string, unknown>): DraftForm[] {
     if (id === "poshmark") extras.push(listingField(listing, "poshmark_specifics.originalPrice", "Original Price"));
     if (id === "mercari") extras.push(listingField(listing, "mercari_specifics.shippingLabel", "Shipping Label"));
     const seen = new Set(extras.map((field) => field.key));
-    const fields = [...extras, ...specificsListingFields(listing, id).filter((field) => !seen.has(field.key))];
+    const fields = withoutTaxonomyIdNoise([
+      ...extras,
+      ...specificsListingFields(listing, id).filter((field) => !seen.has(field.key)),
+    ]);
     const organized = organizeFields(id, fields);
     if (!organized.length) continue;
     forms.push(toForm(id, organized));
