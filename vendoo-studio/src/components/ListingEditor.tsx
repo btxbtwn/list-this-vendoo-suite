@@ -556,16 +556,7 @@ function SendToVendooButton({
   const fillJob = isSchemaProbe && !probeActive ? null : existingJob;
   const extensionConnected = extStatus?.connected ?? false;
   const overwriteItemId = vendooItemId || fillJob?.vendoo_item_id || existingJob?.vendoo_item_id || null;
-  // Field discovery may already bind a Vendoo draft ID. That is still a first Send from the operator's
-  // point of view until a real fill/import job has run for this conversation.
-  const hasSentBefore = (jobs || []).some(
-    (j: any) =>
-      j.conversation_id === convId
-      && j.status !== "cancelled"
-      && j.mode !== "schema_probe",
-  );
-  const treatAsUpdate = Boolean(overwriteItemId && hasSentBefore);
-  const sendLabel = treatAsUpdate ? "Update Vendoo listing" : "Send to Vendoo";
+  const sendLabel = overwriteItemId ? "Update Vendoo listing" : "Send to Vendoo";
   const uniqueBlockers = React.useMemo(() => {
     const seen = new Set<string>();
     return sendBlockers.filter((err) => {
@@ -578,7 +569,7 @@ function SendToVendooButton({
   const blockerText = uniqueBlockers.map((err) => err.message).join(" · ");
 
   const confirmOverwriteIfNeeded = async () => {
-    if (!treatAsUpdate) return true;
+    if (!overwriteItemId) return true;
     return confirmDialog(
       "Overwrite this existing Vendoo listing?\nThis does not publish. If it is already live, saving may update those marketplace listings.",
     );
