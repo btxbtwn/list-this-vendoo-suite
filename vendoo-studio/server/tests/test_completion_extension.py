@@ -7,6 +7,30 @@ EXTENSION = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
 
 class CompletionExtensionTest(unittest.TestCase):
+    def test_failed_probe_releases_job_before_reporting_failure(self):
+        source = (EXTENSION / "background.js").read_text()
+        function = source[source.index("async function runJob"):source.index("function buildJobSteps")]
+        script = """
+let activeJob = {job_id: 'probe', tabId: 3, options: {mode: 'schema_probe'}};
+const events = [];
+const selectJobSteps = (job, steps) => steps;
+const buildJobSteps = () => [{step: 'discovering_schema', fn: async () => ({ok: false,
+  error: 'etsy: category missing', schema: {etsy: {fields: [], error: 'category missing'}}})}];
+const persistActiveJob = async value => events.push({persist: value});
+const collectDiagnostics = () => {}, log = () => {};
+const send = message => events.push({message, busy: !!activeJob});
+const stopJobPreview = async () => {}, closeListingTab = async id => events.push({closed: id});
+""" + function + """
+(async () => {await runJob('probe'); console.log(JSON.stringify({activeJob, events}));})();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertIsNone(result["activeJob"])
+        failure = next(event for event in result["events"] if event.get("message", {}).get("type") == "job.step_failed")
+        self.assertFalse(failure["busy"])
+        self.assertEqual(failure["message"]["payload"]["schema"]["etsy"]["error"], "category missing")
+        self.assertIn({"persist": None}, result["events"])
+        self.assertIn({"closed": 3}, result["events"])
+
     def test_schema_collection_preserves_native_options_and_awaits_live_capture(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
         function = source[source.index("  async function collectMarketplaceSchemaFields"):source.index("  function compareSchemaValues")]

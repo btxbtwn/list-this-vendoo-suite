@@ -2217,6 +2217,7 @@
   }
 
   function normalizeVendooCategoryPath(data) {
+      if (data.marketplace_categories) return data.category_path || '';
       const categoryPath = data.category_path || '';
       const hay = categoryHaystack(data, categoryPath);
       const hayLower = normalizeText(hay);
@@ -2991,11 +2992,11 @@
   }
 
   async function fillMarketplaceCategory(marketplace, data) {
-      const categoryPath = marketplace === 'poshmark'
+      const categoryPath = data.marketplace_categories?.[marketplace] || (marketplace === 'poshmark'
           ? normalizePoshmarkCategoryPath(data)
           : marketplace === 'mercari'
               ? normalizeMercariCategoryPath(data)
-          : String(data?.category_path || '').trim();
+          : String(data?.category_path || '').trim());
       if (!categoryPath) {
           recordFill({ field: 'Category', status: 'skipped', reason: 'No value in listing' });
           return { status: 'skipped' };
@@ -5735,10 +5736,11 @@
           warn(`Schema discovery save failed: ${err.message}`);
       }
 
+      const failures = Object.entries(schema).filter(([, section]) => section.error || !section.fields.length)
+          .map(([platform, section]) => `${platform}: ${section.error || 'No form fields were found'}`);
       return {
-          ok: Object.values(schema).every((section) => !section.error && section.fields.length > 0),
-          error: Object.values(schema).some((section) => section.error || !section.fields.length)
-              ? 'Could not discover every selected marketplace schema' : null,
+          ok: failures.length === 0,
+          error: failures.length ? `Category field discovery failed: ${failures.join('; ')}` : null,
           schema,
           categories,
           fill_log: {

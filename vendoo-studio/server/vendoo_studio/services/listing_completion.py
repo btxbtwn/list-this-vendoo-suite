@@ -114,6 +114,11 @@ async def complete_job(db: Session, job_id: str) -> None:
     revisions = ListingRepo(db).get_revisions(job.conversation_id)
     listing = deepcopy(revisions[0].listing_json if revisions else job.listing_snapshot)
     expected_category = str(listing.get("category_path") or "").strip()
+    for marketplace, expected in (listing.get("marketplace_categories") or {}).items():
+        observed = str((schema.get(marketplace, {}).get("category") or {}).get("path") or "").strip()
+        if observed.casefold() != str(expected).strip().casefold():
+            _pause(db, job, f"The saved {marketplace} category differs from the selected category. Resolve its category before filling again.", [])
+            return
     observed_category = str((schema.get("general", {}).get("category") or {}).get("path") or "").strip()
     if expected_category and expected_category.casefold() != observed_category.casefold():
         _pause(db, job, "The saved category differs from the listing. Resolve the category and discover its fields before filling again.", [])

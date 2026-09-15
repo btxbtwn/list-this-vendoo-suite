@@ -890,8 +890,8 @@ def _listing_messages(
         "You are a product listing generator. Generate an evidence-backed Vendoo listing JSON "
         "from the photo analysis and listing rules below.\n\n"
         f"{photo_line}"
-        "Use Vendoo's General taxonomy for category_path. Women's shirts and T-shirts must use "
-        f'"{WOMEN_TOPS_PATH}", not "Shirts & Blouses". Men\'s T-shirts must use "{MEN_TSHIRT_PATH}".\n\n'
+        "Preserve category_path and marketplace_categories from the verified category selections below. "
+        "Each marketplace uses its own category tree; do not substitute another form's breadcrumb.\n\n"
         "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
         "when a second color is visible. Use Vendoo general condition values such as "
         '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
