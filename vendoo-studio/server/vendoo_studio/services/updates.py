@@ -247,6 +247,17 @@ def apply_update() -> dict:
         raise UpdateBlocked("Timed out talking to git.") from exc
 
 
+def reinstall_app() -> dict:
+    if not is_packaged():
+        raise UpdateBlocked("Reinstall is only available in the Mac app.")
+    from vendoo_studio.services.packaged_updates import PackagedUpdateError, reinstall_packaged_app
+
+    try:
+        return reinstall_packaged_app()
+    except PackagedUpdateError as exc:
+        raise UpdateBlocked(str(exc)) from exc
+
+
 def apply_update_at(root: Path) -> dict:
     if not _is_dev():
         root = ensure_standalone_clone(root)

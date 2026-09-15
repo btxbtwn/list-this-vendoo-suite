@@ -128,16 +128,38 @@ def _verify_app_signature(app_path: Path) -> None:
         raise PackagedUpdateError("The update is not signed by a trusted identity.")
 
 
+def _path_inside(root: Path, candidate: Path) -> bool:
+    root = root.resolve()
+    try:
+        candidate = candidate.resolve(strict=False)
+    except RuntimeError as exc:
+        raise PackagedUpdateError("Archive contains an unsafe path.") from exc
+    return candidate == root or str(candidate).startswith(str(root) + os.sep)
+
+
+def _validate_symlink_target(destination: Path, member_name: str, link_target: str) -> None:
+    """Reject absolute links and relative links that escape the extract root."""
+    destination = destination.resolve()
+    if not link_target or link_target.startswith("/") or link_target.startswith("~"):
+        raise PackagedUpdateError("Archive contains an unsafe symbolic link.")
+    member_parent = (destination / member_name).parent
+    # Pure lexical join so missing parents do not affect the safety check.
+    joined = Path(os.path.normpath(member_parent / link_target))
+    if not _path_inside(destination, joined):
+        raise PackagedUpdateError("Archive contains an unsafe symbolic link.")
+
+
 def _validate_zip_members(archive: Path, destination: Path) -> None:
     destination = destination.resolve()
     with zipfile.ZipFile(archive) as bundle:
         for info in bundle.infolist():
             target = (destination / info.filename).resolve()
-            if destination != target and not str(target).startswith(str(destination) + os.sep):
+            if not _path_inside(destination, target):
                 raise PackagedUpdateError("Archive contains an unsafe path.")
             mode = (info.external_attr >> 16) & 0o170000
             if mode == stat.S_IFLNK:
-                raise PackagedUpdateError("Archive contains an unsafe symbolic link.")
+                link_target = bundle.read(info).decode("utf-8", errors="surrogateescape")
+                _validate_symlink_target(destination, info.filename, link_target)
 
 
 def _safe_extract_zip(archive: Path, destination: Path) -> None:
@@ -260,8 +282,7 @@ def _extract_app(archive: Path, destination: Path) -> Path:
         _safe_extract_zip(archive, destination)
     dest = destination.resolve()
     for path in dest.rglob("*"):
-        resolved = path.resolve()
-        if resolved != dest and not str(resolved).startswith(str(dest) + os.sep):
+        if not _path_inside(dest, path):
             raise PackagedUpdateError("Archive contains an unsafe path.")
     matches = [path for path in destination.rglob(APP_BUNDLE_NAME) if path.is_dir()]
     if not matches:
@@ -295,13 +316,15 @@ def _write_replacer(app_path: Path, new_app: Path, pid: int) -> Path:
     return script
 
 
-def apply_packaged_update() -> dict:
+def apply_packaged_update(*, force: bool = False) -> dict:
     status = check_for_packaged_update()
-    if not status.get("available"):
+    download_url = status.get("download_url")
+    if not force and not status.get("available"):
         if status.get("error"):
             raise PackagedUpdateError(status["error"])
         return {"ok": True, "updated": False, "sha": status.get("local_sha"), "packaged": True}
-    download_url = status.get("download_url")
+    if force and status.get("error") and not download_url:
+        raise PackagedUpdateError(status["error"])
     if not download_url:
         raise PackagedUpdateError("The GitHub release does not include a Mac zip.")
     app_path = installed_app_path()
@@ -329,4 +352,10 @@ def apply_packaged_update() -> dict:
         "sha": status.get("remote_sha"),
         "packaged": True,
         "relaunch": True,
+        "reinstalled": force,
     }
+
+
+def reinstall_packaged_app() -> dict:
+    """Download the published Mac zip and replace the installed app, even if already current."""
+    return apply_packaged_update(force=True)

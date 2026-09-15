@@ -383,6 +383,35 @@ input, select, textarea {
   gap: 12px;
 }
 
+.status-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-reinstall-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.status-reinstall-btn:hover:not(:disabled) {
+  color: #d4d4d4;
+}
+
+.status-reinstall-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  text-decoration: none;
+}
+
 .status-dot {
   width: 5px;
   height: 5px;

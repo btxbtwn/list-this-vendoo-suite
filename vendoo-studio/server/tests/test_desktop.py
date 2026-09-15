@@ -48,6 +48,7 @@ class StudioWindowChromeTest(unittest.TestCase):
         ]
         self.assertIn("Check for Updates…", action_titles)
         self.assertIn("Update and Restart…", action_titles)
+        self.assertIn("Reinstall from GitHub…", action_titles)
 
     def test_update_status_message_up_to_date(self):
         self.assertEqual(
@@ -68,6 +69,21 @@ class StudioWindowChromeTest(unittest.TestCase):
         ):
             desktop.menu_update_and_restart()
         apply.assert_called_once()
+        self.assertTrue(any("Restarting" in str(call.args[0]) for call in notify.call_args_list))
+
+    def test_menu_reinstall_app_force_replaces(self):
+        applied = {"ok": True, "updated": True, "reinstalled": True}
+        with (
+            patch.object(desktop, "studio_is_up", return_value=True),
+            patch.object(desktop, "confirm_update_dialog", return_value=True) as confirm,
+            patch.object(desktop, "_http_reinstall_app", return_value=applied) as reinstall,
+            patch.object(desktop, "notify") as notify,
+            patch.object(desktop.threading.Thread, "start", lambda self: self.run()),
+        ):
+            desktop.menu_reinstall_app()
+        confirm.assert_called_once()
+        self.assertEqual(confirm.call_args.kwargs.get("confirm_label"), "Reinstall")
+        reinstall.assert_called_once()
         self.assertTrue(any("Restarting" in str(call.args[0]) for call in notify.call_args_list))
 
     def test_install_bundle_icon_copies_chrome_extension_png(self):
