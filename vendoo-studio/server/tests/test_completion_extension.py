@@ -7,6 +7,18 @@ EXTENSION = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
 
 class CompletionExtensionTest(unittest.TestCase):
+    def test_category_readback_reconstructs_css_breadcrumb_separators(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[source.index("  function readCategoryDisplay"):source.index("  function categoryDisplayMatches")]
+        script = "const normalizeCategoryDisplay = text => text.trim();\n" + function + """
+const parts = ["Clothing", "Women's Clothing", "Tops & Tees", "T-shirts"];
+const button = {children: parts.map(textContent => ({tagName: 'SPAN', textContent})),
+  textContent: parts.join('')};
+console.log(JSON.stringify([readCategoryDisplay(button), readCategoryDisplay({textContent: 'Category'})]));
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertEqual(result, ["Clothing > Women's Clothing > Tops & Tees > T-shirts", ""])
+
     def test_failed_probe_releases_job_before_reporting_failure(self):
         source = (EXTENSION / "background.js").read_text()
         function = source[source.index("async function runJob"):source.index("function buildJobSteps")]

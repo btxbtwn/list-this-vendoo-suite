@@ -2360,52 +2360,13 @@
 
   function readCategoryDisplay(el) {
       if (!el) return '';
-      const direct = displayedFieldValue(el) || String(el.innerText || el.textContent || '').trim();
-      const chunks = [];
-      const push = (text) => {
-          const cleaned = String(text || '')
-              .replace(/[▸▶‣]/g, '>')
-              .replace(/\u00a0/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-          if (!cleaned || /^category$/i.test(cleaned)) return;
-          if (cleaned.length > 80) return;
-          chunks.push(cleaned);
-      };
-      push(direct);
-      let node = el;
-      for (let depth = 0; depth < 6 && node; depth++) {
-          let sib = node.previousElementSibling;
-          while (sib) {
-              push(sib.innerText || sib.textContent || '');
-              sib = sib.previousElementSibling;
-          }
-          sib = node.nextElementSibling;
-          while (sib) {
-              push(sib.innerText || sib.textContent || '');
-              sib = sib.nextElementSibling;
-          }
-          const parent = node.parentElement;
-          if (parent) {
-              for (const child of Array.from(parent.children || []).slice(0, 12)) {
-                  if (child === el || child.contains?.(el)) continue;
-                  const text = String(child.innerText || child.textContent || '').trim();
-                  if (/tops|blouses?|shirts?|women|men|category/i.test(text)) push(text);
-              }
-          }
-          node = parent;
-      }
-      const unique = [];
-      for (const chunk of chunks) {
-          const norm = normalizeText(chunk);
-          if (!unique.some((item) => normalizeText(item) === norm)) unique.push(chunk);
-      }
-      if (!unique.length) return direct || '';
-      // Prefer the longest breadcrumb-like chunk; fall back to joined parts.
-      const breadcrumb = unique.find((item) => /[>‣]/.test(item) || /tops\s*&\s*blouses/i.test(item))
-          || unique.slice().sort((a, b) => b.length - a.length)[0];
-      if (breadcrumb && /tops|blouses?|shirts?/i.test(breadcrumb)) return breadcrumb;
-      return unique.join(' > ');
+      // Vendoo draws separators with CSS; textContent concatenates the spans.
+      const parts = Array.from(el.children || [])
+          .filter((child) => child.tagName === 'SPAN')
+          .map((child) => String(child.textContent || '').trim())
+          .filter(Boolean);
+      const shown = parts.length ? parts.join(' > ') : String(el.innerText || el.textContent || '').trim();
+      return /^(category|click to select|select category)$/i.test(shown) ? '' : normalizeCategoryDisplay(shown);
   }
 
   function categoryDisplayMatches(shown, path) {
@@ -2563,6 +2524,8 @@
   }
 
   function findMarketplaceCategoryControl(marketplace) {
+      const scoped = document.querySelector(`[aria-label="Category Selector for ${marketplace}"] [role="category-input"]`);
+      if (scoped) return scoped;
       const prefix = `listings.${marketplace}.overrides.category`;
       const exactIds = [
           `${prefix}V2`,
@@ -2647,6 +2610,8 @@
   }
 
   function findGeneralCategoryControl() {
+      const scoped = document.querySelector('[aria-label="Category Selector for vendoo"] [role="category-input"]');
+      if (scoped) return scoped;
       const direct = document.querySelector('#categoryV2, [role="category-input"]');
       if (direct) return direct;
       return findInputByExactLabel('Category', (el) => {
@@ -2743,7 +2708,7 @@
       let searchInput = await waitForCategorySearch();
       await resetCategoryPickerToRoot();
       searchInput = document.querySelector('input[role="category-search-field"]') || searchInput;
-      if (searchInput) {
+      if (searchInput && !data.marketplace_categories) {
           const leaf = segments[segments.length - 1] || '';
           const query = /\bblouses?\b/i.test(leaf) ? leaf : segments.slice(-2).join(' ');
           log(`Searching categories for: "${query}"`);
@@ -2863,8 +2828,9 @@
           return { ok: false, filled: false, error: 'Category modal did not close after selection' };
       }
 
-      const catBtnText = (displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '')
-          .trim().split('\n')[0].trim();
+      const currentButton = options.marketplace
+          ? findMarketplaceCategoryControl(options.marketplace) : findGeneralCategoryControl();
+      const catBtnText = readCategoryDisplay(currentButton);
       log(`Category selected. Button text: "${catBtnText}"`);
 
       if (!catBtnText || catBtnText.toLowerCase().includes('click to select')) {
@@ -3016,7 +2982,7 @@
           });
           return { status: 'not_found' };
       }
-      const result = await fillCategoryPath(data, { catBtn, categoryPath });
+      const result = await fillCategoryPath(data, { catBtn, categoryPath, marketplace });
       recordFill({
         field: 'Category',
         status: result.ok ? (result.already ? 'skipped' : (result.filled ? 'filled' : 'skipped')) : 'failed',
@@ -5559,9 +5525,7 @@
   function marketplaceCategoryDisplay(marketplace) {
       const catBtn = findMarketplaceCategoryControl(marketplace);
       if (!catBtn) return '';
-      return normalizeCategoryDisplay(
-          displayedFieldValue(catBtn) || catBtn.innerText || catBtn.textContent || '',
-      ).split('\n')[0].trim();
+      return readCategoryDisplay(catBtn);
   }
 
   // Each capture costs ~0.5-1.1s (open, settle, read, Escape). Keep the per-platform
@@ -5695,7 +5659,7 @@
       beginFillLog('general');
       await expandOptionalFields();
       schema.general = {
-          category: { path: normalizeCategoryDisplay(controlValue(VENDOO_SELECTORS.category)), status: 'observed' },
+          category: { path: readCategoryDisplay(findGeneralCategoryControl()), status: 'observed' },
           fields: await collectMarketplaceSchemaFields('general'),
       };
 
