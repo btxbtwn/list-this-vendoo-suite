@@ -216,6 +216,17 @@ class PersistListingTest(unittest.TestCase):
         self.assertTrue(any(m.role == "assistant" for m in messages))
         self.assertTrue(any("Listing extracted" in m.text for m in messages))
 
+    def test_generated_listing_preserves_categories_after_field_discovery(self):
+        ListingRepo(self.db).save_revision(self.conv.id, {
+            "category_path": "Clothing > Women's Tops",
+            "marketplace_categories": {"ebay": "Fashion > Shirts"},
+        }, source="fill_learned_fields")
+        parsed = persist_generated_listing(self.db, self.conv.id, "", parsed={
+            **LISTING_JSON, "category_path": "Wrong > Category", "marketplace_categories": {},
+        })
+        self.assertEqual(parsed["category_path"], "Clothing > Women's Tops")
+        self.assertEqual(parsed["marketplace_categories"], {"ebay": "Fashion > Shirts"})
+
     def test_persist_with_repair_saves_repaired_listing(self):
         broken = 'Here is the listing:\n```json\n{"title": "Broken Tee", "price": 12,\n```'
 

@@ -582,7 +582,8 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
     provider_name, provider_model = _provider_meta(provider)
 
     revisions = ListingRepo(db).get_revisions(conv_id)
-    if repo.get_photos(conv_id) and (not revisions or revisions[0].source == "category_analysis"):
+    if repo.get_photos(conv_id) and (not revisions or revisions[0].source == "category_analysis"
+                                   or not (revisions[0].listing_json or {}).get("title")):
         # Seller answers during category discovery resume the same generation
         # pipeline; chat must not bypass the schema prerequisite.
         return await generate_listing(conv_id, db)

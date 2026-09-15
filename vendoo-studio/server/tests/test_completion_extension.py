@@ -42,6 +42,7 @@ const live = {tagName: 'INPUT', id: 'occasion', value: '', getAttribute: () => n
 const document = {querySelectorAll: () => [native, live], getElementById: () => null};
 const isVisibleElement = () => true, isEnabledField = () => true;
 const marketplaceFieldNode = () => true, fieldLabelForControl = el => el.id;
+const scrapedFieldLabel = fieldLabelForControl;
 const normalizeFieldKey = value => value, isAccountSettingField = () => false;
 const readPersistedControlValue = el => el.value, isMultiChipField = () => false;
 const selectorFor = el => '#' + el.id, isDropdownLike = () => true;

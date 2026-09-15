@@ -269,7 +269,7 @@ def persist_generated_listing(
     from vendoo_studio.models.validation import normalize_listing_dropdowns
     normalize_listing_dropdowns(listing)
     revisions = ListingRepo(db).get_revisions(conv_id)
-    if revisions and revisions[0].source == "category_analysis":
+    if revisions:
         selected = revisions[0].listing_json
         if selected.get("marketplace_categories"):
             listing["category_path"] = selected["category_path"]

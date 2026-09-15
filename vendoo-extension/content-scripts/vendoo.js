@@ -5581,7 +5581,7 @@
           if (!isEnabledField(el)) continue;
           if (!marketplaceFieldNode(el, marketplace) && !isCurrentMarketplaceControl(el)) continue;
 
-          const label = fieldLabelForControl(el);
+          const label = scrapedFieldLabel(el) || fieldLabelForControl(el);
           const key = normalizeFieldKey(label);
           if (!key || seen.has(key)) continue;
           if (isAccountSettingField(key) || isAccountSettingField(label)) continue;
