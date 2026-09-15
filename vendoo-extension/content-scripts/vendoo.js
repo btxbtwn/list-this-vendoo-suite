@@ -662,7 +662,63 @@
       return mp;
   }
 
+  // Live dropdown options learned by the schema probe, keyed by marketplace and
+  // normalized field label. Set from FILL_GENERAL/FILL_MARKETPLACE.
+  let currentRegistryOptions = {};
+
+  function knownOptionsFor(marketplace, fieldName) {
+      const name = String(fieldName || '').trim();
+      if (!name) return [];
+      const keys = uniqueStrings([normalizeFieldKey(name), name.toLowerCase()]);
+      const buckets = [currentRegistryOptions[marketplace], currentRegistryOptions.general];
+      for (const bucket of buckets) {
+          if (!bucket) continue;
+          for (const key of keys) {
+              const options = bucket[key];
+              if (Array.isArray(options) && options.length) return options;
+          }
+      }
+      return [];
+  }
+
+  // Snaps a value onto a currently-offered option. Returns undefined when the
+  // registry has nothing to say, so the caller keeps its own result.
+  function coerceToKnownOption(marketplace, fieldName, value) {
+      const raw = String(value == null ? '' : value).trim();
+      if (!raw) return undefined;
+      const options = knownOptionsFor(marketplace, fieldName);
+      if (!options.length) return undefined;
+      const exact = options.find((option) => optionMatchesValue(option, raw, true));
+      if (exact) return exact;
+      const fuzzy = options.find((option) => optionMatchesValue(option, raw, false));
+      return fuzzy || undefined;
+  }
+
   function mapPatchValue(marketplace, fieldName, value) {
+      if (value == null || String(value).trim() === '') return value;
+      const mp = mappingMarketplace(marketplace);
+      const mapped = mapPatchValueStatic(marketplace, fieldName, value);
+      // A null from the static maps means "this value has no option here"; that
+      // decision stands. Otherwise let the live option set repair stale output.
+      if (mapped === null) return mapped;
+
+      const corrected = coerceToKnownOption(mp, fieldName, mapped)
+          ?? coerceToKnownOption(mp, fieldName, value);
+      if (corrected === undefined) {
+          // Known option set, no match: the fill is going to fail. Say so now so
+          // the cause is visible, rather than guessing at a near-miss.
+          if (knownOptionsFor(mp, fieldName).length) {
+              warn(`${fieldName}: "${mapped}" is not a current ${mp} option`);
+          }
+          return mapped;
+      }
+      if (corrected !== String(mapped == null ? '' : mapped).trim()) {
+          log(`  [registry] ${fieldName}: "${mapped}" → "${corrected}" (live option)`);
+      }
+      return corrected;
+  }
+
+  function mapPatchValueStatic(marketplace, fieldName, value) {
       if (value == null || String(value).trim() === '') return value;
       const key = normalizeFieldKey(fieldName);
       const mp = mappingMarketplace(marketplace);
@@ -1546,6 +1602,54 @@
       };
       const visible = collect(true);
       return visible.length ? visible : collect(false);
+  }
+
+  const MAX_CAPTURED_OPTIONS = 200;
+
+  // Search-driven pickers hold thousands of entries and only populate as you
+  // type, so capturing them yields a misleading partial set.
+  const OPTION_CAPTURE_SKIP = /\b(category|tags?|keywords?|search)\b/i;
+
+  // Reads a field's full option set so Studio can learn what Vendoo currently
+  // offers, instead of relying on hardcoded value maps that drift.
+  async function readLiveFieldOptions(el, fieldName) {
+      if (!el) return { options: [], source: 'not-applicable' };
+
+      if (el instanceof HTMLSelectElement) {
+          const native = uniqueStrings(
+              Array.from(el.options)
+                  .map((opt) => (opt.textContent || '').trim())
+                  .filter(Boolean)
+          );
+          return { options: native.slice(0, MAX_CAPTURED_OPTIONS), source: 'native-select' };
+      }
+
+      if (!isDropdownLike(el)) return { options: [], source: 'not-applicable' };
+      if (!isEnabledField(el)) return { options: [], source: 'disabled' };
+      if (OPTION_CAPTURE_SKIP.test(String(fieldName || ''))) {
+          return { options: [], source: 'skipped' };
+      }
+
+      let options = [];
+      try {
+          el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          for (let attempt = 0; attempt < 2 && options.length === 0; attempt += 1) {
+              await clickRightEdge(el);
+              await sleep(CONFIG.SLEEP_LONG);
+              options = uniqueStrings(
+                  listOpenDropdownOptions().map((option) => option.text).filter(Boolean)
+              );
+          }
+      } catch (err) {
+          warn(`Option capture failed for ${fieldName}: ${err.message}`);
+      } finally {
+          await closeOpenMenus();
+      }
+
+      return {
+          options: options.slice(0, MAX_CAPTURED_OPTIONS),
+          source: options.length ? 'live-dropdown' : 'unavailable',
+      };
   }
 
   function findMatchingOption(value, isStrict) {
@@ -5424,8 +5528,13 @@
       ).split('\n')[0].trim();
   }
 
-  function collectMarketplaceSchemaFields(marketplace) {
+  // Each capture costs ~0.5-1.1s (open, settle, read, Escape). Keep the per-platform
+  // budget in step with the DISCOVER_SCHEMA timeout in background.js.
+  const MAX_OPTION_CAPTURES_PER_PLATFORM = 12;
+
+  async function collectMarketplaceSchemaFields(marketplace) {
       const fields = [];
+      const elements = [];
       const seen = new Set();
       const controls = document.querySelectorAll('input, textarea, select, [role="combobox"]');
       for (const el of controls) {
@@ -5466,6 +5575,8 @@
               selector: selectorFor(el, ''),
               filled: value !== '' && value != null && (!Array.isArray(value) || value.length > 0),
               value,
+              is_dropdown: isDropdownLike(el),
+              options_source: nativeSelect ? 'native-select' : 'not-collected',
               required: Boolean(
                   el.required
                   || el.getAttribute?.('aria-required') === 'true'
@@ -5473,29 +5584,37 @@
                   || /\(required\)/i.test(label)
               ),
           });
+          elements.push(el);
       }
-      return fields;
-  }
 
-  async function collectSchemaWithOptions(marketplace) {
-      const fields = collectMarketplaceSchemaFields(marketplace);
-      for (const field of fields) {
-          if (field.options_complete || field.type !== 'combobox') continue;
-          const el = queryByRecordedSelector(field.selector);
-          if (!el || normalizeFieldKey(field.label) === 'category') continue;
-          await closeOpenMenus();
-          el.click();
-          await sleep(CONFIG.SLEEP_MEDIUM);
-          const listId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-          const list = listId ? document.getElementById(listId) : document.querySelector('[role="listbox"]');
-          if (list) {
-              field.options = uniqueStrings(Array.from(list.querySelectorAll('[role="option"]'))
-                  .filter((option) => option.getAttribute('aria-disabled') !== 'true')
-                  .map((option) => (option.textContent || '').trim())).map((label) => ({ label }));
+      // Second pass: opening a menu mutates the DOM, so only do it once the
+      // field list is settled.
+      let captured = 0;
+      for (let i = 0; i < fields.length; i += 1) {
+          const field = fields[i];
+          if (!field.is_dropdown || field.options_complete) continue;
+          if (captured >= MAX_OPTION_CAPTURES_PER_PLATFORM) {
+              field.options_source = 'capture-limit';
+              continue;
           }
-          // Searchable and virtualized menus are observations, not exhaustive option sets.
-          await closeOpenMenus();
+          const el = elements[i];
+          const before = (displayedFieldValue(el) || '').trim();
+          const result = await readLiveFieldOptions(el, field.label);
+          field.options = result.options;
+          field.options_source = result.source;
+          if (result.options.length) captured += 1;
+
+          // Opening a menu should never commit a value. If one stuck, the probe
+          // is about to save it, so make that loud instead of silent.
+          const after = (displayedFieldValue(el) || '').trim();
+          if (after !== before) {
+              field.value_changed_during_capture = true;
+              warn(`${marketplace} ${field.label}: value changed during option capture ("${before}" → "${after}")`);
+          }
       }
+      await closeOpenMenus();
+      if (captured) log(`  ${marketplace}: captured options for ${captured} dropdown(s)`);
+
       return fields;
   }
 
@@ -5541,7 +5660,7 @@
       await expandOptionalFields();
       schema.general = {
           category: { path: normalizeCategoryDisplay(controlValue(VENDOO_SELECTORS.category)), status: 'observed' },
-          fields: await collectSchemaWithOptions('general'),
+          fields: await collectMarketplaceSchemaFields('general'),
       };
 
       log(`=== Discovering marketplace schemas after category (${list.join(', ')}) ===`);
@@ -5568,7 +5687,7 @@
                   await sleep(CONFIG.SLEEP_LONG);
               }
 
-              const fields = await collectSchemaWithOptions(platform);
+              const fields = await collectMarketplaceSchemaFields(platform);
               for (const field of fields) {
                   if (normalizeFieldKey(field.label) === 'category') continue;
                   recordFill({
@@ -5651,7 +5770,7 @@
       await expandOptionalFields();
       const schema = { general: {
           category: { path: normalizeCategoryDisplay(controlValue(VENDOO_SELECTORS.category)) },
-          fields: await collectSchemaWithOptions('general'),
+          fields: await collectMarketplaceSchemaFields('general'),
       } };
       const marketplaceResults = {};
       const mismatches = [...(general.mismatches || [])];
@@ -5664,7 +5783,7 @@
           await sleep(CONFIG.SLEEP_LONG);
           schema[platform] = {
               category: { path: marketplaceCategoryDisplay(platform) },
-              fields: marketplaceFormMounted(platform) ? await collectSchemaWithOptions(platform) : [],
+              fields: marketplaceFormMounted(platform) ? await collectMarketplaceSchemaFields(platform) : [],
               error: marketplaceFormMounted(platform) ? null : 'Marketplace form did not mount',
           };
           if (!result.ok) mismatches.push(...(result.mismatches || [result.error || `${platform} audit failed`]));
@@ -6100,6 +6219,7 @@
 
           if (msg.type === 'FILL_GENERAL') {
               currentRegistrySelectors = msg.registry_selectors || {};
+              currentRegistryOptions = msg.registry_options || {};
               fillMainForm(msg.data)
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
@@ -6136,6 +6256,7 @@
 
           if (msg.type === 'FILL_MARKETPLACE') {
               currentRegistrySelectors = msg.registry_selectors || {};
+              currentRegistryOptions = msg.registry_options || {};
               fillMarketplaceForm(msg.data, msg.platform)
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));

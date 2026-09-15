@@ -412,6 +412,7 @@ async function handleStudioMessage(msg) {
         photos: payload.photos || [],
         options: payload.options || {},
         registry_selectors: payload.registry_selectors || {},
+        registry_options: payload.registry_options || {},
         vendoo_item_id: durableItemId(payload.vendoo_item_id || payload.options?.vendoo_item_id) || null,
         vendoo_url: payload.vendoo_url || payload.options?.vendoo_url || null,
         current_step: 'accepted',
@@ -1333,7 +1334,11 @@ function commandTimeoutMs(command) {
   }
   if (command.type === 'DISCOVER_SCHEMA' || command.type === 'VERIFY_SAVED_DRAFT') {
     const count = Array.isArray(command.platforms) ? command.platforms.length : 5;
-    return Math.min(300000, Math.max(120000, 60000 + count * 40000));
+    // Discovery walks each panel, then opens up to MAX_OPTION_CAPTURES_PER_PLATFORM
+    // dropdowns (12) to read their live options at ~1.1s worst case each. Keep both
+    // halves budgeted or the probe times out and learns nothing.
+    const perPlatformMs = 25000 + 15000;
+    return Math.min(300000, Math.max(120000, 60000 + count * perPlatformMs));
   }
   if (command.type === 'SET_GENERAL_CATEGORY') {
     return 90000;
@@ -1887,6 +1892,7 @@ async function fillGeneral(job) {
     type: 'FILL_GENERAL',
     data: job.listing,
     registry_selectors: job.registry_selectors || {},
+    registry_options: job.registry_options || {},
   });
 }
 
@@ -1966,6 +1972,7 @@ async function fillMarketplace(job, platform) {
     platform,
     data: job.listing,
     registry_selectors: job.registry_selectors || {},
+    registry_options: job.registry_options || {},
   });
 }
 

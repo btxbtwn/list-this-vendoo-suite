@@ -7,6 +7,37 @@ EXTENSION = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
 
 class CompletionExtensionTest(unittest.TestCase):
+    def test_schema_collection_preserves_native_options_and_awaits_live_capture(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[source.index("  async function collectMarketplaceSchemaFields"):source.index("  function compareSchemaValues")]
+        script = """
+const native = {tagName: 'SELECT', id: 'material', value: 'cotton',
+  options: [{textContent: 'Choose', value: ''}, {textContent: 'Cotton', value: 'cotton'}],
+  selectedOptions: [{textContent: 'Cotton'}], getAttribute: () => null};
+const live = {tagName: 'INPUT', id: 'occasion', value: '', getAttribute: () => null};
+const document = {querySelectorAll: () => [native, live], getElementById: () => null};
+const isVisibleElement = () => true, isEnabledField = () => true;
+const marketplaceFieldNode = () => true, fieldLabelForControl = el => el.id;
+const normalizeFieldKey = value => value, isAccountSettingField = () => false;
+const readPersistedControlValue = el => el.value, isMultiChipField = () => false;
+const selectorFor = el => '#' + el.id, isDropdownLike = () => true;
+const displayedFieldValue = el => el.value;
+let captures = 0;
+const readLiveFieldOptions = async () => {captures++; return {options: ['Casual'], source: 'live-dropdown'};};
+const closeOpenMenus = async () => {}, log = () => {}, warn = () => {};
+const MAX_OPTION_CAPTURES_PER_PLATFORM = 12;
+""" + function + """
+(async () => console.log(JSON.stringify({fields: await collectMarketplaceSchemaFields('etsy'), captures})))();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertEqual(result["captures"], 1)
+        native, live = result["fields"]
+        self.assertEqual(native["options"], [{"label": "Cotton", "value": "cotton"}])
+        self.assertTrue(native["options_complete"])
+        self.assertEqual(native["value"], "Cotton")
+        self.assertEqual(live["options"], ["Casual"])
+        self.assertFalse(live["options_complete"])
+
     def test_boolean_repair_clicks_only_when_value_changes(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
         function = source[source.index("  async function fillBooleanField"):source.index("  function reverifyPatchedFields")]

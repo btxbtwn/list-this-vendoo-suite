@@ -21,6 +21,9 @@ CANONICAL_DEFAULTS: dict[str, dict[str, str]] = {
 
 LEARNED_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
 
+# Caps how many live dropdown options are spelled out per field in the prompt.
+MAX_PROMPT_OPTIONS = 40
+
 # Form labels that are seller/account UI, not item attributes.
 SELLER_SETTING_LABELS = frozenset({
     "allow best offer",
@@ -436,6 +439,8 @@ class RegistryService:
             "Learned marketplace fields from previous fills. Include a value for every "
             "field that applies to this item's category. Use a real value, or Does Not Apply "
             "when the field is on the form but does not apply to this item.",
+            "When a field lists allowed values, copy one of them exactly — Vendoo rejects "
+            "anything that is not on the list.",
             "",
         ]
         grouped: dict[tuple[str, str], list[str]] = {}
@@ -450,6 +455,12 @@ class RegistryService:
                 if not json_key:
                     continue
                 display = json_key if json_key == label else f"{json_key} ({label})"
+                if entry.known_options:
+                    options = sorted(entry.known_options)[:MAX_PROMPT_OPTIONS]
+                    listed = "; ".join(options)
+                    if len(entry.known_options) > MAX_PROMPT_OPTIONS:
+                        listed += "; …"
+                    display += f" — one of: {listed}"
                 cat = entry.category_path or ""
                 grouped.setdefault((marketplace, cat), []).append(display)
 

@@ -17,6 +17,9 @@ class FieldRegistry(Base):
     is_dropdown = Column(Integer, default=0)
     known_selectors = Column(JSON, default=[])
     known_options = Column(JSON, default=[])
+    # How known_options was last captured. An authoritative read of an open
+    # dropdown replaces the option set; anything weaker only unions into it.
+    options_source = Column(String, nullable=True)
     observation_count = Column(Integer, default=0)
     first_seen = Column(DateTime, default=utcnow)
     last_seen = Column(DateTime, default=utcnow, onupdate=utcnow)
