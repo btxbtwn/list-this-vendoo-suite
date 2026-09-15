@@ -87,6 +87,7 @@ _STYLE_RE = re.compile(
     r"\b(straight[\s-]?leg|skinny|boot\s?cut|flare|wide[\s-]?leg|boyfriend|relaxed|slim)\b",
     re.I,
 )
+_TOPS_RE = re.compile(r"\btops?\b", re.I)
 _SEARCH_STOPWORDS = frozenset({
     "photo", "photos", "photograph", "photographed", "photography", "analysis", "detailed",
     "images", "image", "background", "visible", "appears", "appear", "seller", "details",
@@ -103,6 +104,9 @@ def condense_category_search_query(*texts: str, override: str = "") -> str:
     leaf = _path_leaf(override)
     garment = _first_garment(override, joined)
     gender = _gender(joined)
+    # Sellers often say "women's top" — treat that as tops intent when no sharper garment matched.
+    if not garment and gender == "women" and _TOPS_RE.search(joined):
+        garment = "tops"
     parts: list[str] = []
     if gender:
         parts.append(gender)

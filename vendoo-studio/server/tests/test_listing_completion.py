@@ -79,13 +79,14 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job.status, "completed")
         self.assertEqual(self.dispatch.await_count, 1)
 
-    async def test_unknown_fact_is_asked_without_filling(self):
+    async def test_unknown_fact_is_blocked_without_asking(self):
         self.review()
         await self.run_completion({"fields": [{"marketplace": "ebay", "field": "Material", "value": "Cotton"}],
                                    "questions": ["What material is listed on the tag?"]})
-        self.assertEqual(self.job.current_step, "awaiting_answers")
+        self.assertEqual(self.job.current_step, "completion_blocked")
         self.assertNotEqual(self.job.status, "completed")
-        self.assertIn("tag", self.job.last_error)
+        self.assertIn("Could not resolve", self.job.last_error or "")
+        self.assertNotIn("?", self.job.last_error or "")
         self.dispatch.assert_not_awaited()
 
     async def test_shipping_weight_estimate_is_applied_without_photo_quote(self):
@@ -129,14 +130,16 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("confirm", (self.job.last_error or "").casefold())
         self.dispatch.assert_not_awaited()
 
-    async def test_awaiting_answers_does_not_duplicate_existing_question(self):
-        question = "What material is listed on the tag?"
-        ConversationRepo(self.db).add_message(self.conv.id, "assistant", question)
+    async def test_unresolved_gap_does_not_duplicate_blocked_message(self):
+        reason_prefix = "Could not resolve from photos and notes"
+        ConversationRepo(self.db).add_message(
+            self.conv.id, "system", f"{reason_prefix}: ebay / Material. Review Fill Log, edit the listing if needed, then resume verification.",
+        )
         self.review()
-        await self.run_completion({"questions": [question]})
-        self.assertEqual(self.job.current_step, "awaiting_answers")
+        await self.run_completion({"questions": ["What material is listed on the tag?"]})
+        self.assertEqual(self.job.current_step, "completion_blocked")
         messages = [m.text for m in ConversationRepo(self.db).get_messages(self.conv.id)]
-        self.assertEqual(messages.count(question), 1)
+        self.assertEqual(sum(1 for text in messages if reason_prefix in (text or "")), 1)
         self.dispatch.assert_not_awaited()
 
     async def test_answer_resumes_and_only_patches_gap(self):
@@ -155,7 +158,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.verification["schema"]["ebay"]["fields"].append({"label": "Fabric type", "value": ""})
         self.review()
         await self.run_completion({"questions": ["What fabric type?"]})
-        self.assertEqual(self.job.current_step, "awaiting_answers")
+        self.assertEqual(self.job.current_step, "completion_blocked")
 
     async def test_identical_failed_attempt_is_not_repeated(self):
         self.listing["ebay_specifics"]["Material"] = "Cotton"
@@ -166,7 +169,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.review()
         await self.run_completion(result)
         self.assertEqual(self.dispatch.await_count, 1)
-        self.assertEqual(self.job.current_step, "awaiting_answers")
+        self.assertEqual(self.job.current_step, "completion_blocked")
 
     async def test_empty_or_partial_readback_cannot_complete(self):
         del self.verification["schema"]["ebay"]
@@ -180,7 +183,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.review()
         await self.run_completion({"not_applicable": [{"marketplace": "ebay", "field": "Material",
             "reason": "No tag", "evidence": "no material tag"}]})
-        self.assertEqual(self.job.current_step, "awaiting_answers")
+        self.assertEqual(self.job.current_step, "completion_blocked")
 
     async def test_optional_exemption_requires_evidence(self):
         self.verification["schema"]["ebay"]["fields"] = [{"label": "Sleeve length", "value": "", "required": False}]
@@ -198,7 +201,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.review()
         await self.run_completion({"fields": [{"marketplace": "ebay", "field": "Material", "value": "Cotton", "evidence": "cotton"}]})
         self.dispatch.assert_not_awaited()
-        self.assertEqual(self.job.current_step, "awaiting_answers")
+        self.assertEqual(self.job.current_step, "completion_blocked")
 
     async def test_repair_prompt_strips_bulky_option_objects(self):
         field = self.verification["schema"]["ebay"]["fields"][0]

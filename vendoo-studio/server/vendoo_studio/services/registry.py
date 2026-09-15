@@ -113,8 +113,23 @@ POSHMARK_MEN_LONG_TEE = "Men > Shirts > Tees - Long Sleeve"
 POSHMARK_WOMEN_SHORT_TEE = "Women > Tops > Tees - Short Sleeve"
 POSHMARK_WOMEN_LONG_TEE = "Women > Tops > Tees - Long Sleeve"
 POSHMARK_WOMEN_BLOUSE = "Women > Tops > Blouses"
-MERCARI_WOMEN_BLOUSE = "Women > Tops & Blouses > Blouse"
-MERCARI_WOMEN_TEE = "Women > Tops & Blouses > T-shirts"
+MERCARI_WOMEN_BLOUSE = "Women > Tops & blouses > Blouse"
+MERCARI_WOMEN_TEE = "Women > Tops & blouses > T-shirts"
+DEPOP_WOMEN_TEE = "Women > Tops > T-shirts"
+DEPOP_WOMEN_BLOUSE = "Women > Tops > Blouses"
+DEPOP_WOMEN_SHIRT = "Women > Tops > Shirts"
+ETSY_WOMEN_TEE = "Clothing > Women's Clothing > Tops & Tees > T-shirts"
+ETSY_WOMEN_BLOUSE = "Clothing > Women's Clothing > Tops & Tees > Blouses"
+
+# Canonical leaves to seed when the seller/photo intent is a broad women's top.
+WOMEN_TOPS_SEEDS: dict[str, list[str]] = {
+    "general": [WOMEN_TOPS_PATH],
+    "ebay": [WOMEN_TOPS_PATH],
+    "poshmark": [POSHMARK_WOMEN_SHORT_TEE, POSHMARK_WOMEN_BLOUSE, POSHMARK_WOMEN_LONG_TEE],
+    "mercari": [MERCARI_WOMEN_TEE, MERCARI_WOMEN_BLOUSE],
+    "depop": [DEPOP_WOMEN_TEE, DEPOP_WOMEN_BLOUSE, DEPOP_WOMEN_SHIRT],
+    "etsy": [ETSY_WOMEN_TEE, ETSY_WOMEN_BLOUSE],
+}
 
 CATEGORY_NORMALIZATIONS: dict[str, dict[str, str]] = {
     "general": {
@@ -317,6 +332,8 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
         return POSHMARK_WOMEN_LONG_TEE if long_sleeve else POSHMARK_WOMEN_SHORT_TEE
     if is_women and is_blouse:
         return POSHMARK_WOMEN_BLOUSE
+    if is_women and _TOP_ITEM_RE.search(haystack):
+        return POSHMARK_WOMEN_SHORT_TEE
     return raw
 
 
@@ -344,6 +361,8 @@ def map_mercari_category_path(category: str, listing: dict | None = None) -> str
     if is_women and is_blouse:
         return MERCARI_WOMEN_BLOUSE
     if is_women and is_tee:
+        return MERCARI_WOMEN_TEE
+    if is_women and _TOP_ITEM_RE.search(haystack):
         return MERCARI_WOMEN_TEE
     return raw
 

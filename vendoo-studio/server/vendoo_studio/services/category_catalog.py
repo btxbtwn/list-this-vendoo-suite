@@ -79,7 +79,7 @@ def schema_context(db: Session, path: str) -> str:
     return "\n\n--- Observed category fields ---\n" + json.dumps({row.marketplace: {
         "category_path": row.category_path, "fields": row.fields,
     } for row in rows}, ensure_ascii=False) + (
-        "\nResolve every applicable field using photo evidence or seller answers. "
-        "Use exact allowed option labels. Ask for unknown facts; never invent them. "
+        "\nResolve every applicable field using photo evidence and initial seller notes. "
+        "Use exact allowed option labels. Infer supportable facts; leave unsupported facts empty and note them — never ask. "
         "These are observed fields, not proof that all conditional fields have been exposed.\n"
     )

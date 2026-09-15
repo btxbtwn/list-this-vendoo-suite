@@ -426,18 +426,20 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             "You are a product listing assistant talking to a seller. Write in plain English.\n"
             "Never reply with JSON-only output, status objects, or a bare JSON Patch array.\n\n"
             + change_instructions
-            + "When generating a listing from scratch, explain any missing facts without claiming it is complete, "
+            +             "When generating a listing from scratch, infer every supportable field from the photos and initial seller notes, "
+            "flag remaining uncertainties in the description without asking questions, "
             "then the full listing JSON in a fenced json code block.\n\n"
             "If you are not changing the listing, reply in plain English only. "
             "If asked whether the listing was updated, say yes only when a system message in this "
             "conversation confirms the listing JSON was saved; otherwise say no.\n\n"
             "Key rules:\n"
             "- Never publish. Stop at saved drafts.\n"
+            "- Never ask the seller clarifying questions. Infer from the photos and notes already provided.\n"
             "- Never ask the seller to upload or attach photos when product photos are already present.\n"
-            "- Be conservative with brand and size. Ask when uncertain instead of guessing.\n"
+            "- Be conservative with brand and size: use photo/tag/logo evidence and seller notes only; leave unsupported facts empty and flag uncertainty — never invent, never ask.\n"
             f"- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at {WOMEN_TOPS_PATH}, never Shirts & Blouses. Men's T-shirts use {MEN_TSHIRT_PATH}.\n"
             "- Follow the title and description formulas EXACTLY from the rules below.\n"
-            "- Resolve every applicable discovered field. Ask about unknown product facts; never invent brand, size, material, or age.\n"
+            "- Resolve every applicable discovered field from photo evidence and initial seller notes. Leave unsupported facts empty and note them; never invent brand, size, material, or age.\n"
             "- Estimate packaged shipping weight and mailer dimensions from the item type; do not ask the seller for those.\n"
             "- Depop: exactly 3 style tags from the allowed values list.\n"
             + (f"\n{photo_analysis_text}\n\n" if photo_analysis_text else "") +
@@ -457,7 +459,7 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             if review:
                 system_prompt["content"] += "\nUnresolved saved-form fields:\n" + json.dumps(
                     review_fields(review.payload or {}, job.listing_snapshot or {}), ensure_ascii=False)
-                system_prompt["content"] += "\nUse the seller's answer to update these fields. Never claim completion before verification."
+                system_prompt["content"] += "\nUse photo evidence and the seller's notes or later replies to update these fields. Never claim completion before verification. Never ask clarifying questions."
             break
     messages = [system_prompt]
     for msg in history[-20:]:
@@ -1049,10 +1051,12 @@ def _listing_messages(
         "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
         "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
         "Do not modify, estimate, or replace seller-provided measurements.\n"
-        "Use the discovered category fields below. Leave unknown product facts empty and ask precise questions in prose. "
+        "Use the discovered category fields below. Infer every supportable product fact from the photo analysis and "
+        "initial seller notes; leave unsupported facts empty and note them in the description. Never ask clarifying questions. "
         "Estimate packaged shipping weight (weight_lb/weight_oz) and package_dimensions_in from the item type — "
         "do not ask the seller for routine apparel shipping weight or mailer size. "
-        "Never invent brand, size, material, age, or other product facts. Completion requires saved-form verification.\n"
+        "Never invent brand, size, material, age, or other product facts beyond what photos and notes support. "
+        "Completion requires saved-form verification.\n"
         "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
         "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
         "Output the full listing JSON inside a fenced code block:\n\n"
