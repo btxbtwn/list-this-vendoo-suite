@@ -45,10 +45,35 @@ def remember_schema(db: Session, general_path: str, schema: dict) -> None:
         row.fields = fields
         row.observed_at = utcnow()
     db.commit()
+    try:
+        from vendoo_studio.services.catalog_index import mark_catalog_index_stale
+        mark_catalog_index_stale()
+    except Exception:
+        pass
 
 
 def schema_context(db: Session, path: str) -> str:
     rows = db.query(CategorySchema).filter_by(general_path=path).all()
+    if not rows and path:
+        try:
+            from vendoo_studio.services.catalog_index import search_catalog
+            hits = search_catalog(db, path, kind="schema", top_k=6)
+            seen = set()
+            matched = []
+            for hit in hits:
+                key = (hit.get("marketplace"), hit.get("general_path") or hit.get("path"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                row = db.query(CategorySchema).filter_by(
+                    general_path=str(hit.get("general_path") or ""),
+                    marketplace=str(hit.get("marketplace") or ""),
+                ).first()
+                if row:
+                    matched.append(row)
+            rows = matched
+        except Exception:
+            rows = []
     if not rows:
         return ""
     return "\n\n--- Observed category fields ---\n" + json.dumps({row.marketplace: {

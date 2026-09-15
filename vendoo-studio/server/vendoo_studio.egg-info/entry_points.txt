@@ -1,2 +1,3 @@
 [console_scripts]
 vendoo-studio = vendoo_studio.main:main
+vendoo-studio-category-trees = vendoo_studio.category_trees_cli:main

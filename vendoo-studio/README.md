@@ -128,6 +128,8 @@ SQLite at `data/vendoo_studio.db` in development, or `~/Library/Application Supp
 - `job_events` — per-job event log
 - `category_trees` / `category_tree_nodes` — full General/eBay/Poshmark/Mercari/Depop/Etsy category trees
 
+Category leaves and observed schemas are also materialized under `catalog-index/` in the same data directory and searched with Semble during category selection (`GET /api/catalog/search`). First launch may download the local embedding model once.
+
 ### Category tree seed
 
 A checked-in seed lives at `data/category-trees-seed.json.gz` (those two tables only). Studio imports it automatically on launch whenever any of the six marketplace trees is missing or incomplete — including after a packaged app update that ships the seed. Listings, photos, jobs, and settings are left untouched.
