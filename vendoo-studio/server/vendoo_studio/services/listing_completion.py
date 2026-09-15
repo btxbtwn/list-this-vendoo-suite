@@ -236,7 +236,7 @@ async def _repair_category_mismatches(db: Session, job, mismatches: list[dict]) 
         model="",
     )
     platforms = sorted({str(patch["marketplace"]) for patch in patches if patch["marketplace"] != "general"})
-    if not await dispatch_fill_fields(job, patches, platforms=platforms or None, reload=True):
+    if not await dispatch_fill_fields(job, patches, platforms=platforms or None, reload=False):
         _pause(db, job, "Chrome disconnected before the category could be re-applied.", [])
     return True
 
@@ -331,7 +331,7 @@ async def _retry_incomplete_readback(
         job,
         [],
         platforms=verify_platforms,
-        reload=True,
+        reload=False,
     ):
         _pause(db, job, "Chrome disconnected before verification could be retried.", [])
     return True

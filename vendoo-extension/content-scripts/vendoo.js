@@ -4768,12 +4768,12 @@
               return { ok: false, error: 'Save button stayed disabled' };
           }
           saveBtn.click();
-          await sleep(CONFIG.SLEEP_LONG * 3);
+          await sleep(CONFIG.SLEEP_MEDIUM);
           log('Save button clicked, waiting for completion');
 
           let stillSaving = false;
-          for (let i = 0; i < 10; i++) {
-              await sleep(1000);
+          for (let i = 0; i < 40; i++) {
+              await sleep(250);
               stillSaving = Boolean(document.querySelector('[data-testid="save-item-button"][disabled]'));
               if (!stillSaving) break;
           }
@@ -4783,8 +4783,8 @@
           }
 
           let itemId = extractItemId();
-          for (let i = 0; i < 15 && !itemId; i++) {
-              await sleep(500);
+          for (let i = 0; i < 30 && !itemId; i++) {
+              await sleep(200);
               itemId = extractItemId();
           }
           if (!itemId) {
@@ -6320,8 +6320,9 @@
       }
   }
 
-  async function fillSelectedFields(fields) {
+  async function fillSelectedFields(fields, options = {}) {
       const items = Array.isArray(fields) ? fields : [];
+      const skipReverify = Boolean(options.skipReverify);
       const grouped = new Map();
       for (const item of items) {
           const marketplace = String(item.marketplace || 'general').toLowerCase();
@@ -6351,7 +6352,7 @@
                   await activateMarketplaceSection('general');
               }
               await expandOptionalFields();
-              await sleep(CONFIG.SLEEP_LONG * 2);
+              await sleep(CONFIG.SLEEP_LONG);
               let ebayOptionalsReady = marketplace !== 'ebay';
               const pending = group.filter((item) => !isAccountSettingField(item.field));
               pending.sort((left, right) => {
@@ -6441,7 +6442,9 @@
                   }
               }
               currentPatchEntryId = '';
-              reverifyPatchedFields(pending);
+              if (!skipReverify) {
+                  reverifyPatchedFields(pending);
+              }
               const log = finishFillLog({ skipUnmapped: true });
               allEntries.push(...log.entries);
           }
@@ -6565,7 +6568,7 @@
           }
 
           if (msg.type === 'FILL_FIELDS') {
-              fillSelectedFields(msg.fields || [])
+              fillSelectedFields(msg.fields || [], { skipReverify: Boolean(msg.skip_reverify) })
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
               return true;

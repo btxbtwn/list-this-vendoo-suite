@@ -1257,47 +1257,72 @@ async function runFillFields(jobId, payload) {
     return;
   }
 
-  const batches = payload.fields?.length ? groupFillFieldBatches(payload.fields) : [];
+  const shouldVerify = payload.verify !== false;
+  const marketplaceGroups = payload.fields?.length ? groupFillFieldMarketplaces(payload.fields) : [];
+  const totalBatches = marketplaceGroups.reduce((sum, group) => sum + group.batches.length, 0);
   const batchResults = [];
   let lastSaved = null;
-  log(`Filling leftover fields in ${batches.length} batch(es)`);
+  log(`Filling leftover fields in ${totalBatches} batch(es) across ${marketplaceGroups.length} marketplace(s)`);
 
-  for (let i = 0; i < batches.length; i++) {
-    if (activePatch !== job) return;
-    const fields = batches[i];
-    const marketplace = fields[0]?.marketplace || 'general';
-    send({
-      version: 1,
-      type: 'job.progress',
-      job_id: jobId,
-      message_id: Date.now().toString(36),
-      sent_at: new Date().toISOString(),
-      payload: {
-        step: 'filling_fields',
-        marketplace,
-        batch: i + 1,
-        batch_count: batches.length,
-        field_count: fields.length,
-      },
-    });
-    const result = await sendToVendoo(job, {
-      type: 'FILL_FIELDS',
-      fields,
-    });
-    if (activePatch !== job) return;
-    batchResults.push(result);
-    log(`Saving leftover ${marketplace} form`);
-    const saved = await sendToVendoo(job, saveCommandForMarketplace(marketplace));
+  let batchIndex = 0;
+  let fillFailed = false;
+  for (const { marketplace, batches } of marketplaceGroups) {
+    for (const fields of batches) {
+      if (activePatch !== job) return;
+      batchIndex += 1;
+      send({
+        version: 1,
+        type: 'job.progress',
+        job_id: jobId,
+        message_id: Date.now().toString(36),
+        sent_at: new Date().toISOString(),
+        payload: {
+          step: 'filling_fields',
+          marketplace,
+          batch: batchIndex,
+          batch_count: totalBatches,
+          field_count: fields.length,
+        },
+      });
+      const result = await sendToVendoo(job, {
+        type: 'FILL_FIELDS',
+        fields,
+        skip_reverify: !shouldVerify,
+      });
+      if (activePatch !== job) return;
+      batchResults.push(result);
+      if (!result.ok) {
+        fillFailed = true;
+        log(`Leftover fill needs repair: ${result.error || 'Fill failed'}`);
+        break;
+      }
+    }
+    if (fillFailed) break;
+
+    if (shouldVerify) {
+      log(`Saving leftover ${marketplace} form`);
+      const saved = await sendToVendoo(job, saveCommandForMarketplace(marketplace));
+      lastSaved = saved;
+      if (!saved.ok) {
+        fillFailed = true;
+        log(`Leftover fill needs repair: ${saved.error || 'Save failed'}`);
+        break;
+      }
+    }
+  }
+
+  if (!shouldVerify && !fillFailed && batchResults.length) {
+    log('Saving Vendoo draft after apply');
+    const saved = await sendToVendoo(job, { type: 'SAVE_GENERAL' });
     lastSaved = saved;
-    if (!result.ok || !saved.ok) {
-      log(`Leftover fill needs repair: ${result.error || saved.error || 'Save failed'}`);
-      break;
+    if (!saved.ok) {
+      fillFailed = true;
+      log(`Leftover fill needs repair: ${saved.error || 'Save failed'}`);
     }
   }
 
   const fillLog = mergeFillLogs(batchResults);
   if (activePatch !== job) return;
-  const shouldVerify = payload.verify !== false;
   let verification = null;
   if (shouldVerify) {
     verification = await verifySavedDraft({
@@ -1353,20 +1378,26 @@ async function runFillFields(jobId, payload) {
 }
 
 function groupFillFieldBatches(fields) {
+  return groupFillFieldMarketplaces(fields).flatMap((group) => group.batches);
+}
+
+function groupFillFieldMarketplaces(fields) {
   const grouped = new Map();
   for (const item of Array.isArray(fields) ? fields : []) {
     const marketplace = String(item?.marketplace || 'general').toLowerCase();
     if (!grouped.has(marketplace)) grouped.set(marketplace, []);
     grouped.get(marketplace).push(item);
   }
-  const batches = [];
   const chunkSize = 25;
-  for (const group of grouped.values()) {
+  const result = [];
+  for (const [marketplace, group] of grouped) {
+    const batches = [];
     for (let i = 0; i < group.length; i += chunkSize) {
       batches.push(group.slice(i, i + chunkSize));
     }
+    result.push({ marketplace, batches: batches.length ? batches : [[]] });
   }
-  return batches.length ? batches : [[]];
+  return result;
 }
 
 function mergeFillLogs(results) {
