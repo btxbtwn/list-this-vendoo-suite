@@ -256,10 +256,12 @@ def persist_generated_listing(
     source: str = "model",
     parsed: dict | None = None,
     repaired: bool = False,
+    provider_name: str = "xiaomi-mimo",
+    model_name: str = "mimo-v2.5-pro",
 ) -> dict | None:
     repo = ConversationRepo(db)
     if full_text:
-        repo.add_message(conv_id, "assistant", full_text, provider="xiaomi-mimo", model="mimo-v2.5-pro")
+        repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=model_name)
 
     listing = parsed if isinstance(parsed, dict) else extract_listing_json(full_text)
     if not listing:
@@ -301,9 +303,19 @@ async def persist_generated_listing_with_repair(
     source: str = "model",
 ) -> dict | None:
     """Persist listing JSON, repairing with the provider when the first parse fails."""
+    provider_name = getattr(provider, "name", "xiaomi-mimo")
+    model_name = getattr(provider, "listing_model", "mimo-v2.5-pro")
     parsed = extract_listing_json(full_text)
     if parsed:
-        return persist_generated_listing(db, conv_id, full_text, source=source, parsed=parsed)
+        return persist_generated_listing(
+            db,
+            conv_id,
+            full_text,
+            source=source,
+            parsed=parsed,
+            provider_name=provider_name,
+            model_name=model_name,
+        )
 
     repaired = await repair_listing_json(provider, full_text)
     if repaired:
@@ -315,5 +327,14 @@ async def persist_generated_listing_with_repair(
             source=source,
             parsed=repaired,
             repaired=True,
+            provider_name=provider_name,
+            model_name=model_name,
         )
-    return persist_generated_listing(db, conv_id, full_text, source=source)
+    return persist_generated_listing(
+        db,
+        conv_id,
+        full_text,
+        source=source,
+        provider_name=provider_name,
+        model_name=model_name,
+    )

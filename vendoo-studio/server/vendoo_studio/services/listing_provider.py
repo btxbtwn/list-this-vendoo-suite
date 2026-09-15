@@ -4,14 +4,41 @@ from vendoo_studio.providers.chatgpt_codex import ChatGPTCodexProvider
 from vendoo_studio.providers.xiaomi_mimo import MiMoProvider
 from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
 from vendoo_studio.services.keychain import get_api_key
+from vendoo_studio.services.user_settings import get_listing_provider_order
+
+
+def _mimo_provider():
+    key = get_api_key()
+    if not key:
+        return None
+    return MiMoProvider(api_key=key)
+
+
+def _chatgpt_provider():
+    if not chatgpt_signed_in():
+        return None
+    return ChatGPTCodexProvider()
+
+
+def _provider_for(choice: str):
+    if choice == "mimo":
+        return _mimo_provider()
+    if choice == "chatgpt":
+        return _chatgpt_provider()
+    return None
 
 
 def get_listing_provider():
-    if chatgpt_signed_in():
-        return ChatGPTCodexProvider()
-    key = get_api_key()
-    if key:
-        return MiMoProvider(api_key=key)
+    """Return the active listing provider.
+
+    Tries the user's primary choice first, then the configured fallback.
+    """
+    primary, fallback = get_listing_provider_order()
+    provider = _provider_for(primary)
+    if provider is not None:
+        return provider
+    if fallback != "none":
+        return _provider_for(fallback)
     return None
 
 

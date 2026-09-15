@@ -1405,6 +1405,49 @@ html.desktop-app .workspace-drag-region {
   background: var(--color-cobalt-tint);
 }
 
+.settings-provider-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.settings-provider-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: left;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-paper) 55%, transparent);
+  cursor: pointer;
+}
+
+.settings-provider-choice strong {
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.settings-provider-choice span,
+.settings-provider-choice em {
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.settings-provider-choice.selected {
+  border-color: var(--color-cobalt);
+  background: var(--color-cobalt-tint);
+}
+
+.settings-provider-choice:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
 .setup-guide-task {
   display: flex;
   flex-direction: column;
@@ -1463,6 +1506,10 @@ html.desktop-app .workspace-drag-region {
   }
 
   .setup-guide-choices {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-provider-choices {
     grid-template-columns: 1fr;
   }
 }

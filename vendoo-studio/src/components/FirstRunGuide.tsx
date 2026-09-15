@@ -56,16 +56,34 @@ export function FirstRunGuide({
   const chatgptPending = provider?.chatgpt?.pending;
   const mimoConfigured = Boolean(provider?.masked_key);
   const braveConfigured = Boolean(brave?.configured);
-  const selectedListing = listingChoice ?? (chatgptSignedIn ? "chatgpt" : mimoConfigured ? "mimo" : "chatgpt");
+  const preferred = provider?.primary === "mimo" ? "mimo" : provider?.primary === "chatgpt" ? "chatgpt" : null;
+  const selectedListing = listingChoice ?? preferred ?? (chatgptSignedIn ? "chatgpt" : mimoConfigured ? "mimo" : "chatgpt");
 
   const refreshProvider = () => {
     queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
     queryClient.invalidateQueries({ queryKey: ["status"] });
   };
 
+  const setPreferred = useMutation({
+    mutationFn: (primary: ListingChoice) =>
+      api.settings.setPreferredProvider({
+        primary,
+        fallback: primary === "chatgpt" ? "mimo" : "chatgpt",
+      }),
+    onSuccess: refreshProvider,
+  });
+
+  const chooseListing = (choice: ListingChoice) => {
+    setListingChoice(choice);
+    setPreferred.mutate(choice);
+  };
+
   const chatgptLogin = useMutation({
     mutationFn: () => api.settings.chatgptLogin(),
-    onSuccess: refreshProvider,
+    onSuccess: () => {
+      setPreferred.mutate("chatgpt");
+      refreshProvider();
+    },
   });
   const chatgptCancel = useMutation({
     mutationFn: () => api.settings.chatgptCancelLogin(),
@@ -76,6 +94,7 @@ export function FirstRunGuide({
     onSuccess: () => {
       setMimoKey("");
       setMimoMessage("MiMo key saved in Keychain.");
+      setPreferred.mutate("mimo");
       refreshProvider();
     },
     onError: (err: Error) => setMimoMessage(err.message),
@@ -216,7 +235,7 @@ export function FirstRunGuide({
               <>
                 <h2 id="setup-guide-title" className="setup-guide-title">Choose listing AI</h2>
                 <p className="setup-guide-copy">
-                  Pick one. ChatGPT uses your subscription. MiMo uses an API key stored in macOS Keychain, never in the browser.
+                  Pick a primary. The other becomes the fallback automatically; you can change both later in Settings.
                 </p>
                 <div className="setup-guide-choices" role="radiogroup" aria-label="Listing AI">
                   <button
@@ -224,7 +243,7 @@ export function FirstRunGuide({
                     role="radio"
                     aria-checked={selectedListing === "chatgpt"}
                     className={`setup-guide-choice${selectedListing === "chatgpt" ? " selected" : ""}`}
-                    onClick={() => setListingChoice("chatgpt")}
+                    onClick={() => chooseListing("chatgpt")}
                   >
                     <strong>ChatGPT</strong>
                     <span>Sign in. Best if you already pay for ChatGPT.</span>
@@ -235,7 +254,7 @@ export function FirstRunGuide({
                     role="radio"
                     aria-checked={selectedListing === "mimo"}
                     className={`setup-guide-choice${selectedListing === "mimo" ? " selected" : ""}`}
-                    onClick={() => setListingChoice("mimo")}
+                    onClick={() => chooseListing("mimo")}
                   >
                     <strong>Xiaomi MiMo</strong>
                     <span>Paste an API key if you are not using ChatGPT.</span>

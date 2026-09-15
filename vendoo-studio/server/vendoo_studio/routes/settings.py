@@ -40,12 +40,19 @@ class ChatGPTStatus(BaseModel):
 
 class ProviderStatus(BaseModel):
     provider: str
+    primary: Literal["chatgpt", "mimo"]
+    fallback: Literal["chatgpt", "mimo", "none"]
     configured: bool
     masked_key: str | None
     vision_model: str
     listing_model: str
     base_url: str
     chatgpt: ChatGPTStatus
+
+
+class PreferredProviderConfig(BaseModel):
+    primary: Literal["chatgpt", "mimo"]
+    fallback: Literal["chatgpt", "mimo", "none"] | None = None
 
 
 def _chatgpt_status() -> ChatGPTStatus:
@@ -65,19 +72,25 @@ def _chatgpt_status() -> ChatGPTStatus:
 
 @router.get("/provider")
 def get_provider():
-    from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
     from vendoo_studio.services.keychain import get_api_key, mask_secret
+    from vendoo_studio.services.listing_provider import get_listing_provider
+    from vendoo_studio.services.user_settings import get_listing_provider_order
 
     chatgpt = _chatgpt_status()
     key = get_api_key()
     masked = mask_secret(key)
+    primary, fallback = get_listing_provider_order()
+    active = get_listing_provider()
+    active_name = getattr(active, "name", None)
 
-    if chatgpt_signed_in():
+    if active_name == "chatgpt":
         from vendoo_studio.providers.chatgpt_codex import resolved_chatgpt_models
 
         vision_model, listing_model = resolved_chatgpt_models()
         return ProviderStatus(
             provider="chatgpt",
+            primary=primary,
+            fallback=fallback,
             configured=True,
             masked_key=masked,
             vision_model=vision_model,
@@ -88,7 +101,9 @@ def get_provider():
 
     return ProviderStatus(
         provider="xiaomi-mimo",
-        configured=bool(key),
+        primary=primary,
+        fallback=fallback,
+        configured=bool(active),
         masked_key=masked,
         vision_model="mimo-v2.5",
         listing_model="mimo-v2.5-pro",
@@ -106,6 +121,17 @@ def set_provider(config: ProviderConfig):
 
     set_api_key(config.api_key)
     return {"ok": True}
+
+
+@router.put("/provider/preferred")
+def set_preferred_provider(config: PreferredProviderConfig):
+    from vendoo_studio.services.user_settings import set_listing_provider_order
+
+    try:
+        order = set_listing_provider_order(config.primary, config.fallback)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **order}
 
 
 @router.delete("/provider/key")
