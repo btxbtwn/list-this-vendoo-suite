@@ -1053,10 +1053,27 @@ function displayValue(value: unknown): string {
   return String(value);
 }
 
-function flattenFields(value: unknown, prefix = ""): DraftField[] {
+/** Scraped on-page labels win over the key, which for Etsy is a bare taxonomy id. */
+type FieldLabels = Record<string, string> | undefined;
+
+/**
+ * The Vendoo API keeps the category prefix (554_148789511893) while the DOM
+ * scrape strips it (148789511893), and both can survive the merge, so try the
+ * stripped form too.
+ */
+function strippedFieldKey(key: string): string {
+  return key.replace(/^[0-9a-f]{8,}_/i, "").replace(/^\d+_/, "");
+}
+
+function labelFor(key: string, path: string, labels: FieldLabels): string {
+  const scraped = labels && (labels[path] || labels[key] || labels[strippedFieldKey(key)]);
+  return (typeof scraped === "string" && scraped.trim()) || fieldLabel(key);
+}
+
+function flattenFields(value: unknown, prefix = "", labels: FieldLabels = undefined): DraftField[] {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     if (!prefix) return [];
-    const label = fieldLabel(prefix.split(".").pop() || prefix);
+    const label = labelFor(prefix.split(".").pop() || prefix, prefix, labels);
     const shown = fieldDisplayValue(value, label);
     return [{ key: prefix, label, value: shown, missing: fieldIsMissing(value, label) }];
   }
@@ -1067,7 +1084,7 @@ function flattenFields(value: unknown, prefix = ""): DraftField[] {
     record.option ||
     (record.value != null && Object.keys(record).length <= 3)
   ) {
-    const label = fieldLabel((prefix.split(".").pop() || prefix || "Value"));
+    const label = labelFor(prefix.split(".").pop() || prefix || "Value", prefix, labels);
     const shown = fieldDisplayValue(record, label);
     return [{
       key: prefix || "value",
@@ -1104,11 +1121,11 @@ function flattenFields(value: unknown, prefix = ""): DraftField[] {
         nestedRecord.option ||
         ("value" in nestedRecord && Object.keys(nestedRecord).length <= 3);
       if (!leaf && !isEmptyValue(nested) && Object.keys(nestedRecord).length > 1) {
-        rows.push(...flattenFields(nested, path));
+        rows.push(...flattenFields(nested, path, labels));
         continue;
       }
     }
-    const label = fieldLabel(key);
+    const label = labelFor(key, path, labels);
     const shown = fieldDisplayValue(nested, label);
     rows.push({
       key: path,
@@ -1129,6 +1146,7 @@ function listingSection(listing: Record<string, unknown> | undefined): unknown {
   delete rest.overrides;
   delete rest.marketplaceSpecifics;
   delete rest.categorySpecifics;
+  delete rest.fieldLabels;
   delete rest.type;
   return {
     ...rest,
@@ -1136,6 +1154,35 @@ function listingSection(listing: Record<string, unknown> | undefined): unknown {
     ...(specifics && typeof specifics === "object" && !Array.isArray(specifics) ? specifics as object : {}),
     ...(category && typeof category === "object" && !Array.isArray(category) ? category as object : {}),
   };
+}
+
+/**
+ * The extension records on-page labels for keys the id can't name, under
+ * `fieldLabels` as "<bucket>.<key>". listingSection flattens the buckets away,
+ * so re-key them to the bare field key that flattenFields will see.
+ *
+ * Runs against the merged listing on purpose: a named twin of a numeric key can
+ * arrive from the API or a later scrape pass, and adopting the label then would
+ * render two identically labeled rows. Those keep their raw id.
+ */
+function listingFieldLabels(listing: Record<string, unknown> | undefined, section: unknown): FieldLabels {
+  const raw = listing?.fieldLabels;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const named = new Set(
+    section && typeof section === "object" && !Array.isArray(section)
+      ? Object.keys(section as Record<string, unknown>).map(normalizeFieldName)
+      : [],
+  );
+  const out: Record<string, string> = {};
+  for (const [path, label] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof label !== "string" || !label.trim()) continue;
+    const text = label.trim();
+    if (named.has(normalizeFieldName(text))) continue;
+    out[path] = text;
+    const bare = path.split(".").slice(1).join(".");
+    if (bare) out[bare] = text;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function deepMergeRecords(
@@ -1295,7 +1342,9 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
     }),
   ];
   for (const id of listingIds) {
-    const raw = listings[id] ? flattenFields(listingSection(listings[id] as Record<string, unknown>)) : [];
+    const listing = listings[id] as Record<string, unknown> | undefined;
+    const section = listing ? listingSection(listing) : undefined;
+    const raw = listing ? flattenFields(section, "", listingFieldLabels(listing, section)) : [];
     const fields = organizeFields(id, raw, fillLogEntriesForMarket(report, id));
     const liveStatus = liveStatusForMarketplace(id, item);
     if (!fields.length && !liveStatus) continue;
@@ -1424,7 +1473,14 @@ function hiddenKeySet(hidden: HiddenFieldsState): Set<string> {
 }
 
 function isFieldHidden(hidden: Set<string>, marketplace: string, field: DraftField): boolean {
-  return hidden.has(hiddenFieldKey(marketplace, fieldMatchKey(field)));
+  if (hidden.has(hiddenFieldKey(marketplace, fieldMatchKey(field)))) return true;
+  // Hidden entries are stored by label, so a field hidden back when it showed a
+  // raw id would reappear once a scraped label names it. Only letterless keys
+  // get this fallback -- matching real key names here would hide sibling fields
+  // that happen to share a normalized name (layout key "size" vs label "Size").
+  const rawKey = normalizeFieldName(field.key.split(".").pop() || field.key);
+  if (!rawKey || /[a-z]/.test(rawKey)) return false;
+  return hidden.has(hiddenFieldKey(marketplace, rawKey));
 }
 
 function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsState): DraftForm[] {
