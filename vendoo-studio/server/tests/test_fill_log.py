@@ -85,6 +85,14 @@ class FillLogHelpersTest(unittest.TestCase):
         self.assertEqual(listing_value_for_field(listing, "ebay", "Type"), "Blouse")
         self.assertEqual(listing_value_for_field(listing, "ebay", "Country of Origin"), "United States")
         self.assertEqual(listing_value_for_field({"ebay_specifics": {"yearManufactured": "D"}}, "ebay", "Year Manufactured"), "")
+        self.assertEqual(
+            listing_value_for_field({"ebay_specifics": {"character": "Does Not Apply"}}, "ebay", "Character"),
+            "",
+        )
+        self.assertEqual(
+            listing_value_for_field({"ebay_specifics": {"mpn": "N/A"}}, "ebay", "MPN"),
+            "",
+        )
 
     def test_listing_value_for_field_skips_empty_duplicate_keys(self):
         listing = {

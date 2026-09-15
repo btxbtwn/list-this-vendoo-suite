@@ -32,6 +32,8 @@ interface DraftField {
   label: string;
   value: string;
   missing: boolean;
+  /** Listing marked Does Not Apply / N/A — show yellow and never try to fill. */
+  notApplicable?: boolean;
   leftover?: FillLogEntry;
   section?: string;
   /** Listing/chat overlay only — not confirmed empty on the live Vendoo draft. */
@@ -44,12 +46,14 @@ interface DraftForm {
   fields: DraftField[];
   filled: number;
   missing: number;
+  notApplicable: number;
   liveStatus?: string;
 }
 
 const STATUS_LABELS: Record<string, string> = {
   filled: "Filled",
   skipped: "Not filled",
+  not_applicable: "Does not apply",
   not_found: "Missing",
   invalid: "Invalid option",
   failed: "Didn't work",
@@ -57,8 +61,9 @@ const STATUS_LABELS: Record<string, string> = {
   new: "New fields",
 };
 
-const STATUS_ORDER = ["invalid", "failed", "not_found", "uncertain", "new", "skipped", "filled"];
+const STATUS_ORDER = ["invalid", "failed", "not_found", "uncertain", "new", "skipped", "not_applicable", "filled"];
 const FILLABLE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain", "new", "skipped"]);
+const DOES_NOT_APPLY_RE = /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i;
 const DEFAULT_SELECTED_MARKETPLACES = ["ebay", "etsy", "poshmark", "mercari", "depop"];
 const MARKETPLACE_ORDER = ["general", "ebay", "etsy", "poshmark", "mercari", "depop", "facebook", "shopify", "vinted", "whatnot", "sellwild", "grailed"];
 const MARKETPLACE_LABELS: Record<string, string> = {
@@ -296,14 +301,27 @@ function listingValueForField(
   if (raw == null) return "";
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean).join(", ").trim();
   const text = String(raw).trim();
-  if (
-    marketplace === "ebay" &&
-    key === "year manufactured" &&
-    /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i.test(text)
-  ) {
-    return "";
-  }
+  if (isDoesNotApplyValue(text)) return "";
   return text;
+}
+
+function isDoesNotApplyValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return false;
+    return value.every((item) => isDoesNotApplyValue(item));
+  }
+  return DOES_NOT_APPLY_RE.test(String(value).trim());
+}
+
+function notApplicableField(field: DraftField, value = "Does not apply"): DraftField {
+  return {
+    ...field,
+    value,
+    missing: false,
+    notApplicable: true,
+    leftover: undefined,
+  };
 }
 
 function leftoverGeneratedValue(
@@ -400,7 +418,7 @@ function emptyFieldsPrompt(
   const rows: { marketplace: string; form: string; field: string; current: string; status: string; reason: string }[] = [];
   for (const form of forms) {
     for (const field of form.fields) {
-      if (!field.missing || isUnfillableField(field)) continue;
+      if (!field.missing || field.notApplicable || isUnfillableField(field)) continue;
       const leftover = field.leftover;
       rows.push({
         marketplace: form.id,
@@ -466,7 +484,7 @@ function patchableEmptyFields(
     form.fields
       // Apply only confirmed-empty live draft fields — never re-walk filled ones
       // or listing-only overlays that were not empty on Vendoo.
-      .filter((field) => field.missing && !field.listingOnly && !isUnfillableField(field))
+      .filter((field) => field.missing && !field.listingOnly && !field.notApplicable && !isUnfillableField(field))
       .map((field) => {
         const leftover = field.leftover;
         const typed = leftover ? String(values[leftover.id] || "").trim() : "";
@@ -487,14 +505,37 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
   const merged = forms.map((form) => {
     const listingForm = byId.get(form.id);
     if (!listingForm) return form;
+    const listingByKey = new Map(
+      listingForm.fields.map((field) => [fieldMatchKey(field), field]),
+    );
     // Keep Vendoo draft emptiness authoritative. Listing/chat values are only
     // candidates for Fill — never paint them as already filled on Vendoo.
-    const seen = new Set(form.fields.map((field) => fieldMatchKey(field)).filter(Boolean));
+    // Does-not-apply listing values become yellow N/A rows instead of red missing.
+    const fields = form.fields.map((field) => {
+      const listingFieldRow = listingByKey.get(fieldMatchKey(field));
+      if (listingFieldRow?.notApplicable || isDoesNotApplyValue(listingFieldRow?.value)) {
+        return notApplicableField({ ...field, section: field.section || listingFieldRow?.section });
+      }
+      if (field.notApplicable || isDoesNotApplyValue(field.value)) {
+        return notApplicableField(field);
+      }
+      return field;
+    });
+    const seen = new Set(fields.map((field) => fieldMatchKey(field)).filter(Boolean));
     const extrasSection = form.id === "ebay" || form.id === "etsy" ? "Category" : "Item specifics";
     const extras: DraftField[] = [];
     for (const field of listingForm.fields) {
       const key = fieldMatchKey(field);
-      if (!key || seen.has(key) || fieldIsMissing(field.value, field.label)) continue;
+      if (!key || seen.has(key)) continue;
+      if (field.notApplicable || isDoesNotApplyValue(field.value)) {
+        seen.add(key);
+        extras.push(notApplicableField({
+          ...field,
+          section: extrasSection,
+        }));
+        continue;
+      }
+      if (fieldIsMissing(field.value, field.label)) continue;
       seen.add(key);
       extras.push({
         ...field,
@@ -504,14 +545,14 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
         listingOnly: true,
       });
     }
-    if (!extras.length) return form;
-    const fields = [...form.fields];
-    let insertAt = fields.length;
-    for (let i = 0; i < fields.length; i += 1) {
-      if (fields[i].section === extrasSection) insertAt = i + 1;
+    if (!extras.length) return toForm(form.id, fields, form.liveStatus);
+    const next = [...fields];
+    let insertAt = next.length;
+    for (let i = 0; i < next.length; i += 1) {
+      if (next[i].section === extrasSection) insertAt = i + 1;
     }
-    fields.splice(insertAt, 0, ...extras);
-    return toForm(form.id, fields, form.liveStatus);
+    next.splice(insertAt, 0, ...extras);
+    return toForm(form.id, next, form.liveStatus);
   });
   for (const listingForm of listingForms) {
     if (seenForms.has(listingForm.id) || !listingForm.fields.length) continue;
@@ -882,6 +923,16 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
       if (found) {
         // Only the live Vendoo value counts as filled. Leftover previews are
         // proposed fill values and must stay in the red/missing column.
+        if (found.notApplicable || isDoesNotApplyValue(found.value) || leftover?.status === "not_applicable") {
+          rows.push(notApplicableField({
+            ...found,
+            label: spec.label,
+            section: section.label,
+            value: "",
+            missing: false,
+          }));
+          continue;
+        }
         const value = fieldDisplayValue(found.value, spec.label);
         const pendingLeftover =
           value
@@ -895,8 +946,19 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
           section: section.label,
           leftover: pendingLeftover && FILLABLE_STATUSES.has(pendingLeftover.status) ? pendingLeftover : undefined,
           missing: !value,
+          notApplicable: false,
           value,
         });
+        continue;
+      }
+      if (leftover?.status === "not_applicable") {
+        rows.push(notApplicableField({
+          key: leftover.id || `${marketplace}.${spec.keys[0]}`,
+          label: spec.label,
+          value: "",
+          missing: false,
+          section: section.label,
+        }));
         continue;
       }
       if (spec.always || leftover) {
@@ -917,6 +979,14 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
   const namedExtras = placed.get(extrasSection) || [];
   const extraRows: DraftField[] = [...unused.values()].flat().map((field) => {
     const leftover = attachLeftover(field);
+    if (field.notApplicable || isDoesNotApplyValue(field.value) || leftover?.status === "not_applicable") {
+      return notApplicableField({
+        ...field,
+        section: extrasSection,
+        value: "",
+        missing: false,
+      });
+    }
     const value = fieldDisplayValue(field.value, field.label);
     const pendingLeftover =
       value
@@ -928,6 +998,7 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
       ...field,
       leftover: pendingLeftover && FILLABLE_STATUSES.has(pendingLeftover.status) ? pendingLeftover : undefined,
       missing: !value,
+      notApplicable: false,
       value,
       section: extrasSection,
     };
@@ -938,6 +1009,15 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
     if (key && seenExtras.has(key)) return [];
     if (key) seenExtras.add(key);
     const label = entry.field.replace(/^(ebay|etsy|poshmark|mercari|depop|vendoo)\s+/i, "").trim() || entry.field;
+    if (entry.status === "not_applicable") {
+      return [notApplicableField({
+        key: entry.id,
+        label,
+        value: "",
+        missing: false,
+        section: extrasSection,
+      })];
+    }
     const pending = FILLABLE_STATUSES.has(entry.status);
     return [{
       key: entry.id,
@@ -1284,8 +1364,9 @@ function toForm(id: string, fields: DraftField[], liveStatus?: string): DraftFor
     id,
     label: marketplaceLabel(id),
     fields,
-    filled: fields.filter((field) => !field.missing).length,
-    missing: fields.filter((field) => field.missing).length,
+    filled: fields.filter((field) => !field.missing && !field.notApplicable).length,
+    missing: fields.filter((field) => field.missing && !field.notApplicable).length,
+    notApplicable: fields.filter((field) => field.notApplicable).length,
     liveStatus,
   };
 }
@@ -1388,6 +1469,14 @@ function formsFromFillLog(report: FillLogReport): DraftForm[] {
   return ids.map((id) => {
     const group = report.by_marketplace[id];
     const fields: DraftField[] = group.entries.map((entry) => {
+      if (entry.status === "not_applicable") {
+        return notApplicableField({
+          key: entry.id,
+          label: entry.field,
+          value: "",
+          missing: false,
+        });
+      }
       const pending = FILLABLE_STATUSES.has(entry.status);
       return {
         key: entry.id,
@@ -1433,6 +1522,9 @@ function nestedListingValue(listing: Record<string, unknown>, path: string): unk
 
 function listingField(listing: Record<string, unknown>, key: string, label: string): DraftField {
   const raw = nestedListingValue(listing, key);
+  if (isDoesNotApplyValue(raw)) {
+    return notApplicableField({ key, label, value: "", missing: false });
+  }
   return { key, label, value: fieldDisplayValue(raw, label), missing: fieldIsMissing(raw, label) };
 }
 
@@ -1444,6 +1536,15 @@ function specificsListingFields(listing: Record<string, unknown>, marketplace: s
     if (key === "category_specifics" && value && typeof value === "object" && !Array.isArray(value)) {
       for (const [nested, nestedValue] of Object.entries(value as Record<string, unknown>)) {
         const label = nested;
+        if (isDoesNotApplyValue(nestedValue)) {
+          fields.push(notApplicableField({
+            key: `${marketplace}_specifics.category_specifics.${nested}`,
+            label,
+            value: "",
+            missing: false,
+          }));
+          continue;
+        }
         fields.push({
           key: `${marketplace}_specifics.category_specifics.${nested}`,
           label,
@@ -1454,6 +1555,15 @@ function specificsListingFields(listing: Record<string, unknown>, marketplace: s
       continue;
     }
     const label = fieldLabel(key);
+    if (isDoesNotApplyValue(value)) {
+      fields.push(notApplicableField({
+        key: `${marketplace}_specifics.${key}`,
+        label,
+        value: "",
+        missing: false,
+      }));
+      continue;
+    }
     fields.push({
       key: `${marketplace}_specifics.${key}`,
       label,
@@ -1810,7 +1920,7 @@ export function FillLogPanel({
 
   const emptyFields = visibleSourceForms.flatMap((form) =>
     form.fields
-      .filter((field) => field.missing && !isUnfillableField(field))
+      .filter((field) => field.missing && !field.notApplicable && !isUnfillableField(field))
       .map((field) => ({ form, field })),
   );
   const hiddenKeys = hiddenKeySet(hidden);
@@ -2084,7 +2194,7 @@ export function FillLogPanel({
               : !chromeConnected && hasDraft
                 ? "Connect Chrome to read empty Vendoo fields. Ask chat can still write values, then Apply on Vendoo types only those fields."
                 : hasDraft
-                  ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red."
+                  ? "Read the Vendoo draft to list each marketplace form. Missing fields show in red; does-not-apply fields show in yellow."
                   : "Send this listing to Vendoo to review each marketplace form. After generate, Studio also discovers live Vendoo fields once the category is known."}
           </p>
           {!chromeConnected && hasDraft && <ConnectChromeButton />}
@@ -2118,6 +2228,7 @@ export function FillLogPanel({
                   <LiveStatusChip status={form.liveStatus} />
                   <span className="pr-counts">
                     {form.filled > 0 && <span className="pr-add">+{form.filled}</span>}
+                    {form.notApplicable > 0 && <span className="pr-na">~{form.notApplicable}</span>}
                     {form.missing > 0 && <span className="pr-del">-{form.missing}</span>}
                   </span>
                 </button>
@@ -2131,6 +2242,7 @@ export function FillLogPanel({
                 <LiveStatusChip status={selectedForm.liveStatus} />
                 <span className="pr-files-count">
                   {selectedForm.filled > 0 && <span className="pr-add">+{selectedForm.filled}</span>}
+                  {selectedForm.notApplicable > 0 && <span className="pr-na">~{selectedForm.notApplicable}</span>}
                   {selectedForm.missing > 0 && <span className="pr-del">-{selectedForm.missing}</span>}
                 </span>
               </div>
@@ -2159,16 +2271,25 @@ export function FillLogPanel({
                         ? (String(values[leftover.id] ?? "").trim() ? String(values[leftover.id]) : generated)
                         : "";
                       const proposed =
-                        field.missing && !leftover && generated
+                        field.missing && !field.notApplicable && !leftover && generated
                           ? generated
                           : "";
+                      const rowClass = field.notApplicable
+                        ? "is-na"
+                        : field.missing
+                          ? "is-del"
+                          : "is-add";
+                      const gutter = field.notApplicable ? "~" : field.missing ? "-" : "+";
                       return (
-                        <div key={field.key} className={`pr-diff-line ${field.missing ? "is-del" : "is-add"}`}>
-                          <span className="pr-diff-gutter">{field.missing ? "-" : "+"}</span>
+                        <div key={field.key} className={`pr-diff-line ${rowClass}`}>
+                          <span className="pr-diff-gutter">{gutter}</span>
                           <div className="pr-diff-main">
                             <span className="pr-diff-name">{field.label}</span>
                             {field.value ? <span className="pr-diff-value">{field.value}</span> : null}
-                            {leftover && (
+                            {field.notApplicable && !field.value ? (
+                              <span className="pr-diff-value">Does not apply</span>
+                            ) : null}
+                            {leftover && !field.notApplicable && (
                               <>
                                 <input
                                   className="pr-input"
