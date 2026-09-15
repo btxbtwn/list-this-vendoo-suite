@@ -618,7 +618,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         "filling_fields",
         {"count": len(patches), "patches": patches},
     )
-    sent = await dispatch_fill_fields(job, patches)
+    sent = await dispatch_fill_fields(job, patches, verify=False)
     if not sent:
         job.status = "failed"
         job.current_step = "filling_fields"

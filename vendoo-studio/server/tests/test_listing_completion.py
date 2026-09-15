@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -198,6 +199,45 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         await self.run_completion({"fields": [{"marketplace": "ebay", "field": "Material", "value": "Cotton", "evidence": "cotton"}]})
         self.dispatch.assert_not_awaited()
         self.assertEqual(self.job.current_step, "awaiting_answers")
+
+    async def test_repair_prompt_strips_bulky_option_objects(self):
+        field = self.verification["schema"]["ebay"]["fields"][0]
+        field.update(
+            options=[{"label": f"Opt {i}", "value": f"id-{i}", "meta": "x" * 200} for i in range(80)],
+            options_complete=True,
+            selector="#material",
+            error="Empty field",
+        )
+        ConversationRepo(self.db).add_message(self.conv.id, "user", "The tag says 100% cotton.")
+        self.review()
+        provider = await self.run_completion({
+            "fields": [{"marketplace": "ebay", "field": "Material", "value": "Opt 0", "evidence": "100% cotton"}],
+        })
+        payload = json.loads(provider.messages[-1]["content"])
+        gap = payload["gaps"][0]
+        self.assertEqual(gap["field"], "Material")
+        self.assertNotIn("selector", gap)
+        self.assertNotIn("meta", json.dumps(gap))
+        self.assertEqual(len(gap["options"]), 40)
+        self.assertEqual(gap["options"][0], "Opt 0")
+        self.assertNotIn("options_complete", gap)
+
+    async def test_repair_timeout_pauses_with_clear_error(self):
+        class SlowProvider:
+            async def chat(self, messages, stream=True):
+                await asyncio.sleep(3600)
+                yield "{}"
+
+        self.review()
+        with (
+            patch("vendoo_studio.services.listing_completion.get_listing_provider", return_value=SlowProvider()),
+            patch("vendoo_studio.services.listing_completion.resolution_timeout_seconds", return_value=0.01),
+        ):
+            await complete_job(self.db, self.job.id)
+        self.db.refresh(self.job)
+        self.assertEqual(self.job.current_step, "completion_blocked")
+        self.assertIn("timed out", self.job.last_error)
+        self.dispatch.assert_not_awaited()
 
     async def test_model_cannot_request_publishing(self):
         self.verification["schema"]["ebay"]["fields"] = [{"label": "Listing State", "value": ""}]

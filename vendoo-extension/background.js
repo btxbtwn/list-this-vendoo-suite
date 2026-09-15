@@ -1289,33 +1289,40 @@ async function runFillFields(jobId, payload) {
 
   const fillLog = mergeFillLogs(batchResults);
   if (activePatch !== job) return;
-  const verification = await verifySavedDraft({
-    ...job,
-    vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id,
-    vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url,
-    listing: payload.listing || {},
-    options: { platforms: payload.platforms || patchPlatforms },
-    photos: Array(payload.expected_photo_count || 0).fill(null),
-  });
+  const shouldVerify = payload.verify !== false;
+  let verification = null;
+  if (shouldVerify) {
+    verification = await verifySavedDraft({
+      ...job,
+      vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id,
+      vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url,
+      listing: payload.listing || {},
+      options: { platforms: payload.platforms || patchPlatforms },
+      photos: Array(payload.expected_photo_count || 0).fill(null),
+    });
+  }
   if (activePatch !== job) return;
   activePatch = null;
   await stopJobPreview();
   await sleep(1500);
   await closeListingTab(job.tabId);
 
+  const completedPayload = {
+    step: 'filling_fields',
+    vendoo_item_id: durableItemId(lastSaved?.vendoo_item_id || payload.vendoo_item_id) || null,
+    vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url || null,
+    fill_log: fillLog,
+  };
+  if (verification) {
+    completedPayload.verification = verification;
+  }
   send({
     version: 1,
     type: 'job.step_completed',
     job_id: jobId,
     message_id: Date.now().toString(36),
     sent_at: new Date().toISOString(),
-    payload: {
-      step: 'filling_fields',
-      vendoo_item_id: durableItemId(lastSaved?.vendoo_item_id || payload.vendoo_item_id) || null,
-      vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url || null,
-      fill_log: fillLog,
-      verification,
-    },
+    payload: completedPayload,
   });
 }
 

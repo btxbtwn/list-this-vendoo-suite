@@ -285,6 +285,44 @@ const verifySavedDraft = async (job) => {
         self.assertNotIn("SAVE_GENERAL", result["readOnly"])
         self.assertIsNone(result["activePatch"])
 
+    def test_manual_apply_skips_full_draft_verification(self):
+        source = (EXTENSION / "background.js").read_text()
+        functions = source[source.index("async function runFillFields"):source.index("function compactVendooValue")]
+        script = """
+let activePatch = null;
+let activeJob = null;
+let calls = [];
+const log = () => {};
+const warn = () => {};
+const send = (message) => calls.push(message);
+const stopJobPreview = async () => {};
+const sleep = async () => {};
+const closeListingTab = async () => calls.push('closed');
+const openListingForPatch = async () => ({ok: true, tabId: 123});
+const waitForContentScript = async () => ({ok: true});
+const durableItemId = (id) => id;
+const sendToVendoo = async (job, command) => {
+  calls.push(command.type);
+  return {ok: true, fill_log: {entries: [{field: 'Material', status: 'filled'}]}, vendoo_item_id: 'draft'};
+};
+const verifySavedDraft = async () => {
+  calls.push('verified');
+  return {readback: true, verified: true, schema: {}};
+};
+""" + functions + """
+(async () => {
+  await runFillFields('job', {vendoo_item_id: 'draft', listing: {title: 'Tee'}, platforms: ['ebay'],
+    verify: false, fields: [{marketplace: 'ebay', field: 'Material', value: 'Cotton'}]});
+  console.log(JSON.stringify({calls, activePatch}));
+})();
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertIn("FILL_FIELDS", result["calls"])
+        self.assertNotIn("verified", result["calls"])
+        completed = next(item for item in result["calls"] if isinstance(item, dict) and item.get("type") == "job.step_completed")
+        self.assertNotIn("verification", completed["payload"])
+        self.assertIsNone(result["activePatch"])
+
     def test_verification_reloads_before_reading_and_checks_readiness(self):
         source = (EXTENSION / "background.js").read_text()
         function = source[source.index("async function verifySavedDraft"):source.index("async function auditGeneral")]

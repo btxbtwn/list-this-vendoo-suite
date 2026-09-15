@@ -308,7 +308,7 @@ async def dispatch_queued_jobs():
         db.close()
 
 
-async def dispatch_fill_fields(job, fields: list[dict]) -> bool:
+async def dispatch_fill_fields(job, fields: list[dict], *, verify: bool = True) -> bool:
     if not extension_manager.connected:
         return False
     from sqlalchemy.orm import object_session
@@ -327,6 +327,8 @@ async def dispatch_fill_fields(job, fields: list[dict]) -> bool:
             "listing": {key: value for key, value in (job.listing_snapshot or {}).items() if not key.startswith("_")},
             "platforms": (job.listing_snapshot or {}).get("platforms") or [],
             "expected_photo_count": photo_count,
+            # Manual Apply skips full draft readback; completion repair keeps verify=True.
+            "verify": bool(verify),
         },
     ).model_dump(mode="json"))
 
@@ -622,15 +624,25 @@ async def extension_websocket(ws: WebSocket):
                         vurl = None
                     job = repo.get(job_id)
                     if step == "filling_fields":
-                        repo.update_status(job_id, "dispatched", "verifying_draft", vendoo_item_id=vid, vendoo_url=vurl)
-                        repo.add_event(job_id, "step_completed", step, payload)
                         job = repo.get(job_id)
                         if job and payload.get("fill_log"):
                             FillLogService(db).apply_field_results(job, payload.get("fill_log"))
-                        if job:
-                            from vendoo_studio.services.listing_completion import store_verification, schedule_completion
-                            store_verification(db, job, payload.get("verification") or {})
-                            schedule_completion(job_id)
+                        verification = payload.get("verification")
+                        if isinstance(verification, dict):
+                            # Completion repair path — read back every marketplace and continue.
+                            repo.update_status(job_id, "dispatched", "verifying_draft", vendoo_item_id=vid, vendoo_url=vurl)
+                            repo.add_event(job_id, "step_completed", step, payload)
+                            job = repo.get(job_id)
+                            if job:
+                                from vendoo_studio.services.listing_completion import store_verification, schedule_completion
+                                store_verification(db, job, verification)
+                                schedule_completion(job_id)
+                        else:
+                            # Manual Apply — only the requested empty fields were typed.
+                            repo.update_status(job_id, "completed", "fields_applied", vendoo_item_id=vid, vendoo_url=vurl)
+                            repo.add_event(job_id, "step_completed", step, payload)
+                            _set_conversation_status(db, job_id, "draft")
+                            await dispatch_queued_jobs()
                     else:
                         repo.update_status(job_id, "dispatched", step, vendoo_item_id=vid, vendoo_url=vurl)
                         repo.add_event(job_id, "step_completed", step, payload)

@@ -34,6 +34,8 @@ interface DraftField {
   missing: boolean;
   leftover?: FillLogEntry;
   section?: string;
+  /** Listing/chat overlay only — not confirmed empty on the live Vendoo draft. */
+  listingOnly?: boolean;
 }
 
 interface DraftForm {
@@ -462,7 +464,9 @@ function patchableEmptyFields(
 ): { id?: string; marketplace: string; field: string; value: string }[] {
   return forms.flatMap((form) =>
     form.fields
-      .filter((field) => field.missing && !isUnfillableField(field))
+      // Apply only confirmed-empty live draft fields — never re-walk filled ones
+      // or listing-only overlays that were not empty on Vendoo.
+      .filter((field) => field.missing && !field.listingOnly && !isUnfillableField(field))
       .map((field) => {
         const leftover = field.leftover;
         const typed = leftover ? String(values[leftover.id] || "").trim() : "";
@@ -497,6 +501,7 @@ function overlayListingForms(forms: DraftForm[], listingForms: DraftForm[]): Dra
         value: "",
         section: extrasSection,
         missing: true,
+        listingOnly: true,
       });
     }
     if (!extras.length) return form;
@@ -1586,7 +1591,11 @@ export function FillLogPanel({
   const [selected, setSelected] = React.useState<string | null>(null);
   const [values, setValues] = React.useState<Record<string, string>>({});
   const [openMenu, setOpenMenu] = React.useState<OpenMenu>(null);
-  const filling = jobStatus === "dispatched";
+  const resolving =
+    jobStatus === "dispatched"
+    && (jobStep === "resolving_fields" || jobStep === "verifying_draft");
+  const filling = jobStatus === "dispatched" && !resolving;
+  const busy = fillMutation.isPending || filling || resolving;
   const hasDraft = Boolean(vendooItemId || vendooUrl);
   const chromeConnected = Boolean(extStatus?.connected);
   const awaitingFill = React.useRef(false);
@@ -1807,39 +1816,29 @@ export function FillLogPanel({
   const leftovers = (report ? leftoverEntries(report) : []).filter(
     (entry) => !hiddenKeys.has(hiddenFieldKey(entry.marketplace.toLowerCase(), normalizeFieldName(entry.field))),
   );
-  const filledOnDraft = new Set(
-    visibleSourceForms.flatMap((form) =>
-      form.fields
-        .filter((field) => !field.missing)
-        .map((field) => `${form.id}:${fieldMatchKey(field)}`),
-    ),
-  );
-  const fillableEmpty = fromVendooDraft ? patchableEmptyFields(visibleSourceForms, listing, values) : [];
-  const fillPayload = (() => {
-    const payload = [...fillableEmpty];
-    const seen = new Set(
-      payload.map((item) => `${(item.marketplace || "").toLowerCase()}:${(item.field || "").toLowerCase()}`),
-    );
-    for (const entry of leftovers) {
-      const market = entry.marketplace.toLowerCase();
-      const fieldKey = normalizeFieldName(entry.field);
-      // Already present on the live Vendoo draft — do not keep offering Fill.
-      if (filledOnDraft.has(`${market}:${fieldKey}`) && !["failed", "not_found", "uncertain"].includes(entry.status)) continue;
-      const key = `${market}:${entry.field.toLowerCase()}`;
-      if (seen.has(key)) continue;
-      const typed = String(values[entry.id] || "").trim();
-      const value = typed || listingValueForField(listing, entry.marketplace, {
-        key: entry.field,
-        label: entry.field,
-        value: "",
-        missing: true,
-      });
-      if (!value) continue;
-      seen.add(key);
-      payload.push({ id: entry.id, marketplace: entry.marketplace, field: entry.field, value });
-    }
-    return payload;
-  })();
+  // With a live draft read, Apply is only those empty fields. Do not merge leftover
+  // retries for already-filled controls — that re-walks every marketplace form.
+  const fillPayload = fromVendooDraft
+    ? patchableEmptyFields(visibleSourceForms, listing, values)
+    : (() => {
+        const payload: { id?: string; marketplace: string; field: string; value: string }[] = [];
+        const seen = new Set<string>();
+        for (const entry of leftovers) {
+          const key = `${entry.marketplace.toLowerCase()}:${entry.field.toLowerCase()}`;
+          if (seen.has(key)) continue;
+          const typed = String(values[entry.id] || "").trim();
+          const value = typed || listingValueForField(listing, entry.marketplace, {
+            key: entry.field,
+            label: entry.field,
+            value: "",
+            missing: true,
+          });
+          if (!value) continue;
+          seen.add(key);
+          payload.push({ id: entry.id, marketplace: entry.marketplace, field: entry.field, value });
+        }
+        return payload;
+      })();
 
   const hideField = (formId: string, field: DraftField, scope: "always" | "listing") => {
     if (scope === "listing" && !conversationId) return;
@@ -1980,7 +1979,7 @@ export function FillLogPanel({
               <button
                 type="button"
                 className="btn btn-sm"
-                disabled={resolveCategory.isPending || filling || !chromeConnected}
+                disabled={resolveCategory.isPending || busy || !chromeConnected}
                 title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
                 onClick={() => resolveCategory.mutate()}
               >
@@ -1994,7 +1993,7 @@ export function FillLogPanel({
               <button
                 type="button"
                 className="btn btn-sm"
-                disabled={fillMutation.isPending || filling || emptyFields.length === 0}
+                disabled={busy || emptyFields.length === 0}
                 title="Send blank fields to chat so it can write values. Does not change Vendoo yet."
                 onClick={() => onAskChat(emptyFieldsPrompt(visibleSourceForms, fromVendooDraft, listing))}
               >
@@ -2010,7 +2009,7 @@ export function FillLogPanel({
               <button
                 type="button"
                 className="btn btn-sm"
-                disabled={fillMutation.isPending || filling}
+                disabled={busy}
                 title="Send fields Vendoo rejected last time back to chat."
                 onClick={() => onAskChat(leftoverFieldsPrompt(listing, leftovers))}
               >
@@ -2023,10 +2022,12 @@ export function FillLogPanel({
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={fillMutation.isPending || filling || fillPayload.length === 0 || !chromeConnected}
+              disabled={busy || fillPayload.length === 0 || !chromeConnected}
               title={
                 !chromeConnected
                   ? "Connect Chrome to type these values into the Vendoo draft"
+                  : resolving
+                    ? "Wait for field repair to finish before applying"
                   : fillPayload.length
                     ? "Type only these missing values into the Vendoo draft"
                     : "Ask chat to write values first"
@@ -2035,6 +2036,8 @@ export function FillLogPanel({
             >
               {fillMutation.isPending || filling
                 ? "Applying on Vendoo…"
+                : resolving
+                  ? (jobStep === "verifying_draft" ? "Checking draft…" : "Resolving fields…")
                 : fillPayload.length
                   ? `Apply ${fillPayload.length} value${fillPayload.length === 1 ? "" : "s"} on Vendoo`
                   : "Apply values on Vendoo"}
@@ -2042,15 +2045,17 @@ export function FillLogPanel({
             <p className="pr-action-hint">
               {!chromeConnected
                 ? "Connect Chrome to type values into the Vendoo draft."
+                : resolving
+                  ? "Waiting on the listing assistant to resolve saved-draft gaps. Does not publish."
                 : fillPayload.length
-                  ? "Types ready values into the Vendoo draft. Does not publish."
+                  ? "Types only empty draft fields. Does not re-walk filled fields or publish."
                   : "Ask chat to write values first, then apply them here."}
             </p>
           </div>
         </div>
       )}
 
-      {fillPayload.length > 0 && !filling && !fillMutation.isPending && (
+      {fillPayload.length > 0 && !busy && (
         <p className="pr-notice">
           {fillPayload.length} value{fillPayload.length === 1 ? "" : "s"} ready.
           Review each “Ready to apply” value below, then click Apply on Vendoo.
@@ -2167,7 +2172,7 @@ export function FillLogPanel({
                                 <input
                                   className="pr-input"
                                   value={leftoverValue}
-                                  disabled={fillMutation.isPending || filling}
+                                  disabled={busy}
                                   placeholder={STATUS_LABELS[leftover.status] || leftover.status}
                                   onChange={(event) => setValues((prev) => ({ ...prev, [leftover.id]: event.target.value }))}
                                 />
@@ -2175,7 +2180,7 @@ export function FillLogPanel({
                                   <button
                                     type="button"
                                     className="pr-read"
-                                    disabled={fillMutation.isPending || filling}
+                                    disabled={busy}
                                     onClick={() => onAskChat(leftoverFieldPrompt(
                                       listing,
                                       leftover,
@@ -2192,7 +2197,7 @@ export function FillLogPanel({
                                     <button
                                       type="button"
                                       className="pr-read"
-                                      disabled={fillMutation.isPending || filling}
+                                      disabled={busy}
                                       onClick={() => fillMutation.mutate([{
                                         id: leftover.id,
                                         marketplace: leftover.marketplace,

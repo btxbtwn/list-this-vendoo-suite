@@ -79,6 +79,11 @@ console.log(JSON.stringify(result));
         after_loop = run_fill[run_fill.index("const fillLog") :]
         self.assertNotIn("SAVE_GENERAL", after_loop)
         self.assertNotIn("saveCommandForMarketplace", after_loop)
+        self.assertIn("payload.verify !== false", run_fill)
+        self.assertLess(
+            run_fill.index("const shouldVerify = payload.verify !== false"),
+            run_fill.index("verifySavedDraft"),
+        )
 
     def test_save_waits_for_button_to_appear(self) -> None:
         text = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
