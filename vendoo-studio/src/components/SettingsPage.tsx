@@ -401,7 +401,7 @@ function ProvidersPanel() {
   const { data: chatgptModels } = useQuery({
     queryKey: ["chatgpt-models"],
     queryFn: api.settings.chatgptModels,
-    enabled: chatgptSignedIn,
+    enabled: chatgptSignedIn && provider?.provider === "chatgpt",
   });
 
   const refreshProvider = () => {
@@ -444,13 +444,44 @@ function ProvidersPanel() {
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
+  const setPreferredMutation = useMutation({
+    mutationFn: (order: { primary: "chatgpt" | "mimo"; fallback: "chatgpt" | "mimo" | "none" }) =>
+      api.settings.setPreferredProvider(order),
+    onSuccess: refreshProvider,
+  });
 
   const chatgpt = provider?.chatgpt;
   const chatgptPending = chatgpt?.pending;
   const pendingCode = chatgptPending?.user_code;
   const mimoConfigured = Boolean(provider?.masked_key);
-  const visionModel = chatgptModels?.vision_model || provider?.vision_model || "mimo-v2.5";
-  const listingModel = chatgptModels?.listing_model || provider?.listing_model || "mimo-v2.5-pro";
+  const primary: "chatgpt" | "mimo" = provider?.primary === "mimo" ? "mimo" : "chatgpt";
+  const fallback: "chatgpt" | "mimo" | "none" =
+    provider?.fallback === "chatgpt" || provider?.fallback === "mimo" || provider?.fallback === "none"
+      ? provider.fallback
+      : primary === "chatgpt"
+        ? "mimo"
+        : "chatgpt";
+  const usingChatGPT = provider?.provider === "chatgpt";
+  const primaryReady = primary === "chatgpt" ? chatgptSignedIn : mimoConfigured;
+  const fallbackReady =
+    fallback === "chatgpt" ? chatgptSignedIn : fallback === "mimo" ? mimoConfigured : false;
+  const providerLabel = (choice: "chatgpt" | "mimo" | "none") =>
+    choice === "chatgpt" ? "ChatGPT" : choice === "mimo" ? "MiMo" : "None";
+
+  const saveOrder = (nextPrimary: "chatgpt" | "mimo", nextFallback: "chatgpt" | "mimo" | "none") => {
+    let fallbackValue = nextFallback;
+    if (fallbackValue === nextPrimary) {
+      fallbackValue = "none";
+    }
+    setPreferredMutation.mutate({ primary: nextPrimary, fallback: fallbackValue });
+  };
+
+  const visionModel = usingChatGPT
+    ? chatgptModels?.vision_model || provider?.vision_model || "gpt-5.5"
+    : provider?.vision_model || "mimo-v2.5";
+  const listingModel = usingChatGPT
+    ? chatgptModels?.listing_model || provider?.listing_model || "gpt-5.5"
+    : provider?.listing_model || "mimo-v2.5-pro";
   const reasoningEffort = chatgptModels?.reasoning_effort || "medium";
   const reasoningOptions = chatgptModels?.reasoning_efforts?.length
     ? chatgptModels.reasoning_efforts
@@ -499,12 +530,67 @@ function ProvidersPanel() {
 
   return (
     <>
+      <SettingsSection id="listing-ai" title="Listing AI">
+        <SettingsRow
+          title="Primary"
+          description="Tried first when generating listings and reading photos."
+          control={
+            <select
+              className="input settings-model-select"
+              aria-label="Primary listing AI"
+              value={primary}
+              disabled={setPreferredMutation.isPending}
+              onChange={(event) => saveOrder(event.target.value as "chatgpt" | "mimo", fallback)}
+            >
+              <option value="chatgpt">ChatGPT</option>
+              <option value="mimo">Xiaomi MiMo</option>
+            </select>
+          }
+        />
+        <SettingsRow
+          title="Fallback"
+          description="Used only when the primary provider is not ready."
+          control={
+            <select
+              className="input settings-model-select"
+              aria-label="Fallback listing AI"
+              value={fallback === primary ? "none" : fallback}
+              disabled={setPreferredMutation.isPending}
+              onChange={(event) =>
+                saveOrder(primary, event.target.value as "chatgpt" | "mimo" | "none")
+              }
+            >
+              <option value="none">None</option>
+              {primary !== "chatgpt" ? <option value="chatgpt">ChatGPT</option> : null}
+              {primary !== "mimo" ? <option value="mimo">Xiaomi MiMo</option> : null}
+            </select>
+          }
+        />
+        <SettingsRow title="In use">
+          <p className="settings-row-desc">
+            {provider?.configured
+              ? `${providerLabel(provider.provider === "chatgpt" ? "chatgpt" : "mimo")} is active${
+                  provider.provider === (primary === "chatgpt" ? "chatgpt" : "xiaomi-mimo")
+                    ? " (primary)"
+                    : " (fallback)"
+                }.`
+              : primaryReady
+                ? `${providerLabel(primary)} is ready.`
+                : fallback !== "none" && fallbackReady
+                  ? `${providerLabel(primary)} is not ready — ${providerLabel(fallback)} will be used.`
+                  : `Configure ${providerLabel(primary)}${
+                      fallback !== "none" ? ` or ${providerLabel(fallback)}` : ""
+                    } below.`}
+          </p>
+        </SettingsRow>
+      </SettingsSection>
+
       <SettingsSection id="chatgpt" title="ChatGPT">
         <SettingsRow
           title="Sign in with ChatGPT"
           description="Uses your ChatGPT subscription to generate listings and look up sold comps. Usage counts against Codex quota, not a Platform API key."
           status={
-            chatgptSignedIn && testResult ? (
+            chatgptSignedIn && testResult && provider?.provider === "chatgpt" ? (
               <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
             ) : chatgpt?.error ? (
               <span className="text-error">{chatgpt.error}</span>
@@ -513,9 +599,11 @@ function ProvidersPanel() {
           control={
             chatgptSignedIn ? (
               <>
-                <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
-                  {testing ? "Testing…" : "Test"}
-                </button>
+                {provider?.provider === "chatgpt" ? (
+                  <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
+                    {testing ? "Testing…" : "Test"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="btn btn-sm btn-ghost settings-danger"
@@ -549,7 +637,12 @@ function ProvidersPanel() {
           {chatgptSignedIn ? (
             <p className="settings-row-desc">
               Signed in{chatgpt?.email ? ` as ${chatgpt.email}` : ""}
-              {chatgpt?.plan ? ` · ${chatgpt.plan}` : ""}. Listings use this account first.
+              {chatgpt?.plan ? ` · ${chatgpt.plan}` : ""}.
+              {primary === "chatgpt"
+                ? " Primary for listings."
+                : fallback === "chatgpt"
+                  ? " Fallback for listings."
+                  : " Not in the listing order."}
             </p>
           ) : chatgptPending ? (
             <p className="settings-row-desc">
@@ -569,9 +662,9 @@ function ProvidersPanel() {
         <SettingsRow
           title="Vision model"
           description="Used to read product photos."
-          status={chatgptSignedIn && chatgptModels?.error ? <span className="text-error">{chatgptModels.error}</span> : null}
+          status={usingChatGPT && chatgptModels?.error ? <span className="text-error">{chatgptModels.error}</span> : null}
           control={
-            chatgptSignedIn ? (
+            usingChatGPT ? (
               <select
                 className="input settings-model-select"
                 aria-label="Vision model"
@@ -594,7 +687,7 @@ function ProvidersPanel() {
           title="Listing model"
           description="Used to write marketplace copy."
           control={
-            chatgptSignedIn ? (
+            usingChatGPT ? (
               <select
                 className="input settings-model-select"
                 aria-label="Listing model"
@@ -617,7 +710,7 @@ function ProvidersPanel() {
           title="Reasoning"
           description="Higher uses more Codex quota and takes longer. Applied to listing generation and photo analysis."
           control={
-            chatgptSignedIn ? (
+            usingChatGPT ? (
               <select
                 className="input settings-model-select"
                 aria-label="Reasoning"
@@ -665,22 +758,26 @@ function ProvidersPanel() {
           title="Status"
           description={
             mimoConfigured
-              ? chatgptSignedIn
-                ? `Fallback · ${provider?.masked_key}`
-                : `Configured · ${provider?.masked_key}`
-              : chatgptSignedIn
-                ? "Fallback when ChatGPT is signed out"
-                : "Not configured"
+              ? primary === "mimo"
+                ? `Primary · ${provider?.masked_key}`
+                : fallback === "mimo"
+                  ? `Fallback · ${provider?.masked_key}`
+                  : `Saved · ${provider?.masked_key}`
+              : primary === "mimo"
+                ? "Primary — add a key to use MiMo"
+                : fallback === "mimo"
+                  ? "Fallback — add a key if ChatGPT is unavailable"
+                  : "Not configured"
           }
           status={
-            !chatgptSignedIn && testResult ? (
+            provider?.provider === "xiaomi-mimo" && testResult ? (
               <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
             ) : null
           }
           control={
             mimoConfigured ? (
               <>
-                {!chatgptSignedIn ? (
+                {provider?.provider === "xiaomi-mimo" ? (
                   <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
                     {testing ? "Testing…" : "Test"}
                   </button>

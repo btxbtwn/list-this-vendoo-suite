@@ -63,6 +63,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["about", "update", "check for updates"],
   },
   {
+    id: "listing-ai",
+    title: "Listing AI",
+    section: "providers",
+    targetId: "listing-ai",
+    searchTerms: ["chatgpt", "mimo", "provider", "choose", "prefer", "primary", "fallback"],
+  },
+  {
     id: "chatgpt",
     title: "Sign in with ChatGPT",
     section: "providers",

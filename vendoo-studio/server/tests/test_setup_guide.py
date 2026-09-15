@@ -34,6 +34,28 @@ class SetupGuideSettingsTest(unittest.TestCase):
         stored = json.loads(Path(self.tmp.name, "settings.json").read_text())
         self.assertTrue(stored["setup_guide_dismissed"])
 
+    def test_listing_provider_preference_defaults_and_persists(self):
+        self.assertEqual(user_settings.get_listing_provider_order(), ("chatgpt", "mimo"))
+        self.assertEqual(
+            user_settings.set_listing_provider_order("mimo", "chatgpt"),
+            {"primary": "mimo", "fallback": "chatgpt"},
+        )
+        self.assertEqual(user_settings.get_listing_provider_order(), ("mimo", "chatgpt"))
+        stored = json.loads(Path(self.tmp.name, "settings.json").read_text())
+        self.assertEqual(stored["listing_provider"], {"primary": "mimo", "fallback": "chatgpt"})
+        self.assertEqual(
+            user_settings.set_listing_provider_order("chatgpt", "none"),
+            {"primary": "chatgpt", "fallback": "none"},
+        )
+        with self.assertRaises(ValueError):
+            user_settings.set_listing_provider_order("claude")
+        with self.assertRaises(ValueError):
+            user_settings.set_listing_provider_order("chatgpt", "chatgpt")
+
+    def test_legacy_string_preference_maps_to_primary_and_other_fallback(self):
+        Path(self.tmp.name, "settings.json").write_text(json.dumps({"listing_provider": "mimo"}))
+        self.assertEqual(user_settings.get_listing_provider_order(), ("mimo", "chatgpt"))
+
 
 class SetupGuideRouteTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -57,6 +79,17 @@ class SetupGuideRouteTest(unittest.TestCase):
         again = self.client.post("/api/settings/setup-guide/dismiss")
         self.assertEqual(again.status_code, 200)
         self.assertEqual(again.json(), {"ok": True, "dismissed": True})
+
+    def test_preferred_provider_endpoint_persists(self):
+        saved = self.client.put(
+            "/api/settings/provider/preferred",
+            json={"primary": "mimo", "fallback": "none"},
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json(), {"ok": True, "primary": "mimo", "fallback": "none"})
+        self.assertEqual(user_settings.get_listing_provider_order(), ("mimo", "none"))
+        bad = self.client.put("/api/settings/provider/preferred", json={"primary": "claude"})
+        self.assertEqual(bad.status_code, 422)
 
 
 if __name__ == "__main__":

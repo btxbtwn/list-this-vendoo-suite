@@ -162,6 +162,17 @@ export const api = {
       }),
     deleteKey: () => request<any>("/settings/provider/key", { method: "DELETE" }),
     testConnection: () => request<any>("/settings/provider/test", { method: "POST" }),
+    setPreferredProvider: (order: {
+      primary: "chatgpt" | "mimo";
+      fallback?: "chatgpt" | "mimo" | "none" | null;
+    }) =>
+      request<{ ok: boolean; primary: "chatgpt" | "mimo"; fallback: "chatgpt" | "mimo" | "none" }>(
+        "/settings/provider/preferred",
+        {
+          method: "PUT",
+          body: JSON.stringify(order),
+        },
+      ),
     brave: () => request<{ configured: boolean; masked_key: string | null }>("/settings/brave"),
     setBrave: (apiKey: string) =>
       request<{ ok: boolean; configured: boolean; masked_key: string | null }>("/settings/brave", {
