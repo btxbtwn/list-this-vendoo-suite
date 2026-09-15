@@ -583,11 +583,12 @@ function sourceFormsForJob(
   return { sourceForms, fromVendooDraft: draftForms.length > 0 };
 }
 
-function useVendooDraft(jobId: string, enabled: boolean) {
+function useVendooDraft(jobId: string, enabled: boolean, liveRefresh = true) {
   return useQuery({
     queryKey: vendooItemQueryKey(jobId),
     // Live hydrate: cache-only reads can overwrite a just-finished Chrome scrape.
-    queryFn: () => api.jobs.vendooItem(jobId, { refresh: true }),
+    // While Send/verify owns the Vendoo tab, stay on cache so Discovering… cannot race it.
+    queryFn: () => api.jobs.vendooItem(jobId, liveRefresh ? { refresh: true } : { cacheOnly: true }),
     enabled,
     staleTime: VENDOO_ITEM_STALE_MS,
     retry: 1,
@@ -1744,7 +1745,7 @@ export function FillLogPanel({
   const fillingRef = React.useRef(filling);
   fillingRef.current = filling;
 
-  const draftQuery = useVendooDraft(jobId, hasDraft);
+  const draftQuery = useVendooDraft(jobId, hasDraft, !(resolving || filling));
   const draft = draftQuery.data;
   const [refreshingDraft, setRefreshingDraft] = React.useState(false);
   const { sourceForms, fromVendooDraft } = sourceFormsForJob(
@@ -1813,6 +1814,9 @@ export function FillLogPanel({
 
   const refreshDraftLive = async () => {
     if (!hasDraft) return;
+    if (resolving || filling) {
+      return;
+    }
     setShowJson(false);
     setRefreshingDraft(true);
     try {

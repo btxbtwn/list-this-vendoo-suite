@@ -367,6 +367,28 @@ async def get_vendoo_item(
             )
         raise HTTPException(400, "Chrome is not connected")
 
+    # Fields live scrape shares the Vendoo tab with Send/verify. Serving cache (or a busy
+    # error) prevents Discovering… from fighting marketplace form mounting mid-verification.
+    from vendoo_studio.services.listing_completion import AUTOMATION_TAB_STEPS
+
+    if job.status == "dispatched" and str(job.current_step or "") in AUTOMATION_TAB_STEPS:
+        if cached:
+            return VendooItemResponse(
+                ok=True,
+                source=cached.get("source") or "cache",
+                item_id=cached.get("item_id") or job.vendoo_item_id,
+                url=cached.get("url") or job.vendoo_url,
+                error=None,
+                api_error="Draft refresh paused while automation uses the Vendoo tab",
+                item=cached.get("item"),
+                form=cached.get("form"),
+                statuses=cached.get("statuses"),
+            )
+        raise HTTPException(
+            409,
+            "Draft refresh is paused while verification or fill is using the Vendoo tab",
+        )
+
     request_id = uuid.uuid4().hex[:12]
     waiter = extension_manager.register_wait(request_id)
     try:

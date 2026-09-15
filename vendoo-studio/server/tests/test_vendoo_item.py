@@ -196,6 +196,38 @@ class VendooItemRouteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 504)
         self.assertIn("did not return", response.json()["detail"])
 
+    def test_vendoo_item_refresh_paused_during_verification(self):
+        self._connect_chrome()
+
+        async def ok_dispatch(job, request_id):
+            extension_manager.resolve_wait(request_id, {
+                "ok": True,
+                "source": "form",
+                "item_id": "abc123",
+                "url": "https://web.vendoo.co/app/item/abc123",
+                "item": {"itemID": "abc123"},
+                "form": {"generalDetails": {"title": "Nike tee"}},
+                "statuses": {"general": "COMPLETE"},
+            })
+            return True
+
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=ok_dispatch)):
+            primed = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
+        self.assertEqual(primed.status_code, 200, primed.text)
+
+        self.job.status = "dispatched"
+        self.job.current_step = "verifying_draft"
+        self.db.commit()
+
+        dispatch = AsyncMock(return_value=True)
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=dispatch):
+            response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item?refresh=true")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertIn("paused", (body.get("api_error") or "").lower())
+        dispatch.assert_not_called()
+
 
 class ResolveCategoryRouteTest(unittest.TestCase):
     def setUp(self):

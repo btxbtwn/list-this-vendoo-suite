@@ -185,6 +185,9 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job.current_step, "verifying_draft")
         self.assertEqual(self.job.status, "dispatched")
         self.dispatch.assert_awaited_once()
+        kwargs = self.dispatch.await_args.kwargs
+        self.assertTrue(kwargs.get("reload"))
+        self.assertIn("ebay", kwargs.get("platforms") or [])
         self.assertTrue(any(
             event.event_type == "completion_readback_retry"
             for event in JobRepo(self.db).get_events(self.job.id)
@@ -203,6 +206,24 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job.current_step, "completion_blocked")
         self.assertIn("automatic retries", self.job.last_error or "")
         self.assertEqual(self.dispatch.await_count, MAX_READBACK_RETRIES)
+
+    async def test_partial_readback_merges_prior_marketplace_schema(self):
+        self.review()
+        # Later attempt only recovers eBay; general came from the first review.
+        store_verification(self.db, self.job, {
+            "readback": True,
+            "verified": False,
+            "schema": {
+                "ebay": {
+                    "category": {"path": "Clothing > Shirts"},
+                    "fields": [{"label": "Material", "value": "Cotton", "required": True}],
+                },
+            },
+        })
+        self.verification["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
+        await self.run_completion({})
+        self.assertEqual(self.job.current_step, "verified_complete")
+        self.dispatch.assert_not_awaited()
 
     async def test_required_field_cannot_be_exempted(self):
         ConversationRepo(self.db).add_message(self.conv.id, "user", "It has no material tag.")
