@@ -11,7 +11,7 @@ import { SetupChecklist } from "../components/SetupChecklist";
 import { FirstRunGuide } from "../components/FirstRunGuide";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
-import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon } from "../components/ListingSidebar";
+import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
 import {
   DEFAULT_SETTINGS_SECTION,
   SETTINGS_SECTION_LABELS,
@@ -117,22 +117,26 @@ export function App() {
     setSettingsTargetId(null);
     setActiveView("settings");
     setMobilePane("workspace");
-    closeMobileSidebar();
+    // On mobile, land on the settings section list first so Providers etc. are reachable.
+    setMobileSidebarOpen(isMobile);
   };
 
   const closeSettings = () => {
     setActiveView("listings");
     setSettingsTargetId(null);
+    closeMobileSidebar();
   };
 
   const handleSettingsSectionChange = (section: SettingsSectionId) => {
     setSettingsSection(section);
     setSettingsTargetId(null);
+    closeMobileSidebar();
   };
 
   const handleSettingsSearchResult = (item: SettingsSearchItem) => {
     setSettingsSection(item.section);
     setSettingsTargetId(item.targetId || item.id);
+    closeMobileSidebar();
   };
 
   useEffect(() => {
@@ -244,11 +248,20 @@ export function App() {
             <button
               type="button"
               className="sidebar-icon-btn sidebar-toggle"
-              aria-label="Back to listings"
+              aria-label={
+                activeView === "settings"
+                  ? mobileSidebarOpen
+                    ? "Back to listings"
+                    : "Settings menu"
+                  : "Back to listings"
+              }
               onClick={() => {
                 if (activeView === "settings") {
+                  if (!mobileSidebarOpen) {
+                    setMobileSidebarOpen(true);
+                    return;
+                  }
                   closeSettings();
-                  closeMobileSidebar();
                   return;
                 }
                 setMobileSidebarOpen(true);
@@ -257,37 +270,50 @@ export function App() {
               <BackIcon />
             </button>
             <div className="mobile-workspace-title">{workspaceTitle}</div>
-            <div className="mobile-workspace-panes" role="tablist" aria-label="Workspace views">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mobilePane === "workspace"}
-                className={mobilePane === "workspace" ? "selected" : ""}
-                onClick={() => setMobilePane("workspace")}
-              >
-                Workspace
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mobilePane === "editor"}
-                className={mobilePane === "editor" ? "selected" : ""}
-                disabled={activeView !== "listings" || !selectedConvId}
-                onClick={() => setMobilePane("editor")}
-              >
-                Listing
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mobilePane === "browser"}
-                className={mobilePane === "browser" ? "selected" : ""}
-                disabled={activeView !== "listings" || !selectedConvId || !previewOpen}
-                onClick={() => setMobilePane("browser")}
-              >
-                Browser
-              </button>
-            </div>
+            {activeView === "listings" ? (
+              <>
+                <div className="mobile-workspace-panes" role="tablist" aria-label="Workspace views">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mobilePane === "workspace"}
+                    className={mobilePane === "workspace" ? "selected" : ""}
+                    onClick={() => setMobilePane("workspace")}
+                  >
+                    Workspace
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mobilePane === "editor"}
+                    className={mobilePane === "editor" ? "selected" : ""}
+                    disabled={!selectedConvId}
+                    onClick={() => setMobilePane("editor")}
+                  >
+                    Listing
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mobilePane === "browser"}
+                    className={mobilePane === "browser" ? "selected" : ""}
+                    disabled={!selectedConvId || !previewOpen}
+                    onClick={() => setMobilePane("browser")}
+                  >
+                    Browser
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="sidebar-icon-btn mobile-workspace-settings"
+                  title="Settings"
+                  aria-label="Settings"
+                  onClick={openSettings}
+                >
+                  <SettingsIcon />
+                </button>
+              </>
+            ) : null}
           </header>
           <main className="panel main-panel">
             <div className="workspace-drag-region pywebview-drag-region" aria-hidden="true" />

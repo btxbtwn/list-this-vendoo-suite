@@ -3966,10 +3966,18 @@ details[open] .json-collapse-summary::before {
     display: none;
   }
 
+  .sidebar-settings .sidebar-toolbar {
+    display: flex;
+  }
+
   .sidebar-list {
     min-height: 0;
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     touch-action: pan-y;
+  }
+
+  .sidebar-settings .sidebar-list {
+    padding-bottom: 16px;
   }
 
   .app-content.mobile-sidebar-open .mobile-workspace-bar {
@@ -4089,7 +4097,11 @@ details[open] .json-collapse-summary::before {
     flex-shrink: 1;
     gap: 2px;
     min-width: 0;
-    max-width: 54%;
+    max-width: 48%;
+  }
+
+  .mobile-workspace-settings {
+    flex-shrink: 0;
   }
 
   .mobile-workspace-panes button {
