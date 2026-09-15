@@ -368,6 +368,19 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     refetchInterval: streaming || generating ? 2000 : false,
   });
 
+  const { data: jobs } = useQuery({
+    queryKey: ["jobs"],
+    queryFn: () => api.jobs.list(),
+    refetchInterval: streaming || generating ? 2000 : 5000,
+  });
+
+  const activeProbe = (jobs || []).find(
+    (j: any) =>
+      j.conversation_id === convId
+      && j.mode === "schema_probe"
+      && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
+  );
+
   useEffect(() => {
     const sync = () => {
       const next = getLive(convId);
@@ -621,15 +634,55 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     } else {
       void api.conversations.cancelMessages(convId);
     }
-  }, [convId]);
+    const probe = (jobs || []).find(
+      (j: any) =>
+        j.conversation_id === convId
+        && j.mode === "schema_probe"
+        && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
+    );
+    if (probe?.id) {
+      void api.jobs.cancel(probe.id).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      });
+    }
+  }, [convId, jobs, queryClient]);
 
-  const handleRetry = useCallback(() => {
+  const handleCancelDiscovery = useCallback(async () => {
+    const probeId = activeProbe?.id;
+    patchLive(convId, {
+      userCancelled: true,
+      restoreInputOnAbort: false,
+      streamText: "",
+      streamThinking: "",
+      streamStatus: "",
+      thinkingStarted: false,
+      failedAction: null,
+      streaming: false,
+      generating: false,
+      controller: null,
+    });
+    getLive(convId).controller?.abort();
+    await Promise.allSettled([
+      fetch(`/api/conversations/${convId}/generate/cancel`, { method: "POST" }),
+      probeId ? api.jobs.cancel(probeId) : Promise.resolve(),
+    ]);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+      queryClient.invalidateQueries({ queryKey: ["messages", convId] }),
+      queryClient.invalidateQueries({ queryKey: ["conversations"] }),
+    ]);
+  }, [activeProbe?.id, convId, queryClient]);
+
+  const handleRetry = useCallback(async () => {
     if (failedAction === "send" && lastSendText) {
       void sendMessage(lastSendText);
       return;
     }
+    if (activeProbe?.id) {
+      await handleCancelDiscovery();
+    }
     void handleGenerate();
-  }, [failedAction, lastSendText, sendMessage, handleGenerate]);
+  }, [failedAction, lastSendText, sendMessage, handleGenerate, activeProbe?.id, handleCancelDiscovery]);
 
   const hasPhotos = (photos && (photos as any[]).length > 0);
   const hasMessages = messages && (messages as any[]).length > 0;
@@ -638,6 +691,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     return Boolean(json && isListingJson(json));
   }) || (listing?.listing && isListingJson(JSON.stringify(listing.listing))));
   const streamFailed = isStreamError(streamText);
+  const loadFailed = /load failed/i.test(streamText || "");
+  const errorHint = activeProbe
+    ? "Field discovery is still running in Chrome. Cancel it from here, then retry."
+    : loadFailed
+      ? "The connection dropped mid-stream. Retry to resume generation."
+      : "";
   const streamVisible = streamFailed ? "" : assistantDisplayText(streamText);
   // Persist finishes (and messages refetch) before the SSE stream is cleared —
   // hide the live bubble once the same assistant prose is already on screen.
@@ -821,22 +880,56 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         {streamFailed && (
           <div className="chat-error" role="alert">
             <div className="chat-error-text">{streamText}</div>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleRetry}
-              disabled={busy || !canRetry}
-            >
-              {busy ? "Retrying..." : "Retry"}
-            </button>
+            {errorHint ? <div className="chat-error-hint">{errorHint}</div> : null}
+            <div className="chat-error-actions">
+              {activeProbe ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { void handleCancelDiscovery(); }}
+                  disabled={busy}
+                >
+                  Cancel discovery
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => { void handleRetry(); }}
+                disabled={busy || !canRetry}
+              >
+                {busy ? "Retrying..." : activeProbe ? "Cancel & retry" : "Retry"}
+              </button>
+            </div>
           </div>
         )}
 
         {hasMessages && !hasListingJson && !streamFailed && !busy && hasPhotos && (
           <div className="chat-error">
             <div className="chat-error-text">Listing generation did not finish.</div>
-            <button className="btn btn-primary btn-sm" onClick={handleGenerate}>
-              Retry
-            </button>
+            {activeProbe ? (
+              <div className="chat-error-hint">
+                Field discovery is still running in Chrome. Cancel it from here, then retry.
+              </div>
+            ) : null}
+            <div className="chat-error-actions">
+              {activeProbe ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { void handleCancelDiscovery(); }}
+                >
+                  Cancel discovery
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => { void (activeProbe ? handleRetry() : handleGenerate()); }}
+              >
+                {activeProbe ? "Cancel & retry" : "Retry"}
+              </button>
+            </div>
           </div>
         )}
       </div>

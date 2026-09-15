@@ -2083,6 +2083,19 @@ details[open] .json-collapse-summary::before {
   word-break: break-word;
 }
 
+.chat-error-hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  line-height: 1.4;
+}
+
+.chat-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .chat-composer {
   display: flex;
   align-items: flex-end;
