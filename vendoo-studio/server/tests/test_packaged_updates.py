@@ -177,6 +177,44 @@ class PackagedUpdateTest(unittest.TestCase):
         packaged_updates._prepare_app_bundle(app)
         self.assertTrue(os.access(launcher, os.X_OK))
 
+    def test_verify_app_signature_accepts_adhoc_display(self):
+        app = Path(self.tmp.name) / "List This Studio.app"
+        app.mkdir()
+
+        def fake_run(args, capture_output=True, text=True):
+            self.assertEqual(args[:2], ["/usr/bin/codesign", "-dv"])
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": "",
+                    "stderr": "Signature=adhoc\nIdentifier=local.listthis.studio\n",
+                },
+            )()
+
+        with patch.object(packaged_updates.subprocess, "run", side_effect=fake_run):
+            packaged_updates._verify_app_signature(app)
+
+    def test_verify_app_signature_rejects_unsigned(self):
+        app = Path(self.tmp.name) / "List This Studio.app"
+        app.mkdir()
+
+        def fake_run(args, capture_output=True, text=True):
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 1,
+                    "stdout": "",
+                    "stderr": f"{app}: code object is not signed at all",
+                },
+            )()
+
+        with patch.object(packaged_updates.subprocess, "run", side_effect=fake_run):
+            with self.assertRaisesRegex(packaged_updates.PackagedUpdateError, "not signed"):
+                packaged_updates._verify_app_signature(app)
+
     def test_force_reinstall_downloads_even_when_current(self):
         release = {
             "name": "List This Studio (macOS)",

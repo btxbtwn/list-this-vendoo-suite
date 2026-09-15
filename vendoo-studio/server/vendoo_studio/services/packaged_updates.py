@@ -117,14 +117,22 @@ def _verify_archive_digest(archive: Path, expected: str | None) -> None:
 
 
 def _verify_app_signature(app_path: Path) -> None:
+    """Require a code signature (including ad-hoc).
+
+    Releases are ad-hoc signed, not Developer ID / notarized. ``codesign
+    --verify --deep --strict`` rejects the PyInstaller Python.framework as
+    "bundle format is ambiguous", so integrity for updates is the GitHub
+    zip SHA-256 digest; this check only rejects completely unsigned bundles.
+    """
     if os.environ.get("VENDOO_STUDIO_SKIP_CODESIGN") == "1":
         return
-    verify = subprocess.run(
-        ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app_path)],
+    display = subprocess.run(
+        ["/usr/bin/codesign", "-dv", str(app_path)],
         capture_output=True,
         text=True,
     )
-    if verify.returncode != 0:
+    detail = (display.stderr or display.stdout or "").strip()
+    if display.returncode != 0 or "code object is not signed at all" in detail:
         raise PackagedUpdateError("The update is not signed by a trusted identity.")
 
 
