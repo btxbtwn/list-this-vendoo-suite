@@ -78,6 +78,7 @@ class _GenerationRun:
         self.task: asyncio.Task | None = None
         self.done = False
         self.cancelling = False
+        self.last_status = ""
 
     def subscribe(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue()
@@ -91,11 +92,26 @@ class _GenerationRun:
     def unsubscribe(self, queue: asyncio.Queue) -> None:
         self.subscribers.discard(queue)
 
-    def publish(self, item: str) -> None:
-        if item != KEEPALIVE:
+    def publish(self, item: str, *, record: bool = True) -> None:
+        if record and item != KEEPALIVE:
             self.history.append(item)
+            if item.startswith("event: status\n"):
+                for line in item.splitlines():
+                    if line.startswith("data:"):
+                        self.last_status = line[5:].lstrip()
+                        break
         for queue in list(self.subscribers):
             queue.put_nowait(item)
+
+    def pulse(self) -> None:
+        """Keep mobile fetch/SSE alive with a comment and a status data frame.
+
+        Comment-only keepalives are ignored by some mobile stacks, which then
+        drop the connection during long category discovery waits.
+        """
+        self.publish(KEEPALIVE, record=False)
+        if self.last_status:
+            self.publish(_sse_event("status", self.last_status), record=False)
 
     def finish(self) -> None:
         self.done = True
@@ -199,7 +215,10 @@ def _sse_for_stream_item(item) -> tuple[str | None, str]:
     return _sse_data(text), text
 
 
-def _load_skill_rules() -> str:
+def _load_skill_rules(query: str = "", db: Session | None = None) -> str:
+    if db is not None and str(query or "").strip():
+        from vendoo_studio.services.catalog_index import relevant_skill_rules
+        return relevant_skill_rules(db, query)
     skill_md = skills_dir() / "list-this" / "SKILL.md"
     template_md = skills_dir() / "list-this" / "references" / "vendoo_listing_template.md"
 
@@ -319,8 +338,10 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
     repo = ConversationRepo(db)
     history = repo.get_messages(conv_id)
     photos = repo.get_photos(conv_id)
+    conv = repo.get(conv_id)
+    notes = (conv.notes if conv else "") or ""
 
-    skill_rules = _load_skill_rules()
+    skill_rules = _load_skill_rules(user_message, db)
 
     photo_analysis_text = ""
     comps_text = ""
@@ -328,6 +349,10 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
     existing_analysis = latest_photo_analysis(history)
     if photos and existing_analysis and photo_analysis_usable(existing_analysis):
         photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
+        skill_rules = _load_skill_rules(
+            f"{user_message}\n{photo_analysis_text}\n{seller_item_details(notes)}",
+            db,
+        )
     elif photos:
         provider = get_listing_provider()
         if provider:
@@ -344,6 +369,10 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
             )
             repo.add_message(conv_id, "system", analysis_note)
             photo_analysis_text = analysis_with_photo_count(len(photos), analysis_note)
+            skill_rules = _load_skill_rules(
+                f"{user_message}\n{photo_analysis_text}\n{seller_item_details(notes)}",
+                db,
+            )
             comps_text = await research_sold_comps(photo_analysis_text, evidence)
             if comps_text:
                 repo.add_message(conv_id, "system", comps_text, provider="brave", model="web-search")
@@ -818,12 +847,12 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "No photos to generate from. Upload product photos first.")
 
     repo.update_status(conv_id, "in_progress")
-    skill_rules = _load_skill_rules()
     notes = conv.notes or ""
     item_details = seller_item_details(notes)
     seller_answers = "\n".join(message.text for message in repo.get_messages(conv_id) if message.role == "user")
     if seller_answers:
         item_details += "\nSeller answers:\n" + seller_answers
+    skill_rules = _load_skill_rules(item_details, db)
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
     photo_count = len(photos)
     # Release the request-scoped session before background work opens its own.
@@ -838,6 +867,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         try:
             evidence: dict = {}
             existing = latest_photo_analysis(stream_repo.get_messages(conv_id))
+            listing_rules = skill_rules
             if existing:
                 analysis_text = existing
             else:
@@ -845,12 +875,12 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     provider.analyze_photos(
                         paths,
                         notes=item_details,
-                        listing_rules=skill_rules[:8000],
+                        listing_rules=listing_rules[:8000],
                     )
                 )
                 child_tasks.append(analysis_task)
                 async for _ in _wait_task_keepalives(analysis_task):
-                    run.publish(KEEPALIVE)
+                    run.pulse()
                 try:
                     result = analysis_task.result()
                     evidence, analysis_text = require_photo_analysis(result)
@@ -864,13 +894,18 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
             if existing:
                 prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
 
+            listing_rules = _load_skill_rules(
+                f"{prompt_analysis}\n{item_details}",
+                stream_db,
+            )
+
             run.publish(_sse_event("status", "Identifying category and discovering its fields…"))
             schema_task = asyncio.create_task(prepare_generation_schema(
                 stream_db, conv_id, provider, prompt_analysis + "\nSeller answers:\n" + seller_answers, notes,
             ))
             child_tasks.append(schema_task)
             async for _ in _wait_task_keepalives(schema_task):
-                run.publish(KEEPALIVE)
+                run.pulse()
             schema_task.result()
 
             comps_text = ""
@@ -879,14 +914,14 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 comps_task = asyncio.create_task(research_sold_comps(prompt_analysis, evidence))
                 child_tasks.append(comps_task)
                 async for _ in _wait_task_keepalives(comps_task):
-                    run.publish(KEEPALIVE)
+                    run.pulse()
                 comps_text = comps_task.result()
                 if comps_text:
                     source = "chatgpt" if "Source: ChatGPT" in comps_text else "brave"
                     stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
 
             messages = _listing_messages(
-                skill_rules,
+                listing_rules,
                 item_details,
                 prompt_analysis,
                 stream_db,
@@ -898,7 +933,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
 
             async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
                 if item is None:
-                    run.publish(KEEPALIVE)
+                    run.pulse()
                     continue
                 payload, content = _sse_for_stream_item(item)
                 if content:

@@ -3159,6 +3159,19 @@
                   fill_log: finishFillLog({ skipUnmapped: true }),
               };
           }
+          // Vendoo keeps Save disabled on new drafts until a few general fields
+          // exist. Seed the minimum so schema-probe saving_general can commit.
+          const title = String(data.title || '').trim() || 'Draft listing';
+          await fillTextField(VENDOO_SELECTORS.title, title, 'Title');
+          await fillTextField(VENDOO_SELECTORS.zipCode, data.zipCode || '70125', 'Zip Code');
+          if (data.condition) {
+              await fillDropdownField(
+                  VENDOO_SELECTORS.condition,
+                  mapCondition(data.condition, 'vendoo'),
+                  'Condition',
+                  true,
+              );
+          }
           await sleep(CONFIG.SLEEP_LONG);
           return { ok: true, fill_log: finishFillLog({ skipUnmapped: true }) };
       } catch (err) {

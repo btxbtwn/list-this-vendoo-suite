@@ -199,6 +199,8 @@ console.log(JSON.stringify({ probe, probeUpdate, fill, update }));
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
         self.assertIn("async function setGeneralCategoryOnly", content)
         self.assertIn("SET_GENERAL_CATEGORY", content)
+        self.assertIn("Draft listing", content)
+        self.assertIn("Vendoo keeps Save disabled", content)
 
 
 class SchemaProbeDispatchTest(unittest.TestCase):
