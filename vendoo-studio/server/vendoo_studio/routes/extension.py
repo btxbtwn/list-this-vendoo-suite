@@ -308,13 +308,21 @@ async def dispatch_queued_jobs():
         db.close()
 
 
-async def dispatch_fill_fields(job, fields: list[dict], *, verify: bool = True) -> bool:
+async def dispatch_fill_fields(
+    job,
+    fields: list[dict],
+    *,
+    verify: bool = True,
+    platforms: list[str] | None = None,
+    reload: bool = False,
+) -> bool:
     if not extension_manager.connected:
         return False
     from sqlalchemy.orm import object_session
     from vendoo_studio.repositories.queries import ConversationRepo
     db = object_session(job)
     photo_count = len(ConversationRepo(db).get_photos(job.conversation_id)) if db is not None else 0
+    snapshot_platforms = (job.listing_snapshot or {}).get("platforms") or []
     return await extension_manager.send_message(ProtocolMessage(
         type="job.fill_fields",
         job_id=job.id,
@@ -325,10 +333,11 @@ async def dispatch_fill_fields(job, fields: list[dict], *, verify: bool = True) 
             "vendoo_url": job.vendoo_url,
             "fields": fields,
             "listing": {key: value for key, value in (job.listing_snapshot or {}).items() if not key.startswith("_")},
-            "platforms": (job.listing_snapshot or {}).get("platforms") or [],
+            "platforms": list(platforms) if platforms is not None else list(snapshot_platforms),
             "expected_photo_count": photo_count,
             # Manual Apply skips full draft readback; completion repair keeps verify=True.
             "verify": bool(verify),
+            "reload": bool(reload),
         },
     ).model_dump(mode="json"))
 

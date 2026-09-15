@@ -5975,6 +5975,49 @@
       };
   }
 
+  async function readMarketplaceSchemaSection(platform, { requireListingFields = true } = {}) {
+      const mp = String(platform || '').toLowerCase();
+      let formReady = await ensureMarketplaceFormReady(mp, { requireListingFields });
+      if (!formReady) {
+          await activateMarketplaceSection(mp);
+          await sleep(CONFIG.SLEEP_LONG);
+          formReady = await ensureMarketplaceFormReady(mp, { requireListingFields });
+      }
+      if (!formReady && !requireListingFields) {
+          formReady = marketplaceFormMounted(mp);
+      }
+      if (formReady) {
+          if (mp === 'ebay' && marketplaceCategoryDisplay('ebay')) {
+              await waitForEbayOptionalCategoryFields();
+          } else {
+              await expandOptionalFields();
+              await sleep(CONFIG.SLEEP_LONG);
+          }
+      }
+      let fields = formReady ? await collectMarketplaceSchemaFields(mp) : [];
+      if (formReady && !fields.length) {
+          await expandOptionalFields();
+          await sleep(CONFIG.SLEEP_LONG);
+          fields = await collectMarketplaceSchemaFields(mp);
+      }
+      if (!fields.length && marketplaceFormMounted(mp) && marketplaceCategoryDisplay(mp)) {
+          await expandOptionalFields();
+          await sleep(CONFIG.SLEEP_LONG);
+          fields = await collectMarketplaceSchemaFields(mp);
+      }
+      return {
+          category: { path: mp === 'general'
+              ? readCategoryDisplay(findGeneralCategoryControl())
+              : marketplaceCategoryDisplay(mp) },
+          fields,
+          error: fields.length
+              ? null
+              : (formReady || marketplaceFormMounted(mp)
+                  ? `${mp === 'general' ? 'General' : 'Marketplace'} form returned no fields`
+                  : `${mp === 'general' ? 'General' : 'Marketplace'} form did not mount`),
+      };
+  }
+
   async function verifySavedDraft(data, platforms, expectedPhotoCount) {
       const itemId = extractItemId();
       if (!itemId) {
@@ -5990,52 +6033,27 @@
           return { ok: false, verified: false, error: ready.error, item_id: itemId, url: window.location.href };
       }
       const listing = { ...(data || {}), _expected_photo_count: expectedPhotoCount || 0 };
-      const general = await auditGeneralForm(listing);
+      const requested = Array.isArray(platforms)
+          ? platforms.map((item) => String(item || '').toLowerCase()).filter(Boolean)
+          : [];
+      // Always read general unless the caller explicitly asked for marketplace-only recovery.
+      const includeGeneral = requested.length === 0 || requested.includes('general');
+      const selected = requested.filter((platform) => platform !== 'general');
+      const general = includeGeneral
+          ? await auditGeneralForm(listing)
+          : { ok: true, mismatches: [], fields: {} };
       beginFillLog('general');
-      const generalReady = await ensureMarketplaceFormReady('general');
-      if (generalReady) {
-          await expandOptionalFields();
-          await sleep(CONFIG.SLEEP_LONG);
+      const schema = {};
+      if (includeGeneral) {
+          schema.general = await readMarketplaceSchemaSection('general', { requireListingFields: false });
       }
-      const generalFields = generalReady ? await collectMarketplaceSchemaFields('general') : [];
-      const schema = { general: {
-          category: { path: readCategoryDisplay(findGeneralCategoryControl()) },
-          fields: generalFields,
-          error: generalReady && generalFields.length ? null : (generalReady ? 'General form returned no fields' : 'General form did not mount'),
-      } };
       const marketplaceResults = {};
       const mismatches = [...(general.mismatches || [])];
-      const selected = Array.isArray(platforms) ? platforms.map((item) => String(item || '').toLowerCase()).filter(Boolean) : [];
       for (const platform of selected) {
           const result = await auditMarketplaceForm(listing, platform);
           marketplaceResults[platform] = result;
           beginFillLog(platform);
-          // Wait for listings.* controls — a category-only mount is not enough to prove
-          // the marketplace form is readable for completion.
-          let formReady = await ensureMarketplaceFormReady(platform, { requireListingFields: true });
-          if (!formReady) {
-              await activateMarketplaceSection(platform);
-              await sleep(CONFIG.SLEEP_LONG);
-              formReady = await ensureMarketplaceFormReady(platform, { requireListingFields: true });
-          }
-          if (formReady) {
-              await expandOptionalFields();
-              await sleep(CONFIG.SLEEP_LONG);
-          }
-          let fields = formReady ? await collectMarketplaceSchemaFields(platform) : [];
-          if (formReady && !fields.length) {
-              // Cascade remounts can briefly leave zero scrapeable controls; one more settle pass.
-              await expandOptionalFields();
-              await sleep(CONFIG.SLEEP_LONG);
-              fields = await collectMarketplaceSchemaFields(platform);
-          }
-          schema[platform] = {
-              category: { path: marketplaceCategoryDisplay(platform) },
-              fields,
-              error: formReady && fields.length
-                  ? null
-                  : (formReady ? 'Marketplace form returned no fields' : 'Marketplace form did not mount'),
-          };
+          schema[platform] = await readMarketplaceSchemaSection(platform, { requireListingFields: true });
           if (!result.ok) mismatches.push(...(result.mismatches || [result.error || `${platform} audit failed`]));
       }
       const photos = scrapeListingImageUrls();

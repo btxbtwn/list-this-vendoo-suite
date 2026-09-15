@@ -19,9 +19,24 @@ from vendoo_studio.services.registry import SELLER_SETTING_LABELS
 
 log = logging.getLogger(__name__)
 MAX_REPAIR_ROUNDS = 5
-MAX_READBACK_RETRIES = 3
-READBACK_RETRY_DELAY_SECONDS = 2.5
+MAX_READBACK_RETRIES = 5
+READBACK_RETRY_DELAY_SECONDS = 2.0
 _tasks: dict[str, asyncio.Task] = {}
+
+AUTOMATION_TAB_STEPS = frozenset({
+    "verifying_draft",
+    "resolving_fields",
+    "filling_fields",
+    "filling_general",
+    "saving_general",
+    "auditing_general",
+    "discovering_schema",
+})
+
+
+def schema_section_readable(section: dict | None) -> bool:
+    section = section or {}
+    return bool(section.get("fields")) and not section.get("error")
 
 
 def incomplete_readback(verification: dict, platforms: list[str], *, vendoo_item_id: str | None) -> bool:
@@ -29,10 +44,34 @@ def incomplete_readback(verification: dict, platforms: list[str], *, vendoo_item
     schema = verification.get("schema") or {}
     if not verification.get("readback") or not vendoo_item_id:
         return True
-    return any(
-        not schema.get(mp, {}).get("fields") or schema[mp].get("error")
-        for mp in platforms
-    )
+    return any(not schema_section_readable(schema.get(mp)) for mp in platforms)
+
+
+def failed_readback_platforms(verification: dict, platforms: list[str]) -> list[str]:
+    schema = verification.get("schema") or {}
+    return [mp for mp in platforms if not schema_section_readable(schema.get(mp))]
+
+
+def merge_prior_readback_schemas(repo: JobRepo, job_id: str, verification: dict, platforms: list[str]) -> dict:
+    """Keep marketplace sections that already scraped cleanly across verification attempts."""
+    merged = deepcopy(verification) if isinstance(verification, dict) else {}
+    schema = deepcopy(merged.get("schema") or {})
+    for event in repo.get_events(job_id):
+        if event.event_type != "completion_review":
+            continue
+        prior = (event.payload or {}).get("schema") or {}
+        if not isinstance(prior, dict):
+            continue
+        for marketplace in platforms:
+            if schema_section_readable(schema.get(marketplace)):
+                continue
+            previous = prior.get(marketplace)
+            if schema_section_readable(previous):
+                schema[marketplace] = deepcopy(previous)
+    merged["schema"] = schema
+    if any(schema_section_readable(schema.get(mp)) for mp in platforms):
+        merged["readback"] = True
+    return merged
 
 
 def _readback_retry_count(repo: JobRepo, job_id: str, resume_sequence: int) -> int:
@@ -43,8 +82,29 @@ def _readback_retry_count(repo: JobRepo, job_id: str, resume_sequence: int) -> i
     )
 
 
-async def _retry_incomplete_readback(db: Session, job, platforms: list[str], verification: dict) -> bool:
-    """Re-dispatch draft verification for transient empty/unmounted marketplace forms.
+def _readback_detail(verification: dict, platforms: list[str]) -> str:
+    schema = verification.get("schema") or {}
+    details = []
+    for mp in platforms:
+        section = schema.get(mp) or {}
+        err = section.get("error")
+        fields = section.get("fields") or []
+        if err:
+            details.append(f"{mp}: {err}")
+        elif not fields:
+            details.append(f"{mp}: no fields")
+    return "; ".join(details) if details else "incomplete readback"
+
+
+async def _retry_incomplete_readback(
+    db: Session,
+    job,
+    platforms: list[str],
+    verification: dict,
+    *,
+    failed: list[str],
+) -> bool:
+    """Re-dispatch draft verification for marketplaces that still lack a readable schema.
 
     Returns True when a retry was scheduled (caller should stop). False means retries
     are exhausted and the job should pause for review.
@@ -55,17 +115,7 @@ async def _retry_incomplete_readback(db: Session, job, platforms: list[str], ver
     events = repo.get_events(job.id)
     resume_sequence = max((e.sequence for e in events if e.event_type == "completion_resumed"), default=-1)
     attempt = _readback_retry_count(repo, job.id, resume_sequence)
-    details = []
-    schema = verification.get("schema") or {}
-    for mp in platforms:
-        section = schema.get(mp) or {}
-        err = section.get("error")
-        fields = section.get("fields") or []
-        if err:
-            details.append(f"{mp}: {err}")
-        elif not fields:
-            details.append(f"{mp}: no fields")
-    detail = "; ".join(details) if details else "incomplete readback"
+    detail = _readback_detail(verification, failed or platforms)
     if attempt >= MAX_READBACK_RETRIES:
         return False
     if not extension_manager.connected:
@@ -75,11 +125,22 @@ async def _retry_incomplete_readback(db: Session, job, platforms: list[str], ver
         _pause(db, job, "Another automation job is running. Resume this draft when it finishes.", [])
         return True
     next_attempt = attempt + 1
+    # Prefer re-reading only the failed marketplaces; always include general when it failed.
+    retry_platforms = [mp for mp in (failed or platforms) if mp != "general"]
+    include_general = "general" in (failed or platforms) or not failed
+    verify_platforms = (["general"] if include_general else []) + retry_platforms
+    if not verify_platforms:
+        verify_platforms = list(platforms)
     repo.add_event(
         job.id,
         "completion_readback_retry",
         "verifying_draft",
-        {"attempt": next_attempt, "max": MAX_READBACK_RETRIES, "detail": detail},
+        {
+            "attempt": next_attempt,
+            "max": MAX_READBACK_RETRIES,
+            "detail": detail,
+            "platforms": verify_platforms,
+        },
     )
     job.status = "dispatched"
     job.current_step = "verifying_draft"
@@ -89,15 +150,22 @@ async def _retry_incomplete_readback(db: Session, job, platforms: list[str], ver
         job.conversation_id,
         "system",
         f"Marketplace forms were not fully readable ({detail}). "
-        f"Retrying verification ({next_attempt}/{MAX_READBACK_RETRIES})…",
+        f"Retrying verification for {', '.join(verify_platforms)} "
+        f"({next_attempt}/{MAX_READBACK_RETRIES})…",
         provider="system",
         model="",
     )
-    await asyncio.sleep(READBACK_RETRY_DELAY_SECONDS)
+    delay = READBACK_RETRY_DELAY_SECONDS * next_attempt
+    await asyncio.sleep(delay)
     db.refresh(job)
     if job.status == "cancelled":
         return True
-    if not await dispatch_fill_fields(job, []):
+    if not await dispatch_fill_fields(
+        job,
+        [],
+        platforms=verify_platforms,
+        reload=True,
+    ):
         _pause(db, job, "Chrome disconnected before verification could be retried.", [])
     return True
 
@@ -262,8 +330,11 @@ async def complete_job(db: Session, job_id: str) -> None:
     verification = event.payload or {}
     schema = verification.get("schema") or {}
     platforms = ["general", *((job.listing_snapshot or {}).get("platforms") or [])]
+    verification = merge_prior_readback_schemas(repo, job.id, verification, platforms)
+    schema = verification.get("schema") or {}
     if incomplete_readback(verification, platforms, vendoo_item_id=job.vendoo_item_id):
-        if await _retry_incomplete_readback(db, job, platforms, verification):
+        failed = failed_readback_platforms(verification, platforms)
+        if await _retry_incomplete_readback(db, job, platforms, verification, failed=failed):
             return
         _pause(
             db,
@@ -273,6 +344,10 @@ async def complete_job(db: Session, job_id: str) -> None:
             [],
         )
         return
+    # Persist a merged full schema when prior attempts filled marketplace gaps.
+    prior_failed = failed_readback_platforms(event.payload or {}, platforms)
+    if prior_failed and not failed_readback_platforms(verification, platforms):
+        store_verification(db, job, verification)
     revisions = ListingRepo(db).get_revisions(job.conversation_id)
     listing = deepcopy(revisions[0].listing_json if revisions else job.listing_snapshot)
     expected_category = str(listing.get("category_path") or "").strip()
@@ -293,8 +368,11 @@ async def complete_job(db: Session, job_id: str) -> None:
         field_id(field) in exempt_keys and not field.get("required") and field["error"] == "Empty field"
     )]
     if not gaps:
-        if not verification.get("verified"):
-            _pause(db, job, verification.get("error") or "Saved draft verification failed.", [])
+        error = str(verification.get("error") or "")
+        # Merged readbacks can leave verified=false from an earlier incomplete scrape
+        # even though every marketplace section is now readable and gap-free.
+        if not verification.get("verified") and "Publication status is not draft" in error:
+            _pause(db, job, error, [])
             return
         job.status = "completed"
         job.current_step = "verified_complete"

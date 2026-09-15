@@ -1173,7 +1173,10 @@ async function runFillFields(jobId, payload) {
     await stopJobPreview();
   }
 
-  const opened = await openListingForPatch({ ...payload, job_id: jobId });
+  const opened = await openListingForPatch(
+    { ...payload, job_id: jobId },
+    { reload: payload.reload !== false, preview: true },
+  );
   if (!opened.ok) {
     send({
       version: 1,
@@ -1592,6 +1595,16 @@ function replyVendooItem(jobId, requestId, payload) {
 async function runVendooGet(jobId, payload) {
   const requestId = payload.request_id;
   const reply = (body) => replyVendooItem(jobId, requestId, body);
+
+  // Fields Discovering… must not steal marketplace focus from Send/verify.
+  if (activePatch || activeJob) {
+    reply({
+      ok: false,
+      busy: true,
+      error: 'Vendoo automation is using this draft; refresh after verification finishes',
+    });
+    return;
+  }
 
   let tabId = null;
   const existingTabId = activePatch?.tabId || activeJob?.tabId || null;
