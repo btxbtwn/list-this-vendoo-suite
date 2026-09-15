@@ -1,4 +1,5 @@
 """Exercise the actual HTTP/WebSocket boundary with a deterministic assistant."""
+import copy
 import json
 import time
 import unittest
@@ -63,7 +64,7 @@ class CompletionTransportTest(unittest.TestCase):
                     self.assertEqual(ws.receive_json()["type"], "studio.ready")
                     self.assertEqual(ws.receive_json()["type"], "job.start")
                     ws.send_json({"type": "job.completed", "job_id": job_id, "payload": {
-                        "vendoo_item_id": "draft-123", "verification": verification,
+                        "vendoo_item_id": "draft-123", "verification": copy.deepcopy(verification),
                     }})
                     repair = ws.receive_json()
                     self.assertEqual(repair["type"], "job.fill_fields")
@@ -71,9 +72,10 @@ class CompletionTransportTest(unittest.TestCase):
                     self.assertEqual(repair["payload"]["platforms"], ["ebay"])
                     self.assertEqual(repair["payload"]["listing"]["ebay_specifics"]["material"], "Cotton")
                     self.assertNotEqual(client.get(f"/api/jobs/{job_id}").json()["status"], "completed")
-                    verification["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
+                    filled = copy.deepcopy(verification)
+                    filled["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
                     ws.send_json({"type": "job.step_completed", "job_id": job_id, "payload": {
-                        "step": "filling_fields", "vendoo_item_id": "draft-123", "verification": verification,
+                        "step": "filling_fields", "vendoo_item_id": "draft-123", "verification": filled,
                     }})
                     for _ in range(100):
                         response = client.get(f"/api/jobs/{job_id}").json()

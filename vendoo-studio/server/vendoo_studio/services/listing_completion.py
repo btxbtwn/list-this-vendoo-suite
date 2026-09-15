@@ -24,6 +24,8 @@ MAX_CATEGORY_REPAIRS = 2
 READBACK_RETRY_DELAY_SECONDS = 2.0
 _SOFT_GAP_ERRORS = frozenset({"", "empty field", "saved value differs"})
 _tasks: dict[str, asyncio.Task] = {}
+_pending_completion: set[str] = set()
+
 
 AUTOMATION_TAB_STEPS = frozenset({
     "verifying_draft",
@@ -516,9 +518,17 @@ def review_fields(verification: dict, listing: dict) -> list[dict]:
 
 
 def store_verification(db: Session, job, verification: dict) -> None:
-    JobRepo(db).add_event(job.id, "completion_review", "verifying_draft", verification)
-    remember_schema(db, str((job.listing_snapshot or {}).get("category_path") or ""),
-                    verification.get("schema") or {})
+    JobRepo(db).add_event(
+        job.id,
+        "completion_review",
+        "verifying_draft",
+        deepcopy(verification) if isinstance(verification, dict) else {},
+    )
+    remember_schema(
+        db,
+        str((job.listing_snapshot or {}).get("category_path") or ""),
+        (verification or {}).get("schema") or {},
+    )
 
 
 def _recent_message_covers(repo: ConversationRepo, conv_id: str, reason: str) -> bool:
@@ -884,7 +894,10 @@ async def complete_job(db: Session, job_id: str) -> None:
 
 
 def schedule_completion(job_id: str) -> None:
-    if job_id in _tasks and not _tasks[job_id].done():
+    existing = _tasks.get(job_id)
+    if existing is not None and not existing.done():
+        # A newer readback may arrive while repair/fill is still in flight.
+        _pending_completion.add(job_id)
         return
 
     async def run():
@@ -905,6 +918,13 @@ def schedule_completion(job_id: str) -> None:
         finally:
             db.close()
 
+    def _done(task: asyncio.Task) -> None:
+        if _tasks.get(job_id) is task:
+            _tasks.pop(job_id, None)
+        if job_id in _pending_completion:
+            _pending_completion.discard(job_id)
+            schedule_completion(job_id)
+
     task = asyncio.create_task(run())
     _tasks[job_id] = task
-    task.add_done_callback(lambda done: _tasks.pop(job_id, None) if _tasks.get(job_id) is done else None)
+    task.add_done_callback(_done)

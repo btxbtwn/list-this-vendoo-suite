@@ -182,6 +182,33 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.dispatch.await_count, 1)
         self.assertEqual(self.job.current_step, "completion_blocked")
 
+    async def test_schedule_completion_runs_follow_up_after_in_flight_task(self):
+        import asyncio
+        import vendoo_studio.services.listing_completion as completion
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+        calls = {"n": 0}
+
+        async def slow_complete(db, job_id):
+            calls["n"] += 1
+            started.set()
+            await release.wait()
+
+        with patch.object(completion, "complete_job", side_effect=slow_complete):
+            completion.schedule_completion(self.job.id)
+            await asyncio.wait_for(started.wait(), timeout=1)
+            completion.schedule_completion(self.job.id)
+            self.assertIn(self.job.id, completion._pending_completion)
+            release.set()
+            await asyncio.wait_for(completion._tasks[self.job.id], timeout=1)
+            for _ in range(50):
+                if calls["n"] >= 2:
+                    break
+                await asyncio.sleep(0.01)
+        self.assertGreaterEqual(calls["n"], 2)
+        self.assertNotIn(self.job.id, completion._pending_completion)
+
     async def test_empty_or_partial_readback_retries_then_pauses(self):
         del self.verification["schema"]["ebay"]
         self.review()
