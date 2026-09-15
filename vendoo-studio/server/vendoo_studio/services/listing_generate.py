@@ -12,7 +12,12 @@ from vendoo_studio.services.registry import RegistryService
 log = logging.getLogger("vendoo_studio.listing_generate")
 
 PHOTO_ANALYSIS_PREFIXES = ("Photo analysis:", "Photo analysis of the uploaded product images:")
+PHOTO_ANALYSIS_RETRY_MESSAGE = "Photo analysis failed. Retry to analyze the photos again."
 _FIELD_LINE_RE = re.compile(r"^-\s*\w[\w\s]*:", re.M)
+
+
+class PhotoAnalysisError(RuntimeError):
+    pass
 
 
 def _evidence_value(field: Any) -> str | None:
@@ -82,32 +87,30 @@ def format_photo_analysis(evidence: dict) -> str:
     return "\n".join(parts)
 
 
+def require_photo_analysis(result: Any) -> tuple[dict, str]:
+    """Return usable photo evidence or stop the listing flow for a retry."""
+    if not isinstance(result, dict) or result.get("error"):
+        raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE)
+    evidence = normalize_evidence(result.get("evidence", {}) or {})
+    analysis_text = format_photo_analysis(evidence)
+    if not photo_analysis_usable(analysis_text):
+        raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE)
+    return evidence, analysis_text
+
+
 def analysis_with_photo_count(photo_count: int, analysis_text: str | None = None) -> str:
-    """Ensure listing prompts always acknowledge uploaded photos."""
+    """Attach verified photo evidence to a listing prompt."""
     count = max(0, int(photo_count or 0))
+    text = (analysis_text or "").strip()
+    if not count:
+        return text
+    if not photo_analysis_usable(text):
+        raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE)
     header = (
         f"The seller already uploaded {count} product photo(s). "
         "Do not ask them to attach, upload, or resend photos.\n"
     )
-    text = (analysis_text or "").strip()
-    if photo_analysis_usable(text):
-        return header + "\n" + text
-    if text.startswith(PHOTO_ANALYSIS_PREFIXES) or text.lower().startswith("photo analysis unavailable"):
-        return (
-            header
-            + "\n"
-            + text
-            + "\n- note: structured vision fields were thin or unavailable; "
-            "still generate a complete listing from seller details and these photos."
-        )
-    if count:
-        return (
-            header
-            + "\nPhoto analysis:\n"
-            + "- note: photos are present but structured vision fields were unavailable.\n"
-            + "- instruction: generate a complete listing anyway; never ask for photos."
-        )
-    return text
+    return header + "\n" + text
 
 
 def extract_listing_json(text: str) -> dict | None:

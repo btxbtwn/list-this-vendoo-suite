@@ -15,15 +15,16 @@ from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.comp_research import comps_search_available, research_sold_comps
 from vendoo_studio.services.listing_generate import (
+    PHOTO_ANALYSIS_RETRY_MESSAGE,
+    PhotoAnalysisError,
     analysis_with_photo_count,
     extract_listing_json,
-    format_photo_analysis,
     latest_photo_analysis,
     looks_like_listing_attempt,
-    normalize_evidence,
     persist_generated_listing_with_repair,
     photo_analysis_usable,
     repair_listing_json,
+    require_photo_analysis,
     seller_item_details,
 )
 from vendoo_studio.services.listing_patch import apply_json_patch, extract_json_patch
@@ -327,19 +328,18 @@ async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[
         provider = get_listing_provider()
         if provider:
             paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
-            result = await provider.analyze_photos(paths, notes="", listing_rules=skill_rules[:8000])
-            evidence = normalize_evidence(result.get("evidence", {}) or {})
-
-            if photo_analysis_usable(format_photo_analysis(evidence)):
-                analysis_note = format_photo_analysis(evidence).replace(
-                    "Photo analysis:",
-                    "Photo analysis of the uploaded product images:",
-                    1,
-                )
-                repo.add_message(conv_id, "system", analysis_note)
-                photo_analysis_text = analysis_with_photo_count(len(photos), analysis_note)
-            else:
-                photo_analysis_text = analysis_with_photo_count(len(photos))
+            try:
+                result = await provider.analyze_photos(paths, notes="", listing_rules=skill_rules[:8000])
+            except Exception as exc:
+                raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
+            evidence, analysis_note = require_photo_analysis(result)
+            analysis_note = analysis_note.replace(
+                "Photo analysis:",
+                "Photo analysis of the uploaded product images:",
+                1,
+            )
+            repo.add_message(conv_id, "system", analysis_note)
+            photo_analysis_text = analysis_with_photo_count(len(photos), analysis_note)
             comps_text = await research_sold_comps(photo_analysis_text, evidence)
             if comps_text:
                 repo.add_message(conv_id, "system", comps_text, provider="brave", model="web-search")
@@ -568,7 +568,11 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
 
     repo.update_status(conv_id, "in_progress")
 
-    messages = await _build_messages(conv_id, db, body.text)
+    try:
+        messages = await _build_messages(conv_id, db, body.text)
+    except PhotoAnalysisError as exc:
+        repo.update_status(conv_id, "draft")
+        raise HTTPException(502, str(exc)) from exc
 
     async def stream_response():
         stream_db = SessionLocal()
@@ -640,7 +644,14 @@ async def analyze_photos(conv_id: str, db: Session = Depends(get_db)):
 
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
 
-    result = await provider.analyze_photos(paths, notes=conv.notes or "")
+    try:
+        result = await provider.analyze_photos(paths, notes=conv.notes or "")
+    except Exception as exc:
+        raise HTTPException(502, PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
+    try:
+        require_photo_analysis(result)
+    except PhotoAnalysisError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
     repo.add_message(
         conv_id,
@@ -704,29 +715,16 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     run.publish(KEEPALIVE)
                 try:
                     result = analysis_task.result()
-                    evidence = normalize_evidence(result.get("evidence", {}) or {})
-                    if result.get("error") and not evidence:
-                        analysis_text = (
-                            f"Photo analysis unavailable ({result['error']}). "
-                            "Use seller details and contextual knowledge."
-                        )
-                    else:
-                        analysis_text = format_photo_analysis(evidence)
-                        if not photo_analysis_usable(analysis_text):
-                            raw = str(result.get("raw") or "").strip()
-                            detail = f" Raw model output: {raw[:500]}" if raw else ""
-                            analysis_text = (
-                                f"Photo analysis unavailable (no structured fields).{detail} "
-                                "Use seller details and contextual knowledge."
-                            )
-                except Exception as e:
-                    analysis_text = (
-                        f"Photo analysis unavailable ({e}). "
-                        "Use seller details and contextual knowledge."
-                    )
+                    evidence, analysis_text = require_photo_analysis(result)
+                except PhotoAnalysisError:
+                    raise
+                except Exception as exc:
+                    raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
+                prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
                 stream_repo.add_message(conv_id, "system", analysis_text, provider=vision_name, model=vision_model)
 
-            prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
+            if existing:
+                prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
 
             comps_text = ""
             if comps_search_available():
