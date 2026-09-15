@@ -128,7 +128,7 @@ SQLite at `data/vendoo_studio.db` in development, or `~/Library/Application Supp
 - `job_events` — per-job event log
 - `category_trees` / `category_tree_nodes` — full General/eBay/Poshmark/Mercari/Depop/Etsy category trees
 
-Category leaves and observed schemas are also materialized under `catalog-index/` in the same data directory and searched with Semble during category selection (`GET /api/catalog/search`). First launch may download the local embedding model once.
+Category leaves, observed schemas, skill dropdown options, listing-rule chunks, and extension fill helpers are materialized under `catalog-index/` in the same data directory and searched with Semble (`GET /api/catalog/search`). First launch may download the local embedding model once.
 
 ### Category tree seed
 

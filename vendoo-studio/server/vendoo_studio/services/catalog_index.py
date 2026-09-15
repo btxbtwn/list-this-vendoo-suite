@@ -757,25 +757,35 @@ def enrich_gaps_with_catalog_options(db: Session, gaps: list[dict], *, top_k: in
         if not field:
             enriched.append(copy)
             continue
-        hits = search_catalog(
-            db,
-            f"{marketplace} {field} dropdown options",
-            marketplace=marketplace if marketplace != "vendoo" else "general",
-            kind="option",
-            top_k=top_k,
-        )
+        search_mp = "general" if marketplace in {"vendoo", "general"} else marketplace
+        try:
+            hits = search_catalog(
+                db,
+                f"{search_mp} {field} dropdown options",
+                marketplace=search_mp,
+                kind="option",
+                top_k=top_k,
+            )
+        except Exception:
+            log.exception("catalog option enrichment failed for %s/%s", marketplace, field)
+            enriched.append(copy)
+            continue
+        field_key = field.casefold()
         merged = list(existing)
+        matched_dropdown = False
         for hit in hits:
+            hit_field = str(hit.get("field") or "").casefold()
+            if hit_field != field_key and field_key not in hit_field and hit_field not in field_key:
+                continue
             for option in hit.get("options") or []:
                 if option not in merged:
                     merged.append(option)
+            if str(hit.get("id") or "").endswith(":dropdown_json") and hit_field == field_key:
+                matched_dropdown = True
         if merged:
             copy["options"] = merged[:60]
-            if not copy.get("options_complete") and hits:
-                # Catalog options are authoritative for skill JSON fields; schema may still be partial.
-                copy["options_complete"] = any(
-                    str(hit.get("id") or "").endswith(":dropdown_json") for hit in hits
-                ) or bool(copy.get("options_complete"))
+            if matched_dropdown:
+                copy["options_complete"] = True
         enriched.append(copy)
     return enriched
 
