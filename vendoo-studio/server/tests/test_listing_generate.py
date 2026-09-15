@@ -18,6 +18,7 @@ from vendoo_studio.providers.xiaomi_mimo import StreamChunk, chunk_text, chunk_t
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.routes import chat as chat_routes
 from vendoo_studio.services.listing_generate import (
+    PhotoAnalysisError,
     analysis_with_photo_count,
     extract_listing_json,
     format_photo_analysis,
@@ -149,9 +150,13 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         self.assertTrue(photo_analysis_usable(text))
 
     def test_analysis_with_photo_count_never_asks_for_uploads(self):
-        text = analysis_with_photo_count(7, "Photo analysis:\n")
+        text = analysis_with_photo_count(7, "Photo analysis:\n- brand: M&O Gold")
         self.assertIn("already uploaded 7 product photo", text)
         self.assertIn("Do not ask", text)
+
+    def test_analysis_with_photo_count_rejects_missing_evidence(self):
+        with self.assertRaisesRegex(PhotoAnalysisError, "Retry to analyze"):
+            analysis_with_photo_count(7, "Photo analysis:\n")
 
     def test_seller_item_details_includes_category_and_labels(self):
         notes = json.dumps({
@@ -503,6 +508,55 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(conv.status, "draft")
         self.assertEqual(ListingRepo(db).get_revisions(self.conv_id), [])
         db.close()
+
+    async def test_generate_stops_and_offers_retry_when_photo_analysis_fails(self):
+        self.provider.analysis = {"error": "TLS connection failed", "evidence": {}}
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                body = "".join([chunk async for chunk in resp.aiter_text()])
+        self.assertIn("Error: Photo analysis failed. Retry to analyze the photos again.", body)
+        self.assertEqual(self.provider.chat_calls, 0)
+        db = self.Session()
+        conv = ConversationRepo(db).get(self.conv_id)
+        messages = ConversationRepo(db).get_messages(self.conv_id)
+        revisions = ListingRepo(db).get_revisions(self.conv_id)
+        db.close()
+        self.assertEqual(conv.status, "draft")
+        self.assertEqual(revisions, [])
+        self.assertFalse(any("contextual knowledge" in message.text for message in messages))
+
+    async def test_message_stops_and_offers_retry_when_photo_analysis_fails(self):
+        self.provider.analysis = {"error": "TLS connection failed", "evidence": {}}
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                f"/api/conversations/{self.conv_id}/messages",
+                json={"text": "Make the listing"},
+            )
+        # Initial photo chat uses the streaming discovery/generation pipeline.
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(
+            "Error: Photo analysis failed. Retry to analyze the photos again.",
+            resp.text,
+        )
+        self.assertEqual(self.provider.chat_calls, 0)
+        db = self.Session()
+        conv = ConversationRepo(db).get(self.conv_id)
+        self.assertEqual(ListingRepo(db).get_revisions(self.conv_id), [])
+        db.close()
+        self.assertEqual(conv.status, "draft")
+
+    async def test_analyze_photos_endpoint_offers_retry_on_failure(self):
+        self.provider.analysis = {"error": "TLS connection failed", "evidence": {}}
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(f"/api/conversations/{self.conv_id}/analyze-photos")
+        self.assertEqual(resp.status_code, 502)
+        self.assertEqual(
+            resp.json()["detail"],
+            "Photo analysis failed. Retry to analyze the photos again.",
+        )
 
     async def _wait_until_generating(self, timeout: float = 5.0):
         deadline = asyncio.get_running_loop().time() + timeout
