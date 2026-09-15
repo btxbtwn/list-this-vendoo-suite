@@ -290,6 +290,37 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertFalse(any("not a current dropdown value" in error["message"] for error in result.errors), result.errors)
         self.assertTrue(any("not Etsy eligible" in item["message"] for item in result.warnings))
 
+    def test_unmapped_etsy_when_made_is_coerced_to_a_current_dropdown(self):
+        listing = dict(VALID_LISTING)
+        listing["etsy_specifics"] = {
+            "who_made": "I did",
+            "what_is": "A finished product",
+            "when_made": "Does Not Apply",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertEqual(listing["etsy_specifics"]["when_made"], "2010 - 2019 (Recently)")
+        self.assertFalse(any("not a current dropdown value" in error["message"] for error in result.errors))
+
+        listing["etsy_specifics"]["when_made"] = "Tomorrow"
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertFalse(any("not a current dropdown value" in error["message"] for error in result.errors), result.errors)
+
+    def test_etsy_when_made_falls_back_to_ebay_year(self):
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "yearManufactured": "2010-2019",
+        }
+        listing["etsy_specifics"] = {
+            "who_made": "I did",
+            "what_is": "A finished product",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(result.can_send, result.errors)
+        self.assertEqual(listing["etsy_specifics"]["when_made"], "2010 - 2019 (Recently)")
+
 
 class ExtensionSafetySourceTest(unittest.TestCase):
     def test_existing_item_safety_check_runs_before_photo_upload(self):

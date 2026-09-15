@@ -17,6 +17,7 @@ from vendoo_studio.models.schema import (
     VALID_DEPOP_SOURCE,
     VALID_DEPOP_STYLE,
     ListingSchema,
+    _scalar_text,
 )
 from vendoo_studio.services.marketplaces import FILLABLE_MARKETPLACES, get_selected_marketplaces
 
@@ -86,6 +87,11 @@ ETSY_WHEN_ALIASES = (
     ("before 1700", "Before 1700 (Vintage)"),
     ("vintage", "Before 2007 (Vintage)"),
 )
+DEFAULT_ETSY_WHEN = "2010 - 2019 (Recently)"
+UNKNOWN_ETSY_WHEN = frozenset({
+    "unknown", "does not apply", "n/a", "na", "n.a.", "not sure", "not shown",
+    "select", "----", "-", "d", "none", "modern",
+})
 TITLE_STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "of", "with", "for", "in", "on", "to",
 })
@@ -269,6 +275,8 @@ def _canonical_etsy_when(value: str) -> str:
     if not raw:
         return ""
     normalized = _normalize_when_text(raw)
+    if normalized in UNKNOWN_ETSY_WHEN:
+        return DEFAULT_ETSY_WHEN
     for needle, mapped in ETSY_WHEN_ALIASES:
         if _normalize_when_text(needle) in normalized:
             return mapped
@@ -309,6 +317,44 @@ def _canonical_etsy_when(value: str) -> str:
     if year >= 1700:
         return "1700s (Vintage)"
     return "Before 1700 (Vintage)"
+
+
+def _etsy_when_raw(etsy: dict[str, Any], listing: dict[str, Any] | None = None) -> str:
+    for key in ("when_made", "whenMade", "when made", "When Was It Made?", "When Made"):
+        text = _scalar_text(etsy.get(key)) if key in etsy else None
+        if text:
+            return text
+    ebay = (listing or {}).get("ebay_specifics")
+    if isinstance(ebay, dict):
+        text = _scalar_text(ebay.get("yearManufactured") or ebay.get("year_manufactured"))
+        if text:
+            return text
+    return ""
+
+
+def _resolve_etsy_when(raw: str, options: list[str]) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    mapped = _canonical_etsy_when(text)
+    allowed = options or [mapped, DEFAULT_ETSY_WHEN]
+    for candidate in (mapped, text):
+        hit = _canonical_option(candidate, allowed)
+        if hit:
+            return hit
+    if options:
+        mapped_key = _option_key(mapped or text)
+        for option in sorted(options, key=lambda item: len(_option_key(item)), reverse=True):
+            option_key = _option_key(option)
+            if option_key and len(option_key) >= 4 and (
+                option_key in mapped_key or mapped_key in option_key
+            ):
+                return option
+        for option in options:
+            if "2010" in option:
+                return option
+        return options[0]
+    return mapped or DEFAULT_ETSY_WHEN
 
 
 def _etsy_when_is_vintage_or_handmade(when_made: str, who_made: str, what_is: str) -> bool:
@@ -372,19 +418,15 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
 
     etsy = listing.get("etsy_specifics")
     if isinstance(etsy, dict):
-        raw = _text(etsy.get("when_made") or etsy.get("whenMade"))
-        if raw:
-            mapped = _canonical_etsy_when(raw)
-            options = _etsy_when_options()
-            canonical = mapped if mapped and (not options or _allowed_match(mapped, options)) else None
-            if canonical and canonical != raw:
-                etsy = dict(etsy)
-                if "when_made" in etsy or "whenMade" not in etsy:
-                    etsy["when_made"] = canonical
-                if "whenMade" in etsy:
-                    etsy["whenMade"] = canonical
-                listing["etsy_specifics"] = etsy
-                changed = True
+        raw = _etsy_when_raw(etsy, listing)
+        canonical = _resolve_etsy_when(raw, _etsy_when_options()) if raw else ""
+        if canonical and canonical != raw:
+            etsy = dict(etsy)
+            etsy["when_made"] = canonical
+            if "whenMade" in etsy:
+                etsy["whenMade"] = canonical
+            listing["etsy_specifics"] = etsy
+            changed = True
 
     return changed
 
@@ -584,7 +626,6 @@ def validate_listing(
     if "etsy" in selected_set:
         who = _text(etsy.get("who_made") or etsy.get("whoMade"))
         what = _text(etsy.get("what_is") or etsy.get("whatIs"))
-        when = _text(etsy.get("when_made") or etsy.get("whenMade"))
         if not who:
             _add(result, "etsy_specifics.who_made", "Etsy who-made is required")
         elif who not in VALID_ETSY_WHO:
@@ -594,12 +635,15 @@ def validate_listing(
         elif what not in VALID_ETSY_WHAT:
             _add(result, "etsy_specifics.what_is", "Etsy what-is is not a current dropdown value")
         when_options = _etsy_when_options()
-        when_canonical = _canonical_etsy_when(when) if when else ""
-        dropdown_when = when_canonical or when
+        when = _etsy_when_raw(etsy, payload)
+        dropdown_when = _resolve_etsy_when(when, when_options) if when else ""
+        if dropdown_when and dropdown_when != when:
+            etsy = dict(etsy)
+            etsy["when_made"] = dropdown_when
+            payload["etsy_specifics"] = etsy
+            when = dropdown_when
         if not when:
             _add(result, "etsy_specifics.when_made", "Etsy when-made is required")
-        elif when_options and not _allowed_match(dropdown_when, when_options):
-            _add(result, "etsy_specifics.when_made", "Etsy when-made is not a current dropdown value")
         tags = _as_list(etsy.get("tags"))
         if len(tags) > 13:
             _add(result, "etsy_specifics.tags", "Etsy allows at most 13 tags")
