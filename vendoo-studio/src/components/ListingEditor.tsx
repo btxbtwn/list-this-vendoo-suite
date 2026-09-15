@@ -633,6 +633,7 @@ function SendToVendooButton({
       resolving_fields: "Resolving missing fields",
       verifying_draft: "Checking the saved draft",
       verified_complete: "Saved draft verified complete",
+      fields_applied: "Empty fields applied on Vendoo",
     };
     const leftoverFilling = isDispatched && (completionStep || fillJob.current_step === "filling_fields");
     const canRestart = (isFailed || isDispatched || isCompleted) && !leftoverFilling;

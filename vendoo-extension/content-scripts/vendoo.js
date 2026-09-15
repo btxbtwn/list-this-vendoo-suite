@@ -6305,6 +6305,18 @@
                       });
                       continue;
                   }
+                  // Apply empty fields only — never re-type controls that already have a value.
+                  if (fieldLooksFilled(el)) {
+                      recordFill({
+                          id: item.id,
+                          field: fieldName,
+                          status: 'skipped',
+                          reason: 'Already filled on Vendoo',
+                          selector: item.selector || '',
+                          value: displayedFieldValue(el) || value,
+                      });
+                      continue;
+                  }
                   if (el.type === 'checkbox' || ['checkbox', 'switch'].includes(el.getAttribute?.('role'))) {
                       await fillBooleanField(el, value, fieldName);
                   } else if (shouldFillAsDropdown(el, fieldName) || isMultiChipField(fieldName, el)) {

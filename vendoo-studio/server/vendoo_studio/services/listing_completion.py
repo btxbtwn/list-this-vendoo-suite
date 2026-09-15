@@ -150,6 +150,42 @@ def parse_resolution(text: str) -> dict:
     return result if isinstance(result, dict) else {}
 
 
+MAX_GAP_OPTIONS = 40
+
+
+def compact_gap_for_model(field: dict) -> dict:
+    """Send only what the repair model needs — not full browser field snapshots."""
+    options = field.get("options") or []
+    labels: list[str] = []
+    for option in options:
+        if isinstance(option, dict):
+            label = str(option.get("label") or option.get("value") or "").strip()
+        else:
+            label = str(option).strip()
+        if label and label not in labels:
+            labels.append(label)
+        if len(labels) >= MAX_GAP_OPTIONS:
+            break
+    payload = {
+        "marketplace": field.get("marketplace"),
+        "field": field.get("field"),
+        "required": bool(field.get("required")),
+        "expected": field.get("expected"),
+        "observed": field.get("observed"),
+        "error": field.get("error"),
+    }
+    if labels:
+        payload["options"] = labels
+        if field.get("options_complete") and len(labels) >= len(options):
+            payload["options_complete"] = True
+    return payload
+
+
+def resolution_timeout_seconds(gap_count: int) -> float:
+    # Large multi-marketplace gap sets routinely need more than two minutes.
+    return min(300.0, max(120.0, 90.0 + gap_count * 1.5))
+
+
 async def complete_job(db: Session, job_id: str) -> None:
     from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
     from vendoo_studio.services.schema_probe import is_schema_probe_job
@@ -243,13 +279,26 @@ async def complete_job(db: Session, job_id: str) -> None:
         "Never ask the seller for routine apparel shipping weight or mailer size — decide those yourself. "
         "Never use Unknown/N/A/Does not apply to hide a missing fact. Only mark an optional field not applicable when evidence establishes that. "
         "Ask about unresolved product facts only. Do not publish or claim completion."
-    )}, {"role": "user", "content": json.dumps({"gaps": gaps, "evidence": evidence}, ensure_ascii=False)}]
+    )}, {"role": "user", "content": json.dumps(
+        {"gaps": [compact_gap_for_model(field) for field in gaps], "evidence": evidence},
+        ensure_ascii=False,
+    )}]
     text = ""
-    async with asyncio.timeout(120):
-        async for chunk in provider.chat(messages, stream=True):
-            kind, value = unpack_stream_item(chunk)
-            if kind != "thinking":
-                text += value or ""
+    try:
+        async with asyncio.timeout(resolution_timeout_seconds(len(gaps))):
+            async for chunk in provider.chat(messages, stream=True):
+                kind, value = unpack_stream_item(chunk)
+                if kind != "thinking":
+                    text += value or ""
+    except TimeoutError:
+        _pause(
+            db,
+            job,
+            f"Field repair timed out while resolving {len(gaps)} gaps. Apply ready values from Fill Log, "
+            "or resume verification after the listing assistant is responsive.",
+            gaps,
+        )
+        return
     db.refresh(job)
     if job.status != "dispatched" or job.current_step != "resolving_fields":
         return
@@ -352,7 +401,12 @@ def schedule_completion(job_id: str) -> None:
             db.rollback()
             job = JobRepo(db).get(job_id)
             if job and job.status != "cancelled":
-                _pause(db, job, "Field repair stopped before completion. Retry after checking the listing assistant connection.", [])
+                _pause(
+                    db,
+                    job,
+                    "Field repair stopped before completion. Retry after checking the listing assistant connection.",
+                    [],
+                )
         finally:
             db.close()
 

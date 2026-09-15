@@ -120,6 +120,7 @@ class FillFieldsRouteTest(unittest.TestCase):
         self.assertEqual(response.json()["status"], "dispatched")
         self.assertEqual(response.json()["current_step"], "filling_fields")
         dispatch.assert_awaited()
+        self.assertFalse(dispatch.await_args.kwargs.get("verify", True))
         sent_fields = dispatch.await_args.args[1]
         self.assertEqual(sent_fields, [{
             "id": self.leftover.id,
