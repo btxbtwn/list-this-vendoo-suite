@@ -1,13 +1,19 @@
 """Choose a real terminal category independently for each Vendoo form."""
 import asyncio
 import json
+import re
 
 from vendoo_studio.models.catalog import CategoryTree, CategoryTreeNode
 from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.services.catalog_index import search_catalog
+from vendoo_studio.services.category_lookup import condense_category_search_query
 from vendoo_studio.services.listing_completion import parse_resolution
 
 DEFAULT_TOP_K = 15
+_CATEGORY_GAP_RE = re.compile(
+    r"categor(?:y|ies)|choices|marketplace|poshmark|depop|ebay|mercari|etsy",
+    re.I,
+)
 
 
 def _terminal_node(db, marketplace: str, path: str) -> CategoryTreeNode | None:
@@ -18,10 +24,12 @@ def _terminal_node(db, marketplace: str, path: str) -> CategoryTreeNode | None:
 
 
 def _candidate_query(analysis: str, notes: str, override: str = "") -> str:
-    parts = [str(analysis or "").strip(), str(notes or "").strip()]
-    if override:
-        parts.append(override)
-    return "\n".join(part for part in parts if part)
+    """Catalog search must stay short; full analysis is only for the classifier model."""
+    return condense_category_search_query(analysis, notes, override=override)
+
+
+def _looks_like_category_gap(question: str) -> bool:
+    return bool(_CATEGORY_GAP_RE.search(str(question or "")))
 
 
 async def _ask_model(provider, analysis: str, notes: str, choices: dict) -> dict:
@@ -29,8 +37,10 @@ async def _ask_model(provider, analysis: str, notes: str, choices: dict) -> dict
         "Classify this product from photo evidence and seller facts separately for each marketplace. "
         "Choose exactly one supplied category id per marketplace from the candidate list. "
         "Match the actual product type and intended department; never infer department solely from size. "
-        "Do not use a General breadcrumb for another marketplace. If the evidence is insufficient or no "
-        "choice fits, ask the seller a specific question instead of guessing. Return JSON "
+        "Do not use a General breadcrumb for another marketplace. "
+        "Never ask the seller for marketplace category paths or candidate lists — those are already in choices. "
+        "If evidence is insufficient, ask one specific product question (department or garment type), not for "
+        "category choices. Return JSON "
         '{"categories": {"marketplace": "category id"}, "question": ""}.'
     )}, {"role": "user", "content": json.dumps({
         "photo_analysis": analysis,
@@ -46,31 +56,13 @@ async def _ask_model(provider, analysis: str, notes: str, choices: dict) -> dict
     return parse_resolution(text)
 
 
-async def select_categories(
+def _collect_choices(
     db,
-    provider,
-    analysis: str,
-    notes: str,
-    platforms: list[str],
-    override: str = "",
-) -> dict:
-    marketplaces = ["general", *platforms]
-    missing = [mp for mp in marketplaces if not (tree := db.get(CategoryTree, mp)) or tree.status != "complete"]
-    if missing:
-        raise RuntimeError("Finish category-tree extraction before generating: " + ", ".join(missing))
-
-    selected: dict[str, str] = {}
-    path_prefix = ""
-    if override:
-        node = db.query(CategoryTreeNode).filter_by(marketplace="general", path=override).first()
-        if not node:
-            raise RuntimeError("The selected General category is not in Vendoo's tree. Choose a current category.")
-        if node.is_leaf and not node.has_children:
-            selected["general"] = node.path
-        else:
-            path_prefix = node.path
-
-    query = _candidate_query(analysis, notes, override)
+    marketplaces: list[str],
+    query: str,
+    selected: dict[str, str],
+    path_prefix: str,
+) -> tuple[dict[str, list[dict]], dict[str, dict[str, CategoryTreeNode]]]:
     choices: dict[str, list[dict]] = {}
     nodes_by_marketplace: dict[str, dict[str, CategoryTreeNode]] = {}
     for marketplace in marketplaces:
@@ -109,11 +101,52 @@ async def select_categories(
             )
         choices[marketplace] = verified
         nodes_by_marketplace[marketplace] = nodes
+    return choices, nodes_by_marketplace
+
+
+async def select_categories(
+    db,
+    provider,
+    analysis: str,
+    notes: str,
+    platforms: list[str],
+    override: str = "",
+) -> dict:
+    marketplaces = ["general", *platforms]
+    missing = [mp for mp in marketplaces if not (tree := db.get(CategoryTree, mp)) or tree.status != "complete"]
+    if missing:
+        raise RuntimeError("Finish category-tree extraction before generating: " + ", ".join(missing))
+
+    selected: dict[str, str] = {}
+    path_prefix = ""
+    if override:
+        node = db.query(CategoryTreeNode).filter_by(marketplace="general", path=override).first()
+        if not node:
+            raise RuntimeError("The selected General category is not in Vendoo's tree. Choose a current category.")
+        if node.is_leaf and not node.has_children:
+            selected["general"] = node.path
+        else:
+            path_prefix = node.path
+
+    query = _candidate_query(analysis, notes, override)
+    choices, nodes_by_marketplace = _collect_choices(
+        db, marketplaces, query, selected, path_prefix,
+    )
 
     if not choices:
         return selected
 
     response = await _ask_model(provider, analysis, notes, choices)
+    if response.get("question") and _looks_like_category_gap(str(response["question"])):
+        # Model rejected noise candidates — rebuild from the product wording in its question.
+        retry_query = condense_category_search_query(
+            str(response["question"]), analysis, notes, override=override,
+        )
+        if retry_query and retry_query.casefold() != query.casefold():
+            choices, nodes_by_marketplace = _collect_choices(
+                db, marketplaces, retry_query, selected, path_prefix,
+            )
+            response = await _ask_model(provider, analysis, notes, choices)
     if response.get("question"):
         raise RuntimeError(str(response["question"]))
 
