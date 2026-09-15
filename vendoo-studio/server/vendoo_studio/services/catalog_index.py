@@ -347,7 +347,16 @@ def _materialize_fill_helpers(root: Path) -> int:
 def materialize_catalog_docs(db: Session, root: Path | None = None) -> Path:
     docs = root or catalog_docs_dir()
     if docs.exists():
-        shutil.rmtree(docs)
+        # Replace atomically-ish so concurrent rebuilds do not race on rmtree.
+        stale = docs.with_name(docs.name + ".stale")
+        if stale.exists():
+            shutil.rmtree(stale, ignore_errors=True)
+        try:
+            docs.replace(stale)
+        except OSError:
+            shutil.rmtree(docs, ignore_errors=True)
+        else:
+            shutil.rmtree(stale, ignore_errors=True)
     docs.mkdir(parents=True, exist_ok=True)
     for node in _leaf_query(db).order_by(CategoryTreeNode.marketplace, CategoryTreeNode.path):
         _write_category_doc(docs, node.marketplace, node.category_id, node.path, node.label)
@@ -367,8 +376,11 @@ def materialize_catalog_docs(db: Session, root: Path | None = None) -> Path:
 
 
 def _load_semble_index(docs: Path):
-    from semble import ContentType, SembleIndex
-
+    try:
+        from semble import ContentType, SembleIndex
+    except ImportError:
+        log.warning("semble is not installed; catalog search will use lexical fallback")
+        return None
     return SembleIndex.from_path(str(docs), content=ContentType.DOCS)
 
 
@@ -376,20 +388,24 @@ def rebuild_catalog_index(db: Session) -> dict[str, Any]:
     """Export catalog/skill/fill docs and rebuild the Semble index."""
     global _INDEX, _INDEX_FINGERPRINT, _STALE
     fp = fingerprint(db)
-    docs = materialize_catalog_docs(db)
     with _INDEX_LOCK:
+        docs = materialize_catalog_docs(db)
         if any(path.suffix == ".md" for path in docs.rglob("*.md")):
-            _INDEX = _load_semble_index(docs)
+            try:
+                _INDEX = _load_semble_index(docs)
+            except Exception:
+                log.exception("failed to open Semble catalog index; using lexical fallback")
+                _INDEX = None
         else:
             _INDEX = None
         _INDEX_FINGERPRINT = json.dumps(fp, sort_keys=True)
         _STALE = False
         catalog_meta_path().parent.mkdir(parents=True, exist_ok=True)
         catalog_meta_path().write_text(_INDEX_FINGERPRINT, encoding="utf-8")
-    counts = {
-        name: sum(1 for _ in (docs / name).rglob("*.md")) if (docs / name).exists() else 0
-        for name in ("categories", "schemas", "options", "skills", "fill")
-    }
+        counts = {
+            name: sum(1 for _ in (docs / name).rglob("*.md")) if (docs / name).exists() else 0
+            for name in ("categories", "schemas", "options", "skills", "fill")
+        }
     log.info("catalog index rebuilt: %s", counts)
     return {"ok": True, "fingerprint": fp, "docs": str(docs), "counts": counts}
 

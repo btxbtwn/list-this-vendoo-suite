@@ -216,19 +216,26 @@ def _sse_for_stream_item(item) -> tuple[str | None, str]:
 
 
 def _load_skill_rules(query: str = "", db: Session | None = None) -> str:
-    if db is not None and str(query or "").strip():
-        from vendoo_studio.services.catalog_index import relevant_skill_rules
-        return relevant_skill_rules(db, query)
     skill_md = skills_dir() / "list-this" / "SKILL.md"
     template_md = skills_dir() / "list-this" / "references" / "vendoo_listing_template.md"
 
-    parts = []
-    if skill_md.exists():
-        parts.append(skill_md.read_text())
-    if template_md.exists():
-        parts.append(template_md.read_text())
+    def _file_rules() -> str:
+        parts = []
+        if skill_md.exists():
+            parts.append(skill_md.read_text())
+        if template_md.exists():
+            parts.append(template_md.read_text())
+        return "\n\n---\n\n".join(parts) if parts else ""
 
-    return "\n\n---\n\n".join(parts) if parts else ""
+    if db is not None and str(query or "").strip():
+        try:
+            from vendoo_studio.services.catalog_index import relevant_skill_rules
+            rules = relevant_skill_rules(db, query)
+            if str(rules or "").strip():
+                return rules
+        except Exception:
+            log.exception("catalog skill rules unavailable; falling back to SKILL.md")
+    return _file_rules()
 
 
 async def _iter_with_keepalives(source, timeout: float = 10.0):

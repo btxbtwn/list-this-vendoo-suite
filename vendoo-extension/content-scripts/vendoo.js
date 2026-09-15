@@ -3160,18 +3160,22 @@
               };
           }
           // Vendoo keeps Save disabled on new drafts until a few general fields
-          // exist. Seed the minimum so schema-probe saving_general can commit.
+          // exist. Always seed the minimum so schema-probe saving_general can commit
+          // even when generation has not produced a full listing yet.
           const title = String(data.title || '').trim() || 'Draft listing';
+          const condition = String(data.condition || '').trim() || 'Good';
+          const quantity = data.quantity != null && String(data.quantity).trim() !== ''
+              ? data.quantity
+              : 1;
           await fillTextField(VENDOO_SELECTORS.title, title, 'Title');
           await fillTextField(VENDOO_SELECTORS.zipCode, data.zipCode || '70125', 'Zip Code');
-          if (data.condition) {
-              await fillDropdownField(
-                  VENDOO_SELECTORS.condition,
-                  mapCondition(data.condition, 'vendoo'),
-                  'Condition',
-                  true,
-              );
-          }
+          await fillDropdownField(
+              VENDOO_SELECTORS.condition,
+              mapCondition(condition, 'vendoo'),
+              'Condition',
+              true,
+          );
+          await fillTextField(VENDOO_SELECTORS.quantity, quantity, 'Quantity');
           await sleep(CONFIG.SLEEP_LONG);
           return { ok: true, fill_log: finishFillLog({ skipUnmapped: true }) };
       } catch (err) {
