@@ -49,6 +49,9 @@ datas = [
     *tree(REPO / "vendoo-extension", "vendoo-extension"),
     *collect_data_files("webview"),
 ]
+SEED = STUDIO / "data" / "category-trees-seed.json.gz"
+if SEED.is_file():
+    datas.append((str(SEED), "data"))
 if BUILD_INFO.is_file():
     datas.append((str(BUILD_INFO), "."))
 

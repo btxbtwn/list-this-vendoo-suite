@@ -10,7 +10,7 @@ from pathlib import Path
 from vendoo_studio.services.category_tree import MARKETPLACES
 
 SEED_VERSION = 1
-DEFAULT_SEED = Path(__file__).resolve().parents[3] / "data" / "category-trees-seed.json.gz"
+SEED_NAME = "category-trees-seed.json.gz"
 PACKAGED_DB = Path.home() / "Library" / "Application Support" / "List This Studio" / "vendoo_studio.db"
 
 _CREATE_TREES = """
@@ -39,11 +39,59 @@ CREATE TABLE IF NOT EXISTS category_tree_nodes (
 
 
 def default_seed_path() -> Path:
-    return DEFAULT_SEED
+    from vendoo_studio.config import resource_root
+
+    bundled = resource_root() / "data" / SEED_NAME
+    if bundled.is_file():
+        return bundled
+    return Path(__file__).resolve().parents[3] / "data" / SEED_NAME
 
 
 def default_db_path() -> Path:
+    """Packaged Mac app DB path (CLI default)."""
     return PACKAGED_DB
+
+
+def active_db_path() -> Path:
+    from vendoo_studio.config import DATABASE_PATH
+
+    return Path(DATABASE_PATH)
+
+
+def trees_complete(db_path: Path) -> bool:
+    if not db_path.is_file():
+        return False
+    con = sqlite3.connect(db_path)
+    try:
+        names = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "category_trees" not in names:
+            return False
+        rows = {
+            marketplace: status
+            for marketplace, status in con.execute(
+                "SELECT marketplace, status FROM category_trees WHERE marketplace IN ({})".format(
+                    ",".join("?" * len(MARKETPLACES))
+                ),
+                MARKETPLACES,
+            )
+        }
+        return all(rows.get(marketplace) == "complete" for marketplace in MARKETPLACES)
+    finally:
+        con.close()
+
+
+def ensure_seeded_category_trees(
+    db_path: Path | None = None,
+    seed_path: Path | None = None,
+) -> dict | None:
+    """Import the bundled seed when any of the six trees is missing or incomplete."""
+    db = db_path or active_db_path()
+    if trees_complete(db):
+        return None
+    seed = seed_path or default_seed_path()
+    if not seed.is_file():
+        return None
+    return import_seed(db, seed)
 
 
 def _utcnow() -> str:

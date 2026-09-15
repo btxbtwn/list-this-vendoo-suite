@@ -18,6 +18,11 @@ from vendoo_studio.routes import catalog
 async def lifespan(app: FastAPI):
     init_db()
     try:
+        from vendoo_studio.services.category_tree_seed import ensure_seeded_category_trees
+        ensure_seeded_category_trees()
+    except Exception:
+        pass
+    try:
         from vendoo_studio.services.chrome_bridge import install_bundled_extension
         install_bundled_extension()
     except Exception:

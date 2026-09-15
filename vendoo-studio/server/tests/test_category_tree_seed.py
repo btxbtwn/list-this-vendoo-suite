@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 
 from vendoo_studio.services.category_tree import MARKETPLACES
-from vendoo_studio.services.category_tree_seed import export_seed, import_seed
+from vendoo_studio.services.category_tree_seed import (
+    ensure_seeded_category_trees,
+    export_seed,
+    import_seed,
+    trees_complete,
+)
 
 
 class CategoryTreeSeedTest(unittest.TestCase):
@@ -109,6 +114,16 @@ class CategoryTreeSeedTest(unittest.TestCase):
             len(MARKETPLACES),
         )
         con.close()
+
+    def test_ensure_imports_when_incomplete_and_skips_when_complete(self):
+        export_seed(self.source, self.seed)
+        self.assertIsNone(ensure_seeded_category_trees(self.source, self.seed))
+        self.assertTrue(trees_complete(self.source))
+
+        result = ensure_seeded_category_trees(self.target, self.seed)
+        self.assertIsNotNone(result)
+        self.assertTrue(trees_complete(self.target))
+        self.assertIsNone(ensure_seeded_category_trees(self.target, self.seed))
 
 
 if __name__ == "__main__":
