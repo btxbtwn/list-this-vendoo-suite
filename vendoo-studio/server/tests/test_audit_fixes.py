@@ -340,6 +340,49 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertFalse(any(error["field"] == "ebay_specifics.season" for error in result.errors))
         self.assertTrue(result.can_send, result.errors)
 
+    def test_case_variant_specifics_keys_are_healed(self):
+        import copy
+
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = copy.deepcopy(VALID_LISTING)
+        # Written by an older gap fill that lower-cased the JSON key.
+        listing["ebay_specifics"].pop("sizeType")
+        listing["ebay_specifics"]["sizetype"] = "Regular"
+        listing["depop_specifics"]["parcel_size"] = listing["depop_specifics"].pop("parcelSize")
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["ebay_specifics"]["sizeType"], "Regular")
+        self.assertNotIn("sizetype", listing["ebay_specifics"])
+        self.assertEqual(listing["depop_specifics"]["parcelSize"], "Medium")
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertFalse(
+            [err for err in result.errors if err["field"] == "ebay_specifics.sizeType"],
+            result.errors,
+        )
+
+    def test_required_ebay_keys_promote_out_of_category_specifics(self):
+        import copy
+
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = copy.deepcopy(VALID_LISTING)
+        size_type = listing["ebay_specifics"].pop("sizeType")
+        listing["ebay_specifics"]["category_specifics"] = {"sizeType": size_type}
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["ebay_specifics"]["sizeType"], "Regular")
+
+    def test_unknown_specifics_keys_are_left_alone(self):
+        import copy
+
+        from vendoo_studio.models.validation import canonicalize_listing_keys
+
+        listing = copy.deepcopy(VALID_LISTING)
+        listing["ebay_specifics"]["somethingCustom"] = "keep"
+        listing["ebay_specifics"]["53159_Size Type"] = "Regular"
+        canonicalize_listing_keys(listing)
+        self.assertEqual(listing["ebay_specifics"]["somethingCustom"], "keep")
+        self.assertEqual(listing["ebay_specifics"]["sizeType"], "Regular")
+
     def test_ebay_category_optionals_are_filled_or_dna(self):
         from vendoo_studio.models.validation import (
             DNA_VALUE,

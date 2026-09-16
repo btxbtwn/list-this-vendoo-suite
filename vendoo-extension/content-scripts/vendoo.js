@@ -3931,22 +3931,7 @@
               await fillDropdownField(listingStateEl, listingState, 'Listing State');
           }
           
-          const etsyTags = uniqueStrings([
-              ...listingTagValues({ tags: specs.tags }),
-              ...listingTagValues(data),
-          ]);
-          if (etsyTags.length) {
-              await fillDropdownField(
-                  resolveMarketplaceField('etsy', ['tags'], [
-                      '#listings\\.etsy\\.marketplaceSpecifics\\.tags',
-                      '#listings\\.etsy\\.overrides\\.tags',
-                  ]),
-                  etsyTags,
-                  'Tags',
-                  false,
-                  true
-              );
-          }
+          recordGeneralTagsInherited('Tags');
 
           const marketplaceMaterialsEl = document.querySelector('#listings\\.etsy\\.marketplaceSpecifics\\.materials');
           if (marketplaceMaterialsEl && specs.materials) {
@@ -4198,6 +4183,16 @@
           await sleep(CONFIG.SLEEP_RETRY);
       }
       await fillDropdownField(el, size, 'Size', true);
+  }
+
+  // Vendoo copies the general Tags chips into every marketplace form on save, so filling
+  // them per marketplace is redundant work.
+  function recordGeneralTagsInherited(fieldName) {
+      recordFill({
+        field: fieldName,
+        status: 'skipped',
+        reason: 'Set on the general form — Vendoo copies tags to marketplace forms on save',
+      });
   }
 
   async function fillMarketplaceTagField(marketplace, data, fieldName, labelPatterns, selectors = [], extraTags) {
@@ -4541,16 +4536,7 @@
 
       await fillDepopBrand(data);
       await fillMarketplaceSize('depop', data);
-      await fillMarketplaceTagField(
-          'depop',
-          data,
-          'Tags',
-          ['tags'],
-          [
-              '#listings\\.depop\\.marketplaceSpecifics\\.tags',
-              '#listings\\.depop\\.overrides\\.tags',
-          ]
-      );
+      recordGeneralTagsInherited('Tags');
       
       if (data.depop_specifics) {
           log('Expanding optional fields for Depop...');

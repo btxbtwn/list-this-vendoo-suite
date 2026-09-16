@@ -332,6 +332,38 @@ class FillLogServiceTest(unittest.TestCase):
         self.assertEqual(listing["ebay_specifics"]["department"], "Women")
         self.assertNotIn("Department", listing["ebay_specifics"])
 
+    def test_write_values_into_listing_uses_camel_case_json_keys(self):
+        # Chat answers the validation error with its own key name ("sizeType").
+        listing = write_values_into_listing(
+            {"ebay_specifics": {"department": "Women"}},
+            [
+                {"marketplace": "ebay", "field": "sizeType", "value": "Regular"},
+                {"marketplace": "general", "field": "primaryColor", "value": "Blue"},
+            ],
+        )
+        self.assertEqual(listing["ebay_specifics"]["sizeType"], "Regular")
+        self.assertNotIn("sizetype", listing["ebay_specifics"])
+        self.assertEqual(listing["primaryColor"], "Blue")
+        self.assertNotIn("primarycolor", listing)
+
+    def test_write_values_into_listing_reads_vendoo_field_ids(self):
+        listing = write_values_into_listing(
+            {"ebay_specifics": {}},
+            [{
+                "marketplace": "ebay",
+                "field": "listings.ebay.categorySpecifics.53159_Size Type",
+                "value": "Regular",
+            }],
+        )
+        self.assertEqual(listing["ebay_specifics"], {"sizeType": "Regular"})
+
+    def test_write_values_into_listing_replaces_mixed_case_variant(self):
+        listing = write_values_into_listing(
+            {"ebay_specifics": {"sizetype": "Regular"}},
+            [{"marketplace": "ebay", "field": "Size Type", "value": "Petite"}],
+        )
+        self.assertEqual(listing["ebay_specifics"], {"sizeType": "Petite"})
+
     def test_apply_field_results_updates_existing_rows_by_id(self):
         service = FillLogService(self.db)
         saved = service.save_step(self.job, "filling_ebay", {
