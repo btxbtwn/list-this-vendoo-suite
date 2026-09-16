@@ -75,17 +75,18 @@ const steps = [
   { step: 'auditing_general' },
   { step: 'discovering_schema' },
   { step: 'filling_ebay' },
-  { step: 'saving_ebay' },
-  { step: 'auditing_ebay' },
   { step: 'filling_etsy' },
-  { step: 'saving_etsy' },
-  { step: 'auditing_etsy' },
   { step: 'filling_depop' },
-  { step: 'saving_depop' },
-  { step: 'auditing_depop' },
+  { step: 'saving_marketplaces' },
 ];
 const resumed = selectJobSteps({ options: { resumeFrom: 'filling_etsy', reuseExistingItem: true } }, steps);
-const auditResume = selectJobSteps({ options: { resumeFrom: 'auditing_depop', reuseExistingItem: true } }, steps);
+const auditSteps = [
+  { step: 'opening_vendoo' },
+  { step: 'waiting_ready' },
+  { step: 'checking_draft_safety' },
+  { step: 'auditing_depop' },
+];
+const auditResume = selectJobSteps({ options: { resumeFrom: 'auditing_depop', reuseExistingItem: true } }, auditSteps);
 const newItemResume = selectJobSteps({ options: { resumeFrom: 'filling_etsy' } }, steps.filter((step) => step.step !== 'checking_draft_safety'));
 const full = selectJobSteps({ options: {} }, steps);
 const missing = selectJobSteps({ options: { resumeFrom: 'filling_facebook' } }, steps);
@@ -99,6 +100,7 @@ const result = {
   generalMarketplace: marketplaceFromStep('filling_general'),
   schemaMarketplace: marketplaceFromStep('discovering_schema'),
   depopAuditMarketplace: marketplaceFromStep('auditing_depop'),
+  saveAllMarketplace: marketplaceFromStep('saving_marketplaces'),
 };
 console.log(JSON.stringify(result));
 """
@@ -111,7 +113,7 @@ console.log(JSON.stringify(result));
         result = json.loads(proc.stdout)
         self.assertEqual(
             result["resumed"],
-            ["opening_vendoo", "waiting_ready", "checking_draft_safety", "filling_etsy", "saving_etsy", "auditing_etsy", "filling_depop", "saving_depop", "auditing_depop"],
+            ["opening_vendoo", "waiting_ready", "checking_draft_safety", "filling_etsy", "filling_depop", "saving_marketplaces"],
         )
         self.assertEqual(
             result["auditResume"],
@@ -119,14 +121,15 @@ console.log(JSON.stringify(result));
         )
         self.assertEqual(
             result["newItemResume"],
-            ["opening_vendoo", "waiting_ready", "filling_etsy", "saving_etsy", "auditing_etsy", "filling_depop", "saving_depop", "auditing_depop"],
+            ["opening_vendoo", "waiting_ready", "filling_etsy", "filling_depop", "saving_marketplaces"],
         )
-        self.assertEqual(result["fullCount"], 17)
-        self.assertEqual(result["missingCount"], 17)
+        self.assertEqual(result["fullCount"], 12)
+        self.assertEqual(result["missingCount"], 12)
         self.assertEqual(result["etsyMarketplace"], "etsy")
         self.assertEqual(result["generalMarketplace"], "general")
         self.assertEqual(result["schemaMarketplace"], "general")
         self.assertEqual(result["depopAuditMarketplace"], "depop")
+        self.assertEqual(result["saveAllMarketplace"], "general")
 
     def test_category_search_checks_draft_safety_before_picker_click(self) -> None:
         text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")

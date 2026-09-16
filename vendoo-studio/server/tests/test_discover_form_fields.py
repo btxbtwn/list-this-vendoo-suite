@@ -58,7 +58,9 @@ const discoverSchema = async () => ({ ok: true });
 const clearMarketplace = async () => ({ ok: true });
 const fillMarketplace = async () => ({ ok: true });
 const saveMarketplace = async () => ({ ok: true });
+const saveMarketplaces = async () => ({ ok: true });
 const auditMarketplace = async () => ({ ok: true });
+const auditAllMarketplaces = async () => ({ ok: true });
 """
         proc = subprocess.run(
             ["node", "-e", preamble + script],
@@ -71,6 +73,52 @@ const auditMarketplace = async () => ({ ok: true });
         self.assertLess(steps.index("auditing_general"), steps.index("discovering_schema"))
         self.assertLess(steps.index("discovering_schema"), steps.index("filling_ebay"))
         self.assertLess(steps.index("discovering_schema"), steps.index("filling_poshmark"))
+        self.assertIn("saving_marketplaces", steps)
+        self.assertNotIn("saving_ebay", steps)
+        self.assertNotIn("auditing_ebay", steps)
+        self.assertLess(steps.index("filling_poshmark"), steps.index("saving_marketplaces"))
+
+    def test_job_steps_skip_discover_when_schema_cached(self) -> None:
+        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        start = text.index("function buildJobSteps(job)")
+        end = text.index("const NEW_ITEM_URL")
+        script = text[start:end] + """
+const steps = buildJobSteps({
+  options: {
+    platforms: ['ebay', 'poshmark'],
+    clearBeforeFill: false,
+    skipPhotos: true,
+    skipDiscoverSchema: true,
+  },
+}).map((step) => step.step);
+console.log(JSON.stringify(steps));
+"""
+        preamble = """
+const openVendooListing = async () => ({ ok: true });
+const waitForContentScript = async () => ({ ok: true });
+const uploadPhotos = async () => ({ ok: true });
+const clearGeneral = async () => ({ ok: true });
+const fillGeneral = async () => ({ ok: true });
+const saveGeneral = async () => ({ ok: true });
+const auditGeneral = async () => ({ ok: true });
+const discoverSchema = async () => ({ ok: true });
+const clearMarketplace = async () => ({ ok: true });
+const fillMarketplace = async () => ({ ok: true });
+const saveMarketplace = async () => ({ ok: true });
+const saveMarketplaces = async () => ({ ok: true });
+const auditMarketplace = async () => ({ ok: true });
+const auditAllMarketplaces = async () => ({ ok: true });
+"""
+        proc = subprocess.run(
+            ["node", "-e", preamble + script],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        steps = json.loads(proc.stdout)
+        self.assertNotIn("discovering_schema", steps)
+        self.assertIn("filling_ebay", steps)
+        self.assertIn("saving_marketplaces", steps)
 
     def test_content_script_discovers_each_marketplace_form(self) -> None:
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
@@ -97,9 +145,9 @@ const auditMarketplace = async () => ({ ok: true });
         activate_body = content[activate_start:activate_end]
         self.assertIn("marketplaceSectionReady(platform)", activate_body)
         self.assertIn("force: true", activate_body)
-        self.assertIn("Always click the marketplace nav control", activate_body)
+        self.assertIn("section already active", activate_body)
+        self.assertIn("recentlySaved", activate_body)
         self.assertNotIn("getAttribute('aria-selected')", activate_body)
-        self.assertNotIn("already expanded", activate_body)
         scrape_start = content.index("async function scrapeVendooItem")
         scrape_end = content.index("async function clearChipContainer")
         scrape_body = content[scrape_start:scrape_end]
@@ -108,6 +156,8 @@ const auditMarketplace = async () => ({ ok: true });
         for platform in ("ebay", "etsy", "poshmark", "mercari", "depop"):
             self.assertIn(f"'{platform}'", content)
             self.assertIn(f"await fillMarketplaceCategory('{platform}'", content)
+        self.assertIn("skipCategory", content)
+        self.assertIn("if (!skipCategory)", content)
 
     def test_activate_marketplace_checks_visible_panel_not_aria(self) -> None:
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
@@ -117,9 +167,8 @@ const auditMarketplace = async () => ({ ok: true });
         self.assertIn("marketplaceSectionReady", activate_body)
         self.assertNotIn("getAttribute('aria-selected')", activate_body)
         self.assertNotIn("getAttribute('aria-expanded')", activate_body)
-        self.assertNotIn("already expanded", activate_body)
-        self.assertNotIn("section already active", activate_body)
-        self.assertIn("Always click the marketplace nav control", activate_body)
+        self.assertIn("section already active", activate_body)
+        self.assertIn("marketplaceSectionLooksActive(platform)", activate_body)
         self.assertIn("isEffectivelyVisible", content)
         self.assertIn("marketplaceFormMounted", content)
         schema_start = content.index("async function discoverMarketplaceSchema")

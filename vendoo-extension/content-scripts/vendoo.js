@@ -3472,10 +3472,12 @@
       return value;
   }
 
-  async function fillEbayForm(data) {
+  async function fillEbayForm(data, { skipCategory = false } = {}) {
       log('Filling eBay form...');
-      await fillMarketplaceCategory('ebay', data);
-      await sleep(CONFIG.SLEEP_LONG);
+      if (!skipCategory) {
+          await fillMarketplaceCategory('ebay', data);
+          await sleep(CONFIG.SLEEP_LONG);
+      }
 
       await fillDropdownField(
           '#listings\\.ebay\\.overrides\\.condition',
@@ -3698,10 +3700,12 @@
       }
   }
 
-  async function fillEtsyForm(data) {
+  async function fillEtsyForm(data, { skipCategory = false } = {}) {
       log('Filling Etsy form...');
-      await fillMarketplaceCategory('etsy', data);
-      await sleep(CONFIG.SLEEP_LONG);
+      if (!skipCategory) {
+          await fillMarketplaceCategory('etsy', data);
+          await sleep(CONFIG.SLEEP_LONG);
+      }
 
       const specs = data.etsy_specifics || {};
       const ebaySpecifics = data.ebay_specifics || {};
@@ -4106,10 +4110,12 @@
       await fillDropdownField(el, tags, fieldName, false, true);
   }
 
-  async function fillPoshmarkForm(data) {
+  async function fillPoshmarkForm(data, { skipCategory = false } = {}) {
       log('Filling Poshmark form...');
-      await fillMarketplaceCategory('poshmark', data);
-      await sleep(CONFIG.SLEEP_LONG);
+      if (!skipCategory) {
+          await fillMarketplaceCategory('poshmark', data);
+          await sleep(CONFIG.SLEEP_LONG);
+      }
 
       await fillDropdownField(
           '#listings\\.poshmark\\.overrides\\.condition',
@@ -4259,10 +4265,12 @@
       await setMercariNoBrandChecked(true, 'Brand not in Mercari list');
   }
 
-  async function fillMercariForm(data) {
+  async function fillMercariForm(data, { skipCategory = false } = {}) {
       log('Filling Mercari form...');
-      await fillMarketplaceCategory('mercari', data);
-      await sleep(CONFIG.SLEEP_LONG);
+      if (!skipCategory) {
+          await fillMarketplaceCategory('mercari', data);
+          await sleep(CONFIG.SLEEP_LONG);
+      }
 
       await fillDropdownField(
           resolveMarketplaceField('mercari', ['condition'], [
@@ -4379,10 +4387,12 @@
       warn('Depop Brand: could not select a list brand or Other');
   }
 
-  async function fillDepopForm(data) {
+  async function fillDepopForm(data, { skipCategory = false } = {}) {
       log('Filling Depop form...');
-      await fillMarketplaceCategory('depop', data);
-      await sleep(CONFIG.SLEEP_LONG);
+      if (!skipCategory) {
+          await fillMarketplaceCategory('depop', data);
+          await sleep(CONFIG.SLEEP_LONG);
+      }
 
       await fillDropdownField(
           resolveMarketplaceField('depop', ['condition'], [
@@ -4794,6 +4804,7 @@
           const vendooUrl = `https://web.vendoo.co/app/item/${itemId}`;
 
           log(`Save complete. Item ID: ${itemId}`);
+          markSaveCompleted();
           await waitForPostSaveForm(20000);
           return { ok: true, vendoo_item_id: itemId, vendoo_url: vendooUrl };
       }
@@ -4812,6 +4823,7 @@
           if (!itemId) {
               return { ok: false, error: 'Save did not produce a durable Vendoo item ID' };
           }
+          markSaveCompleted();
           return { ok: true, vendoo_item_id: itemId, vendoo_url: `https://web.vendoo.co/app/item/${itemId}` };
       }
 
@@ -4897,7 +4909,7 @@
       return { ok: allOk, fields, mismatches, photos: photos.length, statuses };
   }
 
-  async function fillMarketplaceForm(data, platform) {
+  async function fillMarketplaceForm(data, platform, { skipCategory = false } = {}) {
       beginFillLog(String(platform || 'unknown').toLowerCase());
       log(`Filling ${platform} marketplace...`);
 
@@ -4909,21 +4921,22 @@
           return { ok: false, error, fill_log: finishFillLog() };
       }
 
+      const fillOpts = { skipCategory: Boolean(skipCategory) };
       switch (platform.toLowerCase()) {
           case 'ebay':
-              await fillEbayForm(data);
+              await fillEbayForm(data, fillOpts);
               break;
           case 'etsy':
-              await fillEtsyForm(data);
+              await fillEtsyForm(data, fillOpts);
               break;
           case 'poshmark':
-              await fillPoshmarkForm(data);
+              await fillPoshmarkForm(data, fillOpts);
               break;
           case 'mercari':
-              await fillMercariForm(data);
+              await fillMercariForm(data, fillOpts);
               break;
           case 'depop':
-              await fillDepopForm(data);
+              await fillDepopForm(data, fillOpts);
               break;
           default:
               warn(`Unknown marketplace: ${platform}`);
@@ -5197,18 +5210,30 @@
       return listingFormMarkersPresent();
   }
 
-  async function activateMarketplaceSection(platform) {
+  let lastSaveCompletedAt = 0;
+  function markSaveCompleted() {
+      lastSaveCompletedAt = Date.now();
+  }
+  function recentlySaved(withinMs = 20000) {
+      return Boolean(lastSaveCompletedAt) && (Date.now() - lastSaveCompletedAt) < withinMs;
+  }
+
+  async function activateMarketplaceSection(platform, { afterSave = false } = {}) {
       log(`Activating ${platform} marketplace section...`);
-      // Always click the marketplace nav control. After schema discovery, sibling
-      // marketplace forms (eBay included) stay mounted and can look "visible"
-      // while Depop is still the active panel — skipping the click makes
-      // filling_ebay a no-op and the job races ahead to Etsy.
-      // Also force-click when the form never mounts (Refresh path: aria can say
-      // eBay is selected while generalDetails is still showing).
-      // After save, Vendoo remounts the listing chrome; wait for nav buttons
-      // before treating a missing Depop tab as a hard failure.
-      await waitForPostSaveForm(20000);
+      // Only wait for remount when a save just happened. Mid-fill tab switches
+      // should not pay the post-save poll on every marketplace.
+      if (afterSave || recentlySaved()) {
+          await waitForPostSaveForm(20000);
+          lastSaveCompletedAt = 0;
+      }
       await closeOpenMenus();
+
+      // Fast path: the visible panel already belongs to this marketplace.
+      // Do not trust aria-selected — sibling forms stay mounted after discovery.
+      if (marketplaceFormMounted(platform) && marketplaceSectionLooksActive(platform)) {
+          log(`  ${platform} section already active`);
+          return true;
+      }
 
       const clickMatching = async ({ force = false } = {}) => {
           const buttons = Array.from(document.querySelectorAll(
@@ -5228,8 +5253,15 @@
           match.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_SHORT);
           match.click();
-          await sleep(CONFIG.SLEEP_LONG * 3);
-          return true;
+          // Poll for the panel instead of a fixed 1.5s sleep.
+          const deadline = Date.now() + 8000;
+          while (Date.now() < deadline) {
+              if (marketplaceFormMounted(platform) && marketplaceSectionLooksActive(platform)) {
+                  return true;
+              }
+              await sleep(CONFIG.SLEEP_RETRY);
+          }
+          return marketplaceFormMounted(platform);
       };
 
       const started = Date.now();
@@ -5252,6 +5284,7 @@
       log(`Auditing ${platform} marketplace...`);
       const mp = String(platform || '').toLowerCase();
       await waitForPostSaveForm(25000);
+      lastSaveCompletedAt = 0;
       const activated = await activateMarketplaceSection(mp);
       if (!activated || !marketplaceSectionLooksActive(mp)) {
           const error = `Could not activate ${platform} marketplace section`;
@@ -6540,7 +6573,9 @@
           if (msg.type === 'FILL_MARKETPLACE') {
               currentRegistrySelectors = msg.registry_selectors || {};
               currentRegistryOptions = msg.registry_options || {};
-              fillMarketplaceForm(msg.data, msg.platform)
+              fillMarketplaceForm(msg.data, msg.platform, {
+                  skipCategory: Boolean(msg.skipCategory),
+              })
                   .then(result => sendResponse(result))
                   .catch(err => sendResponse({ ok: false, error: err.message }));
               return true;

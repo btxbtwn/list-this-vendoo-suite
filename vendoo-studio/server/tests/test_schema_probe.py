@@ -178,7 +178,9 @@ const discoverSchema = async () => ({ ok: true });
 const clearMarketplace = async () => ({ ok: true });
 const fillMarketplace = async () => ({ ok: true });
 const saveMarketplace = async () => ({ ok: true });
+const saveMarketplaces = async () => ({ ok: true });
 const auditMarketplace = async () => ({ ok: true });
+const auditAllMarketplaces = async () => ({ ok: true });
 """
         script = text[start:end] + """
 const probe = buildJobSteps({
@@ -193,7 +195,13 @@ const fill = buildJobSteps({
 const update = buildJobSteps({
   options: { platforms: ['ebay'], reuseExistingItem: true, skipPhotos: false },
 }).map((step) => step.step);
-console.log(JSON.stringify({ probe, probeUpdate, fill, update }));
+const cached = buildJobSteps({
+  options: { platforms: ['ebay'], skipPhotos: true, skipDiscoverSchema: true },
+}).map((step) => step.step);
+const auditOnly = buildJobSteps({
+  options: { platforms: ['ebay'], resumeFrom: 'auditing_ebay', reuseExistingItem: true },
+}).map((step) => step.step);
+console.log(JSON.stringify({ probe, probeUpdate, fill, update, cached, auditOnly }));
 """
         proc = subprocess.run(
             ["node", "-e", preamble + script],
@@ -213,7 +221,15 @@ console.log(JSON.stringify({ probe, probeUpdate, fill, update }));
         )
         self.assertIn("filling_ebay", result["fill"])
         self.assertIn("discovering_schema", result["fill"])
+        self.assertIn("saving_marketplaces", result["fill"])
+        self.assertNotIn("saving_ebay", result["fill"])
+        self.assertNotIn("auditing_ebay", result["fill"])
         self.assertLess(result["update"].index("checking_draft_safety"), result["update"].index("uploading_photos"))
+        self.assertNotIn("discovering_schema", result["cached"])
+        self.assertEqual(
+            result["auditOnly"],
+            ["opening_vendoo", "waiting_ready", "checking_draft_safety", "auditing_ebay"],
+        )
 
     def test_content_script_has_set_general_category(self):
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
