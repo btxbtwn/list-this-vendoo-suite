@@ -35,7 +35,6 @@ AUTOMATION_TAB_STEPS = frozenset({
     "saving_general",
     "auditing_general",
     "discovering_schema",
-    "saving_marketplaces",
 })
 
 
