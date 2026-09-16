@@ -24,9 +24,10 @@ from vendoo_studio.services.listing_provider import get_listing_provider
 from vendoo_studio.services.registry import SELLER_SETTING_LABELS
 
 log = logging.getLogger(__name__)
-MAX_REPAIR_ROUNDS = 3
-MAX_READBACK_RETRIES = 5
-MAX_CATEGORY_REPAIRS = 2
+# One leftover fill after Send's end-of-job verify — more rounds just re-walk every form.
+MAX_REPAIR_ROUNDS = 1
+MAX_READBACK_RETRIES = 2
+MAX_CATEGORY_REPAIRS = 1
 READBACK_RETRY_DELAY_SECONDS = 2.0
 _SOFT_GAP_ERRORS = frozenset({"", "empty field", "saved value differs"})
 DNA_VALUE = "Does Not Apply"
@@ -1080,6 +1081,8 @@ async def complete_job(db: Session, job_id: str) -> None:
         field for field in gaps
         if not disposition_clears_gap(field, exempt_keys=exempt_keys, no_evidence_keys=no_evidence_keys)
     ]
+    # Don't reopen controls that already match or were filled with the same input.
+    gaps = drop_noop_gaps(db, job, gaps, listing)
     if not gaps:
         error = str(verification.get("error") or "")
         # Merged readbacks can leave verified=false from an earlier incomplete scrape
@@ -1315,6 +1318,22 @@ async def complete_job(db: Session, job_id: str) -> None:
                 })
                 no_evidence_keys.add(key)
 
+    gaps_by_key = {field_id(field): field for field in gaps}
+
+    def _patch_is_noop(patch: dict) -> bool:
+        key = field_id(patch)
+        gap = gaps_by_key.get(key) or {
+            "marketplace": patch.get("marketplace"),
+            "field": patch.get("field"),
+            "observed": None,
+            "error": "Empty field",
+        }
+        value = patch.get("value")
+        return gap_already_has_value(gap, value) or prior_fill_covers_empty_gap(db, job, gap, value)
+
+    if patches:
+        patches = [patch for patch in patches if not _patch_is_noop(patch)]
+
     if not patches:
         unresolved = [
             field for field in gaps
@@ -1405,7 +1424,12 @@ async def complete_job(db: Session, job_id: str) -> None:
     db.commit()
     repo.add_event(job.id, "completion_attempt", "filling_fields", {"fields": patches})
     # The existing job is the seller's approval to fill this draft; probes never reach here.
-    if not await dispatch_fill_fields(job, patches):
+    # Only re-open marketplaces we are patching — Send already verified the rest once.
+    patch_platforms = sorted({
+        str(patch.get("marketplace") or "general").strip().lower() or "general"
+        for patch in patches
+    })
+    if not await dispatch_fill_fields(job, patches, platforms=patch_platforms):
         _pause(db, job, "Chrome disconnected before the remaining fields could be filled.", gaps)
 
 

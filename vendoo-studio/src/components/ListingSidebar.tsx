@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { fetchVendooItemLive } from "../api/vendooItemQuery";
+import { addToast } from "../ui/toast";
 import { UpdateButton } from "./UpdateButton";
 import {
   SETTINGS_NAV_ITEMS,
@@ -14,6 +16,7 @@ const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 const BUSY_STATUSES = new Set(["in_progress", "listing"]);
+const MANUAL_STATUSES = ["draft", "completed", "failed"] as const;
 const HOVER_STATUS_DELAY_MS = 280;
 const MARKETPLACE_STATUS_ORDER = [
   "general",
@@ -752,15 +755,18 @@ function ListingRow({
   const title = listing.title || "Untitled";
   const status = String(listing.status || "draft");
   const statusClass = status.replace(/_/g, "-");
-  const statusLabel = status.replace(/_/g, " ");
   const settledAt = settled ? compactRelativeTime(listing.settled_at || listing.updated_at) : "";
   const queryClient = useQueryClient();
   const itemRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const skipRenameBlur = useRef(false);
   const hoverTimer = useRef<number | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const pointerInsideRef = useRef(false);
   const [hoverOpen, setHoverOpen] = useState(false);
   const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ top: number; left: number } | null>(null);
+  const [readingDraft, setReadingDraft] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState(title);
 
@@ -771,6 +777,18 @@ function ListingRow({
       setRenaming(false);
     },
   });
+
+  const updateStatus = useMutation({
+    mutationFn: (nextStatus: string) => api.conversations.update(listing.id, { status: nextStatus }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+
+  const statusOptions = useMemo(() => {
+    if ((MANUAL_STATUSES as readonly string[]).includes(status)) return [...MANUAL_STATUSES];
+    return [status, ...MANUAL_STATUSES];
+  }, [status]);
 
   // Observe Fields-panel cache without fetching.
   const cachedDraftQuery = useQuery({
@@ -788,16 +806,18 @@ function ListingRow({
       }
       return data;
     },
-    enabled: Boolean(hoverOpen && jobId && !cachedDraftQuery.data),
+    enabled: Boolean(hoverOpen && jobId && !cachedDraftQuery.data && !readingDraft),
     staleTime: Infinity,
     retry: 0,
   });
 
   const draft = (cachedDraftQuery.data || peekQuery.data) as Record<string, unknown> | undefined;
   const marketplaceStatuses = useMemo(() => marketplaceStatusesFromDraft(draft), [draft]);
-  const loadingStatus = Boolean(hoverOpen && jobId && !draft && peekQuery.isFetching);
+  const loadingStatus = Boolean(
+    hoverOpen && jobId && (readingDraft || (!draft && peekQuery.isFetching)),
+  );
   const missingStatus = Boolean(
-    hoverOpen && jobId && !draft && peekQuery.isFetched && !peekQuery.isFetching,
+    hoverOpen && jobId && !draft && !readingDraft && peekQuery.isFetched && !peekQuery.isFetching,
   );
 
   const clearHoverTimer = () => {
@@ -817,8 +837,10 @@ function ListingRow({
     });
   }, []);
 
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
   const openHover = () => {
-    if (!jobId || renaming) return;
+    if (!jobId || renaming || contextMenu) return;
     clearHoverTimer();
     hoverTimer.current = window.setTimeout(() => {
       updatePopupPos();
@@ -828,14 +850,43 @@ function ListingRow({
 
   const closeHover = () => {
     clearHoverTimer();
-    setHoverOpen(false);
+    if (!readingDraft) setHoverOpen(false);
   };
 
   const startRename = () => {
     closeHover();
+    closeContextMenu();
     skipRenameBlur.current = false;
     setDraftTitle(title);
     setRenaming(true);
+  };
+
+  const readDraft = async () => {
+    if (!jobId || readingDraft) return;
+    closeContextMenu();
+    clearHoverTimer();
+    updatePopupPos();
+    setHoverOpen(true);
+    setReadingDraft(true);
+    try {
+      const fresh = await fetchVendooItemLive(queryClient, jobId, { force: true });
+      if (fresh?.error || fresh?.api_error) {
+        addToast({
+          type: "error",
+          title: "Could not read Vendoo draft",
+          description: String(fresh.error || fresh.api_error),
+        });
+      }
+    } catch (error) {
+      addToast({ type: "error", title: (error as Error).message || "Could not read Vendoo draft" });
+    } finally {
+      setReadingDraft(false);
+      if (!pointerInsideRef.current) {
+        window.setTimeout(() => {
+          if (!pointerInsideRef.current) setHoverOpen(false);
+        }, 2500);
+      }
+    }
   };
 
   const cancelRename = () => {
@@ -878,19 +929,65 @@ function ListingRow({
     };
   }, [hoverOpen, updatePopupPos]);
 
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onPointer = (event: MouseEvent) => {
+      if (menuRef.current?.contains(event.target as Node | null)) return;
+      closeContextMenu();
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") closeContextMenu();
+    };
+    const onScroll = () => closeContextMenu();
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [closeContextMenu, contextMenu]);
+
   return (
     <div
       className="nav-item"
       ref={itemRef}
-      onMouseEnter={openHover}
-      onMouseLeave={closeHover}
+      onMouseEnter={() => {
+        pointerInsideRef.current = true;
+        openHover();
+      }}
+      onMouseLeave={() => {
+        pointerInsideRef.current = false;
+        closeHover();
+      }}
       onFocus={openHover}
       onBlur={(event) => {
         if (!itemRef.current?.contains(event.relatedTarget as Node | null)) closeHover();
       }}
+      onContextMenu={(event) => {
+        if (renaming) return;
+        event.preventDefault();
+        event.stopPropagation();
+        clearHoverTimer();
+        setHoverOpen(false);
+        const menuWidth = 168;
+        const menuHeight = 44;
+        setContextMenu({
+          top: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+          left: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+        });
+      }}
     >
-      {renaming ? (
-        <div className={`nav-link${selected ? " selected" : ""}${settled ? " settled" : ""}`}>
+      <div
+        className={`nav-link${selected ? " selected" : ""}${settled ? " settled" : ""}`}
+        onClick={() => {
+          if (!renaming) onSelect(listing.id);
+        }}
+      >
+        {renaming ? (
           <input
             ref={renameInputRef}
             className="nav-rename-input"
@@ -909,28 +1006,48 @@ function ListingRow({
             }}
             onBlur={commitRename}
           />
-          <div className="nav-link-meta">
-            <span className={`nav-status nav-status-${statusClass}`}>{statusLabel}</span>
-            {settledAt ? <span className="nav-time">{settledAt}</span> : null}
-          </div>
+        ) : (
+          <button
+            type="button"
+            className="nav-link-title"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(listing.id);
+            }}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              startRename();
+            }}
+          >
+            {title}
+          </button>
+        )}
+        <div className="nav-link-meta">
+          <select
+            className={`nav-status-select nav-status-${statusClass}`}
+            value={status}
+            aria-label={`Status for ${title}`}
+            disabled={updateStatus.isPending}
+            title="Change listing status"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation();
+              const next = e.target.value;
+              if (next === status) return;
+              updateStatus.mutate(next);
+            }}
+          >
+            {statusOptions.map((option) => (
+              <option key={option} value={option} disabled={BUSY_STATUSES.has(option)}>
+                {option.replace(/_/g, " ")}
+              </option>
+            ))}
+          </select>
+          {settledAt ? <span className="nav-time">{settledAt}</span> : null}
         </div>
-      ) : (
-        <button
-          className={`nav-link${selected ? " selected" : ""}${settled ? " settled" : ""}`}
-          onClick={() => onSelect(listing.id)}
-          onDoubleClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            startRename();
-          }}
-        >
-          <div className="nav-link-title">{title}</div>
-          <div className="nav-link-meta">
-            <span className={`nav-status nav-status-${statusClass}`}>{statusLabel}</span>
-            {settledAt ? <span className="nav-time">{settledAt}</span> : null}
-          </div>
-        </button>
-      )}
+      </div>
       {!renaming && (
         <div className="nav-actions">
           <button
@@ -1001,6 +1118,27 @@ function ListingRow({
           </button>
         </div>
       )}
+      {contextMenu ? (
+        <div
+          ref={menuRef}
+          className="nav-context-menu"
+          style={{ top: contextMenu.top, left: contextMenu.left }}
+          role="menu"
+        >
+          <button
+            type="button"
+            className="nav-context-menu-item"
+            role="menuitem"
+            disabled={!jobId || readingDraft}
+            title={jobId ? "Read live marketplace statuses from Vendoo" : "No Vendoo draft linked yet"}
+            onClick={() => {
+              void readDraft();
+            }}
+          >
+            {readingDraft ? "Reading…" : "Read draft"}
+          </button>
+        </div>
+      ) : null}
       {hoverOpen && jobId && popupPos ? (
         <div
           className="nav-vendoo-status-popup"
@@ -1022,7 +1160,7 @@ function ListingRow({
           ) : (
             <div className="nav-vendoo-status-empty">
               {missingStatus
-                ? "Open Fields and refresh the draft to load live status."
+                ? "Right-click and choose Read draft to load live status."
                 : "No marketplace status yet."}
             </div>
           )}

@@ -1304,6 +1304,15 @@ async function runFillFields(jobId, payload) {
   const totalBatches = marketplaceGroups.reduce((sum, group) => sum + group.batches.length, 0);
   const batchResults = [];
   let lastSaved = null;
+  // Prefer marketplaces from the patch list so post-fill verify does not re-tour every form.
+  const hasFieldPatches = Array.isArray(payload.fields) && payload.fields.length > 0;
+  const verifyPlatforms = patchPlatforms.length
+    ? patchPlatforms
+    : (hasFieldPatches ? [] : (payload.platforms || []));
+  const verifyIncludesGeneral = !hasFieldPatches || (payload.fields || []).some((field) => {
+    const mp = String(field.marketplace || 'general').toLowerCase();
+    return !mp || mp === 'general' || mp === 'unknown';
+  });
   log(`Filling leftover fields in ${totalBatches} batch(es) across ${marketplaceGroups.length} marketplace(s)`);
 
   let batchIndex = 0;
@@ -1367,20 +1376,24 @@ async function runFillFields(jobId, payload) {
   if (activePatch !== job) return;
   let verification = null;
   if (shouldVerify) {
+    const platformsForVerify = [
+      ...(verifyIncludesGeneral ? ['general'] : []),
+      ...verifyPlatforms,
+    ];
     verification = await verifySavedDraft({
       ...job,
       vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id,
       vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url,
       listing: payload.listing || {},
-      options: { platforms: payload.platforms || patchPlatforms },
+      options: { platforms: platformsForVerify },
       photos: Array(payload.expected_photo_count || 0).fill(null),
     });
     const schema = verification?.schema || {};
-    const platforms = payload.platforms || patchPlatforms || [];
-    const incomplete = !verification?.readback || ['general', ...platforms].some((mp) => {
+    const incomplete = !verification?.readback || platformsForVerify.some((mp) => {
       const section = schema[mp] || {};
       return !section.fields?.length || section.error;
     });
+    // Only retry when the first pass failed to read — do not re-tour matching forms.
     if (incomplete) {
       log(`Fill verification incomplete (${verification?.error || 'empty marketplace schema'}); retrying once`);
       await sleep(2000);
@@ -1389,7 +1402,7 @@ async function runFillFields(jobId, payload) {
         vendoo_item_id: lastSaved?.vendoo_item_id || payload.vendoo_item_id,
         vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url,
         listing: payload.listing || {},
-        options: { platforms: payload.platforms || patchPlatforms },
+        options: { platforms: platformsForVerify },
         photos: Array(payload.expected_photo_count || 0).fill(null),
       });
     }

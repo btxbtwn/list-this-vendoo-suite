@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.database import get_db
-from vendoo_studio.repositories.queries import BUSY_LISTING_STATUSES, ConversationRepo
+from vendoo_studio.repositories.queries import (
+    BUSY_LISTING_STATUSES,
+    ConversationRepo,
+    MANUAL_LISTING_STATUSES,
+)
 from vendoo_studio.models.conversation import Photo as PhotoModel, utcnow
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -89,6 +93,7 @@ def get_conversation(conv_id: str, db: Session = Depends(get_db)):
 class ConversationUpdate(BaseModel):
     title: Optional[str] = None
     notes: Optional[str] = None
+    status: Optional[str] = None
 
 
 class DeleteConversationResponse(BaseModel):
@@ -117,6 +122,65 @@ def unsettle_conversation(conv_id: str, db: Session = Depends(get_db)):
     return _conv_response(repo.unsettle(conv_id))
 
 
+class VendooLinkRequest(BaseModel):
+    url_or_id: str
+
+
+class VendooLinkResponse(BaseModel):
+    conversation: ConversationResponse
+    vendoo_item_id: str
+    vendoo_url: str
+
+
+@router.post("/{conv_id}/vendoo-link", response_model=VendooLinkResponse)
+def link_vendoo_draft(conv_id: str, body: VendooLinkRequest, db: Session = Depends(get_db)):
+    """Bind this Studio listing to an existing Vendoo draft via URL or item ID."""
+    from vendoo_studio.models.job import Job
+    from vendoo_studio.services.vendoo_import import merge_notes, parse_vendoo_draft_ref, vendoo_binding
+
+    repo = ConversationRepo(db)
+    conv = repo.get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+
+    try:
+        binding = parse_vendoo_draft_ref(body.url_or_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    item_id = binding["vendooItemId"]
+    item_url = binding["vendooUrl"]
+    other = repo.find_by_vendoo_item_id(item_id)
+    if other and other.id != conv_id:
+        title = other.title or "Untitled"
+        raise HTTPException(
+            409,
+            f"That Vendoo draft is already linked to another listing ({title}).",
+        )
+
+    conv.notes = merge_notes(conv.notes, binding)
+    conv.updated_at = utcnow()
+
+    # Keep any existing jobs pointed at the same draft so Fields can refresh.
+    jobs = (
+        db.query(Job)
+        .filter(Job.conversation_id == conv_id, Job.status != "cancelled")
+        .all()
+    )
+    for job in jobs:
+        job.vendoo_item_id = item_id
+        job.vendoo_url = item_url
+
+    db.commit()
+    db.refresh(conv)
+    linked = vendoo_binding(conv.notes)
+    return VendooLinkResponse(
+        conversation=_conv_response(conv),
+        vendoo_item_id=linked.get("vendooItemId") or item_id,
+        vendoo_url=linked.get("vendooUrl") or item_url,
+    )
+
+
 @router.patch("/{conv_id}")
 def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
@@ -140,6 +204,21 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
         else:
             conv.notes = body.notes
         changed = True
+    if body.status is not None:
+        status = body.status.strip().lower().replace(" ", "_").replace("-", "_")
+        if status not in MANUAL_LISTING_STATUSES:
+            raise HTTPException(
+                400,
+                f"Status must be one of: {', '.join(MANUAL_LISTING_STATUSES)}",
+            )
+        if status != conv.status:
+            # Commit title/notes first so update_status's own commit stays consistent.
+            if changed:
+                db.commit()
+                db.refresh(conv)
+                changed = False
+            conv = repo.update_status(conv_id, status, touch_updated_at=True)
+            return _conv_response(conv)
     if changed:
         db.commit()
         db.refresh(conv)

@@ -388,3 +388,4 @@ console.log(JSON.stringify({
         self.assertIn("patchValueAlreadySet", source)
         self.assertNotIn("Already filled on Vendoo", source)
         self.assertIn("replacements (wrong value → listing value) still write", source)
+        self.assertIn("Fast pass: skip controls that already show the intended value", source)
