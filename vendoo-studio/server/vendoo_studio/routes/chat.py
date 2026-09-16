@@ -120,6 +120,11 @@ class _GenerationRun:
             queue.put_nowait(_DONE)
 
 
+def _forget_generation(conv_id: str, run: "_GenerationRun") -> None:
+    if _generations.get(conv_id) is run:
+        _generations.pop(conv_id, None)
+
+
 def _active_generation(conv_id: str) -> _GenerationRun | None:
     run = _generations.get(conv_id)
     if run and not run.done and not run.cancelling:
@@ -154,6 +159,10 @@ async def _pump_generation(run: _GenerationRun, work) -> None:
         log.exception("listing generation pump failed")
     finally:
         run.finish()
+        for conv_id, active in list(_generations.items()):
+            if active is run:
+                _forget_generation(conv_id, run)
+                break
 
 
 async def _follow_generation(run: _GenerationRun):
@@ -241,7 +250,7 @@ def _load_skill_rules(query: str = "", db: Session | None = None) -> str:
     return _file_rules()
 
 
-async def _iter_with_keepalives(source, timeout: float = 10.0):
+async def _iter_with_keepalives(source, timeout: float = 3.0):
     iterator = source.__aiter__()
     pending = None
     try:
@@ -267,7 +276,7 @@ async def _iter_with_keepalives(source, timeout: float = 10.0):
                 pass
 
 
-async def _wait_task_keepalives(task: asyncio.Task, timeout: float = 10.0):
+async def _wait_task_keepalives(task: asyncio.Task, timeout: float = 3.0):
     while not task.done():
         yield
         await asyncio.wait({task}, timeout=timeout)

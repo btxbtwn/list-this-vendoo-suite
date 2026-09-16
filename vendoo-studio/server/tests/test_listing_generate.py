@@ -827,6 +827,13 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(None, items)
         self.assertEqual(items[-1], "hello")
 
+    async def test_wait_task_keepalives_default_interval_is_mobile_safe(self):
+        import inspect
+        params = inspect.signature(chat_routes._wait_task_keepalives).parameters
+        self.assertEqual(params["timeout"].default, 3.0)
+        params = inspect.signature(chat_routes._iter_with_keepalives).parameters
+        self.assertEqual(params["timeout"].default, 3.0)
+
     async def test_generate_reports_error_when_model_returns_nothing(self):
         self.provider.chunks = []
         transport = ASGITransport(app=app)
