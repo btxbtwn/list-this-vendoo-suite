@@ -233,7 +233,7 @@ function formatClientStreamError(
     return (
       `Error: ${actionLabel} connection dropped${stageBit}.${probeBit} `
       + (probeActive
-        ? "Cancel discovery, then retry — or stay on Wi‑Fi until Chrome finishes."
+        ? "Retry reconnects to the same generate — only Cancel discovery if Chrome is stuck."
         : "Retry to resume. If this keeps happening on mobile, use a stronger connection or desktop Studio.")
     );
   }
@@ -264,44 +264,49 @@ function applySseLine(
   raw: string,
   state: SseParseState,
   onEvent: (event: string, parts: SseParts) => void,
-) {
+): boolean {
   const line = raw.replace(/\r$/, "");
   if (!line) {
     state.eventType = "message";
-    return;
+    return false;
   }
-  if (line.startsWith(":")) return;
+  if (line.startsWith(":")) return false;
   if (line.startsWith("event:")) {
     state.eventType = line.slice(6).trim() || "message";
-    return;
+    return false;
   }
-  if (!line.startsWith("data:")) return;
+  if (!line.startsWith("data:")) return false;
   const chunk = line.startsWith("data: ") ? line.slice(6) : line.slice(5);
   if (chunk === "[DONE]") {
     state.eventType = "message";
-    return;
+    return true;
   }
   if (state.eventType === "thinking") state.parts.thinking += chunk;
   else if (state.eventType === "status") state.parts.status = chunk;
   else state.parts.content += chunk;
   onEvent(state.eventType, state.parts);
+  return false;
 }
 
 function consumeSseText(
   text: string,
   onEvent: (event: string, parts: SseParts) => void,
-): SseParts {
+): { parts: SseParts; sawDone: boolean } {
   const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" } };
-  for (const line of text.split("\n")) applySseLine(line, state, onEvent);
-  return state.parts;
+  let sawDone = false;
+  for (const line of text.split("\n")) {
+    if (applySseLine(line, state, onEvent)) sawDone = true;
+  }
+  return { parts: state.parts, sawDone };
 }
 
 async function consumeSse(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   onEvent: (event: string, parts: SseParts) => void,
-): Promise<SseParts> {
+): Promise<{ parts: SseParts; sawDone: boolean }> {
   const decoder = new TextDecoder();
   let buffer = "";
+  let sawDone = false;
   const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" } };
   while (true) {
     const { done, value } = await reader.read();
@@ -309,16 +314,18 @@ async function consumeSse(
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.pop() || "";
-    for (const raw of lines) applySseLine(raw, state, onEvent);
+    for (const raw of lines) {
+      if (applySseLine(raw, state, onEvent)) sawDone = true;
+    }
   }
-  if (buffer) applySseLine(buffer, state, onEvent);
-  return state.parts;
+  if (buffer && applySseLine(buffer, state, onEvent)) sawDone = true;
+  return { parts: state.parts, sawDone };
 }
 
 async function consumeResponseSse(
   res: Response,
   onEvent: (event: string, parts: SseParts) => void,
-): Promise<SseParts> {
+): Promise<{ parts: SseParts; sawDone: boolean }> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     reader = res.body?.getReader();
@@ -327,6 +334,14 @@ async function consumeResponseSse(
   }
   if (reader) return consumeSse(reader, onEvent);
   return consumeSseText(await res.text(), onEvent);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isResumableGenerateFailure(text: string): boolean {
+  return /connection dropped|did not finish|reconnecting/i.test(text);
 }
 
 type LiveStream = {
@@ -523,7 +538,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       return /^(load failed|failed to fetch|networkerror when attempting to fetch resource|network request failed|the internet connection appears to be offline\.?)$/i.test(msg.trim())
         || /failed to fetch|networkerror|load failed/i.test(msg);
     };
-    const readStream = async (): Promise<string> => {
+    const readStream = async (): Promise<{ content: string; sawDone: boolean }> => {
       const res = await fetch(url, { ...SSE_FETCH, signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
@@ -533,28 +548,71 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         });
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      const parts = await consumeResponseSse(res, (event, nextParts) => applySseToLive(convId, event, nextParts));
-      return parts.content;
+      const { parts, sawDone } = await consumeResponseSse(
+        res,
+        (event, nextParts) => applySseToLive(convId, event, nextParts),
+      );
+      return { content: parts.content, sawDone };
     };
+    const canResumeGenerate = url.includes("/generate");
+    const maxAttempts = canResumeGenerate ? 20 : 1;
     let assembled = "";
+    let sawDone = false;
+    let attempt = 0;
     try {
-      try {
-        assembled = await readStream();
-      } catch (first: any) {
-        // Generation continues server-side; one reconnect recovers mobile drops mid-discovery.
-        if (
-          url.includes("/generate")
-          && stillMine()
-          && first?.name !== "AbortError"
-          && isNetworkFailure(first)
-        ) {
-          assembled = await readStream();
-        } else {
+      while (stillMine()) {
+        attempt += 1;
+        try {
+          const result = await readStream();
+          assembled = result.content;
+          sawDone = result.sawDone;
+          if (
+            canResumeGenerate
+            && !sawDone
+            && stillMine()
+            && attempt < maxAttempts
+          ) {
+            const priorStatus = getLive(convId).streamStatus || initialStatus;
+            patchLive(convId, {
+              streamStatus: priorStatus
+                ? `${priorStatus.replace(/\s*·\s*reconnecting….*$/i, "")} · reconnecting…`
+                : "Reconnecting to listing generation…",
+              thinkingStarted: true,
+              failedAction: null,
+              streamText: isStreamError(assembled) ? "" : assembled,
+            });
+            queryClient.invalidateQueries({ queryKey: ["jobs"] });
+            await sleep(Math.min(1500 * attempt, 5000));
+            continue;
+          }
+          break;
+        } catch (first: any) {
+          // Generation continues server-side; keep reattaching through mobile drops mid-discovery.
+          if (
+            canResumeGenerate
+            && stillMine()
+            && first?.name !== "AbortError"
+            && isNetworkFailure(first)
+            && attempt < maxAttempts
+          ) {
+            const priorStatus = getLive(convId).streamStatus || initialStatus;
+            patchLive(convId, {
+              streamStatus: priorStatus
+                ? `${priorStatus.replace(/\s*·\s*reconnecting….*$/i, "")} · reconnecting…`
+                : "Reconnecting to listing generation…",
+              thinkingStarted: true,
+              failedAction: null,
+              streamText: "",
+            });
+            queryClient.invalidateQueries({ queryKey: ["jobs"] });
+            await sleep(Math.min(1500 * attempt, 5000));
+            continue;
+          }
           throw first;
         }
       }
       if (stillMine()) {
-        if (!assembled.trim()) {
+        if (!assembled.trim() && !sawDone) {
           assembled = formatClientStreamError("Listing generation did not finish.", errorContext());
           patchLive(convId, { streamText: assembled });
         }
@@ -669,7 +727,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      const parts = await consumeResponseSse(res, (event, nextParts) => applySseToLive(convId, event, nextParts));
+      const { parts } = await consumeResponseSse(res, (event, nextParts) => applySseToLive(convId, event, nextParts));
       const assembled = parts.content;
       if (stillMine() && isStreamError(assembled)) patchLive(convId, { failedAction: "send" });
       if (stillMine()) patchLive(convId, { streaming: false, controller: null });
@@ -784,11 +842,13 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       void sendMessage(lastSendText);
       return;
     }
-    if (activeProbe?.id) {
+    const liveText = getLive(convId).streamText || streamText || "";
+    // Connection drops leave Chrome/Studio working — reattach instead of cancelling discovery.
+    if (activeProbe?.id && !isResumableGenerateFailure(liveText)) {
       await handleCancelDiscovery();
     }
     void handleGenerate();
-  }, [failedAction, lastSendText, sendMessage, handleGenerate, activeProbe?.id, handleCancelDiscovery]);
+  }, [failedAction, lastSendText, sendMessage, handleGenerate, activeProbe?.id, handleCancelDiscovery, convId, streamText]);
 
   const hasPhotos = (photos && (photos as any[]).length > 0);
   const hasMessages = messages && (messages as any[]).length > 0;
@@ -798,7 +858,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   }) || (listing?.listing && isListingJson(JSON.stringify(listing.listing))));
   const streamFailed = isStreamError(streamText);
   const errorHint = activeProbe
-    ? `Active discovery job: ${activeProbe.current_step || activeProbe.status}. Cancel it here if Chrome is stuck, then retry.`
+    ? isResumableGenerateFailure(streamText || "")
+      ? "Studio is still discovering fields in Chrome. Retry reconnects — use Cancel discovery only if Chrome is stuck."
+      : `Active discovery job: ${activeProbe.current_step || activeProbe.status}. Cancel it here if Chrome is stuck, then retry.`
     : /connection dropped/i.test(streamText || "")
       ? "This is a client/network failure, not a model refusal. Retry resumes the same generate when Studio still has it running."
       : /HTTP 5\d\d/i.test(streamText || "")

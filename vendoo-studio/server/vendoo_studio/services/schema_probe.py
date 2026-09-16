@@ -257,12 +257,20 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
                 "Category discovery could not start because another Vendoo job is already running "
                 f"(job {result.get('active_job_id') or 'unknown'}). Cancel that job from Listing, then retry."
             ),
+            "already_running": (
+                "Category discovery is already running but Studio lost its wait handle. "
+                "Cancel discovery from Listing, then retry."
+            ),
             "no_category": "Category discovery could not start: no verified category path yet.",
             "conversation_not_found": "Category discovery could not start: conversation not found.",
             "error": "Category discovery could not start because of an internal Studio error. Check Studio logs.",
         }
         raise RuntimeError(start_errors.get(reason, f"Category discovery could not start: {reason}"))
     category_path = str(seed.get("category_path") or "").strip()
+    if result.get("reason") == "already_running":
+        job = JobRepo(db).get(job_id)
+        if job and job.status == "completed":
+            result = {**result, "reason": "already_done"}
     if result.get("reason") != "already_done":
         waiter_id = "schema:" + job_id
         waiter = extension_manager.register_wait(waiter_id)
