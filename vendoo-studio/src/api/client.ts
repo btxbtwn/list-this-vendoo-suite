@@ -64,6 +64,15 @@ export const api = {
       request<any>(`/conversations/${id}/settle`, { method: "POST" }),
     unsettle: (id: string) =>
       request<any>(`/conversations/${id}/unsettle`, { method: "POST" }),
+    linkVendoo: (id: string, urlOrId: string) =>
+      request<{
+        conversation: any;
+        vendoo_item_id: string;
+        vendoo_url: string;
+      }>(`/conversations/${id}/vendoo-link`, {
+        method: "POST",
+        body: JSON.stringify({ url_or_id: urlOrId }),
+      }),
     cancelMessages: (id: string) =>
       request<{ ok: boolean }>(`/conversations/${id}/messages/cancel`, { method: "POST" }),
     messages: (id: string) => request<any[]>(`/conversations/${id}/messages`),

@@ -176,10 +176,18 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
             <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />
           </div>
         </div>
-        <div className="pr-review-meta pywebview-drag-region">
-          {importedItemId
-            ? <span className="pr-review-branch">vendoo ← {String(importedItemId).slice(0, 8)}</span>
-            : <span className="pr-review-branch">Draft</span>}
+        <div className="pr-review-meta">
+          <VendooLinkControl
+            convId={convId}
+            itemId={importedItemId}
+            url={importedUrl}
+            onLinked={() => {
+              ensureAttemptKey.current = null;
+              queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+              queryClient.invalidateQueries({ queryKey: ["conversations"] });
+              queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
+            }}
+          />
         </div>
         <div className="pr-pills" role="tablist" aria-label="Listing review">
           {(["forms", "fields"] as const).map((tab) => (
@@ -545,6 +553,108 @@ function notesVendooUrl(notes?: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function VendooLinkControl({
+  convId,
+  itemId,
+  url,
+  onLinked,
+}: {
+  convId: string;
+  itemId?: string | null;
+  url?: string | null;
+  onLinked?: () => void;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(url || itemId || "");
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (!editing) setDraft(url || itemId || "");
+  }, [editing, itemId, url]);
+
+  React.useEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editing]);
+
+  const linkMutation = useMutation({
+    mutationFn: (value: string) => api.conversations.linkVendoo(convId, value),
+    onSuccess: () => {
+      setEditing(false);
+      onLinked?.();
+      addToast({
+        type: "success",
+        title: "Vendoo draft linked",
+        description: "Fields can now read that draft once Chrome is connected.",
+      });
+    },
+    onError: (err: Error) => {
+      addToast({
+        type: "error",
+        title: "Could not link Vendoo draft",
+        description: err.message || "Check the link and try again.",
+      });
+    },
+  });
+
+  if (editing) {
+    return (
+      <form
+        className="pr-vendoo-link-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const next = draft.trim();
+          if (!next || linkMutation.isPending) return;
+          linkMutation.mutate(next);
+        }}
+      >
+        <input
+          ref={inputRef}
+          className="pr-vendoo-link-input"
+          value={draft}
+          placeholder="Paste Vendoo draft link or item ID"
+          aria-label="Vendoo draft link or item ID"
+          disabled={linkMutation.isPending}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            }
+          }}
+        />
+        <button
+          type="submit"
+          className="btn btn-secondary btn-sm"
+          disabled={linkMutation.isPending || !draft.trim()}
+        >
+          {linkMutation.isPending ? "Linking…" : "Link"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          disabled={linkMutation.isPending}
+          onClick={() => setEditing(false)}
+        >
+          Cancel
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={`pr-review-branch pr-vendoo-link-btn${itemId ? "" : " is-empty"}`}
+      title={itemId ? (url || itemId) : "Link an existing Vendoo draft"}
+      onClick={() => setEditing(true)}
+    >
+      {itemId ? `vendoo ← ${String(itemId).slice(0, 8)}` : "Link Vendoo draft"}
+    </button>
+  );
 }
 
 function coerce(val: string): any {
