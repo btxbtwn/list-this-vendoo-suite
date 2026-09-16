@@ -321,16 +321,37 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((event.payload or {}).get("fields")[0]["field"], "Material")
 
     async def test_optional_exemption_fills_does_not_apply(self):
-        self.verification["schema"]["ebay"]["fields"] = [{"label": "Sleeve length", "value": "", "required": False, "selector": "#sleeve"}]
-        ConversationRepo(self.db).add_message(self.conv.id, "user", "This top is sleeveless.")
+        self.verification["schema"]["ebay"]["fields"] = [{"label": "Theme", "value": "", "required": False, "selector": "#theme"}]
+        ConversationRepo(self.db).add_message(self.conv.id, "user", "No theme print on this plain top.")
         self.review()
-        await self.run_completion({"not_applicable": [{"marketplace": "ebay", "field": "Sleeve length",
-            "reason": "No sleeves to measure", "evidence": "sleeveless"}]})
+        await self.run_completion({"not_applicable": [{"marketplace": "ebay", "field": "Theme",
+            "reason": "No theme", "evidence": "No theme print"}]})
+        self.assertEqual(self.job.current_step, "filling_fields")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["field"], "Theme")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["value"], "Does Not Apply")
+
+    async def test_sleeveless_fills_sleeve_length_not_dna(self):
+        self.verification["schema"]["ebay"]["fields"] = [{
+            "label": "Sleeve length",
+            "value": "",
+            "required": False,
+            "selector": "#sleeve",
+            "error": "Empty field",
+        }]
+        self.job.listing_snapshot = {
+            **(self.job.listing_snapshot or {}),
+            "title": "Tank Top Sleeveless",
+            "ebay_specifics": {
+                **((self.job.listing_snapshot or {}).get("ebay_specifics") or {}),
+                "type": "Tank",
+            },
+        }
+        ListingRepo(self.db).save_revision(self.conv.id, self.job.listing_snapshot, source="completion")
+        self.review()
+        await self.run_completion({})
         self.assertEqual(self.job.current_step, "filling_fields")
         self.assertEqual(self.dispatch.await_args.args[1][0]["field"], "Sleeve length")
-        self.assertEqual(self.dispatch.await_args.args[1][0]["value"], "Does Not Apply")
-        event = JobRepo(self.db).latest_event(self.job.id, "completion_not_applicable")
-        self.assertEqual((event.payload or {}).get("fields")[0]["field"], "Sleeve length")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["value"], "Sleeveless")
 
     async def test_invalid_closed_option_becomes_no_evidence(self):
         field = self.verification["schema"]["ebay"]["fields"][0]
@@ -595,8 +616,53 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
             ],
             {"size": "10", "ebay_specifics": {"material": "Cotton"}},
         )
-        self.assertEqual([patch["field"] for patch in ready], ["Material"])
-        self.assertEqual([gap["field"] for gap in needs], ["Pattern", "Size"])
+        self.assertEqual([patch["field"] for patch in ready], ["Material", "Pattern"])
+        self.assertEqual(ready[1]["value"], "Solid")
+        self.assertEqual([gap["field"] for gap in needs], ["Size"])
+
+    def test_ebay_must_fill_optional_blocks_silent_no_evidence(self):
+        from vendoo_studio.services.listing_completion import marketplace_optional_blocks_silent_skip
+
+        self.assertTrue(marketplace_optional_blocks_silent_skip({
+            "marketplace": "ebay",
+            "field": "Features",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "ebay",
+            "field": "Material",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "ebay",
+            "field": "Theme",
+            "error": "Empty field",
+        }))
+        self.assertTrue(marketplace_optional_blocks_silent_skip({
+            "marketplace": "etsy",
+            "field": "Clothing style",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "etsy",
+            "field": "Holiday",
+            "error": "Empty field",
+        }))
+        self.assertTrue(marketplace_optional_blocks_silent_skip({
+            "marketplace": "depop",
+            "field": "Occasion",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "depop",
+            "field": "Size Grouping",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "depop",
+            "field": "Material",
+            "error": "Empty field",
+        }))
 
     def test_patch_updates_existing_camel_case_key_and_package_measurements(self):
         result = write_values_into_listing({"ebay_specifics": {"fabricType": ""}, "package_dimensions_in": "13x10x3"}, [

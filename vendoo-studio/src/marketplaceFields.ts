@@ -53,3 +53,14 @@ export const ETSY_CATEGORY_OPTIONALS: { key: string; label: string }[] = [
   { key: "pattern", label: "Pattern" },
   { key: "sustainability", label: "Sustainability" },
 ];
+
+/** Depop fields revealed after Vendoo's "Show Optional Fields". */
+export const DEPOP_CATEGORY_OPTIONALS: { key: string; label: string }[] = [
+  { key: "source", label: "Source" },
+  { key: "age", label: "Age" },
+  { key: "style", label: "Style" },
+  { key: "occasion", label: "Occasion" },
+  { key: "parcelSize", label: "Parcel Size" },
+  { key: "sizeGrouping", label: "Size Grouping" },
+  { key: "material", label: "Material" },
+];

@@ -9,6 +9,7 @@ import {
 import { addToast } from "../ui/toast";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import {
+  DEPOP_CATEGORY_OPTIONALS,
   EBAY_CATEGORY_CORE,
   EBAY_CATEGORY_OPTIONALS,
   ETSY_CATEGORY_OPTIONALS,
@@ -835,6 +836,12 @@ const ETSY_OPTIONAL_FIELDS: FieldSpec[] = ETSY_CATEGORY_OPTIONALS.map((field) =>
   always: true,
 }));
 
+const DEPOP_OPTIONAL_FIELDS: FieldSpec[] = DEPOP_CATEGORY_OPTIONALS.map((field) => ({
+  keys: [normalizeFieldName(field.label), normalizeFieldName(field.key)],
+  label: field.label,
+  always: true,
+}));
+
 const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
   general: [
     { label: "Photos", fields: [{ keys: ["photos", "images"], label: "Photos", always: false }] },
@@ -959,15 +966,7 @@ const FORM_LAYOUTS: Record<string, SectionSpec[]> = {
     { label: "Category", fields: [{ keys: ["category"], label: "Category" }, { keys: ["size"], label: "Size" }] },
     {
       label: "Optional fields",
-      fields: [
-        { keys: ["source"], label: "Source", always: true },
-        { keys: ["age"], label: "Age", always: true },
-        { keys: ["style"], label: "Style", always: true },
-        { keys: ["occasion"], label: "Occasion", always: true },
-        { keys: ["size grouping"], label: "Size Grouping", always: true },
-        { keys: ["material"], label: "Material", always: true },
-        { keys: ["tags"], label: "Tags", always: true },
-      ],
+      fields: DEPOP_OPTIONAL_FIELDS,
     },
     { label: "Item specifics", extras: true },
   ],

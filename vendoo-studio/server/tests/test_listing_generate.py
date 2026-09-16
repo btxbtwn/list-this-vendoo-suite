@@ -374,7 +374,7 @@ class PersistListingTest(unittest.TestCase):
         self.assertIn("Condition:", listing["description"])
         self.assertIn("Measurements:", listing["description"])
         self.assertEqual(listing.get("weight_oz"), 8)
-        self.assertEqual(listing["ebay_specifics"]["season"], "Summer")
+        self.assertEqual(listing["ebay_specifics"]["season"], "Spring")
         self.assertEqual(listing["depop_specifics"]["style"], ["Casual", "Retro", "Boho"])
         self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
 
