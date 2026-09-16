@@ -801,6 +801,14 @@ def _boot_window(window) -> None:
         if not is_frozen():
             ensure_on_channel_ref()
         ensure_frontend()
+        # Unlock Keychain on the UI thread before generate can block on it.
+        # Click Always Allow if macOS asks — otherwise remote generate hangs.
+        window.load_html(splash_html("Unlocking Keychain secrets…"))
+        try:
+            from vendoo_studio.services.keychain import warm_keychain
+            warm_keychain()
+        except Exception:
+            pass
         window.load_html(splash_html("Starting the local studio server…"))
         start_owned_server()
         window.load_url(APP_URL)

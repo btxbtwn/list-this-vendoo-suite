@@ -282,6 +282,15 @@ async def _wait_task_keepalives(task: asyncio.Task, timeout: float = 3.0):
         await asyncio.wait({task}, timeout=timeout)
 
 
+async def _await_with_pulses(run: "_GenerationRun", coro, child_tasks: list[asyncio.Task]):
+    """Await a long step while pulsing SSE so mobile clients do not drop."""
+    task = asyncio.create_task(coro)
+    child_tasks.append(task)
+    async for _ in _wait_task_keepalives(task):
+        run.pulse()
+    return task.result()
+
+
 def _learned_fields_prompt(db: Session, conv_id: str) -> str:
     from vendoo_studio.services.registry import RegistryService
 
@@ -977,8 +986,12 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 run.publish(_sse_event("status", "Repairing listing JSON…"))
             needed_repair = not extract_listing_json(full_text)
             run.publish(_sse_event("status", "Filling required fields…"))
-            listing = await persist_generated_listing_with_repair(
-                stream_db, conv_id, full_text, provider, final_announce=False,
+            listing = await _await_with_pulses(
+                run,
+                persist_generated_listing_with_repair(
+                    stream_db, conv_id, full_text, provider, final_announce=False,
+                ),
+                child_tasks,
             )
             if listing:
                 run.publish(_sse_event("status", "Filling discovered fields…"))
@@ -987,16 +1000,24 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 evidence = "\n\n".join(
                     part for part in (prompt_analysis, item_details, comps_text) if part
                 )
-                listing = await fill_listing_field_gaps(
-                    stream_db,
-                    conv_id,
-                    listing,
-                    provider,
-                    evidence=evidence,
+                listing = await _await_with_pulses(
+                    run,
+                    fill_listing_field_gaps(
+                        stream_db,
+                        conv_id,
+                        listing,
+                        provider,
+                        evidence=evidence,
+                    ),
+                    child_tasks,
                 )
                 run.publish(_sse_event("status", "Applying values on Vendoo…"))
                 from vendoo_studio.services.auto_apply import auto_apply_after_generation
-                apply_result = await auto_apply_after_generation(stream_db, conv_id, listing)
+                apply_result = await _await_with_pulses(
+                    run,
+                    auto_apply_after_generation(stream_db, conv_id, listing),
+                    child_tasks,
+                )
                 if apply_result.get("applied"):
                     run.publish(_sse_event(
                         "status",

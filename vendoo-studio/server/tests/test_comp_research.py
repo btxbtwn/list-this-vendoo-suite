@@ -155,6 +155,22 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
             text = await research_sold_comps(ANALYSIS)
         self.assertEqual(text, "")
 
+    async def test_timeout_returns_empty_instead_of_hanging(self):
+        import asyncio
+
+        async def hang(_query: str) -> str:
+            await asyncio.sleep(60)
+            return CHATGPT_COMPS
+
+        with (
+            patch("vendoo_studio.services.comp_research.SOLD_COMPS_TIMEOUT_SEC", 0.05),
+            patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=hang),
+            patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value=None),
+        ):
+            text = await research_sold_comps(ANALYSIS)
+        self.assertEqual(text, "")
+
 
 if __name__ == "__main__":
     unittest.main()
