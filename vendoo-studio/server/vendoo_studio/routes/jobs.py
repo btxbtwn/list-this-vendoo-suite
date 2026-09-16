@@ -29,6 +29,8 @@ class JobResponse(BaseModel):
     last_error: str | None
     listing_title: str
     mode: str | None = None
+    # Marketplace/field gaps from the latest completion pause (Ask chat targets).
+    blocker_fields: list[dict] | None = None
     created_at: str
     updated_at: str
 
@@ -1002,6 +1004,65 @@ def _ensure_listing_defaults(listing_snapshot: dict) -> None:
     normalize_listing_dropdowns(listing_snapshot)
 
 
+def _blocker_fields_for_job(job) -> list[dict] | None:
+    """Compact marketplace/field targets from the latest completion pause event."""
+    step = str(getattr(job, "current_step", None) or "").strip()
+    if step not in {"completion_blocked", "awaiting_answers"}:
+        return None
+    if not str(getattr(job, "last_error", None) or "").strip():
+        return None
+    from sqlalchemy.orm import object_session
+
+    session = object_session(job)
+    if session is None:
+        return None
+    event = JobRepo(session).latest_event(job.id, step)
+    raw = (event.payload or {}).get("fields") if event and isinstance(event.payload, dict) else None
+    if not isinstance(raw, list) or not raw:
+        return None
+    compact: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        marketplace = str(item.get("marketplace") or "").strip().lower()
+        field = str(item.get("field") or "").strip()
+        if not marketplace or not field:
+            continue
+        key = f"{marketplace}:{field.casefold()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        row: dict = {"marketplace": marketplace, "field": field}
+        expected = item.get("expected")
+        observed = item.get("observed")
+        error = item.get("error")
+        if expected not in (None, ""):
+            row["expected"] = expected
+        if observed not in (None, ""):
+            row["observed"] = observed
+        if error not in (None, ""):
+            row["error"] = error
+        options = item.get("options")
+        if isinstance(options, list) and options:
+            labels: list[str] = []
+            for option in options:
+                if isinstance(option, dict):
+                    label = str(option.get("label") or option.get("value") or "").strip()
+                else:
+                    label = str(option).strip()
+                if label and label not in labels:
+                    labels.append(label)
+                if len(labels) >= 20:
+                    break
+            if labels:
+                row["options"] = labels
+        compact.append(row)
+        if len(compact) >= 40:
+            break
+    return compact or None
+
+
 def _job_response(job) -> JobResponse:
     from vendoo_studio.services.schema_probe import is_schema_probe_job
 
@@ -1017,6 +1078,7 @@ def _job_response(job) -> JobResponse:
         last_error=job.last_error,
         listing_title=title,
         mode="schema_probe" if is_schema_probe_job(job) else None,
+        blocker_fields=_blocker_fields_for_job(job),
         created_at=job.created_at.isoformat() if job.created_at else "",
         updated_at=job.updated_at.isoformat() if job.updated_at else "",
     )

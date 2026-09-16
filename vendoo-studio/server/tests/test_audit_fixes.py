@@ -259,13 +259,260 @@ class ValidationCasesTest(unittest.TestCase):
         result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
         self.assertTrue(any(error["field"] == "ebay_specifics.season" for error in result.errors))
 
-    def test_ebay_season_does_not_apply_is_cleared(self):
+    def test_ebay_season_does_not_apply_infers_one_season(self):
         from vendoo_studio.models.validation import normalize_listing_dropdowns
 
         listing = dict(VALID_LISTING)
-        listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "season": "Does Not Apply"}
+        listing["description"] = (
+            "Y2K floral ruched blouse.\n\n"
+            "Lightweight satin fit.\n\n"
+            "Size: M\n\n"
+            "Condition: Pre-Owned - Good; Flaws: none noted.\n\n"
+            "Measurements: Pit to pit: 18\"\n\n"
+            "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
+            "15% off bundles of 2+ items."
+        )
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "type": "Blouse",
+            "season": "Does Not Apply",
+        }
         self.assertTrue(normalize_listing_dropdowns(listing))
-        self.assertNotIn("season", listing["ebay_specifics"])
+        self.assertEqual(listing["ebay_specifics"]["season"], "Spring")
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertFalse(any(error["field"] == "ebay_specifics.season" for error in result.errors))
+        self.assertTrue(result.can_send, result.errors)
+
+    def test_ebay_season_does_not_apply_list_infers_one_season(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = dict(VALID_LISTING)
+        listing["description"] = (
+            "Heavy wool cable knit sweater.\n\n"
+            "Warm winter layer.\n\n"
+            "Size: M\n\n"
+            "Condition: Pre-Owned - Good; Flaws: none noted.\n\n"
+            "Measurements: Pit to pit: 22\"\n\n"
+            "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
+            "15% off bundles of 2+ items."
+        )
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "type": "Sweater",
+            "material": "Wool",
+            "season": ["Does Not Apply"],
+        }
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["ebay_specifics"]["season"], "Winter")
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertFalse(any(error["field"] == "ebay_specifics.season" for error in result.errors))
+        self.assertTrue(result.can_send, result.errors)
+
+    def test_ebay_missing_season_infers_from_item(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = dict(VALID_LISTING)
+        listing["description"] = (
+            "Linen tank for beach summer wear.\n\n"
+            "Sleeveless light fit.\n\n"
+            "Size: M\n\n"
+            "Condition: Pre-Owned - Good; Flaws: none noted.\n\n"
+            "Measurements: Pit to pit: 18\"\n\n"
+            "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
+            "15% off bundles of 2+ items."
+        )
+        listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "type": "Tank"}
+        listing["ebay_specifics"].pop("season", None)
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["ebay_specifics"]["season"], "Summer")
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertFalse(any(error["field"] == "ebay_specifics.season" for error in result.errors))
+        self.assertTrue(result.can_send, result.errors)
+
+    def test_ebay_multi_season_chips_are_allowed(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "season": ["Spring", "Summer"]}
+        normalize_listing_dropdowns(listing)
+        self.assertEqual(listing["ebay_specifics"]["season"], ["Spring", "Summer"])
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertFalse(any(error["field"] == "ebay_specifics.season" for error in result.errors))
+        self.assertTrue(result.can_send, result.errors)
+
+    def test_ebay_category_optionals_are_filled_or_dna(self):
+        from vendoo_studio.models.validation import (
+            DNA_VALUE,
+            ensure_ebay_category_optionals,
+            normalize_listing_dropdowns,
+        )
+
+        listing = dict(VALID_LISTING)
+        listing["title"] = "Notations XL Floral Blouse Pink Regular"
+        listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"]}
+        self.assertTrue(ensure_ebay_category_optionals(listing))
+        ebay = listing["ebay_specifics"]
+        self.assertEqual(ebay["handmade"], "No")
+        self.assertEqual(ebay["personalize"], "No")
+        self.assertEqual(ebay["unitQuantity"], "1")
+        self.assertEqual(ebay["unitType"], "Unit")
+        self.assertEqual(ebay["season"], "Spring")
+        self.assertEqual(ebay["mpn"], DNA_VALUE)
+        self.assertEqual(ebay["upc"], DNA_VALUE)
+        self.assertEqual(ebay["character"], DNA_VALUE)
+        self.assertNotEqual(str(ebay.get("features") or "").strip(), "")
+        self.assertNotEqual(str(ebay.get("neckline") or "").strip(), "")
+        # DNA must not be used for must-fill apparel attributes.
+        self.assertNotEqual(str(ebay.get("fit") or "").casefold(), DNA_VALUE.casefold())
+        normalize_listing_dropdowns(listing)
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        optional_errors = [
+            err for err in result.errors
+            if str(err.get("field") or "").startswith("ebay_specifics.")
+            and err["field"] not in {"ebay_specifics.material", "ebay_specifics.garmentCare", "ebay_specifics.fabricType"}
+        ]
+        self.assertFalse(optional_errors, optional_errors)
+        self.assertTrue(result.can_send, result.errors)
+
+    def test_ebay_optional_rejects_dna_for_must_fill(self):
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "season": "Summer",
+            "fit": "Does Not Apply",
+            "handmade": "No",
+            "personalize": "No",
+            "unitQuantity": "1",
+            "unitType": "Unit",
+            "pattern": "Solid",
+            "occasion": "Casual",
+            "style": "Basic",
+            "closure": "Pullover",
+            "neckline": "Crew Neck",
+            "features": "Lightweight",
+            "sleeveLength": "Short Sleeve",
+            "vintage": "No",
+            "mpn": "Does Not Apply",
+            "upc": "Does Not Apply",
+            "character": "Does Not Apply",
+            "accents": "Does Not Apply",
+            "theme": "Does Not Apply",
+            "strapType": "Does Not Apply",
+            "fabricWeight": "Does Not Apply",
+            "countryOfOrigin": "Does Not Apply",
+            "sleeveType": "Does Not Apply",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertTrue(
+            any(error["field"] == "ebay_specifics.fit" for error in result.errors),
+            result.errors,
+        )
+
+    def test_etsy_category_optionals_are_filled_or_dna(self):
+        from vendoo_studio.models.validation import (
+            DNA_VALUE,
+            ensure_etsy_category_optionals,
+        )
+
+        listing = dict(VALID_LISTING)
+        listing["title"] = "Notations XL Floral Blouse Pink Regular"
+        listing["etsy_specifics"] = {
+            **VALID_LISTING["etsy_specifics"],
+            "when_made": "2010 - 2019 (Recently)",
+        }
+        self.assertTrue(ensure_etsy_category_optionals(listing))
+        etsy = listing["etsy_specifics"]
+        self.assertEqual(etsy["clothingStyle"], "Minimalist")
+        self.assertEqual(etsy["neckline"], "Crew")
+        self.assertEqual(etsy["closure"], "Pullover")
+        self.assertEqual(etsy["fabricPattern"], "Solid")
+        self.assertEqual(etsy["sleeveLength"], "Short sleeve")
+        self.assertEqual(etsy["holiday"], DNA_VALUE)
+        self.assertEqual(etsy["occasion"], DNA_VALUE)
+        self.assertEqual(etsy["graphic"], DNA_VALUE)
+        self.assertEqual(etsy["sustainability"], DNA_VALUE)
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        optional_errors = [
+            err for err in result.errors
+            if str(err.get("field") or "").startswith("etsy_specifics.")
+            and err["field"] not in {
+                "etsy_specifics.who_made",
+                "etsy_specifics.what_is",
+                "etsy_specifics.when_made",
+            }
+        ]
+        self.assertFalse(optional_errors, optional_errors)
+
+    def test_etsy_optional_rejects_dna_for_must_fill(self):
+        listing = dict(VALID_LISTING)
+        listing["etsy_specifics"] = {
+            **VALID_LISTING["etsy_specifics"],
+            "when_made": "2010 - 2019 (Recently)",
+            "clothingStyle": "Does Not Apply",
+            "sleeveLength": "Short sleeve",
+            "neckline": "Crew",
+            "closure": "Pullover",
+            "fabricPattern": "Solid",
+            "pattern": "Solid",
+            "graphic": "Does Not Apply",
+            "holiday": "Does Not Apply",
+            "occasion": "Does Not Apply",
+            "collarStyle": "Does Not Apply",
+            "sustainability": "Does Not Apply",
+        }
+        result = validate_listing(listing, 5, selected_marketplaces=["etsy"])
+        self.assertTrue(
+            any(error["field"] == "etsy_specifics.clothingStyle" for error in result.errors),
+            result.errors,
+        )
+
+    def test_depop_category_optionals_are_filled(self):
+        from vendoo_studio.models.validation import ensure_depop_category_optionals
+
+        listing = dict(VALID_LISTING)
+        listing["sizeType"] = "Regular"
+        listing["depop_specifics"] = {
+            "source": "Preloved",
+            "age": "Modern",
+            "style": ["Casual"],
+            "parcelSize": "Medium",
+        }
+        self.assertTrue(ensure_depop_category_optionals(listing))
+        depop = listing["depop_specifics"]
+        self.assertEqual(len(depop["style"]), 3)
+        self.assertEqual(len(depop["occasion"]), 3)
+        self.assertNotIn("sizeGrouping", depop)
+        result = validate_listing(listing, 5, selected_marketplaces=["depop"])
+        self.assertFalse(any(
+            str(err.get("field") or "").startswith("depop_specifics.") and "required" in str(err.get("message") or "").lower()
+            for err in result.errors
+        ), result.errors)
+        self.assertTrue(result.can_send, result.errors)
+
+    def test_depop_size_grouping_required_for_petite(self):
+        from vendoo_studio.models.validation import ensure_depop_category_optionals
+
+        listing = dict(VALID_LISTING)
+        listing["sizeType"] = "Petite"
+        listing["depop_specifics"] = {
+            **VALID_LISTING["depop_specifics"],
+            "style": ["Casual", "Retro", "Boho"],
+            "occasion": ["Casual", "Going out", "Vacation"],
+            "parcelSize": "Medium",
+        }
+        self.assertTrue(ensure_depop_category_optionals(listing))
+        self.assertEqual(listing["depop_specifics"]["sizeGrouping"], "Petite")
+        result = validate_listing(listing, 5, selected_marketplaces=["depop"])
+        self.assertFalse(any(error["field"] == "depop_specifics.sizeGrouping" for error in result.errors))
+        self.assertTrue(result.can_send, result.errors)
+
+    def test_ebay_season_comma_list_is_normalized(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "season": "Spring, Summer"}
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["ebay_specifics"]["season"], ["Spring", "Summer"])
         result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
         self.assertFalse(any(error["field"] == "ebay_specifics.season" for error in result.errors))
         self.assertTrue(result.can_send, result.errors)
@@ -581,6 +828,41 @@ class JobSafetyRouteTest(unittest.TestCase):
         self.assertEqual(updated.status, "cancelled")
         self.assertIsNone(updated.last_error)
 
+    def test_job_response_includes_blocker_fields(self):
+        job = Job(
+            conversation_id=self.conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot=VALID_LISTING,
+            status="failed",
+            current_step="completion_blocked",
+            last_error="Could not estimate packaged shipping weight/dimensions for the remaining gaps. Retry verification.",
+        )
+        self.db.add(job)
+        self.db.commit()
+        JobRepo(self.db).add_event(
+            job.id,
+            "completion_blocked",
+            "completion_blocked",
+            {
+                "reason": job.last_error,
+                "fields": [
+                    {"marketplace": "ebay", "field": "Package weight", "expected": "8 oz"},
+                    {"marketplace": "ebay", "field": "Package dimensions"},
+                ],
+            },
+        )
+        response = self.client.get(f"/api/jobs/{job.id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["current_step"], "completion_blocked")
+        self.assertEqual(
+            body["blocker_fields"],
+            [
+                {"marketplace": "ebay", "field": "Package weight", "expected": "8 oz"},
+                {"marketplace": "ebay", "field": "Package dimensions"},
+            ],
+        )
+
     def test_merge_notes_keeps_vendoo_binding(self):
         existing = json.dumps({"vendooItemId": "abc123", "vendooUrl": "https://web.vendoo.co/app/item/abc123", "condition": "Good"})
         merged = json.loads(merge_notes(existing, {"condition": "Fair", "vendooItemId": "", "vendooUrl": ""}))
@@ -864,6 +1146,21 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Ask chat to retry", panel)
         self.assertIn("Apply on Vendoo", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
+
+    def test_completion_blocker_ask_chat_prompts(self):
+        source = (
+            Path(__file__).resolve().parents[2] / "src" / "components" / "CopyableLlmError.tsx"
+        ).read_text(encoding="utf-8")
+        self.assertIn("export function completionBlockerPrompt", source)
+        self.assertIn("Estimate packaged shipping", source)
+        self.assertIn("Fix marketplace category alignment", source)
+        self.assertIn("Fill marketplace optional fields", source)
+        self.assertIn("Resolve these remaining listing fields", source)
+        editor = (
+            Path(__file__).resolve().parents[2] / "src" / "components" / "ListingEditor.tsx"
+        ).read_text(encoding="utf-8")
+        self.assertIn("completionBlockerPrompt", editor)
+        self.assertIn("blocker_fields", editor)
 
 
 if __name__ == "__main__":

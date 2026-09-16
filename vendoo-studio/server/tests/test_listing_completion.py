@@ -90,15 +90,54 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job.status, "completed")
         self.assertEqual(self.dispatch.await_count, 1)
 
-    async def test_unknown_fact_is_blocked_without_asking(self):
+    async def test_unknown_fact_is_marked_no_evidence_without_asking(self):
         self.review()
         await self.run_completion({"fields": [{"marketplace": "ebay", "field": "Material", "value": "Cotton"}],
                                    "questions": ["What material is listed on the tag?"]})
-        self.assertEqual(self.job.current_step, "completion_blocked")
-        self.assertNotEqual(self.job.status, "completed")
-        self.assertIn("Could not resolve", self.job.last_error or "")
-        self.assertNotIn("?", self.job.last_error or "")
+        self.assertEqual(self.job.current_step, "verified_complete")
+        self.assertEqual(self.job.status, "completed")
+        self.assertIsNone(self.job.last_error)
         self.dispatch.assert_not_awaited()
+        event = JobRepo(self.db).latest_event(self.job.id, "completion_no_evidence")
+        self.assertIsNotNone(event)
+        fields = (event.payload or {}).get("fields") or []
+        self.assertEqual(fields[0]["field"], "Material")
+        self.assertEqual(fields[0]["reason"], "No evidence")
+        self.assertNotIn("?", " ".join(str(field.get("reason") or "") for field in fields))
+
+    async def test_model_no_evidence_completes_required_gap(self):
+        self.review()
+        await self.run_completion({
+            "no_evidence": [{"marketplace": "ebay", "field": "Material", "reason": "Tag not visible"}],
+        })
+        self.assertEqual(self.job.current_step, "verified_complete")
+        self.assertEqual(self.job.status, "completed")
+        self.dispatch.assert_not_awaited()
+        event = JobRepo(self.db).latest_event(self.job.id, "completion_no_evidence")
+        self.assertEqual((event.payload or {}).get("fields")[0]["reason"], "Tag not visible")
+
+    async def test_optional_does_not_apply_value_is_filled(self):
+        self.verification["schema"]["ebay"]["fields"] = [{
+            "label": "Character",
+            "value": "",
+            "required": False,
+            "selector": "#character",
+            "options": [{"label": "Does Not Apply"}, {"label": "Mickey"}],
+            "options_complete": True,
+            "error": "Empty field",
+        }]
+        ConversationRepo(self.db).add_message(self.conv.id, "user", "No character print.")
+        self.review()
+        await self.run_completion({
+            "fields": [{
+                "marketplace": "ebay",
+                "field": "Character",
+                "value": "Does Not Apply",
+                "evidence": "No character print",
+            }],
+        })
+        self.assertEqual(self.job.current_step, "filling_fields")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["value"], "Does Not Apply")
 
     async def test_shipping_weight_estimate_is_applied_without_photo_quote(self):
         self.verification["schema"]["general"] = {
@@ -141,22 +180,30 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("confirm", (self.job.last_error or "").casefold())
         self.dispatch.assert_not_awaited()
 
-    async def test_unresolved_gap_does_not_duplicate_blocked_message(self):
-        reason_prefix = "Could not resolve from photos and notes"
-        ConversationRepo(self.db).add_message(
-            self.conv.id, "system", f"{reason_prefix}: ebay / Material. Review Fill Log, edit the listing if needed, then resume verification.",
-        )
+    async def test_unresolved_gap_is_recorded_as_no_evidence_once(self):
         self.review()
         await self.run_completion({"questions": ["What material is listed on the tag?"]})
-        self.assertEqual(self.job.current_step, "completion_blocked")
-        messages = [m.text for m in ConversationRepo(self.db).get_messages(self.conv.id)]
-        self.assertEqual(sum(1 for text in messages if reason_prefix in (text or "")), 1)
+        self.assertEqual(self.job.current_step, "verified_complete")
+        event = JobRepo(self.db).latest_event(self.job.id, "completion_no_evidence")
+        self.assertEqual(len((event.payload or {}).get("fields") or []), 1)
+        # Second pass keeps the same disposition without another fill attempt.
+        await self.run_completion({"questions": ["What material is listed on the tag?"]})
+        self.assertEqual(self.job.current_step, "verified_complete")
         self.dispatch.assert_not_awaited()
+        events = [e for e in JobRepo(self.db).get_events(self.job.id) if e.event_type == "completion_no_evidence"]
+        self.assertGreaterEqual(len(events), 1)
 
     async def test_answer_resumes_and_only_patches_gap(self):
         self.review()
-        await self.run_completion({"questions": ["What material?"]})
+        await self.run_completion({"no_evidence": [{"marketplace": "ebay", "field": "Material", "reason": "No tag visible"}]})
+        self.assertEqual(self.job.current_step, "verified_complete")
         ConversationRepo(self.db).add_message(self.conv.id, "user", "It is linen.")
+        # Clear prior no-evidence so a later resume can fill from new seller evidence.
+        JobRepo(self.db).add_event(self.job.id, "completion_no_evidence", None, {"fields": []})
+        self.job.status = "dispatched"
+        self.job.current_step = "verifying_draft"
+        self.db.commit()
+        self.review()
         await self.run_completion({"fields": [
             {"marketplace": "ebay", "field": "Material", "value": "Linen", "evidence": "linen"},
             {"marketplace": "general", "field": "Title", "value": "Changed", "evidence": "linen"},
@@ -164,12 +211,14 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.dispatch.await_args.args[1]), 1)
         self.assertEqual(self.job.listing_snapshot["title"], "Tee")
 
-    async def test_new_conditional_field_prevents_completion(self):
+    async def test_new_conditional_field_is_marked_no_evidence(self):
         self.verification["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
         self.verification["schema"]["ebay"]["fields"].append({"label": "Fabric type", "value": ""})
         self.review()
         await self.run_completion({"questions": ["What fabric type?"]})
-        self.assertEqual(self.job.current_step, "completion_blocked")
+        self.assertEqual(self.job.current_step, "verified_complete")
+        event = JobRepo(self.db).latest_event(self.job.id, "completion_no_evidence")
+        self.assertEqual((event.payload or {}).get("fields")[0]["field"], "Fabric type")
 
     async def test_identical_failed_attempt_is_not_repeated(self):
         self.listing["ebay_specifics"]["Material"] = "Cotton"
@@ -180,7 +229,9 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.review()
         await self.run_completion(result)
         self.assertEqual(self.dispatch.await_count, 1)
-        self.assertEqual(self.job.current_step, "completion_blocked")
+        self.assertEqual(self.job.current_step, "verified_complete")
+        event = JobRepo(self.db).latest_event(self.job.id, "completion_no_evidence")
+        self.assertEqual((event.payload or {}).get("fields")[0]["field"], "Material")
 
     async def test_schedule_completion_runs_follow_up_after_in_flight_task(self):
         import asyncio
@@ -258,30 +309,60 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job.current_step, "verified_complete")
         self.dispatch.assert_not_awaited()
 
-    async def test_required_field_cannot_be_exempted(self):
+    async def test_required_field_cannot_be_exempted_as_does_not_apply(self):
         ConversationRepo(self.db).add_message(self.conv.id, "user", "It has no material tag.")
         self.review()
         await self.run_completion({"not_applicable": [{"marketplace": "ebay", "field": "Material",
             "reason": "No tag", "evidence": "no material tag"}]})
-        self.assertEqual(self.job.current_step, "completion_blocked")
-
-    async def test_optional_exemption_requires_evidence(self):
-        self.verification["schema"]["ebay"]["fields"] = [{"label": "Sleeve length", "value": "", "required": False}]
-        ConversationRepo(self.db).add_message(self.conv.id, "user", "This top is sleeveless.")
-        self.review()
-        await self.run_completion({"not_applicable": [{"marketplace": "ebay", "field": "Sleeve length",
-            "reason": "No sleeves to measure", "evidence": "sleeveless"}]})
+        # Required fields cannot be Does Not Apply; they fall through to No evidence.
         self.assertEqual(self.job.current_step, "verified_complete")
-        self.dispatch.assert_not_awaited()
+        self.assertIsNone(JobRepo(self.db).latest_event(self.job.id, "completion_not_applicable"))
+        event = JobRepo(self.db).latest_event(self.job.id, "completion_no_evidence")
+        self.assertEqual((event.payload or {}).get("fields")[0]["field"], "Material")
 
-    async def test_invalid_closed_option_never_dispatches(self):
+    async def test_optional_exemption_fills_does_not_apply(self):
+        self.verification["schema"]["ebay"]["fields"] = [{"label": "Theme", "value": "", "required": False, "selector": "#theme"}]
+        ConversationRepo(self.db).add_message(self.conv.id, "user", "No theme print on this plain top.")
+        self.review()
+        await self.run_completion({"not_applicable": [{"marketplace": "ebay", "field": "Theme",
+            "reason": "No theme", "evidence": "No theme print"}]})
+        self.assertEqual(self.job.current_step, "filling_fields")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["field"], "Theme")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["value"], "Does Not Apply")
+
+    async def test_sleeveless_fills_sleeve_length_not_dna(self):
+        self.verification["schema"]["ebay"]["fields"] = [{
+            "label": "Sleeve length",
+            "value": "",
+            "required": False,
+            "selector": "#sleeve",
+            "error": "Empty field",
+        }]
+        self.job.listing_snapshot = {
+            **(self.job.listing_snapshot or {}),
+            "title": "Tank Top Sleeveless",
+            "ebay_specifics": {
+                **((self.job.listing_snapshot or {}).get("ebay_specifics") or {}),
+                "type": "Tank",
+            },
+        }
+        ListingRepo(self.db).save_revision(self.conv.id, self.job.listing_snapshot, source="completion")
+        self.review()
+        await self.run_completion({})
+        self.assertEqual(self.job.current_step, "filling_fields")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["field"], "Sleeve length")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["value"], "Sleeveless")
+
+    async def test_invalid_closed_option_becomes_no_evidence(self):
         field = self.verification["schema"]["ebay"]["fields"][0]
         field.update(options=[{"label": "Wool", "value": "wool-id"}], options_complete=True)
         ConversationRepo(self.db).add_message(self.conv.id, "user", "The tag says cotton.")
         self.review()
         await self.run_completion({"fields": [{"marketplace": "ebay", "field": "Material", "value": "Cotton", "evidence": "cotton"}]})
         self.dispatch.assert_not_awaited()
-        self.assertEqual(self.job.current_step, "completion_blocked")
+        self.assertEqual(self.job.current_step, "verified_complete")
+        event = JobRepo(self.db).latest_event(self.job.id, "completion_no_evidence")
+        self.assertEqual((event.payload or {}).get("fields")[0]["field"], "Material")
 
     async def test_repair_prompt_strips_bulky_option_objects(self):
         field = self.verification["schema"]["ebay"]["fields"][0]
@@ -330,13 +411,14 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
             "value": "Active Listing", "evidence": "Active Listing"}]})
         self.dispatch.assert_not_awaited()
 
-    async def test_round_limit_preserves_unresolved_fields(self):
+    async def test_round_limit_marks_remaining_as_no_evidence(self):
         for _ in range(MAX_REPAIR_ROUNDS):
             JobRepo(self.db).add_event(self.job.id, "completion_attempt", None, {"fields": []})
         self.review()
         await self.run_completion({})
-        self.assertEqual(self.job.current_step, "completion_blocked")
-        self.assertIn("Material", self.job.last_error)
+        self.assertEqual(self.job.current_step, "verified_complete")
+        event = JobRepo(self.db).latest_event(self.job.id, "completion_no_evidence")
+        self.assertEqual((event.payload or {}).get("fields")[0]["field"], "Material")
 
     async def test_changed_category_auto_repairs_then_pauses(self):
         ListingRepo(self.db).save_revision(self.conv.id, {**self.listing, "category_path": "Clothing > Dresses"}, source="user")
@@ -534,8 +616,53 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
             ],
             {"size": "10", "ebay_specifics": {"material": "Cotton"}},
         )
-        self.assertEqual([patch["field"] for patch in ready], ["Material"])
-        self.assertEqual([gap["field"] for gap in needs], ["Pattern", "Size"])
+        self.assertEqual([patch["field"] for patch in ready], ["Material", "Pattern"])
+        self.assertEqual(ready[1]["value"], "Solid")
+        self.assertEqual([gap["field"] for gap in needs], ["Size"])
+
+    def test_ebay_must_fill_optional_blocks_silent_no_evidence(self):
+        from vendoo_studio.services.listing_completion import marketplace_optional_blocks_silent_skip
+
+        self.assertTrue(marketplace_optional_blocks_silent_skip({
+            "marketplace": "ebay",
+            "field": "Features",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "ebay",
+            "field": "Material",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "ebay",
+            "field": "Theme",
+            "error": "Empty field",
+        }))
+        self.assertTrue(marketplace_optional_blocks_silent_skip({
+            "marketplace": "etsy",
+            "field": "Clothing style",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "etsy",
+            "field": "Holiday",
+            "error": "Empty field",
+        }))
+        self.assertTrue(marketplace_optional_blocks_silent_skip({
+            "marketplace": "depop",
+            "field": "Occasion",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "depop",
+            "field": "Size Grouping",
+            "error": "Empty field",
+        }))
+        self.assertFalse(marketplace_optional_blocks_silent_skip({
+            "marketplace": "depop",
+            "field": "Material",
+            "error": "Empty field",
+        }))
 
     def test_patch_updates_existing_camel_case_key_and_package_measurements(self):
         result = write_values_into_listing({"ebay_specifics": {"fabricType": ""}, "package_dimensions_in": "13x10x3"}, [

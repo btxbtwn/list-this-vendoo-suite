@@ -213,7 +213,7 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 | **Personalize** | "No" (always) |
 | **Vintage** | "No" (unless actually vintage) |
 | **Occasion** | Casual, Workwear, Formal, etc. |
-| **Season** | Spring, Summer, Fall, Winter only (never "All Seasons") |
+| **Season** | Exactly one of Spring, Summer, Fall, or Winter — inferred from the item (never blank, never Does Not Apply, never "All Seasons" as Season). |
 | **Theme** | Space, Music, Sports, etc. when supportable |
 | **Unit Quantity** | "1" (always for single items) |
 | **Unit Type** | "Unit" (always) |
@@ -221,9 +221,13 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 | **Inseam** | If provided in measurements |
 | **Waist** | If provided in measurements |
 
-**Pitfall: Skipping any of these fields causes the Vendoo eBay form to show them blank. Fill every row, even if the value is generic like "Crew Neck" or "Casual". The five most commonly skipped fields are Features, Neckline, Season, Unit Quantity, and Unit Type — always verify they are present in `ebay_specifics` before outputting.**
+**Pitfall: Skipping any of these fields causes the Vendoo eBay form to show them blank. After "Show Optional Fields", fill every applicable row — non-negotiable unless the attribute literally does not apply (then use Does Not Apply only for MPN, UPC, Character, Theme, Strap Type, Fabric Weight, Accents, Country of Origin, Sleeve Type). Never leave Features, Neckline, Season, Fit, Pattern, Occasion, Closure, Unit Quantity, or Unit Type blank. Season must be Spring/Summer/Fall/Winter. Verify they are present in `ebay_specifics` before outputting.**
 
-**Pitfall: eBay Season has no "All Seasons" option.** Use only Spring, Summer, Fall, or Winter (one or more). For year-round items, put `"All Seasons"` under **Features** and still set Season to the primary wear season(s).
+**Pitfall: Etsy Show Optional Fields are also non-negotiable.** Fill Clothing style, Sleeve length, Neckline, Closure, and Fabric pattern with exact Etsy dropdown values. Use Does Not Apply only for Graphic, Collar style, Holiday, Occasion, and Sustainability when they literally do not apply — never leave those rows blank.
+
+**Pitfall: Depop Show Optional Fields are also non-negotiable.** Fill Source, Age, Style (exactly 3), Occasion (exactly 3), and Parcel Size. Omit Size Grouping for Regular sizing (it does not apply). Fill Material only from tag evidence. Never leave applicable optional rows blank.
+
+**Pitfall: eBay Season has no "All Seasons" option.** Choose exactly one of Spring, Summer, Fall, or Winter from the garment (fabric, sleeve, type, title cues). For year-round items, put `"All Seasons"` under **Features** and still set Season to the primary wear season.
 
 **Pitfall: JSON key names must exactly match the extension's `fieldNameMap` keys** (e.g., `unitQuantity` not `unit_quantity` or `qty`). See `references/vendoo-extension-architecture.md` for the full mapping and extension architecture.
 

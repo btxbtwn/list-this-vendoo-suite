@@ -1515,6 +1515,26 @@
       return false;
   }
 
+  /** True when a FILL_FIELDS patch would leave the control unchanged. */
+  function patchValueAlreadySet(el, value, fieldName) {
+      if (!el) return false;
+      if (el.type === 'checkbox' || ['checkbox', 'switch'].includes(el.getAttribute?.('role'))) {
+          const text = String(value ?? '').trim().toLowerCase();
+          if (!['true', 'false', 'yes', 'no', '1', '0'].includes(text)) return false;
+          const expected = ['true', 'yes', '1'].includes(text);
+          return readPersistedControlValue(el) === expected;
+      }
+      if (isMultiChipField(fieldName, el)) {
+          const values = splitChipValues(value);
+          return values.length > 0 && chipsMatchValues(el, values);
+      }
+      if (shouldFillAsDropdown(el, fieldName)) {
+          const shown = displayedFieldValue(el);
+          return optionMatchesValue(shown, value, false) || fieldValuesEqual(shown, value);
+      }
+      return fieldValuesEqual(displayedFieldValue(el), value);
+  }
+
   function chipsMatchValues(el, values) {
       const want = (Array.isArray(values) ? values : [values])
           .map(normalizeOptionValue)
@@ -3424,10 +3444,52 @@
   // PLATFORM-SPECIFIC FILLERS - OPTIMIZED
   // ============================================
 
-  function normalizeEbaySpecificValue(key, value) {
+  function inferEbaySeasonFromListing(data, specs) {
+      const chunks = [
+          data?.title,
+          data?.description,
+          data?.category_path,
+          data?.type,
+          data?.primaryColor,
+          specs?.type,
+          specs?.material,
+          specs?.fabricType,
+          specs?.sleeveLength,
+          specs?.style,
+          specs?.theme,
+          specs?.features,
+          specs?.occasion,
+      ];
+      const hay = chunks
+          .flatMap((chunk) => (Array.isArray(chunk) ? chunk : [chunk]))
+          .filter((item) => item != null && String(item).trim() !== '')
+          .join(' ')
+          .toLowerCase();
+      const cues = {
+          Winter: /\b(winter|wool|fleece|cashmere|coat|parka|puffer|down|thermal|hoodie|sweater|pullover|cable|knit|cardigan|heavyweight|insulated|boot|snow)\b/,
+          Summer: /\b(summer|linen|tank|sleeveless|shorts?|sundress|cami|swim|bikini|short[\s-]*sleeve|crop(?:ped)?\s*top|tropical|beach|t[\s-]?shirt|tee|polo)\b/,
+          Fall: /\b(fall|autumn|flannel|corduroy|tweed|light[\s-]*jacket|denim\s*jacket|shacket|midweight|layering)\b/,
+          Spring: /\b(spring|floral|flower|blossom|pastel|blouse|ruched|lightweight|chiffon|satin|silk|trench)\b/,
+      };
+      const order = ['Spring', 'Summer', 'Fall', 'Winter'];
+      let best = 'Summer';
+      let bestScore = -1;
+      for (const season of order) {
+          const matches = hay.match(new RegExp(cues[season].source, 'gi'));
+          const score = matches ? matches.length : 0;
+          if (score > bestScore) {
+              best = season;
+              bestScore = score;
+          }
+      }
+      if (bestScore > 0) return best;
+      if (/\b(coat|parka|puffer|sweater|hoodie|fleece|wool|boot)\b/.test(hay)) return 'Winter';
+      return 'Summer';
+  }
+
+  function normalizeEbaySpecificValue(key, value, context = {}) {
       if (value == null || value === '') return value;
       const raw = Array.isArray(value) ? value.join(', ') : String(value).trim();
-      if (isDoesNotApplyValue(raw)) return null;
       if (key === 'yearManufactured') {
           if (/pre-?1900s/i.test(raw)) return 'Pre-1900s';
           const years = raw.match(/(?:19|20)\d{2}/g);
@@ -3460,14 +3522,23 @@
           const allowed = ['Fall', 'Spring', 'Summer', 'Winter'];
           const parts = raw.split(/[,;/|]+/).map((part) => part.trim()).filter(Boolean);
           const matched = [];
+          let needsInfer = parts.length === 0;
           for (const part of parts) {
-              if (/^all seasons$/i.test(part)) continue;
+              if (/^(all[\s-]*seasons?|does not apply|n\/?a|none|unknown)$/i.test(part)) {
+                  needsInfer = true;
+                  continue;
+              }
               const hit = allowed.find((item) => item.toLowerCase() === part.toLowerCase());
               if (hit && !matched.includes(hit)) matched.push(hit);
           }
-          if (matched.length === 0) return null;
-          return matched.length === 1 ? matched[0] : matched;
+          if (matched.length === 1) return matched[0];
+          if (matched.length > 1) return matched;
+          if (needsInfer || !raw || isDoesNotApplyValue(raw)) {
+              return inferEbaySeasonFromListing(context.data || {}, context.specs || {});
+          }
+          return null;
       }
+      if (isDoesNotApplyValue(raw)) return null;
       if (key === 'countryOfOrigin' && /^unknown$/i.test(raw)) return null;
       return value;
   }
@@ -3563,13 +3634,16 @@
           }
           log(`Found ${allInputs.length} category specific fields`);
 
-          // "All Seasons" is a Features chip, not a Season option (Season = Fall/Spring/Summer/Winter only).
+          // "All Seasons" is a Features chip; Season itself must still be one calendar season.
           const seasonRaw = specs.season;
-          if (/all seasons/i.test(String(seasonRaw || ''))) {
+          if (/all seasons/i.test(String(Array.isArray(seasonRaw) ? seasonRaw.join(',') : (seasonRaw || '')))) {
               const features = Array.isArray(specs.features) ? specs.features.slice() : String(specs.features || '').split(',').map((item) => item.trim()).filter(Boolean);
               if (!features.some((item) => /all seasons/i.test(item))) features.push('All Seasons');
               specs.features = features;
-              delete specs.season;
+              specs.season = inferEbaySeasonFromListing(data, specs);
+          }
+          if (specs.season == null || specs.season === '' || (Array.isArray(specs.season) && specs.season.length === 0)) {
+              specs.season = inferEbaySeasonFromListing(data, specs);
           }
           const fillOrder = [
               'sizeType', 'department', 'type', 'size',
@@ -3580,7 +3654,7 @@
           let filledNames = new Set();
 
           for (const key of fillOrder) {
-              const mapped = normalizeEbaySpecificValue(key, specs[key]);
+              const mapped = normalizeEbaySpecificValue(key, specs[key], { data, specs });
               const fieldName = fieldNameMap[key] || key;
               const fieldKey = normalizeFieldKey(fieldName);
               if (filledNames.has(fieldKey)) continue;
@@ -6450,16 +6524,10 @@
                       });
                       continue;
                   }
-                  // Apply empty fields only — never re-type controls that already have a value.
-                  if (fieldLooksFilled(el)) {
-                      recordFill({
-                          id: item.id,
-                          field: fieldName,
-                          status: 'skipped',
-                          reason: 'Already filled on Vendoo',
-                          selector: item.selector || '',
-                          value: displayedFieldValue(el) || value,
-                      });
+                  // Skip only when the live control already matches — empty fields
+                  // and replacements (wrong value → listing value) still write.
+                  if (patchValueAlreadySet(el, value, fieldName)) {
+                      recordAlreadySet(fieldName, el, item.selector || '', value);
                       continue;
                   }
                   if (el.type === 'checkbox' || ['checkbox', 'switch'].includes(el.getAttribute?.('role'))) {

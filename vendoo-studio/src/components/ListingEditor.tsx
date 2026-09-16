@@ -5,6 +5,7 @@ import { FillLogPanel } from "./FillLogPanel";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { OpenListingButton } from "./OpenListingButton";
 import {
+  DEPOP_CATEGORY_OPTIONALS,
   EBAY_CATEGORY_OPTIONALS,
   ETSY_CATEGORY_OPTIONALS,
 } from "../marketplaceFields";
@@ -12,6 +13,12 @@ import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
 import { ClearListingButton } from "./ClearListingButton";
 import { fetchVendooItemLive } from "../api/vendooItemQuery";
+import {
+  CopyableLlmError,
+  completionBlockerPrompt,
+  jobErrorPrompt,
+  validationErrorsPrompt,
+} from "./CopyableLlmError";
 
 interface Props {
   convId: string;
@@ -280,8 +287,10 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
           convId={convId}
           canSend={data?.can_send ?? false}
           sendBlockers={data?.errors || []}
+          listingTitle={listingTitle}
           vendooItemId={importedItemId}
           onJobStarted={onJobStarted}
+          onAskChat={onAskChat}
         />
       </div>
     </div>
@@ -441,7 +450,14 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
         ...specificsFields(listing?.mercari_specifics, "mercari_specifics", ["shippingLabel"]),
       ];
     case "depop":
-      return specificsFields(listing?.depop_specifics, "depop_specifics");
+      return mergeSpecificsWithDefaults(
+        listing?.depop_specifics,
+        "depop_specifics",
+        DEPOP_CATEGORY_OPTIONALS.map((field) => ({
+          key: `depop_specifics.${field.key}`,
+          label: field.label,
+        })),
+      );
     case "etsy":
       return mergeSpecificsWithDefaults(
         listing?.etsy_specifics,
@@ -541,14 +557,18 @@ function SendToVendooButton({
   convId,
   canSend,
   sendBlockers,
+  listingTitle,
   vendooItemId,
   onJobStarted,
+  onAskChat,
 }: {
   convId: string;
   canSend: boolean;
   sendBlockers: { field?: string; message?: string }[];
+  listingTitle?: string;
   vendooItemId?: string | null;
   onJobStarted?: () => void;
+  onAskChat?: (text: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
@@ -653,26 +673,35 @@ function SendToVendooButton({
   if (probeActive && existingJob) {
     return (
       <div className="job-card">
-        <div className="job-card-copy">
-          <div className="job-card-label">Discovering fields</div>
-          <div className="job-card-status">
-            {existingJob.current_step || existingJob.status}
-            <div className="mt-4 text-xs text-muted">
-              Matching the Vendoo category and reading marketplace fields into this listing.
+        <div className="job-card-header">
+          <div className="job-card-copy">
+            <div className="job-card-label">Discovering fields</div>
+            <div className="job-card-status">
+              {existingJob.current_step || existingJob.status}
+              <div className="mt-4 text-xs text-muted">
+                Matching the Vendoo category and reading marketplace fields into this listing.
+              </div>
             </div>
           </div>
+          <div className="job-card-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm job-card-action"
+              disabled={cancelMutation.isPending}
+              onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}
+            >
+              {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
+            </button>
+          </div>
         </div>
-        <div className="job-card-actions">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm job-card-action"
-            disabled={cancelMutation.isPending}
-            onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}
-          >
-            {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
-          </button>
-        </div>
-        {error && <div className="job-card-error-text">{error}</div>}
+        {error && (
+          <CopyableLlmError
+            className="job-card-detail"
+            text={error}
+            prompt={jobErrorPrompt(error, listingTitle)}
+            onAskChat={onAskChat}
+          />
+        )}
       </div>
     );
   }
@@ -720,40 +749,62 @@ function SendToVendooButton({
           : "Restart Job";
     return (
       <div className={`job-card${isFailed ? " job-card-error" : ""}`}>
-        <div className="job-card-copy">
-          <div className="job-card-label">Job Status</div>
-          <div className={`job-card-status${isFailed ? " error" : ""}`}>
-            {statusText}
-            {fillJob.last_error && <div className="mt-4 text-xs text-error">{fillJob.last_error}</div>}
+        <div className="job-card-header">
+          <div className="job-card-copy">
+            <div className="job-card-label">Job Status</div>
+            <div className={`job-card-status${isFailed ? " error" : ""}`}>{statusText}</div>
+          </div>
+          <div className="job-card-actions">
+            {canRestart && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm job-card-action"
+                disabled={retryMutation.isPending || cancelMutation.isPending}
+                onClick={async () => {
+                  if (!completionStep && !(await confirmOverwriteIfNeeded())) return;
+                  setError(null);
+                  retryMutation.mutate(fillJob.id);
+                }}
+              >
+                {buttonLabel}
+              </button>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm job-card-action"
+                disabled={cancelMutation.isPending}
+                onClick={() => { setError(null); cancelMutation.mutate(fillJob.id); }}
+              >
+                {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
+              </button>
+            )}
           </div>
         </div>
-        <div className="job-card-actions">
-          {canRestart && (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm job-card-action"
-              disabled={retryMutation.isPending || cancelMutation.isPending}
-              onClick={async () => {
-                if (!completionStep && !(await confirmOverwriteIfNeeded())) return;
-                setError(null);
-                retryMutation.mutate(fillJob.id);
-              }}
-            >
-              {buttonLabel}
-            </button>
-          )}
-          {canCancel && (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm job-card-action"
-              disabled={cancelMutation.isPending}
-              onClick={() => { setError(null); cancelMutation.mutate(fillJob.id); }}
-            >
-              {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
-            </button>
-          )}
-        </div>
-        {error && <div className="job-card-error-text">{error}</div>}
+        {fillJob.last_error && (
+          <CopyableLlmError
+            className="job-card-detail"
+            text={fillJob.last_error}
+            prompt={
+              completionStep
+                ? completionBlockerPrompt(
+                    fillJob.last_error,
+                    listingTitle,
+                    Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
+                  )
+                : jobErrorPrompt(fillJob.last_error, listingTitle)
+            }
+            onAskChat={onAskChat}
+          />
+        )}
+        {error && (
+          <CopyableLlmError
+            className="job-card-detail"
+            text={error}
+            prompt={jobErrorPrompt(error, listingTitle)}
+            onAskChat={onAskChat}
+          />
+        )}
       </div>
     );
   }
@@ -766,6 +817,12 @@ function SendToVendooButton({
       </div>
     );
   }
+
+  const displayError = error || (!canSend ? blockerText : "");
+  const blockerPrompt = validationErrorsPrompt(
+    uniqueBlockers.length ? uniqueBlockers : [{ message: displayError }],
+    listingTitle,
+  );
 
   return (
     <div>
@@ -786,8 +843,17 @@ function SendToVendooButton({
       >
         {sendMutation.isPending ? "Sending..." : sendLabel}
       </button>
-      {(error || (!canSend && blockerText)) && (
-        <div className="mt-8 text-xs text-error">{error || blockerText}</div>
+      {displayError && (
+        <CopyableLlmError
+          className="mt-8"
+          text={displayError}
+          prompt={
+            uniqueBlockers.length
+              ? blockerPrompt
+              : jobErrorPrompt(displayError, listingTitle)
+          }
+          onAskChat={onAskChat}
+        />
       )}
     </div>
   );

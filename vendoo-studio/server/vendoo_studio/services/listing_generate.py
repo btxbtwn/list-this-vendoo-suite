@@ -195,7 +195,17 @@ FINALIZE_GAPS_PROMPT = (
     "Measurements:, OFFERS WELCOME, and the 15% off line — with blank lines between blocks.\n"
     "Preserve the current title and description unless a listed validation error is for title or "
     "description. Never replace a formula-compliant title/description with freeform marketing copy.\n"
-    "Use exact Depop/Etsy/eBay dropdown values. Keep category_path and marketplace_categories unchanged.\n\n"
+    "Use exact Depop/Etsy/eBay dropdown values. Keep category_path and marketplace_categories unchanged.\n"
+    "For eBay Show Optional Fields: fill every applicable ebay_specifics row. Use Does Not Apply only "
+    "when the attribute literally does not apply. Season must be Spring, Summer, Fall, or Winter.\n"
+    "For Etsy Show Optional Fields: fill every applicable etsy_specifics / category_specifics row with "
+    "exact Etsy dropdown values. Does Not Apply only for Graphic, Collar style, Holiday, Occasion, "
+    "Sustainability when they truly do not apply; always fill Clothing style, Sleeve length, Neckline, "
+    "Closure, and Fabric pattern.\n"
+    "For Depop Show Optional Fields: fill Source, Age, Style (3), Occasion (3), and Parcel Size. "
+    "Omit Size Grouping for Regular sizing; fill Material only from tag evidence.\n"
+    "Across every marketplace: fill every applicable optional/item-specific field. Use Does Not Apply "
+    "only when the attribute literally does not apply.\n\n"
     "{formulas}"
 )
 

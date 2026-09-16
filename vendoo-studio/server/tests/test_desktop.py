@@ -12,14 +12,37 @@ from vendoo_studio.routes import desktop as desktop_routes
 
 
 class StudioWindowChromeTest(unittest.TestCase):
-    def test_window_kwargs_hide_native_titlebar(self):
-        kwargs = desktop.studio_window_kwargs()
-        self.assertTrue(kwargs["frameless"])
-        self.assertFalse(kwargs["easy_drag"])
-        self.assertTrue(kwargs["shadow"])
-        self.assertEqual(kwargs["background_color"], desktop.WINDOW_BACKGROUND)
-        self.assertEqual(kwargs["min_size"], desktop.MIN_WINDOW_SIZE)
-        self.assertNotIn("icon", kwargs)
+    def test_enable_editable_context_menus_keeps_paste(self):
+        class FakeMenu:
+            def __init__(self, items):
+                self._items = list(items)
+
+            def itemArray(self):
+                return list(self._items)
+
+            def removeAllItems(self):
+                self._items.clear()
+
+            def addItem_(self, item):
+                self._items.append(item)
+
+        paste = SimpleNamespace(action=lambda: "paste:", title=lambda: "Paste")
+        inspect = SimpleNamespace(action=lambda: "inspectElement:", title=lambda: "Inspect Element")
+        menu = FakeMenu([paste, inspect])
+
+        host = SimpleNamespace()
+        cocoa = SimpleNamespace(BrowserView=SimpleNamespace(WebKitHost=host))
+        with patch.dict(sys.modules, {
+            "Foundation": SimpleNamespace(NSStringFromSelector=lambda action: str(action)),
+            "webview": SimpleNamespace(),
+            "webview.platforms": SimpleNamespace(),
+            "webview.platforms.cocoa": cocoa,
+        }):
+            desktop.enable_editable_context_menus()
+            self.assertTrue(callable(host.willOpenMenu_withEvent_))
+            host.willOpenMenu_withEvent_(host, menu, None)
+        titles = [item.title() for item in menu.itemArray()]
+        self.assertEqual(titles, ["Paste"])
 
     def test_start_kwargs_use_chrome_extension_icon(self):
         with patch.object(desktop, "studio_app_menu", return_value=["menu"]):

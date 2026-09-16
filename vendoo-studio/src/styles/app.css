@@ -2758,6 +2758,10 @@ details[open] .json-collapse-summary::before {
   align-items: stretch;
   flex-shrink: 0;
   min-width: 0;
+  max-height: min(42vh, 320px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 10px 12px;
   border-top: 1px solid var(--color-border);
 }
@@ -2770,16 +2774,23 @@ details[open] .json-collapse-summary::before {
 
 .job-card {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   min-height: 62px;
   padding: 10px 12px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--color-border-light);
   background: var(--color-surface);
   margin-bottom: 0;
+}
+
+.job-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .job-card-copy {
@@ -2802,8 +2813,50 @@ details[open] .json-collapse-summary::before {
   min-width: 88px;
 }
 
+.job-card-detail {
+  max-height: 7.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.llm-error-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.llm-error-card.job-card-detail {
+  max-height: none;
+}
+
+.llm-error-card .llm-error-text {
+  max-height: 7.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.llm-error-hint {
+  margin: 0;
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+.llm-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .job-card-error-text {
-  flex-basis: 100%;
   margin-top: 2px;
   font-size: var(--text-xs);
   color: var(--color-error);
@@ -4522,12 +4575,30 @@ details[open] .json-collapse-summary::before {
     grid-template-columns: 1fr;
   }
 
-  .job-card {
-    flex-wrap: wrap;
+  .editor-footer {
+    max-height: min(38vh, 280px);
+  }
+
+  .job-card-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .job-card-actions,
   .job-card-action {
+    width: 100%;
+  }
+
+  .job-card-detail {
+    max-height: 5.5rem;
+  }
+
+  .llm-error-card .llm-error-text {
+    max-height: 5.5rem;
+  }
+
+  .llm-error-actions,
+  .llm-error-actions .btn {
     width: 100%;
   }
 }
