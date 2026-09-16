@@ -332,30 +332,6 @@ async function rememberedEngineWindowId() {
   return null;
 }
 
-async function currentEverydayWindowId() {
-  const usable = (win) => (
-    win
-    && win.id != null
-    && win.type !== 'popup'
-    && win.state !== 'minimized'
-    && !isOffscreenEngineWindow(win)
-  );
-  try {
-    const current = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-    if (usable(current)) {
-      return current.id;
-    }
-  } catch (_) {}
-  try {
-    const windows = await chrome.windows.getAll();
-    const visible = (windows || []).find(usable);
-    if (visible?.id != null) {
-      return visible.id;
-    }
-  } catch (_) {}
-  return null;
-}
-
 async function closeSpareBlankTabs(windowId, keepTabId) {
   try {
     const tabs = await chrome.tabs.query({ windowId });
@@ -365,37 +341,61 @@ async function closeSpareBlankTabs(windowId, keepTabId) {
   } catch (_) {}
 }
 
+async function closeEmptyWindows(keepWindowId) {
+  try {
+    const windows = await chrome.windows.getAll({ populate: true });
+    await Promise.all(windows
+      .filter((win) => win.id && win.id !== keepWindowId)
+      .filter((win) => !(win.tabs || []).some((tab) => tab.url && tab.url !== 'about:blank'))
+      .map(async (win) => {
+        try {
+          await chrome.windows.remove(win.id);
+        } catch (_) {}
+        try {
+          const stored = await chrome.storage.local.get(ENGINE_WINDOW_KEY);
+          if (stored[ENGINE_WINDOW_KEY] === win.id) {
+            await chrome.storage.local.remove(ENGINE_WINDOW_KEY);
+          }
+        } catch (_) {}
+      }));
+  } catch (_) {}
+}
+
 async function openEverydayListingTab(url, existing, { foreground = false } = {}) {
-  if (existing?.id) {
+  const engineId = await rememberedEngineWindowId();
+  if (existing?.id && engineId != null && existing.windowId === engineId) {
     try {
-      const update = {};
+      const update = { active: true };
       if (url) update.url = url;
-      if (foreground) update.active = true;
-      const tab = Object.keys(update).length
-        ? await chrome.tabs.update(existing.id, update)
-        : await chrome.tabs.get(existing.id);
+      const tab = await chrome.tabs.update(existing.id, update);
       if (foreground && tab.windowId) await showWindow(tab.windowId);
+      else if (tab.windowId) await hideWindow(tab.windowId);
       return tab;
     } catch (err) {
-      log(`Could not reuse Vendoo tab (${err.message}); opening a new tab`);
+      log(`Could not reuse engine Vendoo tab (${err.message}); opening a new window`);
     }
   }
-  const windowId = await currentEverydayWindowId();
+
   try {
-    const tab = await chrome.tabs.create(
-      windowId != null ? { windowId, url, active: foreground } : { url, active: foreground },
-    );
-    if (foreground && tab.windowId) await showWindow(tab.windowId);
-    return tab;
-  } catch (err) {
-    log(`Could not open listing tab (${err.message}); opening a window`);
-    const created = await createWindowSafe({ url, focused: foreground, type: 'normal' });
-    if (foreground) await showWindow(created.id);
+    const targetUrl = url || existing?.url || 'about:blank';
+    const created = await createWindowSafe({
+      url: targetUrl,
+      focused: Boolean(foreground),
+      type: 'normal',
+    });
+    await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
     const tab = created.tabs && created.tabs[0];
     if (!tab) {
-      throw err;
+      throw new Error('Chrome did not return a listing tab');
     }
+    await closeSpareBlankTabs(created.id, tab.id);
+    await closeEmptyWindows(created.id);
+    if (foreground) await showWindow(created.id);
+    else await hideWindow(created.id);
     return tab;
+  } catch (err) {
+    log(`Could not open listing in a new window (${err.message})`);
+    throw err;
   }
 }
 
@@ -403,11 +403,19 @@ async function closeListingTab(tabId) {
   if (tabId == null) {
     return;
   }
+  let windowId = null;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    windowId = tab.windowId;
+  } catch (_) {}
   try {
     await chrome.tabs.remove(tabId);
     log(`Closed listing tab ${tabId}`);
   } catch (err) {
     log(`Could not close listing tab (${err.message})`);
+  }
+  if (windowId != null) {
+    await closeEmptyWindows(null);
   }
 }
 

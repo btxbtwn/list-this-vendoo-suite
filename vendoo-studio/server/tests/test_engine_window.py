@@ -113,30 +113,31 @@ console.log(JSON.stringify(result));
 
 
 class EverydayListingTabTest(unittest.TestCase):
-    def test_listing_opens_a_tab_in_everyday_chrome(self) -> None:
+    def test_listing_opens_in_a_dedicated_engine_window(self) -> None:
         preview = PREVIEW.read_text(encoding="utf-8")
         background = BACKGROUND.read_text(encoding="utf-8")
-        self.assertIn("currentEverydayWindowId", preview)
-        self.assertIn("chrome.windows.getLastFocused", preview)
+        self.assertIn("createWindowSafe", preview)
         self.assertIn("openEverydayListingTab", preview)
         self.assertIn("openEverydayListingTab", background)
-        self.assertNotIn("openTabInHiddenWindow", preview)
-        self.assertNotIn("openTabInHiddenWindow", background)
-        self.assertNotIn("hidden Chrome window", background)
-        self.assertIn("everyday Chrome window", background)
+        self.assertNotIn("currentEverydayWindowId", preview)
+        self.assertNotIn("chrome.windows.getLastFocused", preview)
+        self.assertIn("ENGINE_WINDOW_KEY", preview)
+        self.assertIn("Studio engine window", background)
+        self.assertNotIn("everyday Chrome window", background)
 
     def test_listing_tab_closes_when_the_job_finishes(self) -> None:
         background = BACKGROUND.read_text(encoding="utf-8")
         preview = PREVIEW.read_text(encoding="utf-8")
         self.assertIn("closeListingTab", background)
         self.assertIn("Closed listing tab", preview)
+        self.assertIn("closeEmptyWindows", preview)
         self.assertGreaterEqual(background.count("await closeListingTab("), 4)
 
     def test_listing_does_not_bring_chrome_to_front(self) -> None:
         preview = PREVIEW.read_text(encoding="utf-8")
         background = BACKGROUND.read_text(encoding="utf-8")
-        self.assertIn("active: foreground", preview)
-        self.assertIn("focused: foreground", preview)
+        self.assertIn("focused: false", preview)
+        self.assertIn("await hideWindow(", preview)
         start = preview.index("async function startJobPreview")
         start_fn = preview[start:]
         self.assertNotIn("showWindow", start_fn.split("chrome.debugger.onEvent", 1)[0])

@@ -375,7 +375,7 @@ export function FirstRunGuide({
               <>
                 <h2 id="setup-guide-title" className="setup-guide-title">Connect Chrome</h2>
                 <p className="setup-guide-copy">
-                  Studio opens Vendoo in a background tab in everyday Chrome. Load the listing extension from the folder below once, then sign in to Vendoo. After that, Send to Vendoo fills a draft in the background and stops. It never publishes.
+                  Studio opens Vendoo in its own Chrome window for listing fills. Load the listing extension from the folder below once, then sign in to Vendoo. After that, Send to Vendoo fills a draft in the background and stops. It never publishes.
                 </p>
                 {!chromeAvailable ? (
                   <p className="setup-guide-copy">
