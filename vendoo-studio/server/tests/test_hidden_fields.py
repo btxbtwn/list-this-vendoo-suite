@@ -15,7 +15,7 @@ from vendoo_studio.services import hidden_fields
 class HiddenFieldsServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self._data = os.environ.get("VENDOO_STUDIO_DATA_DIR")
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         os.environ["VENDOO_STUDIO_DATA_DIR"] = self.tmp.name
 
     def tearDown(self) -> None:
@@ -111,7 +111,7 @@ class HiddenFieldsServiceTest(unittest.TestCase):
 class HiddenFieldsRouteTest(unittest.TestCase):
     def setUp(self) -> None:
         self._data = os.environ.get("VENDOO_STUDIO_DATA_DIR")
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         os.environ["VENDOO_STUDIO_DATA_DIR"] = self.tmp.name
         self.client = TestClient(app)
 

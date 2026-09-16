@@ -70,6 +70,12 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_ORDER = ["invalid", "failed", "not_found", "uncertain", "new", "skipped", "not_applicable", "filled"];
 const FILLABLE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain", "new", "skipped"]);
 const DISCOVERY_STATUSES = new Set(["new"]);
+/** Real Apply/Send failures only — not skipped-empty or already-correct controls. */
+const FILL_FAILURE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain"]);
+
+function isAlreadySetEntry(entry: { status?: string; reason?: string }): boolean {
+  return /^already set$/i.test(String(entry.reason || "").trim());
+}
 const EMPTY_CELL = "— empty —";
 const UNREAD_CELL = "— not read —";
 const DOES_NOT_APPLY_RE = /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i;
@@ -172,8 +178,21 @@ function formSyncCounts(
   return counts;
 }
 
+function fieldsNeedingListingValues(
+  forms: DraftForm[],
+  listing: Record<string, unknown> | undefined,
+): { form: DraftForm; field: DraftField }[] {
+  return forms.flatMap((form) =>
+    form.fields
+      .filter((field) => !field.notApplicable && !isUnfillableField(field))
+      .filter((field) => listingFieldEmpty(listing, form.id, field))
+      .map((field) => ({ form, field })),
+  );
+}
+
 function issueLabel(entry: FillLogEntry): string {
   if (entry.status === "new") return "Discovered on form";
+  if (isAlreadySetEntry(entry)) return "Already set";
   if (/^no evidence\b/i.test(String(entry.reason || "").trim())) return "No evidence";
   if (entry.status === "skipped") return "Not filled";
   return STATUS_LABELS[entry.status] || entry.status;
@@ -471,6 +490,148 @@ function leftoverStatusLabel(entry: FillLogEntry): string {
   return entry.status;
 }
 
+function leftoverFieldPrompt(
+  listing: Record<string, unknown> | undefined,
+  entry: FillLogEntry,
+  currentValue: string,
+): string {
+  const title = listingTitle(listing);
+  const current = String(currentValue || entry.value_preview || "").trim() || "(empty)";
+  const reason = String(entry.reason || "").trim() || "(none)";
+  return `Fix this Vendoo field for listing "${title}".
+
+Listing: ${title}
+Marketplace: ${entry.marketplace}
+Field: ${entry.field}
+Current value: ${current}
+Status: ${leftoverStatusLabel(entry)}
+Failure reason: ${reason}
+
+Generate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.
+
+Reply with JSON in this exact shape:
+
+\`\`\`json
+{"missing_fields":[{"marketplace":"${entry.marketplace}","field":"${entry.field}","value":"..."}]}
+\`\`\`
+`;
+}
+
+function emptyFieldsPrompt(
+  forms: DraftForm[],
+  fromDraft: boolean,
+  listing?: Record<string, unknown>,
+): string {
+  const title = listingTitle(listing);
+  const rows: { marketplace: string; form: string; field: string; current: string; status: string; reason: string }[] = [];
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+    const leftover = field.leftover;
+    rows.push({
+      marketplace: form.id,
+      form: form.label,
+      field: field.label,
+      current: listingTextForField(listing, form.id, field) || EMPTY_CELL,
+      status: leftover ? leftoverStatusLabel(leftover) : "missing in listing",
+      reason: leftover?.reason || (fromDraft
+        ? "empty in listing JSON (field exists on the Vendoo form)"
+        : "empty in listing JSON"),
+    });
+  }
+  const limited = rows.slice(0, 50);
+  const lines = limited.map((row) => `- Listing: ${title}
+  Marketplace: ${row.marketplace}
+  Field: ${row.field}
+  Current value: ${row.current}
+  Status: ${row.status}
+  Reason: ${row.reason}`);
+  const intro = fromDraft
+    ? `These fields are empty in the listing JSON for "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.`
+    : `These listing fields are still empty on listing "${title}". Generate values for ONLY these fields from the photos and current listing. Do not rewrite the rest of the listing.`;
+  return `${intro}
+
+Reply with JSON in this exact shape:
+
+\`\`\`json
+{"missing_fields":[{"marketplace":"general","field":"SKU","value":"..."}]}
+\`\`\`
+
+Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
+
+Empty fields:
+${lines.join("\n")}`;
+}
+
+/** One Ask-chat prompt for empty listing values and Apply/Send failures (deduped). */
+function askChatGapsPrompt(
+  forms: DraftForm[],
+  fromDraft: boolean,
+  listing: Record<string, unknown> | undefined,
+  failures: FillLogEntry[],
+): string {
+  const title = listingTitle(listing);
+  const seen = new Set<string>();
+  const lines: string[] = [];
+
+  const pushLine = (line: string, key: string) => {
+    if (seen.has(key) || lines.length >= 50) return;
+    seen.add(key);
+    lines.push(line);
+  };
+
+  for (const entry of failures) {
+    const marketplace = String(entry.marketplace || "").toLowerCase();
+    const field = entry.field || "";
+    const key = `${marketplace}:${normalizeFieldName(field)}`;
+    const current = leftoverGeneratedValue(listing, entry) || "(empty)";
+    const reason = String(entry.reason || "").trim() || "(none)";
+    pushLine(
+      `- Listing: ${title}
+  Marketplace: ${entry.marketplace}
+  Field: ${field}
+  Current value: ${current}
+  Status: ${leftoverStatusLabel(entry)}
+  Reason: ${reason}`,
+      key,
+    );
+  }
+
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+    const leftover = field.leftover;
+    const key = `${form.id}:${fieldMatchKey(field)}`;
+    pushLine(
+      `- Listing: ${title}
+  Marketplace: ${form.id}
+  Field: ${field.label}
+  Current value: ${listingTextForField(listing, form.id, field) || EMPTY_CELL}
+  Status: ${leftover ? leftoverStatusLabel(leftover) : "missing in listing"}
+  Reason: ${leftover?.reason || (fromDraft
+    ? "empty in listing JSON (field exists on the Vendoo form)"
+    : "empty in listing JSON")}`,
+      key,
+    );
+  }
+
+  const emptyCount = fieldsNeedingListingValues(forms, listing).length;
+  const failCount = failures.length;
+  const parts: string[] = [];
+  if (emptyCount) parts.push(`${emptyCount} empty`);
+  if (failCount) parts.push(`${failCount} failed`);
+  const mix = parts.join(" + ") || "listed";
+
+  return `Fill these listing fields for "${title}" (${mix}). Generate values for ONLY these fields from the photos and current listing. Do not rewrite unrelated fields.
+
+Reply with JSON in this exact shape:
+
+\`\`\`json
+{"missing_fields":[{"marketplace":"ebay","field":"Brand","value":"..."}]}
+\`\`\`
+
+Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
+
+Fields:
+${lines.join("\n") || "- (none)"}`;
+}
+
 function allowedMarketplaceIds(selected?: string[]): Set<string> {
   const chosen = selected ?? DEFAULT_SELECTED_MARKETPLACES;
   return new Set(["general", ...chosen]);
@@ -481,6 +642,8 @@ function leftoverEntries(report: FillLogReport): FillLogEntry[] {
   for (const group of Object.values(report.by_marketplace)) {
     for (const entry of group.entries) {
       if (!FILLABLE_STATUSES.has(entry.status)) continue;
+      // Already-correct controls are successes, not leftovers to retry.
+      if (isAlreadySetEntry(entry)) continue;
       if (isAccountSettingField(entry.field)) continue;
       rows.push(entry);
     }
@@ -490,6 +653,10 @@ function leftoverEntries(report: FillLogReport): FillLogEntry[] {
     if (statusDelta !== 0) return statusDelta;
     return `${left.marketplace} ${left.field}`.localeCompare(`${right.marketplace} ${right.field}`);
   });
+}
+
+function fillFailureEntries(report: FillLogReport): FillLogEntry[] {
+  return leftoverEntries(report).filter((entry) => FILL_FAILURE_STATUSES.has(entry.status));
 }
 
 function patchableChangedFields(
@@ -1754,6 +1921,7 @@ export function FillLogPanel({
   vendooItemId,
   vendooUrl,
   listing,
+  onAskChat,
   onFilled,
   onJobStarted,
 }: {
@@ -1764,6 +1932,7 @@ export function FillLogPanel({
   vendooItemId?: string | null;
   vendooUrl?: string | null;
   listing?: Record<string, unknown>;
+  onAskChat?: (text: string) => void;
   onFilled?: () => void;
   onJobStarted?: () => void;
 }) {
@@ -2006,8 +2175,32 @@ export function FillLogPanel({
     // Leftover-fill completion already triggers rereadDraft above.
     if (awaitingFill.current) return;
     rereadDraft();
-  }, [jobStatus, hasDraft, chromeConnected]);
+  }, [jobStatus, hasDraft, chromeConnected, onAskChat]);
 
+  const hiddenKeys = hiddenKeySet(hidden);
+  const askChatFields = fieldsNeedingListingValues(visibleSourceForms, listing).filter(
+    ({ form, field }) => !hiddenKeys.has(hiddenFieldKey(form.id, fieldMatchKey(field))),
+  );
+  const fillFailures = (report ? fillFailureEntries(report) : []).filter(
+    (entry) => !hiddenKeys.has(hiddenFieldKey(entry.marketplace.toLowerCase(), normalizeFieldName(entry.field))),
+  );
+  const askChatTargets = (() => {
+    const seen = new Set<string>();
+    let count = 0;
+    for (const entry of fillFailures) {
+      const key = `${entry.marketplace.toLowerCase()}:${normalizeFieldName(entry.field)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      count += 1;
+    }
+    for (const { form, field } of askChatFields) {
+      const key = `${form.id}:${fieldMatchKey(field)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      count += 1;
+    }
+    return count;
+  })();
   // With a live draft read, Apply is only empty or mismatched fields. Matching
   // controls stay untouched so retries do not re-walk every marketplace form.
   const fillPayload = fromVendooDraft
@@ -2167,69 +2360,6 @@ export function FillLogPanel({
         </p>
       )}
 
-      {(hasDraft || fillPayload.length > 0) && (
-        <div className="pr-actions">
-          <p className="pr-notice">
-            After generate, Studio fills discovered listing values and applies them on Vendoo when Chrome is connected. Nothing is published.
-          </p>
-          {hasDraft && (
-            <div className="pr-action">
-              <button
-                type="button"
-                className="btn btn-sm"
-                disabled={resolveCategory.isPending || busy || !chromeConnected}
-                title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
-                onClick={() => resolveCategory.mutate()}
-              >
-                {resolveCategory.isPending ? "Setting category…" : "Set Vendoo category"}
-              </button>
-              <p className="pr-action-hint">Picks the matching category in Vendoo. Start here if the category is wrong.</p>
-            </div>
-          )}
-          <div className="pr-action">
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={busy || fillPayload.length === 0 || !chromeConnected}
-              title={
-                !chromeConnected
-                  ? "Connect Chrome to type these values into the Vendoo draft"
-                  : resolving
-                    ? "Wait for field repair to finish before applying"
-                  : fillPayload.length
-                    ? "Type listing values into empty Vendoo draft fields"
-                    : "Generate or edit listing values first"
-              }
-              onClick={() => fillMutation.mutate(fillPayload)}
-            >
-              {fillMutation.isPending || filling
-                ? "Applying on Vendoo…"
-                : resolving
-                  ? (jobStep === "verifying_draft" ? "Checking draft…" : "Resolving fields…")
-                : fillPayload.length
-                  ? `Apply ${fillPayload.length} value${fillPayload.length === 1 ? "" : "s"} on Vendoo`
-                  : "Apply values on Vendoo"}
-            </button>
-            <p className="pr-action-hint">
-              {!chromeConnected
-                ? "Connect Chrome to type listing values into the Vendoo draft."
-                : resolving
-                  ? "Waiting on the listing assistant to resolve saved-draft gaps. Does not publish."
-                : fillPayload.length
-                  ? "Listing has these values; Vendoo draft fields are still empty."
-                  : "Generate or edit listing values first, then apply them here."}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {fillPayload.length > 0 && !busy && (
-        <p className="pr-notice">
-          {fillPayload.length} listing value{fillPayload.length === 1 ? "" : "s"} ready for Vendoo.
-          Review the Listing and Vendoo columns below, then click Apply on Vendoo.
-        </p>
-      )}
-
       {hasDraft && !fromVendooDraft && !draftQuery.isFetching && (
         <p className="pr-notice">
           {chromeConnected
@@ -2249,7 +2379,7 @@ export function FillLogPanel({
             {draftQuery.isFetching
               ? "Discovering every marketplace form and optional field…"
               : !chromeConnected && hasDraft
-                ? "Connect Chrome to read Vendoo fields. Apply types only empty or changed fields once listing values are ready."
+                ? "Connect Chrome to read Vendoo fields. Ask chat can still write values, then Apply types only empty or changed fields."
                 : hasDraft
                   ? "Read the Vendoo draft to compare listing JSON against each marketplace form."
                   : "Send this listing to Vendoo to review each marketplace form. After generate, Studio also discovers live Vendoo fields once the category is known."}
@@ -2367,6 +2497,21 @@ export function FillLogPanel({
                                 {issueLabel(leftover)}
                               </span>
                             )}
+                            {onAskChat && !field.notApplicable && (
+                              listingEmpty
+                              || (leftover && FILL_FAILURE_STATUSES.has(leftover.status))
+                            ) && (
+                              <button
+                                type="button"
+                                className="pr-read"
+                                disabled={busy}
+                                onClick={() => onAskChat(leftover && FILL_FAILURE_STATUSES.has(leftover.status)
+                                  ? leftoverFieldPrompt(listing, leftover, applyValue || vendooText)
+                                  : emptyFieldsPrompt([{ ...selectedForm, fields: [field] }], fromVendooDraft, listing))}
+                              >
+                                Ask chat
+                              </button>
+                            )}
                             {!field.notApplicable && applyValue && fromVendooDraft && fieldNeedsVendooApply(field, applyValue) && chromeConnected && (
                               <button
                                 type="button"
@@ -2425,6 +2570,92 @@ export function FillLogPanel({
             </div>
           )}
         </div>
+      )}
+
+      {(onAskChat || hasDraft) && (
+        <div className="pr-actions">
+          <p className="pr-notice">
+            Ask chat only for fields generation could not resolve. After generate, Studio fills discovered listing values and applies them on Vendoo when Chrome is connected. Nothing is published.
+          </p>
+          {hasDraft && (
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={resolveCategory.isPending || busy || !chromeConnected}
+                title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
+                onClick={() => resolveCategory.mutate()}
+              >
+                {resolveCategory.isPending ? "Setting category…" : "Set Vendoo category"}
+              </button>
+              <p className="pr-action-hint">Picks the matching category in Vendoo. Start here if the category is wrong.</p>
+            </div>
+          )}
+          {onAskChat && (
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={busy || askChatTargets === 0}
+                title="Send empty listing fields and Apply/Send failures to chat. Does not change Vendoo yet."
+                onClick={() => onAskChat(askChatGapsPrompt(
+                  visibleSourceForms,
+                  fromVendooDraft,
+                  listing,
+                  fillFailures,
+                ))}
+              >
+                {askChatTargets
+                  ? `Ask chat for ${askChatTargets} field${askChatTargets === 1 ? "" : "s"}`
+                  : "Ask chat for fields"}
+              </button>
+              <p className="pr-action-hint">
+                Empty listing values and failed Apply/Send fields — writes listing JSON only, not Vendoo.
+              </p>
+            </div>
+          )}
+          <div className="pr-action">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busy || fillPayload.length === 0 || !chromeConnected}
+              title={
+                !chromeConnected
+                  ? "Connect Chrome to type these values into the Vendoo draft"
+                  : resolving
+                    ? "Wait for field repair to finish before applying"
+                  : fillPayload.length
+                    ? "Type listing values into empty Vendoo draft fields"
+                    : "Ask chat to write listing values first"
+              }
+              onClick={() => fillMutation.mutate(fillPayload)}
+            >
+              {fillMutation.isPending || filling
+                ? "Applying on Vendoo…"
+                : resolving
+                  ? (jobStep === "verifying_draft" ? "Checking draft…" : "Resolving fields…")
+                : fillPayload.length
+                  ? `Apply ${fillPayload.length} value${fillPayload.length === 1 ? "" : "s"} on Vendoo`
+                  : "Apply values on Vendoo"}
+            </button>
+            <p className="pr-action-hint">
+              {!chromeConnected
+                ? "Connect Chrome to type listing values into the Vendoo draft."
+                : resolving
+                  ? "Waiting on the listing assistant to resolve saved-draft gaps. Does not publish."
+                : fillPayload.length
+                  ? "Listing has these values; Vendoo draft fields are still empty."
+                  : "Ask chat to write listing values first, then apply them here."}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {fillPayload.length > 0 && !busy && (
+        <p className="pr-notice">
+          {fillPayload.length} listing value{fillPayload.length === 1 ? "" : "s"} ready for Vendoo.
+          Review the Listing and Vendoo columns above, then click Apply on Vendoo.
+        </p>
       )}
 
       {fillMutation.error && (

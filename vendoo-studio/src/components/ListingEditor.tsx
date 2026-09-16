@@ -214,6 +214,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
               vendooItemId={listingJob.vendoo_item_id || importedItemId}
               vendooUrl={listingJob.vendoo_url || importedUrl}
               listing={listing}
+              onAskChat={onAskChat}
               onFilled={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
               onJobStarted={onJobStarted}
             />

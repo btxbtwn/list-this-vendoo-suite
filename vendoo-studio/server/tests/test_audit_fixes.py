@@ -1135,15 +1135,25 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn('[aria-label^="Remove "]', content)
         self.assertIn("normalizeComparableText(lab) === normalizeComparableText(want)", content)
 
-    def test_fields_panel_apply_actions(self):
+    def test_ask_chat_prompt_includes_field_context(self):
         panel = (
             Path(__file__).resolve().parents[2] / "src" / "components" / "FillLogPanel.tsx"
         ).read_text(encoding="utf-8")
+        self.assertIn("function leftoverFieldPrompt", panel)
+        self.assertIn("function askChatGapsPrompt", panel)
+        self.assertIn("Listing:", panel)
+        self.assertIn("Marketplace:", panel)
+        self.assertIn("Current value:", panel)
+        self.assertIn("Ask chat for", panel)
         self.assertIn("Apply on Vendoo", panel)
-        self.assertIn("function leftoverGeneratedValue", panel)
         self.assertIn("Set Vendoo category", panel)
-        self.assertNotIn("onAskChat", panel)
-        self.assertNotIn("Ask chat for", panel)
+        self.assertIn("function leftoverGeneratedValue", panel)
+        self.assertIn("isAlreadySetEntry", panel)
+        self.assertIn(
+            'const FILL_FAILURE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain"]);',
+            panel,
+        )
+        self.assertNotIn("Ask chat to retry", panel)
 
     def test_completion_blocker_ask_chat_prompts(self):
         source = (
@@ -1159,6 +1169,7 @@ console.log(JSON.stringify({ blouse, tee }));
         ).read_text(encoding="utf-8")
         self.assertIn("completionBlockerPrompt", editor)
         self.assertIn("blocker_fields", editor)
+        self.assertIn("onAskChat={onAskChat}", editor)
 
 
 if __name__ == "__main__":
