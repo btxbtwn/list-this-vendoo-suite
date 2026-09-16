@@ -384,19 +384,37 @@ class VendooImportRouteTest(unittest.TestCase):
             "weight_oz": 8,
             "package_dimensions_in": "13x10x3",
             "department": "Men",
+            "condition": "Pre-Owned - Good",
+            "category_path": "Clothing, Shoes & Accessories > Men > Men's Clothing > Tops > T-Shirts",
             "ebay_specifics": {
                 "type": "T-Shirt",
                 "department": "Men",
                 "sizeType": "Regular",
                 "size": "M",
                 "brand": "Nike",
+                "season": "Summer",
+                "sleeveLength": "Short Sleeve",
+                "neckline": "Crew Neck",
+                "pattern": "Solid",
+                "closure": "Pull On",
+            },
+            "etsy_specifics": {
+                "who_made": "Another company or person",
+                "what_is": "A finished product",
+                "when_made": "2010 - 2019",
+                "tags": ["nike", "graphic", "tee", "mens", "black", "crewneck", "tshirt", "casual", "streetwear", "preowned"],
+                "materials": ["cotton"],
             },
             "depop_specifics": {
                 "source": "Preloved",
                 "age": "Modern",
                 "style": ["Casual"],
                 "parcelSize": "Medium",
+                "condition": "Used - Good",
+                "colour": ["Black"],
             },
+            "poshmark_specifics": {"originalPrice": 40},
+            "mercari_specifics": {"shippingLabel": "USPS Ground Advantage"},
         }, source="user_form")
         with patch("vendoo_studio.routes.jobs.JobRepo.get_active", return_value=[]), patch(
             "vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock
