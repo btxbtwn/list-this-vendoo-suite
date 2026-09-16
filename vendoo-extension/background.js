@@ -867,11 +867,9 @@ function buildJobSteps(job) {
       steps.push({ step: `clearing_${platform}`, fn: (j) => clearMarketplace(j, platform) });
     }
     steps.push({ step: `filling_${platform}`, fn: (j) => fillMarketplace(j, platform) });
-  }
-  if (platforms.length) {
-    // One draft save after all marketplace fills. Per-marketplace save+audit
-    // used to dominate wall-clock time; verifySavedDraft audits once at the end.
-    steps.push({ step: 'saving_marketplaces', fn: saveMarketplaces });
+    // Checkpoint after each marketplace. SAVE_MARKETPLACE is the same Vendoo
+    // Save button, but flushing per tab is safer if inactive panels drop dirty state.
+    steps.push({ step: `saving_${platform}`, fn: (j) => saveMarketplace(j, platform) });
   }
 
   return steps;
@@ -2153,13 +2151,6 @@ async function saveMarketplace(job, platform) {
   return sendToVendoo(job, {
     type: 'SAVE_MARKETPLACE',
     platform,
-  });
-}
-
-async function saveMarketplaces(job) {
-  return sendToVendoo(job, {
-    type: 'SAVE_MARKETPLACE',
-    platform: 'all',
   });
 }
 
