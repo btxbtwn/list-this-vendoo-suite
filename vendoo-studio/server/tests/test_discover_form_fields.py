@@ -73,10 +73,13 @@ const auditAllMarketplaces = async () => ({ ok: true });
         self.assertLess(steps.index("auditing_general"), steps.index("discovering_schema"))
         self.assertLess(steps.index("discovering_schema"), steps.index("filling_ebay"))
         self.assertLess(steps.index("discovering_schema"), steps.index("filling_poshmark"))
-        self.assertIn("saving_marketplaces", steps)
-        self.assertNotIn("saving_ebay", steps)
+        self.assertIn("saving_ebay", steps)
+        self.assertIn("saving_poshmark", steps)
+        self.assertNotIn("saving_marketplaces", steps)
         self.assertNotIn("auditing_ebay", steps)
-        self.assertLess(steps.index("filling_poshmark"), steps.index("saving_marketplaces"))
+        self.assertLess(steps.index("filling_ebay"), steps.index("saving_ebay"))
+        self.assertLess(steps.index("saving_ebay"), steps.index("filling_poshmark"))
+        self.assertLess(steps.index("filling_poshmark"), steps.index("saving_poshmark"))
 
     def test_job_steps_skip_discover_when_schema_cached(self) -> None:
         text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
@@ -118,7 +121,9 @@ const auditAllMarketplaces = async () => ({ ok: true });
         steps = json.loads(proc.stdout)
         self.assertNotIn("discovering_schema", steps)
         self.assertIn("filling_ebay", steps)
-        self.assertIn("saving_marketplaces", steps)
+        self.assertIn("saving_ebay", steps)
+        self.assertNotIn("saving_marketplaces", steps)
+        self.assertNotIn("auditing_ebay", steps)
 
     def test_content_script_discovers_each_marketplace_form(self) -> None:
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
