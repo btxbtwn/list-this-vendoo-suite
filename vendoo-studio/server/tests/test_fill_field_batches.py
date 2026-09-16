@@ -46,7 +46,7 @@ console.log(JSON.stringify(result));
         result = json.loads(proc.stdout)
         self.assertEqual(result["batchCount"], 3)
         self.assertEqual(result["batchSizes"], [25, 1, 1])
-        self.assertEqual(result["empty"], [[]])
+        self.assertEqual(result["empty"], [])
         self.assertEqual(result["fill25"], 155000)
         self.assertEqual(result["fill0"], 90000)
         self.assertEqual(result["fill80"], 300000)

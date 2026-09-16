@@ -6,7 +6,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from vendoo_studio.database import Base
-from vendoo_studio.services.category_catalog import remember_schema, schema_covers_platforms
+from vendoo_studio.services.category_catalog import (
+    cached_schema_payload,
+    remember_schema,
+    schema_covers_platforms,
+)
 
 
 class SchemaCoversPlatformsTest(unittest.TestCase):
@@ -45,6 +49,27 @@ class SchemaCoversPlatformsTest(unittest.TestCase):
             },
         })
         self.assertFalse(schema_covers_platforms(self.db, path, ["ebay"]))
+
+    def test_cached_schema_payload_builds_probe_shape(self) -> None:
+        path = "Clothing > Tops"
+        remember_schema(self.db, path, {
+            "general": {
+                "category": {"path": path},
+                "fields": [{"label": "Title", "type": "text", "value": "drop me"}],
+            },
+            "ebay": {
+                "category": {"path": "Clothing > Shirts"},
+                "fields": [{"label": "Brand", "type": "text", "selector": "#x"}],
+            },
+        })
+        payload = cached_schema_payload(self.db, path, ["general", "ebay"])
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload["general"]["category"]["path"], path)
+        self.assertEqual(payload["general"]["category"]["status"], "cached")
+        self.assertEqual(payload["ebay"]["fields"], [{"label": "Brand", "type": "text"}])
+        self.assertNotIn("selector", payload["ebay"]["fields"][0])
+        self.assertIsNone(cached_schema_payload(self.db, path, ["general", "ebay", "depop"]))
 
 
 if __name__ == "__main__":

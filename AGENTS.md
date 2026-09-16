@@ -74,6 +74,8 @@ CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `ma
 - **Skills:** Confirm `skills/list-this/SKILL.md` exists and `python -m json.tool skills/list-this/references/vendoo-dropdown-options.json` succeeds.
 - **Secrets:** Do not track `.env`, key files, photos, or private exports. CI scans the working tree with gitleaks.
 
+**Pull requests:** After creating or updating a PR, always check CI (`gh pr checks`) and fix failures before considering the work done. Do not stop while required checks are pending or red.
+
 ## Security and Product Invariants
 
 - Never commit API keys, OAuth credentials, listing photos, generated diagnostics, or private exports.

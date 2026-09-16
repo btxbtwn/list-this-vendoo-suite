@@ -17,6 +17,7 @@ from vendoo_studio.models.job import Job  # noqa: F401
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import JobRepo, ListingRepo
+from vendoo_studio.services.category_catalog import remember_schema
 from vendoo_studio.services.schema_probe import (
     SCHEMA_PROBE_FLAG,
     is_schema_probe_job,
@@ -157,6 +158,30 @@ class SchemaProbeServiceTest(unittest.TestCase):
         )
         self.assertFalse(second["started"])
         self.assertEqual(second["reason"], "already_done")
+
+    def test_maybe_start_skips_when_schema_already_cached(self):
+        with patch(
+            "vendoo_studio.services.marketplaces.selected_fillable_platforms",
+            return_value=["ebay"],
+        ):
+            remember_schema(self.db, MEN_PATH, {
+                "general": {
+                    "category": {"path": MEN_PATH},
+                    "fields": [{"label": "Title", "type": "text"}],
+                },
+                "ebay": {
+                    "category": {"path": MEN_PATH},
+                    "fields": [{"label": "Brand", "type": "text"}],
+                },
+            })
+            result = maybe_start_schema_probe(
+                self.db,
+                self.conv.id,
+                listing={"title": "Nike tee", "category_path": MEN_PATH},
+            )
+        self.assertFalse(result["started"])
+        self.assertEqual(result["reason"], "cached")
+        self.assertEqual(JobRepo(self.db).list_by_conversation(self.conv.id), [])
 
 
 class SchemaProbeExtensionTest(unittest.TestCase):

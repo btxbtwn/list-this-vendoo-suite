@@ -218,7 +218,8 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job.status, "dispatched")
         self.dispatch.assert_awaited_once()
         kwargs = self.dispatch.await_args.kwargs
-        self.assertTrue(kwargs.get("reload"))
+        # Keep the open draft tab; a full reload races SPA hydration on verify-only retries.
+        self.assertFalse(kwargs.get("reload"))
         self.assertIn("ebay", kwargs.get("platforms") or [])
         self.assertTrue(any(
             event.event_type == "completion_readback_retry"
@@ -586,9 +587,34 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
     async def test_generation_requires_chrome_before_full_listing(self):
         self.manager.connected = False
         provider = Provider({})
-        with self.assertRaisesRegex(RuntimeError, "Connect Chrome"):
+        with patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]), \
+             patch("vendoo_studio.services.category_selection.select_categories", new=AsyncMock(
+                 return_value={"general": "Clothing > Tops", "ebay": "Clothing > Shirts"})), \
+             self.assertRaisesRegex(RuntimeError, "Connect Chrome"):
             await prepare_generation_schema(self.db, self.conv.id, provider, "Cotton tee", "")
         self.assertEqual(provider.messages, [])
+
+    async def test_generation_uses_cached_schema_without_chrome(self):
+        self.manager.connected = False
+        remember_schema(self.db, "Clothing > Tops", self.verification["schema"])
+        statuses: list[str] = []
+        with patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]), \
+             patch("vendoo_studio.services.category_selection.select_categories", new=AsyncMock(
+                 return_value={"general": "Clothing > Tops", "ebay": "Clothing > Other"})):
+            seed = await prepare_generation_schema(
+                self.db,
+                self.conv.id,
+                Provider({}),
+                "Cotton tee",
+                "",
+                on_status=statuses.append,
+            )
+        self.assertEqual(seed["category_path"], "Clothing > Tops")
+        # Prefer the marketplace leaf that produced the remembered fields.
+        self.assertEqual(seed["marketplace_categories"]["ebay"], "Clothing > Shirts")
+        self.assertTrue(any("cached" in message.casefold() for message in statuses))
+        self.manager.register_wait.assert_not_called()
+        self.assertEqual(JobRepo(self.db).list_by_conversation(self.conv.id), [self.job])
 
     async def test_generation_waits_for_schema_result(self):
         import asyncio
