@@ -6,7 +6,7 @@ import { resetChatLive } from "./ChatPanel";
 
 const CLEAR_WARNING = [
   "Clear this listing and start over?",
-  "Photos, chat, generated fields, and item details will be removed. This listing stays in the sidebar as a blank draft. Anything already saved on Vendoo is not deleted.",
+  "Photos, chat, generated fields, and item details will be removed. This listing stays in the sidebar as a blank draft. If it was imported from Vendoo, that connection is kept. Anything already saved on Vendoo is not deleted.",
 ].join("\n");
 
 export function ClearListingButton({

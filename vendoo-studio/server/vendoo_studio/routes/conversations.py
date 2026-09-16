@@ -222,11 +222,16 @@ async def reset_conversation(conv_id: str, db: Session = Depends(get_db)):
 
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
     from vendoo_studio.models.protocol import ProtocolMessage
+    from vendoo_studio.repositories.queries import ListingRepo
     from vendoo_studio.routes.chat import stop_generation
     from vendoo_studio.routes.extension import extension_manager
     from vendoo_studio.services.hidden_fields import clear_listing_hidden_fields
+    from vendoo_studio.services.vendoo_import import merge_notes, vendoo_binding
 
     stop_generation(conv_id, discard=True)
+
+    # Keep the Vendoo draft link across Clear; wipe only Studio form contents.
+    binding = vendoo_binding(conv.notes)
 
     active_jobs = db.query(Job).filter(
         Job.conversation_id == conv_id,
@@ -247,11 +252,14 @@ async def reset_conversation(conv_id: str, db: Session = Depends(get_db)):
     if not conv:
         raise HTTPException(404, "Conversation not found")
     conv.title = "New Listing"
-    conv.notes = None
+    conv.notes = merge_notes(None, binding) if binding else None
     conv.status = "draft"
     conv.settled_at = None
     conv.unsettled_at = None
     conv.updated_at = utcnow()
+    if binding:
+        # Blank revision so Fields / ensure-draft can reattach to the same Vendoo item.
+        ListingRepo(db).save_revision(conv_id, {}, source="reset")
     db.commit()
     db.refresh(conv)
     clear_listing_hidden_fields(conv_id)

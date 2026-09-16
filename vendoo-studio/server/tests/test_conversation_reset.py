@@ -121,6 +121,44 @@ class ConversationResetTest(unittest.TestCase):
         self.assertEqual(len(hidden["always"]), 1)
         self.assertEqual(hidden["listing"], [])
 
+    def test_reset_keeps_vendoo_binding(self):
+        from vendoo_studio.services.vendoo_import import vendoo_binding
+
+        self.conv.notes = json.dumps({
+            "vendooItemId": "QVzIZuKs",
+            "vendooUrl": "https://web.vendoo.co/app/item/QVzIZuKs",
+            "condition": "Good",
+            "categoryOverride": "Men > Tops",
+        })
+        self.db.commit()
+
+        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name):
+            response = self.client.post(f"/api/conversations/{self.conv.id}/reset")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["title"], "New Listing")
+        self.assertEqual(body["status"], "draft")
+        binding = vendoo_binding(body["notes"])
+        self.assertEqual(binding["vendooItemId"], "QVzIZuKs")
+        self.assertEqual(binding["vendooUrl"], "https://web.vendoo.co/app/item/QVzIZuKs")
+        notes = json.loads(body["notes"])
+        self.assertNotIn("condition", notes)
+        self.assertNotIn("categoryOverride", notes)
+
+        self.db.expire_all()
+        self.assertEqual(ConversationRepo(self.db).get_photos(self.conv.id), [])
+        self.assertEqual(ConversationRepo(self.db).get_messages(self.conv.id), [])
+        self.assertEqual(self.db.query(Job).filter(Job.conversation_id == self.conv.id).count(), 0)
+        revisions = ListingRepo(self.db).get_revisions(self.conv.id)
+        self.assertEqual(len(revisions), 1)
+        self.assertEqual(revisions[0].listing_json, {})
+        self.assertEqual(revisions[0].source, "reset")
+
+        ensure = self.client.post("/api/jobs/ensure-draft", json={"conversation_id": self.conv.id})
+        self.assertEqual(ensure.status_code, 200, ensure.text)
+        self.assertEqual(ensure.json()["vendoo_item_id"], "QVzIZuKs")
+
     def test_reset_missing_conversation_is_404(self):
         response = self.client.post("/api/conversations/missing/reset")
         self.assertEqual(response.status_code, 404)
