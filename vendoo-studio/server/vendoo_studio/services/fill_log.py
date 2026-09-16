@@ -60,6 +60,9 @@ GENERAL_LISTING_KEYS = {
     "ounces": "weight_oz",
 }
 
+# Dotted Vendoo control ids (listings.ebay.categorySpecifics.53159_Size Type), never real labels.
+FIELD_PATH_PATTERN = re.compile(r"^[\w\-]+(?:\.[\w\- ]+)+$")
+
 FIELD_LOOKUP_ALIASES = {
     "listing price": "price",
     "buy it now price": "price",
@@ -140,8 +143,16 @@ def normalize_field_label(value: str) -> str:
     return key
 
 
-def field_lookup_key(value: str) -> str:
+def _field_path_tail(value: str) -> str:
+    """Reduce Vendoo DOM ids like listings.ebay.categorySpecifics.53159_Size Type to the label."""
     text = str(value or "").strip()
+    if FIELD_PATH_PATTERN.match(text):
+        text = text.rsplit(".", 1)[-1]
+    return re.sub(r"^\d+[_\-]\s*", "", text)
+
+
+def field_lookup_key(value: str) -> str:
+    text = _field_path_tail(value)
     text = re.sub(r"^(ebay|etsy|poshmark|mercari|depop)\s+", "", text, flags=re.IGNORECASE)
     text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
     text = text.replace("_", " ").replace("-", " ")
@@ -420,17 +431,23 @@ def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
         key = normalize_field_label(field)
         lookup = field_lookup_key(field)
         if marketplace in {"", "general", "unknown"}:
-            if key in {"length", "width", "height"}:
-                dimensions[{"length": 0, "width": 1, "height": 2}[key]] = value
+            if lookup in {"length", "width", "height"}:
+                dimensions[{"length": 0, "width": 1, "height": 2}[lookup]] = value
                 dimensions_changed = True
-            mapped = GENERAL_LISTING_KEYS.get(key) or label_to_json_key(field)
+            # lookup is the spaced form ("size type"), the only one label_to_json_key maps.
+            mapped = (
+                GENERAL_LISTING_KEYS.get(lookup)
+                or GENERAL_LISTING_KEYS.get(key)
+                or label_to_json_key(lookup)
+                or label_to_json_key(field)
+            )
             if not mapped:
                 continue
             updated[mapped] = _coerce_listing_value(mapped, value)
             continue
         specifics_key = f"{marketplace}_specifics"
         specifics = dict(updated.get(specifics_key) or {})
-        canonical = label_to_json_key(key) or label_to_json_key(field) or field
+        canonical = label_to_json_key(lookup) or label_to_json_key(key) or label_to_json_key(field) or field
         for alias in list(specifics):
             if alias == canonical:
                 continue
