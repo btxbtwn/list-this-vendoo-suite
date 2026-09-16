@@ -104,6 +104,36 @@ function vendooTextForField(field: DraftField): string {
   return field.value || "";
 }
 
+function normalizeComparableFieldText(text: string): string {
+  return String(text || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizeLooseFieldText(text: string): string {
+  return normalizeComparableFieldText(text)
+    .replace(/[–—]/g, "-")
+    .replace(/[*?]+/g, "")
+    .replace(/[_/]+/g, " ")
+    .replace(/-/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Listing/apply value already matches what Vendoo shows — no write needed. */
+function applyValueMatchesVendoo(applyValue: string, field: DraftField): boolean {
+  const got = normalizeComparableFieldText(vendooTextForField(field));
+  const want = normalizeComparableFieldText(applyValue);
+  if (!got || !want) return false;
+  if (got === want) return true;
+  return normalizeLooseFieldText(got) === normalizeLooseFieldText(want);
+}
+
+function fieldNeedsVendooApply(field: DraftField, applyValue: string): boolean {
+  if (!applyValue || field.notApplicable || isUnfillableField(field) || field.listingOnly) return false;
+  if (field.missing) return true;
+  return !applyValueMatchesVendoo(applyValue, field);
+}
+
 function formSyncCounts(
   form: DraftForm,
   listing: Record<string, unknown> | undefined,
@@ -125,7 +155,11 @@ function formSyncCounts(
     const listingValue = listingTextForField(listing, form.id, field);
     if (fromVendooDraft) {
       if (!field.missing) {
-        counts.onVendoo += 1;
+        if (listingValue && !applyValueMatchesVendoo(listingValue, field)) {
+          counts.readyToApply += 1;
+        } else {
+          counts.onVendoo += 1;
+        }
         continue;
       }
       counts.vendooEmpty += 1;
@@ -576,21 +610,20 @@ function fillFailureEntries(report: FillLogReport): FillLogEntry[] {
   return leftoverEntries(report).filter((entry) => FILL_FAILURE_STATUSES.has(entry.status));
 }
 
-function patchableEmptyFields(
+function patchableChangedFields(
   forms: DraftForm[],
   listing: Record<string, unknown> | undefined,
   values: Record<string, string> = {},
 ): { id?: string; marketplace: string; field: string; value: string }[] {
   return forms.flatMap((form) =>
     form.fields
-      // Apply only confirmed-empty live draft fields — never re-walk filled ones
-      // or listing-only overlays that were not empty on Vendoo.
-      .filter((field) => field.missing && !field.listingOnly && !field.notApplicable && !isUnfillableField(field))
+      // Empty-on-Vendoo fields and mismatches only — never re-walk matching controls.
+      .filter((field) => !field.listingOnly && !field.notApplicable && !isUnfillableField(field))
       .map((field) => {
         const leftover = field.leftover;
         const typed = leftover ? String(values[leftover.id] || "").trim() : "";
         const value = typed || listingValueForField(listing, form.id, field);
-        if (!value) return null;
+        if (!fieldNeedsVendooApply(field, value)) return null;
         return leftover
           ? { id: leftover.id, marketplace: form.id, field: leftover.field || field.label, value }
           : { marketplace: form.id, field: field.label, value };
@@ -2100,10 +2133,10 @@ export function FillLogPanel({
   const fillFailures = (report ? fillFailureEntries(report) : []).filter(
     (entry) => !hiddenKeys.has(hiddenFieldKey(entry.marketplace.toLowerCase(), normalizeFieldName(entry.field))),
   );
-  // With a live draft read, Apply is only those empty fields. Do not merge leftover
-  // retries for already-filled controls — that re-walks every marketplace form.
+  // With a live draft read, Apply is only empty or mismatched fields. Matching
+  // controls stay untouched so retries do not re-walk every marketplace form.
   const fillPayload = fromVendooDraft
-    ? patchableEmptyFields(visibleSourceForms, listing, values)
+    ? patchableChangedFields(visibleSourceForms, listing, values)
     : (() => {
         const payload: { id?: string; marketplace: string; field: string; value: string }[] = [];
         const seen = new Set<string>();
@@ -2371,7 +2404,7 @@ export function FillLogPanel({
             {draftQuery.isFetching
               ? "Discovering every marketplace form and optional field…"
               : !chromeConnected && hasDraft
-                ? "Connect Chrome to read empty Vendoo fields. Ask chat can still write values, then Apply on Vendoo types only those fields."
+                ? "Connect Chrome to read Vendoo fields. Ask chat can still write values, then Apply types only empty or changed fields."
                 : hasDraft
                   ? "Read the Vendoo draft to compare listing JSON against each marketplace form."
                   : "Send this listing to Vendoo to review each marketplace form. After generate, Studio also discovers live Vendoo fields once the category is known."}
@@ -2489,7 +2522,10 @@ export function FillLogPanel({
                                 {issueLabel(leftover)}
                               </span>
                             )}
-                            {onAskChat && !field.notApplicable && listingEmpty && (
+                            {onAskChat && !field.notApplicable && (
+                              listingEmpty
+                              || (leftover && FILL_FAILURE_STATUSES.has(leftover.status))
+                            ) && (
                               <button
                                 type="button"
                                 className="pr-read"
@@ -2501,7 +2537,7 @@ export function FillLogPanel({
                                 Ask chat
                               </button>
                             )}
-                            {!field.notApplicable && applyValue && fromVendooDraft && field.missing && chromeConnected && (
+                            {!field.notApplicable && applyValue && fromVendooDraft && fieldNeedsVendooApply(field, applyValue) && chromeConnected && (
                               <button
                                 type="button"
                                 className="pr-read"

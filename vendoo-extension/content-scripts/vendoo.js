@@ -1515,6 +1515,26 @@
       return false;
   }
 
+  /** True when a FILL_FIELDS patch would leave the control unchanged. */
+  function patchValueAlreadySet(el, value, fieldName) {
+      if (!el) return false;
+      if (el.type === 'checkbox' || ['checkbox', 'switch'].includes(el.getAttribute?.('role'))) {
+          const text = String(value ?? '').trim().toLowerCase();
+          if (!['true', 'false', 'yes', 'no', '1', '0'].includes(text)) return false;
+          const expected = ['true', 'yes', '1'].includes(text);
+          return readPersistedControlValue(el) === expected;
+      }
+      if (isMultiChipField(fieldName, el)) {
+          const values = splitChipValues(value);
+          return values.length > 0 && chipsMatchValues(el, values);
+      }
+      if (shouldFillAsDropdown(el, fieldName)) {
+          const shown = displayedFieldValue(el);
+          return optionMatchesValue(shown, value, false) || fieldValuesEqual(shown, value);
+      }
+      return fieldValuesEqual(displayedFieldValue(el), value);
+  }
+
   function chipsMatchValues(el, values) {
       const want = (Array.isArray(values) ? values : [values])
           .map(normalizeOptionValue)
@@ -6504,16 +6524,10 @@
                       });
                       continue;
                   }
-                  // Apply empty fields only — never re-type controls that already have a value.
-                  if (fieldLooksFilled(el)) {
-                      recordFill({
-                          id: item.id,
-                          field: fieldName,
-                          status: 'skipped',
-                          reason: 'Already filled on Vendoo',
-                          selector: item.selector || '',
-                          value: displayedFieldValue(el) || value,
-                      });
+                  // Skip only when the live control already matches — empty fields
+                  // and replacements (wrong value → listing value) still write.
+                  if (patchValueAlreadySet(el, value, fieldName)) {
+                      recordAlreadySet(fieldName, el, item.selector || '', value);
                       continue;
                   }
                   if (el.type === 'checkbox' || ['checkbox', 'switch'].includes(el.getAttribute?.('role'))) {

@@ -15,6 +15,7 @@ import { ClearListingButton } from "./ClearListingButton";
 import { fetchVendooItemLive } from "../api/vendooItemQuery";
 import {
   CopyableLlmError,
+  completionBlockerPrompt,
   jobErrorPrompt,
   validationErrorsPrompt,
 } from "./CopyableLlmError";
@@ -693,7 +694,14 @@ function SendToVendooButton({
             </button>
           </div>
         </div>
-        {error && <div className="job-card-error-text">{error}</div>}
+        {error && (
+          <CopyableLlmError
+            className="job-card-detail"
+            text={error}
+            prompt={jobErrorPrompt(error, listingTitle)}
+            onAskChat={onAskChat}
+          />
+        )}
       </div>
     );
   }
@@ -777,11 +785,26 @@ function SendToVendooButton({
           <CopyableLlmError
             className="job-card-detail"
             text={fillJob.last_error}
-            prompt={jobErrorPrompt(fillJob.last_error, listingTitle)}
+            prompt={
+              completionStep
+                ? completionBlockerPrompt(
+                    fillJob.last_error,
+                    listingTitle,
+                    Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
+                  )
+                : jobErrorPrompt(fillJob.last_error, listingTitle)
+            }
             onAskChat={onAskChat}
           />
         )}
-        {error && <div className="job-card-error-text">{error}</div>}
+        {error && (
+          <CopyableLlmError
+            className="job-card-detail"
+            text={error}
+            prompt={jobErrorPrompt(error, listingTitle)}
+            onAskChat={onAskChat}
+          />
+        )}
       </div>
     );
   }
