@@ -987,8 +987,10 @@ async function reloadTabAndWait(tabId, timeoutMs = 30000) {
 }
 
 async function findNewItemTab() {
-  const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*' });
-  const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*' });
+  const engineId = await rememberedEngineWindowId();
+  if (engineId == null) return null;
+  const webTabs = await chrome.tabs.query({ url: 'https://web.vendoo.co/*', windowId: engineId });
+  const appTabs = await chrome.tabs.query({ url: 'https://app.vendoo.co/*', windowId: engineId });
   return [...webTabs, ...appTabs].find(t => isNewItemUrl(t.url)) || null;
 }
 
@@ -1056,9 +1058,12 @@ async function openVisibleVendooWindow(url, existingTab, { foreground = false } 
     return { ok: true, tabId: tab.id, windowId: tab.windowId };
   } catch (err) {
     log(`Could not open a Vendoo tab (${err.message})`);
-    const created = await chrome.tabs.create({ url, active: foreground });
-    if (foreground && created.windowId != null) await showWindow(created.windowId);
-    return { ok: true, tabId: created.id, windowId: created.windowId };
+    const created = await createWindowSafe({ url, focused: foreground, type: 'normal' });
+    await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
+    if (foreground) await showWindow(created.id);
+    else await hideWindow(created.id);
+    const tab = created.tabs && created.tabs[0];
+    return { ok: true, tabId: tab?.id, windowId: created.id };
   }
 }
 
@@ -1085,11 +1090,11 @@ async function focusVendooListing(payload) {
     return await openVisibleVendooWindow(url, null, { foreground: true });
   } catch (err) {
     log(`job.open_listing could not show tab: ${err.message}`);
-    const created = await chrome.tabs.create({ url, active: true });
-    if (created.windowId != null) {
-      await showWindow(created.windowId);
-    }
-    return { ok: true, tabId: created.id, windowId: created.windowId };
+    const created = await createWindowSafe({ url, focused: true, type: 'normal' });
+    await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
+    await showWindow(created.id);
+    const tab = created.tabs && created.tabs[0];
+    return { ok: true, tabId: tab?.id, windowId: created.id };
   }
 }
 
@@ -1836,7 +1841,7 @@ async function openVendooListing(job) {
     }
 
     const tab = await openEverydayListingTab(NEW_ITEM_URL);
-    log(`Opened Vendoo tab ${tab.id} in everyday Chrome window ${tab.windowId}`);
+    log(`Opened Vendoo tab ${tab.id} in Studio engine window ${tab.windowId}`);
 
     activeJob.windowId = tab.windowId;
     activeJob.tabId = tab.id;

@@ -104,7 +104,7 @@ export function BrowserPreview({
         ) : (
           <div className="browser-preview-empty">
             <p>{live ? "Connecting to the Vendoo tab…" : "Starting live view…"}</p>
-            <p className="text-xs text-muted">Chrome is filling the listing in a background tab. The tab closes when the draft is saved.</p>
+            <p className="text-xs text-muted">Chrome is filling the listing in its own window. That window closes when the draft is saved.</p>
           </div>
         )}
       </div>

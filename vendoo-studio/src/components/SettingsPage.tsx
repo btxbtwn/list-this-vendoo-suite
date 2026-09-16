@@ -808,7 +808,7 @@ function ConnectionsPanel() {
       <TailscaleHttpsRow />
       <SettingsRow
         title="Vendoo in Chrome"
-        description="Connect Chrome opens Vendoo in your everyday Chrome and reloads Studio's listing extension so it matches this build. Send to Vendoo fills a background tab in that same Chrome and closes it when the draft is saved."
+        description="Connect Chrome opens Vendoo in your everyday Chrome and reloads Studio's listing extension so it matches this build. Send to Vendoo fills a draft in its own Chrome window and closes it when the draft is saved."
         control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
       />
       <SettingsRow
