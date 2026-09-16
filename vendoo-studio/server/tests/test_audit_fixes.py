@@ -259,6 +259,17 @@ class ValidationCasesTest(unittest.TestCase):
         result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
         self.assertTrue(any(error["field"] == "ebay_specifics.season" for error in result.errors))
 
+    def test_ebay_season_does_not_apply_is_cleared(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "season": "Does Not Apply"}
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertNotIn("season", listing["ebay_specifics"])
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertFalse(any(error["field"] == "ebay_specifics.season" for error in result.errors))
+        self.assertTrue(result.can_send, result.errors)
+
     def test_legacy_depop_parcel_size_is_rewritten(self):
         listing = dict(VALID_LISTING)
         listing["depop_specifics"] = {
