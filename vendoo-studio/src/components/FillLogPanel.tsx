@@ -70,7 +70,12 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_ORDER = ["invalid", "failed", "not_found", "uncertain", "new", "skipped", "not_applicable", "filled"];
 const FILLABLE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain", "new", "skipped"]);
 const DISCOVERY_STATUSES = new Set(["new"]);
-const FILL_FAILURE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain", "skipped"]);
+/** Real Apply/Send failures only — not skipped-empty or already-correct controls. */
+const FILL_FAILURE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain"]);
+
+function isAlreadySetEntry(entry: { status?: string; reason?: string }): boolean {
+  return /^already set$/i.test(String(entry.reason || "").trim());
+}
 const EMPTY_CELL = "— empty —";
 const UNREAD_CELL = "— not read —";
 const DOES_NOT_APPLY_RE = /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i;
@@ -187,6 +192,7 @@ function fieldsNeedingListingValues(
 
 function issueLabel(entry: FillLogEntry): string {
   if (entry.status === "new") return "Discovered on form";
+  if (isAlreadySetEntry(entry)) return "Already set";
   if (/^no evidence\b/i.test(String(entry.reason || "").trim())) return "No evidence";
   if (entry.status === "skipped") return "Not filled";
   return STATUS_LABELS[entry.status] || entry.status;
@@ -595,6 +601,8 @@ function leftoverEntries(report: FillLogReport): FillLogEntry[] {
   for (const group of Object.values(report.by_marketplace)) {
     for (const entry of group.entries) {
       if (!FILLABLE_STATUSES.has(entry.status)) continue;
+      // Already-correct controls are successes, not leftovers to retry.
+      if (isAlreadySetEntry(entry)) continue;
       if (isAccountSettingField(entry.field)) continue;
       rows.push(entry);
     }

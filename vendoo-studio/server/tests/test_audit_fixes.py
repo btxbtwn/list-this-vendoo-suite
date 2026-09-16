@@ -1146,6 +1146,11 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Ask chat to retry", panel)
         self.assertIn("Apply on Vendoo", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
+        self.assertIn("isAlreadySetEntry", panel)
+        self.assertIn(
+            'const FILL_FAILURE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain"]);',
+            panel,
+        )
 
     def test_completion_blocker_ask_chat_prompts(self):
         source = (
