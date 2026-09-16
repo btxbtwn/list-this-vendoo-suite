@@ -227,7 +227,15 @@ async def kickoff_schema_probe(conv_id: str, listing: dict | None, *, reason: st
         db.close()
 
 
-async def prepare_generation_schema(db: Session, conv_id: str, provider, analysis: str, notes: str) -> dict:
+async def prepare_generation_schema(
+    db: Session,
+    conv_id: str,
+    provider,
+    analysis: str,
+    notes: str,
+    *,
+    on_status=None,
+) -> dict:
     """Resolve a category and await discovery before asking for the full listing."""
     import asyncio
     from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
@@ -235,11 +243,16 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
     from vendoo_studio.services.marketplaces import selected_fillable_platforms
     from vendoo_studio.services.vendoo_import import parse_notes
 
+    def status(message: str) -> None:
+        if on_status:
+            on_status(message)
+
     if not extension_manager.connected:
         raise RuntimeError("Connect Chrome to discover the category fields before generating the listing.")
     override = str(parse_notes(notes).get("categoryOverride") or "").strip()
     revisions = ListingRepo(db).get_revisions(conv_id)
     seed = deepcopy(revisions[0].listing_json) if revisions else {}
+    status("Choosing marketplace categories…")
     paths = await select_categories(db, provider, analysis, notes, selected_fillable_platforms(), override)
     seed["category_path"] = paths["general"]
     seed["marketplace_categories"] = {mp: path for mp, path in paths.items() if mp != "general"}
@@ -272,8 +285,29 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
         if job and job.status == "completed":
             result = {**result, "reason": "already_done"}
     if result.get("reason") != "already_done":
+        status("Discovering fields in Chrome…")
         waiter_id = "schema:" + job_id
         waiter = extension_manager.register_wait(waiter_id)
+
+        async def _watch_probe_progress() -> None:
+            from vendoo_studio.database import SessionLocal
+
+            while True:
+                await asyncio.sleep(3)
+                watch_db = SessionLocal()
+                try:
+                    job = JobRepo(watch_db).get(job_id)
+                    if not job:
+                        return
+                    step = str(job.current_step or job.status or "").strip()
+                    if step:
+                        status(f"Discovering fields in Chrome ({step})…")
+                    if job.status in {"completed", "failed", "cancelled"}:
+                        return
+                finally:
+                    watch_db.close()
+
+        progress_task = asyncio.create_task(_watch_probe_progress())
         try:
             if result.get("started"):
                 await dispatch_queued_jobs()
@@ -282,13 +316,19 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
             except asyncio.TimeoutError as exc:
                 job = JobRepo(db).get(job_id)
                 step = str((job.current_step if job else "") or "discovering_schema")
-                status = str((job.status if job else "") or "unknown")
+                status_name = str((job.status if job else "") or "unknown")
                 raise RuntimeError(
                     f"Timed out after 5 minutes waiting for Chrome to discover fields for "
                     f"{category_path or 'the selected category'} "
-                    f"(job {job_id} stuck at {step}, status {status}). "
+                    f"(job {job_id} stuck at {step}, status {status_name}). "
                     "Open the Vendoo tab in Chrome, or Cancel discovery and retry."
                 ) from exc
+            except asyncio.CancelledError:
+                job = JobRepo(db).get(job_id)
+                if job and job.status == "completed":
+                    response = {"ok": True}
+                else:
+                    raise
             if not response.get("ok"):
                 raise RuntimeError(
                     response.get("error")
@@ -296,6 +336,11 @@ async def prepare_generation_schema(db: Session, conv_id: str, provider, analysi
                     f"(job {job_id})."
                 )
         finally:
+            progress_task.cancel()
+            try:
+                await progress_task
+            except asyncio.CancelledError:
+                pass
             extension_manager.cancel_wait(waiter_id)
     db.expire_all()
     events = JobRepo(db).get_events(job_id)

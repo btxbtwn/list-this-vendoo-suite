@@ -863,6 +863,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       : `Active discovery job: ${activeProbe.current_step || activeProbe.status}. Cancel it here if Chrome is stuck, then retry.`
     : /connection dropped/i.test(streamText || "")
       ? "This is a client/network failure, not a model refusal. Retry resumes the same generate when Studio still has it running."
+      : /timed out during|category selection timed out/i.test(streamText || "")
+        ? "The listing model or Chrome step stalled. Retry generate. Cancel discovery only if the Listing tab shows a stuck probe."
       : /HTTP 5\d\d/i.test(streamText || "")
         ? "Studio hit an internal error before the model answered. Retry; if it keeps failing, check Studio logs or restart Studio."
         : /HTTP \d+/i.test(streamText || "")

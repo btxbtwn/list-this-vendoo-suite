@@ -117,11 +117,17 @@ async def _ask_model(provider, analysis: str, notes: str, choices: dict) -> dict
         "choices": choices,
     }, ensure_ascii=False)}]
     text = ""
-    async with asyncio.timeout(120):
-        async for chunk in provider.chat(messages, stream=True):
-            kind, value = unpack_stream_item(chunk)
-            if kind != "thinking":
-                text += value or ""
+    try:
+        async with asyncio.timeout(180):
+            async for chunk in provider.chat(messages, stream=True):
+                kind, value = unpack_stream_item(chunk)
+                if kind != "thinking":
+                    text += value or ""
+    except TimeoutError as exc:
+        raise RuntimeError(
+            "Category selection timed out waiting for the listing model. "
+            "Retry generate — this is not a Chrome field-discovery failure."
+        ) from exc
     return parse_resolution(text)
 
 
