@@ -121,13 +121,21 @@ export function SettingsIcon() {
   );
 }
 
-function readSettledExpanded(): boolean {
+function readLegacySettledExpanded(): boolean | null {
   try {
     const raw = localStorage.getItem(SETTLED_SHELF_KEY);
-    if (raw === null) return true;
+    if (raw === null) return null;
     return raw === "true";
   } catch {
-    return true;
+    return null;
+  }
+}
+
+function clearLegacySettledExpanded() {
+  try {
+    localStorage.removeItem(SETTLED_SHELF_KEY);
+  } catch {
+    /* ignore quota / private-mode failures */
   }
 }
 
@@ -227,12 +235,43 @@ export function ListingSidebar({
   onSettingsSearchResult,
 }: Props) {
   const queryClient = useQueryClient();
-  const [settledExpanded, setSettledExpanded] = useState(readSettledExpanded);
+  const legacySettled = readLegacySettledExpanded();
+  const [settledExpanded, setSettledExpanded] = useState(legacySettled ?? true);
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
   const [settingsQuery, setSettingsQuery] = useState("");
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const settingsSearchRef = useRef<HTMLInputElement>(null);
+  const migratedSettledRef = useRef(false);
   const settingsMode = activeView === "settings";
+
+  const { data: uiPrefs } = useQuery({
+    queryKey: ["settings-ui"],
+    queryFn: api.settings.ui,
+  });
+
+  useEffect(() => {
+    if (!uiPrefs) return;
+    if (!migratedSettledRef.current) {
+      migratedSettledRef.current = true;
+      const legacy = readLegacySettledExpanded();
+      if (legacy !== null) {
+        clearLegacySettledExpanded();
+        if (legacy !== uiPrefs.settled_shelf_expanded) {
+          setSettledExpanded(legacy);
+          void api.settings
+            .setUi({ settled_shelf_expanded: legacy })
+            .then(() => {
+              queryClient.invalidateQueries({ queryKey: ["settings-ui"] });
+            })
+            .catch(() => {
+              migratedSettledRef.current = false;
+            });
+          return;
+        }
+      }
+    }
+    setSettledExpanded(uiPrefs.settled_shelf_expanded);
+  }, [uiPrefs, queryClient]);
 
   const settleListing = useMutation({
     mutationFn: (id: string) => api.conversations.settle(id),
@@ -315,14 +354,17 @@ export function ListingSidebar({
   const toggleSettledShelf = useCallback(() => {
     setSettledExpanded((value) => {
       const next = !value;
-      try {
-        localStorage.setItem(SETTLED_SHELF_KEY, String(next));
-      } catch {
-        /* ignore quota / private-mode failures */
-      }
+      void api.settings
+        .setUi({ settled_shelf_expanded: next })
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["settings-ui"] });
+        })
+        .catch(() => {
+          /* keep in-memory toggle if disk write fails */
+        });
       return next;
     });
-  }, []);
+  }, [queryClient]);
 
   const handleSearchChange = (value: string) => {
     onSearchQueryChange(value);

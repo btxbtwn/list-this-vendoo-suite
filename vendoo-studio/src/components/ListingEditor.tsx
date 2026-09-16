@@ -792,7 +792,11 @@ function SendToVendooButton({
                     listingTitle,
                     Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
                   )
-                : jobErrorPrompt(fillJob.last_error, listingTitle)
+                : jobErrorPrompt(
+                    fillJob.last_error,
+                    listingTitle,
+                    Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
+                  )
             }
             onAskChat={onAskChat}
           />
@@ -801,7 +805,11 @@ function SendToVendooButton({
           <CopyableLlmError
             className="job-card-detail"
             text={error}
-            prompt={jobErrorPrompt(error, listingTitle)}
+            prompt={jobErrorPrompt(
+              error,
+              listingTitle,
+              Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
+            )}
             onAskChat={onAskChat}
           />
         )}

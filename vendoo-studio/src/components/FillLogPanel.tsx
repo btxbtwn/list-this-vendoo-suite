@@ -2138,6 +2138,25 @@ export function FillLogPanel({
     },
   });
 
+  const resolveCategory = useMutation({
+    mutationFn: () => api.jobs.resolveCategory(jobId, String(listing?.category_path || "")),
+    onSuccess: (result) => {
+      addToast({
+        type: "success",
+        title: "Matched Vendoo category",
+        description: result.path || "Saved the picker category onto this listing.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["listing"] });
+      queryClient.invalidateQueries({ queryKey: ["conversation"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: vendooItemQueryKey(jobId) });
+      onFilled?.();
+    },
+    onError: (err: Error) => {
+      addToast({ type: "error", title: "Could not match category", description: err.message });
+    },
+  });
+
   React.useEffect(() => {
     if (!awaitingFill.current) return;
     if (filling) {
@@ -2558,6 +2577,20 @@ export function FillLogPanel({
           <p className="pr-notice">
             Ask chat only for fields generation could not resolve. After generate, Studio fills discovered listing values and applies them on Vendoo when Chrome is connected. Nothing is published.
           </p>
+          {hasDraft && (
+            <div className="pr-action">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={resolveCategory.isPending || busy || !chromeConnected}
+                title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
+                onClick={() => resolveCategory.mutate()}
+              >
+                {resolveCategory.isPending ? "Setting category…" : "Set Vendoo category"}
+              </button>
+              <p className="pr-action-hint">Picks the matching category in Vendoo. Start here if the category is wrong.</p>
+            </div>
+          )}
           {onAskChat && (
             <div className="pr-action">
               <button

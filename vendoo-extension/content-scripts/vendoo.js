@@ -992,6 +992,37 @@
       return rawValue;
   }
 
+  function normalizeEtsyListingState(rawValue) {
+      if (rawValue == null || rawValue === '') return '';
+      const value = String(rawValue).trim();
+      const normalized = normalizeText(value);
+      if (!normalized) return '';
+      if (normalized === 'draft' || normalized === 'draft listing') return 'Draft Listing';
+      if (normalized === 'inactive' || normalized === 'inactive listing') return 'Inactive';
+      if (
+          normalized === 'live'
+          || normalized === 'live listing'
+          || normalized === 'active'
+          || normalized === 'active listing'
+      ) {
+          return 'Live Listing';
+      }
+      return value;
+  }
+
+  function resolveEtsyListingState(specs, el) {
+      const requested = normalizeEtsyListingState(
+          specs?.listing_state || specs?.listingState || ''
+      );
+      if (requested) return requested;
+      const current = normalizeEtsyListingState(
+          displayedFieldValue(el) || readPersistedControlValue(el) || ''
+      );
+      // Keep Active/Live when the form already chose it; Vendoo defaults to Live Listing.
+      if (current) return current;
+      return 'Live Listing';
+  }
+
   function normalizeEtsyWhenMade(rawValue) {
       if (!rawValue) return rawValue;
 
@@ -3887,7 +3918,8 @@
           }
           const listingStateEl = document.querySelector('#listings\\.etsy\\.marketplaceSpecifics\\.listingState');
           if (listingStateEl) {
-              await fillDropdownField(listingStateEl, 'Draft Listing', 'Listing State');
+              const listingState = resolveEtsyListingState(specs, listingStateEl);
+              await fillDropdownField(listingStateEl, listingState, 'Listing State');
           }
           
           const etsyTags = uniqueStrings([
@@ -5386,7 +5418,8 @@
               ['whenMade', ['#listings\\.etsy\\.marketplaceSpecifics\\.whenMade'], ['When Was It Made', 'When Made'], data?.etsy_specifics?.when_made || data?.etsy_specifics?.whenMade],
               ['listingType', ['#listings\\.etsy\\.marketplaceSpecifics\\.listingType'], ['Listing Type'], data?.etsy_specifics?.listing_type || data?.etsy_specifics?.listingType],
               ['renewalOption', ['#listings\\.etsy\\.marketplaceSpecifics\\.renewalOption'], ['Renewal options', 'Renewal Option'], data?.etsy_specifics?.renewal_option || data?.etsy_specifics?.renewalOption],
-              ['listingState', ['#listings\\.etsy\\.marketplaceSpecifics\\.listingState'], ['Listing State'], 'Draft Listing'],
+              ['listingState', ['#listings\\.etsy\\.marketplaceSpecifics\\.listingState'], ['Listing State'],
+                  normalizeEtsyListingState(data?.etsy_specifics?.listing_state || data?.etsy_specifics?.listingState) || 'Live Listing'],
           ],
           poshmark: [
               ['brand', ['#listings\\.poshmark\\.overrides\\.brand'], ['Brand'], data?.brand],

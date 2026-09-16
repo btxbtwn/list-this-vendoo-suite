@@ -548,8 +548,10 @@ def is_shipping_estimate_field(label: str) -> bool:
 def values_equal(observed, expected: str) -> bool:
     def normalize(value):
         return " ".join(str(value).split()).casefold()
+    if observed is None or expected is None:
+        return False
     if isinstance(observed, list):
-        return {normalize(v) for v in observed} == {normalize(v) for v in expected.split(",")}
+        return {normalize(v) for v in observed} == {normalize(v) for v in str(expected).split(",")}
     if normalize(observed) == normalize(expected):
         return True
     try:
@@ -562,6 +564,67 @@ def _stringify_observed(observed) -> str:
     if isinstance(observed, list):
         return ", ".join(str(part).strip() for part in observed if str(part).strip())
     return str(observed).strip() if observed is not None else ""
+
+
+def _gap_is_empty(gap: dict) -> bool:
+    observed = gap.get("observed")
+    return observed is None or observed == "" or observed == []
+
+
+def gap_already_has_value(gap: dict, value) -> bool:
+    """True when the saved draft already shows the value we would write."""
+    if value is None or value == "" or value == []:
+        return False
+    if _gap_is_empty(gap):
+        return False
+    observed = gap.get("observed")
+    if values_equal(observed, value):
+        return True
+    mapped = gap.get("mapped_expected")
+    if mapped not in (None, "") and values_equal(observed, mapped) and values_equal(mapped, value):
+        return True
+    if mapped not in (None, "") and values_equal(observed, mapped):
+        # Browser mapped listing → display value; observed already matches display.
+        listing_expected = gap.get("expected")
+        if listing_expected in (None, "") or values_equal(value, listing_expected) or values_equal(value, mapped):
+            return True
+    return False
+
+
+def prior_fill_covers_empty_gap(db: Session, job, gap: dict, value) -> bool:
+    """Skip re-dispatch when Send/repair already wrote this value and readback still looks empty."""
+    if not value or value == []:
+        return False
+    if not _gap_is_empty(gap):
+        return False
+    error = str(gap.get("error") or "").strip().casefold()
+    if error not in {"", "empty field"}:
+        return False
+    from vendoo_studio.services.fill_log import preview_value
+
+    want = preview_value(value).casefold()
+    if not want:
+        return False
+    marketplace = str(gap.get("marketplace") or "general").strip().lower() or "general"
+    field_key = field_lookup_key(gap.get("field") or gap.get("label") or "")
+    if not field_key:
+        return False
+    for entry in FillLogRepo(db).list_for_job(job.id):
+        if str(entry.marketplace or "").strip().lower() != marketplace:
+            continue
+        if field_lookup_key(entry.field or "") != field_key:
+            continue
+        if str(entry.status or "").strip().casefold() not in {"filled", "uncertain"}:
+            continue
+        preview = str(entry.value_preview or "").strip()
+        if preview and preview.casefold() == want:
+            return True
+        reason = str(entry.reason or "")
+        if preview and values_equal(preview, value):
+            return True
+        if re.search(r"already set", reason, flags=re.I) and preview and values_equal(preview, value):
+            return True
+    return False
 
 
 def prefer_listing_over_observed(revisions: list) -> bool:
@@ -690,6 +753,9 @@ def deterministic_gap_patches(
         if not value:
             needs_model.append(gap)
             continue
+        # Draft already shows this value (or the mapped display form) — no write.
+        if gap_already_has_value(gap, patch_value) or gap_already_has_value(gap, value):
+            continue
         if (key, str(value)) in tried:
             needs_model.append(gap)
             continue
@@ -711,6 +777,27 @@ def deterministic_gap_patches(
             "value": patch_value,
         })
     return ready, needs_model
+
+
+def drop_noop_gaps(db: Session, job, gaps: list[dict], listing: dict) -> list[dict]:
+    """Remove gaps that already match on Vendoo or were filled with the same value this job."""
+    kept: list[dict] = []
+    for gap in gaps:
+        marketplace = str(gap.get("marketplace") or "general")
+        field = str(gap.get("field") or gap.get("label") or "").strip()
+        value = gap.get("expected") or listing_value_for_field(listing, marketplace, field)
+        if gap_already_has_value(gap, value):
+            continue
+        if prior_fill_covers_empty_gap(db, job, gap, value):
+            log.info(
+                "skipping refill for %s/%s — fill log already wrote the same value",
+                marketplace,
+                field,
+            )
+            continue
+        kept.append(gap)
+    return kept
+
 
 
 def adopt_observed_draft_values(
@@ -773,18 +860,45 @@ def review_fields(verification: dict, listing: dict) -> list[dict]:
             if not label or field_lookup_key(label) in SELLER_SETTING_LABELS:
                 continue
             observed = field.get("value")
-            expected = listing_value_for_field(listing, marketplace, label)
+            listing_expected = listing_value_for_field(listing, marketplace, label)
+            browser_input = field.get("expected_input")
+            browser_mapped = field.get("expected")
             matches_expected = None
-            if expected and values_equal(field.get("expected_input"), expected):
-                expected = str(field.get("expected") or expected)
+            compare_expected = listing_expected
+            if listing_expected and browser_input is not None and values_equal(browser_input, listing_expected):
+                compare_expected = str(browser_mapped or listing_expected)
                 matches_expected = field.get("matches_expected")
             empty = observed is None or observed == "" or observed == []
             error = str(field.get("error") or "")
+            # Draft already shows the intended value — do not schedule another fill.
+            if not empty and not error and matches_expected is not False:
+                if matches_expected is True:
+                    continue
+                if compare_expected and values_equal(observed, compare_expected):
+                    continue
+                if listing_expected and values_equal(observed, listing_expected):
+                    continue
+                if (
+                    browser_mapped not in (None, "")
+                    and values_equal(observed, browser_mapped)
+                    and browser_input is not None
+                    and listing_expected
+                    and values_equal(browser_input, listing_expected)
+                ):
+                    continue
             # A browser comparison also handles chips, booleans and numeric formatting.
-            if empty or error or matches_expected is False or (matches_expected is None and expected and not values_equal(observed, expected)):
-                gaps.append({**field, "marketplace": marketplace, "field": label,
-                             "expected": expected, "observed": observed,
-                             "error": error or ("Empty field" if empty else "Saved value differs")})
+            if empty or error or matches_expected is False or (
+                matches_expected is None and compare_expected and not values_equal(observed, compare_expected)
+            ):
+                gaps.append({
+                    **field,
+                    "marketplace": marketplace,
+                    "field": label,
+                    "expected": listing_expected,
+                    "mapped_expected": browser_mapped,
+                    "observed": observed,
+                    "error": error or ("Empty field" if empty else "Saved value differs"),
+                })
     return gaps
 
 

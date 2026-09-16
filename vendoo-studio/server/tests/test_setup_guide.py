@@ -56,6 +56,23 @@ class SetupGuideSettingsTest(unittest.TestCase):
         Path(self.tmp.name, "settings.json").write_text(json.dumps({"listing_provider": "mimo"}))
         self.assertEqual(user_settings.get_listing_provider_order(), ("mimo", "chatgpt"))
 
+    def test_ui_prefs_default_and_persist(self):
+        self.assertEqual(
+            user_settings.get_ui_prefs(),
+            {"recent_vendoo_labels": [], "settled_shelf_expanded": True},
+        )
+        self.assertEqual(
+            user_settings.set_ui_prefs(settled_shelf_expanded=False),
+            {"recent_vendoo_labels": [], "settled_shelf_expanded": False},
+        )
+        self.assertEqual(
+            user_settings.remember_vendoo_labels("Vintage, Nike, vintage"),
+            ["Vintage", "Nike"],
+        )
+        stored = json.loads(Path(self.tmp.name, "settings.json").read_text())
+        self.assertEqual(stored["ui"]["settled_shelf_expanded"], False)
+        self.assertEqual(stored["ui"]["recent_vendoo_labels"], ["Vintage", "Nike"])
+
 
 class SetupGuideRouteTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -90,6 +107,30 @@ class SetupGuideRouteTest(unittest.TestCase):
         self.assertEqual(user_settings.get_listing_provider_order(), ("mimo", "none"))
         bad = self.client.put("/api/settings/provider/preferred", json={"primary": "claude"})
         self.assertEqual(bad.status_code, 422)
+
+    def test_data_folder_and_ui_endpoints(self):
+        folder = self.client.get("/api/settings/data-folder")
+        self.assertEqual(folder.status_code, 200)
+        body = folder.json()
+        self.assertEqual(body["path"], self.tmp.name)
+        self.assertIn("vendoo_studio.db", body["contains"])
+        self.assertIn("Keychain", body["secrets"])
+
+        ui = self.client.get("/api/settings/ui")
+        self.assertEqual(ui.status_code, 200)
+        self.assertEqual(ui.json()["settled_shelf_expanded"], True)
+
+        saved = self.client.put(
+            "/api/settings/ui",
+            json={"settled_shelf_expanded": False, "remember_labels": "Thrifted"},
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["settled_shelf_expanded"], False)
+        self.assertEqual(saved.json()["recent_vendoo_labels"], ["Thrifted"])
+
+        status = self.client.get("/api/status")
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["data_dir"], self.tmp.name)
 
 
 if __name__ == "__main__":

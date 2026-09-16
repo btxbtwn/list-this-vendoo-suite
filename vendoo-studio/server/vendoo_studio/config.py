@@ -67,13 +67,14 @@ def frontend_dist_dir() -> Path:
 
 
 def log_path() -> Path:
-    return Path.home() / "Library" / "Logs" / f"{APP_NAME}.log"
+    return user_data_root() / "logs" / f"{APP_NAME}.log"
 
 
 BASE_DIR = resource_root()
 DATA_DIR = str(user_data_root())
 PHOTOS_DIR = str(user_data_root() / "photos")
 FILL_LOGS_DIR = str(user_data_root() / "fill-logs")
+LOGS_DIR = str(user_data_root() / "logs")
 DATABASE_PATH = str(user_data_root() / "vendoo_studio.db")
 PAIRING_FILE = str(user_data_root() / "pairing_token.txt")
 
@@ -82,6 +83,7 @@ def ensure_user_data_dirs() -> None:
     user_data_root().mkdir(parents=True, exist_ok=True)
     Path(PHOTOS_DIR).mkdir(parents=True, exist_ok=True)
     Path(FILL_LOGS_DIR).mkdir(parents=True, exist_ok=True)
+    Path(LOGS_DIR).mkdir(parents=True, exist_ok=True)
 
 
 ensure_user_data_dirs()

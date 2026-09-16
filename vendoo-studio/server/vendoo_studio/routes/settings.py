@@ -405,6 +405,56 @@ def dismiss_setup_guide():
     return persist_setup_guide_dismissed()
 
 
+@router.get("/data-folder")
+def get_data_folder():
+    from vendoo_studio.config import user_data_root
+
+    root = user_data_root()
+    return {
+        "path": str(root),
+        "contains": [
+            "vendoo_studio.db",
+            "photos/",
+            "fill-logs/",
+            "settings.json",
+            "pairing_token.txt",
+            "catalog-index/",
+            "vendoo-extension/",
+            "logs/",
+        ],
+        "secrets": "macOS Keychain (API keys and ChatGPT tokens are not stored in this folder)",
+    }
+
+
+class UiPrefsConfig(BaseModel):
+    recent_vendoo_labels: list[str] | None = None
+    settled_shelf_expanded: bool | None = None
+    remember_labels: str | list[str] | None = None
+
+
+@router.get("/ui")
+def get_ui_prefs():
+    from vendoo_studio.services.user_settings import get_ui_prefs as read_ui_prefs
+
+    return {"ok": True, **read_ui_prefs()}
+
+
+@router.put("/ui")
+def put_ui_prefs(config: UiPrefsConfig):
+    from vendoo_studio.services import user_settings
+
+    try:
+        if config.remember_labels is not None:
+            user_settings.remember_vendoo_labels(config.remember_labels)
+        prefs = user_settings.set_ui_prefs(
+            recent_vendoo_labels=config.recent_vendoo_labels,
+            settled_shelf_expanded=config.settled_shelf_expanded,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **prefs}
+
+
 @router.get("/tailscale")
 def get_tailscale():
     from vendoo_studio.services.tailscale_serve import status as tailscale_status

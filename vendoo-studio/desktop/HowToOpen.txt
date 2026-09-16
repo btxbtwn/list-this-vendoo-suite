@@ -11,5 +11,7 @@ List This Studio
    Press Control-Shift-G (⌘⇧G) to search for the folder, paste the path, click Go, then Open.
 6. Sign in to Vendoo in that Chrome window, then create a listing.
 
-Needs macOS 13+ and Google Chrome. Photos and listings stay on this Mac in:
+Needs macOS 13+ and Google Chrome. Photos, listings, drafts, hidden fields,
+settings, fill logs, and app logs stay on this Mac in:
   ~/Library/Application Support/List This Studio
+API keys stay in macOS Keychain (same Mac, not inside that folder).

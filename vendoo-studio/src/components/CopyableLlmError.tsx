@@ -113,22 +113,26 @@ export function validationErrorsPrompt(blockers: Blocker[], listingTitle?: strin
         : (item.field || "listing");
       return `- ${where}: ${item.message}`;
     });
-  const examples = blockers
-    .map((item) => fieldPathToTarget(item.field))
-    .filter(Boolean)
+  const fields = compactBlockerFields(
+    blockers
+      .map((item) => fieldPathToTarget(item.field))
+      .filter((target): target is { marketplace: string; field: string } => Boolean(target))
+      .map((target) => ({ marketplace: target.marketplace, field: target.field })),
+  );
+  const examples = fields
     .slice(0, 3)
-    .map((target) => `{"marketplace":"${target!.marketplace}","field":"${target!.field}","value":"..."}`);
+    .map((target) => `{"marketplace":"${target.marketplace}","field":"${target.field}","value":"..."}`);
 
   return `Fix these Studio validation errors so Send to Vendoo can proceed for "${title}".
 
-Update ONLY the fields needed to clear the errors below. Use photo analysis and seller notes. Do not invent unsupported facts.
+Update EVERY field listed below so the errors clear. Use photo analysis and seller notes. Do not invent unsupported facts.
 For eBay Season intelligently choose exactly one of Spring, Summer, Fall, or Winter from the item (title, fabric, type, photos). Never leave it blank and never use Does Not Apply.
 For every marketplace field shown after Show Optional Fields (eBay, Etsy, Depop, and others): fill a real value when it pertains to the item. Use Does Not Apply only when it literally does not apply.
 
 Validation errors:
 ${lines.join("\n") || "- (no details)"}
 
-Reply with JSON in this exact shape:
+${fields.length ? `Fields to fill:\n${fieldLines(fields)}\n\n` : ""}Reply with JSON in this exact shape:
 
 \`\`\`json
 {"missing_fields":[${examples.join(",") || '{"marketplace":"ebay","field":"Season","value":"..."}'}]}
@@ -138,9 +142,30 @@ Use marketplace ids and field names that match the errors. Studio saves the list
 `;
 }
 
-export function jobErrorPrompt(errorText: string, listingTitle?: string): string {
+export function jobErrorPrompt(
+  errorText: string,
+  listingTitle?: string,
+  blockerFields?: BlockerField[] | null,
+): string {
   const title = listingLabel(listingTitle);
   const detail = String(errorText || "").trim() || "(no details)";
+  const fields = (() => {
+    const fromPayload = compactBlockerFields(blockerFields);
+    return fromPayload.length ? fromPayload : parseFieldsFromErrorText(detail);
+  })();
+  if (fields.length) {
+    return `Fix this Studio job / verification error for "${title}".
+
+Job error:
+${detail}
+
+Generate values for EVERY field listed below from photos and seller notes — both the fields named in the error and any other missed fields included here. Do not rewrite unrelated fields.
+
+Fields:
+${fieldLines(fields)}
+
+${replyShape(fields)}`;
+  }
   return `Fix this Studio job / verification error for "${title}".
 
 Job error:

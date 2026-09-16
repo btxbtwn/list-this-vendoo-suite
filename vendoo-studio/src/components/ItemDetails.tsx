@@ -25,7 +25,7 @@ function splitLabels(raw: string): string[] {
   return raw.split(",").map((part) => part.trim()).filter(Boolean);
 }
 
-function readStoredLabels(): string[] {
+function readLegacyStoredLabels(): string[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(RECENT_LABELS_KEY) || "[]");
     return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string" && item.trim()) : [];
@@ -34,15 +34,23 @@ function readStoredLabels(): string[] {
   }
 }
 
-function rememberLabels(raw: string) {
-  const incoming = splitLabels(raw);
-  if (!incoming.length) return;
-  const remembered = incoming.map((label) => label.toLowerCase());
-  const merged = [
-    ...incoming,
-    ...readStoredLabels().filter((label) => !remembered.includes(label.toLowerCase())),
-  ];
-  localStorage.setItem(RECENT_LABELS_KEY, JSON.stringify(merged.slice(0, MAX_RECENT_LABELS)));
+function clearLegacyStoredLabels() {
+  try {
+    localStorage.removeItem(RECENT_LABELS_KEY);
+  } catch {
+    /* ignore quota / private-mode failures */
+  }
+}
+
+function rememberLabels(raw: string, queryClient?: ReturnType<typeof useQueryClient>) {
+  void api.settings
+    .setUi({ remember_labels: raw })
+    .then(() => {
+      queryClient?.invalidateQueries({ queryKey: ["settings-ui"] });
+    })
+    .catch(() => {
+      /* disk prefs are best-effort; listing notes still save */
+    });
 }
 
 function labelsFromNotes(notes: string | null | undefined): string[] {
@@ -121,7 +129,7 @@ export function ItemDetails({ convId }: Props) {
   const saveGenRef = useRef(0);
   const [labelMenuOpen, setLabelMenuOpen] = useState(false);
   const [activeSuggestion, setActiveSuggestion] = useState(0);
-  const [recentTick, setRecentTick] = useState(0);
+  const migratedLabelsRef = useRef(false);
 
   const { data: conv } = useQuery({
     queryKey: ["conversation", convId],
@@ -133,11 +141,37 @@ export function ItemDetails({ convId }: Props) {
     queryFn: api.conversations.list,
   });
 
+  const { data: uiPrefs } = useQuery({
+    queryKey: ["settings-ui"],
+    queryFn: api.settings.ui,
+  });
+
+  useEffect(() => {
+    if (!uiPrefs || migratedLabelsRef.current) return;
+    migratedLabelsRef.current = true;
+    const legacy = readLegacyStoredLabels();
+    if (!legacy.length) return;
+    if ((uiPrefs.recent_vendoo_labels || []).length) {
+      clearLegacyStoredLabels();
+      return;
+    }
+    void api.settings
+      .setUi({ recent_vendoo_labels: legacy })
+      .then(() => {
+        clearLegacyStoredLabels();
+        queryClient.invalidateQueries({ queryKey: ["settings-ui"] });
+      })
+      .catch(() => {
+        migratedLabelsRef.current = false;
+      });
+  }, [uiPrefs, queryClient]);
+
   const recentLabels = useMemo(() => {
     const seen = new Set<string>();
     const ordered: string[] = [];
     for (const label of [
-      ...readStoredLabels(),
+      ...(uiPrefs?.recent_vendoo_labels || []),
+      ...readLegacyStoredLabels(),
       ...(conversations || []).flatMap((item: { notes?: string | null }) => labelsFromNotes(item.notes)),
     ]) {
       const key = label.toLowerCase();
@@ -146,7 +180,7 @@ export function ItemDetails({ convId }: Props) {
       ordered.push(label);
     }
     return ordered.slice(0, MAX_RECENT_LABELS);
-  }, [conversations, recentTick]);
+  }, [conversations, uiPrefs?.recent_vendoo_labels]);
 
   const [details, setDetails] = useState<ItemDetailsData>({ ...DEFAULTS });
 
@@ -177,8 +211,7 @@ export function ItemDetails({ convId }: Props) {
     setSaving(true);
     setSaveError(null);
     setDetails(updated);
-    rememberLabels(updated.vendooLabels);
-    setRecentTick((tick) => tick + 1);
+    rememberLabels(updated.vendooLabels, queryClient);
     const persist = async () => {
       try {
         if (gen !== saveGenRef.current) return;

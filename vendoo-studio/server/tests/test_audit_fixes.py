@@ -1130,6 +1130,8 @@ console.log(JSON.stringify({ blouse, tee }));
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
         self.assertIn("Unfilled Etsy sections often keep Listing State", content)
         self.assertIn("key === 'listingState' && mp === 'etsy'", content)
+        self.assertIn("resolveEtsyListingState", content)
+        self.assertIn("return 'Live Listing'", content)
         self.assertIn('[aria-label^="Remove "]', content)
         self.assertIn("normalizeComparableText(lab) === normalizeComparableText(want)", content)
 
@@ -1144,6 +1146,7 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Current value:", panel)
         self.assertIn("Ask chat for", panel)
         self.assertIn("Apply on Vendoo", panel)
+        self.assertIn("Set Vendoo category", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
         self.assertIn("isAlreadySetEntry", panel)
         self.assertIn(
@@ -1166,6 +1169,7 @@ console.log(JSON.stringify({ blouse, tee }));
         ).read_text(encoding="utf-8")
         self.assertIn("completionBlockerPrompt", editor)
         self.assertIn("blocker_fields", editor)
+        self.assertIn("onAskChat={onAskChat}", editor)
 
 
 if __name__ == "__main__":

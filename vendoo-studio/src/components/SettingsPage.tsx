@@ -360,6 +360,43 @@ function AboutVersionRow({ version }: { version: string }) {
   );
 }
 
+function DataFolderRow() {
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["settings-data-folder"],
+    queryFn: api.settings.dataFolder,
+  });
+  const [copied, setCopied] = useState(false);
+  const path = data?.path || "";
+
+  const copy = async () => {
+    if (!path) return;
+    await navigator.clipboard.writeText(path);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <SettingsRow
+      id="data-folder"
+      title="Data folder"
+      description="Listings, photos, drafts, hidden fields, fill logs, settings, and logs stay here when you reinstall the app. API keys remain in macOS Keychain on this Mac."
+    >
+      {isLoading ? (
+        <p className="settings-row-desc">Looking up the data folder…</p>
+      ) : error ? (
+        <p className="settings-row-desc text-error">{(error as Error).message || "Could not load data folder"}</p>
+      ) : (
+        <div className="extension-load-path-row">
+          <code className="extension-load-path-code">{path}</code>
+          <button type="button" className="btn btn-sm btn-outline" onClick={() => void copy()}>
+            {copied ? "Copied" : "Copy path"}
+          </button>
+        </div>
+      )}
+    </SettingsRow>
+  );
+}
+
 function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   const { data: status } = useQuery({
     queryKey: ["status"],
@@ -381,6 +418,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
         />
       </SettingsSection>
       <SettingsSection id="about" title="About">
+        <DataFolderRow />
         <AboutVersionRow version={status?.version || "0.1.0"} />
       </SettingsSection>
     </>
