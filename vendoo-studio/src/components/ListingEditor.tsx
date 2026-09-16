@@ -186,6 +186,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
               queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
               queryClient.invalidateQueries({ queryKey: ["conversations"] });
               queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
+              ensureDraftMutation.mutate();
             }}
           />
         </div>
