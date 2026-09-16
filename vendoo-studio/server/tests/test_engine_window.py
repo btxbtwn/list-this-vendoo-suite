@@ -146,9 +146,11 @@ class EverydayListingTabTest(unittest.TestCase):
         self.assertIn("attachDebuggerPreview", start_fn)
         self.assertIn("foreground: true", background)
         self.assertIn("{ foreground }", background)
+        self.assertIn("job.options?.mode === 'schema_probe'", background)
         patch_start = background.index("async function openListingForPatch")
         patch_end = background.index("async function runFillFields")
         patch = background[patch_start:patch_end]
         self.assertIn("openVisibleVendooWindow", patch)
+        self.assertIn("foreground", patch)
         self.assertIn("function focusVendooListing", background)
         self.assertIn("await showWindow", background)

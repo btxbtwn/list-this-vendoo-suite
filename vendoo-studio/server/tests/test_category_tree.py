@@ -109,7 +109,7 @@ class CategorySelectionTest(unittest.IsolatedAsyncioTestCase):
         result = await select_categories(self.db, Provider(), "Women's cotton tops shirts", "", ["ebay"])
         self.assertEqual(result, {"general": "Clothing > Women's Tops", "ebay": "Fashion > Shirts"})
 
-    async def test_ask_model_timeout_is_not_blamed_on_chrome(self):
+    async def test_ask_model_timeout_falls_back_to_catalog_ranking(self):
         import asyncio
         from vendoo_studio.services import category_selection as cs
 
@@ -124,10 +124,11 @@ class CategorySelectionTest(unittest.IsolatedAsyncioTestCase):
             return real_timeout(0.01)
 
         with patch.object(cs.asyncio, "timeout", short_timeout):
-            with self.assertRaises(RuntimeError) as ctx:
-                await cs._ask_model(SlowProvider(), "Women's cotton tee", "", {"general": [{"id": "1", "path": "Tops"}]})
-        self.assertIn("Category selection timed out", str(ctx.exception))
-        self.assertIn("not a Chrome", str(ctx.exception))
+            result = await select_categories(
+                self.db, SlowProvider(), "Women's cotton tops shirts", "", ["ebay"],
+            )
+        self.assertEqual(result["general"], "Clothing > Women's Tops")
+        self.assertEqual(result["ebay"], "Fashion > Shirts")
 
     async def test_rejects_invented_category_id(self):
         class Provider:

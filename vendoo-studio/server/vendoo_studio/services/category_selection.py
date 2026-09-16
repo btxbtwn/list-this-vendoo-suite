@@ -1,6 +1,7 @@
 """Choose a real terminal category independently for each Vendoo form."""
 import asyncio
 import json
+import logging
 import re
 
 from vendoo_studio.models.catalog import CategoryTree, CategoryTreeNode
@@ -10,6 +11,7 @@ from vendoo_studio.services.category_lookup import condense_category_search_quer
 from vendoo_studio.services.listing_completion import parse_resolution
 from vendoo_studio.services.registry import WOMEN_TOPS_SEEDS
 
+log = logging.getLogger("vendoo_studio.category_selection")
 DEFAULT_TOP_K = 15
 _SELLER_QUESTION_RE = re.compile(
     r"\b(please|confirm|additional details?|tell me|what (?:is|are)|is (?:this|the)|"
@@ -118,16 +120,16 @@ async def _ask_model(provider, analysis: str, notes: str, choices: dict) -> dict
     }, ensure_ascii=False)}]
     text = ""
     try:
-        async with asyncio.timeout(180):
+        # Keep this short so Chrome field discovery can start; catalog ranking
+        # finishes any marketplace the model does not answer in time.
+        async with asyncio.timeout(45):
             async for chunk in provider.chat(messages, stream=True):
                 kind, value = unpack_stream_item(chunk)
                 if kind != "thinking":
                     text += value or ""
-    except TimeoutError as exc:
-        raise RuntimeError(
-            "Category selection timed out waiting for the listing model. "
-            "Retry generate — this is not a Chrome field-discovery failure."
-        ) from exc
+    except TimeoutError:
+        log.warning("category selection model timed out; using catalog ranking")
+        return {"categories": {}, "question": ""}
     return parse_resolution(text)
 
 

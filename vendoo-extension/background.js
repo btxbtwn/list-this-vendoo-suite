@@ -1132,7 +1132,7 @@ async function focusVendooListing(payload) {
   }
 }
 
-async function openListingForPatch(payload, { reload = true, preview = true, marketplace = '' } = {}) {
+async function openListingForPatch(payload, { reload = true, preview = true, marketplace = '', foreground = false } = {}) {
   const requestedUrl = payload.vendoo_url || '';
   const itemId = durableItemId(payload.vendoo_item_id) || extractItemIdFromUrl(requestedUrl);
   if (!itemId) {
@@ -1151,7 +1151,7 @@ async function openListingForPatch(payload, { reload = true, preview = true, mar
     } catch (_) {}
   }
   const samePage = Boolean(existing?.id) && listingUrlsMatch(currentUrl, url);
-  const opened = await openVisibleVendooWindow(samePage ? null : url, existing);
+  const opened = await openVisibleVendooWindow(samePage ? null : url, existing, { foreground });
   const tabId = opened.tabId;
   if (!tabId) {
     return { ok: false, error: 'Could not open the Vendoo draft.' };
@@ -1837,6 +1837,9 @@ async function runSearchCategories(jobId, payload) {
 
 async function openVendooListing(job) {
   try {
+    // Field discovery during generate should be visible so mobile/Browser preview
+    // and the Mac user can see Chrome working. Background Send fills stay unfocused.
+    const foreground = job.options?.mode === 'schema_probe';
     const reuseId = durableItemId(job.vendoo_item_id || job.options?.vendoo_item_id);
     const reuseUrl = job.vendoo_url || job.options?.vendoo_url || (reuseId
       ? `https://web.vendoo.co/app/item/${reuseId}`
@@ -1847,7 +1850,7 @@ async function openVendooListing(job) {
         job_id: job.job_id,
         vendoo_item_id: reuseId,
         vendoo_url: reuseUrl,
-      }, { reload: true, preview: true, marketplace: resumeMarketplace });
+      }, { reload: true, preview: true, marketplace: resumeMarketplace, foreground });
       if (!opened.ok) return opened;
       const tab = await chrome.tabs.get(opened.tabId);
       activeJob.windowId = tab.windowId;
@@ -1865,7 +1868,7 @@ async function openVendooListing(job) {
     const existingTab = await findNewItemTab();
     if (existingTab) {
       log(`Reloading new-item tab ${existingTab.id} -> ${NEW_ITEM_URL}`);
-      const tab = await openEverydayListingTab(NEW_ITEM_URL, existingTab);
+      const tab = await openEverydayListingTab(NEW_ITEM_URL, existingTab, { foreground });
       activeJob.windowId = tab.windowId;
       activeJob.tabId = tab.id;
       await persistActiveJob(activeJob);
@@ -1874,7 +1877,7 @@ async function openVendooListing(job) {
       return { ok: true };
     }
 
-    const tab = await openEverydayListingTab(NEW_ITEM_URL);
+    const tab = await openEverydayListingTab(NEW_ITEM_URL, null, { foreground });
     log(`Opened Vendoo tab ${tab.id} in Studio engine window ${tab.windowId}`);
 
     activeJob.windowId = tab.windowId;
