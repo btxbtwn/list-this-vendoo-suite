@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
+
+log = logging.getLogger("vendoo_studio.keychain")
 
 KEYRING_SERVICE = "vendoo-studio"
 KEYRING_ACCOUNT = "xiaomi-mimo-api-key"
@@ -18,6 +21,7 @@ _chatgpt_loaded = False
 _cached_chatgpt: dict | None = None
 _chatgpt_models_loaded = False
 _cached_chatgpt_models: dict | None = None
+_warmed = False
 
 
 def mask_secret(value: str | None) -> str | None:
@@ -28,24 +32,50 @@ def mask_secret(value: str | None) -> str | None:
     return "***"
 
 
+def _read_password(account: str) -> str | None:
+    try:
+        import keyring
+        return keyring.get_password(KEYRING_SERVICE, account)
+    except Exception:
+        log.warning("keychain read failed for %s", account, exc_info=True)
+        return None
+
+
+def _write_password(account: str, value: str) -> bool:
+    try:
+        import keyring
+        keyring.set_password(KEYRING_SERVICE, account, value)
+        return True
+    except Exception:
+        log.warning("keychain write failed for %s", account, exc_info=True)
+        return False
+
+
+def _rebind_password(account: str, value: str | None) -> None:
+    """Re-save so the current app binary is trusted on this Keychain item.
+
+    Ad-hoc signed Mac updates change the binary identity. Without a rebind,
+    macOS prompts again on every launch (Allow) unless the user picked
+    Always Allow. Rewriting after a successful unlock attaches this process.
+    """
+    if not value:
+        return
+    _write_password(account, value)
+
+
 def get_api_key() -> str | None:
     global _loaded, _cached_key
     with _lock:
         if _loaded:
             return _cached_key
-        try:
-            import keyring
-            _cached_key = keyring.get_password(KEYRING_SERVICE, KEYRING_ACCOUNT)
-        except Exception:
-            _cached_key = None
+        _cached_key = _read_password(KEYRING_ACCOUNT)
         _loaded = True
         return _cached_key
 
 
 def set_api_key(key: str):
     global _loaded, _cached_key
-    import keyring
-    keyring.set_password(KEYRING_SERVICE, KEYRING_ACCOUNT, key)
+    _write_password(KEYRING_ACCOUNT, key)
     with _lock:
         _cached_key = key
         _loaded = True
@@ -68,19 +98,14 @@ def get_brave_api_key() -> str | None:
     with _lock:
         if _brave_loaded:
             return _cached_brave_key
-        try:
-            import keyring
-            _cached_brave_key = keyring.get_password(KEYRING_SERVICE, BRAVE_ACCOUNT)
-        except Exception:
-            _cached_brave_key = None
+        _cached_brave_key = _read_password(BRAVE_ACCOUNT)
         _brave_loaded = True
         return _cached_brave_key
 
 
 def set_brave_api_key(key: str):
     global _brave_loaded, _cached_brave_key
-    import keyring
-    keyring.set_password(KEYRING_SERVICE, BRAVE_ACCOUNT, key)
+    _write_password(BRAVE_ACCOUNT, key)
     with _lock:
         _cached_brave_key = key
         _brave_loaded = True
@@ -103,9 +128,8 @@ def get_chatgpt_tokens() -> dict | None:
     with _lock:
         if _chatgpt_loaded:
             return dict(_cached_chatgpt) if _cached_chatgpt else None
+        raw = _read_password(CHATGPT_ACCOUNT)
         try:
-            import keyring
-            raw = keyring.get_password(KEYRING_SERVICE, CHATGPT_ACCOUNT)
             _cached_chatgpt = json.loads(raw) if raw else None
             if not isinstance(_cached_chatgpt, dict):
                 _cached_chatgpt = None
@@ -117,9 +141,9 @@ def get_chatgpt_tokens() -> dict | None:
 
 def set_chatgpt_tokens(tokens: dict):
     global _chatgpt_loaded, _cached_chatgpt
-    import keyring
     payload = json.dumps(tokens)
-    keyring.set_password(KEYRING_SERVICE, CHATGPT_ACCOUNT, payload)
+    # Keep the in-memory session even if Keychain UI is denied mid-generate.
+    _write_password(CHATGPT_ACCOUNT, payload)
     with _lock:
         _cached_chatgpt = dict(tokens)
         _chatgpt_loaded = True
@@ -168,9 +192,8 @@ def get_chatgpt_models() -> dict[str, str]:
     with _lock:
         if _chatgpt_models_loaded:
             return dict(_cached_chatgpt_models or {})
+        raw = _read_password(CHATGPT_MODELS_ACCOUNT)
         try:
-            import keyring
-            raw = keyring.get_password(KEYRING_SERVICE, CHATGPT_MODELS_ACCOUNT)
             payload = json.loads(raw) if raw else None
         except Exception:
             payload = None
@@ -207,8 +230,88 @@ def set_chatgpt_models(
         current["listing_model"] = listing
     if reasoning:
         current["reasoning_effort"] = reasoning
-    import keyring
-    keyring.set_password(KEYRING_SERVICE, CHATGPT_MODELS_ACCOUNT, json.dumps(current))
+    _write_password(CHATGPT_MODELS_ACCOUNT, json.dumps(current))
     with _lock:
         _cached_chatgpt_models = dict(current)
         _chatgpt_models_loaded = True
+
+
+def warm_keychain() -> dict[str, bool]:
+    """Load every Studio secret once at launch and rebind ACLs for this app.
+
+    Call from the desktop main thread before serving requests so Keychain
+    prompts happen at launch (when someone can click Always Allow), not
+    mid-generate from a phone/iPad remote session.
+    """
+    global _warmed, _loaded, _cached_key, _brave_loaded, _cached_brave_key
+    global _chatgpt_loaded, _cached_chatgpt, _chatgpt_models_loaded, _cached_chatgpt_models
+
+    with _lock:
+        if _warmed:
+            return {
+                "api_key": bool(_cached_key),
+                "brave": bool(_cached_brave_key),
+                "chatgpt": bool(_cached_chatgpt),
+                "chatgpt_models": bool(_cached_chatgpt_models),
+            }
+
+    api_key = _read_password(KEYRING_ACCOUNT)
+    _rebind_password(KEYRING_ACCOUNT, api_key)
+
+    brave = _read_password(BRAVE_ACCOUNT)
+    _rebind_password(BRAVE_ACCOUNT, brave)
+
+    chatgpt_raw = _read_password(CHATGPT_ACCOUNT)
+    _rebind_password(CHATGPT_ACCOUNT, chatgpt_raw)
+    chatgpt: dict | None = None
+    if chatgpt_raw:
+        try:
+            parsed = json.loads(chatgpt_raw)
+            chatgpt = parsed if isinstance(parsed, dict) else None
+        except Exception:
+            chatgpt = None
+
+    models_raw = _read_password(CHATGPT_MODELS_ACCOUNT)
+    _rebind_password(CHATGPT_MODELS_ACCOUNT, models_raw)
+    models: dict[str, str] = {}
+    if models_raw:
+        try:
+            payload = json.loads(models_raw)
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            vision = _clean_model_slug(payload.get("vision_model"))
+            listing = _clean_model_slug(payload.get("listing_model"))
+            reasoning = _clean_reasoning_effort(payload.get("reasoning_effort"))
+            if vision:
+                models["vision_model"] = vision
+            if listing:
+                models["listing_model"] = listing
+            if reasoning:
+                models["reasoning_effort"] = reasoning
+
+    with _lock:
+        _cached_key = api_key
+        _loaded = True
+        _cached_brave_key = brave
+        _brave_loaded = True
+        _cached_chatgpt = chatgpt
+        _chatgpt_loaded = True
+        _cached_chatgpt_models = models
+        _chatgpt_models_loaded = True
+        _warmed = True
+
+    found = {
+        "api_key": bool(api_key),
+        "brave": bool(brave),
+        "chatgpt": bool(chatgpt),
+        "chatgpt_models": bool(models),
+    }
+    log.info(
+        "keychain warmed api_key=%s brave=%s chatgpt=%s models=%s",
+        found["api_key"],
+        found["brave"],
+        found["chatgpt"],
+        found["chatgpt_models"],
+    )
+    return found

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from vendoo_studio.services.brave_search import (
@@ -19,6 +20,9 @@ from vendoo_studio.services.sold_comps import (
 )
 
 log = logging.getLogger("vendoo_studio.comp_research")
+
+# Mobile generate SSE drops when comps stall for many minutes on the prior status.
+SOLD_COMPS_TIMEOUT_SEC = 90
 
 
 def comps_search_available() -> bool:
@@ -47,7 +51,7 @@ async def research_chatgpt_comps(query: str) -> str:
     return format_chatgpt_comps(query, answer, [item for item in sources if isinstance(item, dict)])
 
 
-async def research_sold_comps(analysis_text: str | None, evidence: dict | None = None) -> str:
+async def _research_sold_comps(analysis_text: str | None, evidence: dict | None = None) -> str:
     fields = item_fields(analysis_text, evidence)
     query = sold_comps_query(fields)
     if not query:
@@ -72,3 +76,14 @@ async def research_sold_comps(analysis_text: str | None, evidence: dict | None =
     if chatgpt_text:
         return chatgpt_text
     return ""
+
+
+async def research_sold_comps(analysis_text: str | None, evidence: dict | None = None) -> str:
+    try:
+        return await asyncio.wait_for(
+            _research_sold_comps(analysis_text, evidence),
+            timeout=SOLD_COMPS_TIMEOUT_SEC,
+        )
+    except TimeoutError:
+        log.warning("sold comps research timed out after %ss", SOLD_COMPS_TIMEOUT_SEC)
+        return ""
