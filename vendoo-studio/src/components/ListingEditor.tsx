@@ -745,6 +745,9 @@ function SendToVendooButton({
   const existingJob = jobs?.find(
     (j: any) => j.conversation_id === convId && j.status !== "cancelled" && j.status !== "imported",
   );
+  // Jobs come back newest-first, so a cancelled head job means the last send was stopped by hand.
+  const latestFillJob = jobs?.find((j: any) => j.conversation_id === convId && j.mode !== "schema_probe");
+  const cancelledJob = latestFillJob?.status === "cancelled" ? latestFillJob : null;
   const isSchemaProbe = existingJob?.mode === "schema_probe";
   const probeActive = Boolean(
     isSchemaProbe && ["queued", "awaiting_extension", "dispatched"].includes(String(existingJob?.status || "")),
@@ -779,6 +782,17 @@ function SendToVendooButton({
     return confirmDialog(
       "Overwrite this existing Vendoo listing?\nThis does not publish. If it is already live, saving may update those marketplace listings.",
     );
+  };
+
+  // Cancelled jobs cannot be retried server-side, so a restart starts a fresh send from current fields.
+  const startSend = async () => {
+    if (!canSend) {
+      setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
+      return;
+    }
+    if (!(await confirmOverwriteIfNeeded())) return;
+    setError(null);
+    sendMutation.mutate();
   };
 
   if (probeActive && existingJob) {
@@ -942,6 +956,45 @@ function SendToVendooButton({
     uniqueBlockers.length ? uniqueBlockers : [{ message: displayError }],
     listingTitle,
   );
+  const errorCard = displayError ? (
+    <CopyableLlmError
+      className={cancelledJob ? "job-card-detail" : "mt-8"}
+      text={displayError}
+      prompt={uniqueBlockers.length ? blockerPrompt : jobErrorPrompt(displayError, listingTitle)}
+      onAskChat={onAskChat}
+    />
+  ) : null;
+
+  if (cancelledJob) {
+    return (
+      <div className="job-card">
+        <div className="job-card-header">
+          <div className="job-card-copy">
+            <div className="job-card-label">Job Status</div>
+            <div className="job-card-status">
+              Cancelled
+              <div className="mt-4 text-xs text-muted">
+                {canSend
+                  ? "Restart sends this listing to Vendoo again using the current fields."
+                  : "Fix the fields listed below, then restart."}
+              </div>
+            </div>
+          </div>
+          <div className="job-card-actions">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm job-card-action"
+              disabled={sendMutation.isPending || !canSend}
+              onClick={startSend}
+            >
+              {sendMutation.isPending ? "Restarting..." : treatAsUpdate ? "Restart update" : "Restart listing"}
+            </button>
+          </div>
+        </div>
+        {errorCard}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -950,30 +1003,11 @@ function SendToVendooButton({
         className="btn btn-success"
         style={{ width: "100%" }}
         disabled={sendMutation.isPending || !canSend}
-        onClick={async () => {
-          if (!canSend) {
-            setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
-            return;
-          }
-          if (!(await confirmOverwriteIfNeeded())) return;
-          setError(null);
-          sendMutation.mutate();
-        }}
+        onClick={startSend}
       >
         {sendMutation.isPending ? "Sending..." : sendLabel}
       </button>
-      {displayError && (
-        <CopyableLlmError
-          className="mt-8"
-          text={displayError}
-          prompt={
-            uniqueBlockers.length
-              ? blockerPrompt
-              : jobErrorPrompt(displayError, listingTitle)
-          }
-          onAskChat={onAskChat}
-        />
-      )}
+      {errorCard}
     </div>
   );
 }
