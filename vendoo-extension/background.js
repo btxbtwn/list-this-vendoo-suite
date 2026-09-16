@@ -579,7 +579,8 @@ function marketplaceFromStep(step) {
   const match = String(step || '').match(/^(?:clearing|filling|saving|auditing)_(.+)$/i);
   if (!match) return 'general';
   const platform = String(match[1] || '').toLowerCase();
-  if (!platform || platform === 'general') return 'general';
+  // Combined post-fill steps are not a real Vendoo marketplace tab.
+  if (!platform || platform === 'general' || platform === 'marketplaces') return 'general';
   return platform;
 }
 
@@ -694,6 +695,11 @@ async function runJobSteps(jobId) {
         collectDiagnostics('active');
       }
 
+      // Discover already set marketplace categories; fill can skip re-picking them.
+      if (step.step === 'discovering_schema' && result.ok) {
+        activeJob.categoriesAligned = true;
+      }
+
       if (result.vendoo_item_id && !activeJob.vendoo_item_id) {
         activeJob.vendoo_item_id = result.vendoo_item_id;
         await persistActiveJob(activeJob);
@@ -790,6 +796,32 @@ async function releaseFailedJob(jobId) {
 
 function buildJobSteps(job) {
   const platforms = job.options?.platforms || [];
+  const resumeFrom = String(job.options?.resumeFrom || '').trim();
+  const auditResume = resumeFrom.match(/^auditing_(.+)$/i);
+  // On-demand marketplace audit retry (Fill Log / Retry) — not part of the
+  // normal fill pipeline. End-of-job verifySavedDraft is the single audit.
+  if (auditResume) {
+    const target = String(auditResume[1] || '').toLowerCase();
+    if (target && target !== 'general') {
+      const auditSteps = [
+        { step: 'opening_vendoo', fn: openVendooListing },
+        { step: 'waiting_ready', fn: waitForContentScript },
+      ];
+      if (job.options?.reuseExistingItem) {
+        auditSteps.push({ step: 'checking_draft_safety', fn: checkDraftSafety });
+      }
+      if (target === 'marketplaces') {
+        auditSteps.push({ step: 'auditing_marketplaces', fn: auditAllMarketplaces });
+      } else {
+        auditSteps.push({
+          step: `auditing_${target}`,
+          fn: (j) => auditMarketplace(j, target),
+        });
+      }
+      return auditSteps;
+    }
+  }
+
   if (job.options?.mode === 'schema_probe') {
     const steps = [
       { step: 'opening_vendoo', fn: openVendooListing },
@@ -825,8 +857,9 @@ function buildJobSteps(job) {
   steps.push({ step: 'auditing_general', fn: auditGeneral });
 
   // After General category is committed, align each marketplace category and
-  // scrape the live field schema before filling values.
-  if (platforms.length) {
+  // scrape the live field schema before filling values — unless Studio already
+  // has a complete cached schema for this category path.
+  if (platforms.length && !job.options?.skipDiscoverSchema) {
     steps.push({ step: 'discovering_schema', fn: discoverSchema });
   }
   for (const platform of platforms) {
@@ -834,8 +867,11 @@ function buildJobSteps(job) {
       steps.push({ step: `clearing_${platform}`, fn: (j) => clearMarketplace(j, platform) });
     }
     steps.push({ step: `filling_${platform}`, fn: (j) => fillMarketplace(j, platform) });
-    steps.push({ step: `saving_${platform}`, fn: (j) => saveMarketplace(j, platform) });
-    steps.push({ step: `auditing_${platform}`, fn: (j) => auditMarketplace(j, platform) });
+  }
+  if (platforms.length) {
+    // One draft save after all marketplace fills. Per-marketplace save+audit
+    // used to dominate wall-clock time; verifySavedDraft audits once at the end.
+    steps.push({ step: 'saving_marketplaces', fn: saveMarketplaces });
   }
 
   return steps;
@@ -2107,6 +2143,7 @@ async function fillMarketplace(job, platform) {
     type: 'FILL_MARKETPLACE',
     platform,
     data: job.listing,
+    skipCategory: Boolean(job.categoriesAligned),
     registry_selectors: job.registry_selectors || {},
     registry_options: job.registry_options || {},
   });
@@ -2119,12 +2156,37 @@ async function saveMarketplace(job, platform) {
   });
 }
 
+async function saveMarketplaces(job) {
+  return sendToVendoo(job, {
+    type: 'SAVE_MARKETPLACE',
+    platform: 'all',
+  });
+}
+
 async function auditMarketplace(job, platform) {
   return sendToVendoo(job, {
     type: 'AUDIT_MARKETPLACE',
     platform,
     data: job.listing,
   });
+}
+
+async function auditAllMarketplaces(job) {
+  const platforms = job.options?.platforms || [];
+  const results = [];
+  for (const platform of platforms) {
+    const result = await auditMarketplace(job, platform);
+    results.push(result);
+    if (!result?.ok) {
+      return {
+        ok: false,
+        error: result?.error || `${platform} audit failed`,
+        fields: result?.fields || {},
+        fill_log: mergeFillLogs(results),
+      };
+    }
+  }
+  return { ok: true, fill_log: mergeFillLogs(results) };
 }
 
 function sleep(ms) {

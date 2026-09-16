@@ -52,6 +52,28 @@ def remember_schema(db: Session, general_path: str, schema: dict) -> None:
         pass
 
 
+def schema_covers_platforms(db: Session, general_path: str, platforms: list[str]) -> bool:
+    """True when every fillable marketplace already has a cached field schema for this category."""
+    path = str(general_path or "").strip()
+    wanted = [str(item or "").strip().lower() for item in (platforms or []) if str(item or "").strip()]
+    if not path or not wanted:
+        return False
+    rows = {
+        str(row.marketplace or "").strip().lower(): row
+        for row in db.query(CategorySchema).filter_by(general_path=path).all()
+    }
+    for marketplace in wanted:
+        row = rows.get(marketplace)
+        if row is None:
+            return False
+        if not str(row.category_path or "").strip():
+            return False
+        fields = row.fields if isinstance(row.fields, list) else []
+        if not fields:
+            return False
+    return True
+
+
 def schema_context(db: Session, path: str) -> str:
     rows = db.query(CategorySchema).filter_by(general_path=path).all()
     if not rows and path:

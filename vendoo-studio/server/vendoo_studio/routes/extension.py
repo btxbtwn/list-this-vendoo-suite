@@ -280,11 +280,23 @@ async def dispatch_queued_jobs():
             "vendoo_item_id": item_id,
             "vendoo_url": item_url,
         }
+        category_path = str(snapshot.get("category_path") or "").strip()
+        if (
+            not schema_probe
+            and platforms
+            and category_path
+        ):
+            from vendoo_studio.services.category_catalog import schema_covers_platforms
+            if schema_covers_platforms(db, category_path, platforms):
+                # Cached schema already learned for this category — skip the live
+                # marketplace tour. Fill still sets categories when needed.
+                options["skipDiscoverSchema"] = True
         if resume_from:
             options["resumeFrom"] = resume_from
         if schema_probe:
             options["mode"] = "schema_probe"
             options["skipPhotos"] = True
+            options.pop("skipDiscoverSchema", None)
         sent = await extension_manager.send_message(ProtocolMessage(
             type="job.start",
             job_id=job.id,
