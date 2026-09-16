@@ -341,24 +341,34 @@ async function closeSpareBlankTabs(windowId, keepTabId) {
   } catch (_) {}
 }
 
-async function closeEmptyWindows(keepWindowId) {
+async function closeEmptyEngineWindows(keepWindowId) {
+  // Only clean up Studio's previous engine window. Never close the user's everyday
+  // Chrome windows — blank NTP / about:blank tabs are normal there.
+  let engineId = null;
   try {
-    const windows = await chrome.windows.getAll({ populate: true });
-    await Promise.all(windows
-      .filter((win) => win.id && win.id !== keepWindowId)
-      .filter((win) => !(win.tabs || []).some((tab) => tab.url && tab.url !== 'about:blank'))
-      .map(async (win) => {
-        try {
-          await chrome.windows.remove(win.id);
-        } catch (_) {}
-        try {
-          const stored = await chrome.storage.local.get(ENGINE_WINDOW_KEY);
-          if (stored[ENGINE_WINDOW_KEY] === win.id) {
-            await chrome.storage.local.remove(ENGINE_WINDOW_KEY);
-          }
-        } catch (_) {}
-      }));
+    const stored = await chrome.storage.local.get(ENGINE_WINDOW_KEY);
+    engineId = stored[ENGINE_WINDOW_KEY];
   } catch (_) {}
+  if (engineId == null || engineId === keepWindowId) {
+    return;
+  }
+  try {
+    const win = await chrome.windows.get(engineId, { populate: true });
+    const hasRealTab = (win.tabs || []).some((tab) => tab.url && tab.url !== 'about:blank');
+    if (hasRealTab) {
+      return;
+    }
+    try {
+      await chrome.windows.remove(engineId);
+    } catch (_) {}
+    try {
+      await chrome.storage.local.remove(ENGINE_WINDOW_KEY);
+    } catch (_) {}
+  } catch (_) {
+    try {
+      await chrome.storage.local.remove(ENGINE_WINDOW_KEY);
+    } catch (_) {}
+  }
 }
 
 async function openEverydayListingTab(url, existing, { foreground = false } = {}) {
@@ -389,9 +399,11 @@ async function openEverydayListingTab(url, existing, { foreground = false } = {}
       throw new Error('Chrome did not return a listing tab');
     }
     await closeSpareBlankTabs(created.id, tab.id);
-    await closeEmptyWindows(created.id);
-    if (foreground) await showWindow(created.id);
-    else await hideWindow(created.id);
+    await closeEmptyEngineWindows(created.id);
+    // Always bring a freshly created engine window on-screen. Callers that want
+    // background fills can hide afterward; never create an invisible first window.
+    await showWindow(created.id);
+    if (!foreground) await hideWindow(created.id);
     return tab;
   } catch (err) {
     log(`Could not open listing in a new window (${err.message})`);
@@ -415,7 +427,7 @@ async function closeListingTab(tabId) {
     log(`Could not close listing tab (${err.message})`);
   }
   if (windowId != null) {
-    await closeEmptyWindows(null);
+    await closeEmptyEngineWindows(null);
   }
 }
 

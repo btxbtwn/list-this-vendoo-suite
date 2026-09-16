@@ -130,7 +130,9 @@ class EverydayListingTabTest(unittest.TestCase):
         preview = PREVIEW.read_text(encoding="utf-8")
         self.assertIn("closeListingTab", background)
         self.assertIn("Closed listing tab", preview)
-        self.assertIn("closeEmptyWindows", preview)
+        self.assertIn("closeEmptyEngineWindows", preview)
+        # Everyday Chrome windows must never be closed for blank tabs.
+        self.assertIn("Never close the user's everyday", preview)
         self.assertGreaterEqual(background.count("await closeListingTab("), 4)
 
     def test_listing_does_not_bring_chrome_to_front(self) -> None:
