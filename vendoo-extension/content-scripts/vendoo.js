@@ -3141,12 +3141,12 @@
       const result = await fillCategoryPath(data, { catBtn, categoryPath, marketplace });
       recordFill({
         field: 'Category',
-        status: result.ok ? (result.already ? 'skipped' : (result.filled ? 'filled' : 'skipped')) : 'failed',
+        status: result.ok ? ((result.already || result.filled) ? 'filled' : 'skipped') : 'failed',
         reason: result.error || (result.already ? 'Already set' : ''),
         selector: selectorFor(catBtn, ''),
         value: categoryPath,
       });
-      return { status: result.ok ? (result.already ? 'skipped' : (result.filled ? 'filled' : 'skipped')) : 'failed', error: result.error };
+      return { status: result.ok ? ((result.already || result.filled) ? 'filled' : 'skipped') : 'failed', error: result.error };
   }
 
   async function setGeneralCategoryOnly(data) {
@@ -3167,7 +3167,7 @@
           const catResult = await fillCategoryPath(data);
           recordFill({
               field: 'Category',
-              status: catResult.ok ? (catResult.filled ? 'filled' : 'skipped') : 'failed',
+              status: catResult.ok ? ((catResult.already || catResult.filled) ? 'filled' : 'skipped') : 'failed',
               reason: catResult.error || (catResult.already ? 'Already set' : ''),
               selector: VENDOO_SELECTORS.category,
               value: data.category_path,
@@ -3230,7 +3230,7 @@
           }
           recordFill({
             field: 'Category',
-            status: catResult.filled ? 'filled' : 'skipped',
+            status: (catResult.already || catResult.filled) ? 'filled' : 'skipped',
             reason: catResult.already ? 'Already set' : '',
             selector: VENDOO_SELECTORS.category,
             value: data.category_path,
@@ -6494,7 +6494,7 @@
                           const result = await fillCategoryPath({ category_path: value });
                           recordFill({
                               field: fieldName,
-                              status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed',
+                              status: result.ok ? ((result.already || result.filled) ? 'filled' : 'skipped') : 'failed',
                               reason: result.error || (result.already ? 'Already set' : ''),
                               selector: item.selector || VENDOO_SELECTORS.category,
                               value,

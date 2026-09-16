@@ -1138,14 +1138,19 @@ console.log(JSON.stringify({ blouse, tee }));
             Path(__file__).resolve().parents[2] / "src" / "components" / "FillLogPanel.tsx"
         ).read_text(encoding="utf-8")
         self.assertIn("function leftoverFieldPrompt", panel)
-        self.assertIn("function leftoverFieldsPrompt", panel)
+        self.assertIn("function askChatGapsPrompt", panel)
         self.assertIn("Listing:", panel)
         self.assertIn("Marketplace:", panel)
         self.assertIn("Current value:", panel)
-        self.assertIn("Failure reason:", panel)
-        self.assertIn("Ask chat to retry", panel)
+        self.assertIn("Ask chat for", panel)
         self.assertIn("Apply on Vendoo", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
+        self.assertIn("isAlreadySetEntry", panel)
+        self.assertIn(
+            'const FILL_FAILURE_STATUSES = new Set(["invalid", "failed", "not_found", "uncertain"]);',
+            panel,
+        )
+        self.assertNotIn("Ask chat to retry", panel)
 
     def test_completion_blocker_ask_chat_prompts(self):
         source = (
