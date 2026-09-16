@@ -16,6 +16,8 @@ from vendoo_studio.models.registry import FieldRegistry
 from vendoo_studio.models.fill_log import FillLogEntry
 
 BUSY_LISTING_STATUSES = ("in_progress", "listing")
+# Statuses operators can set manually from the sidebar.
+MANUAL_LISTING_STATUSES = ("draft", "completed", "failed")
 
 
 def _settle(conv: Conversation, when, *, backfill: bool = False, force: bool = False) -> bool:
@@ -78,11 +80,19 @@ class ConversationRepo:
     def list_all(self) -> list[Conversation]:
         return self.db.query(Conversation).order_by(Conversation.updated_at.desc()).all()
 
-    def update_status(self, conv_id: str, status: str) -> Conversation | None:
+    def update_status(
+        self,
+        conv_id: str,
+        status: str,
+        *,
+        touch_updated_at: bool = False,
+    ) -> Conversation | None:
         conv = self.get(conv_id)
         if not conv:
             return None
         conv.status = status
+        if touch_updated_at:
+            conv.updated_at = utcnow()
         _sync_settlement(conv, status)
         self.db.commit()
         self.db.refresh(conv)

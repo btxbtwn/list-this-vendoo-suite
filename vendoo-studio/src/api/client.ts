@@ -58,7 +58,7 @@ export const api = {
     get: (id: string) => request<any>(`/conversations/${id}`),
     create: (body?: { title?: string; notes?: string }) =>
       request<any>("/conversations", { method: "POST", body: JSON.stringify(body || {}) }),
-    update: (id: string, body: { title?: string; notes?: string }) =>
+    update: (id: string, body: { title?: string; notes?: string; status?: string }) =>
       request<any>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     settle: (id: string) =>
       request<any>(`/conversations/${id}/settle`, { method: "POST" }),

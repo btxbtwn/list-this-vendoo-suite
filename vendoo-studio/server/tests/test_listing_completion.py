@@ -20,12 +20,16 @@ from vendoo_studio.services.listing_completion import (
     categories_match,
     complete_job,
     deterministic_gap_patches,
+    drop_noop_gaps,
+    gap_already_has_value,
     prefer_listing_over_observed,
+    prior_fill_covers_empty_gap,
     review_fields,
     store_verification,
 )
 from vendoo_studio.services.fill_log import listing_value_for_field, write_values_into_listing
 from vendoo_studio.services.schema_probe import SCHEMA_PROBE_FLAG, prepare_generation_schema
+from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 
 
 class Provider:
@@ -475,6 +479,78 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(review_fields(self.verification, {**self.listing, "condition": "Pre-Owned - Good"}), [])
         # A stale mapping must not conceal a newer seller edit.
         self.assertEqual(len(review_fields(self.verification, {**self.listing, "condition": "New With Tags/Box"})), 1)
+
+    def test_review_fields_skips_when_observed_matches_mapped_display(self):
+        self.verification["schema"]["ebay"]["fields"] = [{
+            "label": "Condition",
+            "value": "Good",
+            "expected_input": "Pre-Owned - Good",
+            "expected": "Good",
+            "matches_expected": True,
+        }]
+        gaps = review_fields(self.verification, {**self.listing, "condition": "Pre-Owned - Good"})
+        self.assertEqual(gaps, [])
+
+    def test_gap_already_has_value_and_prior_fill_skip_noop_refill(self):
+        gap = {
+            "marketplace": "ebay",
+            "field": "Material",
+            "expected": "Cotton",
+            "mapped_expected": "Cotton",
+            "observed": "Cotton",
+            "error": "Saved value differs",
+        }
+        self.assertTrue(gap_already_has_value(gap, "Cotton"))
+        self.assertFalse(gap_already_has_value({**gap, "observed": ""}, "Cotton"))
+
+        empty = {
+            "marketplace": "ebay",
+            "field": "Material",
+            "expected": "Cotton",
+            "observed": "",
+            "error": "Empty field",
+        }
+        self.db.add(FillLogEntry(
+            job_id=self.job.id,
+            conversation_id=self.conv.id,
+            step="filling_ebay",
+            marketplace="ebay",
+            field="Material",
+            status="filled",
+            reason="",
+            value_preview="Cotton",
+        ))
+        self.db.commit()
+        self.assertTrue(prior_fill_covers_empty_gap(self.db, self.job, empty, "Cotton"))
+        self.assertEqual(drop_noop_gaps(self.db, self.job, [empty, gap], self.listing), [])
+
+        ready, needs = deterministic_gap_patches([gap], self.listing)
+        self.assertEqual(ready, [])
+        self.assertEqual(needs, [])
+
+    async def test_complete_job_skips_refill_when_fill_log_already_wrote_value(self):
+        self.db.add(FillLogEntry(
+            job_id=self.job.id,
+            conversation_id=self.conv.id,
+            step="filling_ebay",
+            marketplace="ebay",
+            field="Material",
+            status="filled",
+            reason="",
+            value_preview="Cotton",
+        ))
+        ListingRepo(self.db).save_revision(
+            self.conv.id,
+            {**self.listing, "ebay_specifics": {"material": "Cotton"}},
+            source="model",
+        )
+        self.job.listing_snapshot = {**self.listing, "ebay_specifics": {"material": "Cotton"}}
+        self.db.commit()
+        self.review()
+        await self.run_completion({})
+        self.dispatch.assert_not_awaited()
+        self.assertEqual(self.job.status, "completed")
+        self.assertEqual(self.job.current_step, "verified_complete")
 
     def test_adopt_observed_size_unless_user_form_is_newest(self):
         listing = {

@@ -126,6 +126,61 @@ def vendoo_binding(notes: str | None) -> dict[str, str]:
     return out
 
 
+ROUTE_ITEM_IDS = frozenset({"new", "edit", "create"})
+VENDOO_HOSTS = frozenset({"web.vendoo.co", "app.vendoo.co"})
+ITEM_PATH_RE = re.compile(r"/item/([^/?#]+)", re.I)
+
+
+def parse_vendoo_draft_ref(raw: str | None) -> dict[str, str]:
+    """Accept a Vendoo item URL or bare item ID and return a durable binding."""
+    text = str(raw or "").strip()
+    if not text:
+        raise ValueError("Paste a Vendoo draft link or item ID.")
+
+    item_id = ""
+    preferred_url = ""
+    looks_like_url = (
+        "://" in text
+        or text.lower().startswith("web.vendoo.")
+        or text.lower().startswith("app.vendoo.")
+        or "/item/" in text
+    )
+    if looks_like_url:
+        candidate = text if "://" in text else f"https://{text.lstrip('/')}"
+        try:
+            parsed = urlparse(candidate)
+        except Exception as exc:
+            raise ValueError("That does not look like a Vendoo draft link.") from exc
+        host = (parsed.hostname or "").lower()
+        if host and host not in VENDOO_HOSTS:
+            raise ValueError("Use a web.vendoo.co or app.vendoo.co draft link.")
+        match = ITEM_PATH_RE.search(parsed.path or "")
+        if not match:
+            raise ValueError("Vendoo link must include /app/item/<id>.")
+        item_id = match.group(1).strip()
+        preferred_url = urlunparse((
+            "https",
+            host or "web.vendoo.co",
+            parsed.path,
+            "",
+            "",
+            "",
+        ))
+    else:
+        item_id = text
+
+    item_id = item_id.strip()
+    if not item_id or item_id.lower() in ROUTE_ITEM_IDS:
+        raise ValueError("Open a saved Vendoo draft first (not /item/new).")
+    if not all(ch.isalnum() or ch in "-_" for ch in item_id):
+        raise ValueError("That does not look like a Vendoo item ID.")
+
+    url = preferred_url if preferred_url and ITEM_PATH_RE.search(urlparse(preferred_url).path or "") else (
+        f"https://web.vendoo.co/app/item/{item_id}"
+    )
+    return {"vendooItemId": item_id, "vendooUrl": url}
+
+
 def merge_notes(existing: str | None, updates: dict[str, Any]) -> str:
     data = parse_notes(existing)
     binding_keys = {"vendooItemId", "vendooUrl"}

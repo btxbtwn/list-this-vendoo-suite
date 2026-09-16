@@ -1462,6 +1462,15 @@
           const text = (selectShown.innerText || selectShown.textContent || '').replace(/\u200b/g, '').trim();
           if (text) return text.split('\n')[0].trim();
       }
+      // Native-looking wrappers sometimes put the visible label on a sibling, not the input.
+      const inputBase = el.closest?.('.MuiInputBase-root, .MuiFormControl-root');
+      if (inputBase && inputBase !== el) {
+          const labeled = inputBase.querySelector('.MuiSelect-select, [class*="MuiSelect-select"], [role="combobox"]');
+          if (labeled && labeled !== el) {
+              const text = (labeled.innerText || labeled.textContent || '').replace(/\u200b/g, '').trim();
+              if (text) return text.split('\n')[0].trim();
+          }
+      }
       const combo = (el.getAttribute && el.getAttribute('role') === 'combobox') ? el : el.closest?.('[role="combobox"]');
       if (combo) {
           const text = (combo.textContent || '').replace(/\u200b/g, '').trim().split('\n')[0].trim();
@@ -3172,12 +3181,12 @@
       const result = await fillCategoryPath(data, { catBtn, categoryPath, marketplace });
       recordFill({
         field: 'Category',
-        status: result.ok ? ((result.already || result.filled) ? 'filled' : 'skipped') : 'failed',
+        status: result.ok ? (result.already ? 'skipped' : (result.filled ? 'filled' : 'skipped')) : 'failed',
         reason: result.error || (result.already ? 'Already set' : ''),
         selector: selectorFor(catBtn, ''),
         value: categoryPath,
       });
-      return { status: result.ok ? ((result.already || result.filled) ? 'filled' : 'skipped') : 'failed', error: result.error };
+      return { status: result.ok ? (result.already ? 'skipped' : (result.filled ? 'filled' : 'skipped')) : 'failed', error: result.error };
   }
 
   async function setGeneralCategoryOnly(data) {
@@ -3198,7 +3207,7 @@
           const catResult = await fillCategoryPath(data);
           recordFill({
               field: 'Category',
-              status: catResult.ok ? ((catResult.already || catResult.filled) ? 'filled' : 'skipped') : 'failed',
+              status: catResult.ok ? (catResult.filled ? 'filled' : 'skipped') : 'failed',
               reason: catResult.error || (catResult.already ? 'Already set' : ''),
               selector: VENDOO_SELECTORS.category,
               value: data.category_path,
@@ -3261,7 +3270,7 @@
           }
           recordFill({
             field: 'Category',
-            status: (catResult.already || catResult.filled) ? 'filled' : 'skipped',
+            status: catResult.filled ? 'filled' : 'skipped',
             reason: catResult.already ? 'Already set' : '',
             selector: VENDOO_SELECTORS.category,
             value: data.category_path,
@@ -6492,10 +6501,9 @@
                   await activateMarketplaceSection('general');
               }
               await expandOptionalFields();
-              await sleep(CONFIG.SLEEP_LONG);
               let ebayOptionalsReady = marketplace !== 'ebay';
-              const pending = group.filter((item) => !isAccountSettingField(item.field));
-              pending.sort((left, right) => {
+              const candidates = group.filter((item) => !isAccountSettingField(item.field));
+              candidates.sort((left, right) => {
                   const fillPriority = (key) => {
                       if (key === 'category') return 0;
                       if (key === 'size type') return 1;
@@ -6506,6 +6514,67 @@
                   };
                   return fillPriority(normalizeFieldKey(left.field)) - fillPriority(normalizeFieldKey(right.field));
               });
+
+              // Fast pass: skip controls that already show the intended value so we
+              // do not open dropdowns / wait / retype the same input.
+              const pending = [];
+              for (const item of candidates) {
+                  const fieldName = item.field || 'Field';
+                  const value = mapPatchValue(marketplace, fieldName, item.value);
+                  item.value = value;
+                  const fieldKey = normalizeFieldKey(fieldName);
+                  if (fieldKey === 'category') {
+                      if (marketplace === 'general' || marketplace === 'unknown') {
+                          const catBtn = document.querySelector(VENDOO_SELECTORS.category);
+                          const shown = readCategoryDisplay(catBtn);
+                          if (shown && categoryDisplayMatches(shown, value)) {
+                              recordFill({
+                                  field: fieldName,
+                                  status: 'filled',
+                                  reason: 'Already set',
+                                  selector: item.selector || VENDOO_SELECTORS.category,
+                                  value,
+                              });
+                              continue;
+                          }
+                      } else {
+                          const catEl = findMarketplaceCategoryControl(marketplace);
+                          const shown = readCategoryDisplay(catEl);
+                          if (shown && categoryDisplayMatches(shown, value)) {
+                              recordFill({
+                                  field: fieldName,
+                                  status: 'filled',
+                                  reason: 'Already set',
+                                  selector: item.selector || '',
+                                  value,
+                              });
+                              continue;
+                          }
+                      }
+                      pending.push(item);
+                      continue;
+                  }
+                  if (['publish', 'published', 'publication status', 'listing status', 'listing state'].includes(fieldKey)
+                      && !['draft', 'draft listing'].includes(String(value).trim().toLowerCase())) {
+                      pending.push(item);
+                      continue;
+                  }
+                  const el = findControlForPatch(item);
+                  if (el && patchValueAlreadySet(el, value, fieldName)) {
+                      recordAlreadySet(fieldName, el, item.selector || '', value);
+                      continue;
+                  }
+                  pending.push(item);
+              }
+
+              if (!pending.length) {
+                  currentPatchEntryId = '';
+                  const log = finishFillLog({ skipUnmapped: true });
+                  allEntries.push(...log.entries);
+                  continue;
+              }
+
+              await sleep(CONFIG.SLEEP_SHORT);
               for (const item of pending) {
                   currentPatchEntryId = item.id || '';
                   const fieldName = item.field || 'Field';
@@ -6527,7 +6596,7 @@
                           const result = await fillCategoryPath({ category_path: value });
                           recordFill({
                               field: fieldName,
-                              status: result.ok ? ((result.already || result.filled) ? 'filled' : 'skipped') : 'failed',
+                              status: result.ok ? (result.filled ? 'filled' : 'skipped') : 'failed',
                               reason: result.error || (result.already ? 'Already set' : ''),
                               selector: item.selector || VENDOO_SELECTORS.category,
                               value,
@@ -6545,7 +6614,14 @@
                       await fillMarketplaceSize(marketplace, { size: value }, item.selector);
                       continue;
                   }
-                  const el = await waitForPatchControl(item);
+                  let el = findControlForPatch(item);
+                  if (el && patchValueAlreadySet(el, value, fieldName)) {
+                      recordAlreadySet(fieldName, el, item.selector || '', value);
+                      continue;
+                  }
+                  if (!el) {
+                      el = await waitForPatchControl(item);
+                  }
                   if (!el) {
                       recordFill({
                           id: item.id,
