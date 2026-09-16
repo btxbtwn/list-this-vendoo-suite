@@ -591,6 +591,77 @@ Empty fields:
 ${lines.join("\n")}`;
 }
 
+/** One Ask-chat prompt for empty listing values and Apply/Send failures (deduped). */
+function askChatGapsPrompt(
+  forms: DraftForm[],
+  fromDraft: boolean,
+  listing: Record<string, unknown> | undefined,
+  failures: FillLogEntry[],
+): string {
+  const title = listingTitle(listing);
+  const seen = new Set<string>();
+  const lines: string[] = [];
+
+  const pushLine = (line: string, key: string) => {
+    if (seen.has(key) || lines.length >= 50) return;
+    seen.add(key);
+    lines.push(line);
+  };
+
+  for (const entry of failures) {
+    const marketplace = String(entry.marketplace || "").toLowerCase();
+    const field = entry.field || "";
+    const key = `${marketplace}:${normalizeFieldName(field)}`;
+    const current = leftoverGeneratedValue(listing, entry) || "(empty)";
+    const reason = String(entry.reason || "").trim() || "(none)";
+    pushLine(
+      `- Listing: ${title}
+  Marketplace: ${entry.marketplace}
+  Field: ${field}
+  Current value: ${current}
+  Status: ${leftoverStatusLabel(entry)}
+  Reason: ${reason}`,
+      key,
+    );
+  }
+
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+    const leftover = field.leftover;
+    const key = `${form.id}:${fieldMatchKey(field)}`;
+    pushLine(
+      `- Listing: ${title}
+  Marketplace: ${form.id}
+  Field: ${field.label}
+  Current value: ${listingTextForField(listing, form.id, field) || EMPTY_CELL}
+  Status: ${leftover ? leftoverStatusLabel(leftover) : "missing in listing"}
+  Reason: ${leftover?.reason || (fromDraft
+    ? "empty in listing JSON (field exists on the Vendoo form)"
+    : "empty in listing JSON")}`,
+      key,
+    );
+  }
+
+  const emptyCount = fieldsNeedingListingValues(forms, listing).length;
+  const failCount = failures.length;
+  const parts: string[] = [];
+  if (emptyCount) parts.push(`${emptyCount} empty`);
+  if (failCount) parts.push(`${failCount} failed`);
+  const mix = parts.join(" + ") || "listed";
+
+  return `Fill these listing fields for "${title}" (${mix}). Generate values for ONLY these fields from the photos and current listing. Do not rewrite unrelated fields.
+
+Reply with JSON in this exact shape:
+
+\`\`\`json
+{"missing_fields":[{"marketplace":"ebay","field":"Brand","value":"..."}]}
+\`\`\`
+
+Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
+
+Fields:
+${lines.join("\n") || "- (none)"}`;
+}
+
 function allowedMarketplaceIds(selected?: string[]): Set<string> {
   const chosen = selected ?? DEFAULT_SELECTED_MARKETPLACES;
   return new Set(["general", ...chosen]);
