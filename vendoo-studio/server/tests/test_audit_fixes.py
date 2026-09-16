@@ -828,6 +828,41 @@ class JobSafetyRouteTest(unittest.TestCase):
         self.assertEqual(updated.status, "cancelled")
         self.assertIsNone(updated.last_error)
 
+    def test_job_response_includes_blocker_fields(self):
+        job = Job(
+            conversation_id=self.conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot=VALID_LISTING,
+            status="failed",
+            current_step="completion_blocked",
+            last_error="Could not estimate packaged shipping weight/dimensions for the remaining gaps. Retry verification.",
+        )
+        self.db.add(job)
+        self.db.commit()
+        JobRepo(self.db).add_event(
+            job.id,
+            "completion_blocked",
+            "completion_blocked",
+            {
+                "reason": job.last_error,
+                "fields": [
+                    {"marketplace": "ebay", "field": "Package weight", "expected": "8 oz"},
+                    {"marketplace": "ebay", "field": "Package dimensions"},
+                ],
+            },
+        )
+        response = self.client.get(f"/api/jobs/{job.id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["current_step"], "completion_blocked")
+        self.assertEqual(
+            body["blocker_fields"],
+            [
+                {"marketplace": "ebay", "field": "Package weight", "expected": "8 oz"},
+                {"marketplace": "ebay", "field": "Package dimensions"},
+            ],
+        )
+
     def test_merge_notes_keeps_vendoo_binding(self):
         existing = json.dumps({"vendooItemId": "abc123", "vendooUrl": "https://web.vendoo.co/app/item/abc123", "condition": "Good"})
         merged = json.loads(merge_notes(existing, {"condition": "Fair", "vendooItemId": "", "vendooUrl": ""}))
@@ -1111,6 +1146,21 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Ask chat to retry", panel)
         self.assertIn("Apply on Vendoo", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
+
+    def test_completion_blocker_ask_chat_prompts(self):
+        source = (
+            Path(__file__).resolve().parents[2] / "src" / "components" / "CopyableLlmError.tsx"
+        ).read_text(encoding="utf-8")
+        self.assertIn("export function completionBlockerPrompt", source)
+        self.assertIn("Estimate packaged shipping", source)
+        self.assertIn("Fix marketplace category alignment", source)
+        self.assertIn("Fill marketplace optional fields", source)
+        self.assertIn("Resolve these remaining listing fields", source)
+        editor = (
+            Path(__file__).resolve().parents[2] / "src" / "components" / "ListingEditor.tsx"
+        ).read_text(encoding="utf-8")
+        self.assertIn("completionBlockerPrompt", editor)
+        self.assertIn("blocker_fields", editor)
 
 
 if __name__ == "__main__":

@@ -343,3 +343,48 @@ const sendToVendoo = async (job, message) => {calls.push(message.type); return {
 """
         result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
         self.assertEqual(result, ["navigate", "reload", "ready", "VERIFY_SAVED_DRAFT"])
+
+    def test_patch_fill_skips_matching_values_but_replaces_mismatches(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        start = source.index("  /** True when a FILL_FIELDS patch would leave the control unchanged. */")
+        end = source.index("  function chipsMatchValues")
+        helper = source[start:end]
+        equals_start = source.index("  function normalizeComparableText")
+        equals_end = source.index("  /** True when a FILL_FIELDS patch would leave the control unchanged. */")
+        equals = source[equals_start:equals_end]
+        script = equals + """
+function normalizeOptionValue(text) {
+  return String(text || '').replace(/[–—]/g, '-').replace(/[*?]+/g, '')
+    .replace(/[_/]+/g, ' ').replace(/-/g, ' ').replace(/\\s+/g, ' ').trim().toLowerCase();
+}
+function displayedFieldValue(el) { return el.value || ''; }
+function readPersistedControlValue(el) { return el.checked; }
+function isMultiChipField() { return false; }
+function shouldFillAsDropdown() { return false; }
+function splitChipValues() { return []; }
+function chipsMatchValues() { return false; }
+function optionMatchesValue(got, want) {
+  return normalizeOptionValue(got) === normalizeOptionValue(want);
+}
+""" + helper + """
+const empty = { value: '' };
+const matching = { value: 'Spring' };
+const wrong = { value: 'Fall' };
+console.log(JSON.stringify({
+  empty: patchValueAlreadySet(empty, 'Spring', 'Season'),
+  match: patchValueAlreadySet(matching, 'Spring', 'Season'),
+  replace: patchValueAlreadySet(wrong, 'Spring', 'Season'),
+  loose: patchValueAlreadySet({ value: 'spring' }, 'Spring', 'Season'),
+}));
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertFalse(result["empty"])
+        self.assertTrue(result["match"])
+        self.assertFalse(result["replace"])
+        self.assertTrue(result["loose"])
+
+    def test_fill_fields_path_no_longer_skips_all_filled_controls(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        self.assertIn("patchValueAlreadySet", source)
+        self.assertNotIn("Already filled on Vendoo", source)
+        self.assertIn("replacements (wrong value → listing value) still write", source)

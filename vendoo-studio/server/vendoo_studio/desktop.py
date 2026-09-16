@@ -816,11 +816,78 @@ def _boot_window(window) -> None:
         window.load_html(error_html(str(exc)))
 
 
+def enable_editable_context_menus() -> None:
+    """Keep Cut/Copy/Paste in WKWebView right-click menus.
+
+    pywebview clears every context-menu item unless debug is on, which makes
+    Paste unavailable in the chat composer and other text fields.
+    """
+    try:
+        from Foundation import NSStringFromSelector
+        from webview.platforms.cocoa import BrowserView
+    except Exception:
+        return
+
+    allowed_actions = {
+        "cut:",
+        "copy:",
+        "paste:",
+        "pasteAndMatchStyle:",
+        "selectAll:",
+        "delete:",
+    }
+    allowed_titles = {
+        "cut",
+        "copy",
+        "paste",
+        "paste and match style",
+        "select all",
+        "delete",
+    }
+
+    def will_open_menu(self, menu, event):  # noqa: ANN001
+        try:
+            items = list(menu.itemArray() or [])
+        except Exception:
+            try:
+                menu.removeAllItems()
+            except Exception:
+                pass
+            return
+        keep = []
+        for item in items:
+            try:
+                action = item.action()
+                title = str(item.title() or "").strip().casefold()
+            except Exception:
+                continue
+            action_name = ""
+            if action is not None:
+                try:
+                    action_name = str(NSStringFromSelector(action) or "")
+                except Exception:
+                    action_name = str(action)
+            if action_name in allowed_actions or title in allowed_titles:
+                keep.append(item)
+        try:
+            menu.removeAllItems()
+            for item in keep:
+                menu.addItem_(item)
+        except Exception:
+            pass
+
+    try:
+        BrowserView.WebKitHost.willOpenMenu_withEvent_ = will_open_menu
+    except Exception:
+        pass
+
+
 def run_window() -> None:
     _set_macos_app_name()
     _set_macos_app_icon()
     import webview
 
+    enable_editable_context_menus()
     window = create_studio_window(webview)
     webview.start(lambda: _boot_window(window), **studio_start_kwargs())
     stop_owned_server()

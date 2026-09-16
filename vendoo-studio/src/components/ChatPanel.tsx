@@ -1111,6 +1111,22 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
             rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={(e) => {
+              const pasted = e.clipboardData?.getData("text/plain");
+              if (pasted == null) return;
+              // Keep paste reliable in the controlled composer (desktop webview
+              // sometimes delivers Paste without updating React state).
+              e.preventDefault();
+              const el = e.currentTarget;
+              const start = el.selectionStart ?? input.length;
+              const end = el.selectionEnd ?? input.length;
+              const next = `${input.slice(0, start)}${pasted}${input.slice(end)}`;
+              setInput(next);
+              requestAnimationFrame(() => {
+                const cursor = start + pasted.length;
+                el.setSelectionRange(cursor, cursor);
+              });
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
