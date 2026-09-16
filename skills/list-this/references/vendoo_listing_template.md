@@ -328,7 +328,7 @@ All eBay Item Specifics fields. Use Appendix values.
 - `materials`: Array of materials
 - `tags`: Up to 13 tags
 - `renewalOption`, `processingTime`, `shippingTemplate`
-- `category_specifics`: T-shirt optional fields after Show Optional Fields. Use live Etsy dropdown values from `vendoo-dropdown-options.json` (`clothingStyle`, `sleeveLength`, `neckline`, `graphic`, `fabricPattern`). Skip `occasion` / `holiday` / `sustainability` unless the value is one of Etsy's listed options.
+- `category_specifics`: T-shirt optional fields after Show Optional Fields. Use live Etsy dropdown values from `vendoo-dropdown-options.json` (`clothingStyle`, `sleeveLength`, `neckline`, `closure`, `graphic`, `fabricPattern`). Fill every applicable row. Use Does Not Apply only for `graphic` / `collarStyle` / `occasion` / `holiday` / `sustainability` when they literally do not apply.
 
 **Poshmark Specifics:**
 - `originalPrice`: MSRP for comparison
@@ -349,6 +349,7 @@ Use these lists only to select valid dropdown values. Outputs should still be th
 ## **eBay Optional Fields - Value Lists**
 
 * “Show Optional Fields” – REQUIRED  
+* Fill every applicable optional row. Use Does Not Apply only when the attribute literally does not apply (MPN, UPC, Character, Theme, Strap Type, Fabric Weight, Accents, Country of Origin, Sleeve Type). Never leave Features, Neckline, Season, Fit, Pattern, Occasion, Closure, Unit Quantity, or Unit Type blank.  
 * Accents: Beaded, Bow, Button, Crochet, Embroidered, Fringe, Fur Trim, Glitter, Jewel, Logo, Pleated, Quilted, Rhinestone, Ruffle, Sequin, Strap, Studded, Tasseled, Zipper  
 * Character: (if applicable) Disney, Marvel, Band name, etc.  
 * Closure: Zip, Button, Snap, Tie, Pullover, Hook & Eye, Elastic, Toggle, Velcro, Drawstring, Clasp, Lace-up, Magnetic  
@@ -377,6 +378,8 @@ Use these lists only to select valid dropdown values. Outputs should still be th
 
 ## **Etsy Optional Fields - Value Lists**
 
+* “Show Optional Fields” – REQUIRED  
+* Fill every applicable optional row. Use Does Not Apply only when the attribute literally does not apply (Graphic, Collar style, Holiday, Occasion, Sustainability). Always fill Clothing style, Sleeve length, Neckline, Closure, and Fabric pattern.  
 * Clothing Style (up to 1): ---- ; Western & cowboy ; Minimalist ; Boho & hippie ; Gothic ; Harajuku ; Lolita ; Military ; Mod ; Preppy ; Rave ; Pin-up & rockabilly ; Rocker ; Menswear  
 * Closure (up to 3): Zipper; Buttons; Tie; Pullover; Elastic; Hook & eye; Snap; Drawstring; Lace-up; Toggle; Velcro  
 * Jacket Style: ----; Motorcycle; Bomber; Cape; Jean; Overcoat; Parka; Peacoat; Puffer; Raincoat; Track; Trench; Windbreaker; Nehru; Sherwani  
@@ -403,6 +406,7 @@ Use these lists only to select valid dropdown values. Outputs should still be th
 * Age: 50s; 60s; 70s; 80s; 90s; Y2K; Modern  
 * Style (exactly 3): Streetwear; Sportswear; Loungewear; Goth; Boho; Western; Indie; Skater; Rave; Costume; Cosplay; Grunge; Emo; Minimalist; Preppy; Avant Garde; Punk; Glam; Regency; Casual; Utility; Futuristic; Cottage; Fairy; Kidcore; Y2K; Biker; Gorpcore; Twee; Coquette; Whimsygoth; Retro
 * “Show Optional Fields” – REQUIRED  
+* Fill every applicable Depop optional row. Omit Size Grouping for Regular sizing (it does not apply). Always fill Source, Age, Style (3), Occasion (3), and Parcel Size. Material only from tag evidence.  
 * Size Grouping (1): Maternity; Petite; Plus Size; Tall  
 * Type (up to 2): Blazer, Bomber, Cape, Duster, Lightweight, Poncho, Puffer, Shacket, Varsity, Windbreaker  
 * Material (up to 4): Cotton; Polyester; Spandex; Silk; Wool; Leather; Denim; Nylon; Rayon; Linen; Acrylic; Velvet; Corduroy; Fleece; Satin  

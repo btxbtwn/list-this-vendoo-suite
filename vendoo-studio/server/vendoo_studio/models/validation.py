@@ -35,8 +35,9 @@ EBAY_KEY_ALIASES = {
     "qty": "unitQuantity",
 }
 VALID_EBAY_SEASONS = frozenset({"Spring", "Summer", "Fall", "Winter"})
-# Gap-fill often writes Does Not Apply; Season is optional and Studio only
-# accepts the four calendar seasons (or empty). Treat DNA as “leave blank”.
+# Stable order for scoring ties and packing multi-select values.
+DEFAULT_EBAY_SEASONS = ("Spring", "Summer", "Fall", "Winter")
+# Gap-fill often writes Does Not Apply; Season must always be a calendar season.
 EBAY_SEASON_CLEAR = frozenset({
     "does not apply",
     "n/a",
@@ -49,13 +50,222 @@ EBAY_SEASON_CLEAR = frozenset({
     "--",
     "d",
 })
-EBAY_SEASON_ALIASES = {
-    "all season": "Summer",
-    "all-season": "Summer",
-    "all seasons": "Summer",
-    "year round": "Summer",
-    "year-round": "Summer",
+EBAY_SEASON_ALL_YEAR = frozenset({
+    "all season",
+    "all-season",
+    "all seasons",
+    "year round",
+    "year-round",
+})
+# Explicit season words in copy still win; otherwise cues below pick one.
+EBAY_SEASON_CUES: dict[str, tuple[str, ...]] = {
+    "Winter": (
+        r"\bwinter\b", r"\bwool\b", r"\bfleece\b", r"\bcashmere\b", r"\bcoat\b",
+        r"\bparka\b", r"\bpuffer\b", r"\bdown\b", r"\bthermal\b", r"\bhoodie\b",
+        r"\bsweater\b", r"\bpullover\b", r"\bcable\b", r"\bknit\b", r"\bcardigan\b",
+        r"\bheavyweight\b", r"\binsulated\b", r"\bboot(?:s)?\b", r"\bsnow\b",
+    ),
+    "Summer": (
+        r"\bsummer\b", r"\blinen\b", r"\btank\b", r"\bsleeveless\b", r"\bshorts?\b",
+        r"\bsundress\b", r"\bcami\b", r"\bswim\b", r"\bbikini\b", r"\bshort[\s-]*sleeve\b",
+        r"\bcrop(?:ped)?\s*top\b", r"\btropical\b", r"\bbeach\b", r"\bv\-?neck\s*tee\b",
+        r"\bt[\s-]?shirt\b", r"\btee\b", r"\bpolo\b",
+    ),
+    "Fall": (
+        r"\bfall\b", r"\bautumn\b", r"\bflannel\b", r"\bcorduroy\b", r"\btweed\b",
+        r"\blight[\s-]*jacket\b", r"\bdenim\s*jacket\b", r"\bshacket\b",
+        r"\bmidweight\b", r"\blayering\b",
+    ),
+    "Spring": (
+        r"\bspring\b", r"\bfloral\b", r"\bflower\b", r"\bblossom\b", r"\bpastel\b",
+        r"\bblouse\b", r"\bruched\b", r"\blightweight\b", r"\bchiffon\b",
+        r"\bsatin\b", r"\bsilk\b", r"\btrench\b",
+    ),
 }
+# Mirrors vendoo-studio/src/marketplaceFields.ts EBAY_CATEGORY_OPTIONALS (minus seller store UI).
+EBAY_CATEGORY_OPTIONAL_KEYS = (
+    "accents",
+    "character",
+    "closure",
+    "countryOfOrigin",
+    "fabricType",
+    "fabricWeight",
+    "features",
+    "fit",
+    "garmentCare",
+    "handmade",
+    "mpn",
+    "material",
+    "neckline",
+    "occasion",
+    "pattern",
+    "personalize",
+    "season",
+    "sleeveLength",
+    "sleeveType",
+    "strapType",
+    "style",
+    "theme",
+    "unitQuantity",
+    "unitType",
+    "vintage",
+    "upc",
+)
+EBAY_OPTIONAL_ALWAYS_DEFAULTS = {
+    "handmade": "No",
+    "personalize": "No",
+    "unitQuantity": "1",
+    "unitType": "Unit",
+    "vintage": "No",
+    "pattern": "Solid",
+    "occasion": "Casual",
+    "fit": "Regular",
+    "style": "Basic",
+    "closure": "Pullover",
+    "neckline": "Crew Neck",
+    "features": "Lightweight",
+}
+# Only these may be Does Not Apply when empty — everything else must be a real value.
+EBAY_OPTIONAL_DNA_KEYS = frozenset({
+    "mpn",
+    "upc",
+    "character",
+    "characterFamily",
+    "strapType",
+    "fabricWeight",
+    "theme",
+    "performanceActivity",
+    "accents",
+    "countryOfOrigin",
+    "sleeveType",
+    "personalizationInstructions",
+})
+# Tag-evidence fields: blank stays a warning (never invent), not DNA.
+EBAY_OPTIONAL_EVIDENCE_KEYS = frozenset({"material", "fabricType", "garmentCare"})
+DNA_VALUE = "Does Not Apply"
+# Lookup keys (field_lookup_key form) for apparel optionals that must not silent-skip.
+EBAY_OPTIONAL_MUST_FILL_LOOKUPS = frozenset({
+    "accents",
+    "character",
+    "closure",
+    "country of origin",
+    "fabric type",
+    "fabric weight",
+    "features",
+    "fit",
+    "garment care",
+    "handmade",
+    "mpn",
+    "material",
+    "neckline",
+    "occasion",
+    "pattern",
+    "personalize",
+    "season",
+    "sleeve length",
+    "sleeve type",
+    "strap type",
+    "style",
+    "theme",
+    "unit quantity",
+    "unit type",
+    "vintage",
+    "upc",
+})
+EBAY_OPTIONAL_DNA_LOOKUPS = frozenset({
+    "mpn",
+    "upc",
+    "character",
+    "character family",
+    "strap type",
+    "fabric weight",
+    "theme",
+    "performance activity",
+    "accents",
+    "country of origin",
+    "sleeve type",
+    "personalization instructions",
+})
+
+# Mirrors vendoo-studio/src/marketplaceFields.ts ETSY_CATEGORY_OPTIONALS (+ fabricPattern alias).
+ETSY_CATEGORY_OPTIONAL_KEYS = (
+    "clothingStyle",
+    "sleeveLength",
+    "neckline",
+    "closure",
+    "graphic",
+    "collarStyle",
+    "holiday",
+    "occasion",
+    "pattern",
+    "fabricPattern",
+    "sustainability",
+)
+ETSY_OPTIONAL_ALWAYS_DEFAULTS = {
+    "clothingStyle": "Minimalist",
+    "neckline": "Crew",
+    "closure": "Pullover",
+    "pattern": "Solid",
+    "fabricPattern": "Solid",
+}
+# Event/theme attributes — DNA unless the item literally matches.
+ETSY_OPTIONAL_DNA_KEYS = frozenset({
+    "graphic",
+    "collarStyle",
+    "holiday",
+    "occasion",
+    "sustainability",
+})
+ETSY_OPTIONAL_MUST_FILL_LOOKUPS = frozenset({
+    "clothing style",
+    "sleeve length",
+    "neckline",
+    "closure",
+    "graphic",
+    "collar style",
+    "holiday",
+    "occasion",
+    "pattern",
+    "fabric pattern",
+    "sustainability",
+})
+ETSY_OPTIONAL_DNA_LOOKUPS = frozenset({
+    "graphic",
+    "collar style",
+    "holiday",
+    "occasion",
+    "sustainability",
+})
+
+# Mirrors vendoo-studio/src/marketplaceFields.ts DEPOP_CATEGORY_OPTIONALS.
+DEPOP_CATEGORY_OPTIONAL_KEYS = (
+    "source",
+    "age",
+    "style",
+    "occasion",
+    "parcelSize",
+    "sizeGrouping",
+    "material",
+)
+DEPOP_OPTIONAL_DNA_KEYS = frozenset({
+    "sizeGrouping",  # Regular sizing — omit / Does Not Apply
+})
+DEPOP_OPTIONAL_EVIDENCE_KEYS = frozenset({"material"})
+DEPOP_OPTIONAL_MUST_FILL_LOOKUPS = frozenset({
+    "source",
+    "age",
+    "style",
+    "occasion",
+    "parcel size",
+    "size grouping",
+    "material",
+})
+DEPOP_OPTIONAL_DNA_LOOKUPS = frozenset({
+    "size grouping",
+})
+DEPOP_DEFAULT_STYLES = ("Casual", "Retro", "Boho")
+DEPOP_DEFAULT_OCCASIONS = ("Casual", "Going out", "Vacation")
+
 VALID_ETSY_WHO = frozenset({
     "Another company or person",
     "A member of my shop",
@@ -438,6 +648,712 @@ def _evidence_unknown(description: str, *needles: str) -> bool:
     return any(needle in lower for needle in needles)
 
 
+def _ebay_season_parts(value: Any) -> list[str]:
+    """Split Season chips / comma lists into individual tokens."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        parts: list[str] = []
+        for item in value:
+            parts.extend(_ebay_season_parts(item))
+        return parts
+    text = _text(value)
+    if not text:
+        return []
+    folded = text.casefold()
+    if folded in EBAY_SEASON_CLEAR or folded in EBAY_SEASON_ALL_YEAR:
+        return [text]
+    if re.fullmatch(r"all[\s-]*seasons?", folded):
+        return [text]
+    if not re.search(r"[,;/|]", text):
+        return [text]
+    return [part.strip() for part in re.split(r"[,;/|]+", text) if part.strip()]
+
+
+def _exact_ebay_season(part: str) -> str | None:
+    needle = _collapse_option(part)
+    key = _option_key(part)
+    for option in VALID_EBAY_SEASONS:
+        if needle == _collapse_option(option) or key == _option_key(option):
+            return option
+    return None
+
+
+def _ebay_season_haystack(listing: dict | None, ebay: dict | None = None) -> str:
+    listing = listing if isinstance(listing, dict) else {}
+    ebay = ebay if isinstance(ebay, dict) else {}
+    if not ebay:
+        raw = listing.get("ebay_specifics")
+        ebay = raw if isinstance(raw, dict) else {}
+    chunks = [
+        listing.get("title"),
+        listing.get("description"),
+        listing.get("category_path"),
+        listing.get("type"),
+        listing.get("primaryColor"),
+        listing.get("color"),
+        ebay.get("type"),
+        ebay.get("Type"),
+        ebay.get("material"),
+        ebay.get("fabricType"),
+        ebay.get("sleeveLength"),
+        ebay.get("style"),
+        ebay.get("theme"),
+        ebay.get("features"),
+        ebay.get("occasion"),
+    ]
+    parts: list[str] = []
+    for chunk in chunks:
+        if chunk is None or chunk == "":
+            continue
+        if isinstance(chunk, (list, tuple, set)):
+            parts.extend(str(item) for item in chunk if item is not None and item != "")
+        else:
+            parts.append(str(chunk))
+    return " ".join(parts).casefold()
+
+
+def infer_ebay_season(listing: dict | None = None, *, ebay: dict | None = None) -> str:
+    """Pick one Spring/Summer/Fall/Winter from listing cues (never DNA / all-year)."""
+    hay = _ebay_season_haystack(listing, ebay)
+    scores = {name: 0 for name in DEFAULT_EBAY_SEASONS}
+    for season, patterns in EBAY_SEASON_CUES.items():
+        for pattern in patterns:
+            if re.search(pattern, hay, flags=re.I):
+                scores[season] += 1
+    best = max(DEFAULT_EBAY_SEASONS, key=lambda name: (scores[name], -DEFAULT_EBAY_SEASONS.index(name)))
+    if scores[best] > 0:
+        return best
+    # Lightweight apparel defaults to Summer; cold-weather garments to Winter.
+    if re.search(r"\b(?:coat|parka|puffer|sweater|hoodie|fleece|wool|boot)\b", hay):
+        return "Winter"
+    return "Summer"
+
+
+def _append_ebay_seasons(kept: list[str], seasons: Iterable[str]) -> bool:
+    changed = False
+    for season in seasons:
+        canon = _exact_ebay_season(str(season)) or (
+            str(season) if str(season) in VALID_EBAY_SEASONS else None
+        )
+        if not canon:
+            continue
+        if canon not in kept:
+            kept.append(canon)
+            changed = True
+    return changed
+
+
+def _pack_ebay_seasons(kept: list[str]) -> Any:
+    if not kept:
+        return "Summer"
+    if len(kept) == 1:
+        return kept[0]
+    order = {name: index for index, name in enumerate(DEFAULT_EBAY_SEASONS)}
+    return sorted(kept, key=lambda name: order.get(name, 99))
+
+
+def _normalize_ebay_season_value(
+    value: Any,
+    *,
+    listing: dict | None = None,
+    ebay: dict | None = None,
+) -> tuple[Any, bool]:
+    """Force Season to real calendar chips; infer one when DNA / blank / all-year."""
+    inferred = infer_ebay_season(listing, ebay=ebay)
+    parts = _ebay_season_parts(value)
+    if not parts:
+        return inferred, True
+
+    kept: list[str] = []
+    changed = False
+    needs_inference = False
+    for part in parts:
+        folded = part.casefold()
+        if folded in EBAY_SEASON_CLEAR or folded in EBAY_SEASON_ALL_YEAR or re.fullmatch(r"all[\s-]*seasons?", folded):
+            needs_inference = True
+            changed = True
+            continue
+        canon = _exact_ebay_season(part)
+        if canon:
+            if canon not in kept:
+                kept.append(canon)
+            if part != canon:
+                changed = True
+            continue
+        # Leave unrecognized tokens so validate_listing can still surface them.
+        if part not in kept:
+            kept.append(part)
+
+    valid = [part for part in kept if _exact_ebay_season(part)]
+    invalid = [part for part in kept if _exact_ebay_season(part) is None]
+    if invalid and not valid:
+        # Pure junk like "S" — keep for validation error rather than inventing seasons.
+        normalized: Any = kept[0] if len(kept) == 1 else kept
+        return normalized, normalized != value
+    if needs_inference and not valid:
+        return inferred, True
+    if not valid:
+        return inferred, True
+    if invalid:
+        changed = True
+    # Prefer a single inferred season when the only signal was all-year/DNA plus
+    # no explicit calendar chip; otherwise keep explicit multi-select chips.
+    packed = _pack_ebay_seasons(valid)
+    if packed != value:
+        changed = True
+    return packed, changed
+
+
+def _ebay_optional_raw(ebay: dict, key: str) -> Any:
+    """Read an optional from flat ebay_specifics or nested category_specifics."""
+    if not isinstance(ebay, dict):
+        return None
+    if key in ebay:
+        return ebay.get(key)
+    title = key[:1].upper() + key[1:] if key else key
+    if title in ebay:
+        return ebay.get(title)
+    nested = ebay.get("category_specifics")
+    if isinstance(nested, dict):
+        if key in nested:
+            return nested.get(key)
+        if title in nested:
+            return nested.get(title)
+    return None
+
+
+def _ebay_optional_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text == "----" or text.casefold() in {"select", "n/a", "na"}:
+            return True
+    if isinstance(value, (list, tuple)) and not value:
+        return True
+    return False
+
+
+def _infer_ebay_sleeve_length(listing: dict | None, ebay: dict | None) -> str:
+    hay = _ebay_season_haystack(listing, ebay)
+    if re.search(r"\b(?:sleeveless|tank|cami|halter|strapless)\b", hay):
+        return "Sleeveless"
+    if re.search(r"\b(?:3[\s/]*4|three[\s-]*quarter)\s*sleeve\b", hay):
+        return "3/4 Sleeve"
+    if re.search(r"\b(?:long[\s-]*sleeve|ls)\b", hay) or re.search(
+        r"\b(?:sweater|hoodie|coat|parka|cardigan|fleece)\b", hay
+    ):
+        return "Long Sleeve"
+    if re.search(r"\b(?:cap[\s-]*sleeve)\b", hay):
+        return "Cap Sleeve"
+    if re.search(r"\b(?:short[\s-]*sleeve|ss|tee|t[\s-]?shirt|polo|blouse)\b", hay):
+        return "Short Sleeve"
+    return "Short Sleeve"
+
+
+def _infer_ebay_fabric_type(listing: dict | None, ebay: dict | None) -> str | None:
+    ebay = ebay if isinstance(ebay, dict) else {}
+    material = _text(_ebay_optional_raw(ebay, "material") or (listing or {}).get("material"))
+    if material:
+        first = material.split(",")[0].strip()
+        if first:
+            return first
+    hay = _ebay_season_haystack(listing, ebay)
+    for pattern, label in (
+        (r"\bdenim\b", "Denim"),
+        (r"\bfleece\b", "Fleece"),
+        (r"\bflannel\b", "Flannel"),
+        (r"\bcorduroy\b", "Corduroy"),
+        (r"\bsatin\b", "Satin"),
+        (r"\bchiffon\b", "Chiffon"),
+        (r"\blinen\b", "Linen"),
+        (r"\bknit\b", "Knit"),
+        (r"\bjersey\b", "Jersey"),
+        (r"\bcotton\b", "Cotton"),
+    ):
+        if re.search(pattern, hay):
+            return label
+    return None
+
+
+def ensure_ebay_category_optionals(listing: dict) -> bool:
+    """Fill eBay Show-Optional-Fields rows: defaults, DNA only when N/A, infer season/sleeve."""
+    if not isinstance(listing, dict):
+        return False
+    raw = listing.get("ebay_specifics")
+    if not isinstance(raw, dict):
+        return False
+    ebay = dict(raw)
+    changed = False
+
+    def set_key(key: str, value: Any) -> None:
+        nonlocal ebay, changed
+        if _ebay_optional_blank(_ebay_optional_raw(ebay, key)):
+            ebay[key] = value
+            nested = ebay.get("category_specifics")
+            if isinstance(nested, dict) and key in nested and _ebay_optional_blank(nested.get(key)):
+                nested = dict(nested)
+                nested[key] = value
+                ebay["category_specifics"] = nested
+            changed = True
+
+    for key, default in EBAY_OPTIONAL_ALWAYS_DEFAULTS.items():
+        set_key(key, default)
+
+    care_unknown = _evidence_unknown(
+        _text((listing or {}).get("description")),
+        "care tag is not shown",
+        "garment care",
+        "unverified",
+    ) or any(
+        token in _text((listing or {}).get("description")).casefold()
+        for token in ("garment care is unknown", "care is unknown", "care tag is not shown")
+    )
+    if not care_unknown and _ebay_optional_blank(_ebay_optional_raw(ebay, "garmentCare")):
+        set_key("garmentCare", "Machine Washable")
+
+    if _ebay_optional_blank(_ebay_optional_raw(ebay, "season")) and _ebay_optional_blank(
+        _ebay_optional_raw(ebay, "Season")
+    ):
+        set_key("season", infer_ebay_season(listing, ebay=ebay))
+    else:
+        normalized, season_changed = _normalize_ebay_season_value(
+            _ebay_optional_raw(ebay, "season") or _ebay_optional_raw(ebay, "Season"),
+            listing=listing,
+            ebay=ebay,
+        )
+        if season_changed or "Season" in ebay:
+            ebay["season"] = normalized
+            ebay.pop("Season", None)
+            changed = True
+
+    if _ebay_optional_blank(_ebay_optional_raw(ebay, "sleeveLength")):
+        set_key("sleeveLength", _infer_ebay_sleeve_length(listing, ebay))
+
+    fabric = _infer_ebay_fabric_type(listing, ebay)
+    if fabric and _ebay_optional_blank(_ebay_optional_raw(ebay, "fabricType")):
+        set_key("fabricType", fabric)
+
+    vintage_hay = _ebay_season_haystack(listing, ebay)
+    if re.search(r"\b(?:vintage|y2k|90s|80s|70s)\b", vintage_hay):
+        current_vintage = _text(_ebay_optional_raw(ebay, "vintage"))
+        if current_vintage.casefold() == "no" or _ebay_optional_blank(_ebay_optional_raw(ebay, "vintage")):
+            ebay["vintage"] = "Yes"
+            changed = True
+
+    for key in EBAY_OPTIONAL_DNA_KEYS:
+        if key == "personalizationInstructions":
+            personalize = _text(_ebay_optional_raw(ebay, "personalize") or "No")
+            if personalize.casefold() == "yes":
+                continue
+        if _ebay_optional_blank(_ebay_optional_raw(ebay, key)):
+            set_key(key, DNA_VALUE)
+
+    # Material: copy fabricType fiber when material empty and fabric looks like a fiber.
+    if _ebay_optional_blank(_ebay_optional_raw(ebay, "material")):
+        fabric_val = _text(_ebay_optional_raw(ebay, "fabricType"))
+        if fabric_val and fabric_val.casefold() not in {
+            "knit", "jersey", "woven", "canvas", "twill", "microfiber",
+        }:
+            set_key("material", fabric_val)
+
+    if changed:
+        listing["ebay_specifics"] = ebay
+    return changed
+
+
+def _infer_etsy_sleeve_length(listing: dict | None, etsy: dict | None, ebay: dict | None = None) -> str:
+    hay = _ebay_season_haystack(listing, ebay if isinstance(ebay, dict) else None)
+    if isinstance(etsy, dict):
+        hay = f"{hay} {_text(etsy.get('type'))} {_text(etsy.get('sleeveLength'))}".casefold()
+    if re.search(r"\b(?:sleeveless|tank|cami|halter|strapless)\b", hay):
+        return "Sleeveless"
+    if re.search(r"\b(?:3[\s/]*4|three[\s-]*quarter)\s*sleeve\b", hay):
+        return "3/4 sleeve"
+    if re.search(r"\b(?:long[\s-]*sleeve|ls)\b", hay) or re.search(
+        r"\b(?:sweater|hoodie|coat|parka|cardigan|fleece)\b", hay
+    ):
+        return "Long sleeve"
+    if re.search(r"\bhalf[\s-]*sleeve\b", hay):
+        return "Half sleeve"
+    return "Short sleeve"
+
+
+def _etsy_neckline_from_ebay(value: str) -> str:
+    folded = value.casefold()
+    if "v" in folded and "neck" in folded:
+        return "V-neck"
+    if "henley" in folded:
+        return "Henley"
+    return "Crew"
+
+
+def ensure_etsy_category_optionals(listing: dict) -> bool:
+    """Fill Etsy Show-Optional-Fields rows: defaults, DNA only when N/A, infer sleeve/pattern."""
+    if not isinstance(listing, dict):
+        return False
+    raw = listing.get("etsy_specifics")
+    if not isinstance(raw, dict):
+        return False
+    etsy = dict(raw)
+    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    changed = False
+
+    def set_key(key: str, value: Any) -> None:
+        nonlocal etsy, changed
+        if _ebay_optional_blank(_ebay_optional_raw(etsy, key)):
+            etsy[key] = value
+            nested = etsy.get("category_specifics")
+            if isinstance(nested, dict) and key in nested and _ebay_optional_blank(nested.get(key)):
+                nested = dict(nested)
+                nested[key] = value
+                etsy["category_specifics"] = nested
+            changed = True
+
+    # Prefer eBay apparel specifics when Etsy rows are still empty.
+    ebay_map = {
+        "closure": _text(_ebay_optional_raw(ebay, "closure")),
+        "collarStyle": _text(_ebay_optional_raw(ebay, "collarStyle")),
+        "sleeveLength": _text(_ebay_optional_raw(ebay, "sleeveLength")),
+        "neckline": _text(_ebay_optional_raw(ebay, "neckline")),
+        "pattern": _text(_ebay_optional_raw(ebay, "pattern")),
+    }
+    if ebay_map["sleeveLength"]:
+        folded = ebay_map["sleeveLength"].casefold()
+        if "sleeveless" in folded:
+            ebay_map["sleeveLength"] = "Sleeveless"
+        elif "3/4" in folded or "three" in folded:
+            ebay_map["sleeveLength"] = "3/4 sleeve"
+        elif "long" in folded:
+            ebay_map["sleeveLength"] = "Long sleeve"
+        elif "half" in folded:
+            ebay_map["sleeveLength"] = "Half sleeve"
+        else:
+            ebay_map["sleeveLength"] = "Short sleeve"
+    if ebay_map["neckline"]:
+        ebay_map["neckline"] = _etsy_neckline_from_ebay(ebay_map["neckline"])
+    if ebay_map["pattern"]:
+        # Etsy fabric pattern chips use sentence case matching dropdown JSON.
+        pattern = ebay_map["pattern"]
+        for option in (
+            "Camouflage", "Check", "Floral", "Geometric", "Plaid", "Polka dot",
+            "Solid", "Striped", "Tie dye", "Ombré",
+        ):
+            if pattern.casefold() == option.casefold():
+                ebay_map["pattern"] = option
+                break
+
+    for key, default in ETSY_OPTIONAL_ALWAYS_DEFAULTS.items():
+        source = ebay_map.get(key) if key in {"closure", "neckline", "pattern"} else ""
+        set_key(key, source or default)
+
+    if _ebay_optional_blank(_ebay_optional_raw(etsy, "fabricPattern")):
+        pattern = _text(_ebay_optional_raw(etsy, "pattern") or ebay_map.get("pattern") or "Solid")
+        set_key("fabricPattern", pattern)
+    if _ebay_optional_blank(_ebay_optional_raw(etsy, "pattern")):
+        set_key("pattern", _text(_ebay_optional_raw(etsy, "fabricPattern") or "Solid"))
+
+    if _ebay_optional_blank(_ebay_optional_raw(etsy, "sleeveLength")):
+        set_key(
+            "sleeveLength",
+            ebay_map.get("sleeveLength") or _infer_etsy_sleeve_length(listing, etsy, ebay),
+        )
+
+    hay = _ebay_season_haystack(listing, ebay)
+    if re.search(r"\b(?:streetwear|graphic\s*tee|skate|hip[\s-]*hop)\b", hay):
+        if _text(_ebay_optional_raw(etsy, "clothingStyle")).casefold() == "minimalist":
+            etsy["clothingStyle"] = "Streetwear"
+            changed = True
+
+    for key in ETSY_OPTIONAL_DNA_KEYS:
+        if key == "graphic":
+            if re.search(r"\b(?:graphic|logo|print|slogan|saying|brand\s*logo)\b", hay):
+                if _ebay_optional_blank(_ebay_optional_raw(etsy, "graphic")):
+                    # Prefer a concrete Etsy chip when the tee is clearly branded/graphic.
+                    set_key("graphic", "Brand & logo")
+                continue
+        if key == "sustainability":
+            if re.search(r"\b(?:organic|hemp|linen|recycled)\b", hay):
+                if re.search(r"\borganic\b", hay):
+                    set_key("sustainability", "Organic cotton")
+                elif re.search(r"\bhemp\b", hay):
+                    set_key("sustainability", "Hemp")
+                elif re.search(r"\blinen\b", hay):
+                    set_key("sustainability", "Linen")
+                elif re.search(r"\brecycled\b", hay):
+                    set_key("sustainability", "Recycled polyester")
+                continue
+        if key == "holiday" and re.search(
+            r"\b(?:christmas|halloween|thanksgiving|valentine|hanukkah|easter|st\.?\s*patrick)\b",
+            hay,
+        ):
+            continue
+        if key == "occasion" and re.search(
+            r"\b(?:wedding|birthday|graduation|engagement|pride|bachelor|baby\s*shower)\b",
+            hay,
+        ):
+            continue
+        if _ebay_optional_blank(_ebay_optional_raw(etsy, key)):
+            set_key(key, DNA_VALUE)
+
+    if changed:
+        listing["etsy_specifics"] = etsy
+    return changed
+
+
+def _infer_depop_parcel_size(listing: dict) -> str:
+    try:
+        lb = int(listing.get("weight_lb") or 0)
+        oz = int(listing.get("weight_oz") or 0)
+    except (TypeError, ValueError):
+        lb, oz = 0, 0
+    total_oz = max(0, lb * 16 + oz)
+    if total_oz <= 0:
+        return "Medium"
+    if total_oz < 4:
+        return "Extra extra small"
+    if total_oz < 8:
+        return "Extra small"
+    if total_oz < 12:
+        return "Small"
+    if total_oz < 16:
+        return "Medium"
+    if total_oz < 32:
+        return "Large"
+    return "Extra large"
+
+
+def _pad_depop_tags(values: list[str], defaults: tuple[str, ...], *, limit: int = 3) -> list[str]:
+    kept: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in kept:
+            kept.append(text)
+        if len(kept) >= limit:
+            return kept[:limit]
+    for default in defaults:
+        if default not in kept:
+            kept.append(default)
+        if len(kept) >= limit:
+            break
+    return kept[:limit]
+
+
+def _map_depop_material(value: str) -> str | None:
+    raw = _text(value)
+    if not raw:
+        return None
+    folded = raw.casefold()
+    aliases = {
+        "spandex": "Elastane / Lycra / Spandex",
+        "lycra": "Elastane / Lycra / Spandex",
+        "elastane": "Elastane / Lycra / Spandex",
+        "vegan leather": "Faux leather",
+        "faux leather": "Faux leather",
+        "genuine leather": "Leather",
+        "real leather": "Leather",
+        "faux fur": "Faux fur",
+        "organic cotton": "Cotton - Organic",
+        "recycled cotton": "Cotton - Recycled",
+        "recycled polyester": "Polyester - Recycled",
+    }
+    for needle, mapped in aliases.items():
+        if needle in folded:
+            return mapped
+    hit = _canonical_option(raw, VALID_DEPOP_MATERIAL)
+    if hit:
+        return hit
+    cleaned = re.sub(r"\b(?:blend|pure|100%)\b", "", raw, flags=re.I).strip(" ,")
+    return _canonical_option(cleaned, VALID_DEPOP_MATERIAL) if cleaned else None
+
+
+def ensure_depop_category_optionals(listing: dict) -> bool:
+    """Fill Depop Show-Optional-Fields rows; omit size grouping for Regular."""
+    if not isinstance(listing, dict):
+        return False
+    raw = listing.get("depop_specifics")
+    if not isinstance(raw, dict):
+        return False
+    depop = dict(raw)
+    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    changed = False
+    hay = _ebay_season_haystack(listing, ebay)
+
+    def set_key(key: str, value: Any) -> None:
+        nonlocal depop, changed
+        current = depop.get(key)
+        if key in {"style", "occasion", "material"}:
+            if _as_list(current):
+                return
+        elif not _ebay_optional_blank(current):
+            return
+        depop[key] = value
+        changed = True
+
+    if _ebay_optional_blank(depop.get("source")):
+        source = "Vintage" if re.search(r"\b(?:vintage|deadstock|y2k|90s|80s|70s)\b", hay) else "Preloved"
+        set_key("source", source)
+
+    if _ebay_optional_blank(depop.get("age")):
+        age = "Modern"
+        for decade in ("50s", "60s", "70s", "80s", "90s"):
+            if re.search(rf"\b{decade}\b", hay):
+                age = decade
+                break
+        if age == "Modern" and re.search(r"\by2k\b", hay):
+            age = "y2k"
+        set_key("age", age)
+
+    styles = _as_list(depop.get("style"))
+    style_hits = [_canonical_option(style, VALID_DEPOP_STYLE) for style in styles]
+    if not styles:
+        set_key("style", list(DEPOP_DEFAULT_STYLES))
+    elif all(style_hits) and len({hit for hit in style_hits if hit}) < 3:
+        mapped = []
+        for hit in style_hits:
+            if hit and hit not in mapped:
+                mapped.append(hit)
+        if re.search(r"\b(?:streetwear|graphic|skate)\b", hay) and "Streetwear" not in mapped:
+            mapped.insert(0, "Streetwear")
+        if re.search(r"\b(?:boho|floral|peasant)\b", hay) and "Boho" not in mapped:
+            mapped.append("Boho")
+        padded = _pad_depop_tags(mapped, DEPOP_DEFAULT_STYLES, limit=3)
+        if padded != styles:
+            depop["style"] = padded
+            changed = True
+
+    occasions = _as_list(depop.get("occasion"))
+    occasion_hits = [_canonical_option(occasion, VALID_DEPOP_OCCASION) for occasion in occasions]
+    if not occasions:
+        mapped = []
+        ebay_occ = ebay.get("occasion") if isinstance(ebay, dict) else None
+        for occasion in _as_list(ebay_occ):
+            folded = str(occasion or "").casefold()
+            alias = {
+                "workwear": "Work",
+                "activewear": "Workout",
+                "formal": "Special Occasion",
+                "party/cocktail": "Party",
+                "everyday": "Casual",
+                "travel": "Vacation",
+                "business": "Work",
+                "casual": "Casual",
+            }
+            mapped_value = None
+            for key, value in alias.items():
+                if key in folded:
+                    mapped_value = value
+                    break
+            hit = mapped_value or _canonical_option(str(occasion), VALID_DEPOP_OCCASION)
+            if hit and hit not in mapped:
+                mapped.append(hit)
+        season = _text(ebay.get("season") if isinstance(ebay, dict) else "") or infer_ebay_season(listing, ebay=ebay)
+        if season == "Summer" and "Summer" not in mapped:
+            mapped.append("Summer")
+        if season == "Winter" and "Winter" not in mapped:
+            mapped.append("Winter")
+        set_key("occasion", _pad_depop_tags(mapped, DEPOP_DEFAULT_OCCASIONS, limit=3))
+    elif all(occasion_hits) and len({hit for hit in occasion_hits if hit}) < 3:
+        mapped = []
+        for hit in occasion_hits:
+            if hit and hit not in mapped:
+                mapped.append(hit)
+        padded = _pad_depop_tags(mapped, DEPOP_DEFAULT_OCCASIONS, limit=3)
+        if padded != occasions:
+            depop["occasion"] = padded
+            changed = True
+
+    parcel = _text(depop.get("parcelSize") or depop.get("parcel_size"))
+    if not parcel:
+        set_key("parcelSize", _infer_depop_parcel_size(listing))
+        depop.pop("parcel_size", None)
+
+    size_type = _text(listing.get("sizeType") or ebay.get("sizeType")).casefold()
+    grouping = _text(depop.get("sizeGrouping") or depop.get("size_grouping"))
+    wanted = {
+        "petite": "Petite",
+        "plus": "Plus size",
+        "plus size": "Plus size",
+        "tall": "Tall",
+        "maternity": "Maternity",
+    }.get(size_type)
+    if wanted and grouping != wanted:
+        depop["sizeGrouping"] = wanted
+        depop.pop("size_grouping", None)
+        changed = True
+
+    if not _as_list(depop.get("material")):
+        candidates = [
+            *_as_list(depop.get("material")),
+            *_as_list(ebay.get("material") if isinstance(ebay, dict) else None),
+            *_as_list(ebay.get("fabricType") if isinstance(ebay, dict) else None),
+        ]
+        mapped_materials: list[str] = []
+        for candidate in candidates:
+            hit = _map_depop_material(str(candidate))
+            if hit and hit not in mapped_materials:
+                mapped_materials.append(hit)
+        if mapped_materials:
+            depop["material"] = mapped_materials[:4]
+            changed = True
+
+    if changed:
+        listing["depop_specifics"] = depop
+    return changed
+
+
+def ensure_poshmark_style_tags(listing: dict) -> bool:
+    """Fill Poshmark style tags when empty so Additional Details is not blank."""
+    if not isinstance(listing, dict):
+        return False
+    raw = listing.get("poshmark_specifics")
+    if not isinstance(raw, dict):
+        return False
+    tags = _as_list(raw.get("styleTags") or raw.get("style_tags"))
+    if tags:
+        return False
+    depop = listing.get("depop_specifics") if isinstance(listing.get("depop_specifics"), dict) else {}
+    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    candidates = [
+        *_as_list(depop.get("style")),
+        _text(ebay.get("style")),
+        _text(ebay.get("features")),
+        "Casual",
+    ]
+    filled: list[str] = []
+    for candidate in candidates:
+        text = _text(candidate)
+        if text and text not in filled and text.casefold() != DNA_VALUE.casefold():
+            filled.append(text)
+        if len(filled) >= 3:
+            break
+    while len(filled) < 3:
+        for fallback in ("Casual", "Retro", "Vintage"):
+            if fallback not in filled:
+                filled.append(fallback)
+            if len(filled) >= 3:
+                break
+    posh = dict(raw)
+    posh["styleTags"] = filled[:3]
+    listing["poshmark_specifics"] = posh
+    return True
+
+
+def ensure_mercari_shipping_label(listing: dict) -> bool:
+    if not isinstance(listing, dict):
+        return False
+    raw = listing.get("mercari_specifics")
+    if not isinstance(raw, dict):
+        return False
+    if _text(raw.get("shippingLabel") or raw.get("shipping_label")):
+        return False
+    mercari = dict(raw)
+    mercari["shippingLabel"] = "USPS Ground Advantage"
+    listing["mercari_specifics"] = mercari
+    return True
+
+
 def normalize_listing_dropdowns(listing: dict) -> bool:
     """Rewrite stale Depop/Etsy dropdown values to the current Vendoo options."""
     if not isinstance(listing, dict):
@@ -469,19 +1385,43 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
 
     ebay = listing.get("ebay_specifics")
     if isinstance(ebay, dict):
-        season = _text(ebay.get("season"))
-        if season and season.casefold() in EBAY_SEASON_CLEAR:
+        raw_season = ebay.get("season")
+        if raw_season in (None, "") and ebay.get("Season") not in (None, ""):
+            raw_season = ebay.get("Season")
+        missing = raw_season in (None, "", [], ()) and "season" not in ebay and "Season" not in ebay
+        if missing:
             ebay = dict(ebay)
-            ebay.pop("season", None)
+            ebay["season"] = infer_ebay_season(listing, ebay=ebay)
+            ebay.pop("Season", None)
             listing["ebay_specifics"] = ebay
             changed = True
         else:
-            alias = EBAY_SEASON_ALIASES.get(season.casefold()) if season else None
-            if alias and alias != season:
+            normalized_season, season_changed = _normalize_ebay_season_value(
+                raw_season,
+                listing=listing,
+                ebay=ebay,
+            )
+            if season_changed or ("Season" in ebay and ebay.get("Season") != normalized_season):
                 ebay = dict(ebay)
-                ebay["season"] = alias
+                ebay["season"] = (
+                    infer_ebay_season(listing, ebay=ebay)
+                    if normalized_season is None
+                    else normalized_season
+                )
+                ebay.pop("Season", None)
                 listing["ebay_specifics"] = ebay
                 changed = True
+
+    if ensure_ebay_category_optionals(listing):
+        changed = True
+    if ensure_etsy_category_optionals(listing):
+        changed = True
+    if ensure_depop_category_optionals(listing):
+        changed = True
+    if ensure_poshmark_style_tags(listing):
+        changed = True
+    if ensure_mercari_shipping_label(listing):
+        changed = True
 
     depop = listing.get("depop_specifics")
     if isinstance(depop, dict):
@@ -654,9 +1594,37 @@ def validate_listing(
         for alias, canonical in EBAY_KEY_ALIASES.items():
             if alias in ebay and canonical not in ebay:
                 _add(result, f"ebay_specifics.{canonical}", f"eBay key '{alias}' must be '{canonical}'")
-        season = _text(ebay.get("season"))
-        if season and not _allowed_match(season, VALID_EBAY_SEASONS):
-            _add(result, "ebay_specifics.season", "eBay Season must be Spring, Summer, Fall, or Winter")
+        season = ebay.get("season")
+        season_parts = _ebay_season_parts(season)
+        if not season_parts or any(_exact_ebay_season(part) is None for part in season_parts):
+            _add(
+                result,
+                "ebay_specifics.season",
+                "eBay Season must be Spring, Summer, Fall, and/or Winter",
+            )
+        for key in EBAY_CATEGORY_OPTIONAL_KEYS:
+            if key == "season":
+                continue
+            value = _ebay_optional_raw(ebay, key)
+            if _ebay_optional_blank(value):
+                if key in EBAY_OPTIONAL_EVIDENCE_KEYS:
+                    continue
+                _add(
+                    result,
+                    f"ebay_specifics.{key}",
+                    f"eBay optional '{key}' must be filled (or Does Not Apply only when it truly does not apply)",
+                )
+                continue
+            text = _text(value) if not isinstance(value, (list, tuple)) else ",".join(str(v) for v in value)
+            is_dna = text.casefold() in {
+                DNA_VALUE.casefold(), "n/a", "na", "none", "does not apply",
+            }
+            if is_dna and key not in EBAY_OPTIONAL_DNA_KEYS:
+                _add(
+                    result,
+                    f"ebay_specifics.{key}",
+                    f"eBay '{key}' applies to this item — use a real value, not Does Not Apply",
+                )
         ebay_size = _text(ebay.get("size"))
         if size and ebay_size and ebay_size.lower() != size.lower():
             _add(result, "ebay_specifics.size", "eBay size must match the general size")
@@ -664,7 +1632,7 @@ def validate_listing(
         if care and _evidence_unknown(description, "care tag is not shown", "garment care", "unverified"):
             if "unknown" in description.lower() or "not shown" in description.lower() or "unverified" in description.lower():
                 _add(result, "ebay_specifics.garmentCare", "Do not invent garment care when the care tag is not shown")
-        material = _text(ebay.get("material"))
+        material = _text(ebay.get("material") or _ebay_optional_raw(ebay, "material"))
         if material and _evidence_unknown(
             description,
             "material tag is not shown",
@@ -697,18 +1665,17 @@ def validate_listing(
         elif not age:
             _add(result, "depop_specifics.age", "Depop age is required")
         styles = _as_list(depop.get("style"))
-        if len(styles) > 3:
+        if not styles:
+            _add(result, "depop_specifics.style", "Depop style tags are required")
+        elif len(styles) > 3:
             _add(result, "depop_specifics.style", "Depop allows only 3 style tags")
         for style in styles:
             if style not in VALID_DEPOP_STYLE:
                 _add(result, "depop_specifics.style", f"Depop style '{style}' is not a current dropdown value")
                 break
-        materials = _as_list(depop.get("material"))
-        for material in materials:
-            if material not in VALID_DEPOP_MATERIAL:
-                _add(result, "depop_specifics.material", f"Depop material '{material}' is not a current dropdown value")
-                break
         occasions = _as_list(depop.get("occasion"))
+        if not occasions:
+            _add(result, "depop_specifics.occasion", "Depop occasion tags are required")
         for occasion in occasions:
             if occasion not in VALID_DEPOP_OCCASION:
                 _add(result, "depop_specifics.occasion", f"Depop occasion '{occasion}' is not a current dropdown value")
@@ -716,13 +1683,31 @@ def validate_listing(
         parcel = _text(depop.get("parcelSize") or depop.get("parcel_size"))
         if parcel and not _allowed_match(parcel, VALID_DEPOP_PARCEL):
             _add(result, "depop_specifics.parcelSize", "Depop parcel size is not a current dropdown value")
+        elif not parcel:
+            _add(result, "depop_specifics.parcelSize", "Depop parcel size is required")
         grouping = _text(depop.get("sizeGrouping") or depop.get("size_grouping"))
         size_type = _text(payload.get("sizeType"))
         if grouping:
-            if grouping not in VALID_DEPOP_GROUPING:
+            if grouping.casefold() in {DNA_VALUE.casefold(), "n/a", "na", "none"}:
+                pass
+            elif grouping not in VALID_DEPOP_GROUPING:
                 _add(result, "depop_specifics.sizeGrouping", "Regular items must not use a Depop size grouping")
             elif size_type.lower() == "regular":
                 _add(result, "depop_specifics.sizeGrouping", "Regular items must not use a Depop size grouping")
+        elif size_type.lower() in {"petite", "plus", "plus size", "tall", "maternity"}:
+            _add(result, "depop_specifics.sizeGrouping", "Depop size grouping is required for non-regular sizing")
+        materials = _as_list(depop.get("material"))
+        for material in materials:
+            if material not in VALID_DEPOP_MATERIAL:
+                _add(result, "depop_specifics.material", f"Depop material '{material}' is not a current dropdown value")
+                break
+        if not materials:
+            _add(
+                result,
+                "depop_specifics.material",
+                "Depop material evidence is missing. Keep material blank and state the gap in the description.",
+                warning=True,
+            )
 
     etsy = _mapping(payload.get("etsy_specifics"))
     if payload.get("etsy_specifics") is not None and etsy is None:
@@ -768,6 +1753,33 @@ def validate_listing(
                 "This modern mass-produced item is not Etsy eligible. Deselect Etsy or use a vintage, handmade, craft-supply, or digital listing.",
                 warning=True,
             )
+        if not digital_item:
+            for key in ETSY_CATEGORY_OPTIONAL_KEYS:
+                if key == "pattern":
+                    # fabricPattern is the Vendoo fill key; pattern is an alias.
+                    if not _ebay_optional_blank(_ebay_optional_raw(etsy, "fabricPattern")):
+                        continue
+                if key == "fabricPattern":
+                    if not _ebay_optional_blank(_ebay_optional_raw(etsy, "pattern")):
+                        continue
+                value = _ebay_optional_raw(etsy, key)
+                if _ebay_optional_blank(value):
+                    _add(
+                        result,
+                        f"etsy_specifics.{key}",
+                        f"Etsy optional '{key}' must be filled (or Does Not Apply only when it truly does not apply)",
+                    )
+                    continue
+                text = _text(value) if not isinstance(value, (list, tuple)) else ",".join(str(v) for v in value)
+                is_dna = text.casefold() in {
+                    DNA_VALUE.casefold(), "n/a", "na", "none", "does not apply", "----",
+                }
+                if is_dna and key not in ETSY_OPTIONAL_DNA_KEYS:
+                    _add(
+                        result,
+                        f"etsy_specifics.{key}",
+                        f"Etsy '{key}' applies to this item — use a real value, not Does Not Apply",
+                    )
 
     unsupported = [name for name in selected if name.lower() not in FILLABLE_MARKETPLACES]
     for name in unsupported:

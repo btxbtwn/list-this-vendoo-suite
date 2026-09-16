@@ -55,10 +55,78 @@ def dna_fill_allowed(field: dict) -> bool:
     """Optional empty gaps may receive Does Not Apply when the form allows it."""
     if field.get("required") or str(field.get("error") or "") != "Empty field":
         return False
+    label = field_lookup_key(str(field.get("field") or field.get("label") or ""))
+    marketplace = str(field.get("marketplace") or "").strip().lower()
+    # eBay Season must be Spring/Summer/Fall/Winter chips — never DNA.
+    if label == "season":
+        return False
+    if marketplace == "ebay":
+        from vendoo_studio.models.validation import (
+            EBAY_OPTIONAL_DNA_LOOKUPS,
+            EBAY_OPTIONAL_MUST_FILL_LOOKUPS,
+        )
+        if label in EBAY_OPTIONAL_MUST_FILL_LOOKUPS and label not in EBAY_OPTIONAL_DNA_LOOKUPS:
+            return False
+        if label in EBAY_OPTIONAL_DNA_LOOKUPS:
+            return True
+    if marketplace == "etsy":
+        from vendoo_studio.models.validation import (
+            ETSY_OPTIONAL_DNA_LOOKUPS,
+            ETSY_OPTIONAL_MUST_FILL_LOOKUPS,
+        )
+        if label in ETSY_OPTIONAL_MUST_FILL_LOOKUPS and label not in ETSY_OPTIONAL_DNA_LOOKUPS:
+            return False
+        if label in ETSY_OPTIONAL_DNA_LOOKUPS:
+            return True
+    if marketplace == "depop":
+        from vendoo_studio.models.validation import (
+            DEPOP_OPTIONAL_DNA_LOOKUPS,
+            DEPOP_OPTIONAL_MUST_FILL_LOOKUPS,
+        )
+        if label in DEPOP_OPTIONAL_MUST_FILL_LOOKUPS and label not in DEPOP_OPTIONAL_DNA_LOOKUPS:
+            return False
+        if label in DEPOP_OPTIONAL_DNA_LOOKUPS:
+            return True
     labels = _option_labels(field)
     if field.get("options_complete") and labels:
         return any(is_does_not_apply_value(label) for label in labels) or DNA_VALUE in labels
     return True
+
+
+def marketplace_optional_blocks_silent_skip(field: dict) -> bool:
+    """True when a Show-Optional-Fields gap must stay open (no silent no_evidence)."""
+    marketplace = str(field.get("marketplace") or "").strip().lower()
+    if marketplace not in {"ebay", "etsy", "depop"}:
+        return False
+    if str(field.get("error") or "") != "Empty field":
+        return False
+    label = field_lookup_key(str(field.get("field") or field.get("label") or ""))
+    from vendoo_studio.models.validation import (
+        DEPOP_OPTIONAL_DNA_LOOKUPS,
+        DEPOP_OPTIONAL_EVIDENCE_KEYS,
+        DEPOP_OPTIONAL_MUST_FILL_LOOKUPS,
+        EBAY_OPTIONAL_DNA_LOOKUPS,
+        EBAY_OPTIONAL_EVIDENCE_KEYS,
+        EBAY_OPTIONAL_MUST_FILL_LOOKUPS,
+        ETSY_OPTIONAL_DNA_LOOKUPS,
+        ETSY_OPTIONAL_MUST_FILL_LOOKUPS,
+    )
+    if marketplace == "ebay":
+        evidence_lookups = {field_lookup_key(key) for key in EBAY_OPTIONAL_EVIDENCE_KEYS}
+        if label in evidence_lookups:
+            return False
+        return label in EBAY_OPTIONAL_MUST_FILL_LOOKUPS and label not in EBAY_OPTIONAL_DNA_LOOKUPS
+    if marketplace == "etsy":
+        return label in ETSY_OPTIONAL_MUST_FILL_LOOKUPS and label not in ETSY_OPTIONAL_DNA_LOOKUPS
+    evidence_lookups = {field_lookup_key(key) for key in DEPOP_OPTIONAL_EVIDENCE_KEYS}
+    if label in evidence_lookups:
+        return False
+    return label in DEPOP_OPTIONAL_MUST_FILL_LOOKUPS and label not in DEPOP_OPTIONAL_DNA_LOOKUPS
+
+
+def ebay_optional_blocks_silent_skip(field: dict) -> bool:
+    """Backward-compatible alias for marketplace_optional_blocks_silent_skip."""
+    return marketplace_optional_blocks_silent_skip(field)
 
 
 def disposition_clears_gap(field: dict, *, exempt_keys: set, no_evidence_keys: set) -> bool:
@@ -534,6 +602,91 @@ def deterministic_gap_patches(
             value = listing_value_for_field(listing, marketplace, field)
         if not value and field_lookup_key(field) == "size":
             value = str((listing or {}).get("size") or "").strip()
+        patch_value: object = value
+        if not value and marketplace.lower() == "ebay" and field_lookup_key(field) == "season":
+            from vendoo_studio.models.validation import infer_ebay_season
+            patch_value = infer_ebay_season(listing)
+            value = str(patch_value)
+        if not value and marketplace.lower() == "ebay":
+            from vendoo_studio.models.validation import (
+                DNA_VALUE,
+                EBAY_OPTIONAL_DNA_LOOKUPS,
+                _ebay_optional_raw,
+                ensure_ebay_category_optionals,
+            )
+            ensure_ebay_category_optionals(listing)
+            value = listing_value_for_field(listing, marketplace, field)
+            patch_value = value
+            lookup = field_lookup_key(field)
+            if not value and lookup in EBAY_OPTIONAL_DNA_LOOKUPS:
+                ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+                raw = None
+                for key in (
+                    "mpn", "upc", "character", "characterFamily", "strapType", "fabricWeight",
+                    "theme", "performanceActivity", "accents", "countryOfOrigin", "sleeveType",
+                    "personalizationInstructions",
+                ):
+                    if field_lookup_key(key) == lookup:
+                        raw = _ebay_optional_raw(ebay, key)
+                        break
+                if raw is not None and str(raw).strip():
+                    patch_value = raw
+                    value = str(raw).strip()
+                else:
+                    patch_value = DNA_VALUE
+                    value = DNA_VALUE
+        if not value and marketplace.lower() == "etsy":
+            from vendoo_studio.models.validation import (
+                DNA_VALUE,
+                ETSY_OPTIONAL_DNA_LOOKUPS,
+                _ebay_optional_raw,
+                ensure_etsy_category_optionals,
+            )
+            ensure_etsy_category_optionals(listing)
+            value = listing_value_for_field(listing, marketplace, field)
+            patch_value = value
+            lookup = field_lookup_key(field)
+            if not value and lookup in {"pattern", "fabric pattern"}:
+                etsy = listing.get("etsy_specifics") if isinstance(listing.get("etsy_specifics"), dict) else {}
+                raw = _ebay_optional_raw(etsy, "fabricPattern") or _ebay_optional_raw(etsy, "pattern")
+                if raw is not None and str(raw).strip():
+                    patch_value = raw
+                    value = str(raw).strip()
+            if not value and lookup in ETSY_OPTIONAL_DNA_LOOKUPS:
+                etsy = listing.get("etsy_specifics") if isinstance(listing.get("etsy_specifics"), dict) else {}
+                raw = None
+                for dna_key in ("graphic", "collarStyle", "holiday", "occasion", "sustainability"):
+                    if field_lookup_key(dna_key) == lookup:
+                        raw = _ebay_optional_raw(etsy, dna_key)
+                        break
+                if raw is not None and str(raw).strip():
+                    patch_value = raw
+                    value = str(raw).strip()
+                else:
+                    patch_value = DNA_VALUE
+                    value = DNA_VALUE
+        if not value and marketplace.lower() == "depop":
+            from vendoo_studio.models.validation import (
+                DNA_VALUE,
+                DEPOP_OPTIONAL_DNA_LOOKUPS,
+                ensure_depop_category_optionals,
+            )
+            ensure_depop_category_optionals(listing)
+            value = listing_value_for_field(listing, marketplace, field)
+            patch_value = value
+            lookup = field_lookup_key(field)
+            if not value and lookup in {"style", "occasion", "material"}:
+                depop = listing.get("depop_specifics") if isinstance(listing.get("depop_specifics"), dict) else {}
+                raw = depop.get("style" if lookup == "style" else "occasion" if lookup == "occasion" else "material")
+                if isinstance(raw, list) and raw:
+                    patch_value = raw
+                    value = ", ".join(str(item) for item in raw)
+                elif raw not in (None, ""):
+                    patch_value = raw
+                    value = str(raw).strip()
+            if not value and lookup in DEPOP_OPTIONAL_DNA_LOOKUPS:
+                patch_value = DNA_VALUE
+                value = DNA_VALUE
         if not value:
             needs_model.append(gap)
             continue
@@ -545,15 +698,17 @@ def deterministic_gap_patches(
             str(option.get("label")) if isinstance(option, dict) else str(option)
             for option in options
         }
-        if gap.get("options_complete") and labels and value not in labels:
-            needs_model.append(gap)
-            continue
+        if gap.get("options_complete") and labels:
+            check_values = patch_value if isinstance(patch_value, list) else [patch_value]
+            if any(str(item) not in labels for item in check_values):
+                needs_model.append(gap)
+                continue
         accepted.add(key)
         ready.append({
             "marketplace": marketplace,
             "field": field,
             "selector": gap.get("selector") or "",
-            "value": value,
+            "value": patch_value,
         })
     return ready, needs_model
 
@@ -839,6 +994,7 @@ async def complete_job(db: Session, job_id: str) -> None:
             if str(field.get("error") or "") == "Empty field"
             and field_id(field) not in exempt_keys
             and field_id(field) not in no_evidence_keys
+            and not marketplace_optional_blocks_silent_skip(field)
         ]
         if leftover_empty:
             added = _auto_no_evidence(leftover_empty)
@@ -924,11 +1080,22 @@ async def complete_job(db: Session, job_id: str) -> None:
                 "(evidence may be 'estimated packaged weight for <item type>'). "
                 "An existing expected value may be retried without a quote. "
                 "Optional fields that truly do not apply may use value 'Does Not Apply' or not_applicable with evidence. "
+                "For eBay fields shown after Show Optional Fields: fill every applicable row with a real value. "
+                "Does Not Apply is allowed only when the attribute literally does not apply "
+                "(MPN, UPC, Character, Theme, Strap Type, Fabric Weight, Accents, Country of Origin, Sleeve Type). "
+                "Season must be exactly one of Spring, Summer, Fall, or Winter — never Does Not Apply. "
+                "For Etsy fields shown after Show Optional Fields: fill every applicable row with a real Etsy dropdown value. "
+                "Does Not Apply is allowed only for Graphic, Collar style, Holiday, Occasion, and Sustainability when they truly do not apply. "
+                "Always fill Clothing style, Sleeve length, Neckline, Closure, and Fabric pattern. "
+                "For Depop fields shown after Show Optional Fields: fill Source, Age, Style (3), Occasion (3), and Parcel Size. "
+                "Omit Size Grouping for Regular sizing. Fill Material only from tag evidence. "
+                "Across every marketplace: fill every applicable optional/item-specific field; Does Not Apply only when it literally does not apply. "
                 "Infer supportable product facts from photo analysis and seller notes only. "
                 "Do not invent garment measurements, material, age, origin, brand, or other product facts beyond that evidence. "
                 "Never ask the seller clarifying questions, including routine apparel shipping weight or mailer size — decide those yourself. "
                 "Never use Unknown/N/A/Does not apply to hide a missing fact. Only mark an optional field not applicable when evidence establishes that. "
                 "When a real value is needed but evidence does not support one, put it in no_evidence — including required fields. "
+                "Do not put applicable marketplace optional apparel fields in no_evidence just to clear the gap — keep repairing or leave for review. "
                 "Do not publish or claim completion."
             )}, {"role": "user", "content": json.dumps(
                 {"gaps": [compact_gap_for_model(field) for field in needs_model], "evidence": evidence},
@@ -1049,6 +1216,11 @@ async def complete_job(db: Session, job_id: str) -> None:
             field for field in unresolved
             if not is_shipping_estimate_field(field.get("field") or "")
             and str(field.get("error") or "") == "Empty field"
+            and not marketplace_optional_blocks_silent_skip(field)
+        ]
+        blocked_optionals = [
+            field for field in unresolved
+            if marketplace_optional_blocks_silent_skip(field)
         ]
         shipping = [
             field for field in unresolved
@@ -1065,9 +1237,23 @@ async def complete_job(db: Session, job_id: str) -> None:
             field for field in gaps
             if not disposition_clears_gap(field, exempt_keys=exempt_keys, no_evidence_keys=no_evidence_keys)
         ]
-        remaining = [field for field in remaining if field_id(field) in {field_id(item) for item in [*shipping, *hard]}]
-        if not remaining and not shipping and not hard:
+        remaining = [
+            field for field in remaining
+            if field_id(field) in {field_id(item) for item in [*shipping, *hard, *blocked_optionals]}
+        ]
+        if not remaining and not shipping and not hard and not blocked_optionals:
             await complete_job(db, job.id)
+            return
+        if blocked_optionals and not hard and not shipping:
+            _pause(
+                db,
+                job,
+                "Marketplace optional fields still need real values (Show Optional Fields). "
+                "Fill applicable rows or mark only true non-applicable attributes as Does Not Apply: "
+                + ", ".join(f"{f['marketplace']} / {f['field']}" for f in blocked_optionals),
+                blocked_optionals,
+                waiting=False,
+            )
             return
         if shipping and not hard and not [
             field for field in remaining
