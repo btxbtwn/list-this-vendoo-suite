@@ -343,7 +343,11 @@ class ExtensionSafetySourceTest(unittest.TestCase):
         refill_start = source.index("async function runFillFields")
         refill_end = source.index("function groupFillFieldBatches", refill_start)
         refill = source[refill_start:refill_end]
-        self.assertLess(refill.index("CHECK_DRAFT_SAFETY"), refill.index("groupFillFieldBatches"))
+        self.assertIn("CHECK_DRAFT_SAFETY", refill)
+        self.assertLess(
+            refill.index("CHECK_DRAFT_SAFETY"),
+            refill.index("groupFillFieldMarketplaces"),
+        )
 
     def test_etsy_live_state_needs_explicit_draft_nav_status(self):
         source = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text()

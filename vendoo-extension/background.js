@@ -923,7 +923,10 @@ function listingUrlsMatch(currentUrl, targetUrl) {
 }
 
 function isTabReady(tab) {
-  return !!(tab && tab.status === 'complete' && isVendooUrl(tab.url));
+  if (!tab || !isVendooUrl(tab.url)) return false;
+  if (tab.status === 'complete') return true;
+  // Vendoo's SPA often keeps status "loading" on /item/new while the form is usable.
+  return /\/app\/item\//i.test(String(tab.url || '')) && tab.status === 'loading';
 }
 
 function tabMatchesTarget(tab, targetUrl) {
@@ -1094,8 +1097,8 @@ async function openVisibleVendooWindow(url, existingTab, { foreground = false } 
     log(`Could not open a Vendoo tab (${err.message})`);
     const created = await createWindowSafe({ url, focused: foreground, type: 'normal' });
     await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
-    if (foreground) await showWindow(created.id);
-    else await hideWindow(created.id);
+    await showWindow(created.id);
+    if (!foreground) await hideWindow(created.id);
     const tab = created.tabs && created.tabs[0];
     return { ok: true, tabId: tab?.id, windowId: created.id };
   }

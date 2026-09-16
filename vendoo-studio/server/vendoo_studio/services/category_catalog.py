@@ -52,16 +52,23 @@ def remember_schema(db: Session, general_path: str, schema: dict) -> None:
         pass
 
 
+def _schema_rows_by_marketplace(db: Session, general_path: str) -> dict[str, CategorySchema]:
+    path = str(general_path or "").strip()
+    if not path:
+        return {}
+    return {
+        str(row.marketplace or "").strip().lower(): row
+        for row in db.query(CategorySchema).filter_by(general_path=path).all()
+    }
+
+
 def schema_covers_platforms(db: Session, general_path: str, platforms: list[str]) -> bool:
     """True when every fillable marketplace already has a cached field schema for this category."""
     path = str(general_path or "").strip()
     wanted = [str(item or "").strip().lower() for item in (platforms or []) if str(item or "").strip()]
     if not path or not wanted:
         return False
-    rows = {
-        str(row.marketplace or "").strip().lower(): row
-        for row in db.query(CategorySchema).filter_by(general_path=path).all()
-    }
+    rows = _schema_rows_by_marketplace(db, path)
     for marketplace in wanted:
         row = rows.get(marketplace)
         if row is None:
@@ -72,6 +79,29 @@ def schema_covers_platforms(db: Session, general_path: str, platforms: list[str]
         if not fields:
             return False
     return True
+
+
+def cached_schema_payload(db: Session, general_path: str, platforms: list[str]) -> dict | None:
+    """Probe-shaped schema from category_schemas, or None when any marketplace is incomplete."""
+    path = str(general_path or "").strip()
+    wanted = [str(item or "").strip().lower() for item in (platforms or []) if str(item or "").strip()]
+    if not path or not wanted:
+        return None
+    rows = _schema_rows_by_marketplace(db, path)
+    payload: dict = {}
+    for marketplace in wanted:
+        row = rows.get(marketplace)
+        if row is None:
+            return None
+        category_path = str(row.category_path or "").strip()
+        fields = row.fields if isinstance(row.fields, list) else []
+        if not category_path or not fields:
+            return None
+        payload[marketplace] = {
+            "category": {"path": category_path, "status": "cached"},
+            "fields": fields,
+        }
+    return payload
 
 
 def schema_context(db: Session, path: str) -> str:

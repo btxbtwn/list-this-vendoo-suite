@@ -1,0 +1,14 @@
+---
+description: Always verify GitHub CI after creating or updating a pull request
+alwaysApply: true
+---
+
+# PR CI checks
+
+When you **create** or **update** a pull request (open, push, amend-and-push, force-push with permission, or retarget):
+
+1. After the remote branch reflects your changes, check CI with `gh pr checks` (or `gh run list` / `gh run view` for the latest run on that PR).
+2. Do not treat the PR as done while required checks are pending or failing.
+3. If checks fail, diagnose the failing job logs, fix the root cause, push, and re-check until green (or until blocked on a human decision).
+4. Prefer reproducing the same CI commands locally first for the paths you touched (see `AGENTS.md` Verification).
+5. Report the PR URL and CI status (pass / fail / pending) when you finish the create-or-update flow.

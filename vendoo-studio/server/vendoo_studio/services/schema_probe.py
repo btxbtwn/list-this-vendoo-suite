@@ -98,8 +98,12 @@ def maybe_start_schema_probe(
         return {"started": False, "reason": "no_category"}
 
     category_path = str(source_listing.get("category_path") or "").strip()
+    from vendoo_studio.services.category_catalog import schema_covers_platforms
     from vendoo_studio.services.marketplaces import selected_fillable_platforms
     platforms = selected_fillable_platforms()
+    # Reuse remembered field schemas across conversations — no Chrome tour needed.
+    if schema_covers_platforms(db, category_path, ["general", *platforms]):
+        return {"started": False, "reason": "cached", "category_path": category_path}
 
     job_repo = JobRepo(db)
     active = job_repo.get_active()
@@ -247,19 +251,43 @@ async def prepare_generation_schema(
         if on_status:
             on_status(message)
 
-    if not extension_manager.connected:
-        raise RuntimeError("Connect Chrome to discover the category fields before generating the listing.")
+    from vendoo_studio.services.category_catalog import cached_schema_payload
+
     override = str(parse_notes(notes).get("categoryOverride") or "").strip()
     revisions = ListingRepo(db).get_revisions(conv_id)
     seed = deepcopy(revisions[0].listing_json) if revisions else {}
+    platforms = selected_fillable_platforms()
     status("Choosing marketplace categories…")
-    paths = await select_categories(db, provider, analysis, notes, selected_fillable_platforms(), override)
+    paths = await select_categories(db, provider, analysis, notes, platforms, override)
     seed["category_path"] = paths["general"]
     seed["marketplace_categories"] = {mp: path for mp, path in paths.items() if mp != "general"}
     conv = ConversationRepo(db).get(conv_id)
     seed_probe_general_fields(seed, conv.notes if conv else notes)
     ListingRepo(db).save_revision(conv_id, seed, source="category_analysis",
                                  parent_revision_id=revisions[0].id if revisions else None)
+
+    category_path = str(seed.get("category_path") or "").strip()
+    required = ["general", *platforms]
+    cached = cached_schema_payload(db, category_path, required)
+    if cached:
+        # Prefer marketplace leaves that produced the remembered field schemas.
+        seed["marketplace_categories"] = {
+            mp: str((cached.get(mp) or {}).get("category", {}).get("path") or "").strip()
+            for mp in platforms
+            if str((cached.get(mp) or {}).get("category", {}).get("path") or "").strip()
+        }
+        ListingRepo(db).save_revision(
+            conv_id,
+            seed,
+            source="category_schema_cache",
+            parent_revision_id=revisions[0].id if revisions else None,
+        )
+        status("Using cached category fields…")
+        log.info("generation schema cache hit conv=%s category=%s", conv_id, category_path)
+        return seed
+
+    if not extension_manager.connected:
+        raise RuntimeError("Connect Chrome to discover the category fields before generating the listing.")
 
     result = maybe_start_schema_probe(db, conv_id, listing=seed, reason="before_generation")
     job_id = result.get("job_id")
@@ -274,12 +302,14 @@ async def prepare_generation_schema(
                 "Category discovery is already running but Studio lost its wait handle. "
                 "Cancel discovery from Listing, then retry."
             ),
+            "cached": (
+                "Cached category fields were found but could not be loaded. Retry generation."
+            ),
             "no_category": "Category discovery could not start: no verified category path yet.",
             "conversation_not_found": "Category discovery could not start: conversation not found.",
             "error": "Category discovery could not start because of an internal Studio error. Check Studio logs.",
         }
         raise RuntimeError(start_errors.get(reason, f"Category discovery could not start: {reason}"))
-    category_path = str(seed.get("category_path") or "").strip()
     if result.get("reason") == "already_running":
         job = JobRepo(db).get(job_id)
         if job and job.status == "completed":
