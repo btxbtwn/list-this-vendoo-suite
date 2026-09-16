@@ -152,6 +152,7 @@ function fieldsNeedingListingValues(
 
 function issueLabel(entry: FillLogEntry): string {
   if (entry.status === "new") return "Discovered on form";
+  if (/^no evidence\b/i.test(String(entry.reason || "").trim())) return "No evidence";
   if (entry.status === "skipped") return "Not filled";
   return STATUS_LABELS[entry.status] || entry.status;
 }
@@ -444,6 +445,7 @@ function leftoverStatusLabel(entry: FillLogEntry): string {
   if (/invalid.*dropdown|not a valid option|no matching option|option not found|dropdown/.test(reason) && entry.status !== "filled") {
     return "invalid-dropdown";
   }
+  if (/^no evidence\b/i.test(String(entry.reason || "").trim())) return "No evidence";
   return entry.status;
 }
 

@@ -653,24 +653,26 @@ function SendToVendooButton({
   if (probeActive && existingJob) {
     return (
       <div className="job-card">
-        <div className="job-card-copy">
-          <div className="job-card-label">Discovering fields</div>
-          <div className="job-card-status">
-            {existingJob.current_step || existingJob.status}
-            <div className="mt-4 text-xs text-muted">
-              Matching the Vendoo category and reading marketplace fields into this listing.
+        <div className="job-card-header">
+          <div className="job-card-copy">
+            <div className="job-card-label">Discovering fields</div>
+            <div className="job-card-status">
+              {existingJob.current_step || existingJob.status}
+              <div className="mt-4 text-xs text-muted">
+                Matching the Vendoo category and reading marketplace fields into this listing.
+              </div>
             </div>
           </div>
-        </div>
-        <div className="job-card-actions">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm job-card-action"
-            disabled={cancelMutation.isPending}
-            onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}
-          >
-            {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
-          </button>
+          <div className="job-card-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm job-card-action"
+              disabled={cancelMutation.isPending}
+              onClick={() => { setError(null); cancelMutation.mutate(existingJob.id); }}
+            >
+              {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
+            </button>
+          </div>
         </div>
         {error && <div className="job-card-error-text">{error}</div>}
       </div>
@@ -720,39 +722,41 @@ function SendToVendooButton({
           : "Restart Job";
     return (
       <div className={`job-card${isFailed ? " job-card-error" : ""}`}>
-        <div className="job-card-copy">
-          <div className="job-card-label">Job Status</div>
-          <div className={`job-card-status${isFailed ? " error" : ""}`}>
-            {statusText}
-            {fillJob.last_error && <div className="mt-4 text-xs text-error">{fillJob.last_error}</div>}
+        <div className="job-card-header">
+          <div className="job-card-copy">
+            <div className="job-card-label">Job Status</div>
+            <div className={`job-card-status${isFailed ? " error" : ""}`}>{statusText}</div>
+          </div>
+          <div className="job-card-actions">
+            {canRestart && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm job-card-action"
+                disabled={retryMutation.isPending || cancelMutation.isPending}
+                onClick={async () => {
+                  if (!completionStep && !(await confirmOverwriteIfNeeded())) return;
+                  setError(null);
+                  retryMutation.mutate(fillJob.id);
+                }}
+              >
+                {buttonLabel}
+              </button>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm job-card-action"
+                disabled={cancelMutation.isPending}
+                onClick={() => { setError(null); cancelMutation.mutate(fillJob.id); }}
+              >
+                {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
+              </button>
+            )}
           </div>
         </div>
-        <div className="job-card-actions">
-          {canRestart && (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm job-card-action"
-              disabled={retryMutation.isPending || cancelMutation.isPending}
-              onClick={async () => {
-                if (!completionStep && !(await confirmOverwriteIfNeeded())) return;
-                setError(null);
-                retryMutation.mutate(fillJob.id);
-              }}
-            >
-              {buttonLabel}
-            </button>
-          )}
-          {canCancel && (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm job-card-action"
-              disabled={cancelMutation.isPending}
-              onClick={() => { setError(null); cancelMutation.mutate(fillJob.id); }}
-            >
-              {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
-            </button>
-          )}
-        </div>
+        {fillJob.last_error && (
+          <div className="job-card-detail text-xs text-error">{fillJob.last_error}</div>
+        )}
         {error && <div className="job-card-error-text">{error}</div>}
       </div>
     );
