@@ -162,7 +162,7 @@ def delete_chatgpt_tokens():
 
 
 REASONING_LADDER = ("none", "low", "medium", "high", "xhigh", "max")
-DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_REASONING_EFFORT = "low"
 
 
 def _clean_reasoning_effort(value: object) -> str | None:

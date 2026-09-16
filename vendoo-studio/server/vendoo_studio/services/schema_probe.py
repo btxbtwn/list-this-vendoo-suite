@@ -231,6 +231,42 @@ async def kickoff_schema_probe(conv_id: str, listing: dict | None, *, reason: st
         db.close()
 
 
+def _schema_from_probe_job(db: Session, job_id: str) -> dict | None:
+    events = JobRepo(db).get_events(job_id)
+    return next(
+        (
+            (event.payload or {}).get("schema")
+            for event in reversed(events)
+            if event.step == "discovering_schema" and (event.payload or {}).get("schema")
+        ),
+        None,
+    )
+
+
+def _validate_schema_paths(schema: dict, paths: dict, platforms: list[str]) -> None:
+    required = ["general", *platforms]
+    missing = [
+        mp for mp in required
+        if not schema.get(mp, {}).get("fields") or schema[mp].get("error")
+    ]
+    if missing:
+        details = []
+        for mp in missing:
+            section = schema.get(mp) or {}
+            err = section.get("error")
+            details.append(f"{mp}: {err}" if err else f"{mp}: no fields")
+        raise RuntimeError(
+            "Category discovery did not return all selected marketplace fields "
+            f"({', '.join(details)}). Retry discovery."
+        )
+    for marketplace, expected in paths.items():
+        observed = str((schema.get(marketplace, {}).get("category") or {}).get("path") or "").strip()
+        if observed and expected and observed.casefold() != expected.casefold():
+            raise RuntimeError(
+                f"{marketplace} category was not verified: expected {expected}, observed {observed or 'empty'}"
+            )
+
+
 async def prepare_generation_schema(
     db: Session,
     conv_id: str,
@@ -240,9 +276,9 @@ async def prepare_generation_schema(
     *,
     on_status=None,
 ) -> dict:
-    """Resolve a category and await discovery before asking for the full listing."""
-    import asyncio
+    """Resolve a category; reuse cached schemas or kick Chrome discovery without blocking generate."""
     from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
+    from vendoo_studio.services.category_catalog import cached_schema_payload
     from vendoo_studio.services.category_selection import select_categories
     from vendoo_studio.services.marketplaces import selected_fillable_platforms
     from vendoo_studio.services.vendoo_import import parse_notes
@@ -250,8 +286,6 @@ async def prepare_generation_schema(
     def status(message: str) -> None:
         if on_status:
             on_status(message)
-
-    from vendoo_studio.services.category_catalog import cached_schema_payload
 
     override = str(parse_notes(notes).get("categoryOverride") or "").strip()
     revisions = ListingRepo(db).get_revisions(conv_id)
@@ -263,8 +297,12 @@ async def prepare_generation_schema(
     seed["marketplace_categories"] = {mp: path for mp, path in paths.items() if mp != "general"}
     conv = ConversationRepo(db).get(conv_id)
     seed_probe_general_fields(seed, conv.notes if conv else notes)
-    ListingRepo(db).save_revision(conv_id, seed, source="category_analysis",
-                                 parent_revision_id=revisions[0].id if revisions else None)
+    ListingRepo(db).save_revision(
+        conv_id,
+        seed,
+        source="category_analysis",
+        parent_revision_id=revisions[0].id if revisions else None,
+    )
 
     category_path = str(seed.get("category_path") or "").strip()
     required = ["general", *platforms]
@@ -284,121 +322,98 @@ async def prepare_generation_schema(
         )
         status("Using cached category fields…")
         log.info("generation schema cache hit conv=%s category=%s", conv_id, category_path)
+        seed["_schema_source"] = "cache"
         return seed
 
-    if not extension_manager.connected:
-        raise RuntimeError("Connect Chrome to discover the category fields before generating the listing.")
-
     result = maybe_start_schema_probe(db, conv_id, listing=seed, reason="before_generation")
+    if result.get("reason") == "cached":
+        cached = cached_schema_payload(db, category_path, required)
+        if cached:
+            seed["_schema_source"] = "cache"
+            status("Using cached category fields…")
+            return seed
+
     job_id = result.get("job_id")
+    if result.get("reason") == "already_done" and job_id:
+        db.expire_all()
+        schema = _schema_from_probe_job(db, job_id)
+        if schema:
+            try:
+                job_platforms = (JobRepo(db).get(job_id).listing_snapshot or {}).get("platforms") or platforms
+                _validate_schema_paths(schema, paths, job_platforms)
+                seed["_schema_source"] = "prior_probe"
+                status("Using discovered category fields…")
+                return seed
+            except RuntimeError:
+                log.warning("prior probe schema incomplete for %s; rediscovering", conv_id)
+
     if not job_id:
         reason = str(result.get("reason") or "unknown")
+        if reason in {"busy", "already_running"}:
+            seed["_schema_source"] = "deferred_busy"
+            seed["_schema_probe_job_id"] = result.get("active_job_id") or result.get("job_id")
+            status("Generating with known fields while Chrome is busy…")
+            return seed
         start_errors = {
-            "busy": (
-                "Category discovery could not start because another Vendoo job is already running "
-                f"(job {result.get('active_job_id') or 'unknown'}). Cancel that job from Listing, then retry."
-            ),
-            "already_running": (
-                "Category discovery is already running but Studio lost its wait handle. "
-                "Cancel discovery from Listing, then retry."
-            ),
-            "cached": (
-                "Cached category fields were found but could not be loaded. Retry generation."
-            ),
+            "cached": "Cached category fields were found but could not be loaded. Retry generation.",
             "no_category": "Category discovery could not start: no verified category path yet.",
             "conversation_not_found": "Category discovery could not start: conversation not found.",
             "error": "Category discovery could not start because of an internal Studio error. Check Studio logs.",
         }
         raise RuntimeError(start_errors.get(reason, f"Category discovery could not start: {reason}"))
-    if result.get("reason") == "already_running":
-        job = JobRepo(db).get(job_id)
-        if job and job.status == "completed":
-            result = {**result, "reason": "already_done"}
-    if result.get("reason") != "already_done":
-        status("Discovering fields in Chrome…")
-        waiter_id = "schema:" + job_id
-        waiter = extension_manager.register_wait(waiter_id)
 
-        async def _watch_probe_progress() -> None:
-            from vendoo_studio.database import SessionLocal
+    if not extension_manager.connected:
+        if result.get("started"):
+            job = JobRepo(db).get(job_id)
+            if job and job.status in {"queued", "awaiting_extension"}:
+                job.status = "failed"
+                job.current_step = "discovering_schema"
+                job.last_error = "Chrome disconnected before category discovery"
+                db.commit()
+        raise RuntimeError("Connect Chrome to discover the category fields before generating the listing.")
 
-            while True:
-                await asyncio.sleep(3)
-                watch_db = SessionLocal()
-                try:
-                    job = JobRepo(watch_db).get(job_id)
-                    if not job:
-                        return
-                    step = str(job.current_step or job.status or "").strip()
-                    if step:
-                        status(f"Discovering fields in Chrome ({step})…")
-                    if job.status in {"completed", "failed", "cancelled"}:
-                        return
-                finally:
-                    watch_db.close()
-
-        progress_task = asyncio.create_task(_watch_probe_progress())
-        try:
-            if result.get("started"):
-                await dispatch_queued_jobs()
-            try:
-                response = await asyncio.wait_for(waiter, timeout=300)
-            except asyncio.TimeoutError as exc:
-                job = JobRepo(db).get(job_id)
-                step = str((job.current_step if job else "") or "discovering_schema")
-                status_name = str((job.status if job else "") or "unknown")
-                raise RuntimeError(
-                    f"Timed out after 5 minutes waiting for Chrome to discover fields for "
-                    f"{category_path or 'the selected category'} "
-                    f"(job {job_id} stuck at {step}, status {status_name}). "
-                    "Open the Vendoo tab in Chrome, or Cancel discovery and retry."
-                ) from exc
-            except asyncio.CancelledError:
-                job = JobRepo(db).get(job_id)
-                if job and job.status == "completed":
-                    response = {"ok": True}
-                else:
-                    raise
-            if not response.get("ok"):
-                raise RuntimeError(
-                    response.get("error")
-                    or f"Category field discovery failed for {category_path or 'the selected category'} "
-                    f"(job {job_id})."
-                )
-        finally:
-            progress_task.cancel()
-            try:
-                await progress_task
-            except asyncio.CancelledError:
-                pass
-            extension_manager.cancel_wait(waiter_id)
-    db.expire_all()
-    events = JobRepo(db).get_events(job_id)
-    schema = next(((event.payload or {}).get("schema") for event in reversed(events)
-                   if event.step == "discovering_schema" and (event.payload or {}).get("schema")), None)
-    platforms = (JobRepo(db).get(job_id).listing_snapshot or {}).get("platforms") or []
-    required = ["general", *platforms]
-    if not schema:
-        raise RuntimeError(
-            f"Category discovery finished without a schema payload for {category_path or 'the category'} "
-            f"(job {job_id}). Retry discovery."
-        )
-    missing = [
-        mp for mp in required
-        if not schema.get(mp, {}).get("fields") or schema[mp].get("error")
-    ]
-    if missing:
-        details = []
-        for mp in missing:
-            section = schema.get(mp) or {}
-            err = section.get("error")
-            details.append(f"{mp}: {err}" if err else f"{mp}: no fields")
-        raise RuntimeError(
-            "Category discovery did not return all selected marketplace fields "
-            f"({', '.join(details)}). Retry discovery."
-        )
-    for marketplace, expected in paths.items():
-        observed = str((schema.get(marketplace, {}).get("category") or {}).get("path") or "").strip()
-        if observed.casefold() != expected.casefold():
-            raise RuntimeError(f"{marketplace} category was not verified: expected {expected}, observed {observed or 'empty'}")
+    # Kick Chrome discovery but do not block listing generation on it.
+    status("Discovering fields in Chrome in the background…")
+    if result.get("started"):
+        await dispatch_queued_jobs()
+    seed["_schema_source"] = "deferred_probe"
+    seed["_schema_probe_job_id"] = job_id
+    try:
+        extension_manager.register_wait("schema:" + job_id)
+    except Exception:
+        log.exception("failed to register deferred schema wait for %s", job_id)
     return seed
+
+
+async def await_deferred_schema(db: Session, seed: dict, *, timeout: float = 300.0) -> dict | None:
+    """Wait for a deferred Chrome schema probe started during generation."""
+    import asyncio
+    from vendoo_studio.routes.extension import extension_manager
+
+    job_id = str((seed or {}).get("_schema_probe_job_id") or "").strip()
+    source = str((seed or {}).get("_schema_source") or "")
+    if not job_id or source not in {"deferred_probe", "deferred_busy"}:
+        return None
+    if source == "deferred_busy":
+        return None
+
+    waiter_id = "schema:" + job_id
+    waiter = extension_manager.register_wait(waiter_id)
+    try:
+        try:
+            response = await asyncio.wait_for(waiter, timeout=timeout)
+        except asyncio.TimeoutError:
+            log.warning("deferred schema probe timed out for job %s", job_id)
+            return None
+        if not response.get("ok"):
+            log.warning(
+                "deferred schema probe failed for job %s: %s",
+                job_id,
+                response.get("error") or "unknown",
+            )
+            return None
+    finally:
+        extension_manager.cancel_wait(waiter_id)
+
+    db.expire_all()
+    return _schema_from_probe_job(db, job_id)

@@ -586,6 +586,8 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_generation_requires_chrome_before_full_listing(self):
         self.manager.connected = False
+        self.job.status = "completed"
+        self.db.commit()
         provider = Provider({})
         with patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]), \
              patch("vendoo_studio.services.category_selection.select_categories", new=AsyncMock(
@@ -612,24 +614,17 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seed["category_path"], "Clothing > Tops")
         # Prefer the marketplace leaf that produced the remembered fields.
         self.assertEqual(seed["marketplace_categories"]["ebay"], "Clothing > Shirts")
+        self.assertEqual(seed["_schema_source"], "cache")
         self.assertTrue(any("cached" in message.casefold() for message in statuses))
         self.manager.register_wait.assert_not_called()
         self.assertEqual(JobRepo(self.db).list_by_conversation(self.conv.id), [self.job])
 
-    async def test_generation_waits_for_schema_result(self):
-        import asyncio
+    async def test_generation_defers_schema_probe(self):
         self.job.status = "completed"
         self.db.commit()
-        waiter = asyncio.get_running_loop().create_future()
-        self.manager.register_wait.return_value = waiter
 
         async def discover():
-            probe = JobRepo(self.db).list_by_conversation(self.conv.id)[0]
-            JobRepo(self.db).add_event(probe.id, "step_completed", "discovering_schema", {"schema": self.verification["schema"]})
-            probe.status = "completed"
-            probe.current_step = "schema_probe_done"
-            self.db.commit()
-            waiter.set_result({"ok": True})
+            return True
 
         with patch("vendoo_studio.routes.extension.dispatch_queued_jobs", side_effect=discover), \
              patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]), \
@@ -637,4 +632,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
                  return_value={"general": "Clothing > Tops", "ebay": "Clothing > Shirts"})):
             seed = await prepare_generation_schema(self.db, self.conv.id, Provider({}), "Cotton tee", "")
         self.assertEqual(seed["category_path"], "Clothing > Tops")
-        self.manager.cancel_wait.assert_called_once()
+        self.assertEqual(seed["_schema_source"], "deferred_probe")
+        self.assertTrue(seed.get("_schema_probe_job_id"))
+        self.manager.register_wait.assert_called()
+        self.manager.cancel_wait.assert_not_called()

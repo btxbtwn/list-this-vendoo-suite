@@ -105,7 +105,7 @@ def cached_schema_payload(db: Session, general_path: str, platforms: list[str]) 
 
 
 def schema_context(db: Session, path: str) -> str:
-    rows = db.query(CategorySchema).filter_by(general_path=path).all()
+    rows = list(_schema_rows_by_marketplace(db, path).values())
     if not rows and path:
         try:
             from vendoo_studio.services.catalog_index import search_catalog
@@ -133,5 +133,6 @@ def schema_context(db: Session, path: str) -> str:
     } for row in rows}, ensure_ascii=False) + (
         "\nResolve every applicable field using photo evidence and initial seller notes. "
         "Use exact allowed option labels. Infer supportable facts; leave unsupported facts empty and note them — never ask. "
+        "Fill every applicable field in the listing JSON now (root fields or marketplace *_specifics). "
         "These are observed fields, not proof that all conditional fields have been exposed.\n"
     )

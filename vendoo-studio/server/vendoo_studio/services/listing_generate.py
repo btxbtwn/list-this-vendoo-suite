@@ -133,13 +133,30 @@ def extract_listing_json(text: str) -> dict | None:
         if not candidate or candidate in seen:
             continue
         seen.add(candidate)
-        try:
-            parsed = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict) and (parsed.get("title") or parsed.get("description") or parsed.get("price") is not None):
-            return parsed
+        for variant in (candidate, _soften_json(candidate)):
+            if not variant:
+                continue
+            try:
+                parsed = json.loads(variant)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict) and (
+                parsed.get("title") or parsed.get("description") or parsed.get("price") is not None
+            ):
+                return parsed
     return None
+
+
+def _soften_json(text: str) -> str | None:
+    """Fix common model JSON slips so we can skip a full repair round."""
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return None
+    # Trailing commas before } or ]
+    softened = re.sub(r",\s*([}\]])", r"\1", cleaned)
+    if softened == cleaned:
+        return None
+    return softened
 
 
 def looks_like_listing_attempt(text: str) -> bool:
@@ -542,12 +559,12 @@ def listing_save_summary(
         )
     if repaired:
         return (
-            "Listing repaired. Required and discovered Studio fields are filled — values are applied on Vendoo "
-            "automatically when Chrome is connected. Review Fields, then Send when the draft looks right."
+            "Listing repaired. Required and discovered Studio fields are filled — values continue applying on Vendoo "
+            "in the background when Chrome is connected. Review Fields, then Send when the draft looks right."
         )
     return (
-        "Listing saved. Required and discovered Studio fields are filled — values are applied on Vendoo "
-        "automatically when Chrome is connected. Review Fields, then Send when the draft looks right."
+        "Listing saved. Required Studio fields are filled — discovered fields and Vendoo apply continue "
+        "in the background when Chrome is connected. Review Fields, then Send when the draft looks right."
     )
 
 

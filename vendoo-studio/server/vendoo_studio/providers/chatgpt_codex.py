@@ -18,7 +18,7 @@ USER_AGENT = "VendooStudio/0.1.0"
 MODELS_CLIENT_VERSION = "1.0.0"
 VISION_MODEL = "gpt-5.5"
 LISTING_MODEL = "gpt-5.5"
-DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_REASONING_EFFORT = "low"
 REASONING_LADDER = ("none", "low", "medium", "high", "xhigh", "max")
 CATALOG_TTL_S = 60
 

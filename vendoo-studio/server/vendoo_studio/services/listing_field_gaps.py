@@ -30,7 +30,7 @@ from vendoo_studio.services.registry import (
 
 log = logging.getLogger(__name__)
 
-MAX_GAP_ROUNDS = 3
+MAX_GAP_ROUNDS = 1
 MAX_GAPS_PER_ROUND = 50
 
 GAP_FILL_SYSTEM = (
