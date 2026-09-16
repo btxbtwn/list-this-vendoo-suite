@@ -3,12 +3,58 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { api } from "../api/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { SoldCompsCard } from "./SoldCompsCard";
-import { parseThinkingTodos } from "./thinkingTodos";
+import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
 
 interface Props {
   convId: string;
   queuedMessage?: string | null;
   onQueuedMessageConsumed?: () => void;
+}
+
+function thinkingItemClass(item: ThinkingTodo, live: boolean): string {
+  return [
+    item.done ? "is-done" : "",
+    item.current ? "is-current" : "",
+    item.current && live ? "is-live" : "",
+  ].filter(Boolean).join(" ");
+}
+
+function ThinkingStreamBody({
+  text,
+  finished,
+}: {
+  text: string;
+  finished: boolean;
+}) {
+  const items = parseThinkingTodos(text, finished);
+  const live = !finished;
+  if (items.length > 0 && items.every((item) => item.prose)) {
+    return (
+      <div className="thinking-prose">
+        {items.map((item, index) => (
+          <p
+            key={`${index}-${item.text.slice(0, 24)}`}
+            className={["thinking-prose-line", thinkingItemClass(item, live)].filter(Boolean).join(" ")}
+          >
+            {item.text}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <ul className="thinking-todos">
+      {items.map((item, index) => (
+        <li
+          key={`${index}-${item.text}`}
+          className={["thinking-todo", thinkingItemClass(item, live)].filter(Boolean).join(" ")}
+        >
+          <span className="thinking-todo-mark">{item.done ? "- [x]" : "- [ ]"}</span>
+          <span className="thinking-todo-text">{item.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function isListingJson(text: string): boolean {
@@ -432,9 +478,24 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(live.failedAction);
   const [lastSendText, setLastSendText] = useState(live.lastSendText);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const thinkingBodyRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
+
+  const isNearBottom = (el: HTMLDivElement, threshold = 96) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+
+  const scrollChatToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo(0, el.scrollHeight);
+  }, []);
+
+  const pinChatToBottom = useCallback(() => {
+    stickToBottomRef.current = true;
+    scrollChatToBottom();
+  }, [scrollChatToBottom]);
 
   const { data: messages, isLoading } = useQuery({
     queryKey: ["messages", convId],
@@ -487,8 +548,19 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   }, [convId]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
-  }, [messages, streamText, streamThinking]);
+    stickToBottomRef.current = true;
+    scrollChatToBottom();
+  }, [convId, scrollChatToBottom]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !stickToBottomRef.current) return;
+    if (!isNearBottom(el)) {
+      stickToBottomRef.current = false;
+      return;
+    }
+    scrollChatToBottom();
+  }, [messages, streamText, streamThinking, scrollChatToBottom]);
 
   useEffect(() => {
     const el = thinkingBodyRef.current;
@@ -501,6 +573,27 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
   }, [input]);
+
+  const handleChatScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = isNearBottom(el);
+  }, []);
+
+  const handleChatWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY < 0) stickToBottomRef.current = false;
+  }, []);
+
+  const touchYRef = useRef<number | null>(null);
+  const handleChatTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    touchYRef.current = e.touches[0]?.clientY ?? null;
+  }, []);
+  const handleChatTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    const y = e.touches[0]?.clientY;
+    if (touchYRef.current == null || y == null) return;
+    if (y > touchYRef.current + 2) stickToBottomRef.current = false;
+    touchYRef.current = y;
+  }, []);
 
   const streamFromFetch = useCallback(async (url: string, initialStatus = "") => {
     const liveState = getLive(convId);
@@ -671,6 +764,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   }, [convId, queryClient]);
 
   const handleGenerate = useCallback(async () => {
+    pinChatToBottom();
     patchLive(convId, {
       generating: true,
       streamStatus: "Analyzing photos…",
@@ -678,10 +772,11 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       userCancelled: false,
     });
     await streamFromFetch(`/api/conversations/${convId}/generate`, "Analyzing photos…");
-  }, [convId, streamFromFetch]);
+  }, [convId, streamFromFetch, pinChatToBottom]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text || getLive(convId).streaming) return;
+    pinChatToBottom();
     const liveState = getLive(convId);
     liveState.controller?.abort();
     const controller = new AbortController();
@@ -775,7 +870,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         });
       }
     }
-  }, [convId, queryClient]);
+  }, [convId, queryClient, pinChatToBottom]);
 
   useEffect(() => {
     if (!queuedMessage || streaming) return;
@@ -975,7 +1070,14 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
 
   return (
     <div className="chat-panel">
-      <div ref={scrollRef} className="chat-scroll">
+      <div
+        ref={scrollRef}
+        className="chat-scroll"
+        onScroll={handleChatScroll}
+        onWheel={handleChatWheel}
+        onTouchStart={handleChatTouchStart}
+        onTouchMove={handleChatTouchMove}
+      >
         {isLoading && !hasMessages && (
           <div className="empty-state" style={{ padding: "16px 0" }}><p className="text-xs text-muted">Loading...</p></div>
         )}
@@ -1012,22 +1114,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
             </div>
             {streamThinking ? (
               <div ref={thinkingBodyRef} className="thinking-body">
-                <ul className="thinking-todos">
-                  {parseThinkingTodos(streamThinking, Boolean(streamText)).map((item, index) => (
-                    <li
-                      key={`${index}-${item.text}`}
-                      className={[
-                        "thinking-todo",
-                        item.done ? "is-done" : "",
-                        item.current ? "is-current" : "",
-                        item.current && !streamText ? "is-live" : "",
-                      ].filter(Boolean).join(" ")}
-                    >
-                      <span className="thinking-todo-mark">{item.done ? "- [x]" : "- [ ]"}</span>
-                      <span className="thinking-todo-text">{item.text}</span>
-                    </li>
-                  ))}
-                </ul>
+                <ThinkingStreamBody text={streamThinking} finished={Boolean(streamText)} />
               </div>
             ) : null}
           </div>
