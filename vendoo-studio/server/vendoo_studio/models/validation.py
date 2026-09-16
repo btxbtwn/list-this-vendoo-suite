@@ -1354,11 +1354,82 @@ def ensure_mercari_shipping_label(listing: dict) -> bool:
     return True
 
 
+# Containers keep their own names — only leaf value keys are canonicalized.
+KEY_CANONICAL_SKIP = frozenset({"category_specifics", "marketplace_specifics", "marketplaceSpecifics"})
+
+
+def _squash_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
+
+
+@lru_cache(maxsize=1)
+def _canonical_by_squash() -> dict[str, str]:
+    """Known JSON keys indexed by their case/separator-free form."""
+    from vendoo_studio.services.registry import LABEL_TO_JSON_KEY
+
+    known: list[str] = [
+        *ListingSchema.model_fields,
+        *LABEL_TO_JSON_KEY.values(),
+        *REQUIRED_EBAY_KEYS,
+        *EBAY_CATEGORY_OPTIONAL_KEYS,
+        *ETSY_CATEGORY_OPTIONAL_KEYS,
+        *DEPOP_CATEGORY_OPTIONAL_KEYS,
+    ]
+    return {_squash_key(key): key for key in known if _squash_key(key)}
+
+
+def _canonicalize_record_keys(record: dict, *, allowed: frozenset[str] | None = None) -> bool:
+    """Rename keys that differ from the canonical JSON key only by case or separators.
+
+    Heals listings where a gap fill wrote `sizetype` instead of `sizeType`, which reads
+    as an empty required field even though the value is sitting in the JSON.
+    """
+    from vendoo_studio.services.fill_log import field_lookup_key
+    from vendoo_studio.services.registry import label_to_json_key
+
+    changed = False
+    for key in list(record):
+        if key in KEY_CANONICAL_SKIP:
+            continue
+        value = record[key]
+        if isinstance(value, dict):
+            continue
+        canonical = _canonical_by_squash().get(_squash_key(key)) or label_to_json_key(field_lookup_key(key))
+        if not canonical or canonical == key:
+            continue
+        if _squash_key(canonical) != _squash_key(key):
+            continue
+        if allowed is not None and canonical not in allowed:
+            continue
+        # Same field under two spellings: the canonical value is the one everything reads.
+        if _ebay_optional_blank(record.get(canonical)):
+            record[canonical] = value
+        record.pop(key, None)
+        changed = True
+    return changed
+
+
+def canonicalize_listing_keys(listing: dict) -> bool:
+    if not isinstance(listing, dict):
+        return False
+    changed = _canonicalize_record_keys(listing, allowed=frozenset(ListingSchema.model_fields))
+    for marketplace in FILLABLE_MARKETPLACES:
+        specifics = listing.get(f"{marketplace}_specifics")
+        if not isinstance(specifics, dict):
+            continue
+        if _canonicalize_record_keys(specifics):
+            changed = True
+        nested = specifics.get("category_specifics")
+        if isinstance(nested, dict) and _canonicalize_record_keys(nested):
+            changed = True
+    return changed
+
+
 def normalize_listing_dropdowns(listing: dict) -> bool:
     """Rewrite stale Depop/Etsy dropdown values to the current Vendoo options."""
     if not isinstance(listing, dict):
         return False
-    changed = False
+    changed = canonicalize_listing_keys(listing)
 
     # Shipping weight often lands only under marketplace specifics — promote it.
     if "weight_lb" not in listing and "weight_oz" not in listing:
