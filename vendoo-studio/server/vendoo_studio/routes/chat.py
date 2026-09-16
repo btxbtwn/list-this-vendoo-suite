@@ -924,9 +924,14 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 stream_db,
             )
 
-            run.publish(_sse_event("status", "Identifying category and discovering its fields…"))
+            run.publish(_sse_event("status", "Choosing marketplace categories…"))
             schema_task = asyncio.create_task(prepare_generation_schema(
-                stream_db, conv_id, provider, prompt_analysis + "\nSeller answers:\n" + seller_answers, notes,
+                stream_db,
+                conv_id,
+                provider,
+                prompt_analysis + "\nSeller answers:\n" + seller_answers,
+                notes,
+                on_status=lambda message: run.publish(_sse_event("status", message)),
             ))
             child_tasks.append(schema_task)
             async for _ in _wait_task_keepalives(schema_task):
@@ -1036,10 +1041,17 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         except Exception as e:
             message = str(e).strip() or type(e).__name__
             if isinstance(e, TimeoutError) and not str(e).strip():
-                message = (
-                    "Timed out while generating the listing. "
-                    "If Chrome was discovering fields, cancel discovery and retry."
-                )
+                stage = (run.last_status or "").strip()
+                if stage:
+                    message = (
+                        f"Timed out during “{stage}”. "
+                        "Retry generate. If Chrome is stuck on field discovery, Cancel discovery first."
+                    )
+                else:
+                    message = (
+                        "Timed out while generating the listing. "
+                        "Retry generate. If Chrome was discovering fields, cancel discovery and retry."
+                    )
             log.warning("listing generation failed for %s: %s", conv_id, message)
             try:
                 run.publish(_sse_data(f"Error: {message}"))
