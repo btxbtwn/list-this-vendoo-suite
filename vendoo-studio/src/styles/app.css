@@ -1967,6 +1967,32 @@ a.sold-comps-row:hover .sold-comps-title {
   font-family: var(--font-mono);
 }
 
+.thinking-prose {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.thinking-prose-line {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.thinking-prose-line.is-done {
+  opacity: 0.65;
+}
+
+.thinking-prose-line.is-current {
+  color: var(--color-text-secondary);
+}
+
+.thinking-prose-line.is-live::after {
+  content: "0";
+  margin-left: 2px;
+  animation: thinking-pulse 1s step-end infinite;
+}
+
 .thinking-todo {
   display: flex;
   align-items: flex-start;
@@ -2841,13 +2867,6 @@ details[open] .json-collapse-summary::before {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.45;
-}
-
-.llm-error-hint {
-  margin: 0;
-  font-size: var(--text-2xs);
-  line-height: 1.4;
-  color: var(--color-text-muted);
 }
 
 .llm-error-actions {

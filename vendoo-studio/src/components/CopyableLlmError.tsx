@@ -1,5 +1,3 @@
-import React from "react";
-
 type Blocker = { field?: string; message?: string };
 
 export type BlockerField = {
@@ -248,31 +246,14 @@ export function CopyableLlmError({
   onAskChat?: (text: string) => void;
   className?: string;
 }) {
-  const [copied, setCopied] = React.useState(false);
   const body = String(text || "").trim();
   if (!body) return null;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
-  };
 
   return (
     <div className={`llm-error-card${className ? ` ${className}` : ""}`}>
       <div className="llm-error-text text-xs text-error">{body}</div>
-      <p className="llm-error-hint">
-        Prefer Ask chat. Or Copy for chat, click the composer, and paste with ⌘V.
-      </p>
-      <div className="llm-error-actions">
-        <button type="button" className="btn btn-sm btn-outline" onClick={() => void copy()}>
-          {copied ? "Copied" : "Copy for chat"}
-        </button>
-        {onAskChat && (
+      {onAskChat && (
+        <div className="llm-error-actions">
           <button
             type="button"
             className="btn btn-sm btn-secondary"
@@ -280,8 +261,8 @@ export function CopyableLlmError({
           >
             Ask chat
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
