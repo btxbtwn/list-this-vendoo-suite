@@ -24,7 +24,7 @@ Publish the zip as the rolling GitHub release (`studio-macos`):
 
 Pushes to `main` that touch Studio, the extension, or listing skills also build and replace that release through `.github/workflows/studio-macos.yml`.
 
-The packaged app does not git-pull. **Check for updates** compares the stamped build SHA against the GitHub release and, if newer, downloads the zip, replaces the `.app`, and relaunches. Listing data stays in `~/Library/Application Support/List This Studio`.
+The packaged app does not git-pull. **Check for updates** compares the stamped build SHA against the GitHub release and, if newer, downloads the zip, replaces the `.app`, and relaunches. All Studio data stays in `~/Library/Application Support/List This Studio` (listings, photos, drafts, hidden fields, settings, fill logs, logs). API keys remain in macOS Keychain. Settings → About shows the folder path.
 
 The recipient:
 
@@ -118,7 +118,7 @@ The extension connects to `ws://127.0.0.1:4318/api/extension/ws`. **Connect Chro
 
 ## Database
 
-SQLite at `data/vendoo_studio.db` in development, or `~/Library/Application Support/List This Studio` in the packaged app. Tables:
+SQLite at `data/vendoo_studio.db` in development, or `~/Library/Application Support/List This Studio` in the packaged app. Replacing the `.app` does not touch this folder. Tables:
 
 - `conversations` — listing sessions
 - `messages` — chat history
@@ -128,6 +128,8 @@ SQLite at `data/vendoo_studio.db` in development, or `~/Library/Application Supp
 - `jobs` — automation jobs
 - `job_events` — per-job event log
 - `category_trees` / `category_tree_nodes` — full General/eBay/Poshmark/Mercari/Depop/Etsy category trees
+
+The same data folder also holds `photos/`, `fill-logs/`, `settings.json` (marketplaces, hidden fields, UI prefs), `pairing_token.txt`, `catalog-index/`, `vendoo-extension/`, and `logs/`.
 
 Category leaves, observed schemas, skill dropdown options, listing-rule chunks, and extension fill helpers are materialized under `catalog-index/` in the same data directory and searched with Semble (`GET /api/catalog/search`). First launch may download the local embedding model once.
 

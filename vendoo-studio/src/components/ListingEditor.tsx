@@ -214,7 +214,6 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
               vendooItemId={listingJob.vendoo_item_id || importedItemId}
               vendooUrl={listingJob.vendoo_url || importedUrl}
               listing={listing}
-              onAskChat={onAskChat}
               onFilled={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
               onJobStarted={onJobStarted}
             />
@@ -792,7 +791,11 @@ function SendToVendooButton({
                     listingTitle,
                     Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
                   )
-                : jobErrorPrompt(fillJob.last_error, listingTitle)
+                : jobErrorPrompt(
+                    fillJob.last_error,
+                    listingTitle,
+                    Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
+                  )
             }
             onAskChat={onAskChat}
           />
@@ -801,7 +804,11 @@ function SendToVendooButton({
           <CopyableLlmError
             className="job-card-detail"
             text={error}
-            prompt={jobErrorPrompt(error, listingTitle)}
+            prompt={jobErrorPrompt(
+              error,
+              listingTitle,
+              Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
+            )}
             onAskChat={onAskChat}
           />
         )}

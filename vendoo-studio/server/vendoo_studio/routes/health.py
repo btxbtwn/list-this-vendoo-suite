@@ -18,6 +18,7 @@ def health():
 
 @router.get("/api/status")
 def status(db: Session = Depends(get_db)):
+    from vendoo_studio.config import user_data_root
     from vendoo_studio.models.conversation import Conversation
     from vendoo_studio.models.job import Job
     from vendoo_studio.routes.extension import extension_manager
@@ -38,4 +39,5 @@ def status(db: Session = Depends(get_db)):
         "packaged": is_packaged(),
         "chrome_available": chrome_executable() is not None,
         "setup_guide_dismissed": setup_guide_dismissed(),
+        "data_dir": str(user_data_root()),
     }

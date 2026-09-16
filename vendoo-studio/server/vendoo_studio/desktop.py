@@ -51,7 +51,7 @@ TRAFFIC_LIGHT_GAP_PX = 8.0
 TRAFFIC_LIGHT_X_PX = 16.0
 HEALTH_URL = f"http://{HOST}:{PORT}/api/health"
 APP_URL = f"http://{HOST}:{PORT}"
-LOG_PATH = Path.home() / "Library" / "Logs" / CHANNEL["log"]
+LOG_PATH = Path.home() / "Library" / "Application Support" / CHANNEL["app_name"] / "logs" / CHANNEL["log"]
 
 _server = None
 _server_thread: threading.Thread | None = None
@@ -546,7 +546,7 @@ export VENDOO_STUDIO_UPDATE_URL={shlex_quote(remote_url())}
 STUDIO_DIR={shlex_quote(str(studio_dir))}
 cd "$STUDIO_DIR" || exit 1
 export PYTHONPATH="$STUDIO_DIR/server"
-LOG="$HOME/Library/Logs/{channel["log"]}"
+LOG="$HOME/Library/Application Support/{channel["app_name"]}/logs/{channel["log"]}"
 mkdir -p "$(dirname "$LOG")"
 exec >>"$LOG" 2>&1
 echo "$(date) starting {channel["app_name"]}"

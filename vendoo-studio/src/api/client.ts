@@ -50,6 +50,7 @@ export const api = {
       chrome_available?: boolean;
       conversations?: number;
       setup_guide_dismissed?: boolean;
+      data_dir?: string;
     }>("/status"),
 
   conversations: {
@@ -277,6 +278,24 @@ export const api = {
       }),
     dismissSetupGuide: () =>
       request<{ ok: boolean; dismissed: boolean }>("/settings/setup-guide/dismiss", { method: "POST" }),
+    dataFolder: () =>
+      request<{ path: string; contains: string[]; secrets: string }>("/settings/data-folder"),
+    ui: () =>
+      request<{
+        ok: boolean;
+        recent_vendoo_labels: string[];
+        settled_shelf_expanded: boolean;
+      }>("/settings/ui"),
+    setUi: (body: {
+      recent_vendoo_labels?: string[];
+      settled_shelf_expanded?: boolean;
+      remember_labels?: string | string[];
+    }) =>
+      request<{
+        ok: boolean;
+        recent_vendoo_labels: string[];
+        settled_shelf_expanded: boolean;
+      }>("/settings/ui", { method: "PUT", body: JSON.stringify(body) }),
     tailscale: () =>
       request<{
         available: boolean;

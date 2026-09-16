@@ -56,6 +56,14 @@ class ConfigPathTest(unittest.TestCase):
             Path.home() / "Library" / "Application Support" / "List This Studio",
         )
 
+    def test_log_path_lives_under_user_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["VENDOO_STUDIO_DATA_DIR"] = tmp
+            self.assertEqual(
+                config.log_path(),
+                Path(tmp).resolve() / "logs" / "List This Studio.log",
+            )
+
     def test_skills_dir_finds_repo_skill(self):
         os.environ.pop("VENDOO_STUDIO_SKILLS_DIR", None)
         skill = config.skills_dir() / "list-this" / "SKILL.md"

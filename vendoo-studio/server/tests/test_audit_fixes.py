@@ -1130,22 +1130,20 @@ console.log(JSON.stringify({ blouse, tee }));
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
         self.assertIn("Unfilled Etsy sections often keep Listing State", content)
         self.assertIn("key === 'listingState' && mp === 'etsy'", content)
+        self.assertIn("resolveEtsyListingState", content)
+        self.assertIn("return 'Live Listing'", content)
         self.assertIn('[aria-label^="Remove "]', content)
         self.assertIn("normalizeComparableText(lab) === normalizeComparableText(want)", content)
 
-    def test_ask_chat_prompt_includes_field_context(self):
+    def test_fields_panel_apply_actions(self):
         panel = (
             Path(__file__).resolve().parents[2] / "src" / "components" / "FillLogPanel.tsx"
         ).read_text(encoding="utf-8")
-        self.assertIn("function leftoverFieldPrompt", panel)
-        self.assertIn("function leftoverFieldsPrompt", panel)
-        self.assertIn("Listing:", panel)
-        self.assertIn("Marketplace:", panel)
-        self.assertIn("Current value:", panel)
-        self.assertIn("Failure reason:", panel)
-        self.assertIn("Ask chat to retry", panel)
         self.assertIn("Apply on Vendoo", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
+        self.assertIn("Set Vendoo category", panel)
+        self.assertNotIn("onAskChat", panel)
+        self.assertNotIn("Ask chat for", panel)
 
     def test_completion_blocker_ask_chat_prompts(self):
         source = (
