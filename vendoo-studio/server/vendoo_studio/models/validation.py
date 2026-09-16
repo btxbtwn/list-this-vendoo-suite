@@ -35,6 +35,20 @@ EBAY_KEY_ALIASES = {
     "qty": "unitQuantity",
 }
 VALID_EBAY_SEASONS = frozenset({"Spring", "Summer", "Fall", "Winter"})
+# Gap-fill often writes Does Not Apply; Season is optional and Studio only
+# accepts the four calendar seasons (or empty). Treat DNA as “leave blank”.
+EBAY_SEASON_CLEAR = frozenset({
+    "does not apply",
+    "n/a",
+    "na",
+    "n.a",
+    "n.a.",
+    "none",
+    "unknown",
+    "-",
+    "--",
+    "d",
+})
 EBAY_SEASON_ALIASES = {
     "all season": "Summer",
     "all-season": "Summer",
@@ -456,12 +470,18 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
     ebay = listing.get("ebay_specifics")
     if isinstance(ebay, dict):
         season = _text(ebay.get("season"))
-        alias = EBAY_SEASON_ALIASES.get(season.casefold()) if season else None
-        if alias and alias != season:
+        if season and season.casefold() in EBAY_SEASON_CLEAR:
             ebay = dict(ebay)
-            ebay["season"] = alias
+            ebay.pop("season", None)
             listing["ebay_specifics"] = ebay
             changed = True
+        else:
+            alias = EBAY_SEASON_ALIASES.get(season.casefold()) if season else None
+            if alias and alias != season:
+                ebay = dict(ebay)
+                ebay["season"] = alias
+                listing["ebay_specifics"] = ebay
+                changed = True
 
     depop = listing.get("depop_specifics")
     if isinstance(depop, dict):
