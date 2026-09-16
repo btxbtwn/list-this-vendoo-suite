@@ -103,6 +103,11 @@ class ListingGenerateHelpersTest(unittest.TestCase):
     def test_rejects_error_text(self):
         self.assertIsNone(extract_listing_json("Error: timeout"))
 
+    def test_extract_softens_trailing_commas(self):
+        parsed = extract_listing_json('```json\n{"title": "Tee", "price": 12,}\n```')
+        self.assertEqual(parsed["title"], "Tee")
+        self.assertEqual(parsed["price"], 12)
+
     def test_looks_like_listing_attempt(self):
         self.assertTrue(looks_like_listing_attempt('{"title": "Tee", "price":'))
         self.assertTrue(looks_like_listing_attempt("```json\n{broken\n```"))
@@ -680,7 +685,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_generation_pulse_repeats_status_without_bloating_history(self):
         run = chat_routes._GenerationRun()
-        run.publish(chat_routes._sse_event("status", "Identifying category and discovering its fields…"))
+        run.publish(chat_routes._sse_event("status", "Identifying category…"))
         queue = run.subscribe()
         while not queue.empty():
             queue.get_nowait()
@@ -688,10 +693,10 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queue.get_nowait(), chat_routes.KEEPALIVE)
         pulsed = queue.get_nowait()
         self.assertIn("event: status", pulsed)
-        self.assertIn("Identifying category and discovering its fields", pulsed)
+        self.assertIn("Identifying category", pulsed)
         self.assertEqual(
             run.history,
-            [chat_routes._sse_event("status", "Identifying category and discovering its fields…")],
+            [chat_routes._sse_event("status", "Identifying category…")],
         )
 
     async def test_generate_stream_forwards_thinking_without_persisting(self):
@@ -808,7 +813,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
                 body = "".join([chunk async for chunk in resp.aiter_text()])
-        self.assertIn("Looking up sold comps", body)
+        self.assertIn("Identifying category and looking up comps", body)
         prompt = _first_generate_prompt(self.provider)
         self.assertIn("Similar tees sold $12-$18", prompt)
         db = self.Session()

@@ -482,7 +482,7 @@ function ProvidersPanel() {
   const listingModel = usingChatGPT
     ? chatgptModels?.listing_model || provider?.listing_model || "gpt-5.5"
     : provider?.listing_model || "mimo-v2.5-pro";
-  const reasoningEffort = chatgptModels?.reasoning_effort || "medium";
+  const reasoningEffort = chatgptModels?.reasoning_effort || "low";
   const reasoningOptions = chatgptModels?.reasoning_efforts?.length
     ? chatgptModels.reasoning_efforts
     : ["none", "low", "medium", "high", "xhigh"];
@@ -708,7 +708,7 @@ function ProvidersPanel() {
         />
         <SettingsRow
           title="Reasoning"
-          description="Higher uses more Codex quota and takes longer. Applied to listing generation and photo analysis."
+          description="Higher uses more Codex quota and takes longer. Default is Low. Applied to listing generation and photo analysis."
           control={
             usingChatGPT ? (
               <select

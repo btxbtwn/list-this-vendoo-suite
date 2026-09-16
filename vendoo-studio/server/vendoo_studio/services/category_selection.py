@@ -278,16 +278,8 @@ async def select_categories(
         return selected
 
     response = await _ask_model(provider, analysis, notes, choices)
-    retry_hint = _search_retry_hint(str(response.get("question") or ""))
-    if retry_hint and retry_hint.casefold() != query.casefold():
-        choices, nodes_by_marketplace = _collect_choices(
-            db, marketplaces, retry_hint, selected, path_prefix,
-            analysis=analysis, notes=notes, override=override,
-        )
-        response = await _ask_model(provider, analysis, notes, choices)
-    response.pop("question", None)
-
     pending = dict(choices)
+    selected_from_model: dict[str, str] = {}
     failed: list[str] = []
     for marketplace, nodes in nodes_by_marketplace.items():
         if marketplace in selected:
@@ -297,8 +289,36 @@ async def select_categories(
         if node is None:
             failed.append(marketplace)
             continue
-        selected[marketplace] = node.path
+        selected_from_model[marketplace] = node.path
 
+    # Only spend a second model round when most picks failed and the model offered a clean search hint.
+    retry_hint = _search_retry_hint(str(response.get("question") or ""))
+    need_retry = (
+        bool(failed)
+        and len(failed) > max(1, len(nodes_by_marketplace) // 2)
+        and bool(retry_hint)
+        and retry_hint.casefold() != query.casefold()
+    )
+    if need_retry:
+        choices, nodes_by_marketplace = _collect_choices(
+            db, marketplaces, retry_hint, selected, path_prefix,
+            analysis=analysis, notes=notes, override=override,
+        )
+        response = await _ask_model(provider, analysis, notes, choices)
+        pending = dict(choices)
+        selected_from_model = {}
+        failed = []
+        for marketplace, nodes in nodes_by_marketplace.items():
+            if marketplace in selected:
+                continue
+            category_id = str((response.get("categories") or {}).get(marketplace) or "")
+            node = nodes.get(category_id)
+            if node is None:
+                failed.append(marketplace)
+                continue
+            selected_from_model[marketplace] = node.path
+
+    selected.update(selected_from_model)
     if not failed:
         return selected
 

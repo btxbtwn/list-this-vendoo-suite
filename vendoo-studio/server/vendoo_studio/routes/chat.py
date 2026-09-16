@@ -28,10 +28,10 @@ from vendoo_studio.services.listing_generate import (
     require_photo_analysis,
     seller_item_details,
 )
+from vendoo_studio.services.schema_probe import await_deferred_schema, prepare_generation_schema
 from vendoo_studio.services.listing_patch import apply_json_patch, extract_json_patch
 from vendoo_studio.services.listing_provider import get_listing_provider
 from vendoo_studio.services.registry import MEN_TSHIRT_PATH, WOMEN_TOPS_PATH, align_listing_gender
-from vendoo_studio.services.schema_probe import prepare_generation_schema
 
 
 def _require_provider():
@@ -933,7 +933,10 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 stream_db,
             )
 
-            run.publish(_sse_event("status", "Choosing marketplace categories…"))
+            if comps_search_available():
+                run.publish(_sse_event("status", "Identifying category and looking up comps…"))
+            else:
+                run.publish(_sse_event("status", "Choosing marketplace categories…"))
             schema_task = asyncio.create_task(prepare_generation_schema(
                 stream_db,
                 conv_id,
@@ -943,18 +946,22 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 on_status=lambda message: run.publish(_sse_event("status", message)),
             ))
             child_tasks.append(schema_task)
-            async for _ in _wait_task_keepalives(schema_task):
-                run.pulse()
-            schema_task.result()
-
-            comps_text = ""
+            comps_task = None
             if comps_search_available():
-                run.publish(_sse_event("status", "Looking up sold comps…"))
                 comps_task = asyncio.create_task(research_sold_comps(prompt_analysis, evidence))
                 child_tasks.append(comps_task)
-                async for _ in _wait_task_keepalives(comps_task):
+
+            pending = {schema_task, *([comps_task] if comps_task else [])}
+            while pending:
+                done, pending = await asyncio.wait(pending, timeout=10.0, return_when=asyncio.FIRST_COMPLETED)
+                if not done:
                     run.pulse()
-                comps_text = comps_task.result()
+                    continue
+                run.pulse()
+            schema_seed = schema_task.result()
+            comps_text = ""
+            if comps_task is not None:
+                comps_text = comps_task.result() or ""
                 if comps_text:
                     source = "chatgpt" if "Source: ChatGPT" in comps_text else "brave"
                     stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
@@ -994,45 +1001,6 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 child_tasks,
             )
             if listing:
-                run.publish(_sse_event("status", "Filling discovered fields…"))
-                from vendoo_studio.services.listing_field_gaps import fill_listing_field_gaps
-
-                evidence = "\n\n".join(
-                    part for part in (prompt_analysis, item_details, comps_text) if part
-                )
-                listing = await _await_with_pulses(
-                    run,
-                    fill_listing_field_gaps(
-                        stream_db,
-                        conv_id,
-                        listing,
-                        provider,
-                        evidence=evidence,
-                    ),
-                    child_tasks,
-                )
-                run.publish(_sse_event("status", "Applying values on Vendoo…"))
-                from vendoo_studio.services.auto_apply import auto_apply_after_generation
-                apply_result = await _await_with_pulses(
-                    run,
-                    auto_apply_after_generation(stream_db, conv_id, listing),
-                    child_tasks,
-                )
-                if apply_result.get("applied"):
-                    run.publish(_sse_event(
-                        "status",
-                        f"Applied {apply_result.get('count', 0)} value(s) on Vendoo.",
-                    ))
-                elif apply_result.get("reason") == "nothing_to_apply":
-                    pass
-                elif apply_result.get("error"):
-                    stream_repo.add_message(
-                        conv_id,
-                        "system",
-                        f"Could not apply generated values on Vendoo: {apply_result['error']}",
-                        provider="system",
-                        model="",
-                    )
                 stream_repo.add_message(
                     conv_id,
                     "system",
@@ -1042,6 +1010,21 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 )
             stream_repo.update_status(conv_id, "draft")
             run.publish("data: [DONE]\n\n")
+            if listing:
+                evidence_text = "\n\n".join(
+                    part for part in (prompt_analysis, item_details, comps_text) if part
+                )
+                schema_meta = {
+                    "_schema_source": (schema_seed or {}).get("_schema_source") if isinstance(schema_seed, dict) else None,
+                    "_schema_probe_job_id": (schema_seed or {}).get("_schema_probe_job_id") if isinstance(schema_seed, dict) else None,
+                }
+                _spawn(_finish_generation_background(
+                    conv_id,
+                    listing,
+                    evidence=evidence_text,
+                    schema_meta=schema_meta,
+                    provider=provider,
+                ))
         except asyncio.CancelledError:
             log.warning("listing generation cancelled for %s; saving any completed text", conv_id)
             for task in child_tasks:
@@ -1115,6 +1098,69 @@ async def cancel_chat_message(conv_id: str):
     return {"ok": True}
 
 
+async def _finish_generation_background(
+    conv_id: str,
+    listing: dict,
+    *,
+    evidence: str,
+    schema_meta: dict | None,
+    provider,
+) -> None:
+    """Fill remaining discovered fields and auto-apply after the generate stream ends."""
+    db = SessionLocal()
+    repo = ConversationRepo(db)
+    try:
+        current = dict(listing) if isinstance(listing, dict) else {}
+        if isinstance(schema_meta, dict) and schema_meta.get("_schema_source") in {
+            "deferred_probe",
+            "deferred_busy",
+        }:
+            seed = {
+                "_schema_source": schema_meta.get("_schema_source"),
+                "_schema_probe_job_id": schema_meta.get("_schema_probe_job_id"),
+            }
+            await await_deferred_schema(db, seed)
+
+        from vendoo_studio.services.listing_field_gaps import fill_listing_field_gaps
+
+        current = await fill_listing_field_gaps(
+            db,
+            conv_id,
+            current,
+            provider,
+            evidence=evidence,
+        )
+
+        from vendoo_studio.services.auto_apply import auto_apply_after_generation
+
+        apply_result = await auto_apply_after_generation(db, conv_id, current)
+        if apply_result.get("applied"):
+            # auto_apply already records a system message on success
+            pass
+        elif apply_result.get("error"):
+            repo.add_message(
+                conv_id,
+                "system",
+                f"Could not apply generated values on Vendoo: {apply_result['error']}",
+                provider="system",
+                model="",
+            )
+    except Exception:
+        log.exception("post-generate finish failed for %s", conv_id)
+        try:
+            repo.add_message(
+                conv_id,
+                "system",
+                "Listing saved, but finishing discovered fields or Vendoo apply failed. Retry from Fields.",
+                provider="system",
+                model="",
+            )
+        except Exception:
+            log.exception("failed to report post-generate finish error for %s", conv_id)
+    finally:
+        db.close()
+
+
 def _listing_messages(
     skill_rules: str,
     item_details: str,
@@ -1155,7 +1201,8 @@ def _listing_messages(
         "Studio applies generated values onto the bound Vendoo draft automatically when Chrome is connected. "
         "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
         "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
-        "Output the full listing JSON inside a fenced code block:\n\n"
+        "Return ONLY one fenced ```json code block with the full listing object. "
+        "No prose before or after the fence. Valid JSON only (no trailing commas).\n\n"
         "```json\n"
         "{\n"
         '  "title": "...",\n'
@@ -1191,9 +1238,10 @@ def _listing_messages(
         {
             "role": "user",
             "content": (
-                f"Generate a complete listing from the {photo_count} uploaded product photos."
+                f"Generate a complete listing from the {photo_count} uploaded product photos. "
+                "Reply with only the ```json listing block."
                 if photo_count
-                else "Generate a complete listing from these product photos."
+                else "Generate a complete listing from these product photos. Reply with only the ```json listing block."
             ),
         },
     ]
