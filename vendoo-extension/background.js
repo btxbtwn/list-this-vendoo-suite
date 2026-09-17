@@ -33,6 +33,7 @@ importScripts('background/vendoo-item.js');
 importScripts('background/job-steps.js');
 importScripts('background/import-listing.js');
 importScripts('background/popup-actions.js');
+importScripts('browser-session.js');
 
 var STUDIO_EXTENSION_BUILD = null;
 try {
@@ -577,6 +578,15 @@ async function handleStudioMessage(msg) {
 
     case 'extension.reload':
       await handleExtensionReload(msg.payload?.generation);
+      break;
+
+    case 'browser.open':
+    case 'browser.close':
+    case 'browser.input':
+    case 'browser.pick':
+    case 'browser.snapshot':
+    case 'browser.act':
+      await handleBrowserMessage(msg);
       break;
   }
 }

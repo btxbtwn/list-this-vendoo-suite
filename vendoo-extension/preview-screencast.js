@@ -36,6 +36,8 @@ function sendPreviewFrame(jobId, data, extra) {
         step: (typeof activeJob !== 'undefined' && activeJob?.current_step) || extra?.step || '',
         width: extra?.width || null,
         height: extra?.height || null,
+        viewport_width: extra?.viewportWidth || null,
+        viewport_height: extra?.viewportHeight || null,
       },
     });
   } catch (err) {
@@ -51,6 +53,31 @@ async function tabPreviewUrl(tabId) {
   } catch (_) {
     return '';
   }
+}
+
+// CSS-pixel viewport of the captured tab. Studio maps overlay clicks and field
+// rectangles onto the frame with it, so it travels with every frame.
+async function tabPreviewInfo(tabId, { attached = false } = {}) {
+  let url = '';
+  let viewportWidth = null;
+  let viewportHeight = null;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    url = tab?.url || '';
+    viewportWidth = tab?.width || null;
+    viewportHeight = tab?.height || null;
+  } catch (_) {}
+  if (attached) {
+    try {
+      const metrics = await chrome.debugger.sendCommand({ tabId }, 'Page.getLayoutMetrics');
+      const viewport = metrics?.cssVisualViewport || metrics?.cssLayoutViewport;
+      if (viewport?.clientWidth && viewport?.clientHeight) {
+        viewportWidth = Math.round(viewport.clientWidth);
+        viewportHeight = Math.round(viewport.clientHeight);
+      }
+    } catch (_) {}
+  }
+  return { url, viewportWidth, viewportHeight };
 }
 
 const ENGINE_WINDOW_KEY = 'studio_engine_window_id';
@@ -163,6 +190,7 @@ function pickOnscreenBounds(windows, displays) {
 }
 
 function stopPreviewPolling() {
+  previewCaptureNow = null;
   if (previewPollTimer) {
     clearInterval(previewPollTimer);
     previewPollTimer = null;
@@ -415,6 +443,11 @@ async function closeListingTab(tabId) {
   if (tabId == null) {
     return;
   }
+  // The seller is looking at this tab in Studio. Keep it and resume the live view.
+  if (typeof browserSessionOwnsTab === 'function' && browserSessionOwnsTab(tabId)) {
+    await resumeBrowserSessionPreview();
+    return;
+  }
   let windowId = null;
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -450,7 +483,11 @@ function startVisibleTabPoll(tabId, jobId) {
       if (!dataUrl || !dataUrl.startsWith(prefix)) {
         return;
       }
-      sendPreviewFrame(jobId, dataUrl.slice(prefix.length), { url: tab.url || '' });
+      sendPreviewFrame(jobId, dataUrl.slice(prefix.length), {
+        url: tab.url || '',
+        viewportWidth: tab.width || null,
+        viewportHeight: tab.height || null,
+      });
     } catch (_) {
       // Hidden window; debugger capture is preferred.
     }
@@ -499,16 +536,33 @@ function startDebuggerScreenshotPoll(tabId, jobId) {
       if (!data) {
         return;
       }
-      const url = await tabPreviewUrl(tabId);
-      sendPreviewFrame(jobId, data, { url });
+      sendPreviewFrame(jobId, data, await tabPreviewInfo(tabId, { attached: true }));
     } catch (_) {
       if (!previewAttached && await tabIsInFront(tabId)) {
         startVisibleTabPoll(tabId, jobId);
       }
     }
   };
+  previewCaptureNow = captureOnce;
   captureOnce();
   previewPollTimer = setInterval(captureOnce, PREVIEW_POLL_MS);
+}
+
+let previewCaptureNow = null;
+let previewSoonTimer = null;
+
+// Interactive input should show up faster than the idle poll interval.
+function capturePreviewSoon(delayMs = 120) {
+  if (previewSoonTimer || typeof previewCaptureNow !== 'function') {
+    return;
+  }
+  previewSoonTimer = setTimeout(() => {
+    previewSoonTimer = null;
+    lastPreviewSentAt = 0;
+    if (typeof previewCaptureNow === 'function') {
+      previewCaptureNow();
+    }
+  }, delayMs);
 }
 
 async function tabIsInFront(tabId) {
@@ -530,6 +584,10 @@ async function tabIsInFront(tabId) {
 }
 
 async function attachDebuggerPreview(tabId, jobId) {
+  if (previewAttached && previewTabId === tabId && previewJobId === jobId) {
+    if (!previewPollTimer) startDebuggerScreenshotPoll(tabId, jobId);
+    return;
+  }
   try {
     await chrome.debugger.attach({ tabId }, PREVIEW_PROTOCOL);
     previewAttached = true;
@@ -617,6 +675,8 @@ try {
         url,
         width: metadata.deviceWidth,
         height: metadata.deviceHeight,
+        viewportWidth: metadata.deviceWidth,
+        viewportHeight: metadata.deviceHeight,
       });
     });
   });

@@ -19,6 +19,7 @@ import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ToastHost } from "../components/ToastHost";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
+import { addToast } from "../ui/toast";
 
 const ListingEditor = lazy(() =>
   import("../components/ListingEditor").then((module) => ({ default: module.ListingEditor })),
@@ -62,6 +63,7 @@ export function App() {
   const [queuedChatMessage, setQueuedChatMessage] = useState<string | null>(null);
   const [setupGuideOpen, setSetupGuideOpen] = useState(setupGuideAutoOpen === true);
   const [workspaceNonce, setWorkspaceNonce] = useState(0);
+  const [browserJobId, setBrowserJobId] = useState<string | null>(null);
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -84,6 +86,8 @@ export function App() {
   const createListingTitle = "New listing";
   const listingJob = jobs?.find((job) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
+  const browserOpen = Boolean(browserJobId && listingJob?.id === browserJobId);
+  const browserPaneOpen = previewOpen || browserOpen;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -147,11 +151,53 @@ export function App() {
   };
 
   useEffect(() => {
-    if (wasPreviewOpen.current && !previewOpen && mobilePane === "browser") {
+    if (wasPreviewOpen.current && !browserPaneOpen && mobilePane === "browser") {
       setMobilePane("workspace");
     }
-    wasPreviewOpen.current = previewOpen;
-  }, [previewOpen, mobilePane]);
+    wasPreviewOpen.current = browserPaneOpen;
+  }, [browserPaneOpen, mobilePane]);
+
+  const openBrowser = useMutation({
+    mutationFn: (jobId: string) => api.jobs.browser.open(jobId),
+    onMutate: (jobId: string) => {
+      setBrowserJobId(jobId);
+      setMobilePane("browser");
+    },
+    onSuccess: (result) => {
+      if (result.warning) {
+        addToast({ type: "error", title: "Browser is view-only", description: result.warning });
+      }
+    },
+    onError: (err: Error, jobId: string) => {
+      setBrowserJobId((current) => (current === jobId ? null : current));
+      addToast({ type: "error", title: "Could not open the Vendoo draft", description: err.message });
+    },
+  });
+
+  const closeBrowser = () => {
+    const jobId = browserJobId;
+    setBrowserJobId(null);
+    if (jobId) void api.jobs.browser.close(jobId).catch(() => {});
+  };
+
+  useEffect(() => {
+    // A new Send replaces the listing job. Release the old draft tab.
+    if (browserJobId && listingJob?.id && listingJob.id !== browserJobId) {
+      setBrowserJobId(null);
+      void api.jobs.browser.close(browserJobId).catch(() => {});
+    }
+  }, [browserJobId, listingJob?.id]);
+
+  const browserJobRef = useRef<string | null>(null);
+  browserJobRef.current = browserJobId;
+  useEffect(() => () => {
+    // Leaving a listing hands its Chrome tab back to the background window.
+    const jobId = browserJobRef.current;
+    if (jobId) {
+      setBrowserJobId(null);
+      void api.jobs.browser.close(jobId).catch(() => {});
+    }
+  }, [selectedConvId]);
 
   useEffect(() => {
     if (!isMobile) setMobileSidebarOpen(false);
@@ -304,7 +350,7 @@ export function App() {
                     role="tab"
                     aria-selected={mobilePane === "browser"}
                     className={mobilePane === "browser" ? "selected" : ""}
-                    disabled={!selectedConvId || !previewOpen}
+                    disabled={!selectedConvId || !browserPaneOpen}
                     onClick={() => setMobilePane("browser")}
                   >
                     Browser
@@ -352,7 +398,7 @@ export function App() {
                     />
                   </div>
                 </div>
-                {previewOpen && (
+                {browserPaneOpen && (
                   <BrowserPreview
                     jobId={listingJob?.id ?? null}
                     step={listingJob?.current_step}
@@ -361,6 +407,13 @@ export function App() {
                     vendooUrl={listingJob?.vendoo_url}
                     cancelling={cancelJob.isPending}
                     onCancel={listingJob?.id ? () => cancelJob.mutate(listingJob.id) : undefined}
+                    interactive={browserOpen}
+                    automationRunning={previewOpen}
+                    onClose={closeBrowser}
+                    onAskChat={(text) => {
+                      setQueuedChatMessage(text);
+                      setMobilePane("workspace");
+                    }}
                   />
                 )}
               </div>
@@ -400,6 +453,8 @@ export function App() {
                     key={`${selectedConvId}:${workspaceNonce}`}
                     convId={selectedConvId}
                     onJobStarted={() => setMobilePane("browser")}
+                    onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
+                    browserOpen={browserOpen}
                     onAskChat={(text) => {
                       setQueuedChatMessage(text);
                       setMobilePane("workspace");

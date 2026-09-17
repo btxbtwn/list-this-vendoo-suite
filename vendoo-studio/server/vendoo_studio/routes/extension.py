@@ -596,7 +596,8 @@ async def extension_websocket(ws: WebSocket):
             if (
                 job_id
                 and str(msg_type).startswith("job.")
-                and msg_type not in {"job.vendoo_item", "job.categories"}
+                # Preview frames also stream while the seller browses a finished draft.
+                and msg_type not in {"job.vendoo_item", "job.categories", "job.preview_frame"}
             ):
                 from vendoo_studio.models.job import is_terminal_job_status
                 from vendoo_studio.repositories.queries import JobRepo
@@ -604,6 +605,11 @@ async def extension_websocket(ws: WebSocket):
                 if current_job and is_terminal_job_status(current_job.status):
                     JobRepo(db).add_event(job_id, "ignored_late_result", None, {"type": msg_type})
                     continue
+
+            if msg_type == "browser.result":
+                payload = message.get("payload") or {}
+                extension_manager.resolve_wait(str(payload.get("request_id") or ""), payload)
+                continue
 
             if msg_type == "catalog.children":
                 payload = message.get("payload") or {}
