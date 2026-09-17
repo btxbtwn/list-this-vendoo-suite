@@ -10,6 +10,8 @@ from vendoo_studio.repositories.queries import RegistryRepo, _normalize_label
 CANONICAL_DEFAULTS: dict[str, dict[str, str]] = {
     "mercari": {
         "shipping label": "USPS Ground Advantage",
+        # Mercari has no "Other" brand — an unlisted brand is the No Brand checkbox.
+        "brand": "No Brand/Not sure",
     },
     "poshmark": {
         "original price": "0",
@@ -49,6 +51,21 @@ SELLER_SETTING_LABELS = frozenset({
     "starting price",
     "payment method",
 })
+
+# Only Depop (parcel size) and Mercari (shipping label) price shipping per item.
+# Every other form reads shipping from the seller's saved marketplace settings.
+ITEM_SHIPPING_MARKETPLACES = frozenset({"depop", "mercari"})
+
+# Return/payment/handling terms are fixed in marketplace settings on every form.
+_POLICY_LABEL_RE = re.compile(
+    r"\b(polic(?:y|ies)|returns?|refunds?|handling time|processing (?:time|profile)|"
+    r"payment method|ready to ship)\b"
+)
+# Package weight and dimensions are item data wherever they appear — never matched here.
+_SHIPPING_LABEL_RE = re.compile(
+    r"\b(shipping|shipment|ship to|shipped|delivery|parcel|postage|carrier|"
+    r"package (?:type|size)|who pays)\b"
+)
 
 # Already stored on the listing root (or a general field). Do not copy into *_specifics.
 ROOT_FIELD_LABELS = frozenset({
@@ -538,7 +555,34 @@ def is_learned_listing_field(marketplace: str, field_label: str) -> bool:
         return False
     if label in SELLER_SETTING_LABELS or label in ROOT_FIELD_LABELS:
         return False
+    if is_account_managed_field(marketplace, label):
+        return False
     return True
+
+
+def _label_words(field_label: str) -> str:
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(field_label or ""))
+    text = re.sub(r"[^a-zA-Z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def is_account_managed_field(marketplace: str, field_label: str) -> bool:
+    """True for shipping/policy rows the seller already set in marketplace settings.
+
+    Policies are fixed everywhere. Shipping is per item only on Depop (parcel size)
+    and Mercari (shipping label), so the filler leaves shipping alone on every other
+    form — including the general form's marketplace-agnostic shipping rows. General
+    weight and package dimensions are not matched here: Depop's parcel tier is
+    derived from them.
+    """
+    words = _label_words(field_label)
+    if not words:
+        return False
+    if _POLICY_LABEL_RE.search(words):
+        return True
+    if str(marketplace or "").strip().lower() in ITEM_SHIPPING_MARKETPLACES:
+        return False
+    return bool(_SHIPPING_LABEL_RE.search(words))
 
 
 def label_to_json_key(field_label: str) -> str:

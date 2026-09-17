@@ -1103,14 +1103,15 @@ def ensure_etsy_category_optionals(listing: dict) -> bool:
 
 
 def _infer_depop_parcel_size(listing: dict) -> str:
+    """Depop's parcel tier is priced by weight — empty when the listing has no weight."""
     try:
-        lb = int(listing.get("weight_lb") or 0)
-        oz = int(listing.get("weight_oz") or 0)
+        lb = float(listing.get("weight_lb") or 0)
+        oz = float(listing.get("weight_oz") or 0)
     except (TypeError, ValueError):
-        lb, oz = 0, 0
-    total_oz = max(0, lb * 16 + oz)
+        lb, oz = 0.0, 0.0
+    total_oz = max(0.0, lb * 16 + oz)
     if total_oz <= 0:
-        return "Medium"
+        return ""
     if total_oz < 4:
         return "Extra extra small"
     if total_oz < 8:
@@ -1264,9 +1265,17 @@ def ensure_depop_category_optionals(listing: dict) -> bool:
             depop["occasion"] = padded
             changed = True
 
+    # Depop prices the parcel by weight, so the weight on the listing wins over any
+    # tier the model picked on its own.
     parcel = _text(depop.get("parcelSize") or depop.get("parcel_size"))
-    if not parcel:
-        set_key("parcelSize", _infer_depop_parcel_size(listing))
+    from_weight = _infer_depop_parcel_size(listing)
+    if from_weight:
+        if parcel != from_weight or "parcel_size" in depop:
+            depop["parcelSize"] = from_weight
+            depop.pop("parcel_size", None)
+            changed = True
+    elif not parcel:
+        set_key("parcelSize", "Medium")
         depop.pop("parcel_size", None)
 
     size_type = _text(listing.get("sizeType") or ebay.get("sizeType")).casefold()
@@ -1359,7 +1368,9 @@ KEY_CANONICAL_SKIP = frozenset({"category_specifics", "marketplace_specifics", "
 
 
 def _squash_key(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
+    from vendoo_studio.services.fill_log import squash_field_key
+
+    return squash_field_key(text)
 
 
 @lru_cache(maxsize=1)

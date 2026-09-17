@@ -236,6 +236,23 @@
     return ACCOUNT_SETTING_FIELDS.has(normalizeFieldKey(value));
   }
 
+  // Only Depop (parcel size) and Mercari (shipping label) price shipping per item;
+  // every other form reads shipping from the seller's saved marketplace settings.
+  // Return/payment/handling terms are set in those settings on every form.
+  // Mirrors is_account_managed_field in vendoo_studio/services/registry.py.
+  const ITEM_SHIPPING_MARKETPLACES = new Set(['depop', 'mercari']);
+  const POLICY_FIELD_RE = /\b(polic(?:y|ies)|returns?|refunds?|handling time|processing (?:time|profile)|payment method|ready to ship)\b/;
+  // Package weight and dimensions are item data wherever they appear — never matched here.
+  const SHIPPING_FIELD_RE = /\b(shipping|shipment|ship to|shipped|delivery|parcel|postage|carrier|package (?:type|size)|who pays)\b/;
+
+  function isAccountManagedField(marketplace, value) {
+    const key = normalizeFieldKey(value);
+    if (!key) return false;
+    if (POLICY_FIELD_RE.test(key)) return true;
+    if (ITEM_SHIPPING_MARKETPLACES.has(String(marketplace || '').toLowerCase())) return false;
+    return SHIPPING_FIELD_RE.test(key);
+  }
+
   function normalizeFieldKey(value) {
     const key = String(value || '')
       .replace(/^(ebay|etsy|poshmark|mercari|depop)\s+/i, '')
@@ -353,6 +370,7 @@
       const key = normalizeFieldKey(label);
       if (!key || seen.has(key) || controlAlreadyLogged(el, key)) continue;
       if (isAccountSettingField(key) || isAccountSettingField(label)) continue;
+      if (isAccountManagedField(currentFillMarketplace, key)) continue;
       if (fieldLooksFilled(el)) continue;
       seen.add(key);
       recordFill({
@@ -736,6 +754,8 @@
       // A null from the static maps means "this value has no option here"; that
       // decision stands. Otherwise let the live option set repair stale output.
       if (mapped === null) return mapped;
+      // No Brand/Not sure is a checkbox, not a brand option — never snap it onto one.
+      if (normalizeFieldKey(fieldName) === 'brand' && isNoBrandValue(mapped)) return mapped;
 
       const corrected = coerceToKnownOption(mp, fieldName, mapped)
           ?? coerceToKnownOption(mp, fieldName, value);
@@ -1827,9 +1847,20 @@
       return out;
   }
 
+  // Mercari's escape hatch for an unlisted brand is a checkbox, so the value can
+  // arrive as a patch ("No Brand/Not sure") instead of a real option.
+  const NO_BRAND_VALUES = new Set(['no brand', 'not sure', 'no brand not sure']);
+  const MERCARI_NO_BRAND_LABEL = 'No Brand/Not sure';
+  const DEPOP_BRAND_FALLBACK = 'Other';
+
+  function isNoBrandValue(value) {
+      return NO_BRAND_VALUES.has(normalizeOptionValue(value));
+  }
+
+  // "Other" is a per-marketplace fallback the caller decides on, never a brand candidate.
   function brandFillCandidates(brand) {
       const candidates = [];
-      if (brand) {
+      if (brand && !isNoBrandValue(brand)) {
           candidates.push(brand);
           String(brand).split(/[\s/&,]+/).forEach(part => {
               if (part && part.length > 2 && !/^(the|and|co|inc|llc)$/i.test(part)) {
@@ -1837,8 +1868,9 @@
               }
           });
       }
-      candidates.push('Other');
-      return uniqueStrings(candidates);
+      return uniqueStrings(candidates).filter(
+          (candidate) => normalizeOptionValue(candidate) !== 'other'
+      );
   }
 
   function getInputContextTexts(input) {
@@ -3881,50 +3913,8 @@
                   'Renewal Option'
               );
           }
-          const processingProfile =
-              specs.processing_time ||
-              specs.processingTime ||
-              specs.processingProfile ||
-              specs.processingProfilesAccountSpecific ||
-              '';
-          if (processingProfile) {
-              await fillDropdownField(
-                  resolveMarketplaceField('etsy', ['processing', 'ready to ship'], [
-                      '#listings\\.etsy\\.marketplaceSpecifics\\.processingProfilesAccountSpecific',
-                      '#listings\\.etsy\\.marketplaceSpecifics\\.processingTime',
-                  ]),
-                  processingProfile,
-                  'Processing Time'
-              );
-          } else if (/digital/i.test(String(listingType))) {
-              recordFill({
-                  field: 'Processing Time',
-                  status: 'skipped',
-                  reason: 'Digital Item — no physical processing/shipping profile required',
-              });
-          }
-          const shippingProfile =
-              specs.shipping_template ||
-              specs.shippingTemplate ||
-              specs.shippingProfile ||
-              specs.shippingProfilesAccountSpecific ||
-              '';
-          if (shippingProfile) {
-              await fillDropdownField(
-                  resolveMarketplaceField('etsy', ['shipping profile', 'shipping'], [
-                      '#listings\\.etsy\\.marketplaceSpecifics\\.shippingProfilesAccountSpecific',
-                      '#listings\\.etsy\\.marketplaceSpecifics\\.shippingTemplate',
-                  ]),
-                  shippingProfile,
-                  'Shipping Profile'
-              );
-          } else if (/digital/i.test(String(listingType))) {
-              recordFill({
-                  field: 'Shipping Profile',
-                  status: 'skipped',
-                  reason: 'Digital Item — no physical shipping profile required',
-              });
-          }
+          recordAccountManagedField('Processing Time');
+          recordAccountManagedField('Shipping Profile');
           const listingStateEl = document.querySelector('#listings\\.etsy\\.marketplaceSpecifics\\.listingState');
           if (listingStateEl) {
               const listingState = resolveEtsyListingState(specs, listingStateEl);
@@ -4195,6 +4185,15 @@
       });
   }
 
+  // Shipping and policy rows come from the seller's saved marketplace settings.
+  function recordAccountManagedField(fieldName) {
+      recordFill({
+        field: fieldName,
+        status: 'skipped',
+        reason: 'Account-level setting — already configured in marketplace settings',
+      });
+  }
+
   async function fillPoshmarkForm(data, { skipCategory = false } = {}) {
       log('Filling Poshmark form...');
       if (!skipCategory) {
@@ -4300,44 +4299,51 @@
       return { status: ok ? 'filled' : 'failed' };
   }
 
-  async function fillMercariBrand(data) {
+  async function fillMercariBrand(data, options = {}) {
+      const fieldName = options.fieldName || 'Mercari Brand';
       const el = resolveMarketplaceField('mercari', ['brand'], [
+          options.selector,
           '#listings\\.mercari\\.overrides\\.brand',
-      ]);
+      ].filter(Boolean));
       if (!el) {
-          warn('Mercari Brand: Element not found');
-          recordFill({ field: 'Mercari Brand', status: 'not_found', reason: 'Element not found' });
+          warn(`${fieldName}: Element not found`);
+          recordFill({ field: fieldName, status: 'not_found', reason: 'Element not found' });
           await setMercariNoBrandChecked(true, 'Brand field not found');
           return;
       }
+
+      // Mercari has no "Other" brand — an unlisted brand means No Brand/Not sure.
+      const useNoBrand = async (reason) => {
+          if (fieldLooksFilled(el)) await clearInput(el);
+          const result = await setMercariNoBrandChecked(true, reason);
+          recordFill({
+            field: fieldName,
+            status: result.status === 'filled' ? 'filled' : 'failed',
+            reason,
+            selector: selectorFor(el, ''),
+            value: MERCARI_NO_BRAND_LABEL,
+          });
+      };
+
       if (fieldLooksFilled(el)) await clearInput(el);
 
-      const candidates = brandFillCandidates(data.brand).filter(
-          (candidate) => normalizeOptionValue(candidate) !== 'other'
-      );
+      const candidates = brandFillCandidates(data.brand);
       if (candidates.length === 0) {
-          recordFill({
-            field: 'Mercari Brand',
-            status: 'skipped',
-            reason: 'No value in listing',
-            selector: selectorFor(el, ''),
-          });
-          await setMercariNoBrandChecked(true, 'No brand in listing');
+          await useNoBrand(isNoBrandValue(data.brand) ? 'Listing has no brand' : 'No brand in listing');
           return;
       }
       for (const candidate of candidates) {
-          log(`Trying Mercari Brand: "${candidate}"`);
-          const result = await fillDropdownField(el, candidate, 'Mercari Brand', true);
+          log(`Trying ${fieldName}: "${candidate}"`);
+          const result = await fillDropdownField(el, candidate, fieldName, true);
           const shown = displayedFieldValue(el);
           if (result.status === 'filled' && optionMatchesValue(shown, candidate, true) && !/^select\b/i.test(shown || '')) {
-              log(`  ✓ Mercari Brand: "${shown || candidate}"`);
+              log(`  ✓ ${fieldName}: "${shown || candidate}"`);
               await setMercariNoBrandChecked(false);
               return;
           }
       }
 
-      if (fieldLooksFilled(el)) await clearInput(el);
-      await setMercariNoBrandChecked(true, 'Brand not in Mercari list');
+      await useNoBrand('Brand not in Mercari list');
   }
 
   async function fillMercariForm(data, { skipCategory = false } = {}) {
@@ -4355,7 +4361,7 @@
           'Mercari Condition',
           true
       );
-      await fillMercariBrand(data);
+      await fillMercariBrand({ ...data, brand: data?.mercari_specifics?.brand || data.brand });
 
       await Promise.all([
           fillTextField('#listings\\.mercari\\.overrides\\.quantity', data.quantity, 'Mercari Quantity'),
@@ -4433,33 +4439,47 @@
       return SIZE_TYPE_TO_DEPOP_GROUPING[sizeType] || null;
   }
 
-  async function fillDepopBrand(data) {
+  async function fillDepopBrand(data, options = {}) {
+      const fieldName = options.fieldName || 'Depop Brand';
       const el = resolveMarketplaceField('depop', ['brand'], [
+          options.selector,
           '#listings\\.depop\\.overrides\\.brand',
-      ]);
+      ].filter(Boolean));
       if (!el) {
-          warn('Depop Brand: Element not found');
-          recordFill({ field: 'Depop Brand', status: 'not_found', reason: 'Element not found' });
+          warn(`${fieldName}: Element not found`);
+          recordFill({ field: fieldName, status: 'not_found', reason: 'Element not found' });
+          return;
+      }
+
+      // Depop's escape hatch for an unlisted brand is the "Other" option.
+      const useOther = async () => {
+          if (optionMatchesValue(displayedFieldValue(el), DEPOP_BRAND_FALLBACK, true)) {
+              recordAlreadySet(fieldName, el, options.selector || '', DEPOP_BRAND_FALLBACK);
+              return;
+          }
+          log('Depop brand missing from list. Selecting Other.');
+          if (fieldLooksFilled(el)) await clearInput(el);
+          const fallback = await fillDropdownField(el, DEPOP_BRAND_FALLBACK, fieldName, true);
+          if (fallback.status === 'filled') log(`  ✓ ${fieldName}: "${DEPOP_BRAND_FALLBACK}"`);
+          else warn(`${fieldName}: could not select a list brand or Other`);
+      };
+
+      const candidates = brandFillCandidates(data.brand);
+      if (candidates.length === 0) {
+          await useOther();
           return;
       }
       if (fieldLooksFilled(el)) await clearInput(el);
-
-      for (const candidate of brandFillCandidates(data.brand)) {
-          log(`Trying Depop Brand: "${candidate}"`);
-          const result = await fillDropdownField(el, candidate, 'Depop Brand', true);
-          if (result.status === 'filled') {
-              log(`  ✓ Depop Brand: "${el.value || candidate}"`);
+      for (const candidate of candidates) {
+          log(`Trying ${fieldName}: "${candidate}"`);
+          const result = await fillDropdownField(el, candidate, fieldName, true);
+          const shown = displayedFieldValue(el);
+          if (result.status === 'filled' && optionMatchesValue(shown, candidate, true) && !/^select\b/i.test(shown || '')) {
+              log(`  ✓ ${fieldName}: "${shown || candidate}"`);
               return;
           }
       }
-      if (optionMatchesValue(displayedFieldValue(el), 'Other', true)) return;
-      log('Depop brand missing from list. Selecting Other.');
-      const fallback = await fillDropdownField(el, 'Other', 'Depop Brand', true);
-      if (fallback.status === 'filled') {
-          log(`  ✓ Depop Brand: "Other"`);
-          return;
-      }
-      warn('Depop Brand: could not select a list brand or Other');
+      await useOther();
   }
 
   async function fillDepopForm(data, { skipCategory = false } = {}) {
@@ -4499,7 +4519,7 @@
           fillTextField('#listings\\.depop\\.overrides\\.sku', data.sku, 'Depop SKU'),
       ]);
 
-      await fillDepopBrand(data);
+      await fillDepopBrand({ ...data, brand: data?.depop_specifics?.brand || data.brand });
       await fillMarketplaceSize('depop', data);
       recordGeneralTagsInherited('Tags');
       
@@ -5850,6 +5870,7 @@
           const key = normalizeFieldKey(label);
           if (!key || seen.has(key)) continue;
           if (isAccountSettingField(key) || isAccountSettingField(label)) continue;
+          if (isAccountManagedField(marketplace, key)) continue;
           seen.add(key);
           const nativeSelect = el.tagName === 'SELECT';
           let value = nativeSelect
@@ -6563,6 +6584,13 @@
                   }
                   if (fieldKey === 'size' && marketplace !== 'general' && marketplace !== 'unknown') {
                       await fillMarketplaceSize(marketplace, { size: value }, item.selector);
+                      continue;
+                  }
+                  // Depop falls back to Other and Mercari to No Brand/Not sure when the
+                  // brand is not on their list — the dedicated fillers own that choice.
+                  if (fieldKey === 'brand' && (marketplace === 'depop' || marketplace === 'mercari')) {
+                      const fillBrand = marketplace === 'depop' ? fillDepopBrand : fillMercariBrand;
+                      await fillBrand({ brand: value }, { selector: item.selector, fieldName });
                       continue;
                   }
                   let el = findControlForPatch(item);

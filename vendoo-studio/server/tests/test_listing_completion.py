@@ -480,6 +480,22 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         # A stale mapping must not conceal a newer seller edit.
         self.assertEqual(len(review_fields(self.verification, {**self.listing, "condition": "New With Tags/Box"})), 1)
 
+    def test_review_fields_ignores_shipping_and_policy_rows(self):
+        self.verification["schema"]["etsy"] = {"category": {"path": "Clothing > Tops"}, "fields": [
+            {"label": "Shipping Profile", "value": "", "required": True, "selector": "#shipping"},
+            {"label": "Return Policy", "value": "", "required": True, "selector": "#returns"},
+        ]}
+        self.verification["schema"]["depop"] = {"category": {"path": "Women > Tops"}, "fields": [
+            {"label": "Parcel Size", "value": "", "required": True, "selector": "#parcel"},
+            {"label": "Return Policy", "value": "", "required": True, "selector": "#depop-returns"},
+        ]}
+        gaps = review_fields(self.verification, self.listing)
+        labels = {(gap["marketplace"], gap["field"]) for gap in gaps}
+        self.assertNotIn(("etsy", "Shipping Profile"), labels)
+        self.assertNotIn(("etsy", "Return Policy"), labels)
+        self.assertNotIn(("depop", "Return Policy"), labels)
+        self.assertIn(("depop", "Parcel Size"), labels)
+
     def test_review_fields_skips_when_observed_matches_mapped_display(self):
         self.verification["schema"]["ebay"]["fields"] = [{
             "label": "Condition",
@@ -695,6 +711,68 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([patch["field"] for patch in ready], ["Material", "Pattern"])
         self.assertEqual(ready[1]["value"], "Solid")
         self.assertEqual([gap["field"] for gap in needs], ["Size"])
+
+    def test_unlisted_brand_uses_depop_other_and_mercari_no_brand(self):
+        gaps = [
+            {
+                "marketplace": "depop",
+                "field": "Brand",
+                "error": "Empty field",
+                "options": ["Nike", "Adidas", "Other"],
+                "options_complete": True,
+            },
+            {
+                "marketplace": "mercari",
+                "field": "Brand",
+                "error": "Empty field",
+                "options": ["Nike", "Adidas"],
+                "options_complete": True,
+            },
+        ]
+        ready, needs = deterministic_gap_patches(gaps, {"brand": "Wren & Glory"})
+        self.assertEqual(needs, [])
+        self.assertEqual(
+            [(patch["marketplace"], patch["value"]) for patch in ready],
+            [("depop", "Other"), ("mercari", "No Brand/Not sure")],
+        )
+
+    def test_listed_brand_is_not_replaced_by_a_fallback(self):
+        gaps = [
+            {"marketplace": "depop", "field": "Brand", "error": "Empty field",
+             "options": ["Nike", "Other"], "options_complete": True},
+            # Unknown option list: send the real brand and let the filler decide.
+            {"marketplace": "mercari", "field": "Brand", "error": "Empty field"},
+        ]
+        ready, needs = deterministic_gap_patches(gaps, {"brand": "Nike"})
+        self.assertEqual(needs, [])
+        self.assertEqual([patch["value"] for patch in ready], ["Nike", "Nike"])
+
+    def test_brand_fallback_on_draft_is_not_a_gap(self):
+        self.verification["schema"] = {
+            "depop": {"fields": [{"label": "Brand", "value": "Other", "required": True}]},
+            "mercari": {"fields": [
+                {"label": "Brand", "value": "", "required": True},
+                {"label": "No Brand/Not sure", "value": True},
+            ]},
+        }
+        listing = {**self.listing, "brand": "Wren & Glory"}
+        self.assertEqual(review_fields(self.verification, listing), [])
+
+        # Mercari's brand stays a gap while the No Brand box is still unchecked.
+        self.verification["schema"]["mercari"]["fields"][1]["value"] = False
+        gaps = review_fields(self.verification, listing)
+        self.assertEqual([(gap["marketplace"], gap["field"]) for gap in gaps], [("mercari", "Brand")])
+
+    def test_depop_other_does_not_hide_a_brand_depop_carries(self):
+        self.verification["schema"] = {"depop": {"fields": [{
+            "label": "Brand",
+            "value": "Other",
+            "required": True,
+            "options": ["Nike", "Other"],
+            "options_complete": True,
+        }]}}
+        gaps = review_fields(self.verification, {**self.listing, "brand": "Nike"})
+        self.assertEqual([gap["field"] for gap in gaps], ["Brand"])
 
     def test_ebay_must_fill_optional_blocks_silent_no_evidence(self):
         from vendoo_studio.services.listing_completion import marketplace_optional_blocks_silent_skip

@@ -21,6 +21,7 @@ from vendoo_studio.services.registry import (
     WOMEN_TOPS_PATH,
     RegistryService,
     align_listing_gender,
+    is_account_managed_field,
     is_learned_listing_field,
     label_to_json_key,
     map_mercari_category_path,
@@ -46,6 +47,26 @@ class LabelHelpersTest(unittest.TestCase):
         self.assertFalse(is_learned_listing_field("etsy", "Worldwide Shipping"))
         self.assertTrue(is_learned_listing_field("ebay", "Character"))
         self.assertTrue(is_learned_listing_field("etsy", "Holiday"))
+
+    def test_shipping_is_account_managed_except_on_depop_and_mercari(self):
+        self.assertTrue(is_account_managed_field("etsy", "Shipping Profile"))
+        self.assertTrue(is_account_managed_field("etsy", "Processing Time"))
+        self.assertTrue(is_account_managed_field("ebay", "Shipping Service"))
+        self.assertTrue(is_account_managed_field("poshmark", "Discounted Shipping"))
+        self.assertFalse(is_learned_listing_field("etsy", "Shipping Profile"))
+        self.assertFalse(is_account_managed_field("depop", "Parcel Size"))
+        self.assertFalse(is_account_managed_field("mercari", "Shipping Label"))
+        self.assertFalse(is_account_managed_field("mercari", "Delivery Method"))
+        self.assertTrue(is_learned_listing_field("depop", "Parcel Size"))
+
+    def test_policies_are_account_managed_on_every_marketplace(self):
+        for marketplace in ("ebay", "etsy", "poshmark", "mercari", "depop"):
+            self.assertTrue(is_account_managed_field(marketplace, "Return Policy"), marketplace)
+            self.assertTrue(is_account_managed_field(marketplace, "Payment Policy"), marketplace)
+        self.assertFalse(is_account_managed_field("ebay", "Material"))
+        # The general weight feeds Depop's parcel tier, so it is still filled.
+        self.assertFalse(is_account_managed_field("general", "Weight (lbs)"))
+        self.assertFalse(is_account_managed_field("general", "Length"))
 
 
 class RegistryMergeTest(unittest.TestCase):

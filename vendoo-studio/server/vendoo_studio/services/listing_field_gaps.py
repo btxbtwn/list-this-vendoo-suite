@@ -25,6 +25,7 @@ from vendoo_studio.services.registry import (
     ROOT_FIELD_LABELS,
     SELLER_SETTING_LABELS,
     RegistryService,
+    is_account_managed_field,
     is_learned_listing_field,
 )
 
@@ -46,7 +47,9 @@ GAP_FILL_SYSTEM = (
     "- For Etsy Show Optional Fields: fill every applicable row with exact Etsy dropdown values; "
     "Does Not Apply only for Graphic, Collar style, Holiday, Occasion, Sustainability when they truly do not apply.\n"
     "- For Depop Show Optional Fields: fill Source, Age, Style (up to 3), Occasion (up to 3), Parcel Size; "
-    "omit Size Grouping for Regular; Material only from evidence.\n"
+    "omit Size Grouping for Regular; Material only from evidence. Parcel Size must match the packaged "
+    "weight: under 4oz Extra extra small, under 8oz Extra small, under 12oz Small, under 1lb Medium, "
+    "under 2lb Large, otherwise Extra large.\n"
     "- Across every marketplace optional/item-specific field: fill when it pertains; Does Not Apply only when it literally does not apply.\n"
     "- When allowed options are listed, copy one exactly.\n"
     "- Estimate packaged shipping weight and package dimensions from item type when asked.\n"
@@ -80,6 +83,8 @@ def collect_empty_discovered_fields(db: Session, listing: dict) -> list[dict[str
             return
         lookup = field_lookup_key(label)
         if lookup in SELLER_SETTING_LABELS:
+            return
+        if is_account_managed_field(marketplace, label):
             return
         if marketplace != "general":
             if lookup in ROOT_FIELD_LABELS:

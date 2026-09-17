@@ -45,6 +45,36 @@ class ListingFieldGapsTest(unittest.TestCase):
         self.assertNotIn(("etsy", "Pattern"), labels)
         self.assertIn(("etsy", "Holiday"), labels)
 
+    def test_shipping_and_policy_fields_are_not_gaps_off_depop_and_mercari(self):
+        etsy = self.db.query(CategorySchema).filter_by(marketplace="etsy").one()
+        etsy.fields = [
+            *etsy.fields,
+            {"label": "Shipping Profile", "required": True},
+            {"label": "Processing Time", "required": True},
+            {"label": "Return Policy", "required": True},
+        ]
+        self.db.add(CategorySchema(
+            general_path="Clothing > Tops",
+            marketplace="depop",
+            category_path="Women > Tops > Blouses",
+            fields=[
+                {"label": "Parcel Size", "required": True},
+                {"label": "Return Policy", "required": True},
+            ],
+        ))
+        self.db.commit()
+        listing = {"title": "Blouse", "category_path": "Clothing > Tops"}
+        labels = {
+            (gap["marketplace"], gap["field"])
+            for gap in collect_empty_discovered_fields(self.db, listing)
+        }
+        self.assertNotIn(("etsy", "Shipping Profile"), labels)
+        self.assertNotIn(("etsy", "Processing Time"), labels)
+        self.assertNotIn(("etsy", "Return Policy"), labels)
+        self.assertIn(("depop", "Parcel Size"), labels)
+        # Policies are fixed on every form, Depop included.
+        self.assertNotIn(("depop", "Return Policy"), labels)
+
     def test_build_missing_fields_request_lists_empty_fields(self):
         listing = {"title": "Blouse", "category_path": "Clothing > Tops"}
         gaps = [{"marketplace": "etsy", "field": "Holiday", "options": ["Christmas"]}]
