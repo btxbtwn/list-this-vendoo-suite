@@ -698,36 +698,19 @@ export function BrowserPreview({
         )}
       </div>
 
-      {interactive && (selected.length > 0 || annotating) && (
+      {interactive && onGoToChat && selected.length > 0 && (
         <div className="browser-composer">
-          <div className="browser-chips">
-            {selected.length === 0 ? (
-              <span className="text-xs text-muted">
-                {tool === "pick" ? "Click fields to point Studio at them." : "Draw around the fields you want fixed."}
-              </span>
-            ) : selected.map((field) => (
-              <span key={fieldId(field)} className={`browser-chip${field.account_managed ? " is-muted" : ""}`} title={field.value || "empty"}>
-                {marketLabel(field.marketplace)} / {field.label}
-                {!field.filled && <span className="browser-chip-empty">empty</span>}
-                <button type="button" aria-label={`Remove ${field.label}`} onClick={() => toggleField(field)}>
-                  ×
-                </button>
-              </span>
-            ))}
+          <div className="browser-composer-row">
+            <span className="browser-composer-hint">
+              {selected.length} field{selected.length === 1 ? "" : "s"} picked. They go with your next chat message.
+            </span>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => onSelectedChange([])}>
+              Clear
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={onGoToChat}>
+              Write in chat
+            </button>
           </div>
-          {selected.length > 0 && (
-            <div className="browser-composer-row">
-              <span className="browser-composer-hint">Tell Studio what to fix in chat. These fields go with your message.</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => onSelectedChange([])}>
-                Clear
-              </button>
-              {onGoToChat && (
-                <button type="button" className="btn btn-primary btn-sm browser-go-chat" onClick={onGoToChat}>
-                  Write in chat
-                </button>
-              )}
-            </div>
-          )}
         </div>
       )}
     </section>

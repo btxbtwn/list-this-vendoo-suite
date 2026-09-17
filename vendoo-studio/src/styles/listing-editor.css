@@ -310,3 +310,23 @@
 .editor-footer > * {
   width: 100%;
 }
+
+.editor-body.is-input .photo-tray,
+.editor-body.is-input .item-details {
+  padding-left: 0;
+  padding-right: 0;
+  background: transparent;
+}
+
+.editor-body.is-input .item-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.editor-body.is-input .item-row-measures {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.editor-body.is-input .item-details {
+  max-height: none;
+  overflow: visible;
+}

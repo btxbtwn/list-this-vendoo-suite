@@ -4,6 +4,8 @@ import { api } from "../api/client";
 import type { Job, ListingData } from "../api/types";
 import { cloneListing, getNestedValue, setNestedValue } from "../listingPaths";
 import { FillLogPanel } from "./FillLogPanel";
+import { PhotoTray } from "./PhotoTray";
+import { ItemDetails } from "./ItemDetails";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { OpenListingButton } from "./OpenListingButton";
 import {
@@ -40,7 +42,7 @@ interface EditorField {
 
 export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOpenBrowser, browserOpen }: Props) {
   const queryClient = useQueryClient();
-  const [reviewTab, setReviewTab] = React.useState<"forms" | "fields">("forms");
+  const [reviewTab, setReviewTab] = React.useState<"input" | "forms" | "fields">("input");
   const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
 
@@ -218,7 +220,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
           />
         </div>
         <div className="pr-pills" role="tablist" aria-label="Listing review">
-          {(["forms", "fields"] as const).map((tab) => (
+          {(["input", "forms", "fields"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -227,7 +229,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
               className={`pr-pill${reviewTab === tab ? " is-active" : ""}`}
               onClick={() => setReviewTab(tab)}
             >
-              {tab === "forms" ? "Forms" : "Fields"}
+              {tab === "input" ? "Input" : tab === "forms" ? "Forms" : "Fields"}
             </button>
           ))}
         </div>
@@ -239,8 +241,13 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
         </div>
       )}
 
-      <div className={`editor-body${reviewTab === "fields" ? " is-files" : ""}`}>
-        {reviewTab === "fields" ? (
+      <div className={`editor-body${reviewTab === "fields" ? " is-files" : reviewTab === "input" ? " is-input" : ""}`}>
+        {reviewTab === "input" ? (
+          <>
+            <PhotoTray convId={convId} />
+            <ItemDetails convId={convId} />
+          </>
+        ) : reviewTab === "fields" ? (
           listingJob ? (
             <FillLogPanel
               jobId={listingJob.id}

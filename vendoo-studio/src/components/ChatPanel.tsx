@@ -1233,18 +1233,33 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       <div className="chat-composer">
         {browser && browser.fields.length > 0 && (
           <div className="chat-browser-fields" aria-label="Fields pointed at in the Vendoo browser">
-            {browser.fields.map((field) => (
-              <span key={`${field.marketplace}:${field.key || field.label}`} className="browser-chip" title={field.value || "empty"}>
-                {MARKET_LABELS[field.marketplace] || field.marketplace} / {field.label}
-                <button
-                  type="button"
-                  aria-label={`Remove ${field.label}`}
-                  onClick={() => onBrowserFieldsChange?.(browser.fields.filter((item) => item !== field))}
-                >
-                  ×
-                </button>
+            <div className="chat-browser-fields-head">
+              <span>
+                {browser.fields.length} field{browser.fields.length === 1 ? "" : "s"} from the browser go with your message
               </span>
-            ))}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onBrowserFieldsChange?.([])}>
+                Clear
+              </button>
+            </div>
+            <div className="chat-browser-fields-list">
+              {browser.fields.map((field) => (
+                <span
+                  key={`${field.marketplace}:${field.key || field.label}`}
+                  className={`browser-chip${field.account_managed ? " is-muted" : ""}`}
+                  title={field.value || "empty"}
+                >
+                  {MARKET_LABELS[field.marketplace] || field.marketplace} / {field.label}
+                  {!field.filled && <span className="browser-chip-empty">empty</span>}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${field.label}`}
+                    onClick={() => onBrowserFieldsChange?.(browser.fields.filter((item) => item !== field))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
         )}
         <div className="chat-composer-pill">
