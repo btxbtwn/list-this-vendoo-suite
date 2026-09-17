@@ -49,6 +49,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["exclude", "hide fields", "fields tab"],
   },
   {
+    id: "listing-formulas",
+    title: "Title and description formulas",
+    section: "general",
+    targetId: "listing-formulas",
+    searchTerms: ["formula", "title", "description", "template", "flaws", "measurements"],
+  },
+  {
     id: "setup-guide",
     title: "Setup guide",
     section: "general",

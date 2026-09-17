@@ -193,7 +193,7 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         self.assertIn("TITLE Formula", formulas)
         self.assertIn("{BRAND} {SIZE} {VIBE} {ITEM} {COLOR} {FIT}", formulas)
         self.assertIn("DESCRIPTION Formula", formulas)
-        self.assertIn("Size: {size}", formulas)
+        self.assertIn("Flaws: {none noted or specific}", formulas)
         pinned = with_pinned_formulas("### Some other rule\nNever invent brands.")
         self.assertTrue(pinned.startswith("## Formula Reference"))
         self.assertIn("Never invent brands", pinned)
@@ -206,13 +206,9 @@ class ListingGenerateHelpersTest(unittest.TestCase):
             "size": "XL",
             "title": "Notations XL Floral Tunic Top Black Relaxed",
             "description": (
-                "Black floral tunic blouse.\n\n"
-                "Relaxed woven fit.\n\n"
-                "Size: XL\n\n"
-                "Condition: Pre-Owned - Good; Flaws: none noted. See photos for details.\n\n"
-                "Measurements: Pit to pit: 21\"\n\n"
-                "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
-                "15% off bundles of 2+ items."
+                "Black floral tunic blouse, relaxed woven fit.\n\n"
+                "Flaws: none noted. See photos for details.\n\n"
+                "Measurements: Pit to pit: 21\""
             ),
         }
         updated = {
@@ -374,8 +370,7 @@ class PersistListingTest(unittest.TestCase):
             },
         }
         self.assertTrue(apply_send_readiness_fixes(listing))
-        self.assertIn("Size:", listing["description"])
-        self.assertIn("Condition:", listing["description"])
+        self.assertIn("Flaws:", listing["description"])
         self.assertIn("Measurements:", listing["description"])
         self.assertEqual(listing.get("weight_oz"), 8)
         self.assertEqual(listing["ebay_specifics"]["season"], "Spring")
@@ -445,13 +440,9 @@ class PersistListingTest(unittest.TestCase):
             "sku": "notations-XL",
             "condition": "Pre-Owned - Good",
             "description": (
-                "Black floral tunic blouse.\n\n"
-                "Relaxed woven fit.\n\n"
-                "Size: XL\n\n"
-                "Condition: Pre-Owned - Good; Flaws: none noted. See photos for details.\n\n"
-                "Measurements: Pit to pit: 21\"\n\n"
-                "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
-                "15% off bundles of 2+ items."
+                "Black floral tunic blouse, relaxed woven fit.\n\n"
+                "Flaws: none noted. See photos for details.\n\n"
+                "Measurements: Pit to pit: 21\""
             ),
             "weight_lb": 0,
             "weight_oz": 8,
@@ -489,7 +480,7 @@ class PersistListingTest(unittest.TestCase):
 
         parsed = asyncio.run(run())
         self.assertEqual(parsed.get("brand"), "Notations")
-        self.assertIn("Size:", parsed["description"])
+        self.assertIn("Flaws:", parsed["description"])
         self.assertGreaterEqual(provider.chat_calls, 1)
         notes = [m.text for m in ConversationRepo(self.db).get_messages(self.conv.id) if m.role == "system"]
         self.assertTrue(any("ready for review" in (note or "").lower() for note in notes))

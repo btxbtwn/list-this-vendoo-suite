@@ -22,11 +22,9 @@ from vendoo_studio.services.fill_log import FillLogService
 RETRY_LISTING = {
     "title": "Nike M Graphic T-Shirt Maroon Crewneck",
     "description": (
-        "Nike graphic tee in maroon.\n\n"
-        "Size: M\n"
-        "Condition: Pre-Owned - Good; no major flaws visible in photos.\n"
-        "Measurements: Pit to pit: 22\"; Length: 28\"; Sleeve: 8\"\n\n"
-        "OFFERS WELCOME! Ships in 1-2 business days."
+        "Nike graphic tee in maroon, crewneck fit.\n\n"
+        "Flaws: none noted. See photos for details.\n\n"
+        "Measurements: Pit to pit: 22\"; Length: 28\"; Sleeve: 8\""
     ),
     "price": 24,
     "brand": "Nike",

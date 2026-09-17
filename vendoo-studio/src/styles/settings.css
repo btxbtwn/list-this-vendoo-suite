@@ -116,6 +116,45 @@
   min-width: 0;
 }
 
+.settings-formula-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  max-width: 40rem;
+}
+
+.settings-formula-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-formula-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.settings-formula-textarea {
+  min-height: 8.5rem;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-formula-field .input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.settings-formula-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .settings-version-title {
   display: inline-flex;
   align-items: baseline;

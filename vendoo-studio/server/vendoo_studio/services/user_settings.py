@@ -236,3 +236,57 @@ def remember_vendoo_labels(raw: object) -> list[str]:
 
     update_settings(mutator)
     return get_ui_prefs()[RECENT_LABELS_KEY]
+
+
+LISTING_FORMULAS_KEY = "listing_formulas"
+MAX_FORMULA_CHARS = 4000
+
+
+def get_listing_formulas() -> dict[str, str]:
+    raw = read_settings().get(LISTING_FORMULAS_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, str] = {}
+    for key in ("title", "description"):
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            cleaned[key] = value.strip()
+    return cleaned
+
+
+def set_listing_formulas(*, title: object = None, description: object = None) -> dict[str, str]:
+    """Set or clear a custom title/description formula. Pass "" to reset that formula to the default."""
+
+    def clean(value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("Formula must be text")
+        text = value.strip()
+        if len(text) > MAX_FORMULA_CHARS:
+            raise ValueError(f"Formula must be {MAX_FORMULA_CHARS} characters or fewer")
+        return text
+
+    title_clean = clean(title)
+    description_clean = clean(description)
+
+    def mutator(payload: dict) -> None:
+        raw = payload.get(LISTING_FORMULAS_KEY)
+        current = dict(raw) if isinstance(raw, dict) else {}
+        if title_clean is not None:
+            if title_clean:
+                current["title"] = title_clean
+            else:
+                current.pop("title", None)
+        if description_clean is not None:
+            if description_clean:
+                current["description"] = description_clean
+            else:
+                current.pop("description", None)
+        if current:
+            payload[LISTING_FORMULAS_KEY] = current
+        else:
+            payload.pop(LISTING_FORMULAS_KEY, None)
+
+    update_settings(mutator)
+    return get_listing_formulas()

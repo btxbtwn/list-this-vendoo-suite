@@ -132,6 +132,46 @@ class SetupGuideRouteTest(unittest.TestCase):
         self.assertEqual(status.status_code, 200)
         self.assertEqual(status.json()["data_dir"], self.tmp.name)
 
+    def test_listing_formulas_endpoint_defaults_and_persists(self):
+        from vendoo_studio.services.skill_formulas import (
+            DEFAULT_DESCRIPTION_FORMULA,
+            DEFAULT_TITLE_FORMULA,
+            description_formula_markers,
+            listing_formula_rules,
+        )
+
+        got = self.client.get("/api/settings/formulas")
+        self.assertEqual(got.status_code, 200)
+        body = got.json()
+        self.assertEqual(body["ok"], True)
+        self.assertEqual(body["title"], "")
+        self.assertEqual(body["description"], "")
+        self.assertEqual(body["default_title"], DEFAULT_TITLE_FORMULA)
+        self.assertEqual(body["default_description"], DEFAULT_DESCRIPTION_FORMULA)
+        self.assertEqual(description_formula_markers(), ("flaws:", "measurements:"))
+
+        saved = self.client.put(
+            "/api/settings/formulas",
+            json={
+                "title": "{BRAND} {ITEM}",
+                "description": "Short pitch.\n\nNotes: {detail}\n\nMeasurements: {meas}",
+            },
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["title"], "{BRAND} {ITEM}")
+        self.assertIn("Notes:", saved.json()["description"])
+        self.assertEqual(user_settings.get_listing_formulas()["title"], "{BRAND} {ITEM}")
+        self.assertEqual(description_formula_markers(), ("measurements:", "notes:"))
+        self.assertIn("{BRAND} {ITEM}", listing_formula_rules())
+        self.assertIn("Notes: {detail}", listing_formula_rules())
+
+        cleared = self.client.put("/api/settings/formulas", json={"title": "", "description": ""})
+        self.assertEqual(cleared.status_code, 200)
+        self.assertEqual(cleared.json()["title"], "")
+        self.assertEqual(cleared.json()["description"], "")
+        self.assertEqual(user_settings.get_listing_formulas(), {})
+        self.assertEqual(description_formula_markers(), ("flaws:", "measurements:"))
+
 
 if __name__ == "__main__":
     unittest.main()

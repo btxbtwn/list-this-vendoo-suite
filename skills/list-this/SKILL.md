@@ -243,20 +243,14 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 
 ### DESCRIPTION Formula (Line breaks MANDATORY)
 ```
-{vibe sentence with period}
+{trendy vibe/style keyword sentence with period}
 
-{fit/fabric sentence with period}
-
-Size: {size}
-
-Condition: {status}; Flaws: {none or specific}. See photos for details.
+Flaws: {none noted or specific}. See photos for details.
 
 Measurements: {See photos OR specific measurements}
-
-OFFERS WELCOME! Ships in 1-2 business days.
-
-15% off bundles of 2+ items.
 ```
+- Keep the first line short and keyword-driven (vibe, decade/trend, fit, fabric) — not two separate sentences.
+- Do not add Size, a full condition write-up, shipping speed, or bundle/discount lines — those are covered by marketplace fields and marketplace-level promos already.
 
 ### Etsy Digital Download Description Formula
 Use this override only when the Etsy listing is a digital product.

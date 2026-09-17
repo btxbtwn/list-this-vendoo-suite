@@ -71,7 +71,6 @@ from vendoo_studio.services.marketplaces import (
 TITLE_STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "of", "with", "for", "in", "on", "to",
 })
-PHYSICAL_DESCRIPTION_MARKERS = ("size:", "condition:", "measurements:")
 
 
 def _title_tokens(title: str) -> list[str]:
@@ -98,11 +97,13 @@ def _title_follows_formula(title: str, brand: str, size: str) -> bool:
 
 
 def _description_follows_formula(description: str) -> bool:
+    from vendoo_studio.services.skill_formulas import description_formula_markers
+
     text = description.strip()
-    if len(text) < 80 or "\n" not in text:
+    if len(text) < 40 or "\n" not in text:
         return False
     lower = text.lower()
-    return all(marker in lower for marker in PHYSICAL_DESCRIPTION_MARKERS)
+    return all(marker in lower for marker in description_formula_markers())
 
 
 def _category_is_terminal(path: str) -> bool:
@@ -440,7 +441,7 @@ def validate_listing(
             add_issue(
                 result,
                 "description",
-                "Description must use the physical-item formula, including Size, Condition, and Measurements",
+                "Description must use the physical-item formula, including Flaws and Measurements",
             )
     elif description and "instant download" not in description.lower() and "no physical item" not in description.lower():
         add_issue(

@@ -368,11 +368,9 @@ class VendooImportRouteTest(unittest.TestCase):
         ListingRepo(self.db).save_revision(conv_id, {
             "title": "Nike M Graphic T-Shirt Black Crewneck",
             "description": (
-                "Nike graphic tee in black.\n\n"
-                "Size: M\n"
-                "Condition: Pre-Owned - Good; no major flaws visible in photos.\n"
-                "Measurements: Pit to pit: 22\"; Length: 28\"; Sleeve: 8\"\n\n"
-                "OFFERS WELCOME! Ships in 1-2 business days."
+                "Nike graphic tee in black, crewneck fit.\n\n"
+                "Flaws: none noted. See photos for details.\n\n"
+                "Measurements: Pit to pit: 22\"; Length: 28\"; Sleeve: 8\""
             ),
             "price": 24,
             "brand": "Nike",

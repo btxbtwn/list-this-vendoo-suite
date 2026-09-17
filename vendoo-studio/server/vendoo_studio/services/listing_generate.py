@@ -258,7 +258,7 @@ REPAIR_LISTING_PROMPT = (
     "- Keep every usable field from the broken output; fix syntax only.\n"
     "- Include title, description, and price when possible.\n"
     "- Title order is Brand Size Vibe Item Color Fit (max 80 chars) when those fields exist.\n"
-    "- Description must keep Size:/Condition:/Measurements: line structure when present.\n"
+    "- Description must keep Flaws:/Measurements: line structure when present.\n"
     "- Do not rewrite formula-compliant title/description into freeform marketing copy.\n"
     "- Do not add commentary outside the JSON fence."
 )
@@ -270,8 +270,8 @@ FINALIZE_GAPS_PROMPT = (
     "Fix every listed validation error you can support from evidence.\n"
     "TITLE and DESCRIPTION follow list-this skill formulas exactly:\n"
     "- Title order: Brand Size Vibe Item Color Fit (max 80 chars).\n"
-    "- Physical description: vibe sentence, fit/fabric sentence, then Size:, Condition:, "
-    "Measurements:, OFFERS WELCOME, and the 15% off line — with blank lines between blocks.\n"
+    "- Physical description: one short trendy vibe/style keyword sentence, then Flaws: and "
+    "Measurements: lines — with blank lines between blocks.\n"
     "Preserve the current title and description unless a listed validation error is for title or "
     "description. Never replace a formula-compliant title/description with freeform marketing copy.\n"
     "Use exact Depop/Etsy/eBay dropdown values. Keep category_path and marketplace_categories unchanged.\n"
@@ -342,7 +342,7 @@ def _first_sentence(text: str, fallback: str) -> str:
 
 
 def ensure_physical_description(listing: dict) -> bool:
-    """Rewrite description into the Size/Condition/Measurements formula when markers are missing."""
+    """Rewrite description into the trendy-keyword/Flaws/Measurements formula when markers are missing."""
     from vendoo_studio.models.validation import _description_follows_formula
     from vendoo_studio.models.etsy_fields import is_etsy_digital_listing
 
@@ -354,8 +354,6 @@ def ensure_physical_description(listing: dict) -> bool:
     if not desc or _description_follows_formula(desc):
         return False
 
-    size = str(listing.get("size") or "").strip() or "See tag"
-    condition = str(listing.get("condition") or "").strip() or "Pre-Owned - Good"
     meas = "See photos"
     meas_match = re.search(r"(?is)measurements?:\s*(.+?)(?:\n\n|\n[A-Z]|$)", desc)
     if meas_match:
@@ -369,40 +367,23 @@ def ensure_physical_description(listing: dict) -> bool:
             meas = "; ".join(re.sub(r"\s+", " ", bit).strip() for bit in bits)
 
     lower = desc.lower()
-    # Prefer appending missing required blocks so existing vibe/fit prose stays intact.
+    # Prefer appending missing required blocks so existing vibe prose stays intact.
     if "\n" in desc and len(desc) >= 40:
         additions: list[str] = []
-        if "size:" not in lower:
-            additions.append(f"Size: {size}")
-        if "condition:" not in lower:
-            additions.append(f"Condition: {condition}; Flaws: none noted. See photos for details.")
+        if "flaws:" not in lower:
+            additions.append("Flaws: none noted. See photos for details.")
         if "measurements:" not in lower:
             additions.append(f"Measurements: {meas}")
-        if "offers welcome" not in lower:
-            additions.append("OFFERS WELCOME! Ships in 1-2 business days.")
-        if "15% off bundles" not in lower:
-            additions.append("15% off bundles of 2+ items.")
         if additions:
             listing["description"] = desc.rstrip() + "\n\n" + "\n\n".join(additions)
             return True
 
     title = str(listing.get("title") or "").strip()
-    vibe = _first_sentence(desc, fallback=f"{title}." if title else "Resale-ready garment.")
-    rest = re.split(r"(?<=[.!?])\s+", desc, maxsplit=1)
-    fit = _first_sentence(
-        rest[1] if len(rest) > 1 else "",
-        fallback="See photos for fit, fabric, and details.",
-    )
-    if fit.casefold() == vibe.casefold():
-        fit = "See photos for fit, fabric, and details."
+    vibe = _first_sentence(desc, fallback=f"{title}." if title else "Resale-ready item.")
     listing["description"] = (
         f"{vibe}\n\n"
-        f"{fit}\n\n"
-        f"Size: {size}\n\n"
-        f"Condition: {condition}; Flaws: none noted. See photos for details.\n\n"
-        f"Measurements: {meas}\n\n"
-        "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
-        "15% off bundles of 2+ items."
+        "Flaws: none noted. See photos for details.\n\n"
+        f"Measurements: {meas}"
     )
     return True
 
