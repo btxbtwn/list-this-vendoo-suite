@@ -76,12 +76,13 @@ class BundleSymlinkTest(unittest.TestCase):
 
 
 class PackageMacosScriptTest(unittest.TestCase):
-    def test_package_script_keeps_symlinks_and_checks_signature(self):
-        """Flattening framework symlinks breaks codesign; ship PyInstaller's signed tree."""
+    def test_package_script_deep_signs_without_flatten(self):
+        """Keep framework symlinks; deep-sign one identity after dropping dist-info."""
         script = (
             Path(__file__).resolve().parents[2] / "scripts" / "package-macos-app.sh"
         )
         text = script.read_text(encoding="utf-8")
         self.assertNotIn("flatten_symlinks", text)
-        self.assertIn("codesign -dv", text)
+        self.assertIn("codesign --force --deep --sign", text)
+        self.assertIn("*.dist-info", text)
         self.assertIn("_validate_zip_members", text)

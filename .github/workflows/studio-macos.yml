@@ -103,15 +103,25 @@ jobs:
             echo "Packaged app is unsigned." >&2
             exit 1
           fi
-          # Outer-bundle verify (no --strict: PyInstaller Python.framework is ambiguous).
-          if ! codesign --verify "$APP" 2>verify.err; then
-            cat verify.err >&2
-            if grep -q 'modified\|invalid\|not signed' verify.err; then
+          PYTHON_FW="$APP/Contents/Frameworks/Python.framework/Versions/3.12/Python"
+          if [[ -f "$PYTHON_FW" ]]; then
+            APP_TEAM="$(codesign -dv "$APP" 2>&1 | sed -n 's/^TeamIdentifier=//p' | head -1)"
+            PY_TEAM="$(codesign -dv "$PYTHON_FW" 2>&1 | sed -n 's/^TeamIdentifier=//p' | head -1)"
+            echo "App TeamIdentifier=${APP_TEAM:-none}"
+            echo "Python TeamIdentifier=${PY_TEAM:-none}"
+            if [[ -n "$APP_TEAM" && -n "$PY_TEAM" && "$APP_TEAM" != "$PY_TEAM" ]]; then
+              echo "Team ID mismatch between app and bundled Python; dyld will refuse to load." >&2
               exit 1
             fi
-            echo "codesign --verify reported a non-fatal framework warning; continuing."
           fi
-          echo "OK: packaged app has an intact code signature"
+          if ! codesign --verify "$APP" 2>verify.err; then
+            cat verify.err >&2
+            if grep -Eq 'modified|invalid|not signed|Team ID' verify.err; then
+              exit 1
+            fi
+            echo "codesign --verify reported a non-fatal warning; continuing."
+          fi
+          echo "OK: packaged app has an intact deep code signature"
       - name: Publish GitHub release
         if: github.ref == 'refs/heads/main'
         working-directory: vendoo-studio

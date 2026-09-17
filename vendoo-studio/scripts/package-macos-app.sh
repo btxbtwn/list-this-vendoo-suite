@@ -62,13 +62,32 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
-# Keep PyInstaller framework symlinks. Flattening them breaks the .app layout so
-# codesign cannot produce a signature macOS will open, and current updaters already
-# accept safe in-bundle relative symlinks (see packaged_updates tests).
+# Keep PyInstaller framework symlinks. Flattening them breaks the .app layout.
+# Nested Python.framework is often still signed with a different Team ID than the
+# app executable; dyld then refuses to load it ("different Team IDs"). Deep-sign
+# the whole bundle with one identity. Drop *.dist-info / *.egg-info first —
+# codesign --deep treats those metadata dirs as bundles and fails.
 if ! command -v codesign >/dev/null 2>&1; then
   echo "codesign is required to package List This Studio.app" >&2
   exit 1
 fi
+"$PYTHON" - "$APP" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+app = Path(sys.argv[1])
+removed = 0
+for pattern in ("*.dist-info", "*.egg-info"):
+    for path in app.rglob(pattern):
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+            removed += 1
+print(f"Removed {removed} package-metadata directories before deep sign")
+PY
+SIGN_IDENTITY="${MACOS_SIGNING_IDENTITY:--}"
+echo "Deep-signing app with identity: $SIGN_IDENTITY"
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
 CODESIGN_DV="$(codesign -dv "$APP" 2>&1)" || {
   echo "$CODESIGN_DV" >&2
   exit 1
@@ -77,6 +96,13 @@ echo "$CODESIGN_DV"
 if [[ "$CODESIGN_DV" == *"not signed at all"* ]]; then
   echo "Packaged app is unsigned." >&2
   exit 1
+fi
+if ! codesign --verify "$APP" 2>verify.err; then
+  cat verify.err >&2
+  if grep -Eq 'modified|invalid|not signed|Team ID' verify.err; then
+    exit 1
+  fi
+  echo "codesign --verify reported a non-fatal warning; continuing."
 fi
 if [[ -n "${MACOS_SIGNING_IDENTITY:-}" ]]; then
   REQUIREMENT="$(codesign -d -r- "$APP" 2>&1)"
