@@ -14,11 +14,11 @@ from pathlib import Path
 
 import httpx
 
-from vendoo_studio.config import APP_NAME, is_frozen, resource_root, user_data_root
+from vendoo_studio.config import APP_NAME, CHANNEL, is_frozen, resource_root, user_data_root
 
 GITHUB_API = os.environ.get("VENDOO_STUDIO_GITHUB_API", "https://api.github.com")
 GITHUB_REPO = os.environ.get("VENDOO_STUDIO_GITHUB_REPO", "btxbtwn/list-this-vendoo-suite")
-RELEASE_TAG = os.environ.get("VENDOO_STUDIO_RELEASE_TAG", "studio-macos")
+RELEASE_TAG = os.environ.get("VENDOO_STUDIO_RELEASE_TAG", CHANNEL["release_tag"])
 ZIP_NAME = "List-This-Studio-macos.zip"
 INFO_NAME = "build_info.json"
 APP_BUNDLE_NAME = f"{APP_NAME}.app"
@@ -294,7 +294,7 @@ def _extract_app(archive: Path, destination: Path) -> Path:
             raise PackagedUpdateError("Archive contains an unsafe path.")
     matches = [path for path in destination.rglob(APP_BUNDLE_NAME) if path.is_dir()]
     if not matches:
-        raise PackagedUpdateError("The downloaded zip did not contain List This Studio.app.")
+        raise PackagedUpdateError(f"The downloaded zip did not contain {APP_BUNDLE_NAME}.")
     app = min(matches, key=lambda path: len(path.parts))
     _prepare_app_bundle(app, clear_quarantine=False)
     return app

@@ -106,8 +106,10 @@ pip install -e ".[package]"
 
 That writes `vendoo-studio/release/List-This-Studio-macos.zip`. Publish it with `./scripts/publish-macos-release.sh`.
 
+For a staging build, set `VENDOO_STUDIO_CHANNEL=staging` when packaging. It builds **List This Studio Staging.app**, which keeps its own data and updates from the [`studio-macos-staging`](https://github.com/btxbtwn/list-this-vendoo-suite/releases/tag/studio-macos-staging) pre-release. See [`CONTRIBUTING.md`](CONTRIBUTING.md#staging).
+
 ## Development
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for PR checks and [`AGENTS.md`](AGENTS.md) for product invariants.
 
-CI on pull requests and `main` lints, tests, and builds Studio, lints and tests the backend, syntax-checks and unit-tests the extension, validates skill JSON, and scans the tree for secrets. The macOS app is packaged separately by `.github/workflows/studio-macos.yml`.
+CI on pull requests, `main`, and `staging` lints, tests, and builds Studio, lints and tests the backend, syntax-checks and unit-tests the extension, validates skill JSON, and scans the tree for secrets. The macOS app is packaged separately by `.github/workflows/studio-macos.yml`: `main` publishes production and `staging` publishes the staging app.

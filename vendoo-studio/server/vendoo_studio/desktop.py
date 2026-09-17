@@ -15,20 +15,19 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from vendoo_studio import config
 from vendoo_studio.config import BASE_DIR, HOST, PORT, extension_source_dir, frontend_dist_dir, is_frozen
 
 CHANNELS = {
     "production": {
-        "app_name": "List This Studio",
-        "bundle_id": "local.listthis.studio",
+        **config.CHANNELS["production"],
         "executable": "ListThisStudio",
         "port": "4318",
         "ref": "main",
         "log": "ListThisStudio.log",
     },
     "staging": {
-        "app_name": "List This Studio Staging",
-        "bundle_id": "local.listthis.studio.staging",
+        **config.CHANNELS["staging"],
         "executable": "ListThisStudioStaging",
         "port": "4319",
         "ref": "staging",
@@ -36,8 +35,8 @@ CHANNELS = {
     },
 }
 
-CHANNEL_NAME = os.environ.get("VENDOO_STUDIO_CHANNEL", "production")
-CHANNEL = CHANNELS.get(CHANNEL_NAME, CHANNELS["production"])
+CHANNEL_NAME = config.CHANNEL_NAME
+CHANNEL = CHANNELS[CHANNEL_NAME]
 APP_NAME = CHANNEL["app_name"]
 BUNDLE_ID = CHANNEL["bundle_id"]
 APP_EXECUTABLE = CHANNEL["executable"]
