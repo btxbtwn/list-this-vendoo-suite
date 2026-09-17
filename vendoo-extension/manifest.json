@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vendoo Listing Studio Bridge",
-  "version": "0.2.30",
+  "version": "0.2.31",
   "description": "Connect Vendoo Listing Studio to automate marketplace listing drafts",
   "permissions": [
     "activeTab",
@@ -22,7 +22,9 @@
     "https://www.depop.com/*",
     "https://www.etsy.com/*",
     "http://127.0.0.1:4318/*",
-    "ws://127.0.0.1:4318/*"
+    "ws://127.0.0.1:4318/*",
+    "http://127.0.0.1:4319/*",
+    "ws://127.0.0.1:4319/*"
   ],
   "action": {
     "default_popup": "popup.html",

@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from vendoo_studio.config import extension_source_dir, user_data_root
+from vendoo_studio.config import CHANNEL, PORT, extension_source_dir, user_data_root
 
 DEFAULT_VENDOO_URL = "https://web.vendoo.co/app"
 VENDOO_HOSTS = frozenset({"web.vendoo.co", "app.vendoo.co"})
@@ -97,12 +97,36 @@ def _iter_extension_files(root: Path) -> list[Path]:
     return files
 
 
+def _channel_manifest(raw: bytes) -> bytes:
+    """Name the installed copy after the channel so staging and production can both be loaded."""
+    suffix = CHANNEL["extension_suffix"]
+    if not suffix:
+        return raw
+    try:
+        manifest = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if not isinstance(manifest, dict):
+        return raw
+    name = str(manifest.get("name") or "Vendoo Listing Studio Bridge")
+    if not name.endswith(suffix):
+        manifest["name"] = f"{name}{suffix}"
+    return (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+
+
+def _extension_file_bytes(root: Path, path: Path) -> bytes:
+    raw = path.read_bytes()
+    if path.relative_to(root).as_posix() == "manifest.json":
+        return _channel_manifest(raw)
+    return raw
+
+
 def extension_fingerprint(root: Path) -> str:
     digest = hashlib.sha256()
     for path in _iter_extension_files(root):
         digest.update(path.relative_to(root).as_posix().encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(_extension_file_bytes(root, path))
         digest.update(b"\0")
     return digest.hexdigest()
 
@@ -144,6 +168,7 @@ def _build_stamp_contents(fingerprint: str) -> str:
     return (
         f"var STUDIO_EXTENSION_BUILD = '{fingerprint}';\n"
         f"var STUDIO_EXTENSION_VERSION = '{version}';\n"
+        f"var STUDIO_PORT = {PORT};\n"
     )
 
 
@@ -187,6 +212,8 @@ def install_bundled_extension() -> bool:
         if staging.exists():
             shutil.rmtree(staging)
         shutil.copytree(source, staging, ignore=_ignore_extension)
+        manifest = staging / "manifest.json"
+        manifest.write_bytes(_channel_manifest(manifest.read_bytes()))
         if destination.exists():
             _overlay_copy(staging, destination)
             shutil.rmtree(staging)

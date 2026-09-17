@@ -1,5 +1,11 @@
+var STUDIO_EXTENSION_BUILD = null;
+var STUDIO_PORT = 4318;
+try {
+  importScripts('studio-build.js');
+} catch (e) {}
+
 importScripts('category-reader.js');
-const STUDIO_URL = 'http://127.0.0.1:4318';
+const STUDIO_URL = `http://127.0.0.1:${STUDIO_PORT}`;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_MS = 20000;
@@ -34,11 +40,6 @@ importScripts('background/job-steps.js');
 importScripts('background/import-listing.js');
 importScripts('background/popup-actions.js');
 importScripts('browser-session.js');
-
-var STUDIO_EXTENSION_BUILD = null;
-try {
-  importScripts('studio-build.js');
-} catch (e) {}
 
 function log(msg) {
   console.log(`[BG-Studio] ${msg}`);
@@ -130,7 +131,7 @@ function connect() {
   log(`Connecting to ${STUDIO_URL}/api/extension/ws...`);
 
   try {
-    ws = new WebSocket(`ws://127.0.0.1:4318/api/extension/ws`);
+    ws = new WebSocket(`ws://127.0.0.1:${STUDIO_PORT}/api/extension/ws`);
   } catch (e) {
     error(`WebSocket creation failed: ${e.message}`);
     scheduleReconnect();

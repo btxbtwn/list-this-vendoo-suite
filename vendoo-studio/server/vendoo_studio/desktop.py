@@ -22,14 +22,12 @@ CHANNELS = {
     "production": {
         **config.CHANNELS["production"],
         "executable": "ListThisStudio",
-        "port": "4318",
         "ref": "main",
         "log": "ListThisStudio.log",
     },
     "staging": {
         **config.CHANNELS["staging"],
         "executable": "ListThisStudioStaging",
-        "port": "4319",
         "ref": "staging",
         "log": "ListThisStudioStaging.log",
     },
@@ -539,7 +537,7 @@ def launcher_script(studio_dir: Path, channel_name: str) -> str:
     return f"""#!/bin/bash
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
 export VENDOO_STUDIO_CHANNEL={shlex_quote(channel_name)}
-export VENDOO_STUDIO_PORT={shlex_quote(channel["port"])}
+export VENDOO_STUDIO_PORT={shlex_quote(str(channel["port"]))}
 export VENDOO_STUDIO_UPDATE_REF={shlex_quote(channel["ref"])}
 export VENDOO_STUDIO_UPDATE_URL={shlex_quote(remote_url())}
 STUDIO_DIR={shlex_quote(str(studio_dir))}

@@ -15,7 +15,9 @@ This is a local-first monorepo: listing skills, Vendoo Listing Studio, and the C
 
 `staging` is the pre-release branch. Every push to it runs CI and publishes the staging Mac app to the [`studio-macos-staging`](https://github.com/btxbtwn/list-this-vendoo-suite/releases/tag/studio-macos-staging) pre-release. Pushes to `main` publish the production app to `studio-macos`.
 
-The staging app is a separate app: **List This Studio Staging.app**, bundle ID `local.listthis.studio.staging`, data in `~/Library/Application Support/List This Studio Staging`. It updates itself only from the staging release, so it can sit next to the production app. Both use port 4318 for the Chrome extension, so quit one before opening the other. API keys in Keychain are shared.
+The staging app is a separate app: **List This Studio Staging.app**, bundle ID `local.listthis.studio.staging`, data in `~/Library/Application Support/List This Studio Staging`. It updates itself only from the staging release and runs on port 4319 (production uses 4318), so both apps can be installed and running at the same time. API keys in Keychain are shared.
+
+Each app installs its own copy of the Chrome extension in its data folder and points it at its own port. The staging copy is named **Vendoo Listing Studio Bridge (Staging)**. Load both folders unpacked in `chrome://extensions` once and leave both on: staging extension changes then reach only the staging app, and production keeps the extension it shipped with. Each app's folder path is in Settings → Connections.
 
 Build one locally with `VENDOO_STUDIO_CHANNEL=staging ./scripts/package-macos-app.sh`; `publish-macos-release.sh` reads the channel from `build_info.json`.
 

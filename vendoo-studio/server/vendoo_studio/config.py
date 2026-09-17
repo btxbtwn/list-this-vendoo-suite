@@ -10,11 +10,15 @@ CHANNELS = {
         "app_name": "List This Studio",
         "bundle_id": "local.listthis.studio",
         "release_tag": "studio-macos",
+        "port": 4318,
+        "extension_suffix": "",
     },
     "staging": {
         "app_name": "List This Studio Staging",
         "bundle_id": "local.listthis.studio.staging",
         "release_tag": "studio-macos-staging",
+        "port": 4319,
+        "extension_suffix": " (Staging)",
     },
 }
 
@@ -117,7 +121,7 @@ def ensure_user_data_dirs() -> None:
 ensure_user_data_dirs()
 
 HOST = os.environ.get("VENDOO_STUDIO_HOST", "127.0.0.1")
-PORT = int(os.environ.get("VENDOO_STUDIO_PORT", "4318"))
+PORT = int(os.environ.get("VENDOO_STUDIO_PORT", CHANNEL["port"]))
 
 MAX_PHOTO_COUNT = 20
 MAX_PHOTO_SIZE_MB = 20

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import signal
 import tempfile
@@ -7,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from vendoo_studio import config
 from vendoo_studio.services import chrome_bridge
 
 
@@ -66,6 +68,25 @@ class ChromeBridgeTest(unittest.TestCase):
         (self.extension / "extra.js").unlink()
         self.assertTrue(chrome_bridge.install_bundled_extension())
         self.assertFalse((installed / "extra.js").exists())
+
+    def test_staging_copy_has_its_own_name_and_port(self):
+        (self.extension / "manifest.json").write_text('{"name": "Bridge", "version": "1.0"}', encoding="utf-8")
+        with patch.object(chrome_bridge, "CHANNEL", config.CHANNELS["staging"]), patch.object(chrome_bridge, "PORT", 4319):
+            self.assertTrue(chrome_bridge.install_bundled_extension())
+            installed = chrome_bridge.installed_extension_dir()
+            manifest = json.loads((installed / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["name"], "Bridge (Staging)")
+            self.assertEqual(manifest["version"], "1.0")
+            self.assertIn("var STUDIO_PORT = 4319;", (installed / "studio-build.js").read_text(encoding="utf-8"))
+            self.assertTrue(chrome_bridge.extension_files_in_sync())
+            self.assertFalse(chrome_bridge.install_bundled_extension())
+
+    def test_production_copy_keeps_manifest_and_default_port(self):
+        (self.extension / "manifest.json").write_text('{"name": "Bridge"}', encoding="utf-8")
+        with patch.object(chrome_bridge, "CHANNEL", config.CHANNELS["production"]), patch.object(chrome_bridge, "PORT", 4318):
+            installed = chrome_bridge.sync_bundled_extension()
+            self.assertEqual((installed / "manifest.json").read_text(encoding="utf-8"), '{"name": "Bridge"}')
+            self.assertIn("var STUDIO_PORT = 4318;", (installed / "studio-build.js").read_text(encoding="utf-8"))
 
     def test_pending_reload_token_round_trip(self):
         self.assertIsNone(chrome_bridge.pending_extension_reload_token())

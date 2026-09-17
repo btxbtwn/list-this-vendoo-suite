@@ -45,7 +45,7 @@ class ReleaseChannelTest(unittest.TestCase):
     def test_staging_is_isolated_from_production(self):
         production = config.CHANNELS["production"]
         staging = config.CHANNELS["staging"]
-        for key in ("app_name", "bundle_id", "release_tag"):
+        for key in ("app_name", "bundle_id", "release_tag", "port", "extension_suffix"):
             self.assertNotEqual(production[key], staging[key])
 
 
