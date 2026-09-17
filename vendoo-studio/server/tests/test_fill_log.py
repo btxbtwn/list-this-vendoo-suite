@@ -406,7 +406,7 @@ class FillLogServiceTest(unittest.TestCase):
 
     def test_apply_missing_fields_writes_department_and_leftover_preview(self):
         from vendoo_studio.repositories.queries import ListingRepo
-        from vendoo_studio.routes import chat as chat_routes
+        from vendoo_studio.services import chat_listing
 
         leftover = FillLogService(self.db).save_step(self.job, "filling_ebay", {
             "marketplace": "ebay",
@@ -418,7 +418,7 @@ class FillLogServiceTest(unittest.TestCase):
             "title": "Spectra USA Apparel Company 8 Biker Graphic T-Shirt Black Regular",
             "ebay_specifics": {"department": ""},
         }, source="model")
-        chat_routes._apply_listing_payload(
+        chat_listing.apply_listing_payload(
             self.db,
             self.conv.id,
             '```json\n{"missing_fields":[{"marketplace":"ebay","field":"Department","value":"Women"}]}\n```',

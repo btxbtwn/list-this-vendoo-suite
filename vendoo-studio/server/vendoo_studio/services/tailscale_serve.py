@@ -1,4 +1,4 @@
-"""Private Tailscale Serve for Studio — same pattern as Background Studio / T3 Code.
+"""Private Tailscale Serve for Studio.
 
 Keeps FastAPI on loopback. Tailscale terminates HTTPS on the tailnet and proxies to
 http://127.0.0.1:4318. Funnel is never enabled.
@@ -14,7 +14,7 @@ from typing import Any
 
 from vendoo_studio.config import HOST, PORT
 
-# Distinct from Background Studio (8445). Already used for Studio on this machine's tailnet.
+# Already used for Studio on this machine's tailnet.
 DEFAULT_HTTPS_PORT = 9444
 HTTPS_PORT = int(os.environ.get("VENDOO_STUDIO_TAILSCALE_HTTPS_PORT", str(DEFAULT_HTTPS_PORT)))
 TARGET = f"http://{HOST}:{PORT}"

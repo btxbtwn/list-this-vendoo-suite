@@ -13,11 +13,11 @@ from vendoo_studio.database import Base
 from vendoo_studio.models.catalog import CategorySchema  # noqa: F401
 from vendoo_studio.models.conversation import utcnow
 from vendoo_studio.models.fill_log import FillLogEntry
-from vendoo_studio.models.job import JobEvent
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.job_metrics import fill_success_stats, job_timing
 from vendoo_studio.services.send_skip import matching_marketplaces, specifics_match
+from extension_sources import background_source
 
 EXTENSION = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
@@ -138,8 +138,8 @@ const listOpenDropdownOptions = () => options;
 
 class ExtensionSkipTest(unittest.TestCase):
     def test_send_steps_skip_matching_marketplaces_and_unchanged_saves(self):
-        source = (EXTENSION / "background.js").read_text()
-        build = source[source.index("function buildJobSteps"):source.index("const NEW_ITEM_URL")]
+        source = background_source()
+        build = source[source.index("function buildJobSteps"):source.index("function sleep(ms)")]
         fill = source[source.index("// True when a fill log shows any control was written"):source.index("async function auditMarketplace")]
         script = """
 const log = () => {};

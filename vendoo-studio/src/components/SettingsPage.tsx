@@ -119,8 +119,8 @@ function BraveSearchSection({ chatgptSignedIn }: { chatgptSignedIn: boolean }) {
     try {
       const result = await api.settings.testBrave();
       setTestResult(result.ok ? "Connection successful" : result.error || "Connection failed");
-    } catch (err: any) {
-      setTestResult(`Error: ${err.message}`);
+    } catch (err) {
+      setTestResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
     setTesting(false);
   };
@@ -555,8 +555,8 @@ function ProvidersPanel() {
     try {
       const result = await api.settings.testConnection();
       setTestResult(result.ok ? "Connection successful" : (result.error || "Connection failed"));
-    } catch (err: any) {
-      setTestResult(`Error: ${err.message}`);
+    } catch (err) {
+      setTestResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
     setTesting(false);
   };

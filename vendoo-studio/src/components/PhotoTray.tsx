@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import type { Photo } from "../api/types";
 import { ClearListingButton } from "./ClearListingButton";
 
 const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
@@ -47,17 +48,17 @@ export function PhotoTray({ convId, onCleared }: Props) {
     mutationFn: (orderedIds: string[]) => api.conversations.reorderPhotos(convId, orderedIds),
     onMutate: async (orderedIds) => {
       await queryClient.cancelQueries({ queryKey: ["photos", convId] });
-      const previous = queryClient.getQueryData<any[]>(["photos", convId]);
+      const previous = queryClient.getQueryData<Photo[]>(["photos", convId]);
       if (previous) {
         const byId = new Map(previous.map((photo) => [photo.id, photo]));
         queryClient.setQueryData(
           ["photos", convId],
-          orderedIds.map((id) => byId.get(id)).filter(Boolean),
+          orderedIds.map((id) => byId.get(id)).filter((photo): photo is Photo => Boolean(photo)),
         );
       }
       return { previous };
     },
-    onError: (err: any, _orderedIds, context) => {
+    onError: (err: Error, _orderedIds, context) => {
       if (context?.previous) {
         queryClient.setQueryData(["photos", convId], context.previous);
       }
@@ -66,7 +67,7 @@ export function PhotoTray({ convId, onCleared }: Props) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["photos", convId] }),
   });
 
-  const previewIndex = photos?.findIndex((p: any) => p.id === previewId) ?? -1;
+  const previewIndex = photos?.findIndex((p) => p.id === previewId) ?? -1;
   const previewPhoto = photos && previewIndex >= 0 ? photos[previewIndex] : null;
 
   useEffect(() => {
@@ -76,7 +77,7 @@ export function PhotoTray({ convId, onCleared }: Props) {
   }, [convId]);
 
   useEffect(() => {
-    if (previewId && photos && !photos.some((p: any) => p.id === previewId)) {
+    if (previewId && photos && !photos.some((p) => p.id === previewId)) {
       setPreviewId(null);
     }
   }, [photos, previewId]);
@@ -152,12 +153,12 @@ export function PhotoTray({ convId, onCleared }: Props) {
     const sourceId = dragIdRef.current || event.dataTransfer.getData(PHOTO_DRAG_TYPE) || event.dataTransfer.getData("text/plain");
     resetDrag();
     if (!photos || !sourceId || sourceId === photoId) return;
-    const from = photos.findIndex((photo: any) => photo.id === sourceId);
-    const to = photos.findIndex((photo: any) => photo.id === photoId);
+    const from = photos.findIndex((photo) => photo.id === sourceId);
+    const to = photos.findIndex((photo) => photo.id === photoId);
     const next = moveItem(photos, from, to);
     if (next === photos) return;
     setUploadError(null);
-    reorderMutation.mutate(next.map((photo: any) => photo.id));
+    reorderMutation.mutate(next.map((photo) => photo.id));
   };
 
   const openPreview = (photoId: string) => {
@@ -172,12 +173,12 @@ export function PhotoTray({ convId, onCleared }: Props) {
     try {
       const result = await api.conversations.uploadPhotos(convId, Array.from(fileList));
       await queryClient.invalidateQueries({ queryKey: ["photos", convId] });
-      const errors = Array.isArray((result as any)?.errors) ? (result as any).errors : [];
+      const errors = result.errors || [];
       if (errors.length) {
-        setUploadError(errors.map((item: any) => item.message || item).join("; "));
+        setUploadError(errors.join("; "));
       }
-    } catch (err: any) {
-      setUploadError(err.message || "Upload failed");
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -199,7 +200,7 @@ export function PhotoTray({ convId, onCleared }: Props) {
       </div>
       {photos && photos.length > 0 && (
         <div className="photo-strip">
-          {photos.map((p: any, i: number) => (
+          {photos.map((p, i) => (
             <div
               key={p.id}
               className={[

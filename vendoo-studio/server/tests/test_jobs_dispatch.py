@@ -20,6 +20,7 @@ from vendoo_studio.routes.extension import (
     extension_status,
     handshake_extension,
 )
+from datetime import UTC
 
 
 class FakeSocket:
@@ -349,10 +350,10 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(job.status, "queued")
 
     async def test_dispatch_starts_next_queued_after_running_clears(self):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         db = self.Session()
-        base = datetime.now(timezone.utc).replace(tzinfo=None)
+        base = datetime.now(UTC).replace(tzinfo=None)
         earlier = Job(
             conversation_id=self.conv_id,
             approved_revision_id="rev0",
@@ -475,14 +476,14 @@ class PrepareListingSnapshotRetryTest(unittest.TestCase):
     def test_retry_keeps_refined_mens_category_over_stale_override(self):
         import json
 
-        from vendoo_studio.routes.jobs import _prepare_listing_snapshot
+        from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
         from vendoo_studio.services.registry import MEN_TSHIRT_PATH
 
         self.conv.notes = json.dumps({
             "categoryOverride": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
         })
         self.db.commit()
-        snapshot = _prepare_listing_snapshot(
+        snapshot = prepare_listing_snapshot(
             self.db,
             self.conv,
             {
@@ -501,7 +502,7 @@ class ResumeStepForRetryTest(unittest.TestCase):
     def test_failed_marketplace_step_resumes_with_draft(self):
         from types import SimpleNamespace
 
-        from vendoo_studio.routes.jobs import _resume_step_for_retry
+        from vendoo_studio.services.job_snapshot import resume_step_for_retry
 
         job = SimpleNamespace(
             status="failed",
@@ -509,12 +510,12 @@ class ResumeStepForRetryTest(unittest.TestCase):
             vendoo_item_id="abc123",
             vendoo_url="https://web.vendoo.co/app/item/abc123",
         )
-        self.assertEqual(_resume_step_for_retry(job), "filling_etsy")
+        self.assertEqual(resume_step_for_retry(job), "filling_etsy")
 
     def test_completed_or_restart_does_not_resume(self):
         from types import SimpleNamespace
 
-        from vendoo_studio.routes.jobs import _resume_step_for_retry
+        from vendoo_studio.services.job_snapshot import resume_step_for_retry
 
         job = SimpleNamespace(
             status="completed",
@@ -522,12 +523,12 @@ class ResumeStepForRetryTest(unittest.TestCase):
             vendoo_item_id="abc123",
             vendoo_url="https://web.vendoo.co/app/item/abc123",
         )
-        self.assertIsNone(_resume_step_for_retry(job))
+        self.assertIsNone(resume_step_for_retry(job))
 
     def test_marketplace_failure_without_draft_does_not_resume(self):
         from types import SimpleNamespace
 
-        from vendoo_studio.routes.jobs import _resume_step_for_retry
+        from vendoo_studio.services.job_snapshot import resume_step_for_retry
 
         job = SimpleNamespace(
             status="failed",
@@ -535,12 +536,12 @@ class ResumeStepForRetryTest(unittest.TestCase):
             vendoo_item_id=None,
             vendoo_url=None,
         )
-        self.assertIsNone(_resume_step_for_retry(job))
+        self.assertIsNone(resume_step_for_retry(job))
 
     def test_failed_marketplace_audit_resumes_from_audit(self):
         from types import SimpleNamespace
 
-        from vendoo_studio.routes.jobs import _resume_step_for_retry
+        from vendoo_studio.services.job_snapshot import resume_step_for_retry
 
         job = SimpleNamespace(
             status="failed",
@@ -548,7 +549,7 @@ class ResumeStepForRetryTest(unittest.TestCase):
             vendoo_item_id="abc123",
             vendoo_url="https://web.vendoo.co/app/item/abc123",
         )
-        self.assertEqual(_resume_step_for_retry(job), "auditing_mercari")
+        self.assertEqual(resume_step_for_retry(job), "auditing_mercari")
 
         depop = SimpleNamespace(
             status="failed",
@@ -556,7 +557,7 @@ class ResumeStepForRetryTest(unittest.TestCase):
             vendoo_item_id="abc123",
             vendoo_url="https://web.vendoo.co/app/item/abc123",
         )
-        self.assertEqual(_resume_step_for_retry(depop), "auditing_depop")
+        self.assertEqual(resume_step_for_retry(depop), "auditing_depop")
 
 
 if __name__ == "__main__":

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
+from typing import Any
 
 
 MAX_FRAME_CHARS = 1_500_000
 ALLOWED_MIMES = {"image/jpeg"}
 
 
-def sanitize_frame(payload: dict[str, Any], step: str = "") -> Optional[dict[str, Any]]:
+def sanitize_frame(payload: dict[str, Any], step: str = "") -> dict[str, Any] | None:
     mime = payload.get("mime") or "image/jpeg"
     if mime not in ALLOWED_MIMES:
         return None
@@ -79,7 +79,7 @@ class PreviewHub:
             if not subscribers:
                 self._subscribers.pop(job_id, None)
 
-    def latest(self, job_id: str) -> Optional[dict[str, Any]]:
+    def latest(self, job_id: str) -> dict[str, Any] | None:
         return self._latest.get(job_id)
 
     async def clear(self, job_id: str) -> None:

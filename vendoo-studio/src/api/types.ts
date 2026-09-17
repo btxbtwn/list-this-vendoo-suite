@@ -1,0 +1,171 @@
+/** Response shapes for the Studio FastAPI backend. Keep in sync with server/vendoo_studio/routes. */
+
+export type ListingData = Record<string, unknown>;
+
+export interface Conversation {
+  id: string;
+  title: string | null;
+  notes: string | null;
+  status: string;
+  settled_at?: string | null;
+  unsettled_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  role: string;
+  text: string;
+  provider: string | null;
+  model: string | null;
+  created_at: string;
+}
+
+export interface Photo {
+  id: string;
+  conversation_id: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  display_order: number;
+  width: number | null;
+  height: number | null;
+  created_at: string;
+  url: string;
+}
+
+export interface PhotoUploadResult {
+  ok: boolean;
+  count: number;
+  photos: Photo[];
+  errors?: string[];
+  message?: string;
+}
+
+export interface OkResponse {
+  ok: boolean;
+}
+
+export interface DeleteConversationResult extends OkResponse {
+  deleted_jobs: number;
+  deleted_photos: number;
+}
+
+export type ValidationIssue = Record<string, string>;
+
+export interface ListingResponse {
+  conversation_id: string;
+  current_revision_id: string | null;
+  listing: ListingData;
+  revision_count: number;
+  can_send: boolean;
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+  info: ValidationIssue[];
+  can_send: boolean;
+}
+
+export interface ListingUpdateResult extends OkResponse {
+  revision_id: string;
+  validation: ValidationResult;
+}
+
+export interface ListingRevision {
+  id: string;
+  source: string;
+  created_at: string;
+  parent_revision_id: string | null;
+  title: string;
+}
+
+export interface RevisionRestoreResult extends OkResponse {
+  revision_id: string;
+}
+
+export interface Job {
+  id: string;
+  conversation_id: string;
+  status: string;
+  current_step: string | null;
+  vendoo_item_id: string | null;
+  vendoo_url: string | null;
+  attempt_count: number;
+  last_error: string | null;
+  listing_title: string;
+  mode?: string | null;
+  blocker_fields?: Record<string, unknown>[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VendooItemResult {
+  ok: boolean;
+  source?: string | null;
+  item_id?: string | null;
+  url?: string | null;
+  error?: string | null;
+  api_error?: string | null;
+  item?: Record<string, unknown> | null;
+  form?: Record<string, unknown> | null;
+  statuses?: Record<string, unknown> | null;
+}
+
+export interface ChatGPTPendingLogin {
+  verification_url: string;
+  user_code: string;
+  error?: string | null;
+}
+
+export interface ChatGPTStatus {
+  signed_in: boolean;
+  email?: string | null;
+  plan?: string | null;
+  pending?: ChatGPTPendingLogin | null;
+  error?: string | null;
+}
+
+export type ListingProviderId = "chatgpt" | "mimo";
+
+export interface ProviderStatus {
+  provider: string;
+  primary: ListingProviderId;
+  fallback: ListingProviderId | "none";
+  configured: boolean;
+  masked_key: string | null;
+  vision_model: string;
+  listing_model: string;
+  base_url: string;
+  chatgpt: ChatGPTStatus;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  provider: string;
+  error?: string;
+}
+
+export interface FillLogEntry {
+  id: string;
+  step: string;
+  marketplace: string;
+  field: string;
+  status: string;
+  reason: string;
+  selector: string;
+  value_preview: string;
+}
+
+export interface FillLogReport {
+  job_id: string;
+  summary: Record<string, number>;
+  by_marketplace: Record<string, { summary: Record<string, number>; entries: FillLogEntry[] }>;
+  log_path: string | null;
+}

@@ -103,7 +103,7 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
             patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=AsyncMock(return_value=CHATGPT_COMPS)) as chatgpt,
-            patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=BRAVE_COMPS)) as brave,
+            patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=BRAVE_COMPS)),
             patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
         ):
             text = await research_sold_comps(ANALYSIS)

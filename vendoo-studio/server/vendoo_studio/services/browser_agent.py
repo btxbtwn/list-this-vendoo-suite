@@ -14,8 +14,9 @@ import json
 import logging
 import re
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any
 
 from vendoo_studio.services import browser_bridge
 from vendoo_studio.services.browser_bridge import BrowserBridgeError

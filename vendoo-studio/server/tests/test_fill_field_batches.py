@@ -4,13 +4,14 @@ import json
 import subprocess
 import unittest
 from pathlib import Path
+from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
 
 class FillFieldBatchHelpersTest(unittest.TestCase):
     def test_leftover_fill_timeout_scales_and_batches_by_marketplace(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function groupFillFieldBatches")
         end = text.index("function compactVendooValue")
         helpers = text[start:end]
@@ -60,7 +61,7 @@ console.log(JSON.stringify(result));
         self.assertEqual(result["saveEmpty"], {"type": "SAVE_GENERAL"})
 
     def test_leftover_fill_saves_each_marketplace_before_switching(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("async function runFillFields")
         end = text.index("function groupFillFieldBatches")
         run_fill = text[start:end]

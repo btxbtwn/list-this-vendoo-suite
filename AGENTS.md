@@ -9,7 +9,6 @@ Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, an
 ## Source of Truth
 
 - **`skills/`** — Canonical source for listing rules, templates, research loops, and optimizer tooling.
-- **`vendoo-extension/skills/list-this/`** — Legacy compatibility wrapper only. Do not use as the source for listing rules.
 - **`VENDOO_STUDIO_SPEC.md`** — Product and architecture specification for Vendoo Listing Studio.
 - Do not duplicate listing rules across components.
 
@@ -42,9 +41,8 @@ Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TO
 ## Repository Structure
 
 - **`skills/`** — Agent skills for listing generation (`list-this`).
-- **`vendoo-extension/`** — Chrome MV3 extension that consumes listing JSON and fills marketplace forms. Content scripts under `content-scripts/` handle Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy. `background.js` routes messages; `popup.html`/`popup.js` provide the manual paste-and-fill UI.
+- **`vendoo-extension/`** — Chrome MV3 extension that consumes listing JSON and fills marketplace forms. Content scripts under `content-scripts/` handle Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy. `background.js` routes messages and loads the worker modules in `background/`; `popup.html`/`popup.js` provide the manual paste-and-fill UI. Node unit tests live in `tests/`.
 - **`vendoo-studio/`** — React + TypeScript frontend (`src/`) and FastAPI Python backend (`server/vendoo_studio/`). Frontend API clients live under `src/api/`. Backend routes live under `server/vendoo_studio/routes/`; domain behavior lives in `server/vendoo_studio/services/` and `server/vendoo_studio/repositories/`.
-- **`background-studio/`** — Standalone local photo background-removal app. Keep it separate from `vendoo-studio/`.
 
 ## Development Commands
 
@@ -52,9 +50,9 @@ Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TO
 - **Studio start:** `./start.sh` or `cd vendoo-studio && ./scripts/dev.sh`
 - **Studio doctor:** `cd vendoo-studio && ./scripts/doctor.sh`
 - **Studio frontend build:** `cd vendoo-studio && npm run build`
-- **Studio backend tests:** `cd vendoo-studio && python -m pytest -q` (install with `pip install -e ".[dev]"`)
-- **Background Studio setup:** `cd background-studio && ./scripts/setup.sh`
-- **Background Studio start:** `cd background-studio && ./scripts/dev.sh`
+- **Studio frontend lint and tests:** `cd vendoo-studio && npm run lint && npm test`
+- **Studio backend lint and tests:** `cd vendoo-studio && ruff check server && python -m pytest -q -n auto` (install with `pip install -e ".[dev]"`)
+- **Extension tests:** `node --test 'vendoo-extension/tests/*.test.js'`
 - **Extension:** **Connect Chrome** opens everyday Chrome. Load unpacked from `vendoo-extension/` in `chrome://extensions/` with Developer mode enabled.
 
 ## Coding Conventions
@@ -68,9 +66,9 @@ Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TO
 
 CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `main`. Run the same commands locally for the paths you touched.
 
-- **Studio frontend:** `cd vendoo-studio && npm ci && npm run build`
-- **Studio backend:** `cd vendoo-studio && python -m pytest -q` (install with `pip install -e ".[dev]"`)
-- **Extension:** `node --check` on changed JS files and `python -m json.tool vendoo-extension/manifest.json`. Then reload the unpacked extension and test affected marketplace flows manually. Use platform-prefixed console logs (`[EBAY]`, `[POSHMARK]`, etc.), the **Diagnose Page** button for live form structure, and the debug overlay (bottom-left) for per-field fill results.
+- **Studio frontend:** `cd vendoo-studio && npm ci && npm run lint && npm test && npm run build`
+- **Studio backend:** `cd vendoo-studio && ruff check server && python -m pytest -q -n auto` (install with `pip install -e ".[dev]"`)
+- **Extension:** `node --check` on changed JS files, `node --test 'vendoo-extension/tests/*.test.js'`, and `python -m json.tool vendoo-extension/manifest.json`. Then reload the unpacked extension and test affected marketplace flows manually. Use platform-prefixed console logs (`[EBAY]`, `[POSHMARK]`, etc.), the **Diagnose Page** button for live form structure, and the debug overlay (bottom-left) for per-field fill results.
 - **Skills:** Confirm `skills/list-this/SKILL.md` exists and `python -m json.tool skills/list-this/references/vendoo-dropdown-options.json` succeeds.
 - **Secrets:** Do not track `.env`, key files, photos, or private exports. CI scans the working tree with gitleaks.
 

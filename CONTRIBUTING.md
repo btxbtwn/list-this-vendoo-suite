@@ -13,9 +13,9 @@ This is a local-first monorepo: listing skills, Vendoo Listing Studio, and the C
 
 | Path | Command |
 |---|---|
-| `vendoo-studio/` frontend | `cd vendoo-studio && npm ci && npm run build` |
-| `vendoo-studio/` backend | `cd vendoo-studio && python -m pytest -q` |
-| `vendoo-extension/` | `node --check` on changed JS files; `python -m json.tool vendoo-extension/manifest.json` |
+| `vendoo-studio/` frontend | `cd vendoo-studio && npm ci && npm run lint && npm test && npm run build` |
+| `vendoo-studio/` backend | `cd vendoo-studio && ruff check server && python -m pytest -q -n auto` |
+| `vendoo-extension/` | `node --check` on changed JS files; `node --test 'vendoo-extension/tests/*.test.js'`; `python -m json.tool vendoo-extension/manifest.json` |
 | `skills/list-this/` | Confirm `SKILL.md` and reference JSON still parse |
 
 CI on every pull request and push to `main` runs these jobs and a secret scan. The macOS packaging workflow is separate and only publishes the Studio app.
@@ -25,4 +25,4 @@ CI on every pull request and push to `main` runs these jobs and a secret scan. T
 - Do not publish listings. Stop at saved drafts.
 - Do not add Redis, MongoDB, Celery, Docker, or cloud hosting unless that is the task.
 - Bind Studio to `127.0.0.1`.
-- Keep listing rules in `skills/`. Do not copy them into the extension wrapper.
+- Keep listing rules in `skills/`. Do not copy them into the extension.

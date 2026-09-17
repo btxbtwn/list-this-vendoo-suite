@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
@@ -58,12 +57,12 @@ def _websocket_allowed(ws: WebSocket) -> bool:
 
 class ExtensionManager:
     def __init__(self):
-        self.connection: Optional[WebSocket] = None
+        self.connection: WebSocket | None = None
         self.paired = False
-        self.version: Optional[str] = None
-        self.build: Optional[str] = None
-        self.reload_generation: Optional[str] = None
-        self._pairing_token: Optional[str] = None
+        self.version: str | None = None
+        self.build: str | None = None
+        self.reload_generation: str | None = None
+        self._pairing_token: str | None = None
         self._waits: dict[str, asyncio.Future] = {}
 
     def register_wait(self, request_id: str) -> asyncio.Future:

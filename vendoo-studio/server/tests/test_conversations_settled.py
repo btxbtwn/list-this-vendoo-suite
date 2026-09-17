@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -91,7 +91,7 @@ class ConversationSettlementTest(unittest.TestCase):
 
     def test_reconcile_settles_from_completed_job(self):
         conv = self.repo.create(title="Nike tee")
-        older = datetime.now(timezone.utc) - timedelta(hours=1)
+        older = datetime.now(UTC) - timedelta(hours=1)
         conv.updated_at = older
         job = Job(
             conversation_id=conv.id,

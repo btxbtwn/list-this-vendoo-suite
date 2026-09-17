@@ -572,7 +572,7 @@ class RegistryRepo:
                 return entry
         return self.db.query(FieldRegistry).filter(
             FieldRegistry.marketplace == marketplace,
-            FieldRegistry.category_path == None,
+            FieldRegistry.category_path.is_(None),
             FieldRegistry.normalized_label == normalized_label,
         ).first()
 
@@ -756,10 +756,10 @@ class RegistryRepo:
         if category_path:
             query = query.filter(
                 (FieldRegistry.category_path == category_path) |
-                (FieldRegistry.category_path == None)
+                (FieldRegistry.category_path.is_(None))
             )
         elif not all_categories:
-            query = query.filter(FieldRegistry.category_path == None)
+            query = query.filter(FieldRegistry.category_path.is_(None))
         return query.order_by(
             FieldRegistry.marketplace,
             FieldRegistry.category_path,
@@ -773,7 +773,7 @@ class RegistryRepo:
         if category_path:
             query = query.filter(
                 (FieldRegistry.category_path == category_path) |
-                (FieldRegistry.category_path == None)
+                (FieldRegistry.category_path.is_(None))
             )
         entries = query.order_by(FieldRegistry.normalized_label).all()
 

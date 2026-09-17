@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from vendoo_studio.config import PHOTOS_DIR
@@ -20,51 +19,48 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
 
 class ConversationCreate(BaseModel):
-    title: Optional[str] = None
-    notes: Optional[str] = None
+    title: str | None = None
+    notes: str | None = None
 
 
 class ConversationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
-    title: Optional[str]
-    notes: Optional[str]
+    title: str | None
+    notes: str | None
     status: str
-    settled_at: Optional[str] = None
-    unsettled_at: Optional[str] = None
+    settled_at: str | None = None
+    unsettled_at: str | None = None
     created_at: str
     updated_at: str
 
-    class Config:
-        from_attributes = True
-
 
 class MessageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     conversation_id: str
     role: str
     text: str
-    provider: Optional[str]
-    model: Optional[str]
+    provider: str | None
+    model: str | None
     created_at: str
-
-    class Config:
-        from_attributes = True
 
 
 class PhotoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     conversation_id: str
     original_filename: str
     mime_type: str
     size_bytes: int
     display_order: int
-    width: Optional[int]
-    height: Optional[int]
+    width: int | None
+    height: int | None
     created_at: str
     url: str
-
-    class Config:
-        from_attributes = True
 
 
 @router.post("", response_model=ConversationResponse)
@@ -91,9 +87,9 @@ def get_conversation(conv_id: str, db: Session = Depends(get_db)):
 
 
 class ConversationUpdate(BaseModel):
-    title: Optional[str] = None
-    notes: Optional[str] = None
-    status: Optional[str] = None
+    title: str | None = None
+    notes: str | None = None
+    status: str | None = None
 
 
 class DeleteConversationResponse(BaseModel):
@@ -302,7 +298,7 @@ async def reset_conversation(conv_id: str, db: Session = Depends(get_db)):
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
     from vendoo_studio.models.protocol import ProtocolMessage
     from vendoo_studio.repositories.queries import ListingRepo
-    from vendoo_studio.routes.chat import stop_generation
+    from vendoo_studio.services.streaming import stop_generation
     from vendoo_studio.routes.extension import extension_manager
     from vendoo_studio.services.hidden_fields import clear_listing_hidden_fields
     from vendoo_studio.services.vendoo_import import merge_notes, vendoo_binding
@@ -383,7 +379,7 @@ def _msg_response(msg) -> dict:
     }
 
 
-def _iso(value) -> Optional[str]:
+def _iso(value) -> str | None:
     return value.isoformat() if value else None
 
 

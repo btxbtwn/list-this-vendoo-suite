@@ -1,18 +1,45 @@
+import type {
+  Conversation,
+  DeleteConversationResult,
+  FillLogReport,
+  Job,
+  ListingData,
+  ListingResponse,
+  ListingRevision,
+  ListingUpdateResult,
+  Message,
+  OkResponse,
+  Photo,
+  PhotoUploadResult,
+  ProviderStatus,
+  ProviderTestResult,
+  ChatGPTPendingLogin,
+  RevisionRestoreResult,
+  ValidationResult,
+  VendooItemResult,
+} from "./types";
+
 const BASE = "/api";
 
-function errorMessage(body: any, fallback: string): string {
+type ErrorBody = { detail?: unknown; message?: unknown } | null | undefined;
+type ErrorItem = { msg?: string; message?: string } | string | null | undefined;
+
+export function errorMessage(body: ErrorBody, fallback: string): string {
   const detail = body?.detail;
   if (typeof detail === "string" && detail.trim()) return detail;
   if (Array.isArray(detail)) {
     const messages = detail
-      .map((item) => item?.msg || item?.message || (typeof item === "string" ? item : ""))
+      .map((item: ErrorItem) => (typeof item === "string" ? item : item?.msg || item?.message || ""))
       .filter(Boolean);
     if (messages.length) return messages.join("; ");
   }
   if (detail && typeof detail === "object") {
-    if (typeof detail.message === "string" && detail.message.trim()) return detail.message;
-    if (Array.isArray(detail.errors)) {
-      const messages = detail.errors.map((item: any) => item?.message || item?.msg).filter(Boolean);
+    const record = detail as { message?: unknown; errors?: unknown };
+    if (typeof record.message === "string" && record.message.trim()) return record.message;
+    if (Array.isArray(record.errors)) {
+      const messages = record.errors
+        .map((item: ErrorItem) => (typeof item === "string" ? item : item?.message || item?.msg))
+        .filter(Boolean);
       if (messages.length) return messages.join("; ");
     }
   }
@@ -100,19 +127,19 @@ export const api = {
     }>("/status"),
 
   conversations: {
-    list: () => request<any[]>("/conversations"),
-    get: (id: string) => request<any>(`/conversations/${id}`),
+    list: () => request<Conversation[]>("/conversations"),
+    get: (id: string) => request<Conversation>(`/conversations/${id}`),
     create: (body?: { title?: string; notes?: string }) =>
-      request<any>("/conversations", { method: "POST", body: JSON.stringify(body || {}) }),
+      request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(body || {}) }),
     update: (id: string, body: { title?: string; notes?: string; status?: string }) =>
-      request<any>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+      request<Conversation>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     settle: (id: string) =>
-      request<any>(`/conversations/${id}/settle`, { method: "POST" }),
+      request<Conversation>(`/conversations/${id}/settle`, { method: "POST" }),
     unsettle: (id: string) =>
-      request<any>(`/conversations/${id}/unsettle`, { method: "POST" }),
+      request<Conversation>(`/conversations/${id}/unsettle`, { method: "POST" }),
     linkVendoo: (id: string, urlOrId: string) =>
       request<{
-        conversation: any;
+        conversation: Conversation;
         vendoo_item_id: string;
         vendoo_url: string;
       }>(`/conversations/${id}/vendoo-link`, {
@@ -121,20 +148,20 @@ export const api = {
       }),
     cancelMessages: (id: string) =>
       request<{ ok: boolean }>(`/conversations/${id}/messages/cancel`, { method: "POST" }),
-    messages: (id: string) => request<any[]>(`/conversations/${id}/messages`),
-    photos: (id: string) => request<any[]>(`/conversations/${id}/photos`),
+    messages: (id: string) => request<Message[]>(`/conversations/${id}/messages`),
+    photos: (id: string) => request<Photo[]>(`/conversations/${id}/photos`),
     deletePhoto: (convId: string, photoId: string) =>
-      request<any>(`/conversations/${convId}/photos/${photoId}`, { method: "DELETE" }),
+      request<OkResponse>(`/conversations/${convId}/photos/${photoId}`, { method: "DELETE" }),
     delete: (id: string) =>
-      request<any>(`/conversations/${id}`, { method: "DELETE" }),
+      request<DeleteConversationResult>(`/conversations/${id}`, { method: "DELETE" }),
     reset: (id: string) =>
-      request<any>(`/conversations/${id}/reset`, { method: "POST" }),
+      request<Conversation>(`/conversations/${id}/reset`, { method: "POST" }),
     reorderPhotos: (convId: string, orderedIds: string[]) =>
-      request<any>(`/conversations/${convId}/photos/order`, {
+      request<OkResponse>(`/conversations/${convId}/photos/order`, {
         method: "PATCH",
         body: JSON.stringify(orderedIds),
       }),
-    uploadPhotos: (convId: string, files: File[]) => {
+    uploadPhotos: (convId: string, files: File[]): Promise<PhotoUploadResult> => {
       const form = new FormData();
       files.forEach((f) => form.append("files", f));
       return fetch(`${BASE}/conversations/${convId}/photos`, { method: "POST", body: form }).then(
@@ -150,22 +177,22 @@ export const api = {
   },
 
   listings: {
-    get: (convId: string) => request<any>(`/conversations/${convId}/listing`),
-    update: (convId: string, listing: any) =>
-      request<any>(`/conversations/${convId}/listing`, {
+    get: (convId: string) => request<ListingResponse>(`/conversations/${convId}/listing`),
+    update: (convId: string, listing: ListingData) =>
+      request<ListingUpdateResult>(`/conversations/${convId}/listing`, {
         method: "PUT",
         body: JSON.stringify({ listing }),
       }),
     validate: (convId: string) =>
-      request<any>(`/conversations/${convId}/listing/validate`, { method: "POST" }),
-    revisions: (convId: string) => request<any[]>(`/conversations/${convId}/revisions`),
+      request<ValidationResult>(`/conversations/${convId}/listing/validate`, { method: "POST" }),
+    revisions: (convId: string) => request<ListingRevision[]>(`/conversations/${convId}/revisions`),
     restore: (convId: string, revisionId: string) =>
-      request<any>(`/conversations/${convId}/revisions/${revisionId}/restore`, { method: "POST" }),
+      request<RevisionRestoreResult>(`/conversations/${convId}/revisions/${revisionId}/restore`, { method: "POST" }),
   },
 
   jobs: {
     create: (conversationId: string, opts?: { confirmOverwrite?: boolean }) =>
-      request<any>("/jobs", {
+      request<Job>("/jobs", {
         method: "POST",
         body: JSON.stringify({
           conversation_id: conversationId,
@@ -174,17 +201,17 @@ export const api = {
       }),
     list: (conversationId?: string) => {
       const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : "";
-      return request<any[]>(`/jobs${query}`);
+      return request<Job[]>(`/jobs${query}`);
     },
     ensureDraft: (conversationId: string) =>
-      request<any>("/jobs/ensure-draft", {
+      request<Job>("/jobs/ensure-draft", {
         method: "POST",
         body: JSON.stringify({ conversation_id: conversationId }),
       }),
-    get: (id: string) => request<any>(`/jobs/${id}`),
-    fillLog: (id: string) => request<any>(`/jobs/${id}/fill-log`),
+    get: (id: string) => request<Job>(`/jobs/${id}`),
+    fillLog: (id: string) => request<FillLogReport>(`/jobs/${id}/fill-log`),
     fillFields: (id: string, fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
-      request<any>(`/jobs/${id}/fill-fields`, {
+      request<Job>(`/jobs/${id}/fill-fields`, {
         method: "POST",
         body: JSON.stringify({ fields }),
       }),
@@ -193,7 +220,7 @@ export const api = {
       if (opts?.refresh) params.set("refresh", "true");
       if (opts?.cacheOnly) params.set("cache_only", "true");
       const query = params.toString();
-      return request<any>(`/jobs/${id}/vendoo-item${query ? `?${query}` : ""}`, { method: "POST" });
+      return request<VendooItemResult>(`/jobs/${id}/vendoo-item${query ? `?${query}` : ""}`, { method: "POST" });
     },
     resolveCategory: (id: string, query?: string) =>
       request<{ ok: boolean; query?: string; path?: string; matches?: { text?: string; path?: string; score?: number }[]; error?: string }>(
@@ -225,19 +252,19 @@ export const api = {
       snapshot: (id: string) =>
         request<{ ok: boolean; url: string; viewport: BrowserViewport; fields: BrowserField[] }>(`/jobs/${id}/browser/snapshot`),
     },
-    retry: (id: string) => request<any>(`/jobs/${id}/retry`, { method: "POST" }),
-    cancel: (id: string) => request<any>(`/jobs/${id}/cancel`, { method: "POST" }),
+    retry: (id: string) => request<Job>(`/jobs/${id}/retry`, { method: "POST" }),
+    cancel: (id: string) => request<Job>(`/jobs/${id}/cancel`, { method: "POST" }),
   },
 
   settings: {
-    provider: () => request<any>("/settings/provider"),
+    provider: () => request<ProviderStatus>("/settings/provider"),
     setProvider: (apiKey: string) =>
-      request<any>("/settings/provider", {
+      request<OkResponse>("/settings/provider", {
         method: "PUT",
         body: JSON.stringify({ api_key: apiKey }),
       }),
-    deleteKey: () => request<any>("/settings/provider/key", { method: "DELETE" }),
-    testConnection: () => request<any>("/settings/provider/test", { method: "POST" }),
+    deleteKey: () => request<OkResponse>("/settings/provider/key", { method: "DELETE" }),
+    testConnection: () => request<ProviderTestResult>("/settings/provider/test", { method: "POST" }),
     setPreferredProvider: (order: {
       primary: "chatgpt" | "mimo";
       fallback?: "chatgpt" | "mimo" | "none" | null;
@@ -260,9 +287,9 @@ export const api = {
         method: "DELETE",
       }),
     testBrave: () => request<{ ok: boolean; error?: string | null }>("/settings/brave/test", { method: "POST" }),
-    chatgptLogin: () => request<any>("/settings/chatgpt/login", { method: "POST" }),
-    chatgptCancelLogin: () => request<any>("/settings/chatgpt/login", { method: "DELETE" }),
-    chatgptLogout: () => request<any>("/settings/chatgpt", { method: "DELETE" }),
+    chatgptLogin: () => request<ChatGPTPendingLogin>("/settings/chatgpt/login", { method: "POST" }),
+    chatgptCancelLogin: () => request<OkResponse>("/settings/chatgpt/login", { method: "DELETE" }),
+    chatgptLogout: () => request<OkResponse>("/settings/chatgpt", { method: "DELETE" }),
     chatgptModels: () =>
       request<{
         models: string[];
@@ -427,7 +454,7 @@ export const api = {
         version_mismatch?: boolean;
         load_path?: string | null;
       }>("/extension/status"),
-    pairingToken: () => request<any>("/extension/pairing-token"),
+    pairingToken: () => request<{ token: string }>("/extension/pairing-token"),
     reload: () => request<{ ok: boolean; sent: boolean }>("/extension/reload", { method: "POST" }),
   },
 

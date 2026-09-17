@@ -4,6 +4,7 @@ import json
 import re
 import unittest
 from pathlib import Path
+from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
@@ -15,7 +16,7 @@ class ExtensionContentScriptVersionTest(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertRegex(match.group(1), r"^\d+\.\d+\.\d+$")
 
-        background = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        background = background_source()
         self.assertIn("importScripts('content-script-version.js')", background)
         self.assertIn("importScripts('studio-build.js')", background)
         self.assertIn("identPayload", background)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Index
+from sqlalchemy import Column, String, DateTime, ForeignKey, Index
 
 from vendoo_studio.database import Base
 from vendoo_studio.models.conversation import new_id, utcnow

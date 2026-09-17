@@ -1,43 +1,17 @@
-import React from "react";
-import ReactMarkdown, { type ExtraProps } from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
+import { lazy, Suspense } from "react";
+
+const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
 
 interface Props {
   text: string;
   lineBreaks?: boolean;
 }
 
-type MarkdownProps<Tag extends keyof React.JSX.IntrinsicElements> =
-  React.ComponentPropsWithoutRef<Tag> & ExtraProps;
-
+/** Renders chat markdown; shows plain text until the markdown bundle loads. */
 export function ChatMarkdown({ text, lineBreaks = false }: Props) {
   return (
-    <div className="chat-markdown">
-      <ReactMarkdown
-        remarkPlugins={lineBreaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
-        components={{
-          a({ href, children }: MarkdownProps<"a">) {
-            return (
-              <a href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            );
-          },
-          table({ children }: MarkdownProps<"table">) {
-            return (
-              <div className="chat-markdown-table-container">
-                <table>{children}</table>
-              </div>
-            );
-          },
-          input({ type, node: _node, ...props }: MarkdownProps<"input">) {
-            return <input type={type} disabled={type === "checkbox"} {...props} />;
-          },
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
+    <Suspense fallback={<div className="chat-markdown" style={{ whiteSpace: "pre-wrap" }}>{text}</div>}>
+      <MarkdownRenderer text={text} lineBreaks={lineBreaks} />
+    </Suspense>
   );
 }

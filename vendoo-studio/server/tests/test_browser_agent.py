@@ -6,7 +6,7 @@ import copy
 import json
 import time
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

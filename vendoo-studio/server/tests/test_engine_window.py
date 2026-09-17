@@ -5,10 +5,10 @@ import re
 import subprocess
 import unittest
 from pathlib import Path
+from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 PREVIEW = EXTENSION_DIR / "preview-screencast.js"
-BACKGROUND = EXTENSION_DIR / "background.js"
 
 
 def _helper_source() -> str:
@@ -100,7 +100,7 @@ console.log(JSON.stringify(result));
 
     def test_window_create_and_update_do_not_use_offscreen_coordinates(self) -> None:
         preview = PREVIEW.read_text(encoding="utf-8")
-        background = BACKGROUND.read_text(encoding="utf-8")
+        background = background_source()
         self.assertNotRegex(preview, r"left:\s*ENGINE_LEFT")
         self.assertNotRegex(preview, r"windows\.create\([^)]*left:\s*-")
         self.assertIn("createWindowSafe", preview)
@@ -115,7 +115,7 @@ console.log(JSON.stringify(result));
 class EverydayListingTabTest(unittest.TestCase):
     def test_listing_opens_in_a_dedicated_engine_window(self) -> None:
         preview = PREVIEW.read_text(encoding="utf-8")
-        background = BACKGROUND.read_text(encoding="utf-8")
+        background = background_source()
         self.assertIn("createWindowSafe", preview)
         self.assertIn("openEverydayListingTab", preview)
         self.assertIn("openEverydayListingTab", background)
@@ -126,7 +126,7 @@ class EverydayListingTabTest(unittest.TestCase):
         self.assertNotIn("everyday Chrome window", background)
 
     def test_listing_tab_closes_when_the_job_finishes(self) -> None:
-        background = BACKGROUND.read_text(encoding="utf-8")
+        background = background_source()
         preview = PREVIEW.read_text(encoding="utf-8")
         self.assertIn("closeListingTab", background)
         self.assertIn("Closed listing tab", preview)
@@ -137,7 +137,7 @@ class EverydayListingTabTest(unittest.TestCase):
 
     def test_listing_does_not_bring_chrome_to_front(self) -> None:
         preview = PREVIEW.read_text(encoding="utf-8")
-        background = BACKGROUND.read_text(encoding="utf-8")
+        background = background_source()
         self.assertIn("focused: false", preview)
         self.assertIn("await hideWindow(", preview)
         start = preview.index("async function startJobPreview")

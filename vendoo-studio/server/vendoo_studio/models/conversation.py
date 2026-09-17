@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import enum
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, UTC
 
-from sqlalchemy import Column, String, Text, DateTime, Enum, Integer, Float, ForeignKey, JSON, Boolean
+from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey
 from sqlalchemy.orm import relationship
 
 from vendoo_studio.database import Base
@@ -16,7 +14,7 @@ def new_id():
 
 
 def utcnow():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Conversation(Base):

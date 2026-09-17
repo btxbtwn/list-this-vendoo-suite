@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -16,23 +16,23 @@ router = APIRouter(prefix="/api/jobs/{job_id}/browser", tags=["browser"])
 
 
 class OpenRequest(BaseModel):
-    marketplace: Optional[str] = Field(default=None, max_length=20)
+    marketplace: str | None = Field(default=None, max_length=20)
 
 
 class InputEvent(BaseModel):
     kind: Literal["mouse", "key", "text"]
-    type: Optional[str] = Field(default=None, max_length=20)
-    x_ratio: Optional[float] = Field(default=None, ge=0, le=1)
-    y_ratio: Optional[float] = Field(default=None, ge=0, le=1)
-    button: Optional[str] = Field(default=None, max_length=10)
-    buttons: Optional[int] = Field(default=None, ge=0, le=31)
-    click_count: Optional[int] = Field(default=None, ge=0, le=3)
-    delta_x: Optional[float] = Field(default=None, ge=-2000, le=2000)
-    delta_y: Optional[float] = Field(default=None, ge=-2000, le=2000)
-    modifiers: Optional[int] = Field(default=None, ge=0, le=15)
-    key: Optional[str] = Field(default=None, max_length=20)
-    code: Optional[str] = Field(default=None, max_length=30)
-    text: Optional[str] = Field(default=None, max_length=2000)
+    type: str | None = Field(default=None, max_length=20)
+    x_ratio: float | None = Field(default=None, ge=0, le=1)
+    y_ratio: float | None = Field(default=None, ge=0, le=1)
+    button: str | None = Field(default=None, max_length=10)
+    buttons: int | None = Field(default=None, ge=0, le=31)
+    click_count: int | None = Field(default=None, ge=0, le=3)
+    delta_x: float | None = Field(default=None, ge=-2000, le=2000)
+    delta_y: float | None = Field(default=None, ge=-2000, le=2000)
+    modifiers: int | None = Field(default=None, ge=0, le=15)
+    key: str | None = Field(default=None, max_length=20)
+    code: str | None = Field(default=None, max_length=30)
+    text: str | None = Field(default=None, max_length=2000)
 
 
 class InputRequest(BaseModel):
@@ -46,14 +46,14 @@ class PickRequest(BaseModel):
 
 class ActRequest(BaseModel):
     action: Literal["click", "type", "press", "scroll", "wait"]
-    selector: Optional[str] = Field(default=None, max_length=300)
-    x_ratio: Optional[float] = Field(default=None, ge=0, le=1)
-    y_ratio: Optional[float] = Field(default=None, ge=0, le=1)
-    text: Optional[str] = Field(default=None, max_length=2000)
-    key: Optional[str] = Field(default=None, max_length=20)
-    delta_x: Optional[float] = Field(default=None, ge=-2000, le=2000)
-    delta_y: Optional[float] = Field(default=None, ge=-2000, le=2000)
-    ms: Optional[int] = Field(default=None, ge=0, le=15000)
+    selector: str | None = Field(default=None, max_length=300)
+    x_ratio: float | None = Field(default=None, ge=0, le=1)
+    y_ratio: float | None = Field(default=None, ge=0, le=1)
+    text: str | None = Field(default=None, max_length=2000)
+    key: str | None = Field(default=None, max_length=20)
+    delta_x: float | None = Field(default=None, ge=-2000, le=2000)
+    delta_y: float | None = Field(default=None, ge=-2000, le=2000)
+    ms: int | None = Field(default=None, ge=0, le=15000)
 
 
 def _job(db: Session, job_id: str):

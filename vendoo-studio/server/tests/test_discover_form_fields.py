@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from vendoo_studio.routes import extension as extension_routes
+from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
@@ -15,7 +16,7 @@ class DiscoverAllFormFieldsTest(unittest.TestCase):
         self.assertGreaterEqual(extension_routes.VENDOO_GET_TIMEOUT_SEC, 120)
 
     def test_get_vendoo_item_command_timeout_allows_discovery(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function commandTimeoutMs")
         end = text.index("function compactVendooValue")
         script = text[start:end] + """
@@ -36,9 +37,9 @@ console.log(JSON.stringify(result));
         self.assertGreaterEqual(result["discover"], 120000)
 
     def test_job_steps_discover_schema_before_marketplace_fill(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function buildJobSteps(job)")
-        end = text.index("const NEW_ITEM_URL")
+        end = text.index("function sleep(ms)")
         script = text[start:end] + """
 const steps = buildJobSteps({
   options: { platforms: ['ebay', 'poshmark'], clearBeforeFill: false, skipPhotos: true },
@@ -82,9 +83,9 @@ const auditAllMarketplaces = async () => ({ ok: true });
         self.assertLess(steps.index("filling_poshmark"), steps.index("saving_poshmark"))
 
     def test_job_steps_skip_discover_when_schema_cached(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function buildJobSteps(job)")
-        end = text.index("const NEW_ITEM_URL")
+        end = text.index("function sleep(ms)")
         script = text[start:end] + """
 const steps = buildJobSteps({
   options: {

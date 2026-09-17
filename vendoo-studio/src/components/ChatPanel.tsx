@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
+import type { Job, Message } from "../api/types";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
@@ -192,7 +193,7 @@ function summarizeMissingFields(
 function stripJsonPayloads(text: string): string {
   let visible = text.replace(/```(?:json)?\s*[\s\S]*?(```|$)/gi, "\n");
   visible = visible.replace(/\n\s*\[[\s\S]*$/, "\n").replace(/\n\s*\{[\s\S]*$/, "\n").trim();
-  if (/^[\[{]/.test(visible)) return "";
+  if (/^[[{]/.test(visible)) return "";
   return visible;
 }
 
@@ -256,6 +257,12 @@ function detailFromResponseBody(body: unknown): string {
       .join("; ");
   }
   return detail != null ? String(detail) : "";
+}
+
+type StreamRequestError = Error & { httpStatus?: number; body?: unknown };
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "AbortError";
 }
 
 /** Turn opaque browser/HTTP failures into actionable chat errors. */
@@ -489,7 +496,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const [streamText, setStreamText] = useState(live.streamText);
   const [streamThinking, setStreamThinking] = useState(live.streamThinking);
   const [streamStatus, setStreamStatus] = useState(live.streamStatus);
-  const [thinkingStarted, setThinkingStarted] = useState(live.thinkingStarted);
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(live.failedAction);
   const [lastSendText, setLastSendText] = useState(live.lastSendText);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -536,7 +542,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   });
 
   const activeProbe = (jobs || []).find(
-    (j: any) =>
+    (j) =>
       j.conversation_id === convId
       && j.mode === "schema_probe"
       && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
@@ -550,7 +556,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       setStreamText(next.streamText);
       setStreamThinking(next.streamThinking);
       setStreamStatus(next.streamStatus);
-      setThinkingStarted(next.thinkingStarted);
       setFailedAction(next.failedAction);
       setLastSendText(next.lastSendText);
     };
@@ -628,8 +633,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     const stillMine = () => getLive(convId).controller === controller;
     const errorContext = () => {
       const live = getLive(convId);
-      const probe = (queryClient.getQueryData<any[]>(["jobs"]) || []).find(
-        (j: any) =>
+      const probe = (queryClient.getQueryData<Job[]>(["jobs"]) || []).find(
+        (j) =>
           j.conversation_id === convId
           && j.mode === "schema_probe"
           && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
@@ -694,12 +699,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
             continue;
           }
           break;
-        } catch (first: any) {
+        } catch (first) {
           // Generation continues server-side; keep reattaching through mobile drops mid-discovery.
           if (
             canResumeGenerate
             && stillMine()
-            && first?.name !== "AbortError"
+            && !isAbortError(first)
             && isNetworkFailure(first)
             && attempt < maxAttempts
           ) {
@@ -726,8 +731,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         }
         if (isStreamError(assembled)) patchLive(convId, { failedAction: "generate" });
       }
-    } catch (e: any) {
-      if (e?.name === "AbortError") {
+    } catch (e) {
+      if (isAbortError(e)) {
         if (!stillMine()) return;
         if (getLive(convId).userCancelled) {
           const restoreText = getLive(convId).lastSendText;
@@ -751,9 +756,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         return;
       }
       if (stillMine()) {
-        assembled = formatClientStreamError(e?.body || e, {
+        const failure = e as StreamRequestError | null;
+        assembled = formatClientStreamError(failure?.body || e, {
           ...errorContext(),
-          httpStatus: e?.httpStatus,
+          httpStatus: failure?.httpStatus,
         });
         patchLive(convId, {
           streamText: assembled,
@@ -868,8 +874,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         });
       }
       return;
-    } catch (e: any) {
-      if (e?.name === "AbortError") {
+    } catch (e) {
+      if (isAbortError(e)) {
         if (!stillMine()) return;
         if (getLive(convId).userCancelled) {
           const restore = getLive(convId).restoreInputOnAbort;
@@ -926,7 +932,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       void api.conversations.cancelMessages(convId);
     }
     const probe = (jobs || []).find(
-      (j: any) =>
+      (j) =>
         j.conversation_id === convId
         && j.mode === "schema_probe"
         && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
@@ -977,9 +983,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     void handleGenerate();
   }, [failedAction, lastSendText, sendMessage, handleGenerate, activeProbe?.id, handleCancelDiscovery, convId, streamText]);
 
-  const hasPhotos = (photos && (photos as any[]).length > 0);
-  const hasMessages = messages && (messages as any[]).length > 0;
-  const hasListingJson = Boolean(messages?.some((m: any) => {
+  const hasPhotos = Boolean(photos && photos.length > 0);
+  const hasMessages = Boolean(messages && messages.length > 0);
+  const hasListingJson = Boolean(messages?.some((m) => {
     const json = extractJson(m.text);
     return Boolean(json && isListingJson(json));
   }) || (listing?.listing && isListingJson(JSON.stringify(listing.listing))));
@@ -1002,7 +1008,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   // hide the live bubble once the same assistant prose is already on screen.
   const streamAlreadyPersisted = Boolean(
     streamVisible
-      && messages?.some((m: any) => {
+      && messages?.some((m) => {
         if (m.role !== "assistant" && m.role !== "model") return false;
         return assistantDisplayText(m.text) === streamVisible;
       }),
@@ -1013,9 +1019,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const awaitingSellerAnswers = Boolean(
     messages?.length
       && (() => {
-        const lastUserIdx = [...messages].map((m: any) => m.role).lastIndexOf("user");
+        const lastUserIdx = [...messages].map((m) => m.role).lastIndexOf("user");
         // Legacy conversations may still have system prompts that asked for answers.
-        return messages.slice(lastUserIdx + 1).some((m: any) => {
+        return messages.slice(lastUserIdx + 1).some((m) => {
           if (m.role !== "system") return false;
           return /answer the questions above|please confirm|waiting for your answers/i.test(m.text || "");
         });
@@ -1060,7 +1066,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     });
   }, [convId, hasListingJson]);
 
-  function renderMessage(m: any) {
+  function renderMessage(m: Message) {
     if (m.role === "user") {
       return (
         <div key={m.id} className="msg msg-user">
@@ -1121,7 +1127,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
             <h3 style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 20, marginBottom: 4, lineHeight: 1.2 }}>Generate a Listing</h3>
             {hasPhotos ? (
               <>
-                <p className="text-xs font-mono text-muted">{(photos as any[]).length} photo{(photos as any[]).length !== 1 ? "s" : ""} uploaded</p>
+                <p className="text-xs font-mono text-muted">{photos?.length ?? 0} photo{photos?.length !== 1 ? "s" : ""} uploaded</p>
                 <button type="button" className="btn btn-primary" onClick={handleGenerate} disabled={generating || streaming} style={{ marginTop: 12, padding: "9px 22px" }}>
                   Generate Listing
                 </button>
