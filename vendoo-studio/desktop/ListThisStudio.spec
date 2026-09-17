@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from pathlib import Path
 
 from PyInstaller.building.api import COLLECT, EXE, PYZ
@@ -97,6 +98,9 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    # PyInstaller signs every binary and the bundle with this identity; see
+    # scripts/package-macos-app.sh. Unset means PyInstaller's ad-hoc signature.
+    codesign_identity=os.environ.get("MACOS_SIGNING_IDENTITY") or None,
 )
 coll = COLLECT(
     exe,
