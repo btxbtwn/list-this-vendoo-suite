@@ -103,6 +103,18 @@
   background: var(--color-ink);
 }
 
+/* Expanded: the browser takes the whole workspace; chat, photos, and details hide. */
+.listing-workspace.is-browser-expanded .listing-workspace-main {
+  display: none;
+}
+
+.listing-workspace.is-browser-expanded .browser-preview.is-open {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  border-top: none;
+}
+
 .browser-preview-bar {
   display: flex;
   align-items: center;

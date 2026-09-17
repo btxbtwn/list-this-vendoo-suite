@@ -186,7 +186,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={() => onOpenBrowser(listingJob.id)}
               >
-                {browserOpen ? "Browsing" : "Browse draft"}
+                Browser
               </button>
             )}
             <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />

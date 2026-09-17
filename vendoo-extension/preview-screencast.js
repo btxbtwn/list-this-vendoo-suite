@@ -428,10 +428,12 @@ async function openEverydayListingTab(url, existing, { foreground = false } = {}
     }
     await closeSpareBlankTabs(created.id, tab.id);
     await closeEmptyEngineWindows(created.id);
-    // Always bring a freshly created engine window on-screen. Callers that want
-    // background fills can hide afterward; never create an invisible first window.
-    await showWindow(created.id);
-    if (!foreground) await hideWindow(created.id);
+    // Keep a freshly created engine window on-screen (Chrome stops painting
+    // minimized or off-screen windows, which freezes the live view and the
+    // fill). Only focus it when the caller asked for the foreground; otherwise
+    // it stays behind Studio so the seller keeps working.
+    if (foreground) await showWindow(created.id);
+    else await hideWindow(created.id);
     return tab;
   } catch (err) {
     log(`Could not open listing in a new window (${err.message})`);
