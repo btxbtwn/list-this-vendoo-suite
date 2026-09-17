@@ -6673,6 +6673,197 @@
   // INIT
   // ============================================
 
+  // ---- Studio interactive browser: read-only field inspection ----
+  const INSPECT_CONTROL_SELECTOR = 'input, textarea, select, [role="combobox"]';
+  const INSPECT_MUI_ROOT_SELECTOR = '.MuiFormControl-root, .MuiAutocomplete-root, .MuiSelect-root, [class*="MuiFormControl-root"], [class*="MuiAutocomplete-root"], [class*="MuiSelect-root"]';
+  const INSPECT_MARKETPLACES = ['ebay', 'etsy', 'poshmark', 'mercari', 'depop'];
+  const INSPECT_MAX_FIELDS = 250;
+  const INSPECT_MAX_OPTIONS = 60;
+  const INSPECT_SKIP_TYPES = new Set(['hidden', 'submit', 'button', 'reset', 'file', 'image']);
+  // Controls an agent must never press. Saving drafts is fine; going live is not.
+  const INSPECT_DANGER_RE = /\b(publish|list now|list item|relist|delist|delete|remove item|mark (as )?sold|crosslist|end listing)\b/i;
+
+  function isInspectableControl(el) {
+      if (!el || !el.matches || !el.matches(INSPECT_CONTROL_SELECTOR)) return false;
+      if (el.closest('#vendoo-debug-box')) return false;
+      const type = String(el.type || '').toLowerCase();
+      if (INSPECT_SKIP_TYPES.has(type)) return false;
+      return isVisibleElement(el);
+  }
+
+  function inspectMarketplace(el) {
+      const parent = el.closest && el.closest('[id]');
+      const ids = `${el.id || ''} ${el.name || ''} ${parent ? parent.id : ''}`;
+      const match = ids.match(/listings\.([a-z]+)\./i);
+      if (match) return match[1].toLowerCase();
+      for (const marketplace of INSPECT_MARKETPLACES) {
+          if (marketplaceFieldNode(el, marketplace)) return marketplace;
+      }
+      if (/generalDetails|categoryV2|^labels$/i.test(ids)) return 'general';
+      try {
+          const fromUrl = new URL(window.location.href).searchParams.get('marketplace');
+          if (fromUrl && INSPECT_MARKETPLACES.includes(fromUrl.toLowerCase())) return fromUrl.toLowerCase();
+      } catch (_) {}
+      return 'general';
+  }
+
+  function inspectRect(el) {
+      const box = (el.closest && el.closest(INSPECT_MUI_ROOT_SELECTOR)) || el;
+      const rect = box.getBoundingClientRect();
+      return {
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+      };
+  }
+
+  function describeFieldControl(el) {
+      const label = scrapedFieldLabel(el) || fieldLabelForControl(el);
+      const marketplace = inspectMarketplace(el);
+      const key = normalizeFieldKey(label);
+      const nativeSelect = el.tagName === 'SELECT';
+      let value = nativeSelect
+          ? (el.multiple
+              ? Array.from(el.selectedOptions).map((option) => option.textContent.trim())
+              : (el.value ? el.selectedOptions[0]?.textContent.trim() || '' : ''))
+          : readPersistedControlValue(el);
+      if (!nativeSelect && typeof value === 'string' && value && !fieldLooksFilled(el)) value = '';
+      if (Array.isArray(value)) value = value.join(', ');
+      if (typeof value === 'boolean') value = value ? 'Yes' : 'No';
+      const text = String(value == null ? '' : value).slice(0, 500);
+      const described = String(el.getAttribute('aria-errormessage') || el.getAttribute('aria-describedby') || '')
+          .split(/\s+/).map((id) => (id && document.getElementById(id)?.textContent) || '').join(' ').trim();
+      return {
+          marketplace,
+          label,
+          key,
+          selector: selectorFor(el, ''),
+          value: text,
+          filled: Boolean(text),
+          required: Boolean(el.required || el.getAttribute('aria-required') === 'true' || /\*/.test(label)),
+          disabled: !isEnabledField(el),
+          is_dropdown: isDropdownLike(el),
+          account_managed: Boolean(key && (isAccountSettingField(key) || isAccountManagedField(marketplace, key))),
+          error: el.getAttribute('aria-invalid') === 'true' ? (described || 'Form rejected this value').slice(0, 200) : '',
+          options: nativeSelect
+              ? Array.from(el.options)
+                  .filter((option) => !option.disabled && option.value !== '')
+                  .map((option) => option.textContent.trim())
+                  .slice(0, INSPECT_MAX_OPTIONS)
+              : [],
+          rect: inspectRect(el),
+      };
+  }
+
+  function controlAtPoint(x, y) {
+      for (const el of document.elementsFromPoint(x, y)) {
+          if (el === document.documentElement || el === document.body) continue;
+          if (el.closest && el.closest('#vendoo-debug-box')) continue;
+          if (isInspectableControl(el)) return el;
+          if (el.tagName === 'LABEL' && el.htmlFor) {
+              const target = document.getElementById(el.htmlFor);
+              if (isInspectableControl(target)) return target;
+          }
+          const root = el.closest && el.closest(INSPECT_MUI_ROOT_SELECTOR);
+          if (root) {
+              const inner = Array.from(root.querySelectorAll(INSPECT_CONTROL_SELECTOR)).find(isInspectableControl);
+              if (inner) return inner;
+          }
+      }
+      return null;
+  }
+
+  function describeElementAtPoint(x, y) {
+      const el = document.elementsFromPoint(x, y)
+          .find((node) => node !== document.documentElement && node !== document.body && !(node.closest && node.closest('#vendoo-debug-box')));
+      if (!el) return null;
+      const clickable = (el.closest && el.closest('button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="option"], label')) || el;
+      const text = String(clickable.innerText || clickable.textContent || clickable.getAttribute('aria-label') || '')
+          .replace(/\s+/g, ' ').trim().slice(0, 120);
+      const rect = clickable.getBoundingClientRect();
+      return {
+          tag: clickable.tagName.toLowerCase(),
+          role: clickable.getAttribute('role') || '',
+          text,
+          danger: INSPECT_DANGER_RE.test(`${text} ${clickable.getAttribute('aria-label') || ''}`) || /^list\b(?!ing)/i.test(text),
+          rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) },
+      };
+  }
+
+  function describeFocusedElement() {
+      const el = document.activeElement;
+      if (!el || el === document.body || el === document.documentElement) return { ok: true, element: null };
+      const rect = el.getBoundingClientRect();
+      return {
+          ok: true,
+          element: describeElementAtPoint(rect.left + rect.width / 2, rect.top + rect.height / 2),
+      };
+  }
+
+  function inspectViewport() {
+      return {
+          width: window.innerWidth || 0,
+          height: window.innerHeight || 0,
+          scroll_x: Math.round(window.scrollX || 0),
+          scroll_y: Math.round(window.scrollY || 0),
+      };
+  }
+
+  function pickFieldAt(xRatio, yRatio) {
+      const x = Math.max(0, Math.min(1, Number(xRatio) || 0)) * (window.innerWidth || 0);
+      const y = Math.max(0, Math.min(1, Number(yRatio) || 0)) * (window.innerHeight || 0);
+      const control = controlAtPoint(x, y);
+      return {
+          ok: true,
+          url: window.location.href,
+          viewport: inspectViewport(),
+          field: control ? describeFieldControl(control) : null,
+          element: describeElementAtPoint(x, y),
+      };
+  }
+
+  function snapshotFields() {
+      const fields = [];
+      const seen = new Set();
+      for (const el of document.querySelectorAll(INSPECT_CONTROL_SELECTOR)) {
+          if (fields.length >= INSPECT_MAX_FIELDS) break;
+          if (!isInspectableControl(el) || !isListingFormControl(el)) continue;
+          const field = describeFieldControl(el);
+          if (!field.label) continue;
+          const identity = `${field.marketplace}:${field.key}`;
+          if (seen.has(identity)) continue;
+          seen.add(identity);
+          fields.push(field);
+      }
+      return {
+          ok: true,
+          url: window.location.href,
+          title: document.title || '',
+          viewport: inspectViewport(),
+          fields,
+      };
+  }
+
+  function locateSelector(selector) {
+      let el = null;
+      try {
+          el = document.querySelector(String(selector || ''));
+      } catch (_) {
+          return { ok: false, error: 'Invalid selector' };
+      }
+      if (!el || !isVisibleElement(el)) return { ok: false, error: 'Element not found on the Vendoo page' };
+      el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      const rect = el.getBoundingClientRect();
+      const width = window.innerWidth || 1;
+      const height = window.innerHeight || 1;
+      return {
+          ok: true,
+          x_ratio: (rect.left + rect.width / 2) / width,
+          y_ratio: (rect.top + rect.height / 2) / height,
+      };
+  }
+
   function init() {
       log(`✓ Content script loaded on ${window.location.hostname}`);
       
@@ -6804,6 +6995,26 @@
               waitForListingFormReady(msg.timeoutMs || 30000)
                   .then((result) => sendResponse(result))
                   .catch((err) => sendResponse({ ok: false, error: err.message }));
+              return true;
+          }
+
+          if (msg.type === 'PICK_FIELD_AT') {
+              sendResponse(pickFieldAt(msg.x_ratio, msg.y_ratio));
+              return true;
+          }
+
+          if (msg.type === 'SNAPSHOT_FIELDS') {
+              sendResponse(snapshotFields());
+              return true;
+          }
+
+          if (msg.type === 'DESCRIBE_FOCUS') {
+              sendResponse(describeFocusedElement());
+              return true;
+          }
+
+          if (msg.type === 'LOCATE_SELECTOR') {
+              sendResponse(locateSelector(msg.selector));
               return true;
           }
 

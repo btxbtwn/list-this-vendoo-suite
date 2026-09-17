@@ -32,6 +32,61 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface BrowserRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserViewport {
+  width: number;
+  height: number;
+  scroll_x?: number;
+  scroll_y?: number;
+}
+
+export interface BrowserField {
+  marketplace: string;
+  label: string;
+  key: string;
+  selector: string;
+  value: string;
+  filled: boolean;
+  required: boolean;
+  disabled: boolean;
+  is_dropdown: boolean;
+  account_managed: boolean;
+  error: string;
+  options: string[];
+  rect: BrowserRect;
+}
+
+export interface BrowserInputEvent {
+  kind: "mouse" | "key" | "text";
+  type?: string;
+  x_ratio?: number;
+  y_ratio?: number;
+  button?: "none" | "left" | "middle" | "right";
+  buttons?: number;
+  click_count?: number;
+  delta_x?: number;
+  delta_y?: number;
+  modifiers?: number;
+  key?: string;
+  code?: string;
+  text?: string;
+}
+
+export interface BrowserDirectTarget {
+  marketplace: string;
+  field: string;
+  value?: string;
+  selector?: string;
+  options?: string[];
+  account_managed?: boolean;
+}
+
 export const api = {
   catalog: {
     status: () => request<{running: boolean; complete: boolean; marketplaces: Record<string,
@@ -159,6 +214,31 @@ export const api = {
       ),
     open: (id: string) =>
       request<{ ok: boolean; url: string; via: "extension" | "chrome" }>(`/jobs/${id}/open`, { method: "POST" }),
+    browser: {
+      open: (id: string) =>
+        request<{ ok: boolean; controller: string; input?: boolean; warning?: string }>(`/jobs/${id}/browser/open`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        }),
+      close: (id: string) => request<{ ok: boolean }>(`/jobs/${id}/browser/close`, { method: "POST" }),
+      input: (id: string, events: BrowserInputEvent[]) =>
+        request<{ sent: boolean }>(`/jobs/${id}/browser/input`, {
+          method: "POST",
+          body: JSON.stringify({ events }),
+        }),
+      pick: (id: string, xRatio: number, yRatio: number) =>
+        request<{ ok: boolean; viewport: BrowserViewport; field: BrowserField | null; element: { text: string; danger: boolean } | null }>(
+          `/jobs/${id}/browser/pick`,
+          { method: "POST", body: JSON.stringify({ x_ratio: xRatio, y_ratio: yRatio }) },
+        ),
+      snapshot: (id: string) =>
+        request<{ ok: boolean; url: string; viewport: BrowserViewport; fields: BrowserField[] }>(`/jobs/${id}/browser/snapshot`),
+      direct: (id: string, note: string, targets: BrowserDirectTarget[]) =>
+        request<{ ok: boolean; patches: { marketplace: string; field: string; value: string }[]; skipped: { field: string }[]; error?: string }>(
+          `/jobs/${id}/browser/direct`,
+          { method: "POST", body: JSON.stringify({ note, targets }) },
+        ),
+    },
     retry: (id: string) => request<any>(`/jobs/${id}/retry`, { method: "POST" }),
     cancel: (id: string) => request<any>(`/jobs/${id}/cancel`, { method: "POST" }),
   },
