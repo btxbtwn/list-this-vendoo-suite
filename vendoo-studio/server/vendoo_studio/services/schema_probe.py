@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from vendoo_studio.models.job import Job
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.vendoo_import import merge_notes, parse_notes, vendoo_binding
+from datetime import UTC
 
 log = logging.getLogger("vendoo_studio.schema_probe")
 
@@ -132,8 +133,8 @@ def maybe_start_schema_probe(
             continue
         if (prior.listing_snapshot or {}).get("platforms") != platforms:
             continue
-        from datetime import datetime, timedelta, timezone
-        if prior.created_at and prior.created_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc) - timedelta(days=1):
+        from datetime import datetime, timedelta
+        if prior.created_at and prior.created_at.replace(tzinfo=UTC) < datetime.now(UTC) - timedelta(days=1):
             continue
         if prior.status in {"queued", "awaiting_extension", "dispatched"}:
             return {"started": False, "reason": "already_running", "job_id": prior.id}
@@ -402,7 +403,7 @@ async def await_deferred_schema(db: Session, seed: dict, *, timeout: float = 300
     try:
         try:
             response = await asyncio.wait_for(waiter, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning("deferred schema probe timed out for job %s", job_id)
             return None
         if not response.get("ok"):

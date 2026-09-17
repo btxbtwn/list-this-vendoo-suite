@@ -1,6 +1,8 @@
 import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import type { Job, ListingData } from "../api/types";
+import { cloneListing, getNestedValue, setNestedValue } from "../listingPaths";
 import { FillLogPanel } from "./FillLogPanel";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { OpenListingButton } from "./OpenListingButton";
@@ -45,7 +47,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
     queryFn: () => api.jobs.list(convId),
     refetchInterval: 2000,
   });
-  const listingJob = jobs?.find((j: any) => j.conversation_id === convId && j.status !== "cancelled");
+  const listingJob = jobs?.find((j) => j.conversation_id === convId && j.status !== "cancelled");
   const schemaProbeActive = Boolean(
     listingJob?.mode === "schema_probe"
     && ["queued", "awaiting_extension", "dispatched"].includes(String(listingJob?.status || "")),
@@ -60,7 +62,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
     },
     onSuccess: ({ job, fresh }) => {
       setEnsureError(null);
-      queryClient.setQueryData(["jobs", convId], (old: any[] | undefined) => {
+      queryClient.setQueryData(["jobs", convId], (old: Job[] | undefined) => {
         const rest = (old || []).filter((item) => item.id !== job.id);
         return [job, ...rest];
       });
@@ -102,7 +104,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
   });
 
   const updateMutation = useMutation({
-    mutationFn: (listing: any) => api.listings.update(convId, listing),
+    mutationFn: (listing: ListingData) => api.listings.update(convId, listing),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["listing", convId] }),
   });
 
@@ -315,12 +317,12 @@ function StructuredEditor({
   onChange,
   onCategoryMatched,
 }: {
-  listing: any;
+  listing: ListingData;
   revisionId?: string | null;
   tab: string;
   jobId?: string;
   jobBusy?: boolean;
-  onChange: (v: any) => void;
+  onChange: (v: ListingData) => void;
   onCategoryMatched?: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -333,7 +335,7 @@ function StructuredEditor({
   });
 
   const resolveCategory = useMutation({
-    mutationFn: () => api.jobs.resolveCategory(jobId || "", local.category_path || listing.category_path),
+    mutationFn: () => api.jobs.resolveCategory(jobId || "", local.category_path || stringValue(listing.category_path)),
     onSuccess: (result) => {
       if (result.path) {
         setLocal((current) => ({ ...current, category_path: result.path || "" }));
@@ -344,7 +346,7 @@ function StructuredEditor({
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       onCategoryMatched?.();
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       addToast({ type: "error", title: "Could not match category", description: err.message || "Vendoo picker search failed" });
     },
   });
@@ -410,7 +412,7 @@ function StructuredEditor({
   );
 }
 
-function getFieldsForTab(listing: any, tab: string): EditorField[] {
+function getFieldsForTab(listing: ListingData | undefined, tab: string): EditorField[] {
   switch (tab) {
     case "general":
       return [
@@ -482,7 +484,7 @@ function getFieldsForTab(listing: any, tab: string): EditorField[] {
 }
 
 function mergeSpecificsWithDefaults(
-  specs: Record<string, any> | undefined,
+  specs: unknown,
   prefix: string,
   defaults: EditorField[],
 ): EditorField[] {
@@ -494,10 +496,10 @@ function mergeSpecificsWithDefaults(
   return [...ordered, ...extras];
 }
 
-function specificsFields(specs: Record<string, any> | undefined, prefix: string, skip: string[] = []): EditorField[] {
+function specificsFields(specs: unknown, prefix: string, skip: string[] = []): EditorField[] {
   if (!specs || typeof specs !== "object") return [];
   const fields: EditorField[] = [];
-  for (const [key, value] of Object.entries(specs)) {
+  for (const [key, value] of Object.entries(specs as Record<string, unknown>)) {
     if (skip.includes(key)) continue;
     if (key === "category_specifics" && value && typeof value === "object" && !Array.isArray(value)) {
       for (const nested of Object.keys(value)) {
@@ -508,30 +510,6 @@ function specificsFields(specs: Record<string, any> | undefined, prefix: string,
     fields.push({ key: `${prefix}.${key}`, label: key });
   }
   return fields;
-}
-
-function getNestedValue(obj: any, path: string): any {
-  return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
-}
-
-function cloneListing(listing: any): any {
-  try {
-    return JSON.parse(JSON.stringify(listing || {}));
-  } catch {
-    return { ...(listing || {}) };
-  }
-}
-
-function setNestedValue(obj: any, path: string, value: any): any {
-  const keys = path.split(".");
-  const last = keys.pop()!;
-  let target = obj;
-  for (const k of keys) {
-    if (!target[k] || typeof target[k] !== "object") target[k] = {};
-    target = target[k];
-  }
-  target[last] = value;
-  return obj;
 }
 
 function notesVendooItemId(notes?: string | null): string | null {
@@ -658,7 +636,11 @@ function VendooLinkControl({
   );
 }
 
-function coerce(val: string): any {
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function coerce(val: string): string | number | null {
   if (val === "") return null;
   if (!isNaN(Number(val)) && val.trim() !== "") return Number(val);
   return val;
@@ -696,13 +678,13 @@ function SendToVendooButton({
     refetchInterval: 2000,
   });
 
-  const rememberJob = (job: any) => {
+  const rememberJob = (job: Job) => {
     if (!job?.id) return;
-    queryClient.setQueryData(["jobs", convId], (old: any[] | undefined) => {
+    queryClient.setQueryData(["jobs", convId], (old: Job[] | undefined) => {
       const rest = (old || []).filter((item) => item.id !== job.id);
       return [job, ...rest];
     });
-    queryClient.setQueryData(["jobs"], (old: any[] | undefined) => {
+    queryClient.setQueryData(["jobs"], (old: Job[] | undefined) => {
       const rest = (old || []).filter((item) => item.id !== job.id);
       return [job, ...rest];
     });
@@ -717,7 +699,7 @@ function SendToVendooButton({
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
       onJobStarted?.();
     },
-    onError: (err: any) => setError(err.message || "Failed to send"),
+    onError: (err: Error) => setError(err.message || "Failed to send"),
   });
 
   const retryMutation = useMutation({
@@ -729,7 +711,7 @@ function SendToVendooButton({
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
       onJobStarted?.();
     },
-    onError: (err: any) => setError(err.message || "Failed to retry"),
+    onError: (err: Error) => setError(err.message || "Failed to retry"),
   });
 
   const cancelMutation = useMutation({
@@ -739,14 +721,14 @@ function SendToVendooButton({
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
-    onError: (err: any) => setError(err.message || "Failed to cancel"),
+    onError: (err: Error) => setError(err.message || "Failed to cancel"),
   });
 
   const existingJob = jobs?.find(
-    (j: any) => j.conversation_id === convId && j.status !== "cancelled" && j.status !== "imported",
+    (j) => j.conversation_id === convId && j.status !== "cancelled" && j.status !== "imported",
   );
   // Jobs come back newest-first, so a cancelled head job means the last send was stopped by hand.
-  const latestFillJob = jobs?.find((j: any) => j.conversation_id === convId && j.mode !== "schema_probe");
+  const latestFillJob = jobs?.find((j) => j.conversation_id === convId && j.mode !== "schema_probe");
   const cancelledJob = latestFillJob?.status === "cancelled" ? latestFillJob : null;
   const isSchemaProbe = existingJob?.mode === "schema_probe";
   const probeActive = Boolean(
@@ -759,7 +741,7 @@ function SendToVendooButton({
   // Field discovery may already bind a Vendoo draft ID. That is still a first Send from the operator's
   // point of view until a real fill/import job has run for this conversation.
   const hasSentBefore = (jobs || []).some(
-    (j: any) =>
+    (j) =>
       j.conversation_id === convId
       && j.status !== "cancelled"
       && j.mode !== "schema_probe",
@@ -838,15 +820,15 @@ function SendToVendooButton({
     const isQueued = fillJob.status === "queued" || fillJob.status === "awaiting_extension";
     const completionStep = ["awaiting_answers", "completion_blocked", "resolving_fields", "verifying_draft", "verified_complete"].includes(fillJob.current_step || "");
     const queueJobs = (jobs || [])
-      .filter((j: any) =>
+      .filter((j) =>
         ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || ""))
         && j.mode !== "schema_probe",
       )
       .slice()
-      .sort((a: any, b: any) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
-    const queuePosition = Math.max(1, queueJobs.findIndex((j: any) => j.id === fillJob.id) + 1);
+      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    const queuePosition = Math.max(1, queueJobs.findIndex((j) => j.id === fillJob.id) + 1);
     const queueDepth = queueJobs.length;
-    const waitingInQueue = isQueued && (queuePosition > 1 || queueJobs.some((j: any) => j.status === "dispatched" && j.id !== fillJob.id));
+    const waitingInQueue = isQueued && (queuePosition > 1 || queueJobs.some((j) => j.status === "dispatched" && j.id !== fillJob.id));
     const stepLabel: Record<string, string> = {
       awaiting_answers: "Waiting for draft review",
       completion_blocked: "Completion needs review",

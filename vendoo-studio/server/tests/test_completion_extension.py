@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import subprocess
 import unittest
+from extension_sources import background_source
 
 EXTENSION = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
@@ -159,7 +160,7 @@ console.log(JSON.stringify([readCategoryDisplay(button), readCategoryDisplay({te
         self.assertEqual(result, ["Clothing > Women's Clothing > Tops & Tees > T-shirts", ""])
 
     def test_failed_probe_releases_job_before_reporting_failure(self):
-        source = (EXTENSION / "background.js").read_text()
+        source = background_source()
         function = source[source.index("async function runJob"):source.index("function buildJobSteps")]
         script = """
 let activeJob = {job_id: 'probe', tabId: 3, options: {mode: 'schema_probe'}};
@@ -273,7 +274,7 @@ const CONFIG = {SLEEP_SHORT: 1};
         self.assertEqual([entry["status"] for entry in result["entries"]], ["filled", "filled", "filled", "invalid"])
 
     def test_refill_reads_saved_draft_even_when_save_rejects_values(self):
-        source = (EXTENSION / "background.js").read_text()
+        source = background_source()
         functions = source[source.index("async function runFillFields"):source.index("function compactVendooValue")]
         script = """
 let activePatch = null;
@@ -320,7 +321,7 @@ const verifySavedDraft = async (job) => {
         self.assertIsNone(result["activePatch"])
 
     def test_manual_apply_skips_full_draft_verification(self):
-        source = (EXTENSION / "background.js").read_text()
+        source = background_source()
         functions = source[source.index("async function runFillFields"):source.index("function compactVendooValue")]
         script = """
 let activePatch = null;
@@ -358,7 +359,7 @@ const verifySavedDraft = async () => {
         self.assertIsNone(result["activePatch"])
 
     def test_verification_reloads_before_reading_and_checks_readiness(self):
-        source = (EXTENSION / "background.js").read_text()
+        source = background_source()
         function = source[source.index("async function verifySavedDraft"):source.index("async function auditGeneral")]
         script = """
 const calls = [];

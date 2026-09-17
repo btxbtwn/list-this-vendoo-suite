@@ -204,7 +204,12 @@ def _collect_choices(
         ordered: list[CategoryTreeNode] = []
         seen_ids: set[str] = set()
 
-        def _take(node: CategoryTreeNode | None) -> None:
+        def _take(
+            node: CategoryTreeNode | None,
+            prefix: str | None = prefix,
+            seen_ids: set[str] = seen_ids,
+            ordered: list[CategoryTreeNode] = ordered,
+        ) -> None:
             if node is None or node.category_id in seen_ids:
                 return
             if prefix and not node.path.startswith(prefix.rstrip() + " >") and node.path != prefix:

@@ -122,6 +122,7 @@ def _extension_script_files() -> list[Path]:
         path = root / rel
         if path.is_file():
             paths.append(path)
+    paths.extend(sorted((root / "background").glob("*.js")))
     return paths
 
 

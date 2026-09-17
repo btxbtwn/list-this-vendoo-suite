@@ -17,15 +17,14 @@ SKIP_PARTS = {
     ".gitignore",
     ".playwright-mcp",
     ".pytest_cache",
-    "IMPROVEMENTS.md",
     "README.md",
     "TROUBLESHOOTING.md",
+    "diagnostic-tool.js",
     "__pycache__",
     "node_modules",
     "sample-listing.json",
-    "skills",
-    "test-script.js",
     "studio-build.js",
+    "tests",
 }
 
 

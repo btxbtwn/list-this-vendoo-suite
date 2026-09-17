@@ -263,7 +263,10 @@
       try {
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         if (doc && doc.body) {
-          doc.body.innerHTML = value.replace(/\n/g, '<br>');
+          const lines = String(value).split('\n');
+          doc.body.replaceChildren(...lines.flatMap((line, index) => (
+            index === 0 ? [doc.createTextNode(line)] : [doc.createElement('br'), doc.createTextNode(line)]
+          )));
           log('✓ Description (iframe)');
           return true;
         }

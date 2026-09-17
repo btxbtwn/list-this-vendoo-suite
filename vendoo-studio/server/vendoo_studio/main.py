@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -60,9 +59,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(health.router)

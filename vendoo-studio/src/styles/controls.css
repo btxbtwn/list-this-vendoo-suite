@@ -1,0 +1,125 @@
+/* ── Buttons ── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: var(--radius-xs);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  transition: background 0.1s, box-shadow 0.1s, color 0.1s;
+}
+
+.btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-cobalt);
+  outline: none;
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-cobalt);
+  color: var(--color-accent-ink);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-cobalt-hover);
+}
+
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-paper);
+  border-color: var(--color-border-bright);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--color-border-light);
+}
+
+.btn-success {
+  background: var(--color-vendoo);
+  color: var(--color-accent-ink);
+}
+.btn-success:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-danger {
+  background: var(--color-tomato);
+  color: white;
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--color-tomato-hover);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+  height: 28px;
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--color-ink-hover);
+  border-color: var(--color-border-bright);
+}
+
+/* ── Inputs ── */
+
+.input {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-cobalt);
+  box-shadow: 0 0 0 3px var(--color-cobalt-tint);
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+textarea.input {
+  resize: vertical;
+  line-height: 1.55;
+}
+
+/* ── Labels ── */
+
+.label {
+  display: block;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  margin-bottom: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

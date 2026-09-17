@@ -4,6 +4,7 @@ import json
 import subprocess
 import unittest
 from pathlib import Path
+from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 CONTENT_SCRIPT = EXTENSION_DIR / "content-scripts" / "vendoo.js"
@@ -207,7 +208,7 @@ class SchemaProbeCapturesOptionsTest(unittest.TestCase):
     def test_registry_options_reach_the_fill_handlers(self):
         text = CONTENT_SCRIPT.read_text(encoding="utf-8")
         self.assertEqual(text.count("currentRegistryOptions = msg.registry_options || {}"), 2)
-        background = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        background = background_source()
         self.assertIn("registry_options: job.registry_options || {}", background)
         self.assertIn("registry_options: payload.registry_options || {}", background)
 

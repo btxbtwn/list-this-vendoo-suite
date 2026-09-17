@@ -9,9 +9,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
+from vendoo_studio.repositories.queries import ConversationRepo, JobRepo
 from vendoo_studio.services.fill_log import (
-    FILLABLE_STATUSES,
     MAX_FILL_FIELDS,
     FillLogService,
     field_lookup_key,
@@ -293,7 +292,7 @@ async def _read_live_draft(db: Session, job) -> dict | None:
         if not sent:
             return None
         payload = await asyncio.wait_for(waiter, timeout=VENDOO_GET_TIMEOUT_SEC)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("auto apply draft read timed out for job %s", job.id)
         return None
     finally:

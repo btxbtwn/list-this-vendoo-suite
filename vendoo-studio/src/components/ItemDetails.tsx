@@ -228,9 +228,9 @@ export function ItemDetails({ convId }: Props) {
         })});
         if (gen !== saveGenRef.current) return;
         queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
-      } catch (err: any) {
+      } catch (err) {
         if (gen !== saveGenRef.current) return;
-        setSaveError(err?.message || "Could not save seller details");
+        setSaveError(err instanceof Error ? err.message : "Could not save seller details");
       } finally {
         if (gen === saveGenRef.current) setSaving(false);
       }

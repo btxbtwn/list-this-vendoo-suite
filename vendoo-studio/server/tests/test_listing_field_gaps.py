@@ -7,7 +7,6 @@ from sqlalchemy.orm import sessionmaker
 
 from vendoo_studio.database import Base
 from vendoo_studio.models.catalog import CategorySchema
-from vendoo_studio.models.conversation import Conversation
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.job import Job  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401

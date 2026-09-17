@@ -25,7 +25,6 @@ Flow A: Paste JSON → Fill Vendoo first → Sequential fill for eBay/Poshmark/M
 This bundle keeps the canonical listing skills in the top-level `skills/` directory.
 
 - `skills/list-this/` is the source of truth for listing copy and the JSON payload consumed by this extension.
-- `vendoo-extension/skills/list-this/` is only a compatibility wrapper for older extension-local skill paths.
 
 Typical flow:
 
@@ -105,6 +104,22 @@ Reference material for the canonical skill lives in top-level `skills/list-this/
 - Tags are important for search
 - Multiple listing types
 
+## Permissions
+
+Every permission in `manifest.json` has a caller. Remove a permission when its last caller goes away.
+
+| Permission | Why |
+|---|---|
+| `activeTab` | **Diagnose Page** inspects whatever tab is active when you click it. |
+| `storage` | Keeps the Studio pairing token, the active job, the preview window id, and popup drafts. |
+| `scripting` | Injects fill helpers and the diagnostic collector into marketplace tabs. |
+| `downloads` | Saves the **Diagnose Page** JSON report. |
+| `tabs` | Finds, opens, and focuses the Vendoo tab for a fill job. |
+| `debugger` | Streams the live browser preview into Studio through the DevTools protocol. |
+| `system.display` | Places the automation window inside a real display work area. |
+
+Host permissions cover Vendoo, the five marketplaces, and Studio on `127.0.0.1:4318` only.
+
 ## Development
 
 ### Selectors
@@ -124,6 +139,15 @@ To find real selectors:
 4. Update the selector in the content script
 
 ### Testing
+Run the worker unit tests from the repo root:
+
+```bash
+node --test 'vendoo-extension/tests/*.test.js'
+```
+
+They load `background.js` and its `background/` modules into one Node VM with a stubbed `chrome` API.
+
+For live pages:
 1. Open browser DevTools console
 2. Watch for `[platform]` prefixed logs
 3. Check for fill errors

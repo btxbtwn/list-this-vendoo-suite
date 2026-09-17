@@ -25,6 +25,7 @@ from vendoo_studio.services.schema_probe import (
     maybe_start_schema_probe,
     should_probe,
 )
+from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 MEN_PATH = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts"
@@ -186,9 +187,9 @@ class SchemaProbeServiceTest(unittest.TestCase):
 
 class SchemaProbeExtensionTest(unittest.TestCase):
     def test_schema_probe_job_steps_skip_marketplace_fill(self):
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function buildJobSteps(job)")
-        end = text.index("const NEW_ITEM_URL")
+        end = text.index("function sleep(ms)")
         preamble = """
 const openVendooListing = async () => ({ ok: true });
 const waitForContentScript = async () => ({ ok: true });
@@ -277,7 +278,7 @@ class SchemaProbeDispatchTest(unittest.TestCase):
         conv = Conversation(title="Probe")
         db.add(conv)
         db.commit()
-        job = JobRepo(db).create(
+        JobRepo(db).create(
             conv_id=conv.id,
             approved_revision_id="rev1",
             listing_snapshot={

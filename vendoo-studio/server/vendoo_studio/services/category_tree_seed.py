@@ -4,7 +4,7 @@ from __future__ import annotations
 import gzip
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 from vendoo_studio.services.category_tree import MARKETPLACES
@@ -95,7 +95,7 @@ def ensure_seeded_category_trees(
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
+    return datetime.now(UTC).replace(tzinfo=None).isoformat(sep=" ")
 
 
 def _read_seed(path: Path) -> dict:

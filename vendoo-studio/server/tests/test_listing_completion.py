@@ -12,21 +12,9 @@ from vendoo_studio.database import Base
 from vendoo_studio.models.catalog import CategoryNode, CategorySchema
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.category_catalog import remember_schema
-from vendoo_studio.services.listing_completion import (
-    MAX_CATEGORY_REPAIRS,
-    MAX_READBACK_RETRIES,
-    MAX_REPAIR_ROUNDS,
-    adopt_observed_draft_values,
-    categories_match,
-    complete_job,
-    deterministic_gap_patches,
-    drop_noop_gaps,
-    gap_already_has_value,
-    prefer_listing_over_observed,
-    prior_fill_covers_empty_gap,
-    review_fields,
-    store_verification,
-)
+from vendoo_studio.services.completion_readback import MAX_CATEGORY_REPAIRS, MAX_READBACK_RETRIES, categories_match
+from vendoo_studio.services.listing_completion import MAX_REPAIR_ROUNDS, complete_job, store_verification
+from vendoo_studio.services.completion_gaps import adopt_observed_draft_values, deterministic_gap_patches, drop_noop_gaps, gap_already_has_value, prefer_listing_over_observed, prior_fill_covers_empty_gap, review_fields
 from vendoo_studio.services.fill_log import listing_value_for_field, write_values_into_listing
 from vendoo_studio.services.schema_probe import SCHEMA_PROBE_FLAG, prepare_generation_schema
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
@@ -267,7 +255,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
     async def test_empty_or_partial_readback_retries_then_pauses(self):
         del self.verification["schema"]["ebay"]
         self.review()
-        with patch("vendoo_studio.services.listing_completion.READBACK_RETRY_DELAY_SECONDS", 0):
+        with patch("vendoo_studio.services.completion_readback.READBACK_RETRY_DELAY_SECONDS", 0):
             await self.run_completion({})
         self.assertEqual(self.job.current_step, "verifying_draft")
         self.assertEqual(self.job.status, "dispatched")
@@ -283,12 +271,12 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
 
         for _ in range(MAX_READBACK_RETRIES - 1):
             self.review()
-            with patch("vendoo_studio.services.listing_completion.READBACK_RETRY_DELAY_SECONDS", 0):
+            with patch("vendoo_studio.services.completion_readback.READBACK_RETRY_DELAY_SECONDS", 0):
                 await complete_job(self.db, self.job.id)
             self.db.refresh(self.job)
 
         self.review()
-        with patch("vendoo_studio.services.listing_completion.READBACK_RETRY_DELAY_SECONDS", 0):
+        with patch("vendoo_studio.services.completion_readback.READBACK_RETRY_DELAY_SECONDS", 0):
             await complete_job(self.db, self.job.id)
         self.db.refresh(self.job)
         self.assertEqual(self.job.current_step, "completion_blocked")

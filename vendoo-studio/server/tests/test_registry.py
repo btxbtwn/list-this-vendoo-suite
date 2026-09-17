@@ -208,7 +208,7 @@ class CategoryMappingTest(unittest.TestCase):
         self.assertEqual(mapped, MEN_TSHIRT_PATH)
 
     def test_ensure_listing_defaults_rewrites_womens_path_for_mens_tee(self):
-        from vendoo_studio.routes.jobs import _ensure_listing_defaults
+        from vendoo_studio.services.job_snapshot import ensure_listing_defaults
 
         listing = {
             "title": "Casa San Bord M Graphic T-Shirt Maroon Crewneck Cotton",
@@ -216,7 +216,7 @@ class CategoryMappingTest(unittest.TestCase):
             "department": "Men",
             "condition": "Good",
         }
-        _ensure_listing_defaults(listing)
+        ensure_listing_defaults(listing)
         self.assertEqual(listing["category_path"], MEN_TSHIRT_PATH)
 
     def test_align_listing_gender_rewrites_category_from_department_patch(self):
@@ -234,7 +234,7 @@ class CategoryMappingTest(unittest.TestCase):
         self.assertEqual(listing["category_path"], MEN_TSHIRT_PATH)
 
     def test_ensure_listing_defaults_rewrites_category(self):
-        from vendoo_studio.routes.jobs import _ensure_listing_defaults
+        from vendoo_studio.services.job_snapshot import ensure_listing_defaults
 
         listing = {
             "title": "Unknown S Southwestern Graphic T-Shirt",
@@ -242,7 +242,7 @@ class CategoryMappingTest(unittest.TestCase):
             "department": "Women",
             "condition": "Good",
         }
-        _ensure_listing_defaults(listing)
+        ensure_listing_defaults(listing)
         self.assertEqual(listing["category_path"], WOMEN_TOPS_PATH)
         self.assertEqual(listing["mercari_specifics"]["shippingLabel"], "USPS Ground Advantage")
 

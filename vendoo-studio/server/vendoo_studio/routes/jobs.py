@@ -11,9 +11,15 @@ from sqlalchemy.orm import Session
 from pathlib import Path
 
 from vendoo_studio.database import get_db
-from vendoo_studio.repositories.queries import JobRepo, ConversationRepo, ListingRepo, FillLogRepo
+from vendoo_studio.repositories.queries import JobRepo, ConversationRepo, ListingRepo
 from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.models.conversation import Photo
+from vendoo_studio.services.job_snapshot import (
+    blocker_fields_for_job,
+    prepare_listing_snapshot,
+    resume_step_for_retry,
+    validation_error_detail,
+)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -75,7 +81,7 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
         get_selected_marketplaces,
         marketplace_label,
     )
-    listing_snapshot = _prepare_listing_snapshot(db, conv, latest_revision.listing_json)
+    listing_snapshot = prepare_listing_snapshot(db, conv, latest_revision.listing_json)
     binding = vendoo_binding(conv.notes)
     # Pre-dispatch guard: unsupported markets never enter the approved job snapshot.
     selected_now = get_selected_marketplaces()
@@ -95,7 +101,7 @@ async def create_job(body: CreateJobRequest, db: Session = Depends(get_db)):
         selected_marketplaces=listing_snapshot["platforms"],
     )
     if not validation.can_send:
-        raise HTTPException(400, _validation_error_detail(validation))
+        raise HTTPException(400, validation_error_detail(validation))
 
     existing_item_id = str(binding.get("vendooItemId") or "").strip()
     if existing_item_id and existing_item_id.lower() != "new" and not body.confirm_overwrite:
@@ -251,7 +257,7 @@ async def stream_job_preview(job_id: str, db: Session = Depends(get_db)):
                 try:
                     frame = await asyncio.wait_for(queue.get(), timeout=15)
                     yield f"data: {json.dumps(frame)}\n\n"
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": ping\n\n"
         finally:
             await preview_hub.unsubscribe(job_id, queue)
@@ -371,7 +377,7 @@ async def get_vendoo_item(
 
     # Fields live scrape shares the Vendoo tab with Send/verify. Serving cache (or a busy
     # error) prevents Discovering… from fighting marketplace form mounting mid-verification.
-    from vendoo_studio.services.listing_completion import AUTOMATION_TAB_STEPS
+    from vendoo_studio.services.completion_readback import AUTOMATION_TAB_STEPS
 
     if job.status == "dispatched" and str(job.current_step or "") in AUTOMATION_TAB_STEPS:
         if cached:
@@ -399,11 +405,11 @@ async def get_vendoo_item(
             raise HTTPException(503, "Could not reach the Chrome extension")
         try:
             payload = await asyncio.wait_for(waiter, timeout=VENDOO_GET_TIMEOUT_SEC)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise HTTPException(
                 504,
                 "Chrome did not return the Vendoo draft in time. Open the listing tab and try again.",
-            )
+            ) from None
     finally:
         extension_manager.cancel_wait(request_id)
 
@@ -472,7 +478,7 @@ class ResolveCategoryResponse(BaseModel):
 @router.post("/{job_id}/resolve-category", response_model=ResolveCategoryResponse)
 async def resolve_category(
     job_id: str,
-    body: ResolveCategoryRequest = ResolveCategoryRequest(),
+    body: ResolveCategoryRequest | None = None,
     db: Session = Depends(get_db),
 ):
     from vendoo_studio.routes.extension import extension_manager
@@ -543,18 +549,8 @@ async def open_listing(job_id: str, db: Session = Depends(get_db)):
 async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = Depends(get_db)):
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
     from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
-    from vendoo_studio.services.fill_log import (
-        FILLABLE_STATUSES,
-        MAX_FILL_FIELDS,
-        MAX_PATCH_VALUE,
-        FillLogService,
-        field_lookup_key,
-        listing_value_for_field,
-        normalize_field_label,
-        preview_value,
-        write_values_into_listing,
-    )
-    from vendoo_studio.services.registry import SELLER_SETTING_LABELS
+    from vendoo_studio.services.fill_fields import FillFieldsError, plan_fill_fields
+    from vendoo_studio.services.fill_log import FillLogService, preview_value, write_values_into_listing
 
     repo = JobRepo(db)
     job = repo.get(job_id)
@@ -573,117 +569,15 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
     if not extension_manager.connected:
         raise HTTPException(400, "Chrome is not connected")
 
-    requested = body.fields[:MAX_FILL_FIELDS]
-    if not requested:
-        raise HTTPException(400, "Add at least one field to fill")
+    try:
+        plan = plan_fill_fields(db, job, body.fields)
+    except FillFieldsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    patches = plan.patches
 
-    listing_repo = ListingRepo(db)
-    revisions = listing_repo.get_revisions(job.conversation_id)
-    listing = dict(revisions[0].listing_json) if revisions else dict(job.listing_snapshot or {})
-
-    fill_repo = FillLogRepo(db)
-    existing_ids = [str(item.id or "").strip() for item in requested if str(item.id or "").strip()]
-    existing_by_id = {
-        entry.id: entry
-        for entry in fill_repo.get_for_job_ids(job_id, existing_ids)
-    }
-
-    resolved: list[dict] = []
-    created_specs: list[dict] = []
-    for item in requested:
-        entry_id = str(item.id or "").strip()
-        marketplace = str(item.marketplace or "").strip().lower()
-        field = str(item.field or "").strip()
-        selector = str(item.selector or "").strip()
-        value = str(item.value or "").strip()
-        entry = existing_by_id.get(entry_id) if entry_id else None
-        if entry_id and entry is None:
-            raise HTTPException(400, "One or more leftover fields were not found on this job")
-        if entry:
-            if entry.status not in FILLABLE_STATUSES:
-                raise HTTPException(400, f"{entry.field} is already filled")
-            marketplace = marketplace or entry.marketplace
-            field = field or entry.field
-            selector = selector or (entry.selector or "")
-        if not field:
-            raise HTTPException(400, "Each field needs a name")
-        if not marketplace:
-            marketplace = "general"
-        if field_lookup_key(field) in SELLER_SETTING_LABELS:
-            continue
-        if not value:
-            value = listing_value_for_field(listing, marketplace, field)
-        if marketplace == "poshmark" and field_lookup_key(field) == "category":
-            from vendoo_studio.services.registry import map_poshmark_category_path
-            mapped = map_poshmark_category_path(listing.get("category_path") or value, listing)
-            if mapped:
-                value = mapped
-        if marketplace == "mercari" and field_lookup_key(field) == "category":
-            from vendoo_studio.services.registry import map_mercari_category_path
-            mapped = map_mercari_category_path(listing.get("category_path") or value, listing)
-            if mapped:
-                value = mapped
-        if not value:
-            continue
-        if len(value) > MAX_PATCH_VALUE:
-            raise HTTPException(
-                400,
-                f"Value for {field} is too long ({len(value)} chars; max {MAX_PATCH_VALUE})",
-            )
-        patch = {
-            "marketplace": marketplace,
-            "field": field,
-            "selector": selector,
-            "value": value,
-        }
-        if entry:
-            patch["id"] = entry.id
-            patch["entry"] = entry
-        else:
-            created_specs.append({
-                "marketplace": marketplace,
-                "field": field,
-                "status": "new",
-                "reason": "Waiting to fill missing field",
-                "selector": selector,
-                "value_preview": preview_value(value),
-            })
-        resolved.append(patch)
-
-    if not resolved:
-        raise HTTPException(400, "No values to apply. Ask chat to write the missing values first.")
-
-    if created_specs:
-        created = fill_repo.add_entries(
-            job_id=job.id,
-            conversation_id=job.conversation_id,
-            step="filling_fields",
-            marketplace=created_specs[0]["marketplace"],
-            entries=created_specs,
-        )
-        created_by_key = {
-            (entry.marketplace, normalize_field_label(entry.field)): entry
-            for entry in created
-        }
-        for patch in resolved:
-            if patch.get("id"):
-                continue
-            entry = created_by_key.get((patch["marketplace"], normalize_field_label(patch["field"])))
-            if entry:
-                patch["id"] = entry.id
-                patch["entry"] = entry
-
-    patches = [{
-        "id": patch.get("id") or "",
-        "marketplace": patch["marketplace"],
-        "field": patch["field"],
-        "selector": patch.get("selector") or "",
-        "value": patch["value"],
-    } for patch in resolved]
-
-    snapshot = write_values_into_listing(listing, patches)
-    parent_id = revisions[0].id if revisions else job.approved_revision_id
-    listing_repo.save_revision(
+    snapshot = write_values_into_listing(plan.listing, patches)
+    parent_id = plan.revisions[0].id if plan.revisions else job.approved_revision_id
+    ListingRepo(db).save_revision(
         conv_id=job.conversation_id,
         listing_json=snapshot,
         source="fill_fields",
@@ -711,7 +605,7 @@ async def fill_job_fields(job_id: str, body: FillFieldsRequest, db: Session = De
         db.commit()
         raise HTTPException(503, "Could not reach the Chrome extension")
 
-    for patch in resolved:
+    for patch in plan.resolved:
         entry = patch.get("entry")
         if entry:
             entry.value_preview = preview_value(patch["value"])
@@ -797,7 +691,7 @@ async def retry_job(
     requested = str(resume_from or "").strip()
     audit_only = bool(requested) and requested.startswith("auditing_") and requested != "auditing_general"
     if not audit_only and not validation.can_send:
-        raise HTTPException(400, _validation_error_detail(validation))
+        raise HTTPException(400, validation_error_detail(validation))
 
     if requested:
         if not (job.vendoo_item_id or job.vendoo_url):
@@ -806,7 +700,7 @@ async def retry_job(
             raise HTTPException(400, "Only a marketplace audit step can be retried separately from fill/save")
         resume_from_step = requested
     else:
-        resume_from_step = _resume_step_for_retry(job)
+        resume_from_step = resume_step_for_retry(job)
 
     failed_step = job.current_step
 
@@ -863,206 +757,6 @@ async def cancel_job(job_id: str, db: Session = Depends(get_db)):
     return _job_response(job)
 
 
-def _generate_sku(listing: dict) -> str:
-    brand = str(listing.get("brand") or "").strip()
-    size = str(listing.get("size") or "").strip()
-
-    def slug(text: str) -> str:
-        chars = [ch.upper() if ch.isalnum() else "-" for ch in text]
-        return "-".join(part for part in "".join(chars).split("-") if part)
-
-    parts = []
-    if brand:
-        parts.append(slug(brand))
-    if size:
-        parts.append(slug(size))
-    return "-".join(parts) if parts else "ITEM"
-
-
-_NON_RESUMABLE_STEPS = frozenset({
-    "",
-    "queued",
-    "accepted",
-    "awaiting_extension",
-    "filling_fields",
-    "imported",
-    "completed",
-    "cancelled",
-})
-
-
-def _resume_step_for_retry(job) -> str | None:
-    """Return the pipeline step a failed job should resume from, if any."""
-    if getattr(job, "status", None) != "failed":
-        return None
-    step = str(getattr(job, "current_step", None) or "").strip()
-    if step in _NON_RESUMABLE_STEPS:
-        return None
-
-    has_draft = bool(getattr(job, "vendoo_item_id", None) or getattr(job, "vendoo_url", None))
-    general_steps = {
-        "opening_vendoo",
-        "waiting_ready",
-        "uploading_photos",
-        "clearing_general",
-        "filling_general",
-        "saving_general",
-        "auditing_general",
-    }
-    if step in general_steps:
-        return step
-
-    marketplace_prefixes = ("clearing_", "filling_", "saving_", "auditing_")
-    if step.startswith("auditing_"):
-        marketplace = step[len("auditing_") :]
-        if marketplace and marketplace != "general":
-            return step if has_draft else None
-    if step == "discovering_schema" or step.startswith(marketplace_prefixes):
-        return step if has_draft else None
-
-    return None
-
-
-def _validation_error_detail(validation) -> str:
-    messages = [err.get("message", "") for err in validation.errors if err.get("message")]
-    return "; ".join(messages) or "Listing cannot be sent to Vendoo. Fix validation errors first."
-
-
-def _prepare_listing_snapshot(
-    db: Session,
-    conv,
-    listing_json: dict,
-    *,
-    prefer_listing_category: bool = False,
-) -> dict:
-    from vendoo_studio.services.marketplaces import selected_fillable_platforms
-    from vendoo_studio.services.registry import RegistryService, align_listing_gender
-    from vendoo_studio.services.vendoo_import import parse_notes
-
-    listing_snapshot = dict(listing_json or {})
-    conv_notes = parse_notes(getattr(conv, "notes", None))
-    raw_labels = str(conv_notes.get("vendooLabels") or "")
-    if raw_labels.strip():
-        listing_snapshot["labels"] = [
-            label.strip() for label in raw_labels.split(",") if label.strip()
-        ]
-    listing_category = str(listing_snapshot.get("category_path") or "").strip()
-    category_override = str(conv_notes.get("categoryOverride") or "").strip()
-    if category_override and (not prefer_listing_category or not listing_category):
-        listing_snapshot["category_path"] = category_override
-    price_raw = str(conv_notes.get("poshmarkOriginalPrice") or "").strip()
-    try:
-        poshmark_price = float(price_raw) if price_raw else 0
-    except ValueError:
-        poshmark_price = 0
-    poshmark = listing_snapshot.get("poshmark_specifics") or {}
-    if not isinstance(poshmark, dict):
-        poshmark = {}
-    poshmark["originalPrice"] = poshmark_price
-    listing_snapshot["poshmark_specifics"] = poshmark
-    align_listing_gender(listing_snapshot)
-    _ensure_listing_defaults(listing_snapshot)
-    registry = RegistryService(db)
-    registry.merge_learned_fields(listing_snapshot)
-    for marketplace in selected_fillable_platforms():
-        registry.validate_dropdown_fields(
-            listing_snapshot, marketplace, listing_snapshot.get("category_path"),
-        )
-    return listing_snapshot
-
-
-def _ensure_listing_defaults(listing_snapshot: dict) -> None:
-    if not isinstance(listing_snapshot, dict):
-        return
-
-    from vendoo_studio.models.schema import ListingSchema
-
-    condition = listing_snapshot.get("condition")
-    if condition:
-        listing_snapshot["condition"] = ListingSchema.validate_condition(condition)
-
-    if not str(listing_snapshot.get("sku") or "").strip():
-        listing_snapshot["sku"] = _generate_sku(listing_snapshot)
-
-    from vendoo_studio.services.registry import map_vendoo_category_path
-
-    mapped_category = map_vendoo_category_path(
-        str(listing_snapshot.get("category_path") or ""),
-        listing_snapshot,
-    )
-    if mapped_category:
-        listing_snapshot["category_path"] = mapped_category
-
-    mercari = listing_snapshot.get("mercari_specifics") or {}
-    if not isinstance(mercari, dict):
-        mercari = {}
-    label = str(mercari.get("shippingLabel") or "").strip()
-    mercari["shippingLabel"] = label or "USPS Ground Advantage"
-    listing_snapshot["mercari_specifics"] = mercari
-
-    from vendoo_studio.models.validation import normalize_listing_dropdowns
-    normalize_listing_dropdowns(listing_snapshot)
-
-
-def _blocker_fields_for_job(job) -> list[dict] | None:
-    """Compact marketplace/field targets from the latest completion pause event."""
-    step = str(getattr(job, "current_step", None) or "").strip()
-    if step not in {"completion_blocked", "awaiting_answers"}:
-        return None
-    if not str(getattr(job, "last_error", None) or "").strip():
-        return None
-    from sqlalchemy.orm import object_session
-
-    session = object_session(job)
-    if session is None:
-        return None
-    event = JobRepo(session).latest_event(job.id, step)
-    raw = (event.payload or {}).get("fields") if event and isinstance(event.payload, dict) else None
-    if not isinstance(raw, list) or not raw:
-        return None
-    compact: list[dict] = []
-    seen: set[str] = set()
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        marketplace = str(item.get("marketplace") or "").strip().lower()
-        field = str(item.get("field") or "").strip()
-        if not marketplace or not field:
-            continue
-        key = f"{marketplace}:{field.casefold()}"
-        if key in seen:
-            continue
-        seen.add(key)
-        row: dict = {"marketplace": marketplace, "field": field}
-        expected = item.get("expected")
-        observed = item.get("observed")
-        error = item.get("error")
-        if expected not in (None, ""):
-            row["expected"] = expected
-        if observed not in (None, ""):
-            row["observed"] = observed
-        if error not in (None, ""):
-            row["error"] = error
-        options = item.get("options")
-        if isinstance(options, list) and options:
-            labels: list[str] = []
-            for option in options:
-                if isinstance(option, dict):
-                    label = str(option.get("label") or option.get("value") or "").strip()
-                else:
-                    label = str(option).strip()
-                if label and label not in labels:
-                    labels.append(label)
-                if len(labels) >= 20:
-                    break
-            if labels:
-                row["options"] = labels
-        compact.append(row)
-        if len(compact) >= 40:
-            break
-    return compact or None
-
-
 def _job_response(job) -> JobResponse:
     from vendoo_studio.services.schema_probe import is_schema_probe_job
 
@@ -1078,7 +772,7 @@ def _job_response(job) -> JobResponse:
         last_error=job.last_error,
         listing_title=title,
         mode="schema_probe" if is_schema_probe_job(job) else None,
-        blocker_fields=_blocker_fields_for_job(job),
+        blocker_fields=blocker_fields_for_job(job),
         created_at=job.created_at.isoformat() if job.created_at else "",
         updated_at=job.updated_at.isoformat() if job.updated_at else "",
     )

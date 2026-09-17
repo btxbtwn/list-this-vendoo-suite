@@ -88,7 +88,7 @@ async def extract_trees() -> None:
                     results = await asyncio.gather(*(read_children(marketplace, node.category_id)
                                                      for node in pending), return_exceptions=True)
                     failures = []
-                    for node, result in zip(pending, results):
+                    for node, result in zip(pending, results, strict=True):
                         if isinstance(result, BaseException):
                             failures.append(str(result))
                         else:

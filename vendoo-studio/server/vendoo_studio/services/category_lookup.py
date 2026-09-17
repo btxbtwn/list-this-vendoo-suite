@@ -252,7 +252,7 @@ async def resolve_listing_category(
             return {"ok": False, "error": "Could not reach the Chrome extension"}
         try:
             payload = await asyncio.wait_for(waiter, timeout=CATEGORY_SEARCH_TIMEOUT_SEC)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "ok": False,
                 "error": "Chrome did not return Vendoo category matches in time. Open the listing tab and try again.",

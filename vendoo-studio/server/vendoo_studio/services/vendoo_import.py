@@ -292,10 +292,6 @@ def image_urls_from_vendoo(
 async def download_vendoo_photos(urls: list[str]) -> list[dict[str, Any]]:
     from vendoo_studio.services.safe_fetch import (
         DOWNLOAD_TIMEOUT_SEC,
-        MAX_DOWNLOAD_BYTES,
-        MAX_REDIRECTS,
-        UnsafeURLError,
-        validate_fetch_url,
     )
 
     photos: list[dict[str, Any]] = []
