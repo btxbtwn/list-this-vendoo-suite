@@ -220,10 +220,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ fields }),
       }),
-    vendooItem: (id: string, opts?: { refresh?: boolean; cacheOnly?: boolean }) => {
+    vendooItem: (id: string, opts?: { refresh?: boolean; cacheOnly?: boolean; resolvePhotos?: boolean }) => {
       const params = new URLSearchParams();
       if (opts?.refresh) params.set("refresh", "true");
       if (opts?.cacheOnly) params.set("cache_only", "true");
+      if (opts?.resolvePhotos) params.set("resolve_photos", "true");
       const query = params.toString();
       return request<VendooItemResult>(`/jobs/${id}/vendoo-item${query ? `?${query}` : ""}`, { method: "POST" });
     },

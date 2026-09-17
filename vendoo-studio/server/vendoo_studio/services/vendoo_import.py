@@ -653,7 +653,7 @@ def _as_scalar_field(value: Any) -> Any:
             return None
         if len(parts) == 1:
             return parts[0]
-        return str(parts[-1])
+        return ", ".join(str(part) for part in parts)
     if isinstance(value, dict):
         text = _text(value)
         if text:

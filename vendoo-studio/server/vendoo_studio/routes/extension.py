@@ -362,7 +362,7 @@ async def dispatch_fill_fields(
     ).model_dump(mode="json"))
 
 
-async def dispatch_vendoo_get(job, request_id: str, *, api_only: bool = False) -> bool:
+async def dispatch_vendoo_get(job, request_id: str, *, api_only: bool = False, resolve_photos: bool = False) -> bool:
     if not extension_manager.connected:
         return False
     return await extension_manager.send_message(ProtocolMessage(
@@ -376,6 +376,10 @@ async def dispatch_vendoo_get(job, request_id: str, *, api_only: bool = False) -
             "vendoo_url": job.vendoo_url,
             # Skip the per-marketplace form tour when the item API answers.
             "api_only": bool(api_only),
+            # Blob: preview photos only exist inside the Vendoo tab; upload them
+            # straight from there when the caller is about to import this draft.
+            "resolve_photos": bool(resolve_photos),
+            "conversation_id": job.conversation_id if resolve_photos else None,
         },
     ).model_dump(mode="json"))
 

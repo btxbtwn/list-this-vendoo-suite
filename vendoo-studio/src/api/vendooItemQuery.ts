@@ -10,7 +10,7 @@ export const VENDOO_ITEM_STALE_MS = 60_000;
 export async function fetchVendooItemLive(
   queryClient: QueryClient,
   jobId: string,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; resolvePhotos?: boolean },
 ) {
   const queryKey = vendooItemQueryKey(jobId);
   if (opts?.force) {
@@ -19,7 +19,7 @@ export async function fetchVendooItemLive(
   }
   return queryClient.fetchQuery({
     queryKey,
-    queryFn: () => api.jobs.vendooItem(jobId, { refresh: true }),
+    queryFn: () => api.jobs.vendooItem(jobId, { refresh: true, resolvePhotos: opts?.resolvePhotos }),
     staleTime: VENDOO_ITEM_STALE_MS,
   });
 }
