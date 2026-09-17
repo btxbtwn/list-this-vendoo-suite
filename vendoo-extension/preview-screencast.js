@@ -2,7 +2,8 @@ const PREVIEW_PROTOCOL = '1.3';
 const PREVIEW_MIN_INTERVAL_MS = 250;
 const PREVIEW_MAX_WIDTH = 1024;
 const PREVIEW_MAX_HEIGHT = 720;
-const PREVIEW_QUALITY = 50;
+// Frames go over a local WebSocket, so favor a crisp picture over bandwidth.
+const PREVIEW_QUALITY = 85;
 const PREVIEW_POLL_MS = 400;
 const PREVIEW_WATCHDOG_MS = 800;
 
