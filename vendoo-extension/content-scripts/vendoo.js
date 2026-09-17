@@ -111,6 +111,44 @@
     return new Promise(r => setTimeout(r, ms));
   }
 
+  const POLL_MS = 25;
+  const MENU_SETTLE_MS = 120;
+
+  // Poll until predicate returns a truthy value; the old fixed sleep becomes the ceiling.
+  async function waitUntil(predicate, maxMs, intervalMs = POLL_MS) {
+    const deadline = Date.now() + Math.max(0, maxMs || 0);
+    for (;;) {
+      let result = null;
+      try {
+        result = predicate();
+      } catch (_) {
+        result = null;
+      }
+      if (result) return result;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return null;
+      await sleep(Math.min(intervalMs, remaining));
+    }
+  }
+
+  // Resolve when findTarget() matches, or once an open menu stops changing size.
+  async function waitForMenuSettled(findTarget, maxMs) {
+    let lastCount = -1;
+    let stableSince = Date.now();
+    return waitUntil(() => {
+      const target = findTarget ? findTarget() : null;
+      if (target) return target;
+      const count = listOpenDropdownOptions().length;
+      const now = Date.now();
+      if (count !== lastCount) {
+        lastCount = count;
+        stableSince = now;
+        return null;
+      }
+      return count > 0 && now - stableSince >= MENU_SETTLE_MS ? true : null;
+    }, maxMs);
+  }
+
   // ============================================
   // FILL LEDGER — per-step field outcomes
   // ============================================
@@ -1755,7 +1793,7 @@
           el.scrollIntoView({ block: 'center', behavior: 'instant' });
           for (let attempt = 0; attempt < 2 && options.length === 0; attempt += 1) {
               await clickRightEdge(el);
-              await sleep(CONFIG.SLEEP_LONG);
+              await waitForMenuSettled(null, CONFIG.SLEEP_LONG);
               options = uniqueStrings(
                   listOpenDropdownOptions().map((option) => option.text).filter(Boolean)
               );
@@ -1834,7 +1872,8 @@
       optionEl.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
       optionEl.dispatchEvent(new MouseEvent('click', mouseEventOptions));
       if (typeof optionEl.click === 'function') optionEl.click();
-      await sleep(CONFIG.SLEEP_MEDIUM);
+      // Single-select menus close on commit; multi-select menus stay open and use the full wait.
+      await waitUntil(() => !optionEl.isConnected || !isVisibleElement(optionEl), CONFIG.SLEEP_MEDIUM);
   }
 
   function uniqueStrings(values) {
@@ -1962,7 +2001,7 @@
       }
 
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
-      await sleep(CONFIG.SLEEP_MEDIUM);
+      await waitUntil(() => isVisibleElement(el), CONFIG.SLEEP_MEDIUM);
 
       if (el instanceof HTMLSelectElement) {
           const targetOption = Array.from(el.options).find((opt) =>
@@ -1979,10 +2018,10 @@
       }
 
       const dropdownLike = isDropdownLike(el);
-      await clickRightEdge(el);
-      await sleep(CONFIG.SLEEP_LONG);
-
       const resolveOpenOption = () => findMatchingOption(value, isStrict) || findHighlightedOption(value, isStrict);
+      await clickRightEdge(el);
+      await waitForMenuSettled(resolveOpenOption, CONFIG.SLEEP_LONG);
+
       let targetOption = resolveOpenOption();
       const supportsSearch = el instanceof HTMLInputElement ||
           el.getAttribute('role') === 'combobox' ||
@@ -1995,16 +2034,17 @@
               await clearInput(el);
               setReactValue(el, value);
               dispatchKey(el, 'ArrowDown');
-              await sleep(CONFIG.SLEEP_LONG);
+              // Search results load asynchronously: return early only on a match.
+              await waitUntil(resolveOpenOption, CONFIG.SLEEP_LONG);
               targetOption = resolveOpenOption();
           }
 
           if (!targetOption && listOpenDropdownOptions().length === 0) {
               await clickRightEdge(el);
-              await sleep(CONFIG.SLEEP_LONG);
+              await waitForMenuSettled(resolveOpenOption, CONFIG.SLEEP_LONG);
               targetOption = resolveOpenOption();
           } else if (!targetOption) {
-              await sleep(CONFIG.SLEEP_RETRY);
+              await waitUntil(resolveOpenOption, CONFIG.SLEEP_RETRY);
               targetOption = resolveOpenOption();
           }
       }
@@ -2137,8 +2177,8 @@
               }
               const result = await fillCombobox(el, item, true, true);
               lastMethod = result && result.method;
+              await waitUntil(() => fieldHasChip(el, item), CONFIG.SLEEP_MEDIUM);
               if ((result && result.ok) || fieldHasChip(el, item)) filledCount += 1;
-              await sleep(CONFIG.SLEEP_MEDIUM);
           }
           if (filledCount > 0) {
               recordFill({ field: fieldName, status: 'filled', selector: selectorFor(el, selectorText), value: filledValue });
@@ -3494,7 +3534,11 @@
           btn.scrollIntoView({ block: 'center', behavior: 'instant' });
           await sleep(CONFIG.SLEEP_SHORT);
           btn.click();
-          await sleep(CONFIG.SLEEP_LONG);
+          await waitUntil(() => {
+              if (!btn.isConnected || btn.getAttribute?.('aria-expanded') === 'true') return true;
+              const text = normalizeText(btn.innerText || btn.textContent || '');
+              return hideNeedles.some((needle) => text.includes(needle));
+          }, CONFIG.SLEEP_LONG);
           expanded = true;
       }
       return expanded;
@@ -5098,11 +5142,7 @@
   }
 
   async function waitForMarketplaceFormMounted(marketplace, attempts = 20) {
-      for (let attempt = 0; attempt < attempts; attempt++) {
-          if (marketplaceFormMounted(marketplace)) return true;
-          await sleep(CONFIG.SLEEP_LONG);
-      }
-      return marketplaceFormMounted(marketplace);
+      return Boolean(await waitUntil(() => marketplaceFormMounted(marketplace), attempts * CONFIG.SLEEP_LONG, 50));
   }
 
   async function ensureMarketplaceFormReady(platform, { requireListingFields = false } = {}) {

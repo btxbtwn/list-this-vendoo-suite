@@ -291,6 +291,12 @@ async def dispatch_queued_jobs():
                 # Cached schema already learned for this category — skip the live
                 # marketplace tour. Fill still sets categories when needed.
                 options["skipDiscoverSchema"] = True
+        if not schema_probe and reuse_existing and item_id and platforms:
+            from vendoo_studio.services.send_skip import matching_marketplaces
+            skip = matching_marketplaces(db, job.conversation_id, item_id, snapshot, platforms)
+            if skip:
+                options["skipPlatforms"] = skip
+                repo.add_event(job.id, "send_skip_platforms", "dispatch", {"platforms": skip})
         if resume_from:
             options["resumeFrom"] = resume_from
         if schema_probe:
@@ -327,6 +333,7 @@ async def dispatch_fill_fields(
     verify: bool = True,
     platforms: list[str] | None = None,
     reload: bool = False,
+    read_item: bool = False,
 ) -> bool:
     if not extension_manager.connected:
         return False
@@ -350,11 +357,13 @@ async def dispatch_fill_fields(
             # Manual Apply skips full draft readback; completion repair keeps verify=True.
             "verify": bool(verify),
             "reload": bool(reload),
+            # Read the saved item over the API before closing the tab (refreshes the draft cache).
+            "read_item": bool(read_item),
         },
     ).model_dump(mode="json"))
 
 
-async def dispatch_vendoo_get(job, request_id: str) -> bool:
+async def dispatch_vendoo_get(job, request_id: str, *, api_only: bool = False) -> bool:
     if not extension_manager.connected:
         return False
     return await extension_manager.send_message(ProtocolMessage(
@@ -366,6 +375,8 @@ async def dispatch_vendoo_get(job, request_id: str) -> bool:
             "request_id": request_id,
             "vendoo_item_id": job.vendoo_item_id,
             "vendoo_url": job.vendoo_url,
+            # Skip the per-marketplace form tour when the item API answers.
+            "api_only": bool(api_only),
         },
     ).model_dump(mode="json"))
 
@@ -654,6 +665,15 @@ async def extension_websocket(ws: WebSocket):
                         job = repo.get(job_id)
                         if job and payload.get("fill_log"):
                             FillLogService(db).apply_field_results(job, payload.get("fill_log"))
+                        if job and isinstance(payload.get("item"), dict):
+                            repo.save_vendoo_draft(
+                                job_id,
+                                item=payload["item"],
+                                item_id=vid or job.vendoo_item_id,
+                                url=vurl or job.vendoo_url,
+                                source="api_readback",
+                                step="fields_applied",
+                            )
                         verification = payload.get("verification")
                         if isinstance(verification, dict):
                             # Completion repair path — read back every marketplace and continue.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import logging
 from pathlib import Path
 
@@ -899,6 +900,15 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
         stream_repo = ConversationRepo(stream_db)
         full_text = ""
         child_tasks: list[asyncio.Task] = []
+        stage_started = time.monotonic()
+        timings: dict[str, float] = {}
+
+        def mark(stage: str) -> None:
+            nonlocal stage_started
+            now = time.monotonic()
+            timings[stage] = round(now - stage_started, 2)
+            stage_started = now
+
         try:
             evidence: dict = {}
             existing = latest_photo_analysis(stream_repo.get_messages(conv_id))
@@ -930,6 +940,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
             if existing:
                 prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
 
+            mark("photo_analysis")
             listing_rules = _load_skill_rules(
                 f"{prompt_analysis}\n{item_details}",
                 stream_db,
@@ -960,6 +971,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     run.pulse()
                     continue
                 run.pulse()
+            mark("categories_and_comps")
             schema_seed = schema_task.result()
             comps_text = ""
             if comps_task is not None:
@@ -989,6 +1001,7 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                 if payload:
                     run.publish(payload)
 
+            mark("listing_stream")
             if not full_text.strip() or full_text.lstrip().lower().startswith("error:"):
                 raise RuntimeError(full_text.strip() or "Listing generation returned no text")
             if not extract_listing_json(full_text):
@@ -1010,6 +1023,13 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
                     provider="system",
                     model="",
                 )
+            mark("repair_and_finalize")
+            log.info(
+                "generation timing conv=%s total=%.2fs %s",
+                conv_id,
+                sum(timings.values()),
+                " ".join(f"{stage}={seconds}s" for stage, seconds in timings.items()),
+            )
             stream_repo.update_status(conv_id, "draft")
             run.publish("data: [DONE]\n\n")
             if listing:
