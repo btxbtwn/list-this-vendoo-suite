@@ -143,6 +143,11 @@ def normalize_field_label(value: str) -> str:
     return key
 
 
+def squash_field_key(value: str) -> str:
+    """Case- and separator-free form used to spot variants of the same JSON key."""
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
 def _field_path_tail(value: str) -> str:
     """Reduce Vendoo DOM ids like listings.ebay.categorySpecifics.53159_Size Type to the label."""
     text = str(value or "").strip()
@@ -448,10 +453,16 @@ def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
         specifics_key = f"{marketplace}_specifics"
         specifics = dict(updated.get(specifics_key) or {})
         canonical = label_to_json_key(lookup) or label_to_json_key(key) or label_to_json_key(field) or field
+        squashed = squash_field_key(canonical)
         for alias in list(specifics):
             if alias == canonical:
                 continue
-            if field_lookup_key(str(alias)) == lookup or normalize_field_label(str(alias)) == key:
+            if (
+                field_lookup_key(str(alias)) == lookup
+                or normalize_field_label(str(alias)) == key
+                # Case/separator variants of the same key, e.g. a stale "sizetype".
+                or squash_field_key(str(alias)) == squashed
+            ):
                 specifics.pop(alias, None)
         specifics[canonical] = value
         updated[specifics_key] = specifics

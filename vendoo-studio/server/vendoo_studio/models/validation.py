@@ -1359,7 +1359,9 @@ KEY_CANONICAL_SKIP = frozenset({"category_specifics", "marketplace_specifics", "
 
 
 def _squash_key(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
+    from vendoo_studio.services.fill_log import squash_field_key
+
+    return squash_field_key(text)
 
 
 @lru_cache(maxsize=1)
