@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: studio-macos
+  group: studio-macos-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -32,6 +32,27 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: vendoo-studio/package-lock.json
+      - name: Import signing certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACOS_SIGNING_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
+        run: |
+          if [[ -z "$CERT_P12_BASE64" ]]; then
+            echo "No signing certificate secret; the app will be ad-hoc signed."
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/signing.p12"
+          security find-identity -p codesigning "$KEYCHAIN"
+          echo "MACOS_SIGNING_IDENTITY=List This Studio Signing" >> "$GITHUB_ENV"
       - name: Package app
         working-directory: vendoo-studio
         env:
@@ -54,6 +75,7 @@ jobs:
           print("OK: release zip has no symbolic link members")
           PY
       - name: Publish GitHub release
+        if: github.ref == 'refs/heads/main'
         working-directory: vendoo-studio
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

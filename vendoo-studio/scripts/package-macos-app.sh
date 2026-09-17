@@ -75,8 +75,19 @@ count = flatten_symlinks(app)
 print(f"Flattened {count} symlinks in {app.name}")
 PY
 
-if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+# A stable signing identity keeps the app's code requirement the same across
+# releases, so macOS keeps honoring Keychain "Always Allow" after updates.
+# PyInstaller signs with MACOS_SIGNING_IDENTITY (see ListThisStudio.spec);
+# re-signing here fails because the flattened bundle isn't codesign-shaped.
+if [[ -n "${MACOS_SIGNING_IDENTITY:-}" ]]; then
+  REQUIREMENT="$(codesign -d -r- "$APP" 2>&1)"
+  echo "$REQUIREMENT"
+  if [[ "$REQUIREMENT" != *"certificate leaf"* ]]; then
+    echo "Signed app has no certificate-based designated requirement." >&2
+    exit 1
+  fi
+else
+  echo "MACOS_SIGNING_IDENTITY is not set; ad-hoc signed (Keychain re-prompts after updates)." >&2
 fi
 
 PAYLOAD="$RELEASE/payload"
