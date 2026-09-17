@@ -23,6 +23,8 @@ def sanitize_frame(payload: dict[str, Any], step: str = "") -> Optional[dict[str
 
     width = payload.get("width")
     height = payload.get("height")
+    viewport_width = payload.get("viewport_width")
+    viewport_height = payload.get("viewport_height")
     return {
         "mime": mime,
         "data": data,
@@ -30,7 +32,13 @@ def sanitize_frame(payload: dict[str, Any], step: str = "") -> Optional[dict[str
         "step": step or (payload.get("step") or ""),
         "width": width if isinstance(width, int) else None,
         "height": height if isinstance(height, int) else None,
+        "viewport_width": viewport_width if _dimension(viewport_width) else None,
+        "viewport_height": viewport_height if _dimension(viewport_height) else None,
     }
+
+
+def _dimension(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 < value <= 10_000
 
 
 class PreviewHub:

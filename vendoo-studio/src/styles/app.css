@@ -323,6 +323,214 @@ input, select, textarea {
   height: 100%;
   object-fit: contain;
   background: #000;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.browser-surface {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  outline: none;
+  touch-action: none;
+}
+
+.browser-surface.is-interactive:focus-visible {
+  box-shadow: 0 0 0 1px var(--color-border-bright);
+}
+
+.browser-surface.is-interactive.tool-pick,
+.browser-surface.is-interactive.tool-box,
+.browser-surface.is-interactive.tool-pen {
+  cursor: crosshair;
+}
+
+.browser-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.browser-field-box {
+  position: absolute;
+  border-radius: 3px;
+}
+
+.browser-field-box.is-missed {
+  border: 1px dashed rgba(255, 176, 32, 0.85);
+  background: rgba(255, 176, 32, 0.08);
+}
+
+.browser-field-box.is-missed.is-required {
+  border-color: rgba(255, 92, 92, 0.95);
+  background: rgba(255, 92, 92, 0.1);
+}
+
+.browser-field-box.is-hover {
+  border: 1px solid rgba(52, 107, 241, 0.7);
+  background: rgba(52, 107, 241, 0.08);
+}
+
+.browser-field-box.is-selected {
+  border: 2px solid #346bf1;
+  background: rgba(52, 107, 241, 0.14);
+}
+
+.browser-field-tag {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 2px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #346bf1;
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.browser-marks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.browser-marks rect,
+.browser-marks path {
+  fill: none;
+  stroke: #ff5c8a;
+  stroke-width: 2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.browser-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.browser-tool {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.browser-tool:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.browser-tool.is-active {
+  border-color: #346bf1;
+  background: rgba(52, 107, 241, 0.18);
+  color: var(--color-text);
+}
+
+.browser-tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.browser-tools-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--color-border);
+}
+
+.browser-tools-status {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.browser-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.browser-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 64px;
+  overflow-y: auto;
+}
+
+.browser-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border: 1px solid rgba(52, 107, 241, 0.6);
+  border-radius: 11px;
+  background: rgba(52, 107, 241, 0.12);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+}
+
+.browser-chip.is-muted {
+  border-color: var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.browser-chip-empty {
+  color: rgba(255, 176, 32, 0.95);
+}
+
+.browser-chip button {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.browser-chip button:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.browser-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.browser-note {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  max-height: 96px;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  resize: vertical;
 }
 
 .browser-preview-empty {

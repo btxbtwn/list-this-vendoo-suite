@@ -18,6 +18,12 @@ class MessageType(str, enum.Enum):
     JOB_OPEN_LISTING = "job.open_listing"
     DIAGNOSTIC_ACK = "diagnostic.ack"
     EXTENSION_RELOAD = "extension.reload"
+    BROWSER_OPEN = "browser.open"
+    BROWSER_CLOSE = "browser.close"
+    BROWSER_INPUT = "browser.input"
+    BROWSER_PICK = "browser.pick"
+    BROWSER_SNAPSHOT = "browser.snapshot"
+    BROWSER_ACT = "browser.act"
     PING = "ping"
 
 
@@ -32,6 +38,7 @@ class ExtMessageType(str, enum.Enum):
     JOB_VENDOO_ITEM = "job.vendoo_item"
     JOB_CATEGORIES = "job.categories"
     JOB_PREVIEW_FRAME = "job.preview_frame"
+    BROWSER_RESULT = "browser.result"
     DIAGNOSTIC_OBSERVED = "diagnostic.observed"
     PONG = "pong"
 

@@ -25,6 +25,8 @@ interface Props {
   onJobStarted?: () => void;
   onAskChat?: (text: string) => void;
   onCleared?: () => void;
+  onOpenBrowser?: (jobId: string) => void;
+  browserOpen?: boolean;
 }
 
 interface EditorField {
@@ -34,7 +36,7 @@ interface EditorField {
   defaultValue?: string;
 }
 
-export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Props) {
+export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOpenBrowser, browserOpen }: Props) {
   const queryClient = useQueryClient();
   const [reviewTab, setReviewTab] = React.useState<"forms" | "fields">("forms");
   const [editTab, setEditTab] = React.useState("general");
@@ -172,6 +174,18 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared }: Pr
                 vendooUrl={listingJob.vendoo_url || importedUrl}
                 className="pr-review-open"
               />
+            )}
+            {listingJob && onOpenBrowser && (listingJob.vendoo_item_id || listingJob.vendoo_url) && (
+              <button
+                type="button"
+                className="pr-review-open"
+                disabled={browserOpen}
+                title="Work in the Vendoo draft here: click, type, and point Studio at fields to fill"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={() => onOpenBrowser(listingJob.id)}
+              >
+                {browserOpen ? "Browsing" : "Browse draft"}
+              </button>
             )}
             <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />
           </div>

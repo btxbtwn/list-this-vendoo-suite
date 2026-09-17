@@ -178,7 +178,8 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Sidebar, workspace, and inspector share the same 8px inset and aligned top/bottom frame.
 - Column footers stay independent: sidebar keeps Settings and updates; inspector keeps Send to Vendoo; only the chat column gets a T3-style composer.
 - Chat chrome follows T3 Code: user right, assistant left, no bubble cards. Assistant and user text render as T3-style markdown (GFM tables, headings, lists, inline code). The composer is always visible as a rounded `#111111` pill on `#0a0a0a` with a circular `#346bf1` send control. Empty state keeps Generate Listing when photos exist.
-- Browser preview is a bottom pane in the center column only while a listing job is `queued`, `awaiting_extension`, or `dispatched`. Collapse it when idle. Do not keep a permanent ~42% split.
+- Browser preview is a bottom pane in the center column while a listing job is `queued`, `awaiting_extension`, or `dispatched`, or while the seller has opened **Browse draft** on a saved draft. Collapse it otherwise. Do not keep a permanent ~42% split.
+- Browse draft makes the preview interactive, following T3 Code's in-app browser. **Use** forwards pointer, wheel, keyboard, and paste to the Vendoo tab. **Pick**, **Box**, and **Pen** point Studio at fields, and **Missed fields** outlines empty listing fields. Picked fields become chips with an optional note. **Fill on Vendoo** resolves values for only those fields, saves a `browser_direct` revision, and types them into the draft. **Ask chat** sends the same context to chat instead. Input waits while Studio is filling.
 - T3 Code blue marks primary actions, selection, and focus; marketplace colors remain sparing.
 - System UI sans handles navigation, controls, and content while the T3 Code mono stack handles measurements, JSON, and technical status.
 - Avoid generic dashboard cards and excessive rounded containers.
@@ -538,6 +539,10 @@ Server-to-extension messages:
 - `job.retry`
 - `job.cancel`
 - `extension.reload`
+- `browser.open`, `browser.close`: open or release the interactive draft tab for a job
+- `browser.input`: fire-and-forget pointer, wheel, key, and text events with coordinates as viewport ratios
+- `browser.pick`, `browser.snapshot`: read the field under a point, or every visible listing field with value, options, and rectangle
+- `browser.act`: agent `click`, `type`, `press`, `scroll`, and `wait`; the extension refuses publish, delist, and delete controls
 - `ping`
 
 After a Studio update, the backend copies the bundled extension over the installed copy and sends `extension.reload`. The service worker calls `chrome.runtime.reload()`, then refreshes open marketplace tabs so content scripts pick up the new code.
@@ -551,6 +556,8 @@ Extension-to-server messages:
 - `job.step_failed`
 - `job.cancelled`
 - `job.completed`
+- `job.preview_frame`: JPEG frame with URL and CSS viewport size; accepted for finished jobs so browsing a saved draft stays live
+- `browser.result`: reply to `browser.*` requests, keyed by `request_id`, with the current controller (`human`, `agent`, `busy`, `none`)
 - `pong`
 
 ### Idempotency
