@@ -245,6 +245,20 @@ async function runVendooGet(jobId, payload) {
   if (item) sources.push('api');
   if (form) sources.push('form');
 
+  // Freshly-uploaded draft photos only exist as blob: object URLs inside this tab.
+  // Studio's backend can't fetch those, so upload them straight from here before
+  // it tries to import the draft.
+  if (payload.resolve_photos && payload.conversation_id && ok) {
+    try {
+      const blobUrls = collectImportedImageUrls(item, form).filter((url) => url.startsWith('blob:'));
+      if (blobUrls.length) {
+        await uploadImportedPhotos(tabId, payload.conversation_id, blobUrls);
+      }
+    } catch (err) {
+      log(`Blob photo resolve failed: ${err.message}`);
+    }
+  }
+
   reply({
     ok,
     source: sources.join('+') || (apiRead.source || 'none'),

@@ -318,6 +318,7 @@ async def get_vendoo_item(
     job_id: str,
     refresh: bool = False,
     cache_only: bool = False,
+    resolve_photos: bool = False,
     db: Session = Depends(get_db),
 ):
     import uuid
@@ -418,7 +419,7 @@ async def get_vendoo_item(
     request_id = uuid.uuid4().hex[:12]
     waiter = extension_manager.register_wait(request_id)
     try:
-        sent = await dispatch_vendoo_get(job, request_id)
+        sent = await dispatch_vendoo_get(job, request_id, resolve_photos=resolve_photos)
         if not sent:
             raise HTTPException(503, "Could not reach the Chrome extension")
         try:

@@ -61,7 +61,12 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
     mutationFn: async (opts?: { importDraft?: boolean }) => {
       const job = await api.jobs.ensureDraft(convId);
       // Live read stays inside the mutation so Refresh stays pending until Chrome finishes.
-      const fresh = await fetchVendooItemLive(queryClient, job.id, { force: true });
+      // Importing needs blob: preview photos resolved and uploaded by the extension first,
+      // since only the Vendoo tab itself can read a blob: URL.
+      const fresh = await fetchVendooItemLive(queryClient, job.id, {
+        force: true,
+        resolvePhotos: Boolean(opts?.importDraft),
+      });
       // Linking adopts the draft; plain Refresh must not overwrite Studio edits.
       const imported = opts?.importDraft ? await api.jobs.importDraft(job.id) : null;
       return { job, fresh, imported };
@@ -169,7 +174,9 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
     const key = `${convId}:${importedItemId}`;
     if (ensureAttemptKey.current === key) return;
     ensureAttemptKey.current = key;
-    ensureDraftMutation.mutate();
+    // First time seeing this binding with no job yet is the same as a fresh Link:
+    // adopt the draft's fields into Forms, not just the live Fields scrape.
+    ensureDraftMutation.mutate({ importDraft: true });
     // Refresh fields clears ensureAttemptKey before calling mutate again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobsLoading, listingJob?.id, importedItemId, convId]);

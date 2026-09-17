@@ -67,7 +67,7 @@ class VendooItemRouteTest(unittest.TestCase):
     def test_vendoo_item_returns_draft_json(self):
         self._connect_chrome()
 
-        async def fake_dispatch(job, request_id):
+        async def fake_dispatch(job, request_id, **kwargs):
             extension_manager.resolve_wait(request_id, {
                 "ok": True,
                 "source": "api+form",
@@ -140,7 +140,7 @@ class VendooItemRouteTest(unittest.TestCase):
     def test_vendoo_item_read_failure(self):
         self._connect_chrome()
 
-        async def fake_dispatch(job, request_id):
+        async def fake_dispatch(job, request_id, **kwargs):
             extension_manager.resolve_wait(request_id, {
                 "ok": False,
                 "error": "GET /api/item returned 401",
@@ -156,7 +156,7 @@ class VendooItemRouteTest(unittest.TestCase):
     def test_vendoo_item_refresh_failure_does_not_return_stale_cache(self):
         self._connect_chrome()
 
-        async def ok_dispatch(job, request_id):
+        async def ok_dispatch(job, request_id, **kwargs):
             extension_manager.resolve_wait(request_id, {
                 "ok": True,
                 "source": "api+form",
@@ -167,7 +167,7 @@ class VendooItemRouteTest(unittest.TestCase):
             })
             return True
 
-        async def fail_dispatch(job, request_id):
+        async def fail_dispatch(job, request_id, **kwargs):
             extension_manager.resolve_wait(request_id, {
                 "ok": False,
                 "error": "Tab closed during refresh",
@@ -199,7 +199,7 @@ class VendooItemRouteTest(unittest.TestCase):
     def test_vendoo_item_refresh_paused_during_verification(self):
         self._connect_chrome()
 
-        async def ok_dispatch(job, request_id):
+        async def ok_dispatch(job, request_id, **kwargs):
             extension_manager.resolve_wait(request_id, {
                 "ok": True,
                 "source": "form",
