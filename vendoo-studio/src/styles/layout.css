@@ -96,14 +96,14 @@
 .browser-preview.is-open {
   display: flex;
   flex-direction: column;
-  flex: 0 0 48%;
+  flex: 0 0 58%;
   min-height: 280px;
-  max-height: 58%;
-  border-top: 1px solid var(--color-border);
+  max-height: 66%;
+  border-bottom: 1px solid var(--color-border);
   background: var(--color-ink);
 }
 
-/* Expanded: the browser takes the whole workspace; chat, photos, and details hide. */
+/* Expanded: the browser takes the whole workspace and chat hides. */
 .listing-workspace.is-browser-expanded .listing-workspace-main {
   display: none;
 }
@@ -112,7 +112,7 @@
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
-  border-top: none;
+  border-bottom: none;
 }
 
 .browser-preview-bar {
@@ -341,19 +341,8 @@
 }
 
 .browser-composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   padding: 8px 12px;
   border-top: 1px solid var(--color-border);
-}
-
-.browser-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  max-height: 64px;
-  overflow-y: auto;
 }
 
 .browser-chip {
@@ -408,16 +397,27 @@
   font-size: var(--text-xs);
 }
 
-.browser-go-chat {
-  display: none;
+.chat-browser-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
 }
 
-.chat-browser-fields {
+.chat-browser-fields-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.chat-browser-fields-list {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  max-height: 64px;
-  margin-bottom: 6px;
+  max-height: 76px;
   overflow-y: auto;
 }
 

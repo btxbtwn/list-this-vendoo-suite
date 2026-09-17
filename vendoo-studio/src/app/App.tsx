@@ -5,9 +5,7 @@ import type { BrowserField } from "../api/client";
 import { ExtensionStatus } from "../components/ExtensionStatus";
 import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
-import { PhotoTray } from "../components/PhotoTray";
 import { SetupChecklist } from "../components/SetupChecklist";
-import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
 import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
 import {
@@ -405,25 +403,6 @@ export function App() {
               </Suspense>
             ) : selectedConvId ? (
               <div className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
-                <div className="listing-workspace-main" key={`${selectedConvId}:${workspaceNonce}`}>
-                  <PhotoTray
-                    convId={selectedConvId}
-                    onCleared={() => {
-                      setQueuedChatMessage(null);
-                      setWorkspaceNonce((value) => value + 1);
-                    }}
-                  />
-                  <ItemDetails convId={selectedConvId} />
-                  <div className="chat-column">
-                    <ChatPanel
-                      convId={selectedConvId}
-                      queuedMessage={queuedChatMessage}
-                      onQueuedMessageConsumed={() => setQueuedChatMessage(null)}
-                      browser={browserOpen && browserJobId ? { jobId: browserJobId, fields: browserFields } : null}
-                      onBrowserFieldsChange={setBrowserFields}
-                    />
-                  </div>
-                </div>
                 {browserPaneOpen && (
                   <BrowserPreview
                     jobId={listingJob?.id ?? null}
@@ -440,9 +419,20 @@ export function App() {
                     onToggleExpanded={isMobile ? undefined : () => setBrowserExpanded((value) => !value)}
                     selected={browserFields}
                     onSelectedChange={setBrowserFields}
-                    onGoToChat={() => setMobilePane("workspace")}
+                    onGoToChat={isMobile ? () => setMobilePane("workspace") : undefined}
                   />
                 )}
+                <div className="listing-workspace-main" key={`${selectedConvId}:${workspaceNonce}`}>
+                  <div className="chat-column">
+                    <ChatPanel
+                      convId={selectedConvId}
+                      queuedMessage={queuedChatMessage}
+                      onQueuedMessageConsumed={() => setQueuedChatMessage(null)}
+                      browser={browserOpen && browserJobId ? { jobId: browserJobId, fields: browserFields } : null}
+                      onBrowserFieldsChange={setBrowserFields}
+                    />
+                  </div>
+                </div>
               </div>
             ) : needsSetup ? (
               <SetupChecklist

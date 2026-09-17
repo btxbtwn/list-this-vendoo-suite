@@ -350,8 +350,7 @@
     display: none;
   }
 
-  .app-content.mobile-pane-browser .listing-workspace,
-  .browser-go-chat {
+  .app-content.mobile-pane-browser .listing-workspace {
     display: inline-flex;
   }
 
