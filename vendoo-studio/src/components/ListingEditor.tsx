@@ -56,13 +56,15 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
   );
   const [ensureError, setEnsureError] = React.useState<string | null>(null);
   const ensureDraftMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (opts?: { importDraft?: boolean }) => {
       const job = await api.jobs.ensureDraft(convId);
       // Live read stays inside the mutation so Refresh stays pending until Chrome finishes.
       const fresh = await fetchVendooItemLive(queryClient, job.id, { force: true });
-      return { job, fresh };
+      // Linking adopts the draft; plain Refresh must not overwrite Studio edits.
+      const imported = opts?.importDraft ? await api.jobs.importDraft(job.id) : null;
+      return { job, fresh, imported };
     },
-    onSuccess: ({ job, fresh }) => {
+    onSuccess: ({ job, fresh, imported }) => {
       setEnsureError(null);
       queryClient.setQueryData(["jobs", convId], (old: Job[] | undefined) => {
         const rest = (old || []).filter((item) => item.id !== job.id);
@@ -72,6 +74,14 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
       queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
+      if (imported) {
+        queryClient.invalidateQueries({ queryKey: ["photos", convId] });
+        addToast({
+          type: imported.photo_warnings.length ? "error" : "success",
+          title: `Imported Vendoo draft with ${imported.photo_count} photo${imported.photo_count === 1 ? "" : "s"}`,
+          description: imported.photo_warnings.join(" ") || imported.listing_title,
+        });
+      }
       if (fresh?.error || fresh?.api_error) {
         addToast({
           type: "error",
@@ -197,12 +207,13 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
             convId={convId}
             itemId={importedItemId}
             url={importedUrl}
-            onLinked={() => {
-              ensureAttemptKey.current = null;
+            onLinked={(linkedItemId) => {
+              // Claim the auto-attach key so the effect doesn't race this import.
+              ensureAttemptKey.current = `${convId}:${linkedItemId}`;
               queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
               queryClient.invalidateQueries({ queryKey: ["conversations"] });
               queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
-              ensureDraftMutation.mutate();
+              ensureDraftMutation.mutate({ importDraft: true });
             }}
           />
         </div>
@@ -557,7 +568,7 @@ function VendooLinkControl({
   convId: string;
   itemId?: string | null;
   url?: string | null;
-  onLinked?: () => void;
+  onLinked?: (itemId: string) => void;
 }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(url || itemId || "");
@@ -575,13 +586,13 @@ function VendooLinkControl({
 
   const linkMutation = useMutation({
     mutationFn: (value: string) => api.conversations.linkVendoo(convId, value),
-    onSuccess: () => {
+    onSuccess: (linked) => {
       setEditing(false);
-      onLinked?.();
+      onLinked?.(linked.vendoo_item_id);
       addToast({
         type: "success",
         title: "Vendoo draft linked",
-        description: "Fields can now read that draft once Chrome is connected.",
+        description: "Importing its fields and photos through Chrome…",
       });
     },
     onError: (err: Error) => {

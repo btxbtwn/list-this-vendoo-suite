@@ -209,6 +209,11 @@ export const api = {
         body: JSON.stringify({ conversation_id: conversationId }),
       }),
     get: (id: string) => request<Job>(`/jobs/${id}`),
+    importDraft: (id: string) =>
+      request<{ ok: boolean; listing_title: string; photo_count: number; photo_warnings: string[] }>(
+        `/jobs/${id}/import-draft`,
+        { method: "POST" },
+      ),
     fillLog: (id: string) => request<FillLogReport>(`/jobs/${id}/fill-log`),
     fillFields: (id: string, fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
       request<Job>(`/jobs/${id}/fill-fields`, {

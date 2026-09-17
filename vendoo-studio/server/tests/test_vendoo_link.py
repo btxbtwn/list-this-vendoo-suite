@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -110,6 +111,59 @@ class LinkVendooDraftTest(unittest.TestCase):
             json={"url_or_id": "taken123"},
         )
         self.assertEqual(response.status_code, 409, response.text)
+
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
+    def test_import_draft_copies_fields_and_photos_into_blank_listing(self, download):
+        blank = ConversationRepo(self.db).create(title="New Listing")
+        download.return_value = [{
+            "original_filename": "a.jpg",
+            "stored_filename": "stored-a.jpg",
+            "mime_type": "image/jpeg",
+            "size_bytes": 10,
+        }]
+        link = self.client.post(
+            f"/api/conversations/{blank.id}/vendoo-link",
+            json={"url_or_id": "draft789"},
+        )
+        self.assertEqual(link.status_code, 200, link.text)
+        ensure = self.client.post("/api/jobs/ensure-draft", json={"conversation_id": blank.id})
+        self.assertEqual(ensure.status_code, 200, ensure.text)
+        job_id = ensure.json()["id"]
+        JobRepo(self.db).save_vendoo_draft(
+            job_id,
+            item={
+                "generalDetails": {"title": "Levi's 501 jeans", "price": 42, "brand": "Levi's"},
+                "images": [{"url": "https://cdn.example/a.jpg"}],
+            },
+            form=None,
+            item_id="draft789",
+            url="https://web.vendoo.co/app/item/draft789",
+            source="api",
+            step="fields_applied",
+        )
+
+        response = self.client.post(f"/api/jobs/{job_id}/import-draft")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["photo_count"], 1)
+        self.assertEqual(body["listing_title"], "Levi's 501 jeans")
+        download.assert_awaited_once_with(["https://cdn.example/a.jpg"])
+
+        self.db.expire_all()
+        listing = ListingRepo(self.db).get_revisions(blank.id)[0].listing_json
+        self.assertEqual(listing["brand"], "Levi's")
+        self.assertEqual(listing["price"], 42)
+        self.assertEqual(len(ConversationRepo(self.db).get_photos(blank.id)), 1)
+        self.assertEqual(JobRepo(self.db).get(job_id).listing_snapshot["title"], "Levi's 501 jeans")
+
+    def test_import_draft_requires_a_read_draft(self):
+        self.client.post(
+            f"/api/conversations/{self.conv.id}/vendoo-link",
+            json={"url_or_id": "unread123"},
+        )
+        job_id = self.client.post("/api/jobs/ensure-draft", json={"conversation_id": self.conv.id}).json()["id"]
+        response = self.client.post(f"/api/jobs/{job_id}/import-draft")
+        self.assertEqual(response.status_code, 400, response.text)
 
     def test_rejects_invalid_ref(self):
         response = self.client.post(
