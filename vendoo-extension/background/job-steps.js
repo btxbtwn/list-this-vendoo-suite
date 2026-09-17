@@ -304,8 +304,18 @@ async function auditGeneral(job) {
   });
 }
 
+// True when a fill log shows any control was written (not only "Already set" or skips).
+function fillLogChangedForm(fillLog) {
+  const entries = fillLog && Array.isArray(fillLog.entries) ? fillLog.entries : null;
+  if (!entries) return true;
+  return entries.some((entry) => {
+    if (entry.status === 'filled') return String(entry.reason || '') !== 'Already set';
+    return entry.status === 'uncertain' || entry.status === 'invalid' || entry.status === 'failed';
+  });
+}
+
 async function fillMarketplace(job, platform) {
-  return sendToVendoo(job, {
+  const result = await sendToVendoo(job, {
     type: 'FILL_MARKETPLACE',
     platform,
     data: job.listing,
@@ -313,9 +323,23 @@ async function fillMarketplace(job, platform) {
     registry_selectors: job.registry_selectors || {},
     registry_options: job.registry_options || {},
   });
+  if (result?.ok) {
+    job.unchangedPlatforms = job.unchangedPlatforms || {};
+    job.unchangedPlatforms[platform] = !fillLogChangedForm(result.fill_log);
+  }
+  return result;
 }
 
 async function saveMarketplace(job, platform) {
+  if (job.unchangedPlatforms?.[platform] && durableItemId(job.vendoo_item_id)) {
+    log(`Skipping ${platform} save: fill changed nothing`);
+    return {
+      ok: true,
+      skipped: true,
+      vendoo_item_id: job.vendoo_item_id,
+      vendoo_url: job.vendoo_url,
+    };
+  }
   return sendToVendoo(job, {
     type: 'SAVE_MARKETPLACE',
     platform,

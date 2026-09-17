@@ -211,6 +211,22 @@ def list_jobs(conversation_id: str | None = None, db: Session = Depends(get_db))
     return [_job_response(j) for j in repo.list_all()]
 
 
+@router.get("/fill-stats")
+def get_fill_stats(days: int = Query(30, ge=1, le=365), limit: int = Query(50, ge=1, le=500), db: Session = Depends(get_db)):
+    from vendoo_studio.services.job_metrics import fill_success_stats
+
+    return fill_success_stats(db, days=days, limit=limit)
+
+
+@router.get("/{job_id}/timing")
+def get_job_timing(job_id: str, db: Session = Depends(get_db)):
+    from vendoo_studio.services.job_metrics import job_timing
+
+    if not JobRepo(db).get(job_id):
+        raise HTTPException(404, "Job not found")
+    return job_timing(db, job_id)
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 def get_job(job_id: str, db: Session = Depends(get_db)):
     repo = JobRepo(db)

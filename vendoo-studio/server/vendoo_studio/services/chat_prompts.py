@@ -219,6 +219,84 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
     return messages
 
 
+LISTING_INSTRUCTIONS = (
+    "You are a product listing generator. Generate an evidence-backed Vendoo listing JSON "
+    "from the photo analysis and listing rules below.\n\n"
+    "Preserve category_path and marketplace_categories from the verified category selections below. "
+    "Each marketplace uses its own category tree; do not substitute another form's breadcrumb.\n\n"
+    "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
+    "when a second color is visible. Use Vendoo general condition values such as "
+    '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
+    "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
+    "TITLE and DESCRIPTION are non-negotiable skill formulas — copy the structure from "
+    "Formula Reference below. Title order is Brand Size Vibe Item Color Fit (max 80 chars). "
+    "Physical descriptions must keep the mandatory blank lines and Size:/Condition:/Measurements:/"
+    "OFFERS WELCOME blocks. Do not write freeform marketing copy that breaks those formulas.\n\n"
+    "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
+    "Do not modify, estimate, or replace seller-provided measurements.\n"
+    "Use the discovered category fields below. Fill every applicable field with a real value or Does Not Apply. "
+    "Only leave a field empty when you must ask the seller a precise question in prose — and never claim the listing is complete while any applicable discovered field is still empty. "
+    "Estimate packaged shipping weight (weight_lb/weight_oz) and package_dimensions_in from the item type — "
+    "do not ask the seller for routine apparel shipping weight or mailer size. "
+    "Never invent brand, size, material, age, or other product facts without photo or seller evidence. "
+    "Prefer verbatim tag text from the photo analysis for brand, size, and material. "
+    "Studio applies generated values onto the bound Vendoo draft automatically when Chrome is connected. "
+    "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
+    "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
+    "Return ONLY one fenced ```json code block with the full listing object. "
+    "No prose before or after the fence. Valid JSON only (no trailing commas).\n\n"
+    "```json\n"
+    "{\n"
+    '  "title": "...",\n'
+    '  "description": "...",\n'
+    '  "price": ...,\n'
+    '  "cost": ...,\n'
+    '  "quantity": 1,\n'
+    '  "brand": "...",\n'
+    '  "condition": "...",\n'
+    '  "primaryColor": "...",\n'
+    '  "secondaryColor": "...",\n'
+    '  "sku": "...",\n'
+    '  "size": "...",\n'
+    '  "sizeType": "...",\n'
+    '  "tags": [...],\n'
+    '  "package_dimensions_in": "...",\n'
+    '  "ebay_specifics": {...},\n'
+    '  "depop_specifics": {"source": "Preloved", "age": "Modern"},\n'
+    '  "etsy_specifics": {...},\n'
+    '  "poshmark_specifics": {"originalPrice": 0},\n'
+    '  "mercari_specifics": {"shippingLabel": "USPS Ground Advantage"}\n'
+    "}\n"
+    "```"
+)
+
+
+def _empty_discovered_fields_prompt(db: Session, conv_id: str) -> str:
+    """List discovered fields still empty so generation fills them in one pass, not a later gap round."""
+    from copy import deepcopy
+
+    from vendoo_studio.services.listing_field_gaps import collect_empty_discovered_fields
+    from vendoo_studio.services.registry import RegistryService
+
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    if not revisions or not isinstance(revisions[0].listing_json, dict):
+        return ""
+    probe = deepcopy(revisions[0].listing_json)
+    if not str(probe.get("category_path") or "").strip():
+        return ""
+    RegistryService(db).merge_learned_fields(probe)
+    gaps = collect_empty_discovered_fields(db, probe)
+    if not gaps:
+        return ""
+    lines = [f"- {gap['marketplace']}: {gap['field']}" for gap in gaps]
+    return (
+        "\n\n--- Discovered fields still empty ---\n"
+        "Fill each of these in the listing JSON (root fields or the marketplace *_specifics) using exact "
+        "allowed options from the category fields above, or Does Not Apply when the field truly does not apply:\n"
+        + "\n".join(lines)
+    )
+
+
 def listing_generation_messages(
     skill_rules: str,
     item_details: str,
@@ -235,61 +313,19 @@ def listing_generation_messages(
         if photo_count
         else ""
     )
+    # Static instructions and rules lead so provider prefix caches hit across items;
+    # per-item evidence follows.
     system_content = (
-        "You are a product listing generator. Generate an evidence-backed Vendoo listing JSON "
-        "from the photo analysis and listing rules below.\n\n"
+        f"{LISTING_INSTRUCTIONS}\n\n"
+        f"--- Listing Rules ---\n\n{skill_rules}"
+        f"{learned_fields_prompt(db, conv_id)}"
+        "\n\n--- This item ---\n\n"
         f"{photo_line}"
-        "Preserve category_path and marketplace_categories from the verified category selections below. "
-        "Each marketplace uses its own category tree; do not substitute another form's breadcrumb.\n\n"
-        "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
-        "when a second color is visible. Use Vendoo general condition values such as "
-        '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
-        "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
-        "TITLE and DESCRIPTION are non-negotiable skill formulas — copy the structure from "
-        "Formula Reference below. Title order is Brand Size Vibe Item Color Fit (max 80 chars). "
-        "Physical descriptions must keep the mandatory blank lines and Size:/Condition:/Measurements:/"
-        "OFFERS WELCOME blocks. Do not write freeform marketing copy that breaks those formulas.\n\n"
-        "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
-        "Do not modify, estimate, or replace seller-provided measurements.\n"
-        "Use the discovered category fields below. Fill every applicable field with a real value or Does Not Apply. "
-        "Only leave a field empty when you must ask the seller a precise question in prose — and never claim the listing is complete while any applicable discovered field is still empty. "
-        "Estimate packaged shipping weight (weight_lb/weight_oz) and package_dimensions_in from the item type — "
-        "do not ask the seller for routine apparel shipping weight or mailer size. "
-        "Never invent brand, size, material, age, or other product facts without photo or seller evidence. "
-        "Studio applies generated values onto the bound Vendoo draft automatically when Chrome is connected. "
-        "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
-        "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
-        "Return ONLY one fenced ```json code block with the full listing object. "
-        "No prose before or after the fence. Valid JSON only (no trailing commas).\n\n"
-        "```json\n"
-        "{\n"
-        '  "title": "...",\n'
-        '  "description": "...",\n'
-        '  "price": ...,\n'
-        '  "cost": ...,\n'
-        '  "quantity": 1,\n'
-        '  "brand": "...",\n'
-        '  "condition": "...",\n'
-        '  "primaryColor": "...",\n'
-        '  "secondaryColor": "...",\n'
-        '  "sku": "...",\n'
-        '  "size": "...",\n'
-        '  "sizeType": "...",\n'
-        '  "tags": [...],\n'
-        '  "package_dimensions_in": "...",\n'
-        '  "ebay_specifics": {...},\n'
-        '  "depop_specifics": {"source": "Preloved", "age": "Modern"},\n'
-        '  "etsy_specifics": {...},\n'
-        '  "poshmark_specifics": {"originalPrice": 0},\n'
-        '  "mercari_specifics": {"shippingLabel": "USPS Ground Advantage"}\n'
-        "}\n"
-        "```\n\n"
         f"{item_details}\n\n"
         f"{analysis_text}"
-        f"{comps_block}\n\n"
-        f"--- Listing Rules ---\n\n{skill_rules}"
+        f"{comps_block}"
         f"{current_listing_prompt(db, conv_id)}"
-        f"{learned_fields_prompt(db, conv_id)}"
+        f"{_empty_discovered_fields_prompt(db, conv_id)}"
     )
     return [
         {"role": "system", "content": system_content},

@@ -26,6 +26,53 @@ MAX_PATCH_FIELDS = 50
 MAX_FILL_FIELDS = 200
 # Marketplace descriptions (esp. Etsy ~10k) routinely exceed a few hundred chars.
 MAX_PATCH_VALUE = 10_000
+# Dropdowns up to this size go to the model whole; larger ones are narrowed by relevance.
+FULL_OPTION_LIMIT = 80
+RANKED_OPTION_LIMIT = 25
+_ALWAYS_OFFERED_OPTIONS = frozenset({"does not apply", "other", "none", "not applicable"})
+
+
+def prompt_options(options: list[str] | None, context: str = "") -> tuple[list[str], bool]:
+    """Options to show the model and whether the list is complete.
+
+    Short lists pass through intact so the model can copy an exact label. Long lists keep
+    the options sharing the most words with the item evidence, plus generic fallbacks.
+    """
+    labels: list[str] = []
+    for option in options or []:
+        label = str(option or "").strip()
+        if label and label not in labels:
+            labels.append(label)
+    if len(labels) <= FULL_OPTION_LIMIT:
+        return labels, True
+    words = set(re.findall(r"[a-z0-9]+", str(context or "").casefold()))
+
+    def score(label: str) -> int:
+        return sum(1 for token in re.findall(r"[a-z0-9]+", label.casefold()) if token in words)
+
+    ranked = sorted(range(len(labels)), key=lambda index: (-score(labels[index]), index))
+    keep = {index for index in ranked[:RANKED_OPTION_LIMIT] if score(labels[index]) > 0}
+    keep.update(index for index, label in enumerate(labels) if label.casefold() in _ALWAYS_OFFERED_OPTIONS)
+    if len(keep) < RANKED_OPTION_LIMIT:
+        keep.update(ranked[: RANKED_OPTION_LIMIT - len(keep)])
+    return [labels[index] for index in sorted(keep)], False
+
+
+def canonical_option(value: Any, options: list[str] | None) -> str | None:
+    """Exact allowed label for value (case and punctuation insensitive), or None."""
+    text = str(value or "").strip()
+    if not text or not options:
+        return None
+    squashed = squash_field_key(text)
+    for option in options:
+        label = str(option or "").strip()
+        if label == text:
+            return label
+    for option in options:
+        label = str(option or "").strip()
+        if label and squash_field_key(label) == squashed:
+            return label
+    return None
 
 GENERAL_LISTING_KEYS = {
     "title": "title",
@@ -376,7 +423,7 @@ async def repair_missing_fields(provider, raw_text: str, user_request: str = "")
     try:
         from vendoo_studio.services.listing_generate import collect_provider_text
 
-        repaired = await collect_provider_text(provider, messages)
+        repaired = await collect_provider_text(provider, messages, quick=True)
     except Exception:
         LOGGER.exception("missing_fields repair request failed")
         return None

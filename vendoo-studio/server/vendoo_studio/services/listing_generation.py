@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from vendoo_studio.database import SessionLocal
 from vendoo_studio.repositories.queries import ConversationRepo
@@ -64,6 +65,15 @@ async def run_listing_generation(
     skill_rules = load_skill_rules(item_details, stream_db)
     full_text = ""
     child_tasks: list[asyncio.Task] = []
+    stage_started = time.monotonic()
+    timings: dict[str, float] = {}
+
+    def mark(stage: str) -> None:
+        nonlocal stage_started
+        now = time.monotonic()
+        timings[stage] = round(now - stage_started, 2)
+        stage_started = now
+
     try:
         evidence: dict = {}
         existing = latest_photo_analysis(stream_repo.get_messages(conv_id))
@@ -95,6 +105,7 @@ async def run_listing_generation(
         if existing:
             prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
 
+        mark("photo_analysis")
         listing_rules = load_skill_rules(
             f"{prompt_analysis}\n{item_details}",
             stream_db,
@@ -125,6 +136,7 @@ async def run_listing_generation(
                 run.pulse()
                 continue
             run.pulse()
+        mark("categories_and_comps")
         schema_seed = schema_task.result()
         comps_text = ""
         if comps_task is not None:
@@ -154,6 +166,7 @@ async def run_listing_generation(
             if payload:
                 run.publish(payload)
 
+        mark("listing_stream")
         if not full_text.strip() or full_text.lstrip().lower().startswith("error:"):
             raise RuntimeError(full_text.strip() or "Listing generation returned no text")
         if not extract_listing_json(full_text):
@@ -175,6 +188,13 @@ async def run_listing_generation(
                 provider="system",
                 model="",
             )
+        mark("repair_and_finalize")
+        log.info(
+            "generation timing conv=%s total=%.2fs %s",
+            conv_id,
+            sum(timings.values()),
+            " ".join(f"{stage}={seconds}s" for stage, seconds in timings.items()),
+        )
         stream_repo.update_status(conv_id, "draft")
         run.publish("data: [DONE]\n\n")
         if listing:
@@ -273,7 +293,9 @@ async def _finish_generation_background(
 
         from vendoo_studio.services.auto_apply import auto_apply_after_generation
 
-        apply_result = await auto_apply_after_generation(db, conv_id, current)
+        apply_result = await auto_apply_after_generation(
+            db, conv_id, current, provider=provider, evidence=evidence,
+        )
         if apply_result.get("applied"):
             # auto_apply already records a system message on success
             pass

@@ -117,6 +117,7 @@ async function runFillFields(jobId, payload) {
     return;
   }
 
+  const fillStartedAt = Date.now();
   const shouldVerify = payload.verify !== false;
   const marketplaceGroups = payload.fields?.length ? groupFillFieldMarketplaces(payload.fields) : [];
   const totalBatches = marketplaceGroups.reduce((sum, group) => sum + group.batches.length, 0);
@@ -226,6 +227,18 @@ async function runFillFields(jobId, payload) {
     }
   }
   if (activePatch !== job) return;
+  // Read the saved item over the API while the tab is open so Studio's draft cache
+  // reflects this apply (Send uses it to skip marketplaces that already match).
+  let savedItem = null;
+  const savedItemId = durableItemId(lastSaved?.vendoo_item_id || payload.vendoo_item_id);
+  if (payload.read_item && !fillFailed && savedItemId) {
+    const read = await Promise.race([
+      readItemFromPage(job.tabId, savedItemId),
+      sleep(8000).then(() => ({ ok: false })),
+    ]);
+    if (read?.ok && read.item) savedItem = compactVendooValue(read.item, 0);
+  }
+  if (activePatch !== job) return;
   activePatch = null;
   await stopJobPreview();
   await sleep(1500);
@@ -233,10 +246,14 @@ async function runFillFields(jobId, payload) {
 
   const completedPayload = {
     step: 'filling_fields',
-    vendoo_item_id: durableItemId(lastSaved?.vendoo_item_id || payload.vendoo_item_id) || null,
+    duration_ms: Date.now() - fillStartedAt,
+    vendoo_item_id: savedItemId || null,
     vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url || null,
     fill_log: fillLog,
   };
+  if (savedItem) {
+    completedPayload.item = savedItem;
+  }
   if (verification) {
     completedPayload.verification = verification;
   }

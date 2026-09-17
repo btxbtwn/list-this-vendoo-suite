@@ -252,7 +252,7 @@ def parse_resolution(text: str) -> dict:
     return result if isinstance(result, dict) else {}
 
 
-MAX_GAP_OPTIONS = 40
+MAX_GAP_OPTIONS = 80
 
 
 def compact_gap_for_model(field: dict) -> dict:

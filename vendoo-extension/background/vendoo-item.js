@@ -210,6 +210,21 @@ async function runVendooGet(jobId, payload) {
   ]);
 
   let formRead = { ok: false };
+  // Callers that only need the saved item (auto-apply) skip the form tour when the API answered.
+  if (payload.api_only && apiRead.ok) {
+    reply({
+      ok: true,
+      source: 'api',
+      item_id: apiRead.item_id || itemId || null,
+      url: apiRead.url || payload.vendoo_url || null,
+      item: compactVendooValue(apiRead.item, 0),
+      form: null,
+      statuses: null,
+      api_error: null,
+      error: null,
+    });
+    return;
+  }
   const ping = await pingContentScript(tabId);
   if (!ping?.ok) {
     try {

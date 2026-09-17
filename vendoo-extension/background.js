@@ -660,8 +660,10 @@ async function runJobSteps(jobId) {
       payload: { step: step.step },
     });
 
+    const stepStartedAt = Date.now();
     try {
       const result = await step.fn(activeJob);
+      const durationMs = Date.now() - stepStartedAt;
       if (!result.ok && activeJob.options?.mode !== 'schema_probe'
           && step.step.startsWith('saving_') && durableItemId(activeJob.vendoo_item_id)) {
         // A required field may prevent saving. Read the persisted draft and let
@@ -681,6 +683,7 @@ async function runJobSteps(jobId) {
           sent_at: new Date().toISOString(),
           payload: {
             step: step.step,
+            duration_ms: durationMs,
             error: result.error || 'Step failed',
             fields: result.fields || {},
             schema: result.schema || null,
@@ -699,6 +702,8 @@ async function runJobSteps(jobId) {
         sent_at: new Date().toISOString(),
         payload: {
           step: step.step,
+          duration_ms: durationMs,
+          skipped: Boolean(result.skipped),
           vendoo_item_id: result.vendoo_item_id,
           vendoo_url: result.vendoo_url,
           fill_log: result.fill_log || null,
@@ -878,7 +883,14 @@ function buildJobSteps(job) {
   if (platforms.length && !job.options?.skipDiscoverSchema) {
     steps.push({ step: 'discovering_schema', fn: discoverSchema });
   }
+  // Studio lists marketplaces whose saved draft already matches the listing
+  // (read back after auto-apply); end-of-job verification still checks them.
+  const skipPlatforms = new Set((job.options?.skipPlatforms || []).map((mp) => String(mp).toLowerCase()));
   for (const platform of platforms) {
+    if (skipPlatforms.has(String(platform).toLowerCase()) && !clearBeforeFill) {
+      log(`Skipping ${platform} fill: saved draft already matches the listing`);
+      continue;
+    }
     if (clearBeforeFill) {
       steps.push({ step: `clearing_${platform}`, fn: (j) => clearMarketplace(j, platform) });
     }
@@ -890,7 +902,6 @@ function buildJobSteps(job) {
 
   return steps;
 }
-
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }

@@ -174,7 +174,9 @@ class MiMoProvider:
                     "- condition: {value, visibleFlaws: []}\n"
                     "- measurements: [{label, value, source}]\n"
                     "- category: {value, confidence}\n"
-                    "- uncertainties: [{field, issue}]\n\n"
+                    "- uncertainties: [{field, issue}]\n"
+                    "- tag_text: {brand_label, size_tag, care_tag, rn_number} copied verbatim from any "
+                    "visible labels, empty strings when not visible\n\n"
                     "Be conservative. Flag uncertainty. Do not invent details."
                 ),
             },
@@ -239,6 +241,27 @@ class MiMoProvider:
 
         async for content in self._complete_chat(messages):
             yield content
+
+    async def quick_chat(self, messages: list[dict]):
+        """Mechanical rewrites (JSON repair): thinking off so temperature applies and replies come fast."""
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json={
+                    "model": self.listing_model,
+                    "messages": messages,
+                    "max_tokens": 8192,
+                    "temperature": 0.2,
+                    "thinking": {"type": "disabled"},
+                },
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(f"MiMo HTTP {resp.status_code}: {resp.text[:500]}")
+            text = chunk_text(resp.json())
+            if not text:
+                raise RuntimeError("MiMo returned an empty repair response")
+            yield text
 
     async def _stream_chat(self, messages: list[dict]):
         async with httpx.AsyncClient(timeout=300) as client:

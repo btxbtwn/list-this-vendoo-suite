@@ -99,16 +99,15 @@ class FormatChatGPTCompsTest(unittest.TestCase):
 
 
 class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
-    async def test_chatgpt_success_skips_brave(self):
+    async def test_chatgpt_success_wins_over_brave(self):
         with (
             patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
             patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=AsyncMock(return_value=CHATGPT_COMPS)) as chatgpt,
-            patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=BRAVE_COMPS)) as brave,
+            patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=BRAVE_COMPS)),
             patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
         ):
             text = await research_sold_comps(ANALYSIS)
         chatgpt.assert_awaited_once()
-        brave.assert_not_awaited()
         self.assertIn("Source: ChatGPT web search", text)
 
     async def test_chatgpt_failure_uses_brave(self):
@@ -146,6 +145,53 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
             text = await research_sold_comps(ANALYSIS)
         self.assertIn("Source: ChatGPT web search", text)
         self.assertFalse(comps_usable(text))
+
+    async def test_searches_run_concurrently(self):
+        import asyncio
+
+        started: list[str] = []
+        both_started = asyncio.Event()
+
+        async def chatgpt(_query: str) -> str:
+            started.append("chatgpt")
+            if len(started) == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), 1)
+            return CHATGPT_COMPS
+
+        async def brave(_query: str) -> str:
+            started.append("brave")
+            if len(started) == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), 1)
+            return BRAVE_COMPS
+
+        with (
+            patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=chatgpt),
+            patch("vendoo_studio.services.comp_research.research_brave_comps", new=brave),
+            patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
+        ):
+            text = await research_sold_comps(ANALYSIS)
+        self.assertEqual(sorted(started), ["brave", "chatgpt"])
+        self.assertIn("Source: ChatGPT web search", text)
+
+    async def test_slow_chatgpt_falls_back_to_brave_after_grace(self):
+        import asyncio
+
+        async def slow_chatgpt(_query: str) -> str:
+            await asyncio.sleep(60)
+            return CHATGPT_COMPS
+
+        with (
+            patch("vendoo_studio.services.comp_research.CHATGPT_GRACE_SEC", 0.05),
+            patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=slow_chatgpt),
+            patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=BRAVE_COMPS)),
+            patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
+        ):
+            text = await research_sold_comps(ANALYSIS)
+        self.assertIn("Source: Brave Search", text)
 
     async def test_skips_when_no_search_provider(self):
         with (

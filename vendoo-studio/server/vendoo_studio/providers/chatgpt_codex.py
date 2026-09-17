@@ -25,6 +25,7 @@ MODELS_CLIENT_VERSION = "1.0.0"
 VISION_MODEL = "gpt-5.5"
 LISTING_MODEL = "gpt-5.5"
 DEFAULT_REASONING_EFFORT = "low"
+PROMPT_CACHE_KEY = "vendoo-studio-listing"
 REASONING_LADDER = ("none", "low", "medium", "high", "xhigh", "max")
 CATALOG_TTL_S = 60
 
@@ -369,7 +370,9 @@ class ChatGPTCodexProvider:
             "- condition: {value, visibleFlaws: []}\n"
             "- measurements: [{label, value, source}]\n"
             "- category: {value, confidence}\n"
-            "- uncertainties: [{field, issue}]\n\n"
+            "- uncertainties: [{field, issue}]\n"
+            "- tag_text: {brand_label, size_tag, care_tag, rn_number} copied verbatim from any "
+            "visible labels, empty strings when not visible\n\n"
             "Be conservative. Flag uncertainty. Do not invent details."
         )
         if notes:
@@ -435,6 +438,8 @@ class ChatGPTCodexProvider:
             "store": False,
             "stream": stream,
             "reasoning": {"effort": effort},
+            # Shared key routes requests to warm prefix caches; prompts put static rules first.
+            "prompt_cache_key": PROMPT_CACHE_KEY,
         }
         if payload["reasoning"]["effort"] != "none":
             payload["reasoning"]["summary"] = "auto"
@@ -478,6 +483,17 @@ class ChatGPTCodexProvider:
                     text = _responses_text(payload)
                     if text:
                         yield StreamChunk(text, "content")
+
+    async def quick_chat(self, messages: list[dict]):
+        """Mechanical rewrites (JSON repair) need no reasoning budget."""
+        text = ""
+        async for chunk in self._stream(messages, self.listing_model, reasoning_effort="none"):
+            kind, piece = unpack_stream_item(chunk)
+            if kind == "content":
+                text += piece
+        if not text:
+            raise RuntimeError("ChatGPT returned an empty repair response")
+        yield text
 
     async def _complete(self, messages: list[dict], model: str):
         text = ""
