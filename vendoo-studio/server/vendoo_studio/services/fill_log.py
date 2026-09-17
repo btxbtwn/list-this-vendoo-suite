@@ -376,7 +376,7 @@ async def repair_missing_fields(provider, raw_text: str, user_request: str = "")
     try:
         from vendoo_studio.services.listing_generate import collect_provider_text
 
-        repaired = await collect_provider_text(provider, messages)
+        repaired = await collect_provider_text(provider, messages, quick=True)
     except Exception:
         LOGGER.exception("missing_fields repair request failed")
         return None

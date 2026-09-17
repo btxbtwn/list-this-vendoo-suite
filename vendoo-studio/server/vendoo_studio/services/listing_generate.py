@@ -279,11 +279,14 @@ FINALIZE_GAPS_PROMPT = (
 MAX_REPAIR_CHARS = 14000
 
 
-async def collect_provider_text(provider, messages: list[dict]) -> str:
+async def collect_provider_text(provider, messages: list[dict], *, quick: bool = False) -> str:
+    """Collect visible reply text. quick=True uses the provider's no-reasoning path when it has one."""
     from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 
+    quick_chat = getattr(provider, "quick_chat", None) if quick else None
+    stream = quick_chat(messages) if callable(quick_chat) else provider.chat(messages, stream=False)
     parts: list[str] = []
-    async for item in provider.chat(messages, stream=False):
+    async for item in stream:
         kind, text = unpack_stream_item(item)
         if kind == "content" and text:
             parts.append(text)
@@ -306,7 +309,7 @@ async def repair_listing_json(provider, raw_text: str) -> dict | None:
         {"role": "user", "content": clipped},
     ]
     try:
-        repaired = await collect_provider_text(provider, messages)
+        repaired = await collect_provider_text(provider, messages, quick=True)
     except Exception:
         log.exception("listing JSON repair request failed")
         return None
