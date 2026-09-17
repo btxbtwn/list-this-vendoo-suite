@@ -5,7 +5,13 @@ import time
 
 import httpx
 
-from vendoo_studio.providers.xiaomi_mimo import StreamChunk, _encode_image, chunk_text, unpack_stream_item
+from vendoo_studio.providers.xiaomi_mimo import (
+    VISION_MAX_SIDE,
+    StreamChunk,
+    chunk_text,
+    encode_images,
+    unpack_stream_item,
+)
 from vendoo_studio.services.chatgpt_oauth import (
     ORIGINATOR,
     account_id_from_tokens,
@@ -349,6 +355,7 @@ class ChatGPTCodexProvider:
         photo_paths: list[str],
         notes: str = "",
         listing_rules: str = "",
+        max_side: int | None = VISION_MAX_SIDE,
     ) -> dict:
         system = (
             "You are a product listing analyst. Examine these product photos and extract "
@@ -371,10 +378,10 @@ class ChatGPTCodexProvider:
             system += f"\n\nAdditional rules:\n{listing_rules}"
 
         content_parts: list[dict] = [{"type": "text", "text": "Analyze these product photos:"}]
-        for path in photo_paths[:10]:
+        for url in await encode_images(photo_paths[:10], max_side):
             content_parts.append({
                 "type": "image_url",
-                "image_url": {"url": _encode_image(path)},
+                "image_url": {"url": url},
             })
         messages = [
             {"role": "system", "content": system},

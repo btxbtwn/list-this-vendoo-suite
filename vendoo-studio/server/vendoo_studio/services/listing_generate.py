@@ -98,6 +98,71 @@ def require_photo_analysis(result: Any) -> tuple[dict, str]:
     return evidence, analysis_text
 
 
+TAG_FIELDS = ("brand", "size", "material")
+_UNREADABLE_VALUES = {"unreadable", "illegible", "unknown", "not visible", "not legible"}
+_UNREADABLE_ISSUE_RE = re.compile(
+    r"unreadable|illegible|not legible|blurr|too small|can(?:no|')t read|hard to read|low resolution",
+    re.I,
+)
+
+
+def unreadable_tag_fields(evidence: dict) -> list[str]:
+    """Tag-derived fields the vision pass could not read (blank brand alone is not a signal)."""
+    evidence = normalize_evidence(evidence)
+    flagged: list[str] = []
+    for field_key in TAG_FIELDS:
+        fd = evidence.get(field_key)
+        value = (_evidence_value(fd) or "").casefold()
+        source = str(fd.get("source") or "").casefold() if isinstance(fd, dict) else ""
+        if value in _UNREADABLE_VALUES or source == "unreadable":
+            flagged.append(field_key)
+    for item in evidence.get("uncertainties") or []:
+        if not isinstance(item, dict):
+            continue
+        field_key = str(item.get("field") or "").strip().casefold()
+        if field_key in TAG_FIELDS and field_key not in flagged and _UNREADABLE_ISSUE_RE.search(
+            str(item.get("issue") or "")
+        ):
+            flagged.append(field_key)
+    return flagged
+
+
+async def analyze_photos_with_tag_retry(provider, paths: list[str], **kwargs) -> Any:
+    """Analyze downscaled photos; resend originals only when tag text was unreadable."""
+    from vendoo_studio.providers.xiaomi_mimo import VISION_MAX_SIDE, image_exceeds
+
+    result = await provider.analyze_photos(paths, **kwargs)
+    if not isinstance(result, dict) or result.get("error"):
+        return result
+    evidence = normalize_evidence(result.get("evidence") or {})
+    flagged = unreadable_tag_fields(evidence)
+    if not flagged or not any(image_exceeds(path, VISION_MAX_SIDE) for path in paths[:10]):
+        return result
+
+    log.info("photo analysis could not read %s; retrying at full resolution", ", ".join(flagged))
+    try:
+        retry = await provider.analyze_photos(paths, max_side=None, **kwargs)
+    except Exception:
+        log.exception("full-resolution photo analysis retry failed")
+        return result
+    if not isinstance(retry, dict) or retry.get("error"):
+        return result
+    retry_evidence = normalize_evidence(retry.get("evidence") or {})
+    still_flagged = set(unreadable_tag_fields(retry_evidence))
+    resolved = [
+        key for key in flagged
+        if key not in still_flagged and _evidence_value(retry_evidence.get(key))
+    ]
+    if not resolved:
+        return result
+    merged = {**evidence, **{key: retry_evidence[key] for key in resolved}}
+    merged["uncertainties"] = [
+        item for item in (evidence.get("uncertainties") or [])
+        if not (isinstance(item, dict) and str(item.get("field") or "").casefold() in resolved)
+    ]
+    return {**result, "evidence": merged}
+
+
 def analysis_with_photo_count(photo_count: int, analysis_text: str | None = None) -> str:
     """Attach verified photo evidence to a listing prompt."""
     count = max(0, int(photo_count or 0))

@@ -14,6 +14,7 @@ from vendoo_studio.services.listing_generate import (
     PHOTO_ANALYSIS_RETRY_MESSAGE,
     PhotoAnalysisError,
     analysis_with_photo_count,
+    analyze_photos_with_tag_retry,
     latest_photo_analysis,
     photo_analysis_usable,
     require_photo_analysis,
@@ -106,7 +107,7 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
         if provider:
             paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
             try:
-                result = await provider.analyze_photos(paths, notes="", listing_rules=skill_rules[:8000])
+                result = await analyze_photos_with_tag_retry(provider, paths, notes="", listing_rules=skill_rules[:8000])
             except Exception as exc:
                 raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
             evidence, analysis_note = require_photo_analysis(result)

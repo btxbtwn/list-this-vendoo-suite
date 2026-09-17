@@ -19,6 +19,7 @@ from vendoo_studio.services.listing_generate import (
     PHOTO_ANALYSIS_RETRY_MESSAGE,
     PhotoAnalysisError,
     analysis_with_photo_count,
+    analyze_photos_with_tag_retry,
     extract_listing_json,
     latest_photo_analysis,
     listing_save_summary,
@@ -71,7 +72,8 @@ async def run_listing_generation(
             analysis_text = existing
         else:
             analysis_task = asyncio.create_task(
-                provider.analyze_photos(
+                analyze_photos_with_tag_retry(
+                    provider,
                     paths,
                     notes=item_details,
                     listing_rules=listing_rules[:8000],

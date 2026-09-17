@@ -18,6 +18,7 @@ from vendoo_studio.services.chat_prompts import build_chat_messages
 from vendoo_studio.services.listing_generate import (
     PHOTO_ANALYSIS_RETRY_MESSAGE,
     PhotoAnalysisError,
+    analyze_photos_with_tag_retry,
     require_photo_analysis,
     seller_item_details,
 )
@@ -189,7 +190,7 @@ async def analyze_photos(conv_id: str, db: Session = Depends(get_db)):
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
 
     try:
-        result = await provider.analyze_photos(paths, notes=conv.notes or "")
+        result = await analyze_photos_with_tag_retry(provider, paths, notes=conv.notes or "")
     except Exception as exc:
         raise HTTPException(502, PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
     try:
