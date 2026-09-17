@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: studio-macos
+  group: studio-macos-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
