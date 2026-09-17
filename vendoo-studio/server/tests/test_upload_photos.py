@@ -19,6 +19,7 @@ from vendoo_studio.models.job import Job
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo
+from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 JPEG_BYTES = bytes([
@@ -29,7 +30,7 @@ JPEG_BYTES = bytes([
 
 class UploadPhotosExtensionTest(unittest.TestCase):
     def test_content_script_does_not_fetch_studio_from_vendoo_page(self) -> None:
-        background = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        background = background_source()
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
         self.assertIn("async function fetchStudioPhotoFiles", background)
         self.assertIn("/api/jobs/${jobId}/photos/", background)
@@ -40,7 +41,7 @@ class UploadPhotosExtensionTest(unittest.TestCase):
         self.assertIn("uploadStudioPhotos(msg.files || [])", content)
 
     def test_upload_photos_timeout_scales_with_file_count(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function commandTimeoutMs")
         end = text.index("function compactVendooValue")
         script = text[start:end] + """
@@ -69,7 +70,7 @@ console.log(JSON.stringify(result));
         self.assertEqual(result["defaultType"], 45000)
 
     def test_background_fetches_job_photos_and_encodes_files(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function arrayBufferToBase64")
         end = text.index("async function uploadPhotos")
         script = (

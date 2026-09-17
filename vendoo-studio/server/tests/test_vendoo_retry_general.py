@@ -4,13 +4,14 @@ import json
 import subprocess
 import unittest
 from pathlib import Path
+from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"
 
 
 class RetryGeneralFormTest(unittest.TestCase):
     def test_retry_opens_existing_draft_on_general(self) -> None:
-        background = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        background = background_source()
         self.assertIn("marketplace: resumeMarketplace", background)
         self.assertIn("function marketplaceFromStep", background)
         self.assertIn("function withMarketplaceQuery", background)
@@ -24,7 +25,7 @@ class RetryGeneralFormTest(unittest.TestCase):
         self.assertIn("findGeneralCategoryControl", content)
 
     def test_listing_url_helpers_force_general_marketplace(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function withMarketplaceQuery")
         end = text.index("function isTabReady")
         script = text[start:end] + """
@@ -59,7 +60,7 @@ console.log(JSON.stringify(result));
         self.assertFalse(result["otherItem"])
 
     def test_select_job_steps_resumes_from_failed_marketplace(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function marketplaceFromStep")
         end = text.index("async function runJob")
         helpers = text[start:end]
@@ -134,7 +135,7 @@ console.log(JSON.stringify(result));
         self.assertEqual(result["saveEbayMarketplace"], "ebay")
 
     def test_category_search_checks_draft_safety_before_picker_click(self) -> None:
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("function replyCategories")
         end = text.index("async function openVendooListing", start)
         helpers = text[start:end]

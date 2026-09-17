@@ -1,4 +1,3 @@
-import React from "react";
 import { ChatMarkdown } from "./ChatMarkdown";
 
 export interface SoldComp {

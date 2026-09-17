@@ -28,15 +28,14 @@ EXTENSION_SKIP = {
     ".git",
     ".gitignore",
     ".playwright-mcp",
-    "IMPROVEMENTS.md",
     "README.md",
     "TROUBLESHOOTING.md",
+    "diagnostic-tool.js",
     "__pycache__",
     "node_modules",
     "sample-listing.json",
-    "skills",
-    "test-script.js",
     "studio-build.js",
+    "tests",
 }
 
 BUILD_STAMP_NAME = "studio-build.js"

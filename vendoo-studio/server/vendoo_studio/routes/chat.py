@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import time
+import functools
 import logging
 from pathlib import Path
 
@@ -10,30 +10,33 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from vendoo_studio.config import PHOTOS_DIR, skills_dir
+from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.database import SessionLocal, get_db
-from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
-from vendoo_studio.services.comp_research import comps_search_available, research_sold_comps
+from vendoo_studio.services.chat_listing import persist_chat_result
+from vendoo_studio.services.chat_prompts import build_chat_messages
 from vendoo_studio.services.listing_generate import (
     PHOTO_ANALYSIS_RETRY_MESSAGE,
     PhotoAnalysisError,
-    analysis_with_photo_count,
     analyze_photos_with_tag_retry,
-    extract_listing_json,
-    latest_photo_analysis,
-    listing_save_summary,
-    looks_like_listing_attempt,
-    persist_generated_listing_with_repair,
-    photo_analysis_usable,
-    repair_listing_json,
     require_photo_analysis,
     seller_item_details,
 )
-from vendoo_studio.services.schema_probe import await_deferred_schema, prepare_generation_schema
-from vendoo_studio.services.listing_patch import apply_json_patch, extract_json_patch
+from vendoo_studio.services.listing_generation import run_listing_generation
 from vendoo_studio.services.listing_provider import get_listing_provider
-from vendoo_studio.services.registry import MEN_TSHIRT_PATH, WOMEN_TOPS_PATH, align_listing_gender
+from vendoo_studio.services.streaming import (
+    KEEPALIVE,
+    SSE_HEADERS,
+    active_generation,
+    iter_with_keepalives,
+    sse_data,
+    sse_event,
+    sse_for_stream_item,
+    start_generation,
+    stop_generation,
+    stream_generation,
+    wait_task_keepalives,
+)
 
 
 def _require_provider():
@@ -59,672 +62,14 @@ def _vision_meta(provider) -> tuple[str, str]:
         getattr(provider, "vision_model", "mimo-v2.5"),
     )
 
+
 log = logging.getLogger("vendoo_studio.chat")
 
 router = APIRouter(tags=["chat"])
 
-SSE_HEADERS = {
-    "Cache-Control": "no-cache, no-transform",
-    "X-Accel-Buffering": "no",
-    "Connection": "keep-alive",
-}
-KEEPALIVE = ": keepalive\n\n"
-_DONE = object()
-_generation_tasks: set[asyncio.Task] = set()
-_generations: dict[str, "_GenerationRun"] = {}
-
-
-class _GenerationRun:
-    def __init__(self) -> None:
-        self.history: list[str] = []
-        self.subscribers: set[asyncio.Queue] = set()
-        self.task: asyncio.Task | None = None
-        self.done = False
-        self.cancelling = False
-        self.last_status = ""
-
-    def subscribe(self) -> asyncio.Queue:
-        queue: asyncio.Queue = asyncio.Queue()
-        for item in self.history:
-            queue.put_nowait(item)
-        if self.done:
-            queue.put_nowait(_DONE)
-        self.subscribers.add(queue)
-        return queue
-
-    def unsubscribe(self, queue: asyncio.Queue) -> None:
-        self.subscribers.discard(queue)
-
-    def publish(self, item: str, *, record: bool = True) -> None:
-        if record and item != KEEPALIVE:
-            self.history.append(item)
-            if item.startswith("event: status\n"):
-                for line in item.splitlines():
-                    if line.startswith("data:"):
-                        self.last_status = line[5:].lstrip()
-                        break
-        for queue in list(self.subscribers):
-            queue.put_nowait(item)
-
-    def pulse(self) -> None:
-        """Keep mobile fetch/SSE alive with a comment and a status data frame.
-
-        Comment-only keepalives are ignored by some mobile stacks, which then
-        drop the connection during long category discovery waits.
-        """
-        self.publish(KEEPALIVE, record=False)
-        if self.last_status:
-            self.publish(_sse_event("status", self.last_status), record=False)
-
-    def finish(self) -> None:
-        self.done = True
-        for queue in list(self.subscribers):
-            queue.put_nowait(_DONE)
-
-
-def _forget_generation(conv_id: str, run: "_GenerationRun") -> None:
-    if _generations.get(conv_id) is run:
-        _generations.pop(conv_id, None)
-
-
-def _active_generation(conv_id: str) -> _GenerationRun | None:
-    run = _generations.get(conv_id)
-    if run and not run.done and not run.cancelling:
-        return run
-    return None
-
-
-def stop_generation(conv_id: str, *, discard: bool = False) -> None:
-    run = _generations.get(conv_id)
-    if not run:
-        return
-    run.cancelling = True
-    if run.task and not run.task.done():
-        run.task.cancel()
-    if discard:
-        _generations.pop(conv_id, None)
-
-
-def _spawn(coro) -> asyncio.Task:
-    task = asyncio.get_running_loop().create_task(coro)
-    _generation_tasks.add(task)
-    task.add_done_callback(_generation_tasks.discard)
-    return task
-
-
-async def _pump_generation(run: _GenerationRun, work) -> None:
-    try:
-        await work(run)
-    except asyncio.CancelledError:
-        pass
-    except Exception:
-        log.exception("listing generation pump failed")
-    finally:
-        run.finish()
-        for conv_id, active in list(_generations.items()):
-            if active is run:
-                _forget_generation(conv_id, run)
-                break
-
-
-async def _follow_generation(run: _GenerationRun):
-    queue = run.subscribe()
-    try:
-        yield KEEPALIVE
-        while True:
-            item = await queue.get()
-            if item is _DONE:
-                break
-            yield item
-    finally:
-        run.unsubscribe(queue)
-
-
-async def wait_generation(conv_id: str) -> None:
-    run = _generations.get(conv_id)
-    if run and run.task:
-        try:
-            await run.task
-        except asyncio.CancelledError:
-            pass
-
-
-async def reset_generations() -> None:
-    for run in list(_generations.values()):
-        if run.task and not run.task.done():
-            run.cancelling = True
-            run.task.cancel()
-    _generations.clear()
-    _generation_tasks.clear()
-
-
-def _stream_generation(run: _GenerationRun) -> StreamingResponse:
-    return StreamingResponse(_follow_generation(run), media_type="text/event-stream", headers=SSE_HEADERS)
-
 
 class ChatMessage(BaseModel):
     text: str
-
-
-def _sse_encode(text: str) -> str:
-    return text.replace("\n", "\ndata: ")
-
-
-def _sse_data(text: str) -> str:
-    return f"data: {_sse_encode(text)}\n\n"
-
-
-def _sse_event(event: str, text: str) -> str:
-    return f"event: {event}\n{_sse_data(text)}"
-
-
-def _sse_for_stream_item(item) -> tuple[str | None, str]:
-    kind, text = unpack_stream_item(item)
-    if not text:
-        return None, ""
-    if kind == "thinking":
-        return _sse_event("thinking", text), ""
-    return _sse_data(text), text
-
-
-def _load_skill_rules(query: str = "", db: Session | None = None) -> str:
-    from vendoo_studio.services.skill_formulas import with_pinned_formulas
-
-    skill_md = skills_dir() / "list-this" / "SKILL.md"
-    template_md = skills_dir() / "list-this" / "references" / "vendoo_listing_template.md"
-
-    def _file_rules() -> str:
-        parts = []
-        if skill_md.exists():
-            parts.append(skill_md.read_text())
-        if template_md.exists():
-            parts.append(template_md.read_text())
-        return with_pinned_formulas("\n\n---\n\n".join(parts) if parts else "")
-
-    if db is not None and str(query or "").strip():
-        try:
-            from vendoo_studio.services.catalog_index import relevant_skill_rules
-            rules = relevant_skill_rules(db, query)
-            if str(rules or "").strip():
-                return with_pinned_formulas(rules)
-        except Exception:
-            log.exception("catalog skill rules unavailable; falling back to SKILL.md")
-    return _file_rules()
-
-
-async def _iter_with_keepalives(source, timeout: float = 3.0):
-    iterator = source.__aiter__()
-    pending = None
-    try:
-        while True:
-            if pending is None:
-                pending = asyncio.ensure_future(iterator.__anext__())
-            done, _ = await asyncio.wait({pending}, timeout=timeout)
-            if not done:
-                yield None
-                continue
-            try:
-                item = pending.result()
-            except StopAsyncIteration:
-                return
-            pending = None
-            yield item
-    finally:
-        if pending is not None and not pending.done():
-            pending.cancel()
-            try:
-                await pending
-            except (asyncio.CancelledError, StopAsyncIteration, Exception):
-                pass
-
-
-async def _wait_task_keepalives(task: asyncio.Task, timeout: float = 3.0):
-    while not task.done():
-        yield
-        await asyncio.wait({task}, timeout=timeout)
-
-
-async def _await_with_pulses(run: "_GenerationRun", coro, child_tasks: list[asyncio.Task]):
-    """Await a long step while pulsing SSE so mobile clients do not drop."""
-    task = asyncio.create_task(coro)
-    child_tasks.append(task)
-    async for _ in _wait_task_keepalives(task):
-        run.pulse()
-    return task.result()
-
-
-def _learned_fields_prompt(db: Session, conv_id: str) -> str:
-    from vendoo_studio.services.registry import RegistryService
-
-    category_path = None
-    revisions = ListingRepo(db).get_revisions(conv_id)
-    if revisions and isinstance(revisions[0].listing_json, dict):
-        category_path = revisions[0].listing_json.get("category_path") or None
-    from vendoo_studio.services.category_catalog import schema_context
-    text = RegistryService(db).generation_context(category_path) + schema_context(db, category_path or "")
-    if not text:
-        return ""
-    return f"\n\n--- Learned fields ---\n\n{text}"
-
-
-def _current_listing_prompt(db: Session, conv_id: str) -> str:
-    import json
-    revisions = ListingRepo(db).get_revisions(conv_id)
-    if not revisions or not isinstance(revisions[0].listing_json, dict):
-        return ""
-    listing = revisions[0].listing_json
-    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
-    return (
-        "\n\n--- Current listing ---\n"
-        f"Saved listing JSON: {json.dumps(listing, ensure_ascii=False)}\n"
-        f"department: {listing.get('department') or ''}\n"
-        f"category_path: {listing.get('category_path') or ''}\n"
-        f"ebay_specifics.department: {(ebay or {}).get('department') or ''}\n"
-        "If the seller changes gender or category, replace department, category_path, "
-        "and ebay_specifics.department together. Do not leave a women's category on a men's item.\n"
-    )
-
-
-def _sync_category_override(db: Session, conv_id: str, listing: dict) -> None:
-    from vendoo_studio.services.vendoo_import import merge_notes, parse_notes
-
-    category = str((listing or {}).get("category_path") or "").strip()
-    if not category:
-        return
-    conv = ConversationRepo(db).get(conv_id)
-    if not conv:
-        return
-    current = str(parse_notes(conv.notes).get("categoryOverride") or "").strip()
-    if not current or current == category:
-        return
-    conv.notes = merge_notes(conv.notes, {"categoryOverride": category})
-    db.commit()
-
-
-def _save_listing_revision(db: Session, conv_id: str, listing: dict, *, operations: list[dict] | None = None) -> dict:
-    updated = align_listing_gender(listing, operations)
-    stamped = _stamp_learned_fields(db, updated)
-    revisions = ListingRepo(db).get_revisions(conv_id)
-    parent_id = revisions[0].id if revisions else None
-    ListingRepo(db).save_revision(
-        conv_id,
-        stamped,
-        source="model_refinement",
-        parent_revision_id=parent_id,
-    )
-    _sync_category_override(db, conv_id, stamped)
-    return stamped
-
-
-def _stamp_learned_fields(db: Session, listing: dict) -> dict:
-    from vendoo_studio.services.registry import RegistryService
-
-    if isinstance(listing, dict):
-        RegistryService(db).merge_learned_fields(listing)
-    return listing
-
-
-async def _build_messages(conv_id: str, db: Session, user_message: str) -> list[dict]:
-    repo = ConversationRepo(db)
-    history = repo.get_messages(conv_id)
-    photos = repo.get_photos(conv_id)
-    conv = repo.get(conv_id)
-    notes = (conv.notes if conv else "") or ""
-
-    skill_rules = _load_skill_rules(user_message, db)
-
-    photo_analysis_text = ""
-    comps_text = ""
-    evidence: dict = {}
-    existing_analysis = latest_photo_analysis(history)
-    if photos and existing_analysis and photo_analysis_usable(existing_analysis):
-        photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
-        skill_rules = _load_skill_rules(
-            f"{user_message}\n{photo_analysis_text}\n{seller_item_details(notes)}",
-            db,
-        )
-    elif photos:
-        provider = get_listing_provider()
-        if provider:
-            paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
-            try:
-                result = await analyze_photos_with_tag_retry(provider, paths, notes="", listing_rules=skill_rules[:8000])
-            except Exception as exc:
-                raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
-            evidence, analysis_note = require_photo_analysis(result)
-            analysis_note = analysis_note.replace(
-                "Photo analysis:",
-                "Photo analysis of the uploaded product images:",
-                1,
-            )
-            repo.add_message(conv_id, "system", analysis_note)
-            photo_analysis_text = analysis_with_photo_count(len(photos), analysis_note)
-            skill_rules = _load_skill_rules(
-                f"{user_message}\n{photo_analysis_text}\n{seller_item_details(notes)}",
-                db,
-            )
-            comps_text = await research_sold_comps(photo_analysis_text, evidence)
-            if comps_text:
-                repo.add_message(conv_id, "system", comps_text, provider="brave", model="web-search")
-        else:
-            photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
-
-    comps_block = f"\n\n--- Sold comps ---\n\n{comps_text}\n" if comps_text else ""
-
-    from vendoo_studio.services.fill_log import is_missing_fields_request
-
-    ask_missing_fields = is_missing_fields_request(user_message)
-    if ask_missing_fields:
-        change_instructions = (
-            "The seller asked you to fill specific empty/leftover fields.\n"
-            "1. Write one short sentence confirming which fields you filled.\n"
-            "2. Then include a fenced json code block with this exact shape so Studio saves them "
-            "into the listing JSON automatically:\n"
-            "```json\n"
-            '{"missing_fields":[{"marketplace":"etsy","field":"Pattern","value":"Solid"}]}\n'
-            "```\n"
-            "Use the marketplace ids and field names from the seller request exactly. "
-            "Do not use a JSON Patch array. Do not rewrite unrelated listing fields.\n"
-            "Studio saves the listing JSON and refreshes the Forms/Fields UI; "
-            "filling the live Vendoo draft is a separate later step.\n\n"
-        )
-    else:
-        change_instructions = (
-            "When the user asks you to change an existing listing:\n"
-            "1. Write a short confirmation of what you changed (department, category, marketplace fields).\n"
-            "2. Then include a JSON Patch array in a fenced json code block so the listing can be saved. "
-            "The seller will not see that block.\n"
-            'Example confirmation: "This is a men\'s T-shirt. I moved it to Men > Men\'s Clothing > Shirts > T-Shirts."\n'
-            "Example patch:\n"
-            "```json\n"
-            '[{"op": "replace", "path": "/department", "value": "Men"},'
-            f'{{"op": "replace", "path": "/category_path", "value": "{MEN_TSHIRT_PATH}"}},'
-            '{"op": "replace", "path": "/ebay_specifics/department", "value": "Men"}]\n'
-            "```\n\n"
-        )
-
-    system_prompt = {
-        "role": "system",
-        "content": (
-            "You are a product listing assistant talking to a seller. Write in plain English.\n"
-            "Never reply with JSON-only output, status objects, or a bare JSON Patch array.\n\n"
-            + change_instructions
-            +             "When generating a listing from scratch, infer every supportable field from the photos and initial seller notes, "
-            "flag remaining uncertainties in the description without asking questions, "
-            "then the full listing JSON in a fenced json code block.\n\n"
-            "If you are not changing the listing, reply in plain English only. "
-            "If asked whether the listing was updated, say yes only when a system message in this "
-            "conversation confirms the listing JSON was saved; otherwise say no.\n\n"
-            "Key rules:\n"
-            "- Never publish. Stop at saved drafts.\n"
-            "- Never ask the seller clarifying questions. Infer from the photos and notes already provided.\n"
-            "- Never ask the seller to upload or attach photos when product photos are already present.\n"
-            "- Be conservative with brand and size: use photo/tag/logo evidence and seller notes only; leave unsupported facts empty and flag uncertainty — never invent, never ask.\n"
-            f"- General Vendoo category paths must use Vendoo taxonomy: women's shirts and T-shirts end at {WOMEN_TOPS_PATH}, never Shirts & Blouses. Men's T-shirts use {MEN_TSHIRT_PATH}.\n"
-            "- Title MUST follow Brand Size Vibe Item Color Fit exactly (max 80 chars) from the Formula Reference below.\n"
-            "- Description MUST follow the physical-item formula exactly (line breaks; Size:/Condition:/Measurements:/OFFERS WELCOME) unless this is an Etsy digital download.\n"
-            "- Do not invent catchy titles or prose that break those formulas.\n"
-            "- Resolve every applicable discovered field with a real value or Does Not Apply when the field truly does not apply.\n"
-            "- Fill every discovered category/marketplace field in the JSON. Do not leave applicable fields empty.\n"
-            "- Never tell the seller the listing is complete, ready, or done while any discovered field is still empty.\n"
-            "- Estimate packaged shipping weight and mailer dimensions from the item type; do not ask the seller for those.\n"
-            "- Depop: exactly 3 style tags from the allowed values list.\n"
-            + (f"\n{photo_analysis_text}\n\n" if photo_analysis_text else "") +
-            comps_block +
-            f"\n--- Listing Rules ---\n\n{skill_rules}"
-            if skill_rules
-            else ""
-        ) + _current_listing_prompt(db, conv_id) + _learned_fields_prompt(db, conv_id),
-    }
-
-    from vendoo_studio.repositories.queries import JobRepo
-    from vendoo_studio.services.listing_completion import review_fields
-    import json
-    for job in JobRepo(db).list_by_conversation(conv_id):
-        if job.current_step == "awaiting_answers":
-            review = JobRepo(db).latest_event(job.id, "completion_review")
-            if review:
-                system_prompt["content"] += "\nUnresolved saved-form fields:\n" + json.dumps(
-                    review_fields(review.payload or {}, job.listing_snapshot or {}), ensure_ascii=False)
-                system_prompt["content"] += "\nUse photo evidence and the seller's notes or later replies to update these fields. Never claim completion before verification. Never ask clarifying questions."
-            break
-    messages = [system_prompt]
-    for msg in history[-20:]:
-        role = msg.role
-        if role == "model":
-            role = "assistant"
-        messages.append({"role": role, "content": msg.text})
-
-    messages.append({"role": "user", "content": user_message})
-    return messages
-
-
-def _patch_changes_category(operations: list[dict] | None) -> bool:
-    for op in operations or []:
-        if not isinstance(op, dict):
-            continue
-        path = str(op.get("path") or "").replace("~1", "/").rstrip("/").lower()
-        if path.endswith("category_path") or path.endswith("categorypath"):
-            return True
-    return False
-
-
-def _requested_category_path(operations: list[dict] | None) -> str:
-    requested = ""
-    for op in operations or []:
-        if not isinstance(op, dict) or op.get("op") not in {"replace", "add"}:
-            continue
-        path = str(op.get("path") or "").replace("~1", "/").rstrip("/").lower()
-        if path.endswith("category_path") or path.endswith("categorypath"):
-            requested = str(op.get("value") or "").strip()
-    return requested
-
-
-async def _maybe_resolve_vendoo_category(
-    db: Session,
-    conv_id: str,
-    *,
-    operations: list[dict] | None = None,
-) -> None:
-    if not _patch_changes_category(operations):
-        return
-    from vendoo_studio.services.category_lookup import resolve_listing_category
-
-    result = await resolve_listing_category(
-        db,
-        conv_id,
-        query=_requested_category_path(operations),
-    )
-    repo = ConversationRepo(db)
-    if result.get("skipped"):
-        return
-    if result.get("ok") and result.get("path"):
-        repo.add_message(
-            conv_id,
-            "system",
-            f"Matched Vendoo category: {result['path']}",
-            provider="system",
-            model="",
-        )
-        return
-    if result.get("error"):
-        repo.add_message(
-            conv_id,
-            "system",
-            f"Could not match a Vendoo category yet: {result['error']}",
-            provider="system",
-            model="",
-        )
-
-
-def _save_missing_fields(db: Session, conv_id: str, missing_fields: list[dict]) -> bool:
-    from vendoo_studio.services.fill_log import (
-        FillLogService,
-        summarize_missing_fields,
-        write_values_into_listing,
-    )
-
-    revisions = ListingRepo(db).get_revisions(conv_id)
-    if not revisions:
-        ConversationRepo(db).add_message(
-            conv_id,
-            "system",
-            "Could not save field values — generate a listing first, then Ask chat again.",
-            provider="system",
-            model="",
-        )
-        return False
-    updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
-    _save_listing_revision(db, conv_id, updated)
-    FillLogService(db).record_generated_values(conv_id, missing_fields)
-    ConversationRepo(db).add_message(
-        conv_id,
-        "system",
-        summarize_missing_fields(missing_fields),
-        provider="system",
-        model="",
-    )
-    return True
-
-
-def _apply_listing_payload(db: Session, conv_id: str, full_text: str) -> tuple[list[dict] | None, bool]:
-    from vendoo_studio.services.fill_log import extract_missing_fields
-
-    missing_fields = extract_missing_fields(full_text)
-    if missing_fields:
-        return None, _save_missing_fields(db, conv_id, missing_fields)
-
-    parsed_ops = extract_json_patch(full_text)
-    if parsed_ops:
-        lr = ListingRepo(db)
-        revisions = lr.get_revisions(conv_id)
-        if not revisions:
-            return None, False
-        updated = apply_json_patch(dict(revisions[0].listing_json), parsed_ops)
-        _save_listing_revision(db, conv_id, updated, operations=parsed_ops)
-        ConversationRepo(db).add_message(
-            conv_id,
-            "system",
-            "Saved those changes to the listing.",
-            provider="system",
-            model="",
-        )
-        return parsed_ops, True
-
-    parsed = extract_listing_json(full_text)
-    if parsed:
-        saved = _save_listing_revision(db, conv_id, parsed)
-        ConversationRepo(db).add_message(
-            conv_id,
-            "system",
-            listing_save_summary(db, conv_id, saved),
-            provider="system",
-            model="",
-        )
-        return None, True
-    return None, False
-
-
-async def _apply_listing_payload_with_repair(
-    db: Session,
-    conv_id: str,
-    full_text: str,
-    provider,
-    *,
-    user_message: str = "",
-) -> tuple[list[dict] | None, bool]:
-    from vendoo_studio.services.fill_log import (
-        is_missing_fields_request,
-        looks_like_missing_fields_attempt,
-        repair_missing_fields,
-    )
-
-    operations, saved = _apply_listing_payload(db, conv_id, full_text)
-    if saved:
-        return operations, True
-
-    ask_fields = is_missing_fields_request(user_message)
-    if ask_fields or looks_like_missing_fields_attempt(full_text):
-        repaired_fields = await repair_missing_fields(provider, full_text, user_message)
-        if repaired_fields and _save_missing_fields(db, conv_id, repaired_fields):
-            return None, True
-        if ask_fields:
-            ConversationRepo(db).add_message(
-                conv_id,
-                "system",
-                "Could not save field values into the listing JSON. Retry Ask chat.",
-                provider="system",
-                model="",
-            )
-        return None, False
-
-    if extract_listing_json(full_text):
-        return None, False
-    if extract_json_patch(full_text):
-        return None, False
-    if not looks_like_listing_attempt(full_text):
-        return None, False
-
-    repaired = await repair_listing_json(provider, full_text)
-    if not repaired:
-        return None, False
-    _save_listing_revision(db, conv_id, repaired)
-    ConversationRepo(db).add_message(
-        conv_id,
-        "system",
-        "Repaired malformed listing JSON and saved it for review.",
-        provider="system",
-        model="",
-    )
-    return None, True
-
-
-async def _persist_chat_result(
-    db: Session,
-    conv_id: str,
-    full_text: str,
-    provider,
-    *,
-    provider_name: str,
-    provider_model: str,
-    stream_error: str,
-    user_message: str,
-) -> tuple[list[dict] | None, bool]:
-    stream_repo = ConversationRepo(db)
-    usable = full_text.strip() and not full_text.lstrip().lower().startswith("error:")
-    saved = False
-    operations: list[dict] | None = None
-    if usable and not stream_error:
-        stream_repo.add_message(conv_id, "assistant", full_text, provider=provider_name, model=provider_model)
-        operations, saved = await _apply_listing_payload_with_repair(
-            db, conv_id, full_text, provider, user_message=user_message
-        )
-        if saved:
-            await _maybe_resolve_vendoo_category(db, conv_id, operations=operations)
-        from vendoo_studio.repositories.queries import JobRepo
-        from vendoo_studio.routes.jobs import resume_completion
-
-        for job in JobRepo(db).list_by_conversation(conv_id):
-            if job.current_step == "awaiting_answers":
-                try:
-                    await resume_completion(job.id, db)
-                except HTTPException as exc:
-                    stream_repo.add_message(conv_id, "system", str(exc.detail), provider="system", model="")
-                break
-    elif stream_error or not full_text.strip():
-        stream_repo.add_message(
-            conv_id,
-            "system",
-            stream_error or "The listing assistant returned an empty response. Retry this prompt.",
-            provider="system",
-            model="",
-        )
-
-    from vendoo_studio.repositories.queries import JobRepo
-
-    active = any(job.conversation_id == conv_id for job in JobRepo(db).get_active())
-    stream_repo.update_status(conv_id, "listing" if active else "draft")
-    return operations, saved
 
 
 @router.post("/api/conversations/{conv_id}/messages")
@@ -761,7 +106,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
     repo.update_status(conv_id, "in_progress")
 
     try:
-        messages = await _build_messages(conv_id, db, body.text)
+        messages = await build_chat_messages(conv_id, db, body.text)
     except PhotoAnalysisError as exc:
         repo.update_status(conv_id, "draft")
         raise HTTPException(502, str(exc)) from exc
@@ -771,23 +116,23 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
         full_text = ""
         stream_error = ""
         try:
-            async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
+            async for item in iter_with_keepalives(provider.chat(messages, stream=True)):
                 if item is None:
                     yield KEEPALIVE
                     continue
-                payload, content = _sse_for_stream_item(item)
+                payload, content = sse_for_stream_item(item)
                 if content:
                     full_text += content
                 if payload:
                     yield payload
             if not full_text.strip():
                 stream_error = "The listing assistant returned an empty response. Retry this prompt."
-                yield _sse_event("error", stream_error)
+                yield sse_event("error", stream_error)
 
             # Persist before [DONE] so Forms/Fields refetch the updated listing JSON.
-            yield _sse_event("status", "Saving listing…")
+            yield sse_event("status", "Saving listing…")
             persist_task = asyncio.create_task(
-                _persist_chat_result(
+                persist_chat_result(
                     stream_db,
                     conv_id,
                     full_text,
@@ -798,7 +143,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                     user_message=body.text,
                 )
             )
-            async for _ in _wait_task_keepalives(persist_task, timeout=2.0):
+            async for _ in wait_task_keepalives(persist_task, timeout=2.0):
                 yield KEEPALIVE
             try:
                 _operations, saved = persist_task.result()
@@ -810,13 +155,13 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                     log.exception("failed to reset status after chat persist error for %s", conv_id)
                 saved = False
             if saved:
-                yield _sse_event("listing_updated", "1")
+                yield sse_event("listing_updated", "1")
             yield "data: [DONE]\n\n"
         except Exception as e:
             message = str(e).strip() or type(e).__name__
             log.exception("chat stream failed for %s: %s", conv_id, message)
             stream_error = message
-            yield _sse_data(f"Error: {message}")
+            yield sse_data(f"Error: {message}")
             try:
                 ConversationRepo(stream_db).update_status(conv_id, "draft")
             except Exception:
@@ -874,9 +219,9 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     provider = _require_provider()
     vision_name, vision_model = _vision_meta(provider)
 
-    existing = _active_generation(conv_id)
+    existing = active_generation(conv_id)
     if existing is not None:
-        return _stream_generation(existing)
+        return stream_generation(existing)
 
     photos = repo.get_photos(conv_id)
     if not photos:
@@ -888,215 +233,25 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     seller_answers = "\n".join(message.text for message in repo.get_messages(conv_id) if message.role == "user")
     if seller_answers:
         item_details += "\nSeller answers:\n" + seller_answers
-    skill_rules = _load_skill_rules(item_details, db)
     paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
     photo_count = len(photos)
     # Release the request-scoped session before background work opens its own.
     db.close()
 
-    async def run_generation(run: _GenerationRun):
-        run.publish(_sse_event("status", "Analyzing photos…"))
-        stream_db = SessionLocal()
-        stream_repo = ConversationRepo(stream_db)
-        full_text = ""
-        child_tasks: list[asyncio.Task] = []
-        stage_started = time.monotonic()
-        timings: dict[str, float] = {}
-
-        def mark(stage: str) -> None:
-            nonlocal stage_started
-            now = time.monotonic()
-            timings[stage] = round(now - stage_started, 2)
-            stage_started = now
-
-        try:
-            evidence: dict = {}
-            existing = latest_photo_analysis(stream_repo.get_messages(conv_id))
-            listing_rules = skill_rules
-            if existing:
-                analysis_text = existing
-            else:
-                analysis_task = asyncio.create_task(
-                    analyze_photos_with_tag_retry(
-                        provider,
-                        paths,
-                        notes=item_details,
-                        listing_rules=listing_rules[:8000],
-                    )
-                )
-                child_tasks.append(analysis_task)
-                async for _ in _wait_task_keepalives(analysis_task):
-                    run.pulse()
-                try:
-                    result = analysis_task.result()
-                    evidence, analysis_text = require_photo_analysis(result)
-                except PhotoAnalysisError:
-                    raise
-                except Exception as exc:
-                    raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
-                prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
-                stream_repo.add_message(conv_id, "system", analysis_text, provider=vision_name, model=vision_model)
-
-            if existing:
-                prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
-
-            mark("photo_analysis")
-            listing_rules = _load_skill_rules(
-                f"{prompt_analysis}\n{item_details}",
-                stream_db,
-            )
-
-            if comps_search_available():
-                run.publish(_sse_event("status", "Identifying category and looking up comps…"))
-            else:
-                run.publish(_sse_event("status", "Choosing marketplace categories…"))
-            schema_task = asyncio.create_task(prepare_generation_schema(
-                stream_db,
-                conv_id,
-                provider,
-                prompt_analysis + "\nSeller answers:\n" + seller_answers,
-                notes,
-                on_status=lambda message: run.publish(_sse_event("status", message)),
-            ))
-            child_tasks.append(schema_task)
-            comps_task = None
-            if comps_search_available():
-                comps_task = asyncio.create_task(research_sold_comps(prompt_analysis, evidence))
-                child_tasks.append(comps_task)
-
-            pending = {schema_task, *([comps_task] if comps_task else [])}
-            while pending:
-                done, pending = await asyncio.wait(pending, timeout=10.0, return_when=asyncio.FIRST_COMPLETED)
-                if not done:
-                    run.pulse()
-                    continue
-                run.pulse()
-            mark("categories_and_comps")
-            schema_seed = schema_task.result()
-            comps_text = ""
-            if comps_task is not None:
-                comps_text = comps_task.result() or ""
-                if comps_text:
-                    source = "chatgpt" if "Source: ChatGPT" in comps_text else "brave"
-                    stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
-
-            messages = _listing_messages(
-                listing_rules,
-                item_details,
-                prompt_analysis,
-                stream_db,
-                conv_id,
-                comps_text,
-                photo_count=photo_count,
-            )
-            run.publish(_sse_event("status", "thinking"))
-
-            async for item in _iter_with_keepalives(provider.chat(messages, stream=True)):
-                if item is None:
-                    run.pulse()
-                    continue
-                payload, content = _sse_for_stream_item(item)
-                if content:
-                    full_text += content
-                if payload:
-                    run.publish(payload)
-
-            mark("listing_stream")
-            if not full_text.strip() or full_text.lstrip().lower().startswith("error:"):
-                raise RuntimeError(full_text.strip() or "Listing generation returned no text")
-            if not extract_listing_json(full_text):
-                run.publish(_sse_event("status", "Repairing listing JSON…"))
-            needed_repair = not extract_listing_json(full_text)
-            run.publish(_sse_event("status", "Filling required fields…"))
-            listing = await _await_with_pulses(
-                run,
-                persist_generated_listing_with_repair(
-                    stream_db, conv_id, full_text, provider, final_announce=False,
-                ),
-                child_tasks,
-            )
-            if listing:
-                stream_repo.add_message(
-                    conv_id,
-                    "system",
-                    listing_save_summary(stream_db, conv_id, listing, repaired=needed_repair),
-                    provider="system",
-                    model="",
-                )
-            mark("repair_and_finalize")
-            log.info(
-                "generation timing conv=%s total=%.2fs %s",
-                conv_id,
-                sum(timings.values()),
-                " ".join(f"{stage}={seconds}s" for stage, seconds in timings.items()),
-            )
-            stream_repo.update_status(conv_id, "draft")
-            run.publish("data: [DONE]\n\n")
-            if listing:
-                evidence_text = "\n\n".join(
-                    part for part in (prompt_analysis, item_details, comps_text) if part
-                )
-                schema_meta = {
-                    "_schema_source": (schema_seed or {}).get("_schema_source") if isinstance(schema_seed, dict) else None,
-                    "_schema_probe_job_id": (schema_seed or {}).get("_schema_probe_job_id") if isinstance(schema_seed, dict) else None,
-                }
-                _spawn(_finish_generation_background(
-                    conv_id,
-                    listing,
-                    evidence=evidence_text,
-                    schema_meta=schema_meta,
-                    provider=provider,
-                ))
-        except asyncio.CancelledError:
-            log.warning("listing generation cancelled for %s; saving any completed text", conv_id)
-            for task in child_tasks:
-                if not task.done():
-                    task.cancel()
-            if full_text.strip() and not full_text.lstrip().lower().startswith("error:"):
-                try:
-                    await persist_generated_listing_with_repair(
-                        stream_db, conv_id, full_text, provider
-                    )
-                except Exception:
-                    log.exception("failed to persist cancelled listing for %s", conv_id)
-            try:
-                stream_repo.update_status(conv_id, "draft")
-            except Exception:
-                log.exception("failed to reset status after cancelled listing for %s", conv_id)
-            raise
-        except Exception as e:
-            message = str(e).strip() or type(e).__name__
-            if isinstance(e, TimeoutError) and not str(e).strip():
-                stage = (run.last_status or "").strip()
-                if stage:
-                    message = (
-                        f"Timed out during “{stage}”. "
-                        "Retry generate. If Chrome is stuck on field discovery, Cancel discovery first."
-                    )
-                else:
-                    message = (
-                        "Timed out while generating the listing. "
-                        "Retry generate. If Chrome was discovering fields, cancel discovery and retry."
-                    )
-            log.warning("listing generation failed for %s: %s", conv_id, message)
-            try:
-                run.publish(_sse_data(f"Error: {message}"))
-                stream_repo.add_message(conv_id, "system", message, provider="system", model="")
-                run.publish("data: [DONE]\n\n")
-                stream_repo.update_status(conv_id, "draft")
-            except Exception:
-                log.exception("failed to report listing generation error for %s", conv_id)
-        finally:
-            for task in child_tasks:
-                if not task.done():
-                    task.cancel()
-            stream_db.close()
-
-    run = _GenerationRun()
-    _generations[conv_id] = run
-    run.task = _spawn(_pump_generation(run, run_generation))
+    run = start_generation(conv_id, functools.partial(
+        run_listing_generation,
+        conv_id=conv_id,
+        provider=provider,
+        vision_name=vision_name,
+        vision_model=vision_model,
+        notes=notes,
+        item_details=item_details,
+        seller_answers=seller_answers,
+        paths=paths,
+        photo_count=photo_count,
+    ))
     await asyncio.sleep(0)
-    return _stream_generation(run)
+    return stream_generation(run)
 
 
 @router.post("/api/conversations/{conv_id}/generate/cancel")
@@ -1118,190 +273,3 @@ async def cancel_chat_message(conv_id: str):
     finally:
         db.close()
     return {"ok": True}
-
-
-async def _finish_generation_background(
-    conv_id: str,
-    listing: dict,
-    *,
-    evidence: str,
-    schema_meta: dict | None,
-    provider,
-) -> None:
-    """Fill remaining discovered fields and auto-apply after the generate stream ends."""
-    db = SessionLocal()
-    repo = ConversationRepo(db)
-    try:
-        current = dict(listing) if isinstance(listing, dict) else {}
-        if isinstance(schema_meta, dict) and schema_meta.get("_schema_source") in {
-            "deferred_probe",
-            "deferred_busy",
-        }:
-            seed = {
-                "_schema_source": schema_meta.get("_schema_source"),
-                "_schema_probe_job_id": schema_meta.get("_schema_probe_job_id"),
-            }
-            await await_deferred_schema(db, seed)
-
-        from vendoo_studio.services.listing_field_gaps import fill_listing_field_gaps
-
-        current = await fill_listing_field_gaps(
-            db,
-            conv_id,
-            current,
-            provider,
-            evidence=evidence,
-        )
-
-        from vendoo_studio.services.auto_apply import auto_apply_after_generation
-
-        apply_result = await auto_apply_after_generation(
-            db, conv_id, current, provider=provider, evidence=evidence,
-        )
-        if apply_result.get("applied"):
-            # auto_apply already records a system message on success
-            pass
-        elif apply_result.get("error"):
-            repo.add_message(
-                conv_id,
-                "system",
-                f"Could not apply generated values on Vendoo: {apply_result['error']}",
-                provider="system",
-                model="",
-            )
-    except Exception:
-        log.exception("post-generate finish failed for %s", conv_id)
-        try:
-            repo.add_message(
-                conv_id,
-                "system",
-                "Listing saved, but finishing discovered fields or Vendoo apply failed. Retry from Fields.",
-                provider="system",
-                model="",
-            )
-        except Exception:
-            log.exception("failed to report post-generate finish error for %s", conv_id)
-    finally:
-        db.close()
-
-
-LISTING_INSTRUCTIONS = (
-    "You are a product listing generator. Generate an evidence-backed Vendoo listing JSON "
-    "from the photo analysis and listing rules below.\n\n"
-    "Preserve category_path and marketplace_categories from the verified category selections below. "
-    "Each marketplace uses its own category tree; do not substitute another form's breadcrumb.\n\n"
-    "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
-    "when a second color is visible. Use Vendoo general condition values such as "
-    '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
-    "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
-    "TITLE and DESCRIPTION are non-negotiable skill formulas — copy the structure from "
-    "Formula Reference below. Title order is Brand Size Vibe Item Color Fit (max 80 chars). "
-    "Physical descriptions must keep the mandatory blank lines and Size:/Condition:/Measurements:/"
-    "OFFERS WELCOME blocks. Do not write freeform marketing copy that breaks those formulas.\n\n"
-    "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
-    "Do not modify, estimate, or replace seller-provided measurements.\n"
-    "Use the discovered category fields below. Fill every applicable field with a real value or Does Not Apply. "
-    "Only leave a field empty when you must ask the seller a precise question in prose — and never claim the listing is complete while any applicable discovered field is still empty. "
-    "Estimate packaged shipping weight (weight_lb/weight_oz) and package_dimensions_in from the item type — "
-    "do not ask the seller for routine apparel shipping weight or mailer size. "
-    "Never invent brand, size, material, age, or other product facts without photo or seller evidence. "
-    "Prefer verbatim tag text from the photo analysis for brand, size, and material. "
-    "Studio applies generated values onto the bound Vendoo draft automatically when Chrome is connected. "
-    "Price from the sold comps block when it is present: market price × 1.35, whole dollars. "
-    "If comps are missing or thin, use a conservative baseline and flag uncertainty.\n\n"
-    "Return ONLY one fenced ```json code block with the full listing object. "
-    "No prose before or after the fence. Valid JSON only (no trailing commas).\n\n"
-    "```json\n"
-    "{\n"
-    '  "title": "...",\n'
-    '  "description": "...",\n'
-    '  "price": ...,\n'
-    '  "cost": ...,\n'
-    '  "quantity": 1,\n'
-    '  "brand": "...",\n'
-    '  "condition": "...",\n'
-    '  "primaryColor": "...",\n'
-    '  "secondaryColor": "...",\n'
-    '  "sku": "...",\n'
-    '  "size": "...",\n'
-    '  "sizeType": "...",\n'
-    '  "tags": [...],\n'
-    '  "package_dimensions_in": "...",\n'
-    '  "ebay_specifics": {...},\n'
-    '  "depop_specifics": {"source": "Preloved", "age": "Modern"},\n'
-    '  "etsy_specifics": {...},\n'
-    '  "poshmark_specifics": {"originalPrice": 0},\n'
-    '  "mercari_specifics": {"shippingLabel": "USPS Ground Advantage"}\n'
-    "}\n"
-    "```"
-)
-
-
-def _empty_discovered_fields_prompt(db: Session, conv_id: str) -> str:
-    """List discovered fields still empty so generation fills them in one pass, not a later gap round."""
-    from copy import deepcopy
-
-    from vendoo_studio.services.listing_field_gaps import collect_empty_discovered_fields
-    from vendoo_studio.services.registry import RegistryService
-
-    revisions = ListingRepo(db).get_revisions(conv_id)
-    if not revisions or not isinstance(revisions[0].listing_json, dict):
-        return ""
-    probe = deepcopy(revisions[0].listing_json)
-    if not str(probe.get("category_path") or "").strip():
-        return ""
-    RegistryService(db).merge_learned_fields(probe)
-    gaps = collect_empty_discovered_fields(db, probe)
-    if not gaps:
-        return ""
-    lines = [f"- {gap['marketplace']}: {gap['field']}" for gap in gaps]
-    return (
-        "\n\n--- Discovered fields still empty ---\n"
-        "Fill each of these in the listing JSON (root fields or the marketplace *_specifics) using exact "
-        "allowed options from the category fields above, or Does Not Apply when the field truly does not apply:\n"
-        + "\n".join(lines)
-    )
-
-
-def _listing_messages(
-    skill_rules: str,
-    item_details: str,
-    analysis_text: str,
-    db: Session,
-    conv_id: str,
-    comps_text: str = "",
-    photo_count: int = 0,
-) -> list[dict]:
-    comps_block = f"\n\n--- Sold comps ---\n\n{comps_text}" if comps_text else ""
-    photo_line = (
-        f"The seller already uploaded {photo_count} product photo(s). "
-        "Never ask them to attach or re-upload photos — generate the listing now.\n\n"
-        if photo_count
-        else ""
-    )
-    # Static instructions and rules lead so provider prefix caches hit across items;
-    # per-item evidence follows.
-    system_content = (
-        f"{LISTING_INSTRUCTIONS}\n\n"
-        f"--- Listing Rules ---\n\n{skill_rules}"
-        f"{_learned_fields_prompt(db, conv_id)}"
-        "\n\n--- This item ---\n\n"
-        f"{photo_line}"
-        f"{item_details}\n\n"
-        f"{analysis_text}"
-        f"{comps_block}"
-        f"{_current_listing_prompt(db, conv_id)}"
-        f"{_empty_discovered_fields_prompt(db, conv_id)}"
-    )
-    return [
-        {"role": "system", "content": system_content},
-        {
-            "role": "user",
-            "content": (
-                f"Generate a complete listing from the {photo_count} uploaded product photos. "
-                "Reply with only the ```json listing block."
-                if photo_count
-                else "Generate a complete listing from these product photos. Reply with only the ```json listing block."
-            ),
-        },
-    ]

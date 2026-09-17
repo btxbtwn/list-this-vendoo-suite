@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Annotated
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -44,7 +44,7 @@ VALID_DEPOP_MATERIAL = frozenset((
 PACKAGE_DIMS_PATTERN = r"^\d+(\.\d+)?\s*x\s*\d+(\.\d+)?\s*x\s*\d+(\.\d+)?$"
 
 
-def _scalar_text(value: Any) -> Optional[str]:
+def _scalar_text(value: Any) -> str | None:
     if value is None or value == "":
         return None
     if isinstance(value, str):
@@ -105,45 +105,45 @@ class EbaySpecifics(BaseModel):
             raise ValueError("must be an object")
         return _coerce_string_map(data, frozenset({"features", "accents"}))
 
-    type: Optional[str] = None
-    department: Optional[str] = None
-    sizeType: Optional[str] = None
-    size: Optional[str] = None
-    brand: Optional[str] = None
-    color: Optional[str] = None
-    material: Optional[str] = None
-    fit: Optional[str] = None
-    sleeveLength: Optional[str] = None
-    neckline: Optional[str] = None
-    closure: Optional[str] = None
-    style: Optional[str] = None
-    pattern: Optional[str] = None
-    features: Optional[list[str] | str] = None
-    theme: Optional[str] = None
-    season: Optional[str] = None
-    occasion: Optional[str] = None
-    countryOfOrigin: Optional[str] = None
-    fabricType: Optional[str] = None
-    vintage: Optional[str] = None
-    handmade: Optional[str] = None
-    personalize: Optional[str] = None
-    garmentCare: Optional[str] = None
-    unitQuantity: Optional[str] = None
-    unitType: Optional[str] = None
-    mpn: Optional[str] = None
-    upc: Optional[str] = None
-    character: Optional[str] = None
-    characterFamily: Optional[str] = None
-    performanceActivity: Optional[str] = None
-    yearManufactured: Optional[str] = None
-    collarStyle: Optional[str] = None
-    strapType: Optional[str] = None
-    fabricWeight: Optional[str] = None
-    sleeveType: Optional[str] = None
-    accents: Optional[list[str] | str] = None
-    rise: Optional[str] = None
-    inseam: Optional[str] = None
-    waist: Optional[str] = None
+    type: str | None = None
+    department: str | None = None
+    sizeType: str | None = None
+    size: str | None = None
+    brand: str | None = None
+    color: str | None = None
+    material: str | None = None
+    fit: str | None = None
+    sleeveLength: str | None = None
+    neckline: str | None = None
+    closure: str | None = None
+    style: str | None = None
+    pattern: str | None = None
+    features: list[str] | str | None = None
+    theme: str | None = None
+    season: str | None = None
+    occasion: str | None = None
+    countryOfOrigin: str | None = None
+    fabricType: str | None = None
+    vintage: str | None = None
+    handmade: str | None = None
+    personalize: str | None = None
+    garmentCare: str | None = None
+    unitQuantity: str | None = None
+    unitType: str | None = None
+    mpn: str | None = None
+    upc: str | None = None
+    character: str | None = None
+    characterFamily: str | None = None
+    performanceActivity: str | None = None
+    yearManufactured: str | None = None
+    collarStyle: str | None = None
+    strapType: str | None = None
+    fabricWeight: str | None = None
+    sleeveType: str | None = None
+    accents: list[str] | str | None = None
+    rise: str | None = None
+    inseam: str | None = None
+    waist: str | None = None
 
 
 class DepopSpecifics(BaseModel):
@@ -158,12 +158,12 @@ class DepopSpecifics(BaseModel):
             raise ValueError("must be an object")
         return _coerce_string_map(data, frozenset({"style", "material", "occasion"}))
 
-    source: Optional[str] = None
-    age: Optional[str] = None
-    style: Optional[list[str] | str] = None
-    material: Optional[list[str] | str] = None
-    occasion: Optional[list[str] | str] = None
-    size_grouping: Optional[str] = None
+    source: str | None = None
+    age: str | None = None
+    style: list[str] | str | None = None
+    material: list[str] | str | None = None
+    occasion: list[str] | str | None = None
+    size_grouping: str | None = None
 
 
 class EtsySpecifics(BaseModel):
@@ -182,13 +182,13 @@ class EtsySpecifics(BaseModel):
             skip_keys=frozenset({"category_specifics"}),
         )
 
-    who_made: Optional[str] = None
-    what_is: Optional[str] = None
-    when_made: Optional[str] = None
-    section: Optional[str] = None
-    materials: Optional[list[str] | str] = None
-    tags: Optional[list[str] | str] = None
-    category_specifics: Optional[dict[str, str]] = None
+    who_made: str | None = None
+    what_is: str | None = None
+    when_made: str | None = None
+    section: str | None = None
+    materials: list[str] | str | None = None
+    tags: list[str] | str | None = None
+    category_specifics: dict[str, str] | None = None
 
     @field_validator("category_specifics", mode="before")
     @classmethod
@@ -241,24 +241,24 @@ class ListingSchema(BaseModel):
     title: str = Field(..., min_length=1, max_length=80)
     description: str = Field(..., min_length=1)
     price: float = Field(..., gt=0)
-    cost: Optional[float] = None
+    cost: float | None = None
     quantity: int = Field(default=1, ge=0)
-    brand: Optional[str] = None
-    condition: Optional[str] = None
-    primaryColor: Optional[str] = None
-    secondaryColor: Optional[str] = None
-    category_path: Optional[str] = None
-    size: Optional[str] = None
-    sizeType: Optional[str] = None
-    size_us: Optional[str] = None
-    sku: Optional[str] = None
-    department: Optional[str] = None
+    brand: str | None = None
+    condition: str | None = None
+    primaryColor: str | None = None
+    secondaryColor: str | None = None
+    category_path: str | None = None
+    size: str | None = None
+    sizeType: str | None = None
+    size_us: str | None = None
+    sku: str | None = None
+    department: str | None = None
     tags: list[str] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
-    weight_lb: Optional[int] = Field(default=None, ge=0)
-    weight_oz: Optional[int] = Field(default=None, ge=0)
-    package_dimensions_in: Optional[str] = None
-    internal_notes: Optional[str] = None
+    weight_lb: int | None = Field(default=None, ge=0)
+    weight_oz: int | None = Field(default=None, ge=0)
+    package_dimensions_in: str | None = None
+    internal_notes: str | None = None
 
     ebay_specifics: EbaySpecifics = Field(default_factory=EbaySpecifics)
     poshmark_specifics: PoshmarkSpecifics = Field(default_factory=PoshmarkSpecifics)
@@ -284,7 +284,7 @@ class ListingSchema(BaseModel):
 
     @field_validator("condition")
     @classmethod
-    def validate_condition(cls, v: Optional[str]) -> Optional[str]:
+    def validate_condition(cls, v: str | None) -> str | None:
         if v is None:
             return v
         if v not in VALID_CONDITIONS:

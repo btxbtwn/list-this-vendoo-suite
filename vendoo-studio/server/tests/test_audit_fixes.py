@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import stat
 import subprocess
 import tempfile
@@ -19,12 +18,12 @@ from vendoo_studio.main import app
 from vendoo_studio.models.conversation import Conversation, Photo
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.job import Job
-from vendoo_studio.models.listing import Listing, ListingRevision
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.models.validation import validate_listing
-from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
+from vendoo_studio.repositories.queries import JobRepo, ListingRepo
 from vendoo_studio.services.safe_fetch import UnsafeURLError, validate_fetch_url
 from vendoo_studio.services.vendoo_import import listing_from_vendoo, merge_notes
+from extension_sources import background_source
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -386,11 +385,9 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertEqual(listing["ebay_specifics"]["sizeType"], "Regular")
 
     def test_ebay_category_optionals_are_filled_or_dna(self):
-        from vendoo_studio.models.validation import (
-            DNA_VALUE,
-            ensure_ebay_category_optionals,
-            normalize_listing_dropdowns,
-        )
+        from vendoo_studio.models.listing_values import DNA_VALUE
+        from vendoo_studio.models.ebay_fields import ensure_ebay_category_optionals
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
 
         listing = dict(VALID_LISTING)
         listing["title"] = "Notations XL Floral Blouse Pink Regular"
@@ -454,10 +451,8 @@ class ValidationCasesTest(unittest.TestCase):
         )
 
     def test_etsy_category_optionals_are_filled_or_dna(self):
-        from vendoo_studio.models.validation import (
-            DNA_VALUE,
-            ensure_etsy_category_optionals,
-        )
+        from vendoo_studio.models.listing_values import DNA_VALUE
+        from vendoo_studio.models.etsy_fields import ensure_etsy_category_optionals
 
         listing = dict(VALID_LISTING)
         listing["title"] = "Notations XL Floral Blouse Pink Regular"
@@ -512,7 +507,7 @@ class ValidationCasesTest(unittest.TestCase):
         )
 
     def test_depop_category_optionals_are_filled(self):
-        from vendoo_studio.models.validation import ensure_depop_category_optionals
+        from vendoo_studio.models.depop_fields import ensure_depop_category_optionals
 
         listing = dict(VALID_LISTING)
         listing["sizeType"] = "Regular"
@@ -535,7 +530,7 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertTrue(result.can_send, result.errors)
 
     def test_depop_size_grouping_required_for_petite(self):
-        from vendoo_studio.models.validation import ensure_depop_category_optionals
+        from vendoo_studio.models.depop_fields import ensure_depop_category_optionals
 
         listing = dict(VALID_LISTING)
         listing["sizeType"] = "Petite"
@@ -669,7 +664,7 @@ class ValidationCasesTest(unittest.TestCase):
 
 class ExtensionSafetySourceTest(unittest.TestCase):
     def test_existing_item_safety_check_runs_before_photo_upload(self):
-        source = (EXTENSION_DIR / "background.js").read_text()
+        source = background_source()
         safety = source.index("checking_draft_safety")
         upload = source.index("uploading_photos", safety)
         self.assertLess(safety, upload)
@@ -767,7 +762,7 @@ const CONFIG = {SLEEP_LONG: 0};
     def test_invalid_dropdown_has_a_distinct_fill_status(self):
         source = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text()
         self.assertIn("status: 'invalid'", source)
-        frontend = (REPO / "vendoo-studio" / "src" / "components" / "FillLogPanel.tsx").read_text()
+        frontend = (REPO / "vendoo-studio" / "src" / "components" / "fillLogForms.ts").read_text()
         self.assertIn('if (entry.status === "invalid") return "invalid-dropdown";', frontend)
 
 
@@ -981,7 +976,7 @@ class PhotoMimeTest(unittest.TestCase):
 class ExtensionRouteSafetyTest(unittest.TestCase):
     def test_rejects_item_id_new_and_requires_verification(self):
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
-        background = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        background = background_source()
         self.assertIn("nonDurable.has(id.toLowerCase())", content)
         self.assertIn("VERIFY_SAVED_DRAFT", content)
         self.assertIn("Draft Listing", content)
@@ -1001,7 +996,7 @@ class ExtensionRouteSafetyTest(unittest.TestCase):
         self.assertIn("Another leftover field fill is already running", background)
 
     def test_extract_item_id_from_url_drops_route_ids(self):
-        text = (EXTENSION_DIR / "background.js").read_text(encoding="utf-8")
+        text = background_source()
         start = text.index("const NON_DURABLE_ITEM_IDS")
         end = text.index("async function findTabByDraft")
         script = text[start:end] + """
@@ -1213,9 +1208,11 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("normalizeComparableText(lab) === normalizeComparableText(want)", content)
 
     def test_ask_chat_prompt_includes_field_context(self):
-        panel = (
-            Path(__file__).resolve().parents[2] / "src" / "components" / "FillLogPanel.tsx"
-        ).read_text(encoding="utf-8")
+        components = Path(__file__).resolve().parents[2] / "src" / "components"
+        panel = "\n".join(
+            (components / name).read_text(encoding="utf-8")
+            for name in ("FillLogPanel.tsx", "fillLogForms.ts")
+        )
         self.assertIn("function leftoverFieldPrompt", panel)
         self.assertIn("function askChatGapsPrompt", panel)
         self.assertIn("Listing:", panel)

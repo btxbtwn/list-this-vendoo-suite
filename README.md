@@ -4,7 +4,7 @@
 
 Local tools for turning product photos into marketplace listing drafts. Automation stops at saved Vendoo drafts. A person always reviews and publishes.
 
-**List This Studio** is the app you give someone else. It is a Mac app: unzip, open, sign in, list. The Chrome extension, listing skills, and Background Studio stay in this repo for development.
+**List This Studio** is the app you give someone else. It is a Mac app: unzip, open, sign in, list. The Chrome extension and listing skills stay in this repo for development.
 
 ## Install on a Mac
 
@@ -37,9 +37,6 @@ Requirements: macOS, Python 3.12+, Node.js 20+, Google Chrome.
 | `vendoo-studio/` | List This Studio (FastAPI + React). See `vendoo-studio/README.md`. |
 | `vendoo-extension/` | Chrome MV3 extension. **Connect Chrome** opens everyday Chrome; load this folder unpacked there once. |
 | `skills/list-this/` | Canonical listing rules used by Studio. |
-| `background-studio/` | Separate local background-removal app. See `background-studio/README.md`. |
-
-`vendoo-extension/skills/list-this/` is a legacy wrapper. Do not edit listing rules there.
 
 ## Manual extension fallback
 
@@ -113,4 +110,4 @@ That writes `vendoo-studio/release/List-This-Studio-macos.zip`. Publish it with 
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for PR checks and [`AGENTS.md`](AGENTS.md) for product invariants.
 
-CI on pull requests and `main` builds Studio, runs Studio backend tests, validates the extension and skill JSON, and scans the tree for secrets. The macOS app is packaged separately by `.github/workflows/studio-macos.yml`.
+CI on pull requests and `main` lints, tests, and builds Studio, lints and tests the backend, syntax-checks and unit-tests the extension, validates skill JSON, and scans the tree for secrets. The macOS app is packaged separately by `.github/workflows/studio-macos.yml`.

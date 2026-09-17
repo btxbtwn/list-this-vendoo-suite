@@ -1,14 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ExtensionStatus } from "../components/ExtensionStatus";
 import { ProviderStatus } from "../components/ProviderStatus";
-import { ListingEditor } from "../components/ListingEditor";
 import { ChatPanel } from "../components/ChatPanel";
 import { PhotoTray } from "../components/PhotoTray";
-import { SettingsPage } from "../components/SettingsPage";
 import { SetupChecklist } from "../components/SetupChecklist";
-import { FirstRunGuide } from "../components/FirstRunGuide";
 import { ItemDetails } from "../components/ItemDetails";
 import { BrowserPreview } from "../components/BrowserPreview";
 import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
@@ -23,6 +20,16 @@ import { ToastHost } from "../components/ToastHost";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
 import { addToast } from "../ui/toast";
+
+const ListingEditor = lazy(() =>
+  import("../components/ListingEditor").then((module) => ({ default: module.ListingEditor })),
+);
+const SettingsPage = lazy(() =>
+  import("../components/SettingsPage").then((module) => ({ default: module.SettingsPage })),
+);
+const FirstRunGuide = lazy(() =>
+  import("../components/FirstRunGuide").then((module) => ({ default: module.FirstRunGuide })),
+);
 
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
@@ -77,7 +84,7 @@ export function App() {
   const providerConfigured = Boolean(status?.provider_configured);
   const needsSetup = !status || !status.provider_configured || !status.extension_connected;
   const createListingTitle = "New listing";
-  const listingJob = jobs?.find((job: any) => job.conversation_id === selectedConvId && job.status !== "cancelled");
+  const listingJob = jobs?.find((job) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
   const browserOpen = Boolean(browserJobId && listingJob?.id === browserJobId);
   const browserPaneOpen = previewOpen || browserOpen;
@@ -364,12 +371,14 @@ export function App() {
           <main className="panel main-panel">
             <div className="workspace-drag-region pywebview-drag-region" aria-hidden="true" />
             {activeView === "settings" ? (
-              <SettingsPage
-                section={settingsSection}
-                targetId={settingsTargetId}
-                onTargetHandled={() => setSettingsTargetId(null)}
-                onOpenSetupGuide={() => setSetupGuideOpen(true)}
-              />
+              <Suspense fallback={null}>
+                <SettingsPage
+                  section={settingsSection}
+                  targetId={settingsTargetId}
+                  onTargetHandled={() => setSettingsTargetId(null)}
+                  onOpenSetupGuide={() => setSetupGuideOpen(true)}
+                />
+              </Suspense>
             ) : selectedConvId ? (
               <div className="listing-workspace">
                 <div className="listing-workspace-main" key={`${selectedConvId}:${workspaceNonce}`}>
@@ -439,21 +448,23 @@ export function App() {
           {activeView !== "settings" && (
             <aside className="panel detail-panel">
               {selectedConvId ? (
-                <ListingEditor
-                  key={`${selectedConvId}:${workspaceNonce}`}
-                  convId={selectedConvId}
-                  onJobStarted={() => setMobilePane("browser")}
-                  onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
-                  browserOpen={browserOpen}
-                  onAskChat={(text) => {
-                    setQueuedChatMessage(text);
-                    setMobilePane("workspace");
-                  }}
-                  onCleared={() => {
-                    setQueuedChatMessage(null);
-                    setWorkspaceNonce((value) => value + 1);
-                  }}
-                />
+                <Suspense fallback={null}>
+                  <ListingEditor
+                    key={`${selectedConvId}:${workspaceNonce}`}
+                    convId={selectedConvId}
+                    onJobStarted={() => setMobilePane("browser")}
+                    onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
+                    browserOpen={browserOpen}
+                    onAskChat={(text) => {
+                      setQueuedChatMessage(text);
+                      setMobilePane("workspace");
+                    }}
+                    onCleared={() => {
+                      setQueuedChatMessage(null);
+                      setWorkspaceNonce((value) => value + 1);
+                    }}
+                  />
+                </Suspense>
               ) : (
                 <div className="empty-state">
                   <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
@@ -510,14 +521,16 @@ export function App() {
       <ToastHost />
       <ConfirmDialogHost />
       {setupGuideOpen ? (
-        <FirstRunGuide
-          providerConfigured={providerConfigured}
-          chromeAvailable={status?.chrome_available !== false}
-          extensionConnected={Boolean(status?.extension_connected)}
-          creating={createConv.isPending}
-          onClose={() => setSetupGuideOpen(false)}
-          onCreateListing={createListing}
-        />
+        <Suspense fallback={null}>
+          <FirstRunGuide
+            providerConfigured={providerConfigured}
+            chromeAvailable={status?.chrome_available !== false}
+            extensionConnected={Boolean(status?.extension_connected)}
+            creating={createConv.isPending}
+            onClose={() => setSetupGuideOpen(false)}
+            onCreateListing={createListing}
+          />
+        </Suspense>
       ) : null}
     </div>
   );

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON, Boolean
+from sqlalchemy import Column, String, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
 from vendoo_studio.database import Base

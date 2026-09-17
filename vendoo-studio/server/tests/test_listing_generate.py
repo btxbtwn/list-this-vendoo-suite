@@ -12,11 +12,10 @@ from sqlalchemy.pool import StaticPool
 
 from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
-from vendoo_studio.models.conversation import Conversation, Message
-from vendoo_studio.models.listing import ListingRevision
 from vendoo_studio.providers.xiaomi_mimo import StreamChunk, chunk_text, chunk_thinking
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.routes import chat as chat_routes
+from vendoo_studio.services import chat_listing, listing_generation, streaming
 from vendoo_studio.services.listing_generate import (
     PhotoAnalysisError,
     analysis_with_photo_count,
@@ -518,7 +517,7 @@ class PersistListingTest(unittest.TestCase):
             "ebay_specifics": {"department": "Women", "Primary Store Category": "Women's Clothing"},
             "poshmark_specifics": {"styleTags": ["Graphic Tee", "Casual", "Cotton"]},
         }, source="model")
-        chat_routes._apply_listing_payload(self.db, self.conv.id, (
+        chat_listing.apply_listing_payload(self.db, self.conv.id, (
             "This is a men's t-shirt, not women's.\n"
             "```json\n"
             '[{"op":"replace","path":"/department","value":"Men"},'
@@ -548,7 +547,7 @@ class PersistListingTest(unittest.TestCase):
             "category_path": MEN_TSHIRT_PATH,
             "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
         }, source="model")
-        chat_routes._apply_listing_payload(self.db, self.conv.id, (
+        chat_listing.apply_listing_payload(self.db, self.conv.id, (
             "I changed this to a men's sweatshirt.\n"
             "```json\n"
             '[{"op":"replace","path":"/category_path","value":"' + sweatshirt_path + '"},'
@@ -565,7 +564,7 @@ class PersistListingTest(unittest.TestCase):
             "title": "Chaos Ink Graphic Tee",
             "etsy_specifics": {"Occasion": ""},
         }, source="model")
-        ops, saved = chat_routes._apply_listing_payload(self.db, self.conv.id, (
+        ops, saved = chat_listing.apply_listing_payload(self.db, self.conv.id, (
             "Filled the empty Etsy fields.\n"
             "```json\n"
             '{"missing_fields":['
@@ -608,7 +607,7 @@ class PersistListingTest(unittest.TestCase):
                 )
 
         async def run():
-            return await chat_routes._apply_listing_payload_with_repair(
+            return await chat_listing.apply_listing_payload_with_repair(
                 self.db,
                 self.conv.id,
                 "Pattern should be Solid for this tee.",
@@ -638,6 +637,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.provider = FakeProvider(analyze_delay=0.25)
         self._orig_session = chat_routes.SessionLocal
         chat_routes.SessionLocal = self.Session
+        listing_generation.SessionLocal = self.Session
 
         def override_get_db():
             db = self.Session()
@@ -656,20 +656,21 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
 
         self.patches = [
             patch("vendoo_studio.routes.chat.get_listing_provider", return_value=self.provider),
-            patch("vendoo_studio.routes.chat._load_skill_rules", return_value="rules"),
-            patch("vendoo_studio.routes.chat.research_sold_comps", new=AsyncMock(return_value="")),
-            patch("vendoo_studio.routes.chat.comps_search_available", return_value=False),
-            patch("vendoo_studio.routes.chat.prepare_generation_schema", new=AsyncMock(return_value={})),
+            patch("vendoo_studio.services.listing_generation.load_skill_rules", return_value="rules"),
+            patch("vendoo_studio.services.listing_generation.research_sold_comps", new=AsyncMock(return_value="")),
+            patch("vendoo_studio.services.listing_generation.comps_search_available", return_value=False),
+            patch("vendoo_studio.services.listing_generation.prepare_generation_schema", new=AsyncMock(return_value={})),
         ]
         for p in self.patches:
             p.start()
 
     async def asyncTearDown(self):
-        await chat_routes.reset_generations()
+        await streaming.reset_generations()
         for p in self.patches:
             p.stop()
         app.dependency_overrides.pop(get_db, None)
         chat_routes.SessionLocal = self._orig_session
+        listing_generation.SessionLocal = self._orig_session
 
     async def test_generate_stream_includes_keepalive_and_listing(self):
         transport = ASGITransport(app=app)
@@ -684,19 +685,19 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(LISTING_JSON["title"], body)
 
     async def test_generation_pulse_repeats_status_without_bloating_history(self):
-        run = chat_routes._GenerationRun()
-        run.publish(chat_routes._sse_event("status", "Identifying category…"))
+        run = streaming.GenerationRun()
+        run.publish(streaming.sse_event("status", "Identifying category…"))
         queue = run.subscribe()
         while not queue.empty():
             queue.get_nowait()
         run.pulse()
-        self.assertEqual(queue.get_nowait(), chat_routes.KEEPALIVE)
+        self.assertEqual(queue.get_nowait(), streaming.KEEPALIVE)
         pulsed = queue.get_nowait()
         self.assertIn("event: status", pulsed)
         self.assertIn("Identifying category", pulsed)
         self.assertEqual(
             run.history,
-            [chat_routes._sse_event("status", "Identifying category…")],
+            [streaming.sse_event("status", "Identifying category…")],
         )
 
     async def test_generate_stream_forwards_thinking_without_persisting(self):
@@ -803,8 +804,8 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         )
         self.patches[2].stop()
         self.patches[3].stop()
-        comps_patch = patch("vendoo_studio.routes.chat.research_sold_comps", new=AsyncMock(return_value=comps))
-        key_patch = patch("vendoo_studio.routes.chat.comps_search_available", return_value=True)
+        comps_patch = patch("vendoo_studio.services.listing_generation.research_sold_comps", new=AsyncMock(return_value=comps))
+        key_patch = patch("vendoo_studio.services.listing_generation.comps_search_available", return_value=True)
         comps_patch.start()
         key_patch.start()
         self.patches[2] = comps_patch
@@ -827,16 +828,16 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
             yield "hello"
 
         items = []
-        async for item in chat_routes._iter_with_keepalives(slow(), timeout=0.05):
+        async for item in streaming.iter_with_keepalives(slow(), timeout=0.05):
             items.append(item)
         self.assertIn(None, items)
         self.assertEqual(items[-1], "hello")
 
     async def test_wait_task_keepalives_default_interval_is_mobile_safe(self):
         import inspect
-        params = inspect.signature(chat_routes._wait_task_keepalives).parameters
+        params = inspect.signature(streaming.wait_task_keepalives).parameters
         self.assertEqual(params["timeout"].default, 3.0)
-        params = inspect.signature(chat_routes._iter_with_keepalives).parameters
+        params = inspect.signature(streaming.iter_with_keepalives).parameters
         self.assertEqual(params["timeout"].default, 3.0)
 
     async def test_generate_reports_error_when_model_returns_nothing(self):
@@ -905,7 +906,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
     async def _wait_until_generating(self, timeout: float = 5.0):
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
-            if chat_routes._active_generation(self.conv_id) is not None:
+            if streaming.active_generation(self.conv_id) is not None:
                 return
             await asyncio.sleep(0.05)
         self.fail("listing generation did not start")
@@ -926,8 +927,8 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 await reader
             except asyncio.CancelledError:
                 pass
-            self.assertIsNotNone(chat_routes._active_generation(self.conv_id))
-        await chat_routes.wait_generation(self.conv_id)
+            self.assertIsNotNone(streaming.active_generation(self.conv_id))
+        await streaming.wait_generation(self.conv_id)
         db = self.Session()
         revisions = ListingRepo(db).get_revisions(self.conv_id)
         conv = ConversationRepo(db).get(self.conv_id)
@@ -975,7 +976,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
             await self._wait_until_generating()
             cancel = await client.post(f"/api/conversations/{self.conv_id}/generate/cancel")
             self.assertEqual(cancel.status_code, 200)
-            await chat_routes.wait_generation(self.conv_id)
+            await streaming.wait_generation(self.conv_id)
             reader.cancel()
             try:
                 await reader
@@ -988,7 +989,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         db.close()
         self.assertEqual(conv.status, "draft")
         self.assertEqual(revisions, [])
-        self.assertIsNone(chat_routes._active_generation(self.conv_id))
+        self.assertIsNone(streaming.active_generation(self.conv_id))
 
 
 if __name__ == "__main__":

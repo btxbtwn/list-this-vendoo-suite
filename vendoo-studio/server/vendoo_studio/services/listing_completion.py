@@ -1,50 +1,63 @@
 """Repair only verified gaps; the browser's saved readback owns completion."""
+
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 import json
 import logging
 import re
+from copy import deepcopy
 
 from sqlalchemy.orm import Session
 
 from vendoo_studio.database import SessionLocal
 from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
-from vendoo_studio.repositories.queries import ConversationRepo, FillLogRepo, JobRepo, ListingRepo
+from vendoo_studio.repositories.queries import (
+    ConversationRepo,
+    FillLogRepo,
+    JobRepo,
+    ListingRepo,
+)
 from vendoo_studio.services.category_catalog import remember_schema
+from vendoo_studio.services.completion_gaps import (
+    DNA_VALUE,
+    adopt_observed_draft_values,
+    deterministic_gap_patches,
+    drop_noop_gaps,
+    field_id,
+    field_option_labels,
+    gap_already_has_value,
+    is_shipping_estimate_field,
+    prefer_listing_over_observed,
+    prior_fill_covers_empty_gap,
+    review_fields,
+)
+from vendoo_studio.services.completion_pause import (
+    pause_job,
+)
+from vendoo_studio.services.completion_readback import (
+    category_mismatches,
+    failed_readback_platforms,
+    incomplete_readback,
+    merge_prior_readback_schemas,
+    repair_category_mismatches,
+    retry_incomplete_readback,
+)
 from vendoo_studio.services.fill_log import (
     DOES_NOT_APPLY_RE,
     FillLogService,
     field_lookup_key,
-    listing_value_for_field,
     write_values_into_listing,
 )
 from vendoo_studio.services.listing_provider import get_listing_provider
-from vendoo_studio.services.registry import SELLER_SETTING_LABELS, is_account_managed_field
 
 log = logging.getLogger(__name__)
+
 # One leftover fill after Send's end-of-job verify — more rounds just re-walk every form.
 MAX_REPAIR_ROUNDS = 1
-MAX_READBACK_RETRIES = 2
-MAX_CATEGORY_REPAIRS = 1
-READBACK_RETRY_DELAY_SECONDS = 2.0
-_SOFT_GAP_ERRORS = frozenset({"", "empty field", "saved value differs"})
-DNA_VALUE = "Does Not Apply"
+
 _tasks: dict[str, asyncio.Task] = {}
 _pending_completion: set[str] = set()
-
-
-def _option_labels(field: dict) -> set[str]:
-    labels: set[str] = set()
-    for option in field.get("options") or []:
-        if isinstance(option, dict):
-            label = str(option.get("label") or option.get("value") or "").strip()
-        else:
-            label = str(option).strip()
-        if label:
-            labels.add(label)
-    return labels
 
 
 def is_does_not_apply_value(value) -> bool:
@@ -62,7 +75,7 @@ def dna_fill_allowed(field: dict) -> bool:
     if label == "season":
         return False
     if marketplace == "ebay":
-        from vendoo_studio.models.validation import (
+        from vendoo_studio.models.ebay_fields import (
             EBAY_OPTIONAL_DNA_LOOKUPS,
             EBAY_OPTIONAL_MUST_FILL_LOOKUPS,
         )
@@ -71,7 +84,7 @@ def dna_fill_allowed(field: dict) -> bool:
         if label in EBAY_OPTIONAL_DNA_LOOKUPS:
             return True
     if marketplace == "etsy":
-        from vendoo_studio.models.validation import (
+        from vendoo_studio.models.etsy_fields import (
             ETSY_OPTIONAL_DNA_LOOKUPS,
             ETSY_OPTIONAL_MUST_FILL_LOOKUPS,
         )
@@ -80,7 +93,7 @@ def dna_fill_allowed(field: dict) -> bool:
         if label in ETSY_OPTIONAL_DNA_LOOKUPS:
             return True
     if marketplace == "depop":
-        from vendoo_studio.models.validation import (
+        from vendoo_studio.models.depop_fields import (
             DEPOP_OPTIONAL_DNA_LOOKUPS,
             DEPOP_OPTIONAL_MUST_FILL_LOOKUPS,
         )
@@ -88,7 +101,7 @@ def dna_fill_allowed(field: dict) -> bool:
             return False
         if label in DEPOP_OPTIONAL_DNA_LOOKUPS:
             return True
-    labels = _option_labels(field)
+    labels = field_option_labels(field)
     if field.get("options_complete") and labels:
         return any(is_does_not_apply_value(label) for label in labels) or DNA_VALUE in labels
     return True
@@ -102,13 +115,17 @@ def marketplace_optional_blocks_silent_skip(field: dict) -> bool:
     if str(field.get("error") or "") != "Empty field":
         return False
     label = field_lookup_key(str(field.get("field") or field.get("label") or ""))
-    from vendoo_studio.models.validation import (
+    from vendoo_studio.models.depop_fields import (
         DEPOP_OPTIONAL_DNA_LOOKUPS,
         DEPOP_OPTIONAL_EVIDENCE_KEYS,
         DEPOP_OPTIONAL_MUST_FILL_LOOKUPS,
+    )
+    from vendoo_studio.models.ebay_fields import (
         EBAY_OPTIONAL_DNA_LOOKUPS,
         EBAY_OPTIONAL_EVIDENCE_KEYS,
         EBAY_OPTIONAL_MUST_FILL_LOOKUPS,
+    )
+    from vendoo_studio.models.etsy_fields import (
         ETSY_OPTIONAL_DNA_LOOKUPS,
         ETSY_OPTIONAL_MUST_FILL_LOOKUPS,
     )
@@ -212,784 +229,6 @@ def _auto_no_evidence(fields: list[dict]) -> list[dict]:
     return rows
 
 
-AUTOMATION_TAB_STEPS = frozenset({
-    "verifying_draft",
-    "resolving_fields",
-    "filling_fields",
-    "filling_general",
-    "saving_general",
-    "auditing_general",
-    "discovering_schema",
-})
-
-
-def _normalize_category_text(value: str) -> str:
-    text = str(value or "")
-    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
-    text = re.sub(r"[▸▶‣›*]+", " ", text)
-    text = text.replace("_", " ").replace("-", " ")
-    return " ".join(text.split()).casefold()
-
-
-def _category_segments(value: str) -> list[str]:
-    raw = str(value or "").replace("‣", ">").replace("▸", ">").replace("▶", ">").replace("›", ">")
-    return [part for part in (_normalize_category_text(seg) for seg in raw.split(">")) if part]
-
-
-def categories_match(observed: str, expected: str) -> bool:
-    """True when the live Vendoo breadcrumb represents the selected category path.
-
-    Mirrors extension categoryDisplayMatches: separator/CSS differences and leaf
-    aliases must not pause completion when the draft already has the right category.
-    """
-    want = str(expected or "").strip()
-    shown = str(observed or "").strip()
-    if not want:
-        return True
-    if not shown:
-        return False
-    if _normalize_category_text(shown) == _normalize_category_text(want):
-        return True
-    segs = _category_segments(want)
-    shown_parts = _category_segments(shown)
-    if not segs or not shown_parts:
-        return False
-    want_leaf = segs[-1]
-    shown_leaf = shown_parts[-1]
-    shown_norm = " ".join(shown_parts)
-
-    def hay_has(seg: str) -> bool:
-        token = _normalize_category_text(seg)
-        if not token:
-            return False
-        if shown_norm == token or token in shown_parts:
-            return True
-        if shown_norm.endswith(token) or shown_norm.startswith(token):
-            return True
-        return bool(re.search(rf"(?:^|[^a-z0-9]){re.escape(token)}(?:[^a-z0-9]|$)", shown_norm))
-
-    tee_leaf = bool(
-        re.search(r"t[\s-]?shirts?|\btees?\b", shown_leaf)
-        or re.search(r"t[\s-]?shirts?\s*$", shown_norm)
-        or re.search(r"tees?\s*$", shown_norm)
-    )
-    if re.search(r"\bblouses?\b", want_leaf):
-        if tee_leaf:
-            return False
-        without_parent = re.sub(r"tops\s*&\s*blouses", "X", shown_norm)
-        terminal_blouse = shown_leaf in {"blouse", "blouses"} or bool(
-            re.search(r"(?:^|[^a-z0-9])blouses?$", without_parent)
-        )
-        if not terminal_blouse:
-            return False
-    elif want_leaf not in {shown_leaf} and not hay_has(want_leaf):
-        # Singular/plural leaf aliases (Blouse vs Blouses, T-shirt vs T-shirts).
-        aliases = {want_leaf, want_leaf.rstrip("s"), f"{want_leaf}s"}
-        if shown_leaf not in aliases and not any(hay_has(alias) for alias in aliases):
-            return False
-    if len(segs) >= 2:
-        parent = segs[-2]
-        if hay_has(parent) or parent in shown_norm:
-            return True
-    return all(hay_has(seg) for seg in segs)
-
-
-def schema_section_readable(section: dict | None) -> bool:
-    section = section or {}
-    return bool(section.get("fields")) and not section.get("error")
-
-
-def incomplete_readback(verification: dict, platforms: list[str], *, vendoo_item_id: str | None) -> bool:
-    """True when Chrome did not return a usable form schema for every selected marketplace."""
-    schema = verification.get("schema") or {}
-    if not verification.get("readback") or not vendoo_item_id:
-        return True
-    return any(not schema_section_readable(schema.get(mp)) for mp in platforms)
-
-
-def failed_readback_platforms(verification: dict, platforms: list[str]) -> list[str]:
-    schema = verification.get("schema") or {}
-    return [mp for mp in platforms if not schema_section_readable(schema.get(mp))]
-
-
-def merge_prior_readback_schemas(repo: JobRepo, job_id: str, verification: dict, platforms: list[str]) -> dict:
-    """Keep marketplace sections that already scraped cleanly across verification attempts."""
-    merged = deepcopy(verification) if isinstance(verification, dict) else {}
-    schema = deepcopy(merged.get("schema") or {})
-    for event in repo.get_events(job_id):
-        if event.event_type != "completion_review":
-            continue
-        prior = (event.payload or {}).get("schema") or {}
-        if not isinstance(prior, dict):
-            continue
-        for marketplace in platforms:
-            if schema_section_readable(schema.get(marketplace)):
-                continue
-            previous = prior.get(marketplace)
-            if schema_section_readable(previous):
-                schema[marketplace] = deepcopy(previous)
-    merged["schema"] = schema
-    if any(schema_section_readable(schema.get(mp)) for mp in platforms):
-        merged["readback"] = True
-    return merged
-
-
-def category_mismatches(verification: dict, listing: dict) -> list[dict]:
-    """Return marketplaces whose saved category does not match the listing selection."""
-    schema = verification.get("schema") or {}
-    mismatches: list[dict] = []
-    expected_general = str(listing.get("category_path") or "").strip()
-    observed_general = str((schema.get("general", {}).get("category") or {}).get("path") or "").strip()
-    if expected_general and not categories_match(observed_general, expected_general):
-        mismatches.append({
-            "marketplace": "general",
-            "expected": expected_general,
-            "observed": observed_general,
-        })
-    for marketplace, expected in (listing.get("marketplace_categories") or {}).items():
-        want = str(expected or "").strip()
-        if not want:
-            continue
-        observed = str((schema.get(marketplace, {}).get("category") or {}).get("path") or "").strip()
-        if not categories_match(observed, want):
-            mismatches.append({
-                "marketplace": str(marketplace),
-                "expected": want,
-                "observed": observed,
-            })
-    return mismatches
-
-
-def _category_repair_count(repo: JobRepo, job_id: str, resume_sequence: int) -> int:
-    return sum(
-        1
-        for event in repo.get_events(job_id)
-        if event.event_type == "completion_category_repair" and event.sequence > resume_sequence
-    )
-
-
-async def _repair_category_mismatches(db: Session, job, mismatches: list[dict]) -> bool:
-    """Re-apply selected categories on Vendoo, then verify again.
-
-    Returns True when repair was dispatched (caller should stop). False means retries
-    are exhausted and the job should pause.
-    """
-    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
-
-    repo = JobRepo(db)
-    events = repo.get_events(job.id)
-    resume_sequence = max((e.sequence for e in events if e.event_type == "completion_resumed"), default=-1)
-    attempt = _category_repair_count(repo, job.id, resume_sequence)
-    if attempt >= MAX_CATEGORY_REPAIRS:
-        return False
-    if not extension_manager.connected:
-        _pause(db, job, "Connect Chrome to continue verifying and repairing this draft.", [])
-        return True
-    if any(other.id != job.id for other in repo.get_running()):
-        _pause(db, job, "Another automation job is running. Resume this draft when it finishes.", [])
-        return True
-    patches = [{
-        "marketplace": item["marketplace"],
-        "field": "Category",
-        "selector": "",
-        "value": item["expected"],
-    } for item in mismatches if item.get("expected")]
-    if not patches:
-        return False
-    next_attempt = attempt + 1
-    detail = ", ".join(
-        f"{item['marketplace']} (saved {item['observed'] or 'empty'} → {item['expected']})"
-        for item in mismatches
-    )
-    repo.add_event(
-        job.id,
-        "completion_category_repair",
-        "filling_fields",
-        {"attempt": next_attempt, "max": MAX_CATEGORY_REPAIRS, "mismatches": mismatches},
-    )
-    job.status = "dispatched"
-    job.current_step = "filling_fields"
-    job.last_error = None
-    db.commit()
-    ConversationRepo(db).add_message(
-        job.conversation_id,
-        "system",
-        f"Saved draft category differed ({detail}). "
-        f"Re-applying the selected categor{'y' if len(patches) == 1 else 'ies'} "
-        f"({next_attempt}/{MAX_CATEGORY_REPAIRS})…",
-        provider="system",
-        model="",
-    )
-    platforms = sorted({str(patch["marketplace"]) for patch in patches if patch["marketplace"] != "general"})
-    if not await dispatch_fill_fields(job, patches, platforms=platforms or None, reload=False):
-        _pause(db, job, "Chrome disconnected before the category could be re-applied.", [])
-    return True
-
-
-def _readback_retry_count(repo: JobRepo, job_id: str, resume_sequence: int) -> int:
-    return sum(
-        1
-        for event in repo.get_events(job_id)
-        if event.event_type == "completion_readback_retry" and event.sequence > resume_sequence
-    )
-
-
-def _readback_detail(verification: dict, platforms: list[str]) -> str:
-    schema = verification.get("schema") or {}
-    details = []
-    for mp in platforms:
-        section = schema.get(mp) or {}
-        err = section.get("error")
-        fields = section.get("fields") or []
-        if err:
-            details.append(f"{mp}: {err}")
-        elif not fields:
-            details.append(f"{mp}: no fields")
-    return "; ".join(details) if details else "incomplete readback"
-
-
-async def _retry_incomplete_readback(
-    db: Session,
-    job,
-    platforms: list[str],
-    verification: dict,
-    *,
-    failed: list[str],
-) -> bool:
-    """Re-dispatch draft verification for marketplaces that still lack a readable schema.
-
-    Returns True when a retry was scheduled (caller should stop). False means retries
-    are exhausted and the job should pause for review.
-    """
-    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
-
-    repo = JobRepo(db)
-    events = repo.get_events(job.id)
-    resume_sequence = max((e.sequence for e in events if e.event_type == "completion_resumed"), default=-1)
-    attempt = _readback_retry_count(repo, job.id, resume_sequence)
-    detail = _readback_detail(verification, failed or platforms)
-    if attempt >= MAX_READBACK_RETRIES:
-        return False
-    if not extension_manager.connected:
-        _pause(db, job, "Connect Chrome to continue verifying and repairing this draft.", [])
-        return True
-    if any(other.id != job.id for other in repo.get_running()):
-        _pause(db, job, "Another automation job is running. Resume this draft when it finishes.", [])
-        return True
-    next_attempt = attempt + 1
-    # Prefer re-reading only the failed marketplaces; always include general when it failed.
-    retry_platforms = [mp for mp in (failed or platforms) if mp != "general"]
-    include_general = "general" in (failed or platforms) or not failed
-    verify_platforms = (["general"] if include_general else []) + retry_platforms
-    if not verify_platforms:
-        verify_platforms = list(platforms)
-    repo.add_event(
-        job.id,
-        "completion_readback_retry",
-        "verifying_draft",
-        {
-            "attempt": next_attempt,
-            "max": MAX_READBACK_RETRIES,
-            "detail": detail,
-            "platforms": verify_platforms,
-        },
-    )
-    job.status = "dispatched"
-    job.current_step = "verifying_draft"
-    job.last_error = None
-    db.commit()
-    ConversationRepo(db).add_message(
-        job.conversation_id,
-        "system",
-        f"Marketplace forms were not fully readable ({detail}). "
-        f"Retrying verification for {', '.join(verify_platforms)} "
-        f"({next_attempt}/{MAX_READBACK_RETRIES})…",
-        provider="system",
-        model="",
-    )
-    delay = READBACK_RETRY_DELAY_SECONDS * next_attempt
-    await asyncio.sleep(delay)
-    db.refresh(job)
-    if job.status == "cancelled":
-        return True
-    if not await dispatch_fill_fields(
-        job,
-        [],
-        platforms=verify_platforms,
-        reload=False,
-    ):
-        _pause(db, job, "Chrome disconnected before verification could be retried.", [])
-    return True
-
-
-def field_id(field: dict) -> tuple[str, str]:
-    return str(field.get("marketplace") or "general"), field_lookup_key(field.get("field") or field.get("label") or "")
-
-
-def field_out_of_scope(marketplace: str, label: str) -> bool:
-    """Seller/account rows the automation never reads back: settings, shipping, policies."""
-    return (
-        field_lookup_key(label) in SELLER_SETTING_LABELS
-        or is_account_managed_field(marketplace, label)
-    )
-
-
-def is_shipping_estimate_field(label: str) -> bool:
-    key = field_lookup_key(label)
-    return key in {
-        "weight",
-        "weight lb",
-        "weight lbs",
-        "weight (lbs)",
-        "weight oz",
-        "weight (oz)",
-        "pounds",
-        "ounces",
-        "package weight",
-        "package weight (lb)",
-        "package weight (oz)",
-        "package dimensions",
-        "package dimensions (in)",
-        "dimensions",
-    } or "weight" in key or key.startswith("package dimension")
-
-
-def values_equal(observed, expected: str) -> bool:
-    def normalize(value):
-        return " ".join(str(value).split()).casefold()
-    if observed is None or expected is None:
-        return False
-    if isinstance(observed, list):
-        return {normalize(v) for v in observed} == {normalize(v) for v in str(expected).split(",")}
-    if normalize(observed) == normalize(expected):
-        return True
-    try:
-        return float(observed) == float(expected)
-    except (TypeError, ValueError):
-        return False
-
-
-# Neither form accepts a free-text brand. Depop offers an "Other" option; Mercari
-# has no brand value at all — it has a "No Brand/Not sure" checkbox.
-DEPOP_BRAND_FALLBACK = "Other"
-MERCARI_NO_BRAND_LABEL = "No Brand/Not sure"
-BRAND_FALLBACKS = {"depop": DEPOP_BRAND_FALLBACK, "mercari": MERCARI_NO_BRAND_LABEL}
-
-
-def brand_fallback_for(marketplace: str) -> str:
-    """The value that stands in for a brand this marketplace does not list."""
-    return BRAND_FALLBACKS.get(str(marketplace or "").strip().lower(), "")
-
-
-def brand_is_offered(field: dict, brand: str) -> bool:
-    """True only when a captured option list proves the marketplace carries this brand."""
-    text = str(brand or "").strip()
-    if not text:
-        return False
-    labels = _option_labels(field)
-    if not field.get("options_complete") or not labels:
-        return False
-    return any(values_equal(label, text) for label in labels)
-
-
-def brand_missing_from_options(field: dict, brand: str) -> bool:
-    """True when there is no brand, or a captured list proves the marketplace lacks it."""
-    text = str(brand or "").strip()
-    if not text:
-        return True
-    labels = _option_labels(field)
-    if not field.get("options_complete") or not labels:
-        return False
-    return not brand_is_offered(field, text)
-
-
-def _mercari_no_brand_checked(fields: list[dict] | None) -> bool:
-    for field in fields or []:
-        if field_lookup_key(str(field.get("label") or field.get("field") or "")) != "no brand not sure":
-            continue
-        value = field.get("value")
-        if isinstance(value, str):
-            return value.strip().casefold() in {"true", "yes", "on", "checked", "1"}
-        return bool(value)
-    return False
-
-
-def brand_fallback_in_place(
-    marketplace: str,
-    field: dict,
-    observed,
-    expected: str,
-    section_fields: list[dict] | None,
-) -> bool:
-    """True when the draft already shows this marketplace's no-brand answer."""
-    label = str(field.get("label") or field.get("field") or "")
-    if field_lookup_key(label) != "brand" or not brand_fallback_for(marketplace):
-        return False
-    if str(field.get("error") or "").strip().casefold() not in {"", "saved value differs"}:
-        return False
-    if brand_is_offered(field, expected):
-        return False
-    if str(marketplace).strip().lower() == "depop":
-        return values_equal(observed, DEPOP_BRAND_FALLBACK)
-    empty = observed is None or observed == "" or observed == []
-    return empty and _mercari_no_brand_checked(section_fields)
-
-
-def _stringify_observed(observed) -> str:
-    if isinstance(observed, list):
-        return ", ".join(str(part).strip() for part in observed if str(part).strip())
-    return str(observed).strip() if observed is not None else ""
-
-
-def _gap_is_empty(gap: dict) -> bool:
-    observed = gap.get("observed")
-    return observed is None or observed == "" or observed == []
-
-
-def gap_already_has_value(gap: dict, value) -> bool:
-    """True when the saved draft already shows the value we would write."""
-    if value is None or value == "" or value == []:
-        return False
-    if _gap_is_empty(gap):
-        return False
-    observed = gap.get("observed")
-    if values_equal(observed, value):
-        return True
-    mapped = gap.get("mapped_expected")
-    if mapped not in (None, "") and values_equal(observed, mapped) and values_equal(mapped, value):
-        return True
-    if mapped not in (None, "") and values_equal(observed, mapped):
-        # Browser mapped listing → display value; observed already matches display.
-        listing_expected = gap.get("expected")
-        if listing_expected in (None, "") or values_equal(value, listing_expected) or values_equal(value, mapped):
-            return True
-    return False
-
-
-def prior_fill_covers_empty_gap(db: Session, job, gap: dict, value) -> bool:
-    """Skip re-dispatch when Send/repair already wrote this value and readback still looks empty."""
-    if not value or value == []:
-        return False
-    if not _gap_is_empty(gap):
-        return False
-    error = str(gap.get("error") or "").strip().casefold()
-    if error not in {"", "empty field"}:
-        return False
-    from vendoo_studio.services.fill_log import preview_value
-
-    want = preview_value(value).casefold()
-    if not want:
-        return False
-    marketplace = str(gap.get("marketplace") or "general").strip().lower() or "general"
-    field_key = field_lookup_key(gap.get("field") or gap.get("label") or "")
-    if not field_key:
-        return False
-    for entry in FillLogRepo(db).list_for_job(job.id):
-        if str(entry.marketplace or "").strip().lower() != marketplace:
-            continue
-        if field_lookup_key(entry.field or "") != field_key:
-            continue
-        if str(entry.status or "").strip().casefold() not in {"filled", "uncertain"}:
-            continue
-        preview = str(entry.value_preview or "").strip()
-        if preview and preview.casefold() == want:
-            return True
-        reason = str(entry.reason or "")
-        if preview and values_equal(preview, value):
-            return True
-        if re.search(r"already set", reason, flags=re.I) and preview and values_equal(preview, value):
-            return True
-    return False
-
-
-def prefer_listing_over_observed(revisions: list) -> bool:
-    """True when the seller's Studio form is the newest listing revision."""
-    if not revisions:
-        return False
-    return str(getattr(revisions[0], "source", "") or "") == "user_form"
-
-
-def deterministic_gap_patches(
-    gaps: list[dict],
-    listing: dict,
-    *,
-    tried: set | None = None,
-) -> tuple[list[dict], list[dict]]:
-    """Fill gaps from listing values without an LLM pass when possible.
-
-    Returns (ready_patches, gaps_needing_model).
-    """
-    tried = tried or set()
-    ready: list[dict] = []
-    needs_model: list[dict] = []
-    accepted: set[tuple[str, str]] = set()
-    for gap in gaps:
-        marketplace = str(gap.get("marketplace") or "general")
-        field = str(gap.get("field") or gap.get("label") or "").strip()
-        if not field:
-            continue
-        key = field_id({"marketplace": marketplace, "field": field})
-        if key in accepted:
-            continue
-        error = str(gap.get("error") or "").strip().casefold()
-        if error not in _SOFT_GAP_ERRORS:
-            needs_model.append(gap)
-            continue
-        value = str(gap.get("expected") or "").strip()
-        if not value:
-            value = listing_value_for_field(listing, marketplace, field)
-        if not value and field_lookup_key(field) == "size":
-            value = str((listing or {}).get("size") or "").strip()
-        patch_value: object = value
-        if not value and marketplace.lower() == "ebay" and field_lookup_key(field) == "season":
-            from vendoo_studio.models.validation import infer_ebay_season
-            patch_value = infer_ebay_season(listing)
-            value = str(patch_value)
-        if not value and marketplace.lower() == "ebay":
-            from vendoo_studio.models.validation import (
-                DNA_VALUE,
-                EBAY_OPTIONAL_DNA_LOOKUPS,
-                _ebay_optional_raw,
-                ensure_ebay_category_optionals,
-            )
-            ensure_ebay_category_optionals(listing)
-            value = listing_value_for_field(listing, marketplace, field)
-            patch_value = value
-            lookup = field_lookup_key(field)
-            if not value and lookup in EBAY_OPTIONAL_DNA_LOOKUPS:
-                ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
-                raw = None
-                for key in (
-                    "mpn", "upc", "character", "characterFamily", "strapType", "fabricWeight",
-                    "theme", "performanceActivity", "accents", "countryOfOrigin", "sleeveType",
-                    "personalizationInstructions",
-                ):
-                    if field_lookup_key(key) == lookup:
-                        raw = _ebay_optional_raw(ebay, key)
-                        break
-                if raw is not None and str(raw).strip():
-                    patch_value = raw
-                    value = str(raw).strip()
-                else:
-                    patch_value = DNA_VALUE
-                    value = DNA_VALUE
-        if not value and marketplace.lower() == "etsy":
-            from vendoo_studio.models.validation import (
-                DNA_VALUE,
-                ETSY_OPTIONAL_DNA_LOOKUPS,
-                _ebay_optional_raw,
-                ensure_etsy_category_optionals,
-            )
-            ensure_etsy_category_optionals(listing)
-            value = listing_value_for_field(listing, marketplace, field)
-            patch_value = value
-            lookup = field_lookup_key(field)
-            if not value and lookup in {"pattern", "fabric pattern"}:
-                etsy = listing.get("etsy_specifics") if isinstance(listing.get("etsy_specifics"), dict) else {}
-                raw = _ebay_optional_raw(etsy, "fabricPattern") or _ebay_optional_raw(etsy, "pattern")
-                if raw is not None and str(raw).strip():
-                    patch_value = raw
-                    value = str(raw).strip()
-            if not value and lookup in ETSY_OPTIONAL_DNA_LOOKUPS:
-                etsy = listing.get("etsy_specifics") if isinstance(listing.get("etsy_specifics"), dict) else {}
-                raw = None
-                for dna_key in ("graphic", "collarStyle", "holiday", "occasion", "sustainability"):
-                    if field_lookup_key(dna_key) == lookup:
-                        raw = _ebay_optional_raw(etsy, dna_key)
-                        break
-                if raw is not None and str(raw).strip():
-                    patch_value = raw
-                    value = str(raw).strip()
-                else:
-                    patch_value = DNA_VALUE
-                    value = DNA_VALUE
-        if not value and marketplace.lower() == "depop":
-            from vendoo_studio.models.validation import (
-                DNA_VALUE,
-                DEPOP_OPTIONAL_DNA_LOOKUPS,
-                ensure_depop_category_optionals,
-            )
-            ensure_depop_category_optionals(listing)
-            value = listing_value_for_field(listing, marketplace, field)
-            patch_value = value
-            lookup = field_lookup_key(field)
-            if not value and lookup in {"style", "occasion", "material"}:
-                depop = listing.get("depop_specifics") if isinstance(listing.get("depop_specifics"), dict) else {}
-                raw = depop.get("style" if lookup == "style" else "occasion" if lookup == "occasion" else "material")
-                if isinstance(raw, list) and raw:
-                    patch_value = raw
-                    value = ", ".join(str(item) for item in raw)
-                elif raw not in (None, ""):
-                    patch_value = raw
-                    value = str(raw).strip()
-            if not value and lookup in DEPOP_OPTIONAL_DNA_LOOKUPS:
-                patch_value = DNA_VALUE
-                value = DNA_VALUE
-        # An unlisted brand is Depop "Other" / Mercari "No Brand/Not sure" — never a
-        # question for the model, which must not invent a brand anyway.
-        brand_fallback = ""
-        if field_lookup_key(field) == "brand" and brand_missing_from_options(gap, value):
-            brand_fallback = brand_fallback_for(marketplace)
-            if brand_fallback:
-                patch_value = brand_fallback
-                value = brand_fallback
-        if not value:
-            needs_model.append(gap)
-            continue
-        # Draft already shows this value (or the mapped display form) — no write.
-        if gap_already_has_value(gap, patch_value) or gap_already_has_value(gap, value):
-            continue
-        if (key, str(value)) in tried:
-            needs_model.append(gap)
-            continue
-        options = gap.get("options") or []
-        labels = {
-            str(option.get("label")) if isinstance(option, dict) else str(option)
-            for option in options
-        }
-        # Mercari's no-brand answer is a checkbox, so it is never in the brand options.
-        if gap.get("options_complete") and labels and not brand_fallback:
-            check_values = patch_value if isinstance(patch_value, list) else [patch_value]
-            if any(str(item) not in labels for item in check_values):
-                needs_model.append(gap)
-                continue
-        accepted.add(key)
-        ready.append({
-            "marketplace": marketplace,
-            "field": field,
-            "selector": gap.get("selector") or "",
-            "value": patch_value,
-        })
-    return ready, needs_model
-
-
-def drop_noop_gaps(db: Session, job, gaps: list[dict], listing: dict) -> list[dict]:
-    """Remove gaps that already match on Vendoo or were filled with the same value this job."""
-    kept: list[dict] = []
-    for gap in gaps:
-        marketplace = str(gap.get("marketplace") or "general")
-        field = str(gap.get("field") or gap.get("label") or "").strip()
-        value = gap.get("expected") or listing_value_for_field(listing, marketplace, field)
-        if gap_already_has_value(gap, value):
-            continue
-        if prior_fill_covers_empty_gap(db, job, gap, value):
-            log.info(
-                "skipping refill for %s/%s — fill log already wrote the same value",
-                marketplace,
-                field,
-            )
-            continue
-        kept.append(gap)
-    return kept
-
-
-
-def adopt_observed_draft_values(
-    listing: dict,
-    verification: dict,
-    *,
-    prefer_listing: bool,
-) -> tuple[dict, list[dict]]:
-    """Trust non-empty Vendoo draft values that differ from the listing JSON.
-
-    When the seller just edited the right-hand Studio form (`user_form`), keep
-    listing values and fill Vendoo instead. Otherwise adopt the saved draft so
-    cascaded marketplace fields are not fought and rewritten.
-    """
-    if prefer_listing or not isinstance(listing, dict):
-        return listing, []
-    patches: list[dict] = []
-    schema = verification.get("schema") or {}
-    for marketplace, section in schema.items():
-        for field in section.get("fields") or []:
-            label = str(field.get("label") or "")
-            if not label or field_out_of_scope(marketplace, label):
-                continue
-            if field_lookup_key(label) == "category":
-                continue
-            observed = field.get("value")
-            empty = observed is None or observed == "" or observed == []
-            if empty:
-                continue
-            error = str(field.get("error") or "").strip()
-            if error and error.casefold() not in {"", "saved value differs"}:
-                continue
-            expected = listing_value_for_field(listing, marketplace, label)
-            matches_expected = None
-            if expected and values_equal(field.get("expected_input"), expected):
-                expected = str(field.get("expected") or expected)
-                matches_expected = field.get("matches_expected")
-            if matches_expected is True:
-                continue
-            if expected and values_equal(observed, expected):
-                continue
-            if matches_expected is False or (expected and not values_equal(observed, expected)):
-                patches.append({
-                    "marketplace": marketplace,
-                    "field": label,
-                    "value": _stringify_observed(observed),
-                })
-    if not patches:
-        return listing, []
-    return write_values_into_listing(listing, patches), patches
-
-
-def review_fields(verification: dict, listing: dict) -> list[dict]:
-    """An empty snapshot can never prove completeness."""
-    schema = verification.get("schema") or {}
-    gaps = []
-    for marketplace, section in schema.items():
-        for field in section.get("fields") or []:
-            label = str(field.get("label") or "")
-            if not label or field_out_of_scope(marketplace, label):
-                continue
-            observed = field.get("value")
-            listing_expected = listing_value_for_field(listing, marketplace, label)
-            browser_input = field.get("expected_input")
-            browser_mapped = field.get("expected")
-            matches_expected = None
-            compare_expected = listing_expected
-            if listing_expected and browser_input is not None and values_equal(browser_input, listing_expected):
-                compare_expected = str(browser_mapped or listing_expected)
-                matches_expected = field.get("matches_expected")
-            empty = observed is None or observed == "" or observed == []
-            error = str(field.get("error") or "")
-            # Draft already shows the intended value — do not schedule another fill.
-            if not empty and not error and matches_expected is not False:
-                if matches_expected is True:
-                    continue
-                if compare_expected and values_equal(observed, compare_expected):
-                    continue
-                if listing_expected and values_equal(observed, listing_expected):
-                    continue
-                if (
-                    browser_mapped not in (None, "")
-                    and values_equal(observed, browser_mapped)
-                    and browser_input is not None
-                    and listing_expected
-                    and values_equal(browser_input, listing_expected)
-                ):
-                    continue
-            # Depop "Other" / Mercari "No Brand/Not sure" are the answers for a brand
-            # the marketplace does not list — not a gap to fill again.
-            if brand_fallback_in_place(marketplace, field, observed, listing_expected, section.get("fields")):
-                continue
-            # A browser comparison also handles chips, booleans and numeric formatting.
-            if empty or error or matches_expected is False or (
-                matches_expected is None and compare_expected and not values_equal(observed, compare_expected)
-            ):
-                gaps.append({
-                    **field,
-                    "marketplace": marketplace,
-                    "field": label,
-                    "expected": listing_expected,
-                    "mapped_expected": browser_mapped,
-                    "observed": observed,
-                    "error": error or ("Empty field" if empty else "Saved value differs"),
-                })
-    return gaps
-
-
 def store_verification(db: Session, job, verification: dict) -> None:
     JobRepo(db).add_event(
         job.id,
@@ -1002,39 +241,6 @@ def store_verification(db: Session, job, verification: dict) -> None:
         str((job.listing_snapshot or {}).get("category_path") or ""),
         (verification or {}).get("schema") or {},
     )
-
-
-def _recent_message_covers(repo: ConversationRepo, conv_id: str, reason: str) -> bool:
-    """Skip re-posting the same seller question already shown in chat."""
-    needle = (reason or "").strip()
-    if not needle:
-        return False
-    for message in reversed(repo.get_messages(conv_id)[-8:]):
-        text = (message.text or "").strip()
-        if not text:
-            continue
-        if text == needle or needle in text or text in needle:
-            return True
-    return False
-
-
-def _pause(db: Session, job, reason: str, gaps: list[dict], *, waiting: bool = False) -> None:
-    db.refresh(job)
-    if job.status == "cancelled":
-        return
-    job.status = "failed"
-    job.current_step = "awaiting_answers" if waiting else "completion_blocked"
-    job.last_error = reason
-    db.commit()
-    JobRepo(db).add_event(job.id, job.current_step, job.current_step, {"reason": reason, "fields": gaps})
-    repo = ConversationRepo(db)
-    repo.update_status(job.conversation_id, "draft")
-    from vendoo_studio.routes.extension import schedule_advance_job_queue
-    schedule_advance_job_queue()
-    if _recent_message_covers(repo, job.conversation_id, reason):
-        # Same review note already in chat — keep the pause without duplicating lines.
-        return
-    repo.add_message(job.conversation_id, "system", reason, provider="system", model="")
 
 
 def parse_resolution(text: str) -> dict:
@@ -1100,9 +306,9 @@ async def complete_job(db: Session, job_id: str) -> None:
     schema = verification.get("schema") or {}
     if incomplete_readback(verification, platforms, vendoo_item_id=job.vendoo_item_id):
         failed = failed_readback_platforms(verification, platforms)
-        if await _retry_incomplete_readback(db, job, platforms, verification, failed=failed):
+        if await retry_incomplete_readback(db, job, platforms, verification, failed=failed):
             return
-        _pause(
+        pause_job(
             db,
             job,
             "Could not read every selected marketplace from the saved draft after automatic retries. "
@@ -1118,13 +324,13 @@ async def complete_job(db: Session, job_id: str) -> None:
     listing = deepcopy(revisions[0].listing_json if revisions else job.listing_snapshot)
     mismatches = category_mismatches(verification, listing)
     if mismatches:
-        if await _repair_category_mismatches(db, job, mismatches):
+        if await repair_category_mismatches(db, job, mismatches):
             return
         detail = ", ".join(
             f"{item['marketplace']} (saved {item['observed'] or 'empty'} ≠ {item['expected']})"
             for item in mismatches
         )
-        _pause(
+        pause_job(
             db,
             job,
             "Could not align saved marketplace categories after automatic repair: "
@@ -1175,7 +381,7 @@ async def complete_job(db: Session, job_id: str) -> None:
         # Merged readbacks can leave verified=false from an earlier incomplete scrape
         # even though every marketplace section is now readable and gap-free.
         if not verification.get("verified") and "Publication status is not draft" in error:
-            _pause(db, job, error, [])
+            pause_job(db, job, error, [])
             return
         job.status = "completed"
         job.current_step = "verified_complete"
@@ -1212,7 +418,7 @@ async def complete_job(db: Session, job_id: str) -> None:
             if not gaps:
                 await complete_job(db, job.id)
                 return
-        _pause(
+        pause_job(
             db,
             job,
             f"Automatic repair reached {MAX_REPAIR_ROUNDS} rounds. Remaining fields need review: "
@@ -1221,10 +427,10 @@ async def complete_job(db: Session, job_id: str) -> None:
         )
         return
     if not extension_manager.connected:
-        _pause(db, job, "Connect Chrome to continue verifying and repairing this draft.", gaps)
+        pause_job(db, job, "Connect Chrome to continue verifying and repairing this draft.", gaps)
         return
     if any(other.id != job.id for other in repo.get_running()):
-        _pause(db, job, "Another automation job is running. Resume this draft when it finishes.", gaps)
+        pause_job(db, job, "Another automation job is running. Resume this draft when it finishes.", gaps)
         return
 
     tried = {
@@ -1259,7 +465,7 @@ async def complete_job(db: Session, job_id: str) -> None:
     if needs_model:
         provider = get_listing_provider()
         if provider is None and not ready_patches:
-            _pause(db, job, "Sign in to the listing assistant to resolve the remaining fields.", gaps)
+            pause_job(db, job, "Sign in to the listing assistant to resolve the remaining fields.", gaps)
             return
         if provider is not None:
             conv = ConversationRepo(db).get(job.conversation_id)
@@ -1267,7 +473,9 @@ async def complete_job(db: Session, job_id: str) -> None:
             evidence = "\n".join(message.text for message in history if message.role == "user" or message.text.startswith("Photo analysis"))
             evidence += "\n" + str(conv.notes or "")
             try:
-                from vendoo_studio.services.catalog_index import enrich_gaps_with_catalog_options
+                from vendoo_studio.services.catalog_index import (
+                    enrich_gaps_with_catalog_options,
+                )
                 needs_model = enrich_gaps_with_catalog_options(db, needs_model)
             except Exception:
                 log.exception("catalog option enrichment failed; continuing with raw gaps")
@@ -1318,7 +526,7 @@ async def complete_job(db: Session, job_id: str) -> None:
                             text += value or ""
             except TimeoutError:
                 if not ready_patches:
-                    _pause(
+                    pause_job(
                         db,
                         job,
                         f"Field repair timed out while resolving {len(needs_model)} gaps. Apply ready values from Fill Log, "
@@ -1333,7 +541,7 @@ async def complete_job(db: Session, job_id: str) -> None:
             if revisions:
                 latest = ListingRepo(db).get_revisions(job.conversation_id)
                 if latest and latest[0].id != revisions[0].id:
-                    _pause(db, job, "The listing changed while resolving fields. Resume verification with the latest listing.", gaps, waiting=False)
+                    pause_job(db, job, "The listing changed while resolving fields. Resume verification with the latest listing.", gaps, waiting=False)
                     return
             resolution = parse_resolution(text) if text else {"fields": [], "not_applicable": [], "no_evidence": []}
             by_key = {field_id(field): field for field in needs_model}
@@ -1469,7 +677,7 @@ async def complete_job(db: Session, job_id: str) -> None:
             await complete_job(db, job.id)
             return
         if blocked_optionals and not hard and not shipping:
-            _pause(
+            pause_job(
                 db,
                 job,
                 "Marketplace optional fields still need real values (Show Optional Fields). "
@@ -1483,7 +691,7 @@ async def complete_job(db: Session, job_id: str) -> None:
             field for field in remaining
             if not is_shipping_estimate_field(field.get("field") or "")
         ]:
-            _pause(
+            pause_job(
                 db,
                 job,
                 "Could not estimate packaged shipping weight/dimensions for the remaining gaps. Retry verification.",
@@ -1494,7 +702,7 @@ async def complete_job(db: Session, job_id: str) -> None:
         if remaining or hard:
             label_fields = hard or remaining or unresolved
             fields_label = ", ".join(f"{f['marketplace']} / {f['field']}" for f in label_fields)
-            _pause(
+            pause_job(
                 db,
                 job,
                 "Could not resolve from photos and notes: " + fields_label
@@ -1521,7 +729,7 @@ async def complete_job(db: Session, job_id: str) -> None:
         for patch in patches
     })
     if not await dispatch_fill_fields(job, patches, platforms=patch_platforms):
-        _pause(db, job, "Chrome disconnected before the remaining fields could be filled.", gaps)
+        pause_job(db, job, "Chrome disconnected before the remaining fields could be filled.", gaps)
 
 
 def schedule_completion(job_id: str) -> None:
@@ -1540,7 +748,7 @@ def schedule_completion(job_id: str) -> None:
             db.rollback()
             job = JobRepo(db).get(job_id)
             if job and job.status != "cancelled":
-                _pause(
+                pause_job(
                     db,
                     job,
                     "Field repair stopped before completion. Retry after checking the listing assistant connection.",

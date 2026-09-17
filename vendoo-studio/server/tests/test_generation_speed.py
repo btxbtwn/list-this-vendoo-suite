@@ -14,7 +14,7 @@ from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.job import Job  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ListingRepo
-from vendoo_studio.routes import chat as chat_routes
+from vendoo_studio.services import chat_prompts
 from vendoo_studio.services.listing_generate import collect_provider_text, repair_listing_json
 
 
@@ -42,12 +42,12 @@ class ListingPromptOrderTest(unittest.TestCase):
         )
 
     def test_static_rules_lead_and_item_evidence_follows(self):
-        messages = chat_routes._listing_messages(
+        messages = chat_prompts.listing_generation_messages(
             "RULES-BLOCK", "SELLER-DETAILS", "Photo analysis:\n- brand: Zara", self.db, self.conv.id,
             comps_text="COMPS-BLOCK", photo_count=3,
         )
         content = messages[0]["content"]
-        self.assertTrue(content.startswith(chat_routes.LISTING_INSTRUCTIONS))
+        self.assertTrue(content.startswith(chat_prompts.LISTING_INSTRUCTIONS))
         rules = content.index("RULES-BLOCK")
         item = content.index("--- This item ---")
         self.assertLess(rules, item)
@@ -55,7 +55,7 @@ class ListingPromptOrderTest(unittest.TestCase):
             self.assertGreater(content.index(marker), item)
 
     def test_empty_discovered_fields_are_listed_for_one_pass_fill(self):
-        content = chat_routes._listing_messages("R", "", "", self.db, self.conv.id)[0]["content"]
+        content = chat_prompts.listing_generation_messages("R", "", "", self.db, self.conv.id)[0]["content"]
         section = content[content.index("--- Discovered fields still empty ---"):]
         self.assertIn("- etsy: Holiday", section)
         self.assertNotIn("Pattern", section)

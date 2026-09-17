@@ -343,11 +343,12 @@ def _first_sentence(text: str, fallback: str) -> str:
 
 def ensure_physical_description(listing: dict) -> bool:
     """Rewrite description into the Size/Condition/Measurements formula when markers are missing."""
-    from vendoo_studio.models.validation import _description_follows_formula, _is_etsy_digital_listing
+    from vendoo_studio.models.validation import _description_follows_formula
+    from vendoo_studio.models.etsy_fields import is_etsy_digital_listing
 
     if not isinstance(listing, dict):
         return False
-    if _is_etsy_digital_listing(listing):
+    if is_etsy_digital_listing(listing):
         return False
     desc = str(listing.get("description") or "").strip()
     if not desc or _description_follows_formula(desc):
@@ -480,10 +481,8 @@ def propagate_general_size(listing: dict) -> bool:
 
 def apply_send_readiness_fixes(listing: dict) -> bool:
     """Deterministic fixes so generated listings clear common Send blockers."""
-    from vendoo_studio.models.validation import (
-        ensure_depop_category_optionals,
-        normalize_listing_dropdowns,
-    )
+    from vendoo_studio.models.depop_fields import ensure_depop_category_optionals
+    from vendoo_studio.models.validation import normalize_listing_dropdowns
 
     if not isinstance(listing, dict):
         return False

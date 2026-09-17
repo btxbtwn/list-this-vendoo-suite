@@ -51,7 +51,7 @@ async def request(job, message_type: str, payload: dict[str, Any] | None = None,
         raise BrowserBridgeError("Could not reach the Chrome extension.")
     try:
         result = await asyncio.wait_for(waiter, timeout)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         manager.cancel_wait(request_id)
         raise BrowserBridgeError("Chrome did not answer in time.") from exc
     return result if isinstance(result, dict) else {"ok": False, "error": "Malformed browser reply"}

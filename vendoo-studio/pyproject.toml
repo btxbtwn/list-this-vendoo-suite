@@ -19,6 +19,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
+    "pytest-xdist>=3.6",
+    "ruff>=0.15",
 ]
 desktop = [
     "pywebview>=5,<7",
@@ -41,4 +43,16 @@ where = ["server"]
 
 [tool.pytest.ini_options]
 testpaths = ["server/tests"]
-pythonpath = ["server"]
+pythonpath = ["server", "server/tests"]
+
+[tool.ruff]
+target-version = "py312"
+src = ["server"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B", "UP"]
+# (str, Enum) and StrEnum format differently; keep the explicit mixins.
+ignore = ["UP042"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Form", "fastapi.Query", "fastapi.Body", "fastapi.Header"]
