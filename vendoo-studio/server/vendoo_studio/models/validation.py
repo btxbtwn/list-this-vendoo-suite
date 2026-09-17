@@ -1394,10 +1394,16 @@ def _canonicalize_record_keys(record: dict, *, allowed: frozenset[str] | None = 
         value = record[key]
         if isinstance(value, dict):
             continue
-        canonical = _canonical_by_squash().get(_squash_key(key)) or label_to_json_key(field_lookup_key(key))
-        if not canonical or canonical == key:
-            continue
-        if _squash_key(canonical) != _squash_key(key):
+        squashed = _squash_key(key)
+        known = _canonical_by_squash()
+        # Keys the app reads may be reached through label normalization; anything else
+        # is only renamed when it differs from its JSON key by case or separators alone.
+        canonical = known.get(squashed) or known.get(_squash_key(field_lookup_key(key)))
+        if not canonical:
+            canonical = label_to_json_key(field_lookup_key(key))
+            if not canonical or _squash_key(canonical) != squashed:
+                continue
+        if canonical == key:
             continue
         if allowed is not None and canonical not in allowed:
             continue
@@ -1422,6 +1428,28 @@ def canonicalize_listing_keys(listing: dict) -> bool:
         nested = specifics.get("category_specifics")
         if isinstance(nested, dict) and _canonicalize_record_keys(nested):
             changed = True
+    if _promote_required_ebay_specifics(listing):
+        changed = True
+    return changed
+
+
+def _promote_required_ebay_specifics(listing: dict) -> bool:
+    """Lift required eBay keys out of category_specifics — the filler reads them flat."""
+    ebay = listing.get("ebay_specifics")
+    if not isinstance(ebay, dict):
+        return False
+    nested = ebay.get("category_specifics")
+    if not isinstance(nested, dict):
+        return False
+    changed = False
+    for key in REQUIRED_EBAY_KEYS:
+        if not _ebay_optional_blank(ebay.get(key)):
+            continue
+        value = nested.get(key)
+        if _ebay_optional_blank(value):
+            continue
+        ebay[key] = value
+        changed = True
     return changed
 
 

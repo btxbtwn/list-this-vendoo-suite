@@ -3931,22 +3931,7 @@
               await fillDropdownField(listingStateEl, listingState, 'Listing State');
           }
           
-          const etsyTags = uniqueStrings([
-              ...listingTagValues({ tags: specs.tags }),
-              ...listingTagValues(data),
-          ]);
-          if (etsyTags.length) {
-              await fillDropdownField(
-                  resolveMarketplaceField('etsy', ['tags'], [
-                      '#listings\\.etsy\\.marketplaceSpecifics\\.tags',
-                      '#listings\\.etsy\\.overrides\\.tags',
-                  ]),
-                  etsyTags,
-                  'Tags',
-                  false,
-                  true
-              );
-          }
+          recordGeneralTagsInherited('Tags');
 
           const marketplaceMaterialsEl = document.querySelector('#listings\\.etsy\\.marketplaceSpecifics\\.materials');
           if (marketplaceMaterialsEl && specs.materials) {
@@ -4095,8 +4080,8 @@
       return value == null ? '' : String(value).trim();
   }
 
-  function listingTagValues(data, extra) {
-      const raw = extra != null ? extra : data?.tags;
+  function listingTagValues(data) {
+      const raw = data?.tags;
       if (!raw) return [];
       return uniqueStrings((Array.isArray(raw) ? raw : String(raw).split(','))
           .map((tag) => String(tag).trim())
@@ -4200,29 +4185,14 @@
       await fillDropdownField(el, size, 'Size', true);
   }
 
-  async function fillMarketplaceTagField(marketplace, data, fieldName, labelPatterns, selectors = [], extraTags) {
-      const tags = listingTagValues(data, extraTags);
-      const el = resolveMarketplaceField(marketplace, labelPatterns, selectors);
-      if (!tags.length) {
-          recordFill({
-            field: fieldName,
-            status: 'skipped',
-            reason: 'No value in listing',
-            selector: selectorFor(el, ''),
-            value: '',
-          });
-          return;
-      }
-      if (!el) {
-          recordFill({
-            field: fieldName,
-            status: 'not_found',
-            reason: `${fieldName} field not found`,
-            value: tags,
-          });
-          return;
-      }
-      await fillDropdownField(el, tags, fieldName, false, true);
+  // Vendoo copies the general Tags chips into every marketplace form on save, so filling
+  // them per marketplace is redundant work.
+  function recordGeneralTagsInherited(fieldName) {
+      recordFill({
+        field: fieldName,
+        status: 'skipped',
+        reason: 'Set on the general form — Vendoo copies tags to marketplace forms on save',
+      });
   }
 
   async function fillPoshmarkForm(data, { skipCategory = false } = {}) {
@@ -4261,17 +4231,7 @@
       ]);
 
       await fillMarketplaceSize('poshmark', data);
-      await fillMarketplaceTagField(
-          'poshmark',
-          data,
-          'Style Tags',
-          ['style tags', 'style tag'],
-          [
-              '#listings\\.poshmark\\.marketplaceSpecifics\\.styleTags',
-              '#listings\\.poshmark\\.overrides\\.styleTags',
-          ],
-          data?.poshmark_specifics?.styleTags || data?.poshmark_specifics?.tags
-      );
+      recordGeneralTagsInherited('Style Tags');
       
       if (data.poshmark_specifics) {
           await fillTextField('#listings\\.poshmark\\.marketplaceSpecifics\\.originalPrice', data.poshmark_specifics.originalPrice, 'Original Price');
@@ -4541,16 +4501,7 @@
 
       await fillDepopBrand(data);
       await fillMarketplaceSize('depop', data);
-      await fillMarketplaceTagField(
-          'depop',
-          data,
-          'Tags',
-          ['tags'],
-          [
-              '#listings\\.depop\\.marketplaceSpecifics\\.tags',
-              '#listings\\.depop\\.overrides\\.tags',
-          ]
-      );
+      recordGeneralTagsInherited('Tags');
       
       if (data.depop_specifics) {
           log('Expanding optional fields for Depop...');
