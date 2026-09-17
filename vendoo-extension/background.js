@@ -644,8 +644,10 @@ async function runJobSteps(jobId) {
       payload: { step: step.step },
     });
 
+    const stepStartedAt = Date.now();
     try {
       const result = await step.fn(activeJob);
+      const durationMs = Date.now() - stepStartedAt;
       if (!result.ok && activeJob.options?.mode !== 'schema_probe'
           && step.step.startsWith('saving_') && durableItemId(activeJob.vendoo_item_id)) {
         // A required field may prevent saving. Read the persisted draft and let
@@ -665,6 +667,7 @@ async function runJobSteps(jobId) {
           sent_at: new Date().toISOString(),
           payload: {
             step: step.step,
+            duration_ms: durationMs,
             error: result.error || 'Step failed',
             fields: result.fields || {},
             schema: result.schema || null,
@@ -683,6 +686,8 @@ async function runJobSteps(jobId) {
         sent_at: new Date().toISOString(),
         payload: {
           step: step.step,
+          duration_ms: durationMs,
+          skipped: Boolean(result.skipped),
           vendoo_item_id: result.vendoo_item_id,
           vendoo_url: result.vendoo_url,
           fill_log: result.fill_log || null,
@@ -862,7 +867,14 @@ function buildJobSteps(job) {
   if (platforms.length && !job.options?.skipDiscoverSchema) {
     steps.push({ step: 'discovering_schema', fn: discoverSchema });
   }
+  // Studio lists marketplaces whose saved draft already matches the listing
+  // (read back after auto-apply); end-of-job verification still checks them.
+  const skipPlatforms = new Set((job.options?.skipPlatforms || []).map((mp) => String(mp).toLowerCase()));
   for (const platform of platforms) {
+    if (skipPlatforms.has(String(platform).toLowerCase()) && !clearBeforeFill) {
+      log(`Skipping ${platform} fill: saved draft already matches the listing`);
+      continue;
+    }
     if (clearBeforeFill) {
       steps.push({ step: `clearing_${platform}`, fn: (j) => clearMarketplace(j, platform) });
     }
@@ -1299,6 +1311,7 @@ async function runFillFields(jobId, payload) {
     return;
   }
 
+  const fillStartedAt = Date.now();
   const shouldVerify = payload.verify !== false;
   const marketplaceGroups = payload.fields?.length ? groupFillFieldMarketplaces(payload.fields) : [];
   const totalBatches = marketplaceGroups.reduce((sum, group) => sum + group.batches.length, 0);
@@ -1408,6 +1421,18 @@ async function runFillFields(jobId, payload) {
     }
   }
   if (activePatch !== job) return;
+  // Read the saved item over the API while the tab is open so Studio's draft cache
+  // reflects this apply (Send uses it to skip marketplaces that already match).
+  let savedItem = null;
+  const savedItemId = durableItemId(lastSaved?.vendoo_item_id || payload.vendoo_item_id);
+  if (payload.read_item && !fillFailed && savedItemId) {
+    const read = await Promise.race([
+      readItemFromPage(job.tabId, savedItemId),
+      sleep(8000).then(() => ({ ok: false })),
+    ]);
+    if (read?.ok && read.item) savedItem = compactVendooValue(read.item, 0);
+  }
+  if (activePatch !== job) return;
   activePatch = null;
   await stopJobPreview();
   await sleep(1500);
@@ -1415,10 +1440,14 @@ async function runFillFields(jobId, payload) {
 
   const completedPayload = {
     step: 'filling_fields',
-    vendoo_item_id: durableItemId(lastSaved?.vendoo_item_id || payload.vendoo_item_id) || null,
+    duration_ms: Date.now() - fillStartedAt,
+    vendoo_item_id: savedItemId || null,
     vendoo_url: lastSaved?.vendoo_url || payload.vendoo_url || null,
     fill_log: fillLog,
   };
+  if (savedItem) {
+    completedPayload.item = savedItem;
+  }
   if (verification) {
     completedPayload.verification = verification;
   }
@@ -1729,6 +1758,21 @@ async function runVendooGet(jobId, payload) {
   ]);
 
   let formRead = { ok: false };
+  // Callers that only need the saved item (auto-apply) skip the form tour when the API answered.
+  if (payload.api_only && apiRead.ok) {
+    reply({
+      ok: true,
+      source: 'api',
+      item_id: apiRead.item_id || itemId || null,
+      url: apiRead.url || payload.vendoo_url || null,
+      item: compactVendooValue(apiRead.item, 0),
+      form: null,
+      statuses: null,
+      api_error: null,
+      error: null,
+    });
+    return;
+  }
   const ping = await pingContentScript(tabId);
   if (!ping?.ok) {
     try {
@@ -2155,8 +2199,18 @@ async function auditGeneral(job) {
   });
 }
 
+// True when a fill log shows any control was written (not only "Already set" or skips).
+function fillLogChangedForm(fillLog) {
+  const entries = fillLog && Array.isArray(fillLog.entries) ? fillLog.entries : null;
+  if (!entries) return true;
+  return entries.some((entry) => {
+    if (entry.status === 'filled') return String(entry.reason || '') !== 'Already set';
+    return entry.status === 'uncertain' || entry.status === 'invalid' || entry.status === 'failed';
+  });
+}
+
 async function fillMarketplace(job, platform) {
-  return sendToVendoo(job, {
+  const result = await sendToVendoo(job, {
     type: 'FILL_MARKETPLACE',
     platform,
     data: job.listing,
@@ -2164,9 +2218,23 @@ async function fillMarketplace(job, platform) {
     registry_selectors: job.registry_selectors || {},
     registry_options: job.registry_options || {},
   });
+  if (result?.ok) {
+    job.unchangedPlatforms = job.unchangedPlatforms || {};
+    job.unchangedPlatforms[platform] = !fillLogChangedForm(result.fill_log);
+  }
+  return result;
 }
 
 async function saveMarketplace(job, platform) {
+  if (job.unchangedPlatforms?.[platform] && durableItemId(job.vendoo_item_id)) {
+    log(`Skipping ${platform} save: fill changed nothing`);
+    return {
+      ok: true,
+      skipped: true,
+      vendoo_item_id: job.vendoo_item_id,
+      vendoo_url: job.vendoo_url,
+    };
+  }
   return sendToVendoo(job, {
     type: 'SAVE_MARKETPLACE',
     platform,

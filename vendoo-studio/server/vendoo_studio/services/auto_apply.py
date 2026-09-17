@@ -317,7 +317,7 @@ async def _read_live_draft(db: Session, job) -> dict | None:
     request_id = uuid.uuid4().hex[:12]
     waiter = extension_manager.register_wait(request_id)
     try:
-        sent = await dispatch_vendoo_get(job, request_id)
+        sent = await dispatch_vendoo_get(job, request_id, api_only=True)
         if not sent:
             return None
         payload = await asyncio.wait_for(waiter, timeout=VENDOO_GET_TIMEOUT_SEC)
@@ -387,7 +387,7 @@ async def apply_patches(db: Session, job, listing: dict, patches: list[dict]) ->
         {"count": len(patches), "patches": patches[:20]},
     )
 
-    sent = await dispatch_fill_fields(job, patches, verify=False)
+    sent = await dispatch_fill_fields(job, patches, verify=False, read_item=True)
     if not sent:
         job.status = "failed"
         job.current_step = "filling_fields"
