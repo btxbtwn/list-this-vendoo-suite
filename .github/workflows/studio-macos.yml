@@ -8,6 +8,12 @@ on:
       - "vendoo-extension/**"
       - "skills/list-this/**"
       - ".github/workflows/studio-macos.yml"
+  pull_request:
+    paths:
+      - "vendoo-studio/scripts/package-macos-app.sh"
+      - "vendoo-studio/desktop/**"
+      - "vendoo-studio/server/vendoo_studio/services/bundle_symlinks.py"
+      - ".github/workflows/studio-macos.yml"
   workflow_dispatch:
 
 concurrency:
@@ -62,18 +68,50 @@ jobs:
           "$PYTHON" -m pip install -U pip
           "$PYTHON" -m pip install -e ".[package]"
           ./scripts/package-macos-app.sh
-      - name: Verify update zip has no symlinks
+      - name: Verify update zip symlinks are safe
         working-directory: vendoo-studio
         env:
           PYTHON: ${{ github.workspace }}/vendoo-studio/.venv/bin/python
         run: |
           "$PYTHON" - release/List-This-Studio-macos.zip <<'PY'
           import sys
+          import tempfile
           from pathlib import Path
-          from vendoo_studio.services.bundle_symlinks import assert_zip_has_no_symlinks
-          assert_zip_has_no_symlinks(Path(sys.argv[1]))
-          print("OK: release zip has no symbolic link members")
+          from vendoo_studio.services.bundle_symlinks import zip_symlink_members
+          from vendoo_studio.services.packaged_updates import PackagedUpdateError, _validate_zip_members
+
+          archive = Path(sys.argv[1])
+          links = zip_symlink_members(archive)
+          print(f"OK: release zip has {len(links)} symbolic link member(s)")
+          if not links:
+              raise SystemExit("Expected PyInstaller framework symlinks in the release zip")
+          try:
+              with tempfile.TemporaryDirectory() as tmp:
+                  _validate_zip_members(archive, Path(tmp))
+          except PackagedUpdateError as exc:
+              raise SystemExit(f"Unsafe symlink in release zip: {exc}") from exc
+          print("OK: release zip symlinks are safe in-bundle relative links")
           PY
+      - name: Verify packaged app signature
+        working-directory: vendoo-studio
+        run: |
+          set -euo pipefail
+          APP="release/List This Studio.app"
+          DETAIL="$(codesign -dv "$APP" 2>&1)"
+          echo "$DETAIL"
+          if [[ "$DETAIL" == *"not signed at all"* ]]; then
+            echo "Packaged app is unsigned." >&2
+            exit 1
+          fi
+          # Outer-bundle verify (no --strict: PyInstaller Python.framework is ambiguous).
+          if ! codesign --verify "$APP" 2>verify.err; then
+            cat verify.err >&2
+            if grep -q 'modified\|invalid\|not signed' verify.err; then
+              exit 1
+            fi
+            echo "codesign --verify reported a non-fatal framework warning; continuing."
+          fi
+          echo "OK: packaged app has an intact code signature"
       - name: Publish GitHub release
         if: github.ref == 'refs/heads/main'
         working-directory: vendoo-studio

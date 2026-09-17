@@ -16,8 +16,9 @@ class BundleSymlinkError(RuntimeError):
 def flatten_symlinks(root: Path) -> int:
     """Replace every symlink under root with a real file/directory copy.
 
-    Older Studio builds rejected every symlink zip member, so release zips must
-    ship without them. Returns the number of links replaced.
+    Kept for tests and tooling. Packaging must not flatten the PyInstaller
+    .app: framework ``Current`` links are required for a codesign-valid bundle,
+    and current Studio updaters already accept safe in-bundle relative links.
     """
     root = root.resolve()
     if not root.is_dir():

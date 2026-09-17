@@ -73,3 +73,15 @@ class BundleSymlinkTest(unittest.TestCase):
             zf.writestr(link, "3.12")
         with self.assertRaises(bundle_symlinks.BundleSymlinkError):
             bundle_symlinks.assert_zip_has_no_symlinks(archive)
+
+
+class PackageMacosScriptTest(unittest.TestCase):
+    def test_package_script_keeps_symlinks_and_checks_signature(self):
+        """Flattening framework symlinks breaks codesign; ship PyInstaller's signed tree."""
+        script = (
+            Path(__file__).resolve().parents[2] / "scripts" / "package-macos-app.sh"
+        )
+        text = script.read_text(encoding="utf-8")
+        self.assertNotIn("flatten_symlinks", text)
+        self.assertIn("codesign -dv", text)
+        self.assertIn("_validate_zip_members", text)

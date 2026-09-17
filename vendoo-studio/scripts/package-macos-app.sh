@@ -62,23 +62,22 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
-# Older Studio builds rejected every symlink zip member. Materialize links
-# before signing/zipping so those clients can still install this update.
-"$PYTHON" - "$APP" <<'PY'
-import sys
-from pathlib import Path
-
-from vendoo_studio.services.bundle_symlinks import flatten_symlinks
-
-app = Path(sys.argv[1])
-count = flatten_symlinks(app)
-print(f"Flattened {count} symlinks in {app.name}")
-PY
-
-# A stable signing identity keeps the app's code requirement the same across
-# releases, so macOS keeps honoring Keychain "Always Allow" after updates.
-# PyInstaller signs with MACOS_SIGNING_IDENTITY (see ListThisStudio.spec);
-# re-signing here fails because the flattened bundle isn't codesign-shaped.
+# Keep PyInstaller framework symlinks. Flattening them breaks the .app layout so
+# codesign cannot produce a signature macOS will open, and current updaters already
+# accept safe in-bundle relative symlinks (see packaged_updates tests).
+if ! command -v codesign >/dev/null 2>&1; then
+  echo "codesign is required to package List This Studio.app" >&2
+  exit 1
+fi
+CODESIGN_DV="$(codesign -dv "$APP" 2>&1)" || {
+  echo "$CODESIGN_DV" >&2
+  exit 1
+}
+echo "$CODESIGN_DV"
+if [[ "$CODESIGN_DV" == *"not signed at all"* ]]; then
+  echo "Packaged app is unsigned." >&2
+  exit 1
+fi
 if [[ -n "${MACOS_SIGNING_IDENTITY:-}" ]]; then
   REQUIREMENT="$(codesign -d -r- "$APP" 2>&1)"
   echo "$REQUIREMENT"
@@ -101,12 +100,21 @@ cp "$ROOT/desktop/HowToOpen.txt" "$PAYLOAD/How to Open.txt"
 )
 "$PYTHON" - "$ZIP" <<'PY'
 import sys
+import tempfile
 from pathlib import Path
 
-from vendoo_studio.services.bundle_symlinks import assert_zip_has_no_symlinks
+from vendoo_studio.services.bundle_symlinks import zip_symlink_members
+from vendoo_studio.services.packaged_updates import PackagedUpdateError, _validate_zip_members
 
-assert_zip_has_no_symlinks(Path(sys.argv[1]))
-print("Update zip has no symbolic link members")
+archive = Path(sys.argv[1])
+links = zip_symlink_members(archive)
+print(f"Update zip has {len(links)} symbolic link member(s)")
+try:
+    with tempfile.TemporaryDirectory() as tmp:
+        _validate_zip_members(archive, Path(tmp))
+except PackagedUpdateError as exc:
+    raise SystemExit(f"Update zip has unsafe symbolic links: {exc}") from exc
+print("Update zip symlinks are safe in-bundle relative links")
 PY
 cp "$ROOT/desktop/build_info.json" "$RELEASE/build_info.json"
 echo "Built $APP"
