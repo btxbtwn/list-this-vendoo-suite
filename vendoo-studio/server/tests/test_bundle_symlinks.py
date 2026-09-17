@@ -76,22 +76,12 @@ class BundleSymlinkTest(unittest.TestCase):
 
 
 class PackageMacosScriptTest(unittest.TestCase):
-    def test_package_script_resigns_after_flatten(self):
-        """Flattening invalidates PyInstaller's signature; shipping without re-sign
-        makes macOS refuse to open the zip app (see studio-macos packaging)."""
+    def test_package_script_keeps_symlinks_and_checks_signature(self):
+        """Flattening framework symlinks breaks codesign; ship PyInstaller's signed tree."""
         script = (
             Path(__file__).resolve().parents[2] / "scripts" / "package-macos-app.sh"
         )
         text = script.read_text(encoding="utf-8")
-        flatten_at = text.index("flatten_symlinks")
-        resign_at = text.index("codesign --force --sign")
-        self.assertGreater(
-            resign_at,
-            flatten_at,
-            "package-macos-app.sh must re-sign after flatten_symlinks",
-        )
-        # --deep fails on flattened metadata dirs (e.g. numpy-*.dist-info).
-        self.assertNotIn("codesign --force --deep --sign", text)
-        # codesign -dv alone is not enough: it can still print a stale DR after
-        # flatten without proving the signature was rewritten.
-        self.assertIn("Re-signing flattened app", text)
+        self.assertNotIn("flatten_symlinks", text)
+        self.assertIn("codesign -dv", text)
+        self.assertIn("_validate_zip_members", text)
