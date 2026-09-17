@@ -24,6 +24,7 @@ from vendoo_studio.services.fill_log import (
     MAX_PATCH_VALUE,
     FillLogService,
     field_lookup_key,
+    listing_value_for_field,
     normalize_field_label,
     write_values_into_listing,
 )
@@ -35,11 +36,18 @@ MAX_STEPS = 24
 MAX_PROMPT_FIELDS = 120
 MAX_PROMPT_OPTIONS = 40
 MAX_EVIDENCE_CHARS = 3000
+MAX_AGENT_PHOTOS = 6
+AGENT_PHOTO_MAX_SIDE = 1024
 SCROLL_PX = 500
 SETTLE_SEC = 0.5
 SAVE_SETTLE_SEC = 2.0
 SAVE_SELECTOR = '[data-testid="save-item-button"]'
 PRESS_KEYS = frozenset({"Enter", "Escape", "Tab", "Backspace", "ArrowDown", "ArrowUp", " "})
+BRIEF_KEYS = (
+    "title", "description", "brand", "size", "color", "condition", "category_path",
+    "material", "style", "pattern", "department", "category_specifics", "ebay_specifics",
+)
+MAX_BRIEF_CHARS = 4000
 MARKETPLACES = frozenset({"general", "ebay", "etsy", "poshmark", "mercari", "depop"})
 MARKET_LABELS = {
     "general": "Vendoo",
@@ -52,7 +60,8 @@ MARKET_LABELS = {
 
 AGENT_SYSTEM = """You fix a saved Vendoo listing draft. The seller has it open in Studio's browser and told you in chat what to change.
 
-Each turn you get the seller's request, any fields they pointed at, the live form, and your previous steps.
+Each turn you get the seller's request, any fields they pointed at, the listing's product photos, the live form, and your previous steps.
+Look at the photos for every field: tags and care labels give brand, size, material, and origin; the garment itself shows neckline, sleeves, closure, pattern, fit, accents, and features.
 Reply with exactly ONE JSON object and nothing else. Actions:
 {"action":"fill","fields":[{"marketplace":"ebay","field":"Size","value":"M"}]}
 {"action":"click_field","marketplace":"ebay","field":"Size"}
@@ -65,15 +74,19 @@ Reply with exactly ONE JSON object and nothing else. Actions:
 {"action":"done","message":"one or two sentences for the seller"}
 
 Rules:
-- Change only what the seller asked for. When they pointed at fields, work on those fields.
-- Prefer fill. Studio's filler types text, selects dropdown options, and saves the draft. Use clicks and typing only when fill failed or a section must be opened first.
-- Dropdown values must match an allowed option. To see options, click_field the dropdown, then read open_options and click the option text.
+- Change only what the seller asked for. When they pointed at fields, fill only those fields; leave every other field alone, even if it looks wrong or already has a value.
+- When the seller asks you to fill pointed-at or empty fields, fill every one you can in a single fill action first. Do not stop to ask about one field while others can be filled.
+- Values come from, in order: the seller's request, known_value on the field, the listing summary, the photos and photo evidence (tag text, care tag, measurements), then what the photos and title plainly show (neckline, sleeve length, pattern, closure, fit, occasion, character, accents, features). Using that evidence is not inventing.
+- For dropdowns, pick the closest allowed option: a care tag of 92% polyester, 8% spandex means Material "Polyester"; a machine-wash care tag means Garment Care "Machine Washable". Set Handmade to "No" unless the listing says handmade.
+- Leave a field empty only when nothing supports a value (for example MPN, or Country of Origin with no tag). List those fields in your done message instead of asking.
+- Prefer fill. Studio's filler types text, selects dropdown options, and saves the draft. When a step reports fields still empty, switch to click_field on each one: for text and tag fields (Accents, Features, Character, Fabric Weight, MPN) type the value and press Enter; for dropdowns read open_options and click the option text. Save when finished.
+- If a field is missing from the live form, click "Show Optional Fields" or scroll to reveal it.
 - Keys for press: Enter, Escape, Tab, Backspace, ArrowDown, ArrowUp, and " " for Space.
 - Fields marked account are the seller's marketplace settings. Never change them.
 - You cannot publish, list, delist, or delete a listing. Never try.
 - After clicking or typing values, save before done.
-- Check the live form after each step. A value only counts when the form shows it.
-- Ask when you cannot tell which field or value the seller means. Never invent brand, size, material, measurements, or origin.
+- Check the live form after each step. A value only counts when the form shows it. Do not repeat a fill that already failed the same way.
+- Ask only when you cannot tell which field the seller means, or when every remaining field needs a fact that is nowhere in the evidence. Never make up brand, size, measurements, or origin.
 - If the form already shows what the seller wants, reply done."""
 
 
@@ -151,7 +164,7 @@ def describe_action(action: dict[str, Any]) -> str:
     return str(kind)
 
 
-def _prompt_field(entry: dict[str, Any], viewport_height: int, picked: set[tuple[str, str]]) -> dict[str, Any]:
+def _prompt_field(entry: dict[str, Any], viewport_height: int, picked: set[tuple[str, str]], listing: dict) -> dict[str, Any]:
     rect = entry.get("rect") or {}
     row: dict[str, Any] = {
         "marketplace": entry.get("marketplace"),
@@ -160,6 +173,11 @@ def _prompt_field(entry: dict[str, Any], viewport_height: int, picked: set[tuple
     }
     if field_key(entry.get("marketplace"), entry.get("label")) in picked:
         row["pointed_at"] = True
+    if not row["value"] and entry.get("label"):
+        # What Studio's listing already holds for this field, if anything.
+        known = listing_value_for_field(listing, str(entry.get("marketplace") or "general"), str(entry["label"]))
+        if known:
+            row["known_value"] = known[:200]
     if entry.get("required"):
         row["required"] = True
     if entry.get("is_dropdown"):
@@ -181,19 +199,27 @@ def _prompt_field(entry: dict[str, Any], viewport_height: int, picked: set[tuple
 def build_turn(request: FixRequest, snapshot: dict[str, Any], history: list[str], listing: dict, evidence: str) -> str:
     picked = {field_key(f.get("marketplace"), f.get("label") or f.get("field")) for f in request.picked}
     viewport = snapshot.get("viewport") or {}
+    live = snapshot.get("fields") or []
+    # Pointed-at fields go first so a long page never pushes them past the prompt cap.
+    live = sorted(live, key=lambda entry: field_key(entry.get("marketplace"), entry.get("label")) not in picked)
     fields = [
-        _prompt_field(entry, int(viewport.get("height") or 0), picked)
-        for entry in (snapshot.get("fields") or [])[:MAX_PROMPT_FIELDS]
+        _prompt_field(entry, int(viewport.get("height") or 0), picked, listing)
+        for entry in live[:MAX_PROMPT_FIELDS]
     ]
     pointed = [
         f"{market_label(str(f.get('marketplace') or 'general'))} / {f.get('label') or f.get('field')}"
         for f in request.picked
     ]
-    brief = {key: listing.get(key) for key in ("title", "brand", "size", "color", "condition", "category_path") if listing.get(key)}
+    brief = {key: listing.get(key) for key in BRIEF_KEYS if listing.get(key)}
+    still_empty = [
+        f"{market_label(str(row.get('marketplace') or 'general'))} / {row.get('field')}"
+        for row in fields if row.get("pointed_at") and not row.get("value") and not row.get("account")
+    ]
     parts = [
         f"Seller request: {request.instruction.strip() or '(no text) Fix the fields I pointed at.'}",
         f"Fields the seller pointed at: {', '.join(pointed) if pointed else 'none'}",
-        f"Listing summary: {json.dumps(brief, ensure_ascii=False)}",
+        f"Pointed-at fields still empty on the form: {', '.join(still_empty) if still_empty else 'none'}",
+        f"Listing summary: {json.dumps(brief, ensure_ascii=False)[:MAX_BRIEF_CHARS]}",
         f"Photo evidence:\n{evidence[:MAX_EVIDENCE_CHARS] or '(none)'}",
         "Live form fields:\n" + json.dumps(fields, ensure_ascii=False),
         "Visible buttons and tabs: " + json.dumps([c.get("text") for c in snapshot.get("controls") or []], ensure_ascii=False),
@@ -234,6 +260,14 @@ class FixAgent:
         self.db_factory = db_factory
         self.history: list[str] = []
         self.unsaved = False
+        self.photos: list[str] = []
+
+    def _empty_pointed(self, snapshot: dict[str, Any]) -> bool:
+        for picked in self.request.picked:
+            live = _find_field(snapshot, str(picked.get("marketplace") or "general"), str(picked.get("label") or picked.get("field") or ""))
+            if live is not None and not live.get("value") and not live.get("account_managed"):
+                return True
+        return False
 
     def _job(self, db):
         from vendoo_studio.repositories.queries import JobRepo
@@ -262,7 +296,10 @@ class FixAgent:
             db.close()
         return await browser_bridge.act(job, payload)
 
-    def _context(self) -> tuple[dict, str]:
+    def _context(self) -> tuple[dict, str, list[str]]:
+        from pathlib import Path
+
+        from vendoo_studio.config import PHOTOS_DIR
         from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
         from vendoo_studio.services.listing_generate import latest_photo_analysis
 
@@ -270,26 +307,63 @@ class FixAgent:
         try:
             revisions = ListingRepo(db).get_revisions(self.request.conversation_id)
             listing = dict(revisions[0].listing_json) if revisions and isinstance(revisions[0].listing_json, dict) else {}
-            evidence = latest_photo_analysis(ConversationRepo(db).get_messages(self.request.conversation_id)) or ""
+            conversations = ConversationRepo(db)
+            evidence = latest_photo_analysis(conversations.get_messages(self.request.conversation_id)) or ""
+            paths = [str(Path(PHOTOS_DIR) / photo.stored_filename) for photo in conversations.get_photos(self.request.conversation_id)]
         finally:
             db.close()
-        return listing, evidence
+        return listing, evidence, [path for path in paths if Path(path).is_file()][:MAX_AGENT_PHOTOS]
 
-    async def _decide(self, snapshot: dict[str, Any], listing: dict, evidence: str) -> dict[str, Any] | None:
+    async def _load_photos(self, paths: list[str]) -> None:
+        if not paths or not callable(getattr(self.provider, "vision_chat", None)):
+            return
+        from vendoo_studio.providers.xiaomi_mimo import encode_images
+
+        try:
+            self.photos = await encode_images(paths, AGENT_PHOTO_MAX_SIDE)
+        except Exception:
+            log.exception("could not encode listing photos for the fix agent")
+            self.photos = []
+
+    async def _ask_model(self, messages: list[dict[str, Any]]) -> str:
+        from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
         from vendoo_studio.services.listing_generate import collect_provider_text
 
+        if not self.photos:
+            return await collect_provider_text(self.provider, messages)
+        # Photos ride on the first user turn so every decision can look at the item itself.
+        first = messages[1]
+        with_photos = [
+            messages[0],
+            {"role": "user", "content": [{"type": "text", "text": first["content"]}]
+             + [{"type": "image_url", "image_url": {"url": url}} for url in self.photos]},
+            *messages[2:],
+        ]
+        try:
+            parts = []
+            async for item in self.provider.vision_chat(with_photos):
+                kind, text = unpack_stream_item(item)
+                if kind == "content" and text:
+                    parts.append(text)
+            return "".join(parts)
+        except Exception:
+            log.exception("fix agent photo call failed; continuing with the photo analysis text only")
+            self.photos = []
+            return await collect_provider_text(self.provider, messages)
+
+    async def _decide(self, snapshot: dict[str, Any], listing: dict, evidence: str) -> dict[str, Any] | None:
         messages = [
             {"role": "system", "content": AGENT_SYSTEM},
             {"role": "user", "content": build_turn(self.request, snapshot, self.history, listing, evidence)},
         ]
-        text = await collect_provider_text(self.provider, messages)
+        text = await self._ask_model(messages)
         action = parse_action(text)
         if action is None:
             messages += [
                 {"role": "assistant", "content": text[:2000]},
                 {"role": "user", "content": "That was not a JSON action. Reply with exactly one JSON object."},
             ]
-            action = parse_action(await collect_provider_text(self.provider, messages))
+            action = parse_action(await self._ask_model(messages))
         return action
 
     async def _fill(self, action: dict[str, Any], snapshot: dict[str, Any]) -> str:
@@ -298,6 +372,8 @@ class FixAgent:
 
         patches: list[dict[str, str]] = []
         refused: list[str] = []
+        unpicked: list[str] = []
+        picked = {field_key(f.get("marketplace"), f.get("label") or f.get("field")) for f in self.request.picked}
         for raw in action.get("fields") or []:
             if not isinstance(raw, dict):
                 continue
@@ -309,6 +385,9 @@ class FixAgent:
             value = str(value if value is not None else "").strip()[:MAX_PATCH_VALUE]
             if marketplace not in MARKETPLACES or not label or not value:
                 continue
+            if picked and field_key(marketplace, label) not in picked:
+                unpicked.append(label)
+                continue
             live = _find_field(snapshot, marketplace, label)
             if is_account_field(marketplace, label, bool(live and live.get("account_managed"))):
                 refused.append(label)
@@ -319,8 +398,14 @@ class FixAgent:
                 "value": value,
                 "selector": (live or {}).get("selector") or "",
             })
+        notes = []
+        if unpicked:
+            notes.append(f"skipped fields the seller did not point at: {', '.join(unpicked)}")
+        if refused:
+            notes.append(f"skipped account settings: {', '.join(refused)}")
+        note = f" ({'; '.join(notes)})" if notes else ""
         if not patches:
-            return "refused: account settings stay as they are" if refused else "nothing to fill"
+            return ("refused: account settings stay as they are" if refused and not unpicked else "nothing to fill") + note
 
         db = self.db_factory()
         try:
@@ -340,8 +425,21 @@ class FixAgent:
         finally:
             db.close()
         self.unsaved = False
-        note = f" (skipped account settings: {', '.join(refused)})" if refused else ""
-        return ("ok, filler typed and saved" if ok else f"failed: {error or 'fill did not finish'}") + note
+        if not ok:
+            return f"failed: {error or 'fill did not finish'}" + note
+        # The filler can report success without the value landing; trust only the live form.
+        after = await self._snapshot()
+        missing = [
+            patch["field"] for patch in patches
+            if not ((_find_field(after, patch["marketplace"], patch["field"]) or {}).get("value") or "").strip()
+        ]
+        if not missing:
+            return "ok, the form shows every value" + note
+        if len(missing) == len(patches):
+            return ("failed: the form still shows these empty: " + ", ".join(missing)
+                    + ". Use click_field, type the value, then press Enter or click the option") + note
+        return ("partly: still empty on the form: " + ", ".join(missing)
+                + ". Use click_field, type the value, then press Enter or click the option") + note
 
     async def _execute(self, action: dict[str, Any], snapshot: dict[str, Any]) -> str:
         kind = action.get("action")
@@ -395,7 +493,10 @@ class FixAgent:
         request = self.request
         _take_cancel(request.conversation_id)
         started = time.monotonic()
-        listing, evidence = self._context()
+        listing, evidence, photo_paths = self._context()
+        if photo_paths:
+            yield "status", "Loading the listing photos…"
+            await self._load_photos(photo_paths)
         try:
             yield "status", "Reading the Vendoo draft…"
             first = snapshot = await self._snapshot()
@@ -404,6 +505,7 @@ class FixAgent:
             return
 
         outcome = ""
+        pushed_back = False
         for _ in range(MAX_STEPS):
             if _take_cancel(request.conversation_id):
                 outcome = "Stopped."
@@ -421,6 +523,15 @@ class FixAgent:
             if action is None:
                 outcome = "The listing assistant did not return a usable action, so I stopped."
                 break
+            if action.get("action") == "ask" and not pushed_back and not self.history and self._empty_pointed(snapshot):
+                # Models tend to ask about the first unclear field and stop. Make them fill the rest first.
+                pushed_back = True
+                self.history.append(
+                    f"{len(self.history) + 1}. Wanted to ask \"{str(action.get('message') or '')[:160]}\" → "
+                    "not yet: fill every pointed-at field the evidence supports first, pick the closest "
+                    "dropdown option, and name the fields you had to leave empty in done"
+                )
+                continue
             if action.get("action") in {"done", "ask"}:
                 outcome = str(action.get("message") or "").strip() or ("Done." if action["action"] == "done" else "What should I change?")
                 break
