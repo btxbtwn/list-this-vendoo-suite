@@ -289,6 +289,61 @@ def image_urls_from_vendoo(
     return urls
 
 
+async def import_vendoo_draft(
+    db: Any,
+    conv_id: str,
+    item: dict | None,
+    form: dict | None,
+    image_urls: list[str] | None = None,
+) -> dict[str, Any]:
+    """Save a Vendoo draft as the listing's current revision and pull its photos."""
+    from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+
+    conv_repo = ConversationRepo(db)
+    listing_repo = ListingRepo(db)
+    listing = listing_from_vendoo(item, form)
+    current = listing_repo.get_current(conv_id)
+    revision = listing_repo.save_revision(
+        conv_id=conv_id,
+        listing_json=listing,
+        source="vendoo_import",
+        parent_revision_id=current.current_revision_id if current else None,
+    )
+
+    photo_warnings: list[str] = []
+    existing_photos = conv_repo.get_photos(conv_id)
+    if existing_photos:
+        photo_count = len(existing_photos)
+    else:
+        urls = image_urls_from_vendoo(item, form, image_urls)
+        imported = await download_vendoo_photos(urls)
+        for meta in imported:
+            conv_repo.add_photo(
+                conv_id=conv_id,
+                original_filename=meta["original_filename"],
+                stored_filename=meta["stored_filename"],
+                mime_type=meta["mime_type"],
+                size_bytes=meta["size_bytes"],
+                checksum=meta.get("checksum"),
+                width=meta.get("width"),
+                height=meta.get("height"),
+            )
+        photo_count = len(imported)
+        if urls and photo_count < len(urls):
+            photo_warnings.append(
+                f"Imported {photo_count} of {len(urls)} photos. Add missing photos before sending if needed."
+            )
+        elif not urls:
+            photo_warnings.append("No photos were found on the Vendoo listing.")
+
+    return {
+        "listing": listing,
+        "revision": revision,
+        "photo_count": photo_count,
+        "photo_warnings": photo_warnings,
+    }
+
+
 async def download_vendoo_photos(urls: list[str]) -> list[dict[str, Any]]:
     from vendoo_studio.services.safe_fetch import (
         DOWNLOAD_TIMEOUT_SEC,
