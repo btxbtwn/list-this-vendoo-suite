@@ -343,7 +343,8 @@ export function BrowserPreview({
     };
     surface.addEventListener("wheel", onWheel, { passive: false });
     return () => surface.removeEventListener("wheel", onWheel);
-  }, [controlsEnabled, tool, ratioOf, flushInput]);
+    // surfaceRef only mounts once the first frame arrives, so this must re-run then too.
+  }, [controlsEnabled, tool, ratioOf, flushInput, Boolean(frame)]);
 
   const fieldBoxes = useMemo(() => fields
     .map((field) => ({ field, box: rectRatios(field.rect, fieldsViewport) }))
