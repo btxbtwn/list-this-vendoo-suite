@@ -78,15 +78,17 @@ PY
 
 # A stable signing identity keeps the app's code requirement the same across
 # releases, so macOS keeps honoring Keychain "Always Allow" after updates.
-# PyInstaller signs first; we must sign again after flatten. Do not use
-# --strict: PyInstaller's Python.framework reports "bundle format is ambiguous".
+# PyInstaller signs first; flatten invalidates the outer signature. Re-sign the
+# app bundle only (no --deep): after flatten, --deep fails on copied metadata
+# dirs such as numpy-*.dist-info ("bundle format unrecognized"). Nested Mach-O
+# copies keep the signatures PyInstaller already applied.
 if ! command -v codesign >/dev/null 2>&1; then
   echo "codesign is required to package List This Studio.app" >&2
   exit 1
 fi
 SIGN_IDENTITY="${MACOS_SIGNING_IDENTITY:--}"
 echo "Re-signing flattened app with identity: $SIGN_IDENTITY"
-codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
+codesign --force --sign "$SIGN_IDENTITY" "$APP"
 CODESIGN_DV="$(codesign -dv "$APP" 2>&1)" || {
   echo "$CODESIGN_DV" >&2
   exit 1

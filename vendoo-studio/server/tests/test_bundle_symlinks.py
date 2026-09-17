@@ -84,12 +84,14 @@ class PackageMacosScriptTest(unittest.TestCase):
         )
         text = script.read_text(encoding="utf-8")
         flatten_at = text.index("flatten_symlinks")
-        resign_at = text.index("codesign --force --deep --sign")
+        resign_at = text.index("codesign --force --sign")
         self.assertGreater(
             resign_at,
             flatten_at,
             "package-macos-app.sh must re-sign after flatten_symlinks",
         )
+        # --deep fails on flattened metadata dirs (e.g. numpy-*.dist-info).
+        self.assertNotIn("codesign --force --deep --sign", text)
         # codesign -dv alone is not enough: it can still print a stale DR after
         # flatten without proving the signature was rewritten.
         self.assertIn("Re-signing flattened app", text)
