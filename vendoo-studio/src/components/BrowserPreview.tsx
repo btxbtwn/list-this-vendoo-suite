@@ -513,9 +513,10 @@ export function BrowserPreview({
 
   const url = frame?.url || "";
   const label = step || frame?.step || status || "idle";
-  const missed = showMissed
-    ? fieldBoxes.filter(({ field }) => !field.filled && !field.disabled && !field.account_managed)
-    : [];
+  const isMissed = (field: BrowserField) => !field.filled && !field.disabled && !field.account_managed;
+  // Select covers every empty field on the page; outlines only draw the ones in frame.
+  const missedFields = showMissed ? fields.filter((field) => field.label && isMissed(field)) : [];
+  const missed = showMissed ? fieldBoxes.filter(({ field }) => isMissed(field)) : [];
   const selectedBoxes = fieldBoxes.filter(({ field }) => selectedIds.has(fieldId(field)));
   const hoveredBox = tool === "pick" && hovered ? fieldBoxes.find(({ field }) => fieldId(field) === hovered) : null;
 
@@ -594,15 +595,15 @@ export function BrowserPreview({
           >
             Missed fields
           </button>
-          {showMissed && missed.length > 0 && (
+          {showMissed && missedFields.length > 0 && (
             <button
               type="button"
               className="browser-tool"
-              title="Point Studio at every empty field in view"
+              title="Point Studio at every empty field on the page, including ones scrolled out of view"
               disabled={!controlsEnabled}
-              onClick={() => addFields(missed.map(({ field }) => field))}
+              onClick={() => addFields(missedFields)}
             >
-              Select {missed.length} empty
+              Select {missedFields.length} empty
             </button>
           )}
           {marks.length > 0 && (

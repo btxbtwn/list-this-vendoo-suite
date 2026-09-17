@@ -318,7 +318,7 @@ function formatClientStreamError(
 }
 
 type SseParts = { content: string; thinking: string; status: string };
-type SseParseState = { eventType: string; parts: SseParts };
+type SseParseState = { eventType: string; parts: SseParts; dataLines: number };
 
 const SSE_FETCH: RequestInit = {
   method: "POST",
@@ -334,6 +334,7 @@ function applySseLine(
   const line = raw.replace(/\r$/, "");
   if (!line) {
     state.eventType = "message";
+    state.dataLines = 0;
     return false;
   }
   if (line.startsWith(":")) return false;
@@ -347,9 +348,11 @@ function applySseLine(
     state.eventType = "message";
     return true;
   }
-  if (state.eventType === "thinking") state.parts.thinking += chunk;
-  else if (state.eventType === "status") state.parts.status = chunk;
-  else state.parts.content += chunk;
+  // Data lines within one event are joined with newlines (the server splits multi-line text this way).
+  const text = state.dataLines++ > 0 ? `\n${chunk}` : chunk;
+  if (state.eventType === "thinking") state.parts.thinking += text;
+  else if (state.eventType === "status") state.parts.status = state.dataLines > 1 ? state.parts.status + text : text;
+  else state.parts.content += text;
   onEvent(state.eventType, state.parts);
   return false;
 }
@@ -358,7 +361,7 @@ function consumeSseText(
   text: string,
   onEvent: (event: string, parts: SseParts) => void,
 ): { parts: SseParts; sawDone: boolean } {
-  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" } };
+  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" }, dataLines: 0 };
   let sawDone = false;
   for (const line of text.split("\n")) {
     if (applySseLine(line, state, onEvent)) sawDone = true;
@@ -373,7 +376,7 @@ async function consumeSse(
   const decoder = new TextDecoder();
   let buffer = "";
   let sawDone = false;
-  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" } };
+  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" }, dataLines: 0 };
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;

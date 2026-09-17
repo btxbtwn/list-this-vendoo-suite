@@ -302,13 +302,18 @@ class MiMoProvider:
                     if text:
                         yield StreamChunk(text, "content")
 
-    async def _complete_chat(self, messages: list[dict]):
+    async def vision_chat(self, messages: list[dict]):
+        """Chat whose user turns carry photos; the pro listing model is text-only."""
+        async for content in self._complete_chat(messages, model=self.vision_model):
+            yield content
+
+    async def _complete_chat(self, messages: list[dict], model: str = "mimo-v2.5-pro"):
         async with httpx.AsyncClient(timeout=300) as client:
             resp = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self._headers(),
                 json={
-                    "model": "mimo-v2.5-pro",
+                    "model": model,
                     "messages": messages,
                     "max_tokens": 8192,
                     "temperature": 0.7,

@@ -398,6 +398,11 @@ class ChatGPTCodexProvider:
         except Exception as e:
             return {"error": str(e), "evidence": {}}
 
+    async def vision_chat(self, messages: list[dict]):
+        """Chat whose user turns carry photos."""
+        async for content in self._complete(messages, model=self.vision_model):
+            yield content
+
     async def chat(self, messages: list[dict], stream: bool = True):
         if stream:
             yielded = False

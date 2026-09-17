@@ -197,6 +197,75 @@ class FixAgentLoopTest(AgentTestBase):
         self.assertEqual(final, "Which size, M or L?")
         self.assertEqual(self.draft.actions, [])
 
+    def test_early_ask_about_pointed_empty_fields_is_pushed_back_once(self):
+        self.draft.fields += self.draft.hidden
+        self.draft.hidden = []
+        provider = ScriptedProvider([
+            '{"action":"ask","message":"Which material should I pick?"}',
+            '{"action":"ask","message":"Still unsure about material."}',
+        ])
+        picked = [{"marketplace": "ebay", "label": "Neckline", "value": ""}]
+        final = self.run_agent(provider, "fill these", picked)[-1][1]
+        self.assertTrue(final.startswith("Still unsure about material."))
+        self.assertIn("not yet: fill every pointed-at field", final)
+        self.assertEqual(provider.calls, 2)
+
+    def test_fill_with_pointed_fields_skips_others_and_checks_the_form(self):
+        self.draft.fields += self.draft.hidden
+        self.draft.hidden = []
+        provider = ScriptedProvider([
+            json.dumps({"action": "fill", "fields": [
+                {"marketplace": "general", "field": "Title", "value": "Other"},
+                {"marketplace": "ebay", "field": "Neckline", "value": "V-Neck"},
+            ]}),
+            '{"action":"done","message":"Tried."}',
+        ])
+
+        async def silent(db, job, listing, patches, announce=True):
+            return True, None
+
+        picked = [{"marketplace": "ebay", "label": "Neckline", "value": ""}]
+        with patch("vendoo_studio.services.auto_apply.apply_patches", side_effect=silent) as applied:
+            final = self.run_agent(provider, "fill these", picked)[-1][1]
+        self.assertEqual([p["field"] for p in applied.call_args.args[3]], ["Neckline"])
+        self.assertIn("failed: the form still shows these empty: Neckline", final)
+        self.assertIn("skipped fields the seller did not point at: Title", final)
+
+    def test_listing_photos_go_to_the_vision_model(self):
+        import tempfile
+        from pathlib import Path
+
+        from PIL import Image
+
+        seen = []
+
+        class VisionProvider(ScriptedProvider):
+            async def vision_chat(self, messages):
+                seen.append(messages)
+                yield '{"action":"done","message":"Looked."}'
+
+        with tempfile.TemporaryDirectory() as tmp:
+            Image.new("RGB", (40, 40), "red").save(Path(tmp) / "shirt.jpg")
+            db = self.Session()
+            ConversationRepo(db).add_photo(self.conv_id, "shirt.jpg", "shirt.jpg", "image/jpeg", 100)
+            db.close()
+            with patch("vendoo_studio.config.PHOTOS_DIR", tmp):
+                events = self.run_agent(VisionProvider([]), "fill these")
+        self.assertEqual(events[-1][1], "Looked.")
+        user = seen[0][1]["content"]
+        self.assertEqual(user[0]["type"], "text")
+        self.assertTrue(user[1]["image_url"]["url"].startswith("data:image/"))
+
+    def test_turn_shows_known_listing_value_for_empty_field(self):
+        from vendoo_studio.services.browser_agent import build_turn
+
+        request = FixRequest(job_id="j", conversation_id="c", instruction="fill these",
+                             picked=[{"marketplace": "ebay", "label": "Material"}])
+        snapshot = {"viewport": {"height": 600}, "fields": [field("ebay", "Material")]}
+        turn = build_turn(request, snapshot, [], {"material": "Polyester", "ebay_specifics": {}}, "")
+        self.assertIn('"pointed_at": true', turn)
+        self.assertIn('"known_value": "Polyester"', turn)
+
 
 class HelpersTest(unittest.TestCase):
     def test_parse_action_skips_non_action_objects(self):
