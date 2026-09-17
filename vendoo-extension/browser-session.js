@@ -226,7 +226,7 @@ async function openBrowserSession(msg) {
     return { ok: false, error: 'Another automation job is running' };
   }
   if (running) {
-    browserSession = { jobId, tabId: running.tabId };
+    browserSession = { jobId, tabId: running.tabId, itemId: browserDraftItemId(payload) };
     return { ok: true, tab_id: running.tabId };
   }
   if (browserSession && browserSession.jobId !== jobId) {
@@ -237,7 +237,7 @@ async function openBrowserSession(msg) {
     { reload: false, preview: true, marketplace: payload.marketplace || '' },
   );
   if (!opened.ok) return opened;
-  browserSession = { jobId, tabId: opened.tabId };
+  browserSession = { jobId, tabId: opened.tabId, itemId: browserDraftItemId(payload) };
   const attached = await resumeBrowserSessionPreview();
   return {
     ok: true,
@@ -260,13 +260,48 @@ async function closeBrowserSession(payload) {
   return { ok: true };
 }
 
+function browserDraftItemId(payload) {
+  return durableItemId(payload.vendoo_item_id) || extractItemIdFromUrl(payload.vendoo_url || '') || null;
+}
+
+// Agent actions stay on the draft the seller opened.
+async function browserDraftScope(session) {
+  let url = '';
+  try {
+    url = (await chrome.tabs.get(session.tabId)).url || '';
+  } catch (_) {
+    return { ok: false, error: 'The Vendoo tab was closed' };
+  }
+  if (!isVendooUrl(url) || (session.itemId && extractItemIdFromUrl(url) !== session.itemId)) {
+    return { ok: false, error: 'The Vendoo tab is no longer on this draft', url };
+  }
+  return { ok: true, url };
+}
+
 async function runBrowserAction(session, payload) {
+  const scope = await browserDraftScope(session);
+  if (!scope.ok) return scope;
+  const result = await runScopedBrowserAction(session, payload);
+  const after = await browserDraftScope(session);
+  if (!after.ok && after.url && session.itemId) {
+    await chrome.tabs.update(session.tabId, { url: `https://web.vendoo.co/app/item/${session.itemId}` });
+    return { ok: false, error: 'That action left the draft, so Studio went back to it. Unsaved edits may be lost.' };
+  }
+  return result;
+}
+
+async function runScopedBrowserAction(session, payload) {
   const tabId = session.tabId;
   const action = String(payload.action || '');
   if (action === 'click') {
     let xRatio = payload.x_ratio;
     let yRatio = payload.y_ratio;
-    if (payload.selector) {
+    if (payload.text) {
+      const located = await browserContentCommand(tabId, { type: 'LOCATE_TEXT', text: payload.text });
+      if (!located.ok) return located;
+      xRatio = located.x_ratio;
+      yRatio = located.y_ratio;
+    } else if (payload.selector) {
       const located = await browserContentCommand(tabId, { type: 'LOCATE_SELECTOR', selector: payload.selector });
       if (!located.ok) return located;
       xRatio = located.x_ratio;
@@ -284,6 +319,10 @@ async function runBrowserAction(session, payload) {
       const located = await browserContentCommand(tabId, { type: 'LOCATE_SELECTOR', selector: payload.selector });
       if (!located.ok) return located;
       await browserClickAt(tabId, located.x_ratio, located.y_ratio);
+    }
+    const focused = await browserContentCommand(tabId, { type: 'DESCRIBE_FOCUS' });
+    if (!focused.editable) {
+      return { ok: false, error: 'No text field is focused. Click a field first.' };
     }
     const text = String(payload.text || '').slice(0, BROWSER_MAX_TEXT);
     if (text) await chrome.debugger.sendCommand({ tabId }, 'Input.insertText', { text });

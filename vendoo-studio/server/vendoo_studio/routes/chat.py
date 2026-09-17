@@ -4,10 +4,11 @@ import asyncio
 import time
 import logging
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from vendoo_studio.config import PHOTOS_DIR, skills_dir
@@ -202,8 +203,66 @@ def _stream_generation(run: _GenerationRun) -> StreamingResponse:
     return StreamingResponse(_follow_generation(run), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
+class BrowserChatField(BaseModel):
+    marketplace: str = Field(max_length=20)
+    label: str = Field(min_length=1, max_length=120)
+    value: str = Field(default="", max_length=2000)
+
+
+class BrowserChatContext(BaseModel):
+    """The draft open in Studio's browser and the fields the seller pointed at."""
+
+    job_id: str = Field(min_length=1, max_length=64)
+    fields: list[BrowserChatField] = Field(default_factory=list, max_length=60)
+
+
 class ChatMessage(BaseModel):
     text: str
+    browser: Optional[BrowserChatContext] = None
+
+
+def _browser_message_text(body: ChatMessage) -> str:
+    if not body.browser or not body.browser.fields:
+        return body.text
+    from vendoo_studio.services.browser_agent import market_label
+
+    names = ", ".join(f"{market_label(item.marketplace)} / {item.label}" for item in body.browser.fields)
+    return f"{body.text}\n\nPointed at in the Vendoo browser: {names}".strip()
+
+
+async def _browser_fix_stream(conv_id: str, body: ChatMessage, provider, provider_name: str, provider_model: str):
+    from vendoo_studio.services.browser_agent import FixAgent, FixRequest
+
+    request = FixRequest(
+        job_id=body.browser.job_id,
+        conversation_id=conv_id,
+        instruction=body.text,
+        picked=[item.model_dump() for item in body.browser.fields],
+    )
+    final = ""
+    try:
+        async for item in _iter_with_keepalives(FixAgent(request, provider, db_factory=SessionLocal).run()):
+            if item is None:
+                yield KEEPALIVE
+                continue
+            kind, text = item
+            if kind == "status":
+                yield _sse_event("status", text)
+            else:
+                final = text
+                yield _sse_data(text)
+    except Exception as exc:
+        log.exception("browser fix agent failed for %s", conv_id)
+        final = f"Error: {str(exc).strip() or type(exc).__name__}"
+        yield _sse_data(final)
+    stream_db = SessionLocal()
+    try:
+        if final:
+            ConversationRepo(stream_db).add_message(conv_id, "assistant", final, provider=provider_name, model=provider_model)
+    finally:
+        stream_db.close()
+    yield _sse_event("listing_updated", "1")
+    yield "data: [DONE]\n\n"
 
 
 def _sse_encode(text: str) -> str:
@@ -734,7 +793,14 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    repo.add_message(conv_id, "user", body.text)
+    if body.browser:
+        from vendoo_studio.repositories.queries import JobRepo
+
+        job = JobRepo(db).get(body.browser.job_id)
+        if not job or job.conversation_id != conv_id:
+            raise HTTPException(404, "That Vendoo draft does not belong to this listing")
+
+    repo.add_message(conv_id, "user", _browser_message_text(body))
     provider = get_listing_provider()
     if provider is None:
         repo.add_message(
@@ -750,6 +816,13 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
             "Sign in with ChatGPT in Settings, or add a MiMo API key.",
         )
     provider_name, provider_model = _provider_meta(provider)
+
+    if body.browser:
+        return StreamingResponse(
+            _browser_fix_stream(conv_id, body, provider, provider_name, provider_model),
+            media_type="text/event-stream",
+            headers=SSE_HEADERS,
+        )
 
     revisions = ListingRepo(db).get_revisions(conv_id)
     if repo.get_photos(conv_id) and (not revisions or revisions[0].source == "category_analysis"
@@ -1112,6 +1185,9 @@ async def cancel_generate_listing(conv_id: str):
 
 @router.post("/api/conversations/{conv_id}/messages/cancel")
 async def cancel_chat_message(conv_id: str):
+    from vendoo_studio.services.browser_agent import cancel as cancel_browser_fix
+
+    cancel_browser_fix(conv_id)
     db = SessionLocal()
     try:
         ConversationRepo(db).update_status(conv_id, "draft")

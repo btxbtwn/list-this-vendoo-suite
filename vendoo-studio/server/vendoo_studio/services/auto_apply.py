@@ -362,7 +362,14 @@ async def _wait_for_fill(job_id: str, db_factory) -> tuple[bool, str | None]:
     return False, "Timed out waiting for Vendoo to finish applying values"
 
 
-async def apply_patches(db: Session, job, listing: dict, patches: list[dict]) -> tuple[bool, str | None]:
+async def apply_patches(
+    db: Session,
+    job,
+    listing: dict,
+    patches: list[dict],
+    *,
+    announce: bool = True,
+) -> tuple[bool, str | None]:
     from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
     from vendoo_studio.database import SessionLocal
 
@@ -397,7 +404,7 @@ async def apply_patches(db: Session, job, listing: dict, patches: list[dict]) ->
 
     ok, error = await _wait_for_fill(job.id, SessionLocal)
     db.refresh(job)
-    if ok:
+    if ok and announce:
         ConversationRepo(db).add_message(
             job.conversation_id,
             "system",

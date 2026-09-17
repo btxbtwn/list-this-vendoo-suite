@@ -78,15 +78,6 @@ export interface BrowserInputEvent {
   text?: string;
 }
 
-export interface BrowserDirectTarget {
-  marketplace: string;
-  field: string;
-  value?: string;
-  selector?: string;
-  options?: string[];
-  account_managed?: boolean;
-}
-
 export const api = {
   catalog: {
     status: () => request<{running: boolean; complete: boolean; marketplaces: Record<string,
@@ -233,11 +224,6 @@ export const api = {
         ),
       snapshot: (id: string) =>
         request<{ ok: boolean; url: string; viewport: BrowserViewport; fields: BrowserField[] }>(`/jobs/${id}/browser/snapshot`),
-      direct: (id: string, note: string, targets: BrowserDirectTarget[]) =>
-        request<{ ok: boolean; patches: { marketplace: string; field: string; value: string }[]; skipped: { field: string }[]; error?: string }>(
-          `/jobs/${id}/browser/direct`,
-          { method: "POST", body: JSON.stringify({ note, targets }) },
-        ),
     },
     retry: (id: string) => request<any>(`/jobs/${id}/retry`, { method: "POST" }),
     cancel: (id: string) => request<any>(`/jobs/${id}/cancel`, { method: "POST" }),
