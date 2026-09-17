@@ -1,20 +1,61 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+from io import BytesIO
 from typing import NamedTuple
 
 import httpx
+from PIL import Image, ImageOps
 
 MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
 
 
-def _encode_image(path: str) -> str:
+# Vision APIs downscale server-side (roughly 2000px long edge), so larger uploads only add latency.
+VISION_MAX_SIDE = 1600
+VISION_JPEG_QUALITY = 85
+
+
+def _raw_data_url(path: str) -> str:
     with open(path, "rb") as f:
         data = base64.b64encode(f.read()).decode("utf-8")
     ext = path.rsplit(".", 1)[-1].lower()
     mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "webp": "webp"}.get(ext, "jpeg")
     return f"data:image/{mime};base64,{data}"
+
+
+def image_exceeds(path: str, max_side: int | None) -> bool:
+    """True when the stored photo is larger than the vision encode limit."""
+    if not max_side:
+        return False
+    try:
+        with Image.open(path) as img:
+            return max(img.size) > max_side
+    except Exception:
+        return False
+
+
+def _encode_image(path: str, max_side: int | None = VISION_MAX_SIDE) -> str:
+    """Data URL for a vision request; the stored original is never modified."""
+    if not image_exceeds(path, max_side):
+        return _raw_data_url(path)
+    try:
+        with Image.open(path) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            img.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=VISION_JPEG_QUALITY, optimize=True)
+    except Exception:
+        return _raw_data_url(path)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+async def encode_images(paths: list[str], max_side: int | None = VISION_MAX_SIDE) -> list[str]:
+    """Encode photos off the event loop so resizing never stalls streaming responses."""
+    return await asyncio.to_thread(lambda: [_encode_image(path, max_side) for path in paths])
 
 
 def _error_message(payload: dict) -> str | None:
@@ -116,6 +157,7 @@ class MiMoProvider:
         photo_paths: list[str],
         notes: str = "",
         listing_rules: str = "",
+        max_side: int | None = VISION_MAX_SIDE,
     ) -> dict:
         messages = [
             {
@@ -145,10 +187,10 @@ class MiMoProvider:
             messages[0]["content"] += f"\n\nAdditional rules:\n{listing_rules}"
 
         content_parts = [{"type": "text", "text": "Analyze these product photos:"}]
-        for path in photo_paths[:10]:
+        for url in await encode_images(photo_paths[:10], max_side):
             content_parts.append({
                 "type": "image_url",
-                "image_url": {"url": _encode_image(path)},
+                "image_url": {"url": url},
             })
 
         messages.append({"role": "user", "content": content_parts})

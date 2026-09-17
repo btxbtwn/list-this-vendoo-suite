@@ -16,6 +16,7 @@ server/tests/test_completion_transport.py
 server/tests/test_config.py
 server/tests/test_conversation_rename.py
 server/tests/test_conversation_reset.py
+server/tests/test_conversation_status.py
 server/tests/test_conversations_settled.py
 server/tests/test_desktop.py
 server/tests/test_discover_form_fields.py
@@ -49,7 +50,9 @@ server/tests/test_updates.py
 server/tests/test_upload_photos.py
 server/tests/test_vendoo_import.py
 server/tests/test_vendoo_item.py
+server/tests/test_vendoo_link.py
 server/tests/test_vendoo_retry_general.py
+server/tests/test_vision_photo_encoding.py
 server/vendoo_studio/__init__.py
 server/vendoo_studio/category_trees_cli.py
 server/vendoo_studio/config.py
