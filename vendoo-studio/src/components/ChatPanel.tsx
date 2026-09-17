@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import type { BrowserField } from "../api/client";
 import type { Job, Message } from "../api/types";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { SoldCompsCard } from "./SoldCompsCard";
@@ -10,7 +11,19 @@ interface Props {
   convId: string;
   queuedMessage?: string | null;
   onQueuedMessageConsumed?: () => void;
+  /** Draft open in Studio's browser. Messages then go to the fix agent with the picked fields. */
+  browser?: { jobId: string; fields: BrowserField[] } | null;
+  onBrowserFieldsChange?: (fields: BrowserField[]) => void;
 }
+
+const MARKET_LABELS: Record<string, string> = {
+  general: "Vendoo",
+  ebay: "eBay",
+  etsy: "Etsy",
+  poshmark: "Poshmark",
+  mercari: "Mercari",
+  depop: "Depop",
+};
 
 function thinkingItemClass(item: ThinkingTodo, live: boolean): string {
   return [
@@ -473,7 +486,9 @@ async function refreshListingQueries(queryClient: QueryClient, convId: string) {
   queryClient.invalidateQueries({ queryKey: ["fill-log"] });
 }
 
-export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Props) {
+export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, browser, onBrowserFieldsChange }: Props) {
+  const browserRef = useRef(browser);
+  browserRef.current = browser;
   const live = getLive(convId);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(live.streaming);
@@ -781,7 +796,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
   }, [convId, streamFromFetch, pinChatToBottom]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text || getLive(convId).streaming) return;
+    const browserContext = browserRef.current;
+    const pointedAt = browserContext?.fields || [];
+    if ((!text && !pointedAt.length) || getLive(convId).streaming) return;
     pinChatToBottom();
     const liveState = getLive(convId);
     liveState.controller?.abort();
@@ -809,7 +826,21 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       const res = await fetch(`/api/conversations/${convId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          ...(browserContext
+            ? {
+                browser: {
+                  job_id: browserContext.jobId,
+                  fields: pointedAt.map((field) => ({
+                    marketplace: field.marketplace,
+                    label: field.label,
+                    value: field.value,
+                  })),
+                },
+              }
+            : {}),
+        }),
         cache: "no-store",
         signal: controller.signal,
       });
@@ -828,6 +859,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      if (pointedAt.length) onBrowserFieldsChange?.([]);
       const { parts } = await consumeResponseSse(res, (event, nextParts) => applySseToLive(convId, event, nextParts));
       const assembled = parts.content;
       if (stillMine() && isStreamError(assembled)) patchLive(convId, { failedAction: "send" });
@@ -876,7 +908,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         });
       }
     }
-  }, [convId, queryClient, pinChatToBottom]);
+  }, [convId, queryClient, pinChatToBottom, onBrowserFieldsChange]);
 
   useEffect(() => {
     if (!queuedMessage || streaming) return;
@@ -995,7 +1027,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
         });
       })(),
   );
-  const composerPlaceholder = !hasPhotos
+  const composerPlaceholder = browser
+    ? "Tell Studio what to fix in the Vendoo draft..."
+    : !hasPhotos
     ? "Upload photos to begin"
     : awaitingSellerAnswers
       ? "Answer the questions above..."
@@ -1197,6 +1231,22 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
       </div>
 
       <div className="chat-composer">
+        {browser && browser.fields.length > 0 && (
+          <div className="chat-browser-fields" aria-label="Fields pointed at in the Vendoo browser">
+            {browser.fields.map((field) => (
+              <span key={`${field.marketplace}:${field.key || field.label}`} className="browser-chip" title={field.value || "empty"}>
+                {MARKET_LABELS[field.marketplace] || field.marketplace} / {field.label}
+                <button
+                  type="button"
+                  aria-label={`Remove ${field.label}`}
+                  onClick={() => onBrowserFieldsChange?.(browser.fields.filter((item) => item !== field))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="chat-composer-pill">
           <textarea
             ref={textareaRef}
@@ -1245,7 +1295,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed }: Pr
               type="button"
               className="chat-send"
               onClick={handleSend}
-              disabled={!input.trim()}
+              disabled={!input.trim() && !browser?.fields.length}
               aria-label="Send"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import type { BrowserField } from "../api/client";
 import { ExtensionStatus } from "../components/ExtensionStatus";
 import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
@@ -64,6 +65,7 @@ export function App() {
   const [setupGuideOpen, setSetupGuideOpen] = useState(setupGuideAutoOpen === true);
   const [workspaceNonce, setWorkspaceNonce] = useState(0);
   const [browserJobId, setBrowserJobId] = useState<string | null>(null);
+  const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -177,6 +179,7 @@ export function App() {
   const closeBrowser = () => {
     const jobId = browserJobId;
     setBrowserJobId(null);
+    setBrowserFields([]);
     if (jobId) void api.jobs.browser.close(jobId).catch(() => {});
   };
 
@@ -184,6 +187,7 @@ export function App() {
     // A new Send replaces the listing job. Release the old draft tab.
     if (browserJobId && listingJob?.id && listingJob.id !== browserJobId) {
       setBrowserJobId(null);
+      setBrowserFields([]);
       void api.jobs.browser.close(browserJobId).catch(() => {});
     }
   }, [browserJobId, listingJob?.id]);
@@ -195,6 +199,7 @@ export function App() {
     const jobId = browserJobRef.current;
     if (jobId) {
       setBrowserJobId(null);
+      setBrowserFields([]);
       void api.jobs.browser.close(jobId).catch(() => {});
     }
   }, [selectedConvId]);
@@ -395,6 +400,8 @@ export function App() {
                       convId={selectedConvId}
                       queuedMessage={queuedChatMessage}
                       onQueuedMessageConsumed={() => setQueuedChatMessage(null)}
+                      browser={browserOpen && browserJobId ? { jobId: browserJobId, fields: browserFields } : null}
+                      onBrowserFieldsChange={setBrowserFields}
                     />
                   </div>
                 </div>
@@ -410,10 +417,9 @@ export function App() {
                     interactive={browserOpen}
                     automationRunning={previewOpen}
                     onClose={closeBrowser}
-                    onAskChat={(text) => {
-                      setQueuedChatMessage(text);
-                      setMobilePane("workspace");
-                    }}
+                    selected={browserFields}
+                    onSelectedChange={setBrowserFields}
+                    onGoToChat={() => setMobilePane("workspace")}
                   />
                 )}
               </div>

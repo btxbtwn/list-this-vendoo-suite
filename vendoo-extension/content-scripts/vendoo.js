@@ -6790,7 +6790,8 @@
           marketplace,
           label,
           key,
-          selector: selectorFor(el, ''),
+          // Vendoo ids contain dots; escape them so the selector round-trips.
+          selector: el.id ? `#${CSS.escape(el.id)}` : '',
           value: text,
           filled: Boolean(text),
           required: Boolean(el.required || el.getAttribute('aria-required') === 'true' || /\*/.test(label)),
@@ -6847,8 +6848,12 @@
       const el = document.activeElement;
       if (!el || el === document.body || el === document.documentElement) return { ok: true, element: null };
       const rect = el.getBoundingClientRect();
+      const editable = el.isContentEditable
+          || el.tagName === 'TEXTAREA'
+          || (el.tagName === 'INPUT' && !INSPECT_SKIP_TYPES.has(String(el.type || '').toLowerCase()) && !['checkbox', 'radio'].includes(String(el.type || '').toLowerCase()));
       return {
           ok: true,
+          editable: Boolean(editable && !el.disabled && !el.readOnly),
           element: describeElementAtPoint(rect.left + rect.width / 2, rect.top + rect.height / 2),
       };
   }
@@ -6875,6 +6880,69 @@
       };
   }
 
+  const INSPECT_CLICKABLE_SELECTOR = 'button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="checkbox"], [role="switch"], label';
+  const INSPECT_MAX_CONTROLS = 80;
+
+  function clickableText(el) {
+      return String(el.innerText || el.textContent || el.getAttribute('aria-label') || '')
+          .replace(/\s+/g, ' ').trim();
+  }
+
+  function isDangerText(text) {
+      return INSPECT_DANGER_RE.test(text) || /^list\b(?!ing)/i.test(text);
+  }
+
+  function visibleInViewport(el) {
+      if (!isEffectivelyVisible(el)) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < (window.innerHeight || 0);
+  }
+
+  // Buttons, tabs, and menu entries an agent may press, by visible text.
+  function snapshotControls() {
+      const controls = [];
+      const seen = new Set();
+      for (const el of document.querySelectorAll(INSPECT_CLICKABLE_SELECTOR)) {
+          if (controls.length >= INSPECT_MAX_CONTROLS) break;
+          if (el.closest('#vendoo-debug-box') || el.matches('[role="option"]')) continue;
+          const text = clickableText(el);
+          if (!text || text.length > 60 || seen.has(text.toLowerCase())) continue;
+          if (isDangerText(`${text} ${el.getAttribute('aria-label') || ''}`)) continue;
+          if (!visibleInViewport(el)) continue;
+          seen.add(text.toLowerCase());
+          controls.push({ text, role: el.getAttribute('role') || el.tagName.toLowerCase() });
+      }
+      return controls;
+  }
+
+  function snapshotOpenOptions() {
+      return uniqueStrings(Array.from(document.querySelectorAll('[role="option"], .MuiAutocomplete-option, .MuiMenuItem-root'))
+          .filter(isVisibleElement)
+          .map((el) => clickableText(el))
+          .filter((text) => text && text.length <= 120))
+          .slice(0, INSPECT_MAX_OPTIONS);
+  }
+
+  function locateText(wanted) {
+      const target = String(wanted || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!target) return { ok: false, error: 'No text to click' };
+      const candidates = Array.from(document.querySelectorAll(`${INSPECT_CLICKABLE_SELECTOR}, .MuiAutocomplete-option, .MuiMenuItem-root`))
+          .filter((el) => !el.closest('#vendoo-debug-box') && isEffectivelyVisible(el))
+          .map((el) => ({ el, text: clickableText(el).toLowerCase() }));
+      const match = candidates.find((item) => item.text === target)
+          || candidates.find((item) => item.text.startsWith(target))
+          || candidates.find((item) => item.text.includes(target));
+      if (!match) return { ok: false, error: `Nothing labeled "${wanted}" is visible` };
+      if (isDangerText(match.text)) return { ok: false, error: `Refused to press "${clickableText(match.el)}". Studio never publishes or deletes listings.` };
+      match.el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      const rect = match.el.getBoundingClientRect();
+      return {
+          ok: true,
+          x_ratio: (rect.left + rect.width / 2) / (window.innerWidth || 1),
+          y_ratio: (rect.top + rect.height / 2) / (window.innerHeight || 1),
+      };
+  }
+
   function snapshotFields() {
       const fields = [];
       const seen = new Set();
@@ -6894,15 +6962,28 @@
           title: document.title || '',
           viewport: inspectViewport(),
           fields,
+          controls: snapshotControls(),
+          open_options: snapshotOpenOptions(),
       };
   }
 
   function locateSelector(selector) {
+      const raw = String(selector || '');
       let el = null;
       try {
-          el = document.querySelector(String(selector || ''));
+          el = document.querySelector(raw);
       } catch (_) {
-          return { ok: false, error: 'Invalid selector' };
+          el = null;
+      }
+      if (!el && /^#[^\s]+$/.test(raw)) {
+          el = document.getElementById(raw.slice(1).replace(/\\(.)/g, '$1'));
+      }
+      if (!el) {
+          try {
+              document.querySelector(raw);
+          } catch (_) {
+              return { ok: false, error: 'Invalid selector' };
+          }
       }
       if (!el || !isVisibleElement(el)) return { ok: false, error: 'Element not found on the Vendoo page' };
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
@@ -7062,6 +7143,11 @@
 
           if (msg.type === 'DESCRIBE_FOCUS') {
               sendResponse(describeFocusedElement());
+              return true;
+          }
+
+          if (msg.type === 'LOCATE_TEXT') {
+              sendResponse(locateText(msg.text));
               return true;
           }
 

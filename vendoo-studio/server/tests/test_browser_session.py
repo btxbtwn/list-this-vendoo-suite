@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -15,7 +14,6 @@ from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.routes.extension import ExtensionManager
-from vendoo_studio.services.browser_direct import restrict_patches, split_targets
 from vendoo_studio.services.preview_hub import sanitize_frame
 
 
@@ -32,14 +30,6 @@ class FakeConnection:
         request_id = (message.get("payload") or {}).get("request_id")
         if request_id:
             asyncio.get_running_loop().call_soon(self.manager.resolve_wait, request_id, dict(self.reply))
-
-
-class Provider:
-    def __init__(self, text: str):
-        self.text = text
-
-    async def chat(self, messages, stream=True):
-        yield self.text
 
 
 class BrowserRouteTest(unittest.TestCase):
@@ -131,52 +121,6 @@ class BrowserRouteTest(unittest.TestCase):
         self.assertEqual(connection.sent[0]["type"], "browser.input")
         self.assertEqual(connection.sent[0]["payload"]["events"][0]["key"], "Enter")
 
-    def test_direct_fill_saves_only_targeted_values_and_applies(self):
-        self.connect({"ok": True})
-        reply = json.dumps({"missing_fields": [
-            {"marketplace": "ebay", "field": "Neckline", "value": "Crew Neck"},
-            {"marketplace": "ebay", "field": "Brand", "value": "Invented"},
-        ]})
-        apply = AsyncMock(return_value=(True, None))
-        with patch("vendoo_studio.services.listing_provider.get_listing_provider", return_value=Provider(reply)), \
-             patch("vendoo_studio.services.auto_apply.apply_patches", apply), \
-             patch("vendoo_studio.database.SessionLocal", self.Session):
-            response = self.client.post(f"/api/jobs/{self.job_id}/browser/direct", json={
-                "note": "It is a crew neck",
-                "targets": [
-                    {"marketplace": "ebay", "field": "Neckline", "value": "", "selector": "#listings\\.ebay\\.neckline"},
-                    {"marketplace": "ebay", "field": "Return Policy", "value": ""},
-                ],
-            })
-        body = response.json()
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertTrue(body["ok"])
-        self.assertEqual(body["patches"], [{
-            "marketplace": "ebay",
-            "field": "Neckline",
-            "value": "Crew Neck",
-            "selector": "#listings\\.ebay\\.neckline",
-        }])
-        self.assertEqual([item["field"] for item in body["skipped"]], ["Return Policy"])
-        latest = ListingRepo(self.db).get_revisions(self.conv_id)[0]
-        self.assertEqual(latest.source, "browser_direct")
-        self.assertEqual(latest.listing_json["ebay_specifics"]["neckline"], "Crew Neck")
-        self.assertNotEqual(latest.listing_json.get("brand"), "Invented")
-        texts = [message.text for message in ConversationRepo(self.db).get_messages(self.conv_id)]
-        self.assertTrue(any("crew neck" in text for text in texts))
-        self.assertEqual(apply.await_args.args[3][0]["value"], "Crew Neck")
-
-    def test_direct_fill_waits_for_running_job(self):
-        job = JobRepo(self.db).get(self.job_id)
-        job.status = "dispatched"
-        self.db.commit()
-        self.connect({"ok": True})
-        response = self.client.post(f"/api/jobs/{self.job_id}/browser/direct", json={
-            "targets": [{"marketplace": "ebay", "field": "Neckline"}],
-        })
-        self.assertEqual(response.status_code, 409)
-
-
 class BrowserResultOverWebSocketTest(unittest.TestCase):
     def test_browser_result_resolves_pending_request(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -256,33 +200,6 @@ class PreviewFrameForFinishedDraftTest(unittest.TestCase):
         self.assertEqual(published[0][0], job_id)
         self.assertEqual(published[0][1]["viewport_width"], 1280)
         self.assertNotIn("ignored_late_result", events)
-
-
-class DirectTargetsTest(unittest.TestCase):
-    def test_split_targets_dedupes_and_skips_account_settings(self):
-        fillable, skipped = split_targets([
-            {"marketplace": "ebay", "field": "Neckline", "options": ["Crew Neck", "V-Neck"]},
-            {"marketplace": "EBAY", "field": "neckline"},
-            {"marketplace": "depop", "field": "Parcel Size"},
-            {"marketplace": "poshmark", "field": "Shipping Discount"},
-            {"marketplace": "ebay", "field": "Anything", "account_managed": True},
-            {"marketplace": "amazon", "field": "Title"},
-        ])
-        self.assertEqual([(t["marketplace"], t["field"]) for t in fillable], [("ebay", "Neckline"), ("depop", "Parcel Size")])
-        self.assertEqual(fillable[0]["options"], ["Crew Neck", "V-Neck"])
-        self.assertEqual({s["field"] for s in skipped}, {"Shipping Discount", "Anything"})
-
-    def test_restrict_patches_drops_unchanged_and_unrequested(self):
-        targets, _ = split_targets([
-            {"marketplace": "general", "field": "Color", "value": "Blue", "selector": "#color"},
-            {"marketplace": "ebay", "field": "Season", "value": ""},
-        ])
-        patches = restrict_patches([
-            {"marketplace": "general", "field": "color", "value": "Blue"},
-            {"marketplace": "ebay", "field": "Season", "value": ["Summer"]},
-            {"marketplace": "ebay", "field": "Brand", "value": "Nike"},
-        ], targets)
-        self.assertEqual(patches, [{"marketplace": "ebay", "field": "Season", "value": "Summer", "selector": ""}])
 
 
 class FrameViewportTest(unittest.TestCase):

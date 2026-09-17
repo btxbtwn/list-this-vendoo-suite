@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from vendoo_studio.database import get_db
-from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
 from vendoo_studio.repositories.queries import JobRepo
 from vendoo_studio.services import browser_bridge
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
@@ -55,20 +54,6 @@ class ActRequest(BaseModel):
     delta_x: float | None = Field(default=None, ge=-2000, le=2000)
     delta_y: float | None = Field(default=None, ge=-2000, le=2000)
     ms: int | None = Field(default=None, ge=0, le=15000)
-
-
-class DirectTarget(BaseModel):
-    marketplace: str = Field(max_length=20)
-    field: str = Field(min_length=1, max_length=120)
-    value: str | None = Field(default=None, max_length=2000)
-    selector: str | None = Field(default=None, max_length=300)
-    options: list[str] = Field(default_factory=list, max_length=200)
-    account_managed: bool = False
-
-
-class DirectRequest(BaseModel):
-    note: str = Field(default="", max_length=2000)
-    targets: list[DirectTarget] = Field(min_length=1, max_length=60)
 
 
 def _job(db: Session, job_id: str):
@@ -135,21 +120,3 @@ async def act(job_id: str, body: ActRequest, db: Session = Depends(get_db)):
         return _reply(await browser_bridge.act(job, body.model_dump(exclude_none=True)))
     except BrowserBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc
-
-
-@router.post("/direct")
-async def direct_fill(job_id: str, body: DirectRequest, db: Session = Depends(get_db)):
-    from vendoo_studio.routes.extension import extension_manager
-    from vendoo_studio.services.browser_direct import direct_fill as run_direct_fill
-    from vendoo_studio.services.listing_provider import get_listing_provider
-
-    job = _job(db, job_id)
-    if job.status in ACTIVE_JOB_STATUSES:
-        raise HTTPException(409, "Studio is already working on this draft. Wait for it to finish.")
-    if not extension_manager.connected:
-        raise HTTPException(400, "Connect Chrome to fill the Vendoo draft.")
-    provider = get_listing_provider()
-    if provider is None:
-        raise HTTPException(400, "Sign in with ChatGPT in Settings, or add a MiMo API key.")
-    targets = [target.model_dump() for target in body.targets]
-    return await run_direct_fill(db, job, provider, targets, body.note)

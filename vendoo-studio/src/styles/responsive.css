@@ -351,6 +351,10 @@
   }
 
   .app-content.mobile-pane-browser .listing-workspace,
+  .browser-go-chat {
+    display: inline-flex;
+  }
+
   .app-content.mobile-pane-browser .browser-preview.is-open {
     display: flex;
     flex: 1;

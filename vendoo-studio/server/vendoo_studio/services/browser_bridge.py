@@ -7,6 +7,7 @@ Studio shows a Vendoo draft tab as a live frame. These helpers send
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from typing import Any
 
@@ -72,7 +73,22 @@ async def close_session(job) -> dict:
     return await request(job, "browser.close", timeout=READ_TIMEOUT_SEC)
 
 
+_TAKEOVER_MOUSE = frozenset({"mousePressed", "mouseWheel"})
+_last_human_input: dict[str, float] = {}
+
+
+def _is_takeover(event: dict) -> bool:
+    # Hovering over the pane is not taking control; pressing, scrolling, or typing is.
+    return event.get("kind") in {"key", "text"} or event.get("type") in _TAKEOVER_MOUSE
+
+
+def human_input_since(job_id: str, since: float) -> bool:
+    return _last_human_input.get(job_id, 0.0) > since
+
+
 async def send_input(job, events: list[dict]) -> bool:
+    if any(_is_takeover(event) for event in events):
+        _last_human_input[job.id] = time.monotonic()
     manager = _manager()
     if not manager.connected:
         return False

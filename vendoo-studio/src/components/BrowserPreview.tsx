@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BrowserField, BrowserInputEvent, BrowserRect, BrowserViewport } from "../api/client";
 import { addToast } from "../ui/toast";
@@ -43,7 +42,10 @@ interface Props {
   /** Studio is typing into the draft right now. Input and annotation wait. */
   automationRunning?: boolean;
   onClose?: () => void;
-  onAskChat?: (text: string) => void;
+  /** Fields the seller pointed at; they ride along with the next chat message. */
+  selected: BrowserField[];
+  onSelectedChange: (fields: BrowserField[]) => void;
+  onGoToChat?: () => void;
 }
 
 const TOOLS: { id: Tool; label: string; title: string }[] = [
@@ -111,15 +113,6 @@ function intersects(
   return a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
 }
 
-function askChatText(fields: BrowserField[], note: string): string {
-  const lines = fields.map((field) => {
-    const options = field.options.length ? ` Options: ${field.options.slice(0, 20).join(", ")}.` : "";
-    return `- ${marketLabel(field.marketplace)} / ${field.label} (now: ${field.value || "empty"}).${options}`;
-  });
-  const head = note.trim() || "Fill these Vendoo fields.";
-  return `${head}\n\nFields I pointed at in the Vendoo browser:\n${lines.join("\n")}`;
-}
-
 function markPath(points: Point[]): string {
   return points.map((point, index) => `${index ? "L" : "M"}${point.x} ${point.y}`).join(" ");
 }
@@ -135,9 +128,10 @@ export function BrowserPreview({
   interactive = false,
   automationRunning = false,
   onClose,
-  onAskChat,
+  selected,
+  onSelectedChange,
+  onGoToChat,
 }: Props) {
-  const queryClient = useQueryClient();
   const [frame, setFrame] = useState<PreviewFrame | null>(null);
   const [live, setLive] = useState(false);
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
@@ -146,11 +140,9 @@ export function BrowserPreview({
   const [showMissed, setShowMissed] = useState(false);
   const [fields, setFields] = useState<BrowserField[]>([]);
   const [fieldsViewport, setFieldsViewport] = useState<BrowserViewport | null>(null);
-  const [selected, setSelected] = useState<BrowserField[]>([]);
   const [hovered, setHovered] = useState<string | null>(null);
   const [marks, setMarks] = useState<Mark[]>([]);
   const [drawing, setDrawing] = useState<Mark | null>(null);
-  const [note, setNote] = useState("");
 
   const stageRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -164,6 +156,9 @@ export function BrowserPreview({
   const markSeq = useRef(0);
   // Input must reach Chrome in order; parallel requests reorder keystrokes.
   const inputChain = useRef<Promise<unknown>>(Promise.resolve());
+
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
 
   const controlsEnabled = interactive && !automationRunning && Boolean(jobId);
   const annotating = tool !== "interact";
@@ -221,13 +216,16 @@ export function BrowserPreview({
       setFields(result.fields || []);
       setFieldsViewport(result.viewport || null);
       const byId = new Map((result.fields || []).map((field) => [fieldId(field), field]));
-      setSelected((current) => current.map((field) => byId.get(fieldId(field)) || field));
+      const current = selectedRef.current;
+      if (current.some((field) => byId.has(fieldId(field)))) {
+        onSelectedChange(current.map((field) => byId.get(fieldId(field)) || field));
+      }
     } catch {
       /* the next refresh retries; picks still work without a snapshot */
     } finally {
       snapshotInFlight.current = false;
     }
-  }, [jobId, controlsEnabled]);
+  }, [jobId, controlsEnabled, onSelectedChange]);
 
   const settleSnapshot = useCallback(() => {
     if (!annotating && !showMissed) return;
@@ -251,11 +249,14 @@ export function BrowserPreview({
   }, []);
 
   useEffect(() => {
-    setSelected([]);
     setMarks([]);
     setFields([]);
-    setNote("");
   }, [jobId]);
+
+  useEffect(() => {
+    // Sending the chat message consumes the picks; drop the drawings with them.
+    if (!selected.length) setMarks([]);
+  }, [selected.length]);
 
   const flushInput = useCallback(() => {
     if (flushTimer.current) {
@@ -351,20 +352,20 @@ export function BrowserPreview({
   const addFields = useCallback((incoming: BrowserField[]) => {
     const usable = incoming.filter((field) => field.label && !field.disabled);
     if (!usable.length) return 0;
-    setSelected((current) => {
-      const ids = new Set(current.map(fieldId));
-      return [...current, ...usable.filter((field) => !ids.has(fieldId(field)))];
-    });
+    const current = selectedRef.current;
+    const ids = new Set(current.map(fieldId));
+    onSelectedChange([...current, ...usable.filter((field) => !ids.has(fieldId(field)))]);
     return usable.length;
-  }, []);
+  }, [onSelectedChange]);
 
   const toggleField = useCallback((field: BrowserField) => {
-    setSelected((current) => (
+    const current = selectedRef.current;
+    onSelectedChange(
       current.some((item) => fieldId(item) === fieldId(field))
         ? current.filter((item) => fieldId(item) !== fieldId(field))
-        : [...current, field]
-    ));
-  }, []);
+        : [...current, field],
+    );
+  }, [onSelectedChange]);
 
   const pickAt = useCallback(async (point: Point) => {
     if (!jobId) return;
@@ -503,42 +504,6 @@ export function BrowserPreview({
     queueInput({ kind: "key", type: "up", key: event.key, code: event.code, modifiers: modifierMask(event) }, { immediate: true });
     settleSnapshot();
   };
-
-  const directFill = useMutation({
-    mutationFn: () => api.jobs.browser.direct(
-      jobId!,
-      note,
-      selected.map((field) => ({
-        marketplace: field.marketplace,
-        field: field.label,
-        value: field.value,
-        selector: field.selector,
-        options: field.options,
-        account_managed: field.account_managed,
-      })),
-    ),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["messages"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["listing"] });
-      if (!result.ok) {
-        addToast({ type: "error", title: "Nothing to fill", description: result.error || "No new values for those fields." });
-        return;
-      }
-      addToast({
-        type: "success",
-        title: `Filling ${result.patches.length} field${result.patches.length === 1 ? "" : "s"} on Vendoo`,
-        description: "Watch the draft here. Nothing is published.",
-      });
-      setSelected([]);
-      setMarks([]);
-      setNote("");
-      setTool("interact");
-    },
-    onError: (err: Error) => {
-      addToast({ type: "error", title: "Could not fill those fields", description: err.message });
-    },
-  });
 
   const url = frame?.url || "";
   const label = step || frame?.step || status || "idle";
@@ -721,7 +686,7 @@ export function BrowserPreview({
           <div className="browser-chips">
             {selected.length === 0 ? (
               <span className="text-xs text-muted">
-                {tool === "pick" ? "Click fields to point Studio at them." : "Draw around the fields you want filled."}
+                {tool === "pick" ? "Click fields to point Studio at them." : "Draw around the fields you want fixed."}
               </span>
             ) : selected.map((field) => (
               <span key={fieldId(field)} className={`browser-chip${field.account_managed ? " is-muted" : ""}`} title={field.value || "empty"}>
@@ -733,45 +698,19 @@ export function BrowserPreview({
               </span>
             ))}
           </div>
-          <div className="browser-composer-row">
-            <textarea
-              className="browser-note"
-              rows={1}
-              placeholder="Tell Studio what these fields should say (optional)"
-              value={note}
-              maxLength={2000}
-              onChange={(event) => setNote(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && selected.length && !directFill.isPending) {
-                  event.preventDefault();
-                  directFill.mutate();
-                }
-              }}
-            />
-            {onAskChat && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={!selected.length}
-                onClick={() => {
-                  onAskChat(askChatText(selected, note));
-                  setSelected([]);
-                  setMarks([]);
-                  setNote("");
-                }}
-              >
-                Ask chat
+          {selected.length > 0 && (
+            <div className="browser-composer-row">
+              <span className="browser-composer-hint">Tell Studio what to fix in chat. These fields go with your message.</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => onSelectedChange([])}>
+                Clear
               </button>
-            )}
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={!selected.length || directFill.isPending || automationRunning}
-              onClick={() => directFill.mutate()}
-            >
-              {directFill.isPending ? "Thinking…" : "Fill on Vendoo"}
-            </button>
-          </div>
+              {onGoToChat && (
+                <button type="button" className="btn btn-primary btn-sm browser-go-chat" onClick={onGoToChat}>
+                  Write in chat
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </section>
