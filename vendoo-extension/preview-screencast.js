@@ -2,7 +2,8 @@ const PREVIEW_PROTOCOL = '1.3';
 const PREVIEW_MIN_INTERVAL_MS = 250;
 const PREVIEW_MAX_WIDTH = 1024;
 const PREVIEW_MAX_HEIGHT = 720;
-const PREVIEW_QUALITY = 50;
+// Frames go over a local WebSocket, so favor a crisp picture over bandwidth.
+const PREVIEW_QUALITY = 85;
 const PREVIEW_POLL_MS = 400;
 const PREVIEW_WATCHDOG_MS = 800;
 
@@ -428,10 +429,12 @@ async function openEverydayListingTab(url, existing, { foreground = false } = {}
     }
     await closeSpareBlankTabs(created.id, tab.id);
     await closeEmptyEngineWindows(created.id);
-    // Always bring a freshly created engine window on-screen. Callers that want
-    // background fills can hide afterward; never create an invisible first window.
-    await showWindow(created.id);
-    if (!foreground) await hideWindow(created.id);
+    // Keep a freshly created engine window on-screen (Chrome stops painting
+    // minimized or off-screen windows, which freezes the live view and the
+    // fill). Only focus it when the caller asked for the foreground; otherwise
+    // it stays behind Studio so the seller keeps working.
+    if (foreground) await showWindow(created.id);
+    else await hideWindow(created.id);
     return tab;
   } catch (err) {
     log(`Could not open listing in a new window (${err.message})`);

@@ -2,9 +2,10 @@
 
 async function openVendooListing(job) {
   try {
-    // Field discovery during generate should be visible so mobile/Browser preview
-    // and the Mac user can see Chrome working. Background Send fills stay unfocused.
-    const foreground = job.options?.mode === 'schema_probe';
+    // Every run (Send fills and field discovery alike) stays in the background
+    // engine window. Studio shows the tab as a live frame, so Chrome never
+    // needs to take the foreground away from the seller.
+    const foreground = false;
     const reuseId = durableItemId(job.vendoo_item_id || job.options?.vendoo_item_id);
     const reuseUrl = job.vendoo_url || job.options?.vendoo_url || (reuseId
       ? `https://web.vendoo.co/app/item/${reuseId}`

@@ -42,6 +42,9 @@ interface Props {
   /** Studio is typing into the draft right now. Input and annotation wait. */
   automationRunning?: boolean;
   onClose?: () => void;
+  /** The pane fills the whole workspace instead of sharing it with chat. */
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
   /** Fields the seller pointed at; they ride along with the next chat message. */
   selected: BrowserField[];
   onSelectedChange: (fields: BrowserField[]) => void;
@@ -128,6 +131,8 @@ export function BrowserPreview({
   interactive = false,
   automationRunning = false,
   onClose,
+  expanded = false,
+  onToggleExpanded,
   selected,
   onSelectedChange,
   onGoToChat,
@@ -541,6 +546,17 @@ export function BrowserPreview({
               disabled={cancelling}
             >
               {cancelling ? "Cancelling…" : "Cancel"}
+            </button>
+          )}
+          {onToggleExpanded && (
+            <button
+              type="button"
+              className="browser-preview-cancel"
+              onClick={onToggleExpanded}
+              aria-pressed={expanded}
+              title={expanded ? "Share the workspace with chat again" : "Give the browser the whole workspace"}
+            >
+              {expanded ? "Shrink" : "Expand"}
             </button>
           )}
           {interactive && onClose && (
