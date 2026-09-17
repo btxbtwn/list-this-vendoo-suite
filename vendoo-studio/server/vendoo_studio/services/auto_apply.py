@@ -18,7 +18,7 @@ from vendoo_studio.services.fill_log import (
     listing_value_for_field,
     normalize_field_label,
 )
-from vendoo_studio.services.registry import SELLER_SETTING_LABELS
+from vendoo_studio.services.registry import SELLER_SETTING_LABELS, is_account_managed_field
 
 log = logging.getLogger(__name__)
 
@@ -177,11 +177,13 @@ def _field_labels(listing: dict[str, Any] | None) -> dict[str, str]:
     return out
 
 
-def _should_skip_field(label: str) -> bool:
+def _should_skip_field(marketplace: str, label: str) -> bool:
     key = field_lookup_key(label)
     if key in UNFILLABLE_FIELDS:
         return True
-    return key in SELLER_SETTING_LABELS
+    if key in SELLER_SETTING_LABELS:
+        return True
+    return is_account_managed_field(marketplace, label)
 
 
 def _selector_map(report: dict) -> dict[tuple[str, str], str]:
@@ -210,7 +212,7 @@ def build_apply_patches(
     seen: set[tuple[str, str]] = set()
 
     def add_patch(marketplace: str, label: str) -> None:
-        if _should_skip_field(label):
+        if _should_skip_field(marketplace, label):
             return
         lookup = normalize_field_label(label)
         key = (marketplace, lookup)

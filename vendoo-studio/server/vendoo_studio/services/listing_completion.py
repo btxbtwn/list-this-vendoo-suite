@@ -21,7 +21,7 @@ from vendoo_studio.services.fill_log import (
     write_values_into_listing,
 )
 from vendoo_studio.services.listing_provider import get_listing_provider
-from vendoo_studio.services.registry import SELLER_SETTING_LABELS
+from vendoo_studio.services.registry import SELLER_SETTING_LABELS, is_account_managed_field
 
 log = logging.getLogger(__name__)
 # One leftover fill after Send's end-of-job verify — more rounds just re-walk every form.
@@ -526,6 +526,14 @@ def field_id(field: dict) -> tuple[str, str]:
     return str(field.get("marketplace") or "general"), field_lookup_key(field.get("field") or field.get("label") or "")
 
 
+def field_out_of_scope(marketplace: str, label: str) -> bool:
+    """Seller/account rows the automation never reads back: settings, shipping, policies."""
+    return (
+        field_lookup_key(label) in SELLER_SETTING_LABELS
+        or is_account_managed_field(marketplace, label)
+    )
+
+
 def is_shipping_estimate_field(label: str) -> bool:
     key = field_lookup_key(label)
     return key in {
@@ -559,6 +567,72 @@ def values_equal(observed, expected: str) -> bool:
         return float(observed) == float(expected)
     except (TypeError, ValueError):
         return False
+
+
+# Neither form accepts a free-text brand. Depop offers an "Other" option; Mercari
+# has no brand value at all — it has a "No Brand/Not sure" checkbox.
+DEPOP_BRAND_FALLBACK = "Other"
+MERCARI_NO_BRAND_LABEL = "No Brand/Not sure"
+BRAND_FALLBACKS = {"depop": DEPOP_BRAND_FALLBACK, "mercari": MERCARI_NO_BRAND_LABEL}
+
+
+def brand_fallback_for(marketplace: str) -> str:
+    """The value that stands in for a brand this marketplace does not list."""
+    return BRAND_FALLBACKS.get(str(marketplace or "").strip().lower(), "")
+
+
+def brand_is_offered(field: dict, brand: str) -> bool:
+    """True only when a captured option list proves the marketplace carries this brand."""
+    text = str(brand or "").strip()
+    if not text:
+        return False
+    labels = _option_labels(field)
+    if not field.get("options_complete") or not labels:
+        return False
+    return any(values_equal(label, text) for label in labels)
+
+
+def brand_missing_from_options(field: dict, brand: str) -> bool:
+    """True when there is no brand, or a captured list proves the marketplace lacks it."""
+    text = str(brand or "").strip()
+    if not text:
+        return True
+    labels = _option_labels(field)
+    if not field.get("options_complete") or not labels:
+        return False
+    return not brand_is_offered(field, text)
+
+
+def _mercari_no_brand_checked(fields: list[dict] | None) -> bool:
+    for field in fields or []:
+        if field_lookup_key(str(field.get("label") or field.get("field") or "")) != "no brand not sure":
+            continue
+        value = field.get("value")
+        if isinstance(value, str):
+            return value.strip().casefold() in {"true", "yes", "on", "checked", "1"}
+        return bool(value)
+    return False
+
+
+def brand_fallback_in_place(
+    marketplace: str,
+    field: dict,
+    observed,
+    expected: str,
+    section_fields: list[dict] | None,
+) -> bool:
+    """True when the draft already shows this marketplace's no-brand answer."""
+    label = str(field.get("label") or field.get("field") or "")
+    if field_lookup_key(label) != "brand" or not brand_fallback_for(marketplace):
+        return False
+    if str(field.get("error") or "").strip().casefold() not in {"", "saved value differs"}:
+        return False
+    if brand_is_offered(field, expected):
+        return False
+    if str(marketplace).strip().lower() == "depop":
+        return values_equal(observed, DEPOP_BRAND_FALLBACK)
+    empty = observed is None or observed == "" or observed == []
+    return empty and _mercari_no_brand_checked(section_fields)
 
 
 def _stringify_observed(observed) -> str:
@@ -751,6 +825,14 @@ def deterministic_gap_patches(
             if not value and lookup in DEPOP_OPTIONAL_DNA_LOOKUPS:
                 patch_value = DNA_VALUE
                 value = DNA_VALUE
+        # An unlisted brand is Depop "Other" / Mercari "No Brand/Not sure" — never a
+        # question for the model, which must not invent a brand anyway.
+        brand_fallback = ""
+        if field_lookup_key(field) == "brand" and brand_missing_from_options(gap, value):
+            brand_fallback = brand_fallback_for(marketplace)
+            if brand_fallback:
+                patch_value = brand_fallback
+                value = brand_fallback
         if not value:
             needs_model.append(gap)
             continue
@@ -765,7 +847,8 @@ def deterministic_gap_patches(
             str(option.get("label")) if isinstance(option, dict) else str(option)
             for option in options
         }
-        if gap.get("options_complete") and labels:
+        # Mercari's no-brand answer is a checkbox, so it is never in the brand options.
+        if gap.get("options_complete") and labels and not brand_fallback:
             check_values = patch_value if isinstance(patch_value, list) else [patch_value]
             if any(str(item) not in labels for item in check_values):
                 needs_model.append(gap)
@@ -820,7 +903,7 @@ def adopt_observed_draft_values(
     for marketplace, section in schema.items():
         for field in section.get("fields") or []:
             label = str(field.get("label") or "")
-            if not label or field_lookup_key(label) in SELLER_SETTING_LABELS:
+            if not label or field_out_of_scope(marketplace, label):
                 continue
             if field_lookup_key(label) == "category":
                 continue
@@ -858,7 +941,7 @@ def review_fields(verification: dict, listing: dict) -> list[dict]:
     for marketplace, section in schema.items():
         for field in section.get("fields") or []:
             label = str(field.get("label") or "")
-            if not label or field_lookup_key(label) in SELLER_SETTING_LABELS:
+            if not label or field_out_of_scope(marketplace, label):
                 continue
             observed = field.get("value")
             listing_expected = listing_value_for_field(listing, marketplace, label)
@@ -887,6 +970,10 @@ def review_fields(verification: dict, listing: dict) -> list[dict]:
                     and values_equal(browser_input, listing_expected)
                 ):
                     continue
+            # Depop "Other" / Mercari "No Brand/Not sure" are the answers for a brand
+            # the marketplace does not list — not a gap to fill again.
+            if brand_fallback_in_place(marketplace, field, observed, listing_expected, section.get("fields")):
+                continue
             # A browser comparison also handles chips, booleans and numeric formatting.
             if empty or error or matches_expected is False or (
                 matches_expected is None and compare_expected and not values_equal(observed, compare_expected)
@@ -1205,7 +1292,11 @@ async def complete_job(db: Session, job_id: str) -> None:
                 "Does Not Apply is allowed only for Graphic, Collar style, Holiday, Occasion, and Sustainability when they truly do not apply. "
                 "Always fill Clothing style, Sleeve length, Neckline, Closure, and Fabric pattern. "
                 "For Depop fields shown after Show Optional Fields: fill Source, Age, Style (3), Occasion (3), and Parcel Size. "
+                "Parcel Size must match the packaged weight: under 4oz Extra extra small, under 8oz Extra small, "
+                "under 12oz Small, under 1lb Medium, under 2lb Large, otherwise Extra large. "
                 "Omit Size Grouping for Regular sizing. Fill Material only from tag evidence. "
+                "Brand: when the item's brand is not one of the offered options, answer Other for Depop "
+                "and No Brand/Not sure for Mercari — never substitute a different brand. "
                 "Across every marketplace: fill every applicable optional/item-specific field; Does Not Apply only when it literally does not apply. "
                 "Infer supportable product facts from photo analysis and seller notes only. "
                 "Do not invent garment measurements, material, age, origin, brand, or other product facts beyond that evidence. "

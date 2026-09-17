@@ -557,6 +557,8 @@ Reply with JSON in this exact shape:
 
 Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
 
+When the item's brand is not offered by a marketplace, answer "Other" for Depop and "No Brand/Not sure" for Mercari — never substitute a different brand.
+
 Empty fields:
 ${lines.join("\n")}`;
 }
@@ -627,6 +629,8 @@ Reply with JSON in this exact shape:
 \`\`\`
 
 Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
+
+When the item's brand is not offered by a marketplace, answer "Other" for Depop and "No Brand/Not sure" for Mercari — never substitute a different brand.
 
 Fields:
 ${lines.join("\n") || "- (none)"}`;

@@ -247,7 +247,7 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertIn("depop_specifics.style", fields)
         self.assertIn("depop_specifics.material", fields)
         self.assertIn("depop_specifics.occasion", fields)
-        self.assertIn("depop_specifics.parcelSize", fields)
+        # parcelSize is not listed: the packaged weight overwrites whatever the model picked.
         self.assertIn("depop_specifics.sizeGrouping", fields)
         self.assertIn("etsy_specifics.who_made", fields)
         self.assertIn("etsy_specifics.tags", fields)
@@ -353,7 +353,9 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertTrue(normalize_listing_dropdowns(listing))
         self.assertEqual(listing["ebay_specifics"]["sizeType"], "Regular")
         self.assertNotIn("sizetype", listing["ebay_specifics"])
-        self.assertEqual(listing["depop_specifics"]["parcelSize"], "Medium")
+        # 8 oz packaged — the weight picks the tier, not the stored value.
+        self.assertEqual(listing["depop_specifics"]["parcelSize"], "Small")
+        self.assertNotIn("parcel_size", listing["depop_specifics"])
         result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
         self.assertFalse(
             [err for err in result.errors if err["field"] == "ebay_specifics.sizeType"],
@@ -570,6 +572,38 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertTrue(result.can_send, result.errors)
         self.assertEqual(listing["depop_specifics"]["parcelSize"], "Small")
         self.assertFalse(any(error["field"] == "depop_specifics.parcelSize" for error in result.errors))
+
+    def test_depop_parcel_size_follows_the_packaged_weight(self):
+        import copy
+
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        for weight_lb, weight_oz, expected in (
+            (0, 3, "Extra extra small"),
+            (0, 8, "Small"),
+            (1, 0, "Large"),
+            (3, 0, "Extra large"),
+        ):
+            with self.subTest(weight=(weight_lb, weight_oz)):
+                listing = copy.deepcopy(VALID_LISTING)
+                listing["weight_lb"] = weight_lb
+                listing["weight_oz"] = weight_oz
+                # Whatever tier the model picked, the weight decides the Depop price band.
+                listing["depop_specifics"]["parcelSize"] = "Medium"
+                normalize_listing_dropdowns(listing)
+                self.assertEqual(listing["depop_specifics"]["parcelSize"], expected)
+
+    def test_depop_parcel_size_keeps_its_value_without_a_weight(self):
+        import copy
+
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = copy.deepcopy(VALID_LISTING)
+        listing["weight_lb"] = 0
+        listing["weight_oz"] = 0
+        listing["depop_specifics"]["parcelSize"] = "Large"
+        normalize_listing_dropdowns(listing)
+        self.assertEqual(listing["depop_specifics"]["parcelSize"], "Large")
 
     def test_legacy_etsy_when_made_aliases_match_current_dropdown(self):
         listing = dict(VALID_LISTING)

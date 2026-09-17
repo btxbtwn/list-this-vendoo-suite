@@ -99,6 +99,7 @@ const marketplaceFieldNode = (el) => el;
 const fieldLabelForControl = el => el.id.includes('brand') ? 'Brand' : 'Department';
 const scrapedFieldLabel = fieldLabelForControl;
 const normalizeFieldKey = value => value.toLowerCase(), isAccountSettingField = () => false;
+const isAccountManagedField = () => false;
 const readPersistedControlValue = () => '', isMultiChipField = () => false;
 const selectorFor = el => '#' + el.id, isDropdownLike = () => false;
 const displayedFieldValue = () => '';
@@ -194,6 +195,7 @@ const isVisibleElement = () => true, isEnabledField = () => true;
 const marketplaceFieldNode = () => true, fieldLabelForControl = el => el.id;
 const scrapedFieldLabel = fieldLabelForControl;
 const normalizeFieldKey = value => value, isAccountSettingField = () => false;
+const isAccountManagedField = () => false;
 const readPersistedControlValue = el => el.value, isMultiChipField = () => false;
 const selectorFor = el => '#' + el.id, isDropdownLike = () => true;
 const displayedFieldValue = el => el.value;
@@ -212,6 +214,38 @@ const MAX_OPTION_CAPTURES_PER_PLATFORM = 12;
         self.assertEqual(native["value"], "Cotton")
         self.assertEqual(live["options"], ["Casual"])
         self.assertFalse(live["options_complete"])
+
+    def test_shipping_and_policy_rows_are_account_managed_off_depop_and_mercari(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[source.index("  const ITEM_SHIPPING_MARKETPLACES"):source.index("  function normalizeFieldKey")]
+        script = """
+const normalizeFieldKey = value => String(value).replace(/[^\\w\\s]+/g, ' ')
+  .replace(/\\s+/g, ' ').trim().toLowerCase();
+""" + function + """
+console.log(JSON.stringify({
+  etsyShipping: isAccountManagedField('etsy', 'Shipping Profile'),
+  etsyProcessing: isAccountManagedField('etsy', 'Processing Time'),
+  ebayReturns: isAccountManagedField('ebay', 'Return Policy'),
+  poshmarkShipping: isAccountManagedField('poshmark', 'Discounted Shipping'),
+  depopParcel: isAccountManagedField('depop', 'Parcel Size'),
+  mercariLabel: isAccountManagedField('mercari', 'Shipping Label'),
+  mercariReturns: isAccountManagedField('mercari', 'Return Policy'),
+  ebayColor: isAccountManagedField('ebay', 'Primary Color'),
+  generalWeight: isAccountManagedField('general', 'Weight (lbs)'),
+}));
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertTrue(result["etsyShipping"])
+        self.assertTrue(result["etsyProcessing"])
+        self.assertTrue(result["ebayReturns"])
+        self.assertTrue(result["poshmarkShipping"])
+        self.assertFalse(result["depopParcel"])
+        self.assertFalse(result["mercariLabel"])
+        # Policies are fixed everywhere, including the two per-item shipping forms.
+        self.assertTrue(result["mercariReturns"])
+        self.assertFalse(result["ebayColor"])
+        # Depop's parcel tier is derived from the general weight, so it stays fillable.
+        self.assertFalse(result["generalWeight"])
 
     def test_boolean_repair_clicks_only_when_value_changes(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()

@@ -203,6 +203,8 @@ FINALIZE_GAPS_PROMPT = (
     "Sustainability when they truly do not apply; always fill Clothing style, Sleeve length, Neckline, "
     "Closure, and Fabric pattern.\n"
     "For Depop Show Optional Fields: fill Source, Age, Style (3), Occasion (3), and Parcel Size. "
+    "Parcel Size must match the packaged weight: under 4oz Extra extra small, under 8oz Extra small, "
+    "under 12oz Small, under 1lb Medium, under 2lb Large, otherwise Extra large. "
     "Omit Size Grouping for Regular sizing; fill Material only from tag evidence.\n"
     "Across every marketplace: fill every applicable optional/item-specific field. Use Does Not Apply "
     "only when the attribute literally does not apply.\n\n"
@@ -396,7 +398,10 @@ def propagate_general_size(listing: dict) -> bool:
 
 def apply_send_readiness_fixes(listing: dict) -> bool:
     """Deterministic fixes so generated listings clear common Send blockers."""
-    from vendoo_studio.models.validation import normalize_listing_dropdowns
+    from vendoo_studio.models.validation import (
+        ensure_depop_category_optionals,
+        normalize_listing_dropdowns,
+    )
 
     if not isinstance(listing, dict):
         return False
@@ -411,6 +416,8 @@ def apply_send_readiness_fixes(listing: dict) -> bool:
     if "weight_lb" not in listing and "weight_oz" not in listing:
         listing["weight_lb"] = 0
         listing["weight_oz"] = 10
+        # Depop's parcel tier is priced by weight, so re-derive it from the default.
+        ensure_depop_category_optionals(listing)
         changed = True
     return changed
 

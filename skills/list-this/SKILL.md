@@ -380,6 +380,7 @@ Before outputting ANY listing, verify:
 - Brand must be a Depop list brand (not a free-text Vendoo brand)
 - Maximum 5 tags
 - Parcel size must be an exact current Depop dropdown value: Extra extra small, Extra small, Small, Medium, Large, Extra large
+- Parcel size must match the packaged weight you estimated: under 4oz Extra extra small, under 8oz Extra small, under 12oz Small, under 1lb Medium, under 2lb Large, otherwise Extra large
 
 **Mercari:**
 - Condition is required and uses Mercari labels (see `vendoo-dropdown-options.md`)

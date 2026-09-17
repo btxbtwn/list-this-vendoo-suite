@@ -50,6 +50,9 @@
     materialButton: 'button[data-testid="material-button"], [data-testid="material-selector"]'
   };
 
+  // Depop's stand-in when the item's brand is not on their list
+  const BRAND_FALLBACK = 'Other';
+
   // Depop condition options
   const CONDITION_MAP = {
     'new': 'Brand new',
@@ -113,6 +116,49 @@
       console.log(`[${PLATFORM}] Option not found: ${optionText}`);
     }, 300);
 
+    return true;
+  }
+
+  // Depop has no free-text brand field: a brand that is not on their list must
+  // fall back to the "Other" option.
+  function selectBrand(brand) {
+    const input = document.querySelector(SELECTORS.brandSearch);
+    if (!input) {
+      console.log(`[${PLATFORM}] Brand input not found`);
+      return false;
+    }
+
+    const search = (term, onMissing) => {
+      input.focus();
+      input.value = term;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+
+      setTimeout(() => {
+        const options = [...document.querySelectorAll('[role="option"], [data-testid*="option"]')];
+        const wanted = term.toLowerCase();
+        const match = options.find(opt => opt.textContent.trim().toLowerCase() === wanted)
+          || options.find(opt => opt.textContent.toLowerCase().includes(wanted));
+        if (match) {
+          match.click();
+          console.log(`[${PLATFORM}] Selected brand: ${match.textContent.trim()}`);
+          return;
+        }
+        onMissing();
+      }, 400);
+    };
+
+    const selectOther = () => search(BRAND_FALLBACK, () => {
+      console.log(`[${PLATFORM}] Brand option "${BRAND_FALLBACK}" not found`);
+    });
+
+    if (!brand) {
+      selectOther();
+      return true;
+    }
+    search(brand, () => {
+      console.log(`[${PLATFORM}] Brand "${brand}" is not on Depop's list. Using ${BRAND_FALLBACK}.`);
+      selectOther();
+    });
     return true;
   }
 
@@ -201,8 +247,8 @@
       // Price
       fillField(SELECTORS.price, data.price?.toString());
 
-      // Brand
-      fillField(SELECTORS.brandSearch, data.brand);
+      // Brand (falls back to Other when the brand is not on Depop's list)
+      selectBrand(data.brand);
 
       // Condition
       if (data.condition) {

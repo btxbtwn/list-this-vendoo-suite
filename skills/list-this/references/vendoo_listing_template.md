@@ -240,8 +240,6 @@ Depop: No title field → use Universal Description only
     "materials": ["Cotton"],
     "tags": ["vintage", "racing", "nhra", "graphic tee", "streetwear"],
     "renewalOption": "Automatic",
-    "processingTime": "1-2 business days",
-    "shippingTemplate": "Standard Shipping",
     "category_specifics": {
       "clothingStyle": "Streetwear",
       "sleeveLength": "Short sleeve",
@@ -253,7 +251,6 @@ Depop: No title field → use Universal Description only
   
   "poshmark_specifics": {
     "originalPrice": 0,
-    "discountShipping": "",
     "smartPricing": false,
     "smartPricingMin": "",
     "costPrice": 5.00,
@@ -327,20 +324,21 @@ All eBay Item Specifics fields. Use Appendix values.
 - `section`: Shop section
 - `materials`: Array of materials
 - `tags`: Up to 13 tags
-- `renewalOption`, `processingTime`, `shippingTemplate`
+- `renewalOption`
+- Shipping profile, processing time, and return policy are account-level Etsy settings — leave them out
 - `category_specifics`: T-shirt optional fields after Show Optional Fields. Use live Etsy dropdown values from `vendoo-dropdown-options.json` (`clothingStyle`, `sleeveLength`, `neckline`, `closure`, `graphic`, `fabricPattern`). Fill every applicable row. Use Does Not Apply only for `graphic` / `collarStyle` / `occasion` / `holiday` / `sustainability` when they literally do not apply.
 
 **Poshmark Specifics:**
 - `originalPrice`: MSRP for comparison
-- `discountShipping`: Shipping discount option
 - `smartPricing`: Enable smart pricing (true/false)
+- Shipping discount and return policy are account-level Poshmark settings — leave them out
 
 **Depop Specifics:**
 - `source`: Preloved, Vintage, Deadstock, etc.
 - `age`: Modern, Vintage, Y2K, 90s, etc.
 - `style`: Array of 3 styles
 - `occasion`: Array of 3 occasions
-- `parcelSize`: Exact Depop dropdown value (`Extra extra small`, `Extra small`, `Small`, `Medium`, `Large`, `Extra large`). Do not include weight or price notes.
+- `parcelSize`: Exact Depop dropdown value (`Extra extra small`, `Extra small`, `Small`, `Medium`, `Large`, `Extra large`). Do not include weight or price notes. Pick the tier that matches `weight_lb`/`weight_oz`: under 4oz Extra extra small, under 8oz Extra small, under 12oz Small, under 1lb Medium, under 2lb Large, otherwise Extra large.
 
 # **APPENDIX: ALLOWED VALUES REFERENCES (Do not copy into outputs)**
 
