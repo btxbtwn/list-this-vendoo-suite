@@ -64,7 +64,7 @@ Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TO
 
 ## Verification
 
-CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `main`. Run the same commands locally for the paths you touched.
+CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `main` or `staging`. Run the same commands locally for the paths you touched.
 
 - **Studio frontend:** `cd vendoo-studio && npm ci && npm run lint && npm test && npm run build`
 - **Studio backend:** `cd vendoo-studio && ruff check server && python -m pytest -q -n auto` (install with `pip install -e ".[dev]"`)
@@ -72,7 +72,7 @@ CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `ma
 - **Skills:** Confirm `skills/list-this/SKILL.md` exists and `python -m json.tool skills/list-this/references/vendoo-dropdown-options.json` succeeds.
 - **Secrets:** Do not track `.env`, key files, photos, or private exports. CI scans the working tree with gitleaks.
 
-**Pull requests:** After creating or updating a PR, always check CI (`gh pr checks`) and fix failures before considering the work done. Do not stop while required checks are pending or red.
+**Pull requests:** Target `staging` unless told otherwise; `main` only receives `staging` promotions and hotfixes. After creating or updating a PR, always check CI (`gh pr checks`) and fix failures before considering the work done. Do not stop while required checks are pending or red.
 
 ## Security and Product Invariants
 

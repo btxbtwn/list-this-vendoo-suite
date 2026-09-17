@@ -2,7 +2,7 @@ name: Studio macOS
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
     paths:
       - "vendoo-studio/**"
       - "vendoo-extension/**"
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: studio-macos
+  group: studio-macos-${{ github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -36,6 +36,7 @@ jobs:
         working-directory: vendoo-studio
         env:
           PYTHON: ${{ github.workspace }}/vendoo-studio/.venv/bin/python
+          VENDOO_STUDIO_CHANNEL: ${{ github.ref_name == 'staging' && 'staging' || 'production' }}
         run: |
           python -m venv .venv
           "$PYTHON" -m pip install -U pip

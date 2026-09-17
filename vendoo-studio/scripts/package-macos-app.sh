@@ -5,7 +5,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$(cd "$ROOT/.." && pwd)"
 PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 RELEASE="$ROOT/release"
-APP="$RELEASE/List This Studio.app"
+CHANNEL="${VENDOO_STUDIO_CHANNEL:-production}"
+case "$CHANNEL" in
+  production) APP_NAME="List This Studio" ;;
+  staging) APP_NAME="List This Studio Staging" ;;
+  *) echo "VENDOO_STUDIO_CHANNEL must be production or staging." >&2; exit 1 ;;
+esac
+APP="$RELEASE/$APP_NAME.app"
 ZIP="$RELEASE/List-This-Studio-macos.zip"
 
 if [[ ! -x "$PYTHON" ]]; then
@@ -33,7 +39,7 @@ fi
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 SHORT="$(git -C "$REPO" rev-parse --short HEAD)"
 REF="$(git -C "$REPO" rev-parse --abbrev-ref HEAD)"
-"$PYTHON" - "$ROOT/desktop/build_info.json" "$SHA" "$SHORT" "$REF" <<'PY'
+"$PYTHON" - "$ROOT/desktop/build_info.json" "$SHA" "$SHORT" "$REF" "$CHANNEL" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -44,6 +50,7 @@ path.write_text(json.dumps({
     "sha": sys.argv[2],
     "short_sha": sys.argv[3],
     "ref": sys.argv[4],
+    "channel": sys.argv[5],
 }, indent=2) + "\n", encoding="utf-8")
 print(path)
 PY
@@ -82,8 +89,8 @@ fi
 PAYLOAD="$RELEASE/payload"
 rm -rf "$PAYLOAD" "$ZIP"
 mkdir -p "$PAYLOAD"
-ditto "$APP" "$PAYLOAD/List This Studio.app"
-cp "$ROOT/desktop/HowToOpen.txt" "$PAYLOAD/How to Open.txt"
+ditto "$APP" "$PAYLOAD/$APP_NAME.app"
+sed "s/List This Studio/$APP_NAME/g" "$ROOT/desktop/HowToOpen.txt" >"$PAYLOAD/How to Open.txt"
 (
   cd "$PAYLOAD"
   ditto -c -k . "$ZIP"
@@ -101,5 +108,5 @@ cp "$ROOT/desktop/build_info.json" "$RELEASE/build_info.json"
 echo "Built $APP"
 echo "Share $ZIP"
 echo "Publish with: $ROOT/scripts/publish-macos-release.sh"
-echo "Recipients: unzip, read How to Open.txt, move List This Studio.app to Applications."
+echo "Recipients: unzip, read How to Open.txt, move $APP_NAME.app to Applications."
 echo "They need macOS 13+, Google Chrome, and a ChatGPT account or Xiaomi MiMo API key. Python is included; the frontend is prebuilt."

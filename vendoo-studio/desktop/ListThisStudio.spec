@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import json
 from pathlib import Path
 
 from PyInstaller.building.api import COLLECT, EXE, PYZ
@@ -11,6 +12,12 @@ STUDIO = SPECDIR.parent
 REPO = STUDIO.parent
 ICON = SPECDIR / "AppIcon.icns"
 BUILD_INFO = SPECDIR / "build_info.json"
+CHANNELS = {
+    "production": ("List This Studio", "local.listthis.studio"),
+    "staging": ("List This Studio Staging", "local.listthis.studio.staging"),
+}
+CHANNEL = json.loads(BUILD_INFO.read_text(encoding="utf-8")).get("channel", "production") if BUILD_INFO.is_file() else "production"
+APP_NAME, BUNDLE_ID = CHANNELS[CHANNEL]
 
 SKIP_PARTS = {
     ".git",
@@ -90,7 +97,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="List This Studio",
+    name=APP_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -104,16 +111,16 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="List This Studio",
+    name=APP_NAME,
 )
 app = BUNDLE(
     coll,
-    name="List This Studio.app",
+    name=f"{APP_NAME}.app",
     icon=str(ICON) if ICON.exists() else None,
-    bundle_identifier="local.listthis.studio",
+    bundle_identifier=BUNDLE_ID,
     info_plist={
-        "CFBundleName": "List This Studio",
-        "CFBundleDisplayName": "List This Studio",
+        "CFBundleName": APP_NAME,
+        "CFBundleDisplayName": APP_NAME,
         "CFBundleShortVersionString": "0.1.0",
         "CFBundleVersion": "0.1.0",
         "LSMinimumSystemVersion": "13.0",

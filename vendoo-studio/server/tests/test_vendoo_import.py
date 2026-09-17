@@ -269,7 +269,7 @@ class VendooImportRouteTest(unittest.TestCase):
             "form": VENDOO_FORM,
         })
 
-    @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
     def test_import_creates_conversation_and_listing(self, download):
         download.return_value = [{
             "original_filename": "a.jpg",
@@ -301,7 +301,7 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertIsNotNone(draft)
         self.assertTrue(draft.get("item") or draft.get("form"))
 
-    @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
     def test_import_same_item_updates_existing_conversation(self, download):
         download.return_value = []
         first = self._import()
@@ -317,7 +317,7 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertEqual(listing["title"], "Nike Air Tee Updated")
         self.assertEqual(len(ConversationRepo(self.db).list_all()), 1)
 
-    @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
     def test_photo_download_failure_still_imports(self, download):
         download.return_value = []
         response = self._import()
@@ -338,7 +338,7 @@ class VendooImportRouteTest(unittest.TestCase):
             response = self.client.post("/api/imports/vendoo", json={"item_id": item_id, "item": VENDOO_ITEM})
             self.assertEqual(response.status_code, 400, item_id)
 
-    @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
     def test_import_draft_available_without_chrome(self, download):
         download.return_value = []
         imported = self._import().json()
@@ -352,7 +352,7 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertTrue(body.get("item") or body.get("form"))
         self.assertEqual(body.get("item_id"), "abc123")
 
-    @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
     def test_create_job_copies_vendoo_binding(self, download):
         download.return_value = [{
             "original_filename": "a.jpg",
@@ -435,7 +435,7 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertEqual(approved.source, "normalized")
         self.assertEqual(approved.listing_json, job.listing_snapshot)
 
-    @patch("vendoo_studio.routes.imports.download_vendoo_photos", new_callable=AsyncMock)
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
     def test_create_job_rejects_imported_listing_without_photos(self, download):
         download.return_value = []
         imported = self._import().json()

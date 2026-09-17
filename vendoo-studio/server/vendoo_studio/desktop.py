@@ -15,29 +15,26 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from vendoo_studio import config
 from vendoo_studio.config import BASE_DIR, HOST, PORT, extension_source_dir, frontend_dist_dir, is_frozen
 
 CHANNELS = {
     "production": {
-        "app_name": "List This Studio",
-        "bundle_id": "local.listthis.studio",
+        **config.CHANNELS["production"],
         "executable": "ListThisStudio",
-        "port": "4318",
         "ref": "main",
         "log": "ListThisStudio.log",
     },
     "staging": {
-        "app_name": "List This Studio Staging",
-        "bundle_id": "local.listthis.studio.staging",
+        **config.CHANNELS["staging"],
         "executable": "ListThisStudioStaging",
-        "port": "4319",
         "ref": "staging",
         "log": "ListThisStudioStaging.log",
     },
 }
 
-CHANNEL_NAME = os.environ.get("VENDOO_STUDIO_CHANNEL", "production")
-CHANNEL = CHANNELS.get(CHANNEL_NAME, CHANNELS["production"])
+CHANNEL_NAME = config.CHANNEL_NAME
+CHANNEL = CHANNELS[CHANNEL_NAME]
 APP_NAME = CHANNEL["app_name"]
 BUNDLE_ID = CHANNEL["bundle_id"]
 APP_EXECUTABLE = CHANNEL["executable"]
@@ -540,7 +537,7 @@ def launcher_script(studio_dir: Path, channel_name: str) -> str:
     return f"""#!/bin/bash
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
 export VENDOO_STUDIO_CHANNEL={shlex_quote(channel_name)}
-export VENDOO_STUDIO_PORT={shlex_quote(channel["port"])}
+export VENDOO_STUDIO_PORT={shlex_quote(str(channel["port"]))}
 export VENDOO_STUDIO_UPDATE_REF={shlex_quote(channel["ref"])}
 export VENDOO_STUDIO_UPDATE_URL={shlex_quote(remote_url())}
 STUDIO_DIR={shlex_quote(str(studio_dir))}

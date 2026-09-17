@@ -66,6 +66,7 @@ export function App() {
   const [workspaceNonce, setWorkspaceNonce] = useState(0);
   const [browserJobId, setBrowserJobId] = useState<string | null>(null);
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
+  const [browserExpanded, setBrowserExpanded] = useState(false);
   const wasPreviewOpen = useRef(false);
 
   const { data: conversations } = useQuery({
@@ -180,8 +181,25 @@ export function App() {
     const jobId = browserJobId;
     setBrowserJobId(null);
     setBrowserFields([]);
+    setBrowserExpanded(false);
     if (jobId) void api.jobs.browser.close(jobId).catch(() => {});
   };
+
+  // Every listing run happens in the same interactive draft browser the
+  // "Browse draft" button opens. Attach as soon as the run has a draft; when
+  // the fill finishes the seller keeps the live tab instead of losing the pane.
+  const autoBrowserJobRef = useRef<string | null>(null);
+  const openBrowserMutate = openBrowser.mutate;
+  const listingJobId = listingJob?.id ?? null;
+  const listingJobHasDraft = Boolean(listingJob?.vendoo_item_id || listingJob?.vendoo_url);
+  const listingJobIsProbe = listingJob?.mode === "schema_probe";
+  useEffect(() => {
+    if (!listingJobId || !previewOpen || !listingJobHasDraft || listingJobIsProbe) return;
+    if (!status?.extension_connected) return;
+    if (browserJobId === listingJobId || autoBrowserJobRef.current === listingJobId) return;
+    autoBrowserJobRef.current = listingJobId;
+    openBrowserMutate(listingJobId);
+  }, [listingJobId, previewOpen, listingJobHasDraft, listingJobIsProbe, status?.extension_connected, browserJobId, openBrowserMutate]);
 
   useEffect(() => {
     // A new Send replaces the listing job. Release the old draft tab.
@@ -202,6 +220,7 @@ export function App() {
       setBrowserFields([]);
       void api.jobs.browser.close(jobId).catch(() => {});
     }
+    setBrowserExpanded(false);
   }, [selectedConvId]);
 
   useEffect(() => {
@@ -385,7 +404,7 @@ export function App() {
                 />
               </Suspense>
             ) : selectedConvId ? (
-              <div className="listing-workspace">
+              <div className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
                 <div className="listing-workspace-main" key={`${selectedConvId}:${workspaceNonce}`}>
                   <PhotoTray
                     convId={selectedConvId}
@@ -417,6 +436,8 @@ export function App() {
                     interactive={browserOpen}
                     automationRunning={previewOpen}
                     onClose={closeBrowser}
+                    expanded={browserExpanded}
+                    onToggleExpanded={isMobile ? undefined : () => setBrowserExpanded((value) => !value)}
                     selected={browserFields}
                     onSelectedChange={setBrowserFields}
                     onGoToChat={() => setMobilePane("workspace")}

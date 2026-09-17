@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
 
-APP_NAME = "List This Studio"
-BUNDLE_ID = "local.listthis.studio"
+CHANNELS = {
+    "production": {
+        "app_name": "List This Studio",
+        "bundle_id": "local.listthis.studio",
+        "release_tag": "studio-macos",
+        "port": 4318,
+        "extension_suffix": "",
+    },
+    "staging": {
+        "app_name": "List This Studio Staging",
+        "bundle_id": "local.listthis.studio.staging",
+        "release_tag": "studio-macos-staging",
+        "port": 4319,
+        "extension_suffix": " (Staging)",
+    },
+}
 
 
 def is_frozen() -> bool:
@@ -31,6 +46,23 @@ def resource_root() -> Path:
             return resources
         return meipass
     return Path(__file__).resolve().parent.parent.parent
+
+
+def channel_name() -> str:
+    """Release channel: env override, else the channel stamped into build_info.json."""
+    name = os.environ.get("VENDOO_STUDIO_CHANNEL")
+    if not name:
+        try:
+            name = json.loads((resource_root() / "build_info.json").read_text(encoding="utf-8")).get("channel")
+        except (OSError, json.JSONDecodeError):
+            name = None
+    return name if name in CHANNELS else "production"
+
+
+CHANNEL_NAME = channel_name()
+CHANNEL = CHANNELS[CHANNEL_NAME]
+APP_NAME = CHANNEL["app_name"]
+BUNDLE_ID = CHANNEL["bundle_id"]
 
 
 def user_data_root() -> Path:
@@ -89,7 +121,7 @@ def ensure_user_data_dirs() -> None:
 ensure_user_data_dirs()
 
 HOST = os.environ.get("VENDOO_STUDIO_HOST", "127.0.0.1")
-PORT = int(os.environ.get("VENDOO_STUDIO_PORT", "4318"))
+PORT = int(os.environ.get("VENDOO_STUDIO_PORT", CHANNEL["port"]))
 
 MAX_PHOTO_COUNT = 20
 MAX_PHOTO_SIZE_MB = 20
