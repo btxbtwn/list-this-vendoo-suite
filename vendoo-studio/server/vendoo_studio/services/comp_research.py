@@ -23,6 +23,8 @@ log = logging.getLogger("vendoo_studio.comp_research")
 
 # Mobile generate SSE drops when comps stall for many minutes on the prior status.
 SOLD_COMPS_TIMEOUT_SEC = 90
+# How long a usable Brave result waits for ChatGPT comps before winning.
+CHATGPT_GRACE_SEC = 15
 
 
 def comps_search_available() -> bool:
@@ -52,30 +54,51 @@ async def research_chatgpt_comps(query: str) -> str:
 
 
 async def _research_sold_comps(analysis_text: str | None, evidence: dict | None = None) -> str:
+    """Search ChatGPT and Brave at once; prefer usable ChatGPT comps, else the first usable result."""
     fields = item_fields(analysis_text, evidence)
     query = sold_comps_query(fields)
     if not query:
         return ""
 
-    chatgpt_text = ""
+    tasks: dict[str, asyncio.Task] = {}
     if chatgpt_signed_in():
-        try:
-            chatgpt_text = await research_chatgpt_comps(query)
-            if comps_usable(chatgpt_text):
-                return chatgpt_text
-            log.info("ChatGPT sold-comps search was thin; trying Brave")
-        except Exception as exc:
-            log.warning("ChatGPT sold-comps search failed: %s", exc)
-
+        tasks["chatgpt"] = asyncio.create_task(research_chatgpt_comps(query))
     if get_brave_api_key():
-        brave_query = brave_sold_query(fields) or query
-        brave_text = await research_brave_comps(brave_query)
-        if comps_usable(brave_text):
-            return brave_text
+        tasks["brave"] = asyncio.create_task(research_brave_comps(brave_sold_query(fields) or query))
+    if not tasks:
+        return ""
 
-    if chatgpt_text:
-        return chatgpt_text
-    return ""
+    names = {task: name for name, task in tasks.items()}
+    results: dict[str, str] = {}
+    loop = asyncio.get_running_loop()
+    chatgpt_deadline: float | None = None
+    pending = set(tasks.values())
+    try:
+        while pending:
+            timeout = None if chatgpt_deadline is None else max(0.0, chatgpt_deadline - loop.time())
+            done, pending = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                log.info("ChatGPT sold-comps search exceeded the grace window; using Brave")
+                break
+            for task in done:
+                name = names[task]
+                try:
+                    results[name] = task.result() or ""
+                except Exception as exc:
+                    log.warning("%s sold-comps search failed: %s", name, exc)
+                    results[name] = ""
+            if comps_usable(results.get("chatgpt")):
+                return results["chatgpt"]
+            if comps_usable(results.get("brave")) and tasks.get("chatgpt") in pending:
+                # ChatGPT comps are richer; give it a short head start before settling for Brave.
+                chatgpt_deadline = chatgpt_deadline or loop.time() + CHATGPT_GRACE_SEC
+    finally:
+        for task in pending:
+            task.cancel()
+
+    if comps_usable(results.get("brave")):
+        return results["brave"]
+    return results.get("chatgpt") or ""
 
 
 async def research_sold_comps(analysis_text: str | None, evidence: dict | None = None) -> str:
