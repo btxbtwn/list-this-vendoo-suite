@@ -370,7 +370,9 @@ class ChatGPTCodexProvider:
             "- condition: {value, visibleFlaws: []}\n"
             "- measurements: [{label, value, source}]\n"
             "- category: {value, confidence}\n"
-            "- uncertainties: [{field, issue}]\n\n"
+            "- uncertainties: [{field, issue}]\n"
+            "- tag_text: {brand_label, size_tag, care_tag, rn_number} copied verbatim from any "
+            "visible labels, empty strings when not visible\n\n"
             "Be conservative. Flag uncertainty. Do not invent details."
         )
         if notes:

@@ -13,10 +13,13 @@ from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, Listin
 from vendoo_studio.services.fill_log import (
     FILLABLE_STATUSES,
     MAX_FILL_FIELDS,
+    MAX_PATCH_FIELDS,
     FillLogService,
+    canonical_option,
     field_lookup_key,
     listing_value_for_field,
     normalize_field_label,
+    write_values_into_listing,
 )
 from vendoo_studio.services.registry import SELLER_SETTING_LABELS, is_account_managed_field
 
@@ -32,6 +35,8 @@ SKIP_KEYS = frozenset({
 UNFILLABLE_FIELDS = frozenset({"photos", "images", "videos", "image"})
 MARKETPLACE_ORDER = ("general", "ebay", "etsy", "poshmark", "mercari", "depop")
 FILL_WAIT_TIMEOUT_SEC = 600.0
+# Fill statuses where Vendoo did not accept the typed value as one of its options.
+REJECTED_FILL_STATUSES = frozenset({"invalid", "uncertain"})
 
 
 def _field_label(key: str) -> str:
@@ -198,12 +203,33 @@ def _selector_map(report: dict) -> dict[tuple[str, str], str]:
     return selectors
 
 
+def registry_option_lookup(db: Session, category_path: str | None):
+    """Known dropdown options per (marketplace, field) from the learned registry."""
+    from vendoo_studio.repositories.queries import RegistryRepo
+
+    repo = RegistryRepo(db)
+
+    def lookup(marketplace: str, field: str) -> list[str]:
+        try:
+            return repo.get_valid_options(marketplace, field, category_path or None)
+        except Exception:
+            log.exception("registry option lookup failed for %s/%s", marketplace, field)
+            return []
+
+    return lookup
+
+
 def build_apply_patches(
     listing: dict,
     item: dict | None,
     report: dict,
+    options_for=None,
 ) -> list[dict[str, str]]:
-    """Build fill patches for empty Vendoo fields that already have listing values."""
+    """Build fill patches for empty Vendoo fields that already have listing values.
+
+    options_for(marketplace, field) returns known dropdown labels; matching values are
+    rewritten to the exact label so Chrome clicks an option instead of typing a fallback.
+    """
     if not isinstance(item, dict):
         return []
 
@@ -221,6 +247,8 @@ def build_apply_patches(
         value = listing_value_for_field(listing, marketplace, label)
         if not value:
             return
+        if options_for is not None:
+            value = canonical_option(value, options_for(marketplace, label)) or value
         seen.add(key)
         patch = {
             "marketplace": marketplace,
@@ -380,7 +408,96 @@ async def apply_patches(db: Session, job, listing: dict, patches: list[dict]) ->
     return ok, error
 
 
-async def auto_apply_after_generation(db: Session, conv_id: str, listing: dict) -> dict[str, Any]:
+def rejected_fill_gaps(db: Session, job, patches: list[dict], options_for) -> list[dict]:
+    """Patched fields Vendoo rejected in the latest apply, with the options offered for them."""
+    event = JobRepo(db).latest_event(job.id, "step_completed")
+    payload = event.payload if event is not None and isinstance(event.payload, dict) else {}
+    if event is None or event.step != "filling_fields":
+        return []
+    fill_log = payload.get("fill_log") if isinstance(payload.get("fill_log"), dict) else {}
+    patched = {
+        (str(patch.get("marketplace") or "general").lower(), normalize_field_label(str(patch.get("field") or "")))
+        for patch in patches
+    }
+    gaps: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in fill_log.get("entries") or []:
+        if not isinstance(entry, dict) or entry.get("status") not in REJECTED_FILL_STATUSES:
+            continue
+        marketplace = str(entry.get("marketplace") or "general").lower()
+        field = str(entry.get("field") or "").strip()
+        key = (marketplace, normalize_field_label(field))
+        if not field or key not in patched or key in seen:
+            continue
+        live = [str(option).strip() for option in entry.get("options") or [] if str(option).strip()]
+        options = live or options_for(marketplace, field)
+        if not options:
+            continue
+        seen.add(key)
+        gaps.append({
+            "marketplace": marketplace,
+            "field": field,
+            "options": options,
+            "rejected": str(entry.get("value_preview") or ""),
+        })
+    return gaps
+
+
+async def repair_rejected_fills(
+    db: Session,
+    job,
+    listing: dict,
+    patches: list[dict],
+    provider,
+    *,
+    evidence: str,
+    options_for,
+) -> dict[str, Any]:
+    """One automatic round: re-ask the model for rejected dropdown values and apply them."""
+    from vendoo_studio.services.listing_field_gaps import _request_missing_field_values
+
+    gaps = rejected_fill_gaps(db, job, patches, options_for)
+    if not gaps or provider is None:
+        return {"repaired": 0}
+    responses = await _request_missing_field_values(
+        provider,
+        listing=listing,
+        gaps=gaps,
+        evidence=evidence,
+    ) or []
+    by_key = {(gap["marketplace"], normalize_field_label(gap["field"])): gap for gap in gaps}
+    repairs: list[dict] = []
+    for row in responses[:MAX_PATCH_FIELDS]:
+        marketplace = str(row.get("marketplace") or "general").lower()
+        gap = by_key.get((marketplace, normalize_field_label(str(row.get("field") or ""))))
+        value = canonical_option(row.get("value"), gap["options"]) if gap else None
+        if not gap or not value or value.casefold() == gap["rejected"].casefold():
+            continue
+        repairs.append({"marketplace": marketplace, "field": gap["field"], "value": value, "selector": ""})
+    if not repairs:
+        return {"repaired": 0, "rejected": len(gaps)}
+
+    updated = write_values_into_listing(listing, repairs)
+    listing_repo = ListingRepo(db)
+    revisions = listing_repo.get_revisions(job.conversation_id)
+    listing_repo.save_revision(
+        job.conversation_id,
+        updated,
+        source="apply_repair",
+        parent_revision_id=revisions[0].id if revisions else None,
+    )
+    ok, error = await apply_patches(db, job, updated, repairs)
+    return {"repaired": len(repairs) if ok else 0, "rejected": len(gaps), "error": error}
+
+
+async def auto_apply_after_generation(
+    db: Session,
+    conv_id: str,
+    listing: dict,
+    *,
+    provider=None,
+    evidence: str = "",
+) -> dict[str, Any]:
     """Best-effort: type generated listing values onto the bound Vendoo draft."""
     from vendoo_studio.routes.extension import extension_manager
 
@@ -402,14 +519,25 @@ async def auto_apply_after_generation(db: Session, conv_id: str, listing: dict) 
         return {"applied": False, "reason": "draft_unavailable", "job_id": job.id}
 
     report = FillLogService(db).report_for_job(job)
-    patches = build_apply_patches(listing, item, report)
+    options_for = registry_option_lookup(db, str(listing.get("category_path") or ""))
+    patches = build_apply_patches(listing, item, report, options_for)
     if not patches:
         return {"applied": False, "reason": "nothing_to_apply", "job_id": job.id, "count": 0}
 
     ok, error = await apply_patches(db, job, listing, patches)
-    return {
+    result: dict[str, Any] = {
         "applied": ok,
         "job_id": job.id,
         "count": len(patches),
         "error": error,
     }
+    if ok and provider is not None:
+        try:
+            repair = await repair_rejected_fills(
+                db, job, listing, patches, provider, evidence=evidence, options_for=options_for,
+            )
+        except Exception:
+            log.exception("automatic repair of rejected fills failed for %s", conv_id)
+            repair = {"repaired": 0, "error": "repair failed"}
+        result["repair"] = repair
+    return result

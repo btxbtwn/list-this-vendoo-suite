@@ -144,6 +144,10 @@
       value_preview: Object.prototype.hasOwnProperty.call(entry, 'value')
         ? previewValue(entry.value)
         : (entry.value_preview || ''),
+      // Offered dropdown labels let Studio re-ask the model for an exact option.
+      options: Array.isArray(entry.options) && entry.options.length
+        ? entry.options.slice(0, MAX_CAPTURED_OPTIONS)
+        : undefined,
     });
   }
 
@@ -2012,10 +2016,11 @@
       }
 
       const openOptions = listOpenDropdownOptions();
+      const offered = uniqueStrings(openOptions.map((option) => option.text));
       if (dropdownLike && openOptions.length > 0 && !isMulti) {
           await closeOpenMenus();
           if (el.value) await clearInput(el);
-          return { ok: false, method: 'no_option' };
+          return { ok: false, method: 'no_option', options: offered };
       }
       if (openOptions.length > 0) await closeOpenMenus();
 
@@ -2037,7 +2042,7 @@
 
       await closeOpenMenus();
       if (el.value) await clearInput(el);
-      return { ok: false, method: 'no_option' };
+      return { ok: false, method: 'no_option', options: offered };
   }
 
   // ============================================
@@ -2166,6 +2171,7 @@
       log(`Filling ${fieldName}...`);
       const result = await fillCombobox(el, value, isStrict, isMulti);
       const method = result && result.method;
+      const offered = (result && result.options) || [];
       if (method === 'option_click') {
           recordFill({ field: fieldName, status: 'filled', selector: selectorFor(el, selectorText), value });
           return { status: 'filled' };
@@ -2177,15 +2183,19 @@
             reason: 'Typed fallback; dropdown option was not clicked',
             selector: selectorFor(el, selectorText),
             value,
+            options: offered,
           });
           return { status: 'uncertain' };
       }
+      // The failed search filtered the menu; with the input cleared, read the full list.
+      const live = await readLiveFieldOptions(el, fieldName);
       recordFill({
         field: fieldName,
         status: 'invalid',
         reason: 'Option not found and value did not stick',
         selector: selectorFor(el, selectorText),
         value,
+        options: live.options.length ? live.options : offered,
       });
       return { status: 'invalid' };
   }
@@ -2195,7 +2205,9 @@
     if (!currentRegistrySelectors || !fieldName) {
       return document.querySelector(selector);
     }
-    for (const mp of Object.keys(currentRegistrySelectors)) {
+    // Only the marketplace being filled: a General "Brand" must never resolve to an eBay control.
+    const scoped = String(currentFillMarketplace || 'general').toLowerCase();
+    for (const mp of Object.keys(currentRegistrySelectors).filter((key) => key === scoped)) {
       const field = currentRegistrySelectors[mp][fieldName.toLowerCase()];
       if (field && field.selectors) {
         for (const regSel of field.selectors) {

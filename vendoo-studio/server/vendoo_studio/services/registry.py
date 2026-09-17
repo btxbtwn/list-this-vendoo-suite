@@ -24,7 +24,7 @@ CANONICAL_DEFAULTS: dict[str, dict[str, str]] = {
 LEARNED_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
 
 # Caps how many live dropdown options are spelled out per field in the prompt.
-MAX_PROMPT_OPTIONS = 40
+MAX_PROMPT_OPTIONS = 80
 
 # Form labels that are seller/account UI, not item attributes.
 SELLER_SETTING_LABELS = frozenset({
