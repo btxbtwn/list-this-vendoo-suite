@@ -8,6 +8,12 @@ on:
       - "vendoo-extension/**"
       - "skills/list-this/**"
       - ".github/workflows/studio-macos.yml"
+  pull_request:
+    paths:
+      - "vendoo-studio/scripts/package-macos-app.sh"
+      - "vendoo-studio/desktop/**"
+      - "vendoo-studio/server/vendoo_studio/services/bundle_symlinks.py"
+      - ".github/workflows/studio-macos.yml"
   workflow_dispatch:
 
 concurrency:
@@ -74,6 +80,26 @@ jobs:
           assert_zip_has_no_symlinks(Path(sys.argv[1]))
           print("OK: release zip has no symbolic link members")
           PY
+      - name: Verify app signature survived flatten
+        working-directory: vendoo-studio
+        run: |
+          set -euo pipefail
+          APP="release/List This Studio.app"
+          DETAIL="$(codesign -dv "$APP" 2>&1)"
+          echo "$DETAIL"
+          if [[ "$DETAIL" == *"not signed at all"* ]]; then
+            echo "Packaged app is unsigned; flatten probably skipped re-sign." >&2
+            exit 1
+          fi
+          # Outer-bundle verify (no --strict: PyInstaller Python.framework is ambiguous).
+          if ! codesign --verify "$APP" 2>verify.err; then
+            cat verify.err >&2
+            if grep -q 'modified\|invalid\|not signed' verify.err; then
+              exit 1
+            fi
+            echo "codesign --verify reported a non-fatal framework warning; continuing."
+          fi
+          echo "OK: packaged app still has a code signature after flatten"
       - name: Publish GitHub release
         if: github.ref == 'refs/heads/main'
         working-directory: vendoo-studio

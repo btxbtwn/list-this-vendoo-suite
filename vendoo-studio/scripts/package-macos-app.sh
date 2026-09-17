@@ -64,6 +64,7 @@ fi
 
 # Older Studio builds rejected every symlink zip member. Materialize links
 # before signing/zipping so those clients can still install this update.
+# Flattening changes the bundle, so re-sign afterward or macOS refuses to open.
 "$PYTHON" - "$APP" <<'PY'
 import sys
 from pathlib import Path
@@ -77,8 +78,24 @@ PY
 
 # A stable signing identity keeps the app's code requirement the same across
 # releases, so macOS keeps honoring Keychain "Always Allow" after updates.
-# PyInstaller signs with MACOS_SIGNING_IDENTITY (see ListThisStudio.spec);
-# re-signing here fails because the flattened bundle isn't codesign-shaped.
+# PyInstaller signs first; we must sign again after flatten. Do not use
+# --strict: PyInstaller's Python.framework reports "bundle format is ambiguous".
+if ! command -v codesign >/dev/null 2>&1; then
+  echo "codesign is required to package List This Studio.app" >&2
+  exit 1
+fi
+SIGN_IDENTITY="${MACOS_SIGNING_IDENTITY:--}"
+echo "Re-signing flattened app with identity: $SIGN_IDENTITY"
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
+CODESIGN_DV="$(codesign -dv "$APP" 2>&1)" || {
+  echo "$CODESIGN_DV" >&2
+  exit 1
+}
+echo "$CODESIGN_DV"
+if [[ "$CODESIGN_DV" == *"not signed at all"* ]]; then
+  echo "Flattened app is unsigned after re-sign." >&2
+  exit 1
+fi
 if [[ -n "${MACOS_SIGNING_IDENTITY:-}" ]]; then
   REQUIREMENT="$(codesign -d -r- "$APP" 2>&1)"
   echo "$REQUIREMENT"
