@@ -186,7 +186,7 @@ export function App() {
   };
 
   // Every listing run happens in the same interactive draft browser the
-  // "Browse draft" button opens. Attach as soon as the run has a draft; when
+  // "Browser" button opens. Attach as soon as the run has a draft; when
   // the fill finishes the seller keeps the live tab instead of losing the pane.
   const autoBrowserJobRef = useRef<string | null>(null);
   const openBrowserMutate = openBrowser.mutate;
