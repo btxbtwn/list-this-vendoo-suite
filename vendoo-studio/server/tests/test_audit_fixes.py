@@ -36,12 +36,9 @@ JPEG_BYTES = bytes([
 VALID_LISTING = {
     "title": "Notations XL Retro Blouse Black Relaxed",
     "description": (
-        "Notations blouse with a visible XL size tag.\n\n"
-        "Size: XL\n"
-        "Condition: Pre-Owned - Good; no major flaws visible in photos.\n"
-        "Measurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\"\n\n"
-        "Material tag is not shown. Garment care is unknown.\n"
-        "OFFERS WELCOME! Ships in 1-2 business days."
+        "Retro Notations blouse, relaxed fit.\n\n"
+        "Flaws: none noted. See photos for details.\n\n"
+        "Measurements: Pit to pit: 22.5\"; Length: 27\"; Sleeve: 9\""
     ),
     "price": 14,
     "brand": "Notations",
@@ -263,13 +260,9 @@ class ValidationCasesTest(unittest.TestCase):
 
         listing = dict(VALID_LISTING)
         listing["description"] = (
-            "Y2K floral ruched blouse.\n\n"
-            "Lightweight satin fit.\n\n"
-            "Size: M\n\n"
-            "Condition: Pre-Owned - Good; Flaws: none noted.\n\n"
-            "Measurements: Pit to pit: 18\"\n\n"
-            "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
-            "15% off bundles of 2+ items."
+            "Y2K floral ruched blouse, lightweight satin fit.\n\n"
+            "Flaws: none noted. See photos for details.\n\n"
+            "Measurements: Pit to pit: 18\""
         )
         listing["ebay_specifics"] = {
             **VALID_LISTING["ebay_specifics"],
@@ -287,13 +280,9 @@ class ValidationCasesTest(unittest.TestCase):
 
         listing = dict(VALID_LISTING)
         listing["description"] = (
-            "Heavy wool cable knit sweater.\n\n"
-            "Warm winter layer.\n\n"
-            "Size: M\n\n"
-            "Condition: Pre-Owned - Good; Flaws: none noted.\n\n"
-            "Measurements: Pit to pit: 22\"\n\n"
-            "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
-            "15% off bundles of 2+ items."
+            "Heavy wool cable knit sweater, warm winter layer.\n\n"
+            "Flaws: none noted. See photos for details.\n\n"
+            "Measurements: Pit to pit: 22\""
         )
         listing["ebay_specifics"] = {
             **VALID_LISTING["ebay_specifics"],
@@ -312,13 +301,9 @@ class ValidationCasesTest(unittest.TestCase):
 
         listing = dict(VALID_LISTING)
         listing["description"] = (
-            "Linen tank for beach summer wear.\n\n"
-            "Sleeveless light fit.\n\n"
-            "Size: M\n\n"
-            "Condition: Pre-Owned - Good; Flaws: none noted.\n\n"
-            "Measurements: Pit to pit: 18\"\n\n"
-            "OFFERS WELCOME! Ships in 1-2 business days.\n\n"
-            "15% off bundles of 2+ items."
+            "Linen tank for beach summer wear, sleeveless light fit.\n\n"
+            "Flaws: none noted. See photos for details.\n\n"
+            "Measurements: Pit to pit: 18\""
         )
         listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "type": "Tank"}
         listing["ebay_specifics"].pop("season", None)

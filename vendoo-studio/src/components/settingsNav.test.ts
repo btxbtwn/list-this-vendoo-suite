@@ -9,6 +9,7 @@ describe("searchSettings", () => {
   it("matches titles and search terms case-insensitively", () => {
     expect(searchSettings("TAILNET").map((item) => item.id)).toEqual(["tailscale-https"]);
     expect(searchSettings("brave search").map((item) => item.id)).toEqual(["brave"]);
+    expect(searchSettings("description formula").map((item) => item.id)).toContain("listing-formulas");
   });
 
   it("matches when every word appears somewhere in the item", () => {

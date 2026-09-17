@@ -397,6 +397,109 @@ function DataFolderRow() {
   );
 }
 
+function ListingFormulasSection() {
+  const queryClient = useQueryClient();
+  const { data, isPending, isError, error } = useQuery({
+    queryKey: ["settings-formulas"],
+    queryFn: () => api.settings.formulas(),
+  });
+  const [draft, setDraft] = useState<{ title: string; description: string } | null>(null);
+
+  const defaultTitle = data?.default_title || "";
+  const defaultDescription = data?.default_description || "";
+  const serverTitle = data ? data.title || defaultTitle : "";
+  const serverDescription = data ? data.description || defaultDescription : "";
+  const title = draft?.title ?? serverTitle;
+  const description = draft?.description ?? serverDescription;
+
+  const saveMutation = useMutation({
+    mutationFn: (body: { title: string; description: string }) => api.settings.setFormulas(body),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["settings-formulas"], payload);
+      setDraft(null);
+    },
+  });
+
+  const dirty =
+    draft !== null &&
+    (draft.title.trim() !== serverTitle.trim() || draft.description.trim() !== serverDescription.trim());
+  const usingCustom = Boolean(data?.title || data?.description);
+
+  const persist = (nextTitle: string, nextDescription: string) => {
+    const titleToSave = nextTitle.trim() === defaultTitle.trim() ? "" : nextTitle;
+    const descriptionToSave = nextDescription.trim() === defaultDescription.trim() ? "" : nextDescription;
+    saveMutation.mutate({ title: titleToSave, description: descriptionToSave });
+  };
+
+  return (
+    <SettingsSection id="listing-formulas" title="Listing formulas">
+      <SettingsRow
+        title="Title and description"
+        description="Studio pins these formulas into every listing generation. Leave them as the defaults, or edit the placeholders for your shop. Clearing a field and saving restores the built-in formula."
+      >
+        {isPending ? (
+          <p className="settings-row-desc">Loading formulas…</p>
+        ) : isError ? (
+          <p className="settings-row-desc text-error">{(error as Error).message || "Could not load formulas"}</p>
+        ) : (
+          <div className="settings-formula-editor">
+            <label className="settings-formula-field">
+              <span className="settings-formula-label">Title</span>
+              <input
+                className="input"
+                value={title}
+                onChange={(e) => setDraft({ title: e.target.value, description })}
+                spellCheck={false}
+                aria-label="Title formula"
+              />
+            </label>
+            <label className="settings-formula-field">
+              <span className="settings-formula-label">Description</span>
+              <textarea
+                className="input settings-formula-textarea"
+                value={description}
+                onChange={(e) => setDraft({ title, description: e.target.value })}
+                spellCheck={false}
+                rows={6}
+                aria-label="Description formula"
+              />
+            </label>
+            <div className="settings-formula-actions">
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={saveMutation.isPending || !dirty}
+                onClick={() => persist(title, description)}
+              >
+                {saveMutation.isPending ? "Saving…" : "Save formulas"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                disabled={saveMutation.isPending || (!usingCustom && !dirty)}
+                onClick={() => {
+                  setDraft({ title: defaultTitle, description: defaultDescription });
+                  persist(defaultTitle, defaultDescription);
+                }}
+              >
+                Reset to defaults
+              </button>
+            </div>
+            {usingCustom ? (
+              <p className="settings-row-desc">Custom formulas are active for new generations.</p>
+            ) : (
+              <p className="settings-row-desc">Using the built-in list-this formulas.</p>
+            )}
+          </div>
+        )}
+        {saveMutation.isError ? (
+          <p className="settings-row-desc text-error">{(saveMutation.error as Error).message}</p>
+        ) : null}
+      </SettingsRow>
+    </SettingsSection>
+  );
+}
+
 function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   const { data: status } = useQuery({
     queryKey: ["status"],
@@ -406,6 +509,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
     <>
       <MarketplacesSection />
       <HiddenFieldsSection />
+      <ListingFormulasSection />
       <SettingsSection id="setup-guide" title="Setup guide">
         <SettingsRow
           title="First-run tutorial"

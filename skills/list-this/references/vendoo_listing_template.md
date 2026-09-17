@@ -108,33 +108,17 @@ Etsy-Safe Title (Etsy only – no brand) (140 chars)
 
 *line break*
 
-Universal Description (paste-ready, include line breaks, 200-300 characters) 
+Universal Description (paste-ready, include line breaks, under 150 characters) 
 
-{Vibe/era} {decade/trend} {brand} {item} with {key style/feature} in {color/pattern}.​
-
-*line break*
-
-{Fit/silhouette} in {fabric/texture}, styled for {use-case/season}.​
+{Trendy vibe/decade/style keywords} {item} with {key style/feature} in {color/pattern}, {fit/silhouette}.​
 
 *line break*
 
-Size: {size}
-
-*line break*
-
-Condition: {honest assessment}; Flaws: {specific, only list flaws if you see them in the photos- otherwise do not list flaws}.​ See photos for details.
+Flaws: {specific, only list flaws if you see them in the photos- otherwise "none noted"}.​ See photos for details.
 
 *line break*
 
 Measurements: {key set} or “See photos for full measurements” if fully legible there.​
-
-*line break*
-
-OFFERS WELCOME! Ships in 1-2 business days. 
-
-*line break*
-
-15% off bundles of 2+ items.
 
 *line break*
 
@@ -175,7 +159,7 @@ Depop: No title field → use Universal Description only
 ```json
 {
   "title": "Fruit of the Loom XL 2012 NHRA Auto Club Finals T-Shirt White Drag Racing Pomona",
-  "description": "2012 NHRA Auto Club Finals Fruit of the Loom T-Shirt with Pomona Drag Racing graphic in White.\n\nStandard fit in 100% Cotton, styled for Racing fans.\n\nSize: XL\n\nCondition: Pre-Owned - Fair; Flaws: Small stain on sleeve/shoulder area, small pinhole near bottom hem. See photos for details.\n\nMeasurements: See photos for measurements.\n\nOFFERS WELCOME! Ships in 1-2 business days.\n\n15% off bundles of 2+ items.",
+  "description": "2010s NHRA Auto Club Finals Fruit of the Loom T-Shirt with Pomona Drag Racing graphic in White, standard fit.\n\nFlaws: Small stain on sleeve/shoulder area, small pinhole near bottom hem. See photos for details.\n\nMeasurements: See photos for measurements.",
   "price": 15,
   "cost": 5.00,
   "quantity": 1,

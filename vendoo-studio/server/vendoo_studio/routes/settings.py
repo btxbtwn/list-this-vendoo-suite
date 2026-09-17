@@ -455,6 +455,40 @@ def put_ui_prefs(config: UiPrefsConfig):
     return {"ok": True, **prefs}
 
 
+class ListingFormulasConfig(BaseModel):
+    title: str | None = None
+    description: str | None = None
+
+
+def _listing_formulas_payload() -> dict:
+    from vendoo_studio.services.skill_formulas import DEFAULT_DESCRIPTION_FORMULA, DEFAULT_TITLE_FORMULA
+    from vendoo_studio.services.user_settings import get_listing_formulas
+
+    custom = get_listing_formulas()
+    return {
+        "title": custom.get("title", ""),
+        "description": custom.get("description", ""),
+        "default_title": DEFAULT_TITLE_FORMULA,
+        "default_description": DEFAULT_DESCRIPTION_FORMULA,
+    }
+
+
+@router.get("/formulas")
+def get_listing_formulas():
+    return {"ok": True, **_listing_formulas_payload()}
+
+
+@router.put("/formulas")
+def put_listing_formulas(config: ListingFormulasConfig):
+    from vendoo_studio.services.user_settings import set_listing_formulas
+
+    try:
+        set_listing_formulas(title=config.title, description=config.description)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **_listing_formulas_payload()}
+
+
 @router.get("/tailscale")
 def get_tailscale():
     from vendoo_studio.services.tailscale_serve import status as tailscale_status

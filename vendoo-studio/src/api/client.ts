@@ -404,6 +404,22 @@ export const api = {
         recent_vendoo_labels: string[];
         settled_shelf_expanded: boolean;
       }>("/settings/ui", { method: "PUT", body: JSON.stringify(body) }),
+    formulas: () =>
+      request<{
+        ok: boolean;
+        title: string;
+        description: string;
+        default_title: string;
+        default_description: string;
+      }>("/settings/formulas"),
+    setFormulas: (body: { title?: string | null; description?: string | null }) =>
+      request<{
+        ok: boolean;
+        title: string;
+        description: string;
+        default_title: string;
+        default_description: string;
+      }>("/settings/formulas", { method: "PUT", body: JSON.stringify(body) }),
     tailscale: () =>
       request<{
         available: boolean;
