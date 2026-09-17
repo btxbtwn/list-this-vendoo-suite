@@ -371,7 +371,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
     async def test_repair_prompt_strips_bulky_option_objects(self):
         field = self.verification["schema"]["ebay"]["fields"][0]
         field.update(
-            options=[{"label": f"Opt {i}", "value": f"id-{i}", "meta": "x" * 200} for i in range(80)],
+            options=[{"label": f"Opt {i}", "value": f"id-{i}", "meta": "x" * 200} for i in range(120)],
             options_complete=True,
             selector="#material",
             error="Empty field",
@@ -386,7 +386,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(gap["field"], "Material")
         self.assertNotIn("selector", gap)
         self.assertNotIn("meta", json.dumps(gap))
-        self.assertEqual(len(gap["options"]), 40)
+        self.assertEqual(len(gap["options"]), 80)
         self.assertEqual(gap["options"][0], "Opt 0")
         self.assertNotIn("options_complete", gap)
 

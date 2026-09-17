@@ -1135,7 +1135,9 @@ async def _finish_generation_background(
 
         from vendoo_studio.services.auto_apply import auto_apply_after_generation
 
-        apply_result = await auto_apply_after_generation(db, conv_id, current)
+        apply_result = await auto_apply_after_generation(
+            db, conv_id, current, provider=provider, evidence=evidence,
+        )
         if apply_result.get("applied"):
             # auto_apply already records a system message on success
             pass

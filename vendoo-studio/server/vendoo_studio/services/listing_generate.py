@@ -79,6 +79,20 @@ def format_photo_analysis(evidence: dict) -> str:
             value = str(measurement.get("value") or "").strip()
             if label and value:
                 parts.append(f"- {label}: {value}")
+    tag_text = evidence.get("tag_text")
+    if isinstance(tag_text, dict):
+        tag_parts = [
+            f'{label} "{str(tag_text.get(key) or "").strip()}"'
+            for key, label in (
+                ("brand_label", "brand label"),
+                ("size_tag", "size tag"),
+                ("care_tag", "care tag"),
+                ("rn_number", "RN"),
+            )
+            if str(tag_text.get(key) or "").strip()
+        ]
+        if tag_parts:
+            parts.append("- tag text: " + "; ".join(tag_parts))
     uncertainties = evidence.get("uncertainties") or []
     if uncertainties:
         parts.append("- uncertainties: " + ", ".join(

@@ -16,6 +16,7 @@ from vendoo_studio.services.fill_log import (
     field_lookup_key,
     listing_value_for_field,
     normalize_field_label,
+    prompt_options,
     repair_missing_fields,
     summarize_missing_fields,
     write_values_into_listing,
@@ -102,7 +103,7 @@ def collect_empty_discovered_fields(db: Session, listing: dict) -> list[dict[str
         seen.add(key)
         row: dict[str, Any] = {"marketplace": marketplace, "field": label}
         if options:
-            row["options"] = options[:40]
+            row["options"] = options
         if required:
             row["required"] = True
         gaps.append(row)
@@ -143,24 +144,37 @@ def collect_empty_discovered_fields(db: Session, listing: dict) -> list[dict[str
     return gaps
 
 
-def build_missing_fields_request(listing: dict, gaps: list[dict[str, Any]]) -> str:
+def build_missing_fields_request(listing: dict, gaps: list[dict[str, Any]], evidence: str = "") -> str:
     title = str(listing.get("title") or "Untitled").strip() or "Untitled"
+    context = " ".join([
+        evidence or "",
+        title,
+        str(listing.get("description") or ""),
+        str(listing.get("brand") or ""),
+        str(listing.get("category_path") or ""),
+    ])
     lines: list[str] = []
     for gap in gaps[:MAX_GAPS_PER_ROUND]:
         marketplace = gap["marketplace"]
         field = gap["field"]
         current = listing_value_for_field(listing, marketplace, field) or "(empty)"
+        rejected = str(gap.get("rejected") or "").strip()
+        status = (
+            f"Vendoo rejected {rejected!r}; choose an allowed option"
+            if rejected
+            else "empty in listing JSON"
+        )
         detail = (
             f"- Marketplace: {marketplace}\n"
             f"  Field: {field}\n"
             f"  Current value: {current}\n"
-            f"  Status: empty in listing JSON"
+            f"  Status: {status}"
         )
-        options = gap.get("options") or []
+        options, complete = prompt_options(gap.get("options"), context)
         if options:
-            detail += f"\n  Allowed options: {', '.join(str(option) for option in options[:20])}"
-            if len(options) > 20:
-                detail += "; …"
+            detail += f"\n  Allowed options: {'; '.join(options)}"
+            if not complete:
+                detail += "; … (closest matches shown)"
         lines.append(detail)
 
     return (
@@ -184,7 +198,7 @@ async def _request_missing_field_values(
 ) -> list[dict] | None:
     from vendoo_studio.services.listing_generate import collect_provider_text, extract_listing_json
 
-    request = build_missing_fields_request(listing, gaps)
+    request = build_missing_fields_request(listing, gaps, evidence)
     messages = [
         {"role": "system", "content": GAP_FILL_SYSTEM},
         {
