@@ -222,8 +222,8 @@ async function openVisibleVendooWindow(url, existingTab, { foreground = false } 
     log(`Could not open a Vendoo tab (${err.message})`);
     const created = await createWindowSafe({ url, focused: foreground, type: 'normal' });
     await chrome.storage.local.set({ [ENGINE_WINDOW_KEY]: created.id });
-    await showWindow(created.id);
-    if (!foreground) await hideWindow(created.id);
+    if (foreground) await showWindow(created.id);
+    else await hideWindow(created.id);
     const tab = created.tabs && created.tabs[0];
     return { ok: true, tabId: tab?.id, windowId: created.id };
   }

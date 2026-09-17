@@ -182,7 +182,9 @@ def ensure_draft_job(body: EnsureDraftJobRequest, db: Session = Depends(get_db))
     listing_repo = ListingRepo(db)
     revisions = listing_repo.get_revisions(body.conversation_id)
     if not revisions:
-        raise HTTPException(400, "No listing to attach to the Vendoo draft yet.")
+        # A blank listing can still attach; linking imports the draft's fields next.
+        listing_repo.save_revision(body.conversation_id, {}, source="vendoo_link")
+        revisions = listing_repo.get_revisions(body.conversation_id)
     snapshot = dict(revisions[0].listing_json or {})
     job = job_repo.create(
         conv_id=body.conversation_id,
@@ -476,6 +478,43 @@ async def get_vendoo_item(
         item=payload.get("item"),
         form=payload.get("form"),
         statuses=statuses,
+    )
+
+
+class ImportDraftResponse(BaseModel):
+    ok: bool
+    listing_title: str
+    photo_count: int
+    photo_warnings: list[str] = []
+
+
+@router.post("/{job_id}/import-draft", response_model=ImportDraftResponse)
+async def import_draft(job_id: str, db: Session = Depends(get_db)):
+    """Copy the last-read Vendoo draft into the Studio listing and pull its photos."""
+    from vendoo_studio.services.vendoo_import import import_vendoo_draft
+
+    repo = JobRepo(db)
+    job = repo.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    cached = repo.get_vendoo_draft(job_id)
+    if not cached:
+        raise HTTPException(400, "Read the Vendoo draft before importing it.")
+
+    result = await import_vendoo_draft(db, job.conversation_id, cached.get("item"), cached.get("form"))
+    job.approved_revision_id = result["revision"].id
+    job.listing_snapshot = result["listing"]
+    db.commit()
+    ConversationRepo(db).add_message(
+        job.conversation_id,
+        "system",
+        f"Imported fields from linked Vendoo item {job.vendoo_item_id}.",
+    )
+    return ImportDraftResponse(
+        ok=True,
+        listing_title=str(result["listing"].get("title") or ""),
+        photo_count=result["photo_count"],
+        photo_warnings=result["photo_warnings"],
     )
 
 
