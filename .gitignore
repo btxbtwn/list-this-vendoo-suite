@@ -28,3 +28,7 @@ logs/
 credentials.json
 id_rsa
 id_rsa.pub
+
+# Third-party code recovered for research. Never commit: this repo is public
+# and research/ holds other vendors' proprietary source.
+research/
