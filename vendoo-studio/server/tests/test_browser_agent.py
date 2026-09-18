@@ -86,6 +86,19 @@ class ScriptedProvider:
         yield self.replies.pop(0) if self.replies else '{"action":"done","message":"Nothing left."}'
 
 
+class CapturingProvider(ScriptedProvider):
+    """Keeps every turn the agent built, so tests can read what the model saw."""
+
+    def __init__(self, replies):
+        super().__init__(replies)
+        self.turns: list[str] = []
+
+    async def chat(self, messages, stream=True):
+        self.turns.append(messages[1]["content"])
+        async for item in super().chat(messages, stream=stream):
+            yield item
+
+
 class AgentTestBase(unittest.TestCase):
     def setUp(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -230,6 +243,59 @@ class FixAgentLoopTest(AgentTestBase):
         self.assertEqual([p["field"] for p in applied.call_args.args[3]], ["Neckline"])
         self.assertIn("failed: the form still shows these empty: Neckline", final)
         self.assertIn("skipped fields the seller did not point at: Title", final)
+
+    def test_empty_fields_are_listed_and_survive_the_prompt_cap(self):
+        from vendoo_studio.services.browser_agent import MAX_PROMPT_FIELDS, build_turn
+
+        # A draft with every marketplace open has more fields than fit in one prompt.
+        filled = [field("ebay", f"Spec {i}", f"value {i}") for i in range(MAX_PROMPT_FIELDS)]
+        snapshot = {"viewport": {"height": 600}, "fields": filled + [
+            field("ebay", "Character"),
+            field("ebay", "Return Policy", account_managed=True),
+            field("ebay", "Item Id", disabled=True),
+        ]}
+        request = FixRequest(job_id="j", conversation_id="c", instruction="fill the blank fields")
+        turn = build_turn(request, snapshot, [], {}, "")
+        self.assertIn("Every empty field on the form: eBay / Character", turn)
+        # The blank field beats the filled ones into the capped field list.
+        self.assertIn('"field": "Character"', turn)
+        self.assertNotIn(f'"field": "Spec {MAX_PROMPT_FIELDS - 1}"', turn)
+        # Account settings and disabled fields are not the seller's blanks to fill.
+        self.assertNotIn("Return Policy", turn.split("Listing summary")[0])
+        self.assertNotIn("Item Id", turn.split("Listing summary")[0])
+
+    def test_registry_options_reach_the_prompt_for_mui_dropdowns(self):
+        from vendoo_studio.repositories.queries import RegistryRepo
+
+        db = self.Session()
+        RegistryRepo(db).upsert_schema_fields("ebay", None, [{
+            "label": "Neckline", "selector": "#listings.ebay.neckline",
+            "is_dropdown": True, "options": ["Crew Neck", "V-Neck"], "options_source": "live-dropdown",
+        }])
+        db.commit()
+        db.close()
+        self.draft.fields += [field("ebay", "Neckline", is_dropdown=True, options=[])]
+
+        provider = CapturingProvider(['{"action":"done","message":"Looked."}'])
+        self.run_agent(provider, "fill the neckline")
+        turn = provider.turns[0]
+        self.assertIn('"options": ["Crew Neck", "V-Neck"]', turn)
+
+    def test_a_value_the_form_rejected_is_not_filled_again(self):
+        self.draft.fields += [field("ebay", "Material")]
+        provider = CapturingProvider([
+            json.dumps({"action": "fill", "fields": [{"marketplace": "ebay", "field": "Material", "value": "Polyester"}]}),
+            json.dumps({"action": "fill", "fields": [{"marketplace": "ebay", "field": "Material", "value": "Polyester"}]}),
+            '{"action":"done","message":"Gave up on material."}',
+        ])
+
+        async def silent(db, job, listing, patches, announce=True):
+            return True, None
+
+        with patch("vendoo_studio.services.auto_apply.apply_patches", side_effect=silent) as applied:
+            final = self.run_agent(provider, "set the material")[-1][1]
+        self.assertEqual(applied.call_count, 1, "the same failed value must not go to the form twice")
+        self.assertIn("skipped values the form already rejected: Material", final)
 
     def test_listing_photos_go_to_the_vision_model(self):
         import tempfile
