@@ -66,9 +66,47 @@ class KeychainTest(unittest.TestCase):
         self.assertEqual(set(fake.writes), {keychain.SECRETS_ACCOUNT})
         self.assertEqual(fake.store()[keychain.BRAVE_ACCOUNT], "BSA-test")
 
+    def test_a_partial_item_does_not_shadow_the_legacy_ones(self):
+        """A consolidated item written while the Keychain was unreadable carries
+        only what was set at that moment. The secrets still in the legacy items
+        must survive it, or a key the seller set looks deleted."""
+        fake = self.use(FakeKeyring({
+            keychain.SECRETS_ACCOUNT: json.dumps({
+                keychain.CHATGPT_MODELS_ACCOUNT: json.dumps({"listing_model": "gpt-5"}),
+            }),
+            keychain.KEYRING_ACCOUNT: "sk-mimo",
+            keychain.BRAVE_ACCOUNT: "BSA-test",
+        }))
+
+        self.assertEqual(keychain.get_api_key(), "sk-mimo")
+        self.assertEqual(keychain.get_brave_api_key(), "BSA-test")
+        # what the partial item did carry is kept, not clobbered
+        self.assertEqual(keychain.get_chatgpt_models()["listing_model"], "gpt-5")
+        # and the repair is written back, so the next read needs no legacy item
+        self.assertEqual(fake.store()[keychain.KEYRING_ACCOUNT], "sk-mimo")
+
+    def test_a_complete_item_reads_no_legacy_item(self):
+        """Once every secret is consolidated, nothing re-reads the old items."""
+        fake = self.use(FakeKeyring({
+            keychain.SECRETS_ACCOUNT: json.dumps({
+                keychain.KEYRING_ACCOUNT: "sk-mimo",
+                keychain.BRAVE_ACCOUNT: "BSA-test",
+                keychain.CHATGPT_ACCOUNT: json.dumps({"access_token": "a"}),
+                keychain.CHATGPT_MODELS_ACCOUNT: json.dumps({"listing_model": "gpt-5"}),
+                keychain.MIGRATION_MARKER: "1",
+            }),
+        }))
+
+        self.assertEqual(keychain.get_api_key(), "sk-mimo")
+        self.assertEqual(fake.reads, [keychain.SECRETS_ACCOUNT])
+        self.assertEqual(fake.writes, [])
+
     def test_launch_touches_only_the_secrets_item(self):
         fake = self.use(FakeKeyring({
-            keychain.SECRETS_ACCOUNT: json.dumps({keychain.KEYRING_ACCOUNT: "sk-new"}),
+            keychain.SECRETS_ACCOUNT: json.dumps({
+                keychain.KEYRING_ACCOUNT: "sk-new",
+                keychain.MIGRATION_MARKER: "1",
+            }),
             keychain.KEYRING_ACCOUNT: "sk-old",
         }))
 
@@ -78,6 +116,7 @@ class KeychainTest(unittest.TestCase):
 
         self.assertEqual(keychain.get_api_key(), "sk-new")
         self.assertEqual(fake.reads, [keychain.SECRETS_ACCOUNT])
+        # warm_keychain re-saves once to rebind the item to this binary.
         self.assertEqual(fake.writes, [keychain.SECRETS_ACCOUNT])
 
     def test_set_and_delete_update_the_one_item(self):
@@ -87,7 +126,11 @@ class KeychainTest(unittest.TestCase):
         keychain.set_chatgpt_models(reasoning_effort="High")
         keychain.delete_api_key()
 
-        self.assertEqual(fake.store(), {keychain.CHATGPT_MODELS_ACCOUNT: json.dumps({"reasoning_effort": "high"})})
+        self.assertEqual(fake.store(), {
+            keychain.CHATGPT_MODELS_ACCOUNT: json.dumps({"reasoning_effort": "high"}),
+            # an empty Keychain has nothing to sweep, but it is still swept once
+            keychain.MIGRATION_MARKER: "1",
+        })
         self.assertIsNone(keychain.get_api_key())
 
     def test_denied_read_never_overwrites_the_item(self):
