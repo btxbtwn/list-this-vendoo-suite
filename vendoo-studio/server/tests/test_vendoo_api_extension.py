@@ -123,6 +123,20 @@ class VendooApiExtensionTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("Not signed in", payload["error"])
 
+    def test_every_host_the_module_calls_is_permitted(self):
+        """Service-worker fetches bypass CORS only for hosts in host_permissions."""
+        import re
+
+        manifest = json.loads((EXTENSION / "manifest.json").read_text())
+        allowed = manifest["host_permissions"]
+        source = MODULE.read_text()
+        hosts = set(re.findall(r"'(https://[^/'$]+)", source))
+        self.assertTrue(hosts)
+        for host in hosts:
+            self.assertIn(f"{host}/*", allowed, host)
+        # The signed photo PUT goes to Google Cloud Storage.
+        self.assertIn("https://storage.googleapis.com/*", allowed)
+
     def test_background_dispatches_message(self):
         background = (EXTENSION / "background.js").read_text()
         self.assertIn("case 'job.vendoo_api':", background)
