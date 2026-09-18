@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 MAX_STEPS = 24
 MAX_PROMPT_FIELDS = 120
+MAX_PROMPT_EMPTY = 60
 MAX_PROMPT_OPTIONS = 40
 MAX_EVIDENCE_CHARS = 3000
 MAX_AGENT_PHOTOS = 6
@@ -76,6 +77,7 @@ Reply with exactly ONE JSON object and nothing else. Actions:
 Rules:
 - Change only what the seller asked for. When they pointed at fields, fill only those fields; leave every other field alone, even if it looks wrong or already has a value.
 - When the seller asks you to fill pointed-at or empty fields, fill every one you can in a single fill action first. Do not stop to ask about one field while others can be filled.
+- "Every empty field on the form" lists the blanks. When the seller asks for empty or missing fields and pointed at nothing, work that list and fill each one the evidence supports; do not revisit fields that already show a value.
 - Values come from, in order: the seller's request, known_value on the field, the listing summary, the photos and photo evidence (tag text, care tag, measurements), then what the photos and title plainly show (neckline, sleeve length, pattern, closure, fit, occasion, character, accents, features). Using that evidence is not inventing.
 - For dropdowns, pick the closest allowed option: a care tag of 92% polyester, 8% spandex means Material "Polyester"; a machine-wash care tag means Garment Care "Machine Washable". Set Handmade to "No" unless the listing says handmade.
 - Leave a field empty only when nothing supports a value (for example MPN, or Country of Origin with no tag). List those fields in your done message instead of asking.
@@ -85,7 +87,8 @@ Rules:
 - Fields marked account are the seller's marketplace settings. Never change them.
 - You cannot publish, list, delist, or delete a listing. Never try.
 - After clicking or typing values, save before done.
-- Check the live form after each step. A value only counts when the form shows it. Do not repeat a fill that already failed the same way.
+- Check the live form after each step. A value only counts when the form shows it. A fill of the same field and value that already failed is refused, so switch to click_field or a different value instead.
+- When a field lists options, the value must be one of them, copied exactly. When it lists none, type what the evidence supports.
 - Ask only when you cannot tell which field the seller means, or when every remaining field needs a fact that is nowhere in the evidence. Never make up brand, size, measurements, or origin.
 - If the form already shows what the seller wants, reply done."""
 
@@ -164,7 +167,13 @@ def describe_action(action: dict[str, Any]) -> str:
     return str(kind)
 
 
-def _prompt_field(entry: dict[str, Any], viewport_height: int, picked: set[tuple[str, str]], listing: dict) -> dict[str, Any]:
+def _prompt_field(
+    entry: dict[str, Any],
+    viewport_height: int,
+    picked: set[tuple[str, str]],
+    listing: dict,
+    known_options: dict[tuple[str, str], list[str]] | None = None,
+) -> dict[str, Any]:
     rect = entry.get("rect") or {}
     row: dict[str, Any] = {
         "marketplace": entry.get("marketplace"),
@@ -182,8 +191,13 @@ def _prompt_field(entry: dict[str, Any], viewport_height: int, picked: set[tuple
         row["required"] = True
     if entry.get("is_dropdown"):
         row["dropdown"] = True
-    if entry.get("options"):
-        row["options"] = entry["options"][:MAX_PROMPT_OPTIONS]
+    # Only native selects carry their options in the snapshot. Vendoo's MUI dropdowns
+    # come back empty, so fall back to the options the registry learned from probes.
+    options = entry.get("options") or (known_options or {}).get(
+        field_key(entry.get("marketplace"), entry.get("label")), []
+    )
+    if options:
+        row["options"] = options[:MAX_PROMPT_OPTIONS]
     if entry.get("error"):
         row["error"] = entry["error"]
     if entry.get("disabled"):
@@ -196,14 +210,26 @@ def _prompt_field(entry: dict[str, Any], viewport_height: int, picked: set[tuple
     return row
 
 
-def build_turn(request: FixRequest, snapshot: dict[str, Any], history: list[str], listing: dict, evidence: str) -> str:
+def build_turn(
+    request: FixRequest,
+    snapshot: dict[str, Any],
+    history: list[str],
+    listing: dict,
+    evidence: str,
+    known_options: dict[tuple[str, str], list[str]] | None = None,
+) -> str:
     picked = {field_key(f.get("marketplace"), f.get("label") or f.get("field")) for f in request.picked}
     viewport = snapshot.get("viewport") or {}
     live = snapshot.get("fields") or []
-    # Pointed-at fields go first so a long page never pushes them past the prompt cap.
-    live = sorted(live, key=lambda entry: field_key(entry.get("marketplace"), entry.get("label")) not in picked)
+    # Pointed-at fields first, then empty ones: a draft with every marketplace open has
+    # more fields than the cap, and the blanks are the whole point of the request. The
+    # cut falls on fields that already hold a value, which the agent leaves alone anyway.
+    live = sorted(live, key=lambda entry: (
+        field_key(entry.get("marketplace"), entry.get("label")) not in picked,
+        bool(entry.get("value")),
+    ))
     fields = [
-        _prompt_field(entry, int(viewport.get("height") or 0), picked, listing)
+        _prompt_field(entry, int(viewport.get("height") or 0), picked, listing, known_options)
         for entry in live[:MAX_PROMPT_FIELDS]
     ]
     pointed = [
@@ -211,14 +237,20 @@ def build_turn(request: FixRequest, snapshot: dict[str, Any], history: list[str]
         for f in request.picked
     ]
     brief = {key: listing.get(key) for key in BRIEF_KEYS if listing.get(key)}
-    still_empty = [
-        f"{market_label(str(row.get('marketplace') or 'general'))} / {row.get('field')}"
-        for row in fields if row.get("pointed_at") and not row.get("value") and not row.get("account")
+    def _name(row: dict[str, Any]) -> str:
+        return f"{market_label(str(row.get('marketplace') or 'general'))} / {row.get('field')}"
+
+    empty = [
+        row for row in fields
+        if not row.get("value") and not row.get("account") and not row.get("disabled")
     ]
+    still_empty = [_name(row) for row in empty if row.get("pointed_at")]
+    blanks = [_name(row) for row in empty[:MAX_PROMPT_EMPTY]]
     parts = [
         f"Seller request: {request.instruction.strip() or '(no text) Fix the fields I pointed at.'}",
         f"Fields the seller pointed at: {', '.join(pointed) if pointed else 'none'}",
         f"Pointed-at fields still empty on the form: {', '.join(still_empty) if still_empty else 'none'}",
+        f"Every empty field on the form: {', '.join(blanks) if blanks else 'none'}",
         f"Listing summary: {json.dumps(brief, ensure_ascii=False)[:MAX_BRIEF_CHARS]}",
         f"Photo evidence:\n{evidence[:MAX_EVIDENCE_CHARS] or '(none)'}",
         "Live form fields:\n" + json.dumps(fields, ensure_ascii=False),
@@ -261,6 +293,12 @@ class FixAgent:
         self.history: list[str] = []
         self.unsaved = False
         self.photos: list[str] = []
+        # Values that reached the form and did not stick, so a fill is never retried blind.
+        self.failed: dict[tuple[str, str], set[str]] = {}
+        # Dropdown options the registry knows, keyed like the live fields.
+        self.options: dict[tuple[str, str], list[str]] = {}
+        # Set by _fill so the loop reuses the snapshot it already paid for.
+        self.fresh: dict[str, Any] | None = None
 
     def _empty_pointed(self, snapshot: dict[str, Any]) -> bool:
         for picked in self.request.picked:
@@ -351,10 +389,35 @@ class FixAgent:
             self.photos = []
             return await collect_provider_text(self.provider, messages)
 
+    def _load_options(self, snapshot: dict[str, Any], listing: dict) -> None:
+        """Learn allowed options for dropdowns the snapshot could not read itself."""
+        from vendoo_studio.repositories.queries import RegistryRepo
+
+        wanted = [
+            entry for entry in snapshot.get("fields") or []
+            if entry.get("is_dropdown") and not entry.get("options")
+            and field_key(entry.get("marketplace"), entry.get("label")) not in self.options
+        ]
+        if not wanted:
+            return
+        category_path = str(listing.get("category_path") or "") or None
+        db = self.db_factory()
+        try:
+            registry = RegistryRepo(db)
+            for entry in wanted:
+                key = field_key(entry.get("marketplace"), entry.get("label"))
+                try:
+                    self.options[key] = registry.get_valid_options(key[0], str(entry.get("label") or ""), category_path)
+                except Exception:
+                    self.options[key] = []
+        finally:
+            db.close()
+
     async def _decide(self, snapshot: dict[str, Any], listing: dict, evidence: str) -> dict[str, Any] | None:
+        self._load_options(snapshot, listing)
         messages = [
             {"role": "system", "content": AGENT_SYSTEM},
-            {"role": "user", "content": build_turn(self.request, snapshot, self.history, listing, evidence)},
+            {"role": "user", "content": build_turn(self.request, snapshot, self.history, listing, evidence, self.options)},
         ]
         text = await self._ask_model(messages)
         action = parse_action(text)
@@ -373,6 +436,7 @@ class FixAgent:
         patches: list[dict[str, str]] = []
         refused: list[str] = []
         unpicked: list[str] = []
+        repeated: list[str] = []
         picked = {field_key(f.get("marketplace"), f.get("label") or f.get("field")) for f in self.request.picked}
         for raw in action.get("fields") or []:
             if not isinstance(raw, dict):
@@ -387,6 +451,9 @@ class FixAgent:
                 continue
             if picked and field_key(marketplace, label) not in picked:
                 unpicked.append(label)
+                continue
+            if value in self.failed.get(field_key(marketplace, label), ()):
+                repeated.append(label)
                 continue
             live = _find_field(snapshot, marketplace, label)
             if is_account_field(marketplace, label, bool(live and live.get("account_managed"))):
@@ -403,9 +470,16 @@ class FixAgent:
             notes.append(f"skipped fields the seller did not point at: {', '.join(unpicked)}")
         if refused:
             notes.append(f"skipped account settings: {', '.join(refused)}")
+        if repeated:
+            notes.append(
+                f"skipped values the form already rejected: {', '.join(repeated)}"
+                " — use click_field on them, or a different value"
+            )
         note = f" ({'; '.join(notes)})" if notes else ""
         if not patches:
-            return ("refused: account settings stay as they are" if refused and not unpicked else "nothing to fill") + note
+            if refused and not unpicked and not repeated:
+                return "refused: account settings stay as they are" + note
+            return "nothing to fill" + note
 
         db = self.db_factory()
         try:
@@ -429,10 +503,14 @@ class FixAgent:
             return f"failed: {error or 'fill did not finish'}" + note
         # The filler can report success without the value landing; trust only the live form.
         after = await self._snapshot()
-        missing = [
-            patch["field"] for patch in patches
-            if not ((_find_field(after, patch["marketplace"], patch["field"]) or {}).get("value") or "").strip()
-        ]
+        self.fresh = after
+        missing = []
+        for patch in patches:
+            landed = ((_find_field(after, patch["marketplace"], patch["field"]) or {}).get("value") or "").strip()
+            if landed:
+                continue
+            missing.append(patch["field"])
+            self.failed.setdefault(field_key(patch["marketplace"], patch["field"]), set()).add(patch["value"])
         if not missing:
             return "ok, the form shows every value" + note
         if len(missing) == len(patches):
@@ -539,7 +617,7 @@ class FixAgent:
             yield "status", f"{label}…"
             try:
                 result = await self._execute(action, snapshot)
-                snapshot = await self._snapshot()
+                snapshot, self.fresh = self.fresh or await self._snapshot(), None
             except BrowserBridgeError as exc:
                 outcome = f"The Vendoo browser stopped responding: {exc}"
                 break
