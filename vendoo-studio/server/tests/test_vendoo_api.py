@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import unittest
 
+from vendoo_studio.services.vendoo_specifics import normalize_specifics
 from vendoo_studio.services.vendoo_api import (
     ALL_MARKETPLACES,
     CURRENT_ITEM_VERSION,
     build_vendoo_item,
+    category_from_hit,
     create_item_payload,
     default_listing_section,
     diff_roundtrip,
     encode_field,
     observe_item_schema,
+    pick_category_hit,
 )
 from vendoo_studio.services.vendoo_import import listing_from_vendoo
 
@@ -61,6 +64,46 @@ LISTING = {
     "depop_specifics": {"style": ["Streetwear"], "source": "Preloved"},
     "etsy_specifics": {"who_made": "someone_else", "materials": ["denim"], "category_specifics": {"Pattern": "Solid"}},
 }
+
+
+def _spec(name, *, options=(), min_values=0, max_values=1, free_text=False):
+    """One entry shaped like Vendoo's category-specifics payload."""
+    built = {}
+    for index, option in enumerate(options):
+        code, display = option if isinstance(option, tuple) else (option, option)
+        built[str(index)] = {"id": code, "display": display}
+    return {
+        "id": name,
+        "display": name,
+        "rules": {
+            "fieldType": "select",
+            "fieldOptions": {
+                "minValues": min_values,
+                "maxValues": max_values,
+                "selectionMode": "FreeText" if free_text else "SelectionOnly",
+            },
+        },
+        "options": built,
+    }
+
+
+class PickCategoryHitTest(unittest.TestCase):
+    def test_prefers_exact_path_leaf(self):
+        hits = [
+            {"id": "wrong", "is_leaf": True, "path": "Women > Tops > Tees"},
+            {"id": "right", "is_leaf": True, "path": "Women > Tops > Blouses"},
+            {"id": "parent", "is_leaf": False, "path": "Women > Tops"},
+        ]
+        hit = pick_category_hit(hits, "Women > Tops > Blouses")
+        self.assertEqual(hit["id"], "right")
+
+    def test_falls_back_to_matching_leaf_name(self):
+        hits = [
+            {"id": "a", "is_leaf": True, "path": "Clothing > Women > Tops"},
+            {"id": "b", "is_leaf": True, "path": "Other > Blouses"},
+        ]
+        hit = pick_category_hit(hits, "Women > Tops > Blouses")
+        self.assertEqual(hit["id"], "b")
 
 
 class ObserveSchemaTest(unittest.TestCase):
@@ -156,13 +199,13 @@ class BuildItemTest(unittest.TestCase):
     def test_category_id_becomes_category_v2(self):
         item, _ = build_vendoo_item({**LISTING, "category_id": "cat_1"}, self.schema)
         self.assertEqual(item["generalDetails"]["categoryV2"], {"id": "cat_1", "displayPath": ["Clothing", "Men", "Jeans"]})
-        self.assertEqual(item["generalDetails"]["category"], "")
+        self.assertIsNone(item["generalDetails"]["category"])
 
     def test_marketplace_sections_are_filled_from_specifics(self):
         listings = self.item["listings"]
         ebay = listings["ebay"]
         self.assertEqual(ebay["marketplaceSpecifics"]["shippingService"], "USPSGround")
-        self.assertEqual(ebay["categorySpecifics"], {"department": "Men", "fit": "Straight"})
+        self.assertEqual(ebay["categorySpecifics"], {})
         self.assertEqual(ebay["overrides"]["weight"], {"pounds": "1", "ounces": "8"})
         self.assertEqual(ebay["overrides"]["dimensions"]["length"], "13")
 
@@ -173,7 +216,7 @@ class BuildItemTest(unittest.TestCase):
         mercari = listings["mercari"]
         self.assertEqual(mercari["overrides"]["categoryV2"]["displayPath"], ["Men", "Jeans"])
         self.assertTrue(mercari["marketplaceSpecifics"]["smartPricing"])
-        self.assertEqual(mercari["categorySpecifics"]["shippingLabel"], "USPS Ground Advantage")
+        self.assertEqual(mercari["categorySpecifics"], {})
 
         depop = listings["depop"]
         self.assertEqual(depop["marketplaceSpecifics"]["style"], ["Streetwear"])
@@ -182,9 +225,195 @@ class BuildItemTest(unittest.TestCase):
         etsy = listings["etsy"]
         self.assertEqual(etsy["marketplaceSpecifics"]["whoMade"], "someone_else")
         self.assertEqual(etsy["marketplaceSpecifics"]["materials"], ["denim"])
-        self.assertEqual(etsy["categorySpecifics"], {"Pattern": "Solid"})
+        self.assertEqual(etsy["categorySpecifics"], {})
 
         self.assertEqual(listings["grailed"]["marketplaceSpecifics"], {})
+
+    def test_marketplace_categories_string_sets_category_v2(self):
+        item, _ = build_vendoo_item({
+            "title": "Top",
+            "marketplace_categories": {
+                "ebay": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+                "poshmark": "Women > Tops > Blouses",
+            },
+            "marketplace_category_ids": {"ebay": "ebay_tops_1", "poshmark": "posh_blouses"},
+        })
+        ebay = item["listings"]["ebay"]["overrides"]["categoryV2"]
+        self.assertEqual(ebay["id"], "ebay_tops_1")
+        self.assertEqual(ebay["displayPath"][-1], "Tops")
+        posh = item["listings"]["poshmark"]["overrides"]["categoryV2"]
+        self.assertEqual(posh, {"id": "posh_blouses", "displayPath": ["Women", "Tops", "Blouses"]})
+
+    def test_ebay_aspects_use_vendoos_schema_for_the_leaf(self):
+        """Vendoo's schema decides the keys, the list shapes and the codes."""
+        specs = normalize_specifics({
+            "Department": _spec("Department", options=["Women", "Men"], min_values=1),
+            "Size": _spec("Size", free_text=True, min_values=1),
+            "Size Type": _spec("Size Type", options=["Regular", "Petite"], min_values=1),
+            "Type": _spec("Type", free_text=True, min_values=1),
+            "Season": _spec("Season", options=["Spring", "Fall"], max_values=100),
+            "Occasion": _spec("Occasion", options=["Casual"], max_values=100),
+            "upc": _spec("upc", free_text=True),
+            "condition": _spec(
+                "condition",
+                options=[("3000", "Pre-owned - Good"), ("1000", "New with tags")],
+                min_values=1,
+            ),
+        })
+        item, unresolved = build_vendoo_item(
+            {
+                "title": "Top",
+                "condition": "Pre-Owned - Good",
+                "size": "M",
+                "sizeType": "Regular",
+                "marketplace_categories": {
+                    "ebay": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+                },
+                "marketplace_category_ids": {"ebay": "53159"},
+                "ebay_specifics": {
+                    "department": "Women",
+                    "type": "Top",
+                    "season": "Spring",
+                    "occasion": "Casual",
+                    "upc": "Does Not Apply",
+                    "conditionDescription": "Good condition.",
+                },
+            },
+            specifics={"ebay": specs},
+        )
+        ebay = item["listings"]["ebay"]
+        self.assertEqual(ebay["overrides"]["categoryV2"]["id"], "53159")
+        stored = ebay["categorySpecifics"]
+        self.assertEqual(stored["53159_Department"], "Women")
+        self.assertEqual(stored["53159_Size"], "M")
+        self.assertEqual(stored["53159_Size Type"], "Regular")
+        self.assertEqual(stored["53159_Type"], "Top")
+        self.assertEqual(stored["53159_upc"], "Does Not Apply")
+        # maxValues > 1 means Vendoo stores a list, and a bare string there is
+        # what breaks the form.
+        self.assertEqual(stored["53159_Season"], ["Spring"])
+        self.assertEqual(stored["53159_Occasion"], ["Casual"])
+        # Condition is eBay's own id, in both places the form reads it from.
+        self.assertEqual(ebay["overrides"]["condition"], "3000")
+        self.assertEqual(stored["53159_condition"], "3000")
+        self.assertNotIn("department", stored)
+        self.assertEqual(ebay["marketplaceSpecifics"]["conditionDescription"], "Good condition.")
+        # Nothing about the eBay leaf is left unresolved; generalDetails still
+        # reports its own condition because no learned schema was passed.
+        self.assertEqual([row for row in unresolved if "ebay" in row["field"]], [])
+
+    def test_selection_only_value_is_reported_not_stored(self):
+        """A value the leaf has no option for must never reach Vendoo."""
+        specs = normalize_specifics({
+            "Department": _spec("Department", options=["Women", "Men"]),
+        })
+        item, unresolved = build_vendoo_item(
+            {
+                "title": "Top",
+                "marketplace_category_ids": {"ebay": "53159"},
+                "marketplace_categories": {"ebay": "Clothing > Tops"},
+                "ebay_specifics": {"department": "Womens Petite"},
+            },
+            specifics={"ebay": specs},
+        )
+        stored = item["listings"]["ebay"]["categorySpecifics"]
+        self.assertNotIn("53159_Department", stored)
+        self.assertIn(
+            {"field": "ebay:Department", "value": "Womens Petite"}, unresolved
+        )
+
+    def test_without_vendoos_schema_nothing_is_invented(self):
+        """No schema for the leaf means no guessed aspect keys."""
+        item, _ = build_vendoo_item({
+            "title": "Top",
+            "size": "M",
+            "marketplace_category_ids": {"ebay": "53159"},
+            "marketplace_categories": {"ebay": "Clothing > Tops"},
+            "ebay_specifics": {"department": "Women", "season": "Spring"},
+        })
+        self.assertEqual(item["listings"]["ebay"]["categorySpecifics"], {})
+
+    def test_ebay_condition_needs_ebays_own_code(self):
+        """A Vendoo label in ``overrides.condition`` is what crashes the form."""
+        listing = {
+            "title": "Top",
+            "condition": "Pre-Owned - Good",
+            "marketplace_categories": {"ebay": "Clothing > Women > Tops"},
+            "marketplace_category_ids": {"ebay": "53159"},
+        }
+        item, unresolved = build_vendoo_item(listing)
+        ebay = item["listings"]["ebay"]
+        self.assertNotIn("condition", ebay["overrides"])
+        self.assertNotIn("53159_condition", ebay["categorySpecifics"])
+        self.assertIn("condition:ebay", [u["field"] for u in unresolved])
+
+        learned = observe_item_schema([{
+            "generalDetails": {"condition": "v_preowned"},
+            "listings": {"ebay": {
+                "overrides": {"condition": "3000", "categoryV2": {"id": "53159"}},
+                "categorySpecifics": {"53159_condition": "3000"},
+            }},
+        }])
+        item, unresolved = build_vendoo_item({**listing, "condition": "v_preowned"}, learned)
+        ebay = item["listings"]["ebay"]
+        self.assertEqual(ebay["overrides"]["condition"], "3000")
+        self.assertEqual(ebay["categorySpecifics"]["53159_condition"], "3000")
+        self.assertEqual([u["field"] for u in unresolved], [])
+
+    def test_multi_select_aspects_are_stored_as_lists(self):
+        learned = observe_item_schema([{
+            "listings": {"ebay": {
+                "overrides": {"categoryV2": {"id": "53159"}},
+                "categorySpecifics": {"53159_Season": ["Spring"], "53159_Department": "Women"},
+            }},
+        }])
+        item, _ = build_vendoo_item({
+            "title": "Top",
+            "marketplace_categories": {"ebay": "Clothing > Women > Tops"},
+            "marketplace_category_ids": {"ebay": "53159"},
+            "ebay_specifics": {"season": "Spring", "department": "Women"},
+        }, learned)
+        specs = item["listings"]["ebay"]["categorySpecifics"]
+        self.assertEqual(specs["53159_Season"], ["Spring"])
+        self.assertEqual(specs["53159_Department"], "Women")
+
+    def test_resolved_category_object_is_kept_whole(self):
+        """The eBay form reads ``path`` and ``extras.siteId``; both must survive."""
+        hit = {
+            "id": "53159",
+            "is_leaf": True,
+            "has_children": False,
+            "last_subcategory_label": "Tops",
+            "all_category_label": ["Clothing, Shoes & Accessories", "Women", "Tops"],
+            "parent_category_id_path": ["11450", "260010", "15724"],
+            "payload_text": '{"siteId": "0"}',
+        }
+        resolved = category_from_hit(hit)
+        self.assertEqual(resolved, {
+            "id": "53159",
+            "displayPath": ["Clothing, Shoes & Accessories", "Women", "Tops"],
+            "displayName": "Tops",
+            "isLeaf": True,
+            "hasChildren": False,
+            "path": ["11450", "260010", "15724", "53159"],
+            "extras": {"siteId": "0"},
+        })
+        item, _ = build_vendoo_item({
+            "title": "Top",
+            "marketplace_category_objects": {"ebay": resolved, "general": resolved},
+        })
+        self.assertEqual(item["listings"]["ebay"]["overrides"]["categoryV2"], resolved)
+        self.assertEqual(item["generalDetails"]["categoryV2"], resolved)
+
+    def test_string_category_path_in_specifics(self):
+        item, _ = build_vendoo_item({
+            "title": "Top",
+            "etsy_specifics": {"categoryPath": "Clothing > Women's Clothing > Tops & Tees > Blouses"},
+        })
+        self.assertEqual(
+            item["listings"]["etsy"]["overrides"]["categoryV2"]["displayPath"],
+            ["Clothing", "Women's Clothing", "Tops & Tees", "Blouses"],
+        )
 
     def test_unresolved_labels_are_reported_not_invented(self):
         item, unresolved = build_vendoo_item({**LISTING, "condition": "Salvage", "primaryColor": "Chartreuse"}, self.schema)
@@ -227,9 +456,10 @@ class RoundTripTest(unittest.TestCase):
         self.assertEqual(back["weight_oz"], 8)
         self.assertEqual(back["package_dimensions_in"], "13x10x3")
         self.assertEqual(back["poshmark_specifics"]["originalPrice"], 90.0)
-        self.assertEqual(back["ebay_specifics"]["department"], "Men")
+        self.assertNotIn("department", back.get("ebay_specifics") or {})
         self.assertEqual(back["etsy_specifics"]["who_made"], "someone_else")
-        self.assertEqual(back["etsy_specifics"]["category_specifics"], {"Pattern": "Solid"})
+        self.assertNotIn("category_specifics", back.get("etsy_specifics") or {})
+        self.assertEqual(back["depop_specifics"]["style"], ["Streetwear"])
 
 
 class DiffRoundTripTest(unittest.TestCase):

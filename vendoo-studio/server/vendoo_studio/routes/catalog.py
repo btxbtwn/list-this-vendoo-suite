@@ -75,6 +75,31 @@ async def sync_categories(db: Session = Depends(get_db)):
     return {"started": True}
 
 
+@router.get("/fields")
+def fields(marketplace: str, category_id: str):
+    """Vendoo's field list for one marketplace category.
+
+    Every field that category renders, including the optional ones it unlocks,
+    with ``required``, ``multi`` and the coded options each accepts. Served from
+    the cache the create path fills, so this needs no Chrome session.
+    """
+    from vendoo_studio.services.category_fields import load_rows
+
+    rows = load_rows(marketplace, category_id)
+    if rows is None:
+        raise HTTPException(
+            404,
+            f"No cached field schema for {marketplace} category {category_id}. "
+            "Create or refresh a listing in that category to fetch it.",
+        )
+    return {
+        "marketplace": marketplace,
+        "category_id": category_id,
+        "required": [row["key"] for row in rows if row.get("required")],
+        "fields": rows,
+    }
+
+
 @router.get("/schema")
 def schema(category_path: str, db: Session = Depends(get_db)):
     rows = db.query(CategorySchema).filter_by(general_path=category_path).all()

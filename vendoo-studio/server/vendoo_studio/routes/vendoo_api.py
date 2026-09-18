@@ -26,6 +26,7 @@ CREATED_STEP = "vendoo_api_created"
 
 class ProbeRequest(BaseModel):
     item_ids: list[str] = Field(default_factory=list, max_length=50)
+    reset: bool = False
 
 
 class ProbeResponse(BaseModel):
@@ -34,6 +35,22 @@ class ProbeResponse(BaseModel):
     item_count: int
     fields: list[str]
     failures: list[dict] = []
+
+
+class ItemsRequest(BaseModel):
+    item_ids: list[str] = Field(default_factory=list, min_length=1, max_length=20)
+
+
+class CategorySearchRequest(BaseModel):
+    text: str
+    marketplace_id: str = "ebay"
+
+
+class SpecificsRequest(BaseModel):
+    category_id: str
+    marketplace_id: str = "ebay"
+    path: list[str] = Field(default_factory=list)
+    extras: dict = Field(default_factory=dict)
 
 
 class CreateResponse(BaseModel):
@@ -79,7 +96,7 @@ async def probe(body: ProbeRequest, db: Session = Depends(get_db)):
     if not item_ids:
         raise HTTPException(400, "No Vendoo items to learn from yet. Pass item_ids or import a draft first.")
     try:
-        out = await probe_schema(SimpleNamespace(id=None), item_ids[:50])
+        out = await probe_schema(SimpleNamespace(id=None), item_ids[:50], reset=body.reset)
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
         raise _http_error(exc) from exc
     schema = out["schema"]
@@ -90,6 +107,77 @@ async def probe(body: ProbeRequest, db: Session = Depends(get_db)):
         fields=sorted((schema.get("fields") or {}).keys()),
         failures=out["failures"],
     )
+
+
+@router.post("/api/vendoo-api/items")
+async def read_items(body: ItemsRequest):
+    """Read raw Vendoo items back, unmodified.
+
+    ``probe`` only reports the encodings it learned; comparing a hand-built
+    item against one Vendoo's own form wrote needs the untouched documents.
+    """
+    from vendoo_studio.services.vendoo_create import run_ops
+
+    ops = [{"op": "get_item", "item_id": item_id, "throttle_ms": 250} for item_id in body.item_ids]
+    try:
+        reply = await run_ops(SimpleNamespace(id=None), ops)
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    return {
+        "ok": True,
+        "items": {
+            r.get("item_id"): r.get("item")
+            for r in reply.get("results", [])
+            if r.get("op") == "get_item"
+        },
+    }
+
+
+@router.post("/api/vendoo-api/category-search")
+async def category_search(body: CategorySearchRequest):
+    """Raw ``/api/category/search`` hits, so a leaf's full shape stays visible."""
+    from vendoo_studio.services.vendoo_create import run_ops
+
+    try:
+        reply = await run_ops(
+            SimpleNamespace(id=None),
+            [{"op": "category_search", "text": body.text, "marketplace_id": body.marketplace_id}],
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    hit = next((r for r in reply.get("results", []) if r.get("op") == "category_search"), {})
+    return {"ok": True, "leaf": hit.get("leaf"), "matches": hit.get("matches", [])}
+
+
+@router.post("/api/vendoo-api/category-specifics")
+async def category_specifics(body: SpecificsRequest):
+    """The field schema Vendoo's own forms render a category from."""
+    from vendoo_studio.services.vendoo_create import run_ops
+
+    try:
+        reply = await run_ops(
+            SimpleNamespace(id=None),
+            [{
+                "op": "category_specifics",
+                "category_id": body.category_id,
+                "marketplace_id": body.marketplace_id,
+                "path": body.path,
+                "extras": body.extras,
+            }],
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    hit = next((r for r in reply.get("results", []) if r.get("op") == "category_specifics"), {})
+    raw = hit.get("specifics")
+    # Cache it the same way the create path does, so /api/catalog/fields can
+    # serve this category without another Chrome round trip.
+    from vendoo_studio.services.category_fields import save_fields
+    from vendoo_studio.services.vendoo_specifics import normalize_specifics
+
+    specs = normalize_specifics(raw)
+    if specs:
+        save_fields(body.marketplace_id, body.category_id, specs)
+    return {"ok": True, "cached": bool(specs), "specifics": raw}
 
 
 @router.post("/api/conversations/{conv_id}/vendoo-api/create", response_model=CreateResponse)

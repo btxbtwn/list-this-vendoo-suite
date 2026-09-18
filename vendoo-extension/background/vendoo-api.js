@@ -35,22 +35,115 @@ function vendooFirestoreId() {
 
 // Runs in the page: the only thing we need from web.vendoo.co is the Firebase
 // session. Self-contained on purpose (executeScript serializes it).
-function readVendooSessionInPage() {
+// Vendoo persists auth in IndexedDB (firebaseLocalStorageDb); older builds also
+// used localStorage. Check both so a signed-in tab is never reported as logged out.
+async function readVendooSessionInPage() {
+  const fromUser = (raw, key) => {
+    if (!raw || !raw.uid) return null;
+    const sts = raw.stsTokenManager || {};
+    return {
+      ok: true,
+      uid: String(raw.uid),
+      email: raw.email || null,
+      api_key: raw.apiKey || (key ? String(key).split(':')[2] : null) || null,
+      access_token: sts.accessToken || null,
+      refresh_token: sts.refreshToken || null,
+      expiration_time: Number(sts.expirationTime) || 0,
+    };
+  };
+
+  const withTimeout = (promise, ms, label) => Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]);
+
+  // Live Firebase app on the page (fastest, avoids IndexedDB locks).
+  // Wait briefly for auth restore — a just-opened /app/ shell often has no
+  // currentUser until Firebase finishes reading its persistence layer.
+  try {
+    const auth = window.firebase?.auth?.();
+    if (auth) {
+      let user = auth.currentUser;
+      if (!user) {
+        user = await withTimeout(new Promise((resolve) => {
+          const unsub = auth.onAuthStateChanged((u) => {
+            unsub();
+            resolve(u);
+          });
+        }), 5000, 'firebase.onAuthStateChanged');
+      }
+      if (user?.uid) {
+        const access_token = await user.getIdToken();
+        const refresh_token = user.refreshToken || null;
+        return {
+          ok: true,
+          uid: String(user.uid),
+          email: user.email || null,
+          api_key: auth.app?.options?.apiKey || null,
+          access_token,
+          refresh_token,
+          expiration_time: Date.now() + 55 * 60 * 1000,
+        };
+      }
+    }
+  } catch (err) {
+    /* fall through */
+  }
+
   try {
     for (const key of Object.keys(localStorage)) {
       if (!key.startsWith('firebase:authUser:')) continue;
-      const raw = JSON.parse(localStorage.getItem(key) || 'null');
-      if (!raw || !raw.uid) continue;
-      const sts = raw.stsTokenManager || {};
-      return {
-        ok: true,
-        uid: String(raw.uid),
-        email: raw.email || null,
-        api_key: raw.apiKey || key.split(':')[2] || null,
-        access_token: sts.accessToken || null,
-        refresh_token: sts.refreshToken || null,
-        expiration_time: Number(sts.expirationTime) || 0,
+      const session = fromUser(JSON.parse(localStorage.getItem(key) || 'null'), key);
+      if (session) return session;
+    }
+  } catch (err) {
+    /* fall through to IndexedDB */
+  }
+
+  try {
+    const db = await withTimeout(new Promise((resolve, reject) => {
+      const req = indexedDB.open('firebaseLocalStorageDb');
+      req.onerror = () => reject(req.error || new Error('indexedDB open failed'));
+      req.onblocked = () => reject(new Error('indexedDB open blocked'));
+      req.onsuccess = () => resolve(req.result);
+    }), 8000, 'indexedDB.open');
+    if (![...db.objectStoreNames].includes('firebaseLocalStorage')) {
+      db.close();
+      return { ok: false, error: 'Not signed in to Vendoo in this Chrome profile' };
+    }
+    // Prefer a cursor over getAll — this store can be large enough that getAll hangs.
+    const rows = await withTimeout(new Promise((resolve, reject) => {
+      const tx = db.transaction('firebaseLocalStorage', 'readonly');
+      const store = tx.objectStore('firebaseLocalStorage');
+      const req = store.openCursor();
+      const found = [];
+      req.onerror = () => reject(req.error || new Error('indexedDB cursor failed'));
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(found);
+          return;
+        }
+        const row = cursor.value;
+        const key = String(row?.fbase_key || cursor.key || '');
+        if (key.startsWith('firebase:authUser:')) {
+          found.push(row);
+          resolve(found);
+          return;
+        }
+        cursor.continue();
       };
+    }), 8000, 'indexedDB.cursor');
+    db.close();
+    for (const row of rows) {
+      const key = String(row?.fbase_key || '');
+      if (!key.startsWith('firebase:authUser:')) continue;
+      const value = row?.value;
+      const raw = typeof value === 'string' ? JSON.parse(value) : value;
+      const session = fromUser(raw, key);
+      if (session) return session;
     }
   } catch (err) {
     return { ok: false, error: `Could not read the Vendoo session: ${err.message}` };
@@ -58,25 +151,46 @@ function readVendooSessionInPage() {
   return { ok: false, error: 'Not signed in to Vendoo in this Chrome profile' };
 }
 
+async function closeBlockingVendooItemTabs() {
+  // Crashed /item/ error pages (Elzzlzss etc.) share the origin and can leave
+  // IndexedDB blocked for every other Vendoo tab in the profile.
+  const tabs = await chrome.tabs.query({ url: ['https://web.vendoo.co/app/item/*', 'https://app.vendoo.co/app/item/*'] });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.tabs.remove(tab.id);
+    } catch (err) {
+      /* tab already gone */
+    }
+  }
+}
+
 async function findOrOpenVendooTab() {
-  const existing = await findVisibleVendooTab();
-  if (existing?.id) return existing.id;
-  const opened = await openVisibleVendooWindow(VENDOO_APP_URL, null, { foreground: false });
+  await closeBlockingVendooItemTabs();
+  // Always open a fresh app shell for auth reads after clearing item tabs.
+  const opened = await openVisibleVendooWindow(VENDOO_APP_URL, null, { foreground: true });
   if (!opened.tabId) throw new Error('Could not open a Vendoo tab');
   await waitForTabComplete(opened.tabId, 30000);
+  await new Promise((resolve) => setTimeout(resolve, 2500));
   return opened.tabId;
 }
 
 async function readVendooSession() {
   const tabId = await findOrOpenVendooTab();
-  const [execution] = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: readVendooSessionInPage,
-  });
-  const session = execution?.result;
-  if (!session || !session.ok) throw new Error(session?.error || 'No Vendoo session in the page');
-  return session;
+  let lastError = 'No Vendoo session in the page';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const [execution] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: readVendooSessionInPage,
+    });
+    const session = execution?.result;
+    if (session?.ok) return session;
+    lastError = session?.error || lastError;
+    // Firebase may still be restoring auth from IndexedDB after a hard reload.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  throw new Error(lastError);
 }
 
 async function refreshVendooToken(session) {
@@ -202,6 +316,35 @@ async function getVendooItem(session, itemId) {
   return (data && (data.item || data.data)) || data;
 }
 
+// Every field one category leaf renders, for any marketplace. This is what
+// Vendoo's own forms call after a category is chosen, so it covers the
+// category-dependent optional fields too. Each entry carries
+// rules.fieldOptions (minValues -> required, maxValues -> multi-select,
+// selectionMode -> dropdown vs free text) and its coded options.
+//
+// ``p`` is the ancestor id chain and the extras are spread as query params,
+// both taken from overrides.categoryV2 — the reason that object has to be
+// stored whole.
+async function getVendooCategorySpecifics(session, call) {
+  const parts = [];
+  const path = Array.isArray(call.path) ? call.path.filter((id) => String(id || '').trim()) : [];
+  if (path.length) parts.push(`p=${encodeURIComponent(path.join(','))}`);
+  const extras = call.extras && typeof call.extras === 'object' ? call.extras : {};
+  for (const [key, value] of Object.entries(extras)) {
+    if (value === undefined || value === null || value === '') continue;
+    parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+  }
+  const query = parts.length ? `?${parts.join('&')}` : '';
+  const marketplace = encodeURIComponent(call.marketplace_id || 'ebay');
+  const category = encodeURIComponent(call.category_id);
+  const res = await vendooFetch(
+    `${VENDOO_API_BASE}/api/category/specifics/${marketplace}/category/${category}${query}`,
+    { token: session.access_token },
+  );
+  if (!res.ok) throw new Error(vendooError(`GET category specifics ${call.category_id}`, res));
+  return { specifics: res.data };
+}
+
 async function searchVendooCategory(session, call) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/category/search`, {
     method: 'POST',
@@ -251,6 +394,14 @@ async function runVendooApiOps(ops) {
           break;
         case 'category_search':
           results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
+          break;
+        case 'category_specifics':
+          results.push({
+            op: 'category_specifics',
+            ok: true,
+            category_id: op.category_id,
+            ...(await getVendooCategorySpecifics(session, op)),
+          });
           break;
         default:
           throw new Error(`Unknown Vendoo API op: ${op.op}`);

@@ -8,8 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from vendoo_studio.services import vendoo_create
-from vendoo_studio.services.vendoo_create import VendooCreateError, create_item, load_schema, probe_schema
+from vendoo_studio.services import category_fields, vendoo_create
+from vendoo_studio.services.vendoo_specifics import normalize_specifics
+from vendoo_studio.services.vendoo_create import VendooCreateError, create_item, load_schema, probe_schema, resolve_listing_categories
 
 
 def run(coro):
@@ -25,13 +26,40 @@ LISTING = {"title": "Levi's 501", "description": "Classic", "price": 48, "condit
 PROBED = {"generalDetails": {"condition": {"value": "v_pre_owned_good", "displayName": "Pre-Owned - Good"}}, "itemID": "old1"}
 
 
+def ops_for(fake, name):
+    """The ops list of the request that carried this op."""
+    for _type, payload in fake.sent:
+        ops = (payload or {}).get("ops") or []
+        if any(op.get("op") == name for op in ops):
+            return ops
+    raise AssertionError(f"no request carried {name}")
+
+
+def specifics_reply(fields=None):
+    """A ``category_specifics`` reply shaped like Vendoo's payload."""
+    return {"ok": True, "results": [
+        {"op": "category_specifics", "ok": True, "specifics": fields or {}},
+    ]}
+
+
 class FakeBridge:
-    def __init__(self, replies):
+    """Scripted replies, with the optional category-schema fetch auto-answered.
+
+    ``fetch_listing_specifics`` is best-effort and asks once per resolved
+    marketplace, so tests that are not about it answer "no schema" and exercise
+    the fallback. Pass ``specifics`` to script a real one.
+    """
+
+    def __init__(self, replies, specifics=None):
         self.replies = list(replies)
+        self.specifics = specifics
         self.sent = []
 
     async def request(self, job, message_type, payload=None, *, timeout=0):
         self.sent.append((message_type, payload))
+        ops = (payload or {}).get("ops") or []
+        if ops and all(op.get("op") == "category_specifics" for op in ops):
+            return self.specifics or specifics_reply()
         return self.replies.pop(0)
 
 
@@ -152,6 +180,178 @@ class CreateTest(_TmpSchema):
     def test_needs_photos(self):
         with self.assertRaises(VendooCreateError):
             run(create_item(JOB, LISTING, []))
+
+    def test_resolves_categories_before_create(self):
+        listing = {
+            **LISTING,
+            "category_path": "Clothing > Men > Jeans",
+            "marketplace_categories": {"poshmark": "Men > Jeans > Straight"},
+        }
+        replies = [
+            {"ok": True, "results": [
+                {"op": "category_search", "ok": True, "leaf": {"id": "gen1", "is_leaf": True, "path": "Clothing > Men > Jeans"},
+                 "matches": [{"id": "gen1", "is_leaf": True, "path": "Clothing > Men > Jeans"}]},
+                {"op": "category_search", "ok": True, "leaf": {"id": "posh1", "is_leaf": True, "path": "Men > Jeans > Straight"},
+                 "matches": [{"id": "posh1", "is_leaf": True, "path": "Men > Jeans > Straight"}]},
+            ]},
+            *self._replies(),
+        ]
+        Path(self.tmp.name, "schema.json").write_text(json.dumps({"fields": {"condition": {
+            "labels": {"pre owned good": "v_pre_owned_good"}, "codes": ["v_pre_owned_good"], "shape": "object"}}, "item_count": 1}))
+        fake = FakeBridge(replies)
+        with mock.patch.object(vendoo_create, "_tree_leaf", return_value=None), \
+                mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out = run(create_item(JOB, listing, PHOTOS))
+        self.assertEqual(out["item_id"], "NEWid1234567890abcde")
+        search_ops = ops_for(fake, "category_search")
+        self.assertEqual([op["op"] for op in search_ops], ["category_search", "category_search"])
+        self.assertEqual(search_ops[0]["marketplace_id"], "vendoo")
+        self.assertEqual(search_ops[1]["marketplace_id"], "poshmark")
+        self.assertEqual([op["op"] for op in ops_for(fake, "session")][:3], ["session", "new_item_id", "subscription"])
+        item = ops_for(fake, "create_item")[0]["item"]
+        self.assertEqual(item["generalDetails"]["categoryV2"]["id"], "gen1")
+        self.assertEqual(item["listings"]["poshmark"]["overrides"]["categoryV2"]["id"], "posh1")
+
+    def test_falls_back_to_local_tree_when_search_finds_nothing(self):
+        """Search runs first for ``extras``/``path``; the tree still covers a miss."""
+        listing = {
+            **LISTING,
+            "category_path": "Clothing > Men > Jeans",
+            "marketplace_categories": {"ebay": "Clothing > Men > Jeans"},
+        }
+
+        def fake_tree(marketplace, path):
+            if marketplace == "general":
+                return {"id": "slug_jeans", "is_leaf": True, "has_children": False,
+                        "last_subcategory_label": "Jeans", "all_category_label": path.split(" > "),
+                        "parent_category_id_path": ["slug_clothing", "slug_men"]}
+            if marketplace == "ebay":
+                return {"id": "1154", "is_leaf": True, "has_children": False,
+                        "last_subcategory_label": "Jeans", "all_category_label": path.split(" > "),
+                        "parent_category_id_path": ["11450", "1059"]}
+            return None
+
+        replies = [
+            {"ok": True, "results": [
+                {"op": "category_search", "ok": True, "leaf": None, "matches": []},
+                {"op": "category_search", "ok": True, "leaf": None, "matches": []},
+            ]},
+            *self._replies(),
+        ]
+        Path(self.tmp.name, "schema.json").write_text(json.dumps({"fields": {}, "item_count": 0}))
+        fake = FakeBridge(replies)
+        with mock.patch.object(vendoo_create, "_tree_leaf", side_effect=fake_tree), \
+                mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out = run(create_item(JOB, listing, PHOTOS))
+        self.assertEqual(out["item_id"], "NEWid1234567890abcde")
+        self.assertEqual([op["op"] for op in ops_for(fake, "category_search")], ["category_search", "category_search"])
+        item = ops_for(fake, "create_item")[0]["item"]
+        general = item["generalDetails"]["categoryV2"]
+        self.assertEqual(general["id"], "slug_jeans")
+        self.assertEqual(general["path"], ["slug_clothing", "slug_men", "slug_jeans"])
+        ebay = item["listings"]["ebay"]["overrides"]["categoryV2"]
+        self.assertEqual(ebay["id"], "1154")
+        self.assertEqual(ebay["path"], ["11450", "1059", "1154"])
+        self.assertEqual(ebay["displayName"], "Jeans")
+        self.assertIs(ebay["isLeaf"], True)
+
+
+class ResolveCategoriesTest(_TmpSchema):
+    def test_asks_each_leaf_for_its_field_schema(self):
+        """The fetch passes the leaf's ancestor chain and extras through.
+
+        eBay resolves a category's fields from those two, so a request without
+        them comes back empty and the encoding falls back to guesswork.
+        """
+        listing = {
+            "marketplace_category_objects": {
+                "general": {"id": "slug_tops"},
+                "ebay": {
+                    "id": "53159",
+                    "path": ["11450", "260010", "53159"],
+                    "extras": {"siteId": "0"},
+                },
+            }
+        }
+        fake = FakeBridge([], specifics=specifics_reply({
+            "Season": {"id": "Season", "display": "Season", "options": {
+                "0": {"id": "Spring", "display": "Spring"}},
+                "rules": {"fieldOptions": {"minValues": 0, "maxValues": 100,
+                                           "selectionMode": "SelectionOnly"}}},
+        }))
+        saved = []
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request), \
+                mock.patch.object(category_fields, "load_fields", return_value=None), \
+                mock.patch.object(category_fields, "save_fields",
+                                  side_effect=lambda mp, cid, sp: saved.append((mp, cid, sp))):
+            specs = run(vendoo_create.fetch_listing_specifics(JOB, listing))
+
+        # One request, for the marketplace leaf only — general has no schema.
+        self.assertEqual(len(fake.sent), 1)
+        op = fake.sent[0][1]["ops"][0]
+        self.assertEqual(op["op"], "category_specifics")
+        self.assertEqual(op["marketplace_id"], "ebay")
+        self.assertEqual(op["category_id"], "53159")
+        self.assertEqual(op["path"], ["11450", "260010", "53159"])
+        self.assertEqual(op["extras"], {"siteId": "0"})
+        self.assertTrue(specs["ebay"]["Season"].multi)
+        self.assertEqual(specs["ebay"]["Season"].options, {"Spring": "Spring"})
+        # and what it fetched is cached so the next listing costs nothing
+        self.assertEqual([(mp, cid) for mp, cid, _ in saved], [("ebay", "53159")])
+
+    def test_a_cached_leaf_is_not_fetched_again(self):
+        """The cache is the point: one round trip per category, ever."""
+        listing = {"marketplace_category_objects": {"ebay": {"id": "53159"}}}
+        cached = normalize_specifics({
+            "Size": {"id": "Size", "display": "Size", "options": {},
+                     "rules": {"fieldOptions": {"minValues": 1, "maxValues": 1,
+                                                "selectionMode": "FreeText"}}},
+        })
+        fake = FakeBridge([])
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request), \
+                mock.patch.object(category_fields, "load_fields", return_value=cached):
+            specs = run(vendoo_create.fetch_listing_specifics(JOB, listing))
+        self.assertEqual(fake.sent, [])
+        self.assertEqual(sorted(specs["ebay"]), ["Size"])
+
+    def test_a_marketplace_without_a_schema_is_skipped(self):
+        """Vendoo serves no schema for some marketplaces; that is not fatal."""
+        listing = {"marketplace_category_objects": {"shopify": {"id": "9526"}}}
+        fake = FakeBridge([], specifics={"ok": True, "results": [
+            {"op": "category_specifics", "ok": False, "error": "400"},
+        ]})
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request), \
+                mock.patch.object(category_fields, "load_fields", return_value=None):
+            self.assertEqual(run(vendoo_create.fetch_listing_specifics(JOB, listing)), {})
+
+    def test_mercari_comes_from_its_static_file_not_the_bridge(self):
+        """Mercari's only category field ships as a public asset."""
+        listing = {"marketplace_category_objects": {"mercari": {"id": "12"}}}
+        fake = FakeBridge([])
+        size = normalize_specifics({
+            "Size": {"id": "Size", "display": "Size",
+                     "options": {"0": {"id": "4", "display": "M (8-10)"}},
+                     "rules": {"fieldOptions": {"minValues": 0, "maxValues": 1,
+                                                "selectionMode": "SelectionOnly"}}},
+        })
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request), \
+                mock.patch.object(category_fields, "load_fields", return_value=None), \
+                mock.patch.object(category_fields, "save_fields"), \
+                mock.patch.object(vendoo_create, "mercari_fields",
+                                  new=mock.AsyncMock(return_value=size)) as fetch:
+            specs = run(vendoo_create.fetch_listing_specifics(JOB, listing))
+        self.assertEqual(fake.sent, [])
+        fetch.assert_awaited_once_with("12")
+        self.assertEqual(sorted(specs["mercari"]), ["Size"])
+
+    def test_skips_when_already_resolved(self):
+        listing = {"category_path": "A > B", "category_id": "already"}
+        fake = FakeBridge([])
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out, unresolved = run(resolve_listing_categories(JOB, listing))
+        self.assertEqual(out["category_id"], "already")
+        self.assertEqual(unresolved, [])
+        self.assertEqual(fake.sent, [])
 
 
 if __name__ == "__main__":
