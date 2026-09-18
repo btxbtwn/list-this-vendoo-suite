@@ -185,7 +185,7 @@ def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
     return targets
 
 
-def _tree_leaf(marketplace: str, path: str) -> dict[str, Any] | None:
+def tree_leaf(marketplace: str, path: str) -> dict[str, Any] | None:
     """Exact leaf from the seeded ``category_tree_nodes`` table, when present."""
     import sqlite3
 
@@ -285,7 +285,7 @@ async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict
                     matches = [leaf, *[m for m in matches if m is not leaf]]
                 hit = pick_category_hit(matches, path)
             if not (hit and hit.get("id")):
-                hit = _tree_leaf(marketplace_id, path)
+                hit = tree_leaf(marketplace_id, path)
             if hit and hit.get("id"):
                 resolved_hits[key] = hit
             else:

@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.catalog import CategorySchema
+from vendoo_studio.services.category_fields import listing_category_ids, load_fields
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.fill_log import (
     MAX_PATCH_FIELDS,
@@ -130,6 +131,18 @@ def collect_empty_discovered_fields(db: Session, listing: dict) -> list[dict[str
                 label,
                 options=options,
                 required=bool(field.get("required")),
+            )
+
+    # Vendoo's own per-category schema, where we have it: it names every field
+    # the category renders, which of them it requires, and each coded option.
+    # Unlike the scraped rows above it needs no browser and covers any leaf.
+    for marketplace, category_id in listing_category_ids(listing).items():
+        for spec in (load_fields(marketplace, category_id) or {}).values():
+            consider(
+                marketplace,
+                spec.display or spec.key,
+                options=sorted(spec.options.values()) or None,
+                required=spec.required,
             )
 
     registry = RegistryService(db)

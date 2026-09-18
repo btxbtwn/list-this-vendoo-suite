@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -143,6 +144,48 @@ class MercariSpecificsTest(unittest.TestCase):
         # flat: no scale companion, unlike Poshmark and Etsy
         self.assertNotIn("12_Size_scale", stored)
         self.assertEqual([r for r in unresolved if "mercari" in r["field"]], [])
+
+
+class SchemaFeedsTheGapFillerTest(unittest.TestCase):
+    """The cached schema is what the gap filler asks the model to fill."""
+
+    def test_offers_every_empty_schema_field_with_its_options(self):
+        from vendoo_studio.services import listing_field_gaps
+        from vendoo_studio.services.vendoo_specifics import normalize_specifics
+
+        specs = normalize_specifics({
+            "Season": {"id": "Season", "display": "Season", "options": {
+                "0": {"id": "Spring", "display": "Spring"},
+                "1": {"id": "Winter", "display": "Winter"},
+            }, "rules": {"fieldOptions": {"minValues": 0, "maxValues": 2,
+                                          "selectionMode": "SelectionOnly"}}},
+            "Department": {"id": "Department", "display": "Department", "options": {
+                "0": {"id": "Women", "display": "Women"},
+            }, "rules": {"fieldOptions": {"minValues": 1, "maxValues": 1,
+                                          "selectionMode": "SelectionOnly"}}},
+        })
+        listing = {
+            "category_path": "Clothing > Tops",
+            "marketplace_category_ids": {"ebay": "53159"},
+            "ebay_specifics": {"department": "Women"},
+        }
+
+        class NoRows:
+            def query(self, *_a, **_k): return self
+            def filter_by(self, *_a, **_k): return self
+            def all(self): return []
+
+        with mock.patch.object(listing_field_gaps, "load_fields", return_value=specs), \
+                mock.patch.object(listing_field_gaps, "RegistryService") as registry:
+            registry.return_value._repo.list_fields.return_value = []
+            gaps = listing_field_gaps.collect_empty_discovered_fields(NoRows(), listing)
+
+        by_field = {row["field"]: row for row in gaps if row["marketplace"] == "ebay"}
+        # Department is already answered in the listing, so it is not a gap.
+        self.assertNotIn("Department", by_field)
+        # Season is empty, and the model is handed the exact values it may use.
+        self.assertIn("Season", by_field)
+        self.assertEqual(by_field["Season"]["options"], ["Spring", "Winter"])
 
 
 if __name__ == "__main__":

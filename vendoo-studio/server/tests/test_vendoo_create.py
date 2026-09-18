@@ -199,7 +199,7 @@ class CreateTest(_TmpSchema):
         Path(self.tmp.name, "schema.json").write_text(json.dumps({"fields": {"condition": {
             "labels": {"pre owned good": "v_pre_owned_good"}, "codes": ["v_pre_owned_good"], "shape": "object"}}, "item_count": 1}))
         fake = FakeBridge(replies)
-        with mock.patch.object(vendoo_create, "_tree_leaf", return_value=None), \
+        with mock.patch.object(vendoo_create, "tree_leaf", return_value=None), \
                 mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
             out = run(create_item(JOB, listing, PHOTOS))
         self.assertEqual(out["item_id"], "NEWid1234567890abcde")
@@ -240,7 +240,7 @@ class CreateTest(_TmpSchema):
         ]
         Path(self.tmp.name, "schema.json").write_text(json.dumps({"fields": {}, "item_count": 0}))
         fake = FakeBridge(replies)
-        with mock.patch.object(vendoo_create, "_tree_leaf", side_effect=fake_tree), \
+        with mock.patch.object(vendoo_create, "tree_leaf", side_effect=fake_tree), \
                 mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
             out = run(create_item(JOB, listing, PHOTOS))
         self.assertEqual(out["item_id"], "NEWid1234567890abcde")

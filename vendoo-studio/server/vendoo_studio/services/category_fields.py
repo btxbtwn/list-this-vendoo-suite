@@ -23,7 +23,8 @@ from vendoo_studio.services.vendoo_specifics import (
 
 log = logging.getLogger("vendoo_studio.category_fields")
 
-__all__ = ["load_fields", "save_fields", "cached_marketplaces", "load_rows"]
+__all__ = ["load_fields", "save_fields", "cached_marketplaces", "load_rows",
+           "listing_category_ids"]
 
 
 def load_rows(marketplace: str, category_id: str) -> list[dict[str, Any]] | None:
@@ -74,4 +75,34 @@ def cached_marketplaces(category_ids: dict[str, str]) -> dict[str, dict[str, Fie
         specs = load_fields(marketplace, category_id)
         if specs:
             out[marketplace] = specs
+    return out
+
+
+def listing_category_ids(listing: dict[str, Any]) -> dict[str, str]:
+    """``{marketplace: leaf id}`` for a listing, without going near the network.
+
+    Prefers ids already resolved onto the listing; otherwise looks the chosen
+    breadcrumb up in the seeded tree. Categories only live there once they have
+    been discovered, so an unknown path is simply absent rather than guessed.
+    """
+    if not isinstance(listing, dict):
+        return {}
+    out: dict[str, str] = {}
+    known = listing.get("marketplace_category_ids")
+    if isinstance(known, dict):
+        for marketplace, value in known.items():
+            text = str(value or "").strip()
+            if text:
+                out[str(marketplace).strip().lower()] = text
+    paths = listing.get("marketplace_categories")
+    if isinstance(paths, dict):
+        from vendoo_studio.services.vendoo_create import tree_leaf
+
+        for marketplace, path in paths.items():
+            key = str(marketplace).strip().lower()
+            if key in out or not str(path or "").strip():
+                continue
+            leaf = tree_leaf(key, str(path))
+            if leaf and leaf.get("id"):
+                out[key] = str(leaf["id"])
     return out
