@@ -463,6 +463,11 @@ async function handleStudioMessage(msg) {
       break;
     }
 
+    case 'job.vendoo_api': {
+      await handleVendooApiMessage(msg);
+      break;
+    }
+
     case 'job.search_categories': {
       const payload = msg.payload || {};
       const jobId = msg.job_id || payload.job_id;

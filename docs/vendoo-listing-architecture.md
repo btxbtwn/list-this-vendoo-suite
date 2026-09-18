@@ -111,6 +111,42 @@ works from a content script.
 rather than marketplace ids to scrape. It is how Vendoo's own importer creates
 items in bulk.
 
+### How the create-item form actually saves (the path Studio now uses)
+
+`create-item-*.js` (a lazy chunk) plus `FirebaseClient.saveItem` in the main
+bundle show the form's own write path for a **new** item. None of it is the
+REST API above:
+
+1. **Photos** → `POST https://us.vendoo.co/inventory/v1/images/url`
+   `{fileExtension}` with `Authorization: Bearer <Firebase ID token>` →
+   `{url, imagePath}`; `PUT url` with the bytes; the item stores
+   `{version: 3, id: imagePath, originalMaxDimension}`.
+2. **Id** → minted client-side, Firestore style (20 chars, `[A-Za-z0-9]`).
+3. **Create** → Cloud Function `items` at
+   `https://us-central1-vendoo-prod-7948f.cloudfunctions.net/items`, callable
+   envelope `{data: {type: "createItem", payload: {item, subscriptionVersion}}}`,
+   same Bearer token.
+4. **Edits** (item already has an id) go straight to Firestore
+   `users/{uid}/items/{itemID}` — not used by Studio.
+
+The ID token is in `localStorage["firebase:authUser:<apiKey>:[DEFAULT]"]`
+(`stsTokenManager.accessToken`, refreshable through
+`securetoken.googleapis.com/v1/token`). Only that read needs the page; every
+other call runs from the extension's service worker.
+
+The item shape is the new-item factory's, verbatim: an envelope
+`{origin: "vendoo", version: 10, status: {notSaved: true}, type: "item",
+userID, itemID, labels, generalDetails, listings}` where `generalDetails`
+follows `getInitGeneralDetails()` (numbers stored as strings) and every
+`listings.<marketplace>` is `{marketplaceID, type: "listing",
+status: {notListed: true}, overrides, categorySpecifics, marketplaceSpecifics,
+listingAttemptMessages, sales}` with per-marketplace `marketplaceSpecifics`
+defaults from `getInit<Marketplace>Form()`. `vendoo_api.py` mirrors all of
+these, so an item Studio creates is indistinguishable from a form save.
+
+This resolves the `origin: "vendoo"` question: the form path is where that
+origin comes from, so it is native here.
+
 ### Bulk import never touches the Vendoo form
 
 Worth stating plainly, because it is the strongest argument for Plan A: when
@@ -276,14 +312,24 @@ technical one.
 
 Both paths now have a first layer in the tree.
 
-**Plan A — Vendoo API**
-- `services/vendoo_api.py`: endpoint map, `observe_item_schema`, inverse
-  serializer `vendoo_item_from_listing`, `wrap_item` (new-item envelope),
-  `diff_roundtrip`.
-- `vendoo-extension/background/vendoo-api.js`: `get_item`, `upload_images`,
-  `import_normalized`, `category_search` from a signed-in tab.
-- Not yet wired: the Studio job that runs the probe and persists the observed
-  schema. That is where a live session is required.
+**Plan A — Vendoo API** (branch `t3code/vendoo-api-listing`)
+- `services/vendoo_api.py`: Vendoo's form defaults (`default_general_details`,
+  `default_listing_section` per marketplace), `observe_item_schema`,
+  `build_vendoo_item` (complete form-shaped item with every marketplace
+  section), `create_item_payload`, `diff_roundtrip`.
+- `services/vendoo_create.py`: the sequence — session → photo uploads → id →
+  `createItem` → read back → diff. `probe_schema` learns encodings from the
+  user's own items into `<data>/vendoo-item-schema.json`, merging across runs.
+- `vendoo-extension/background/vendoo-api.js`: `session` (localStorage +
+  token refresh), `upload_photo`, `new_item_id`, `subscription`,
+  `create_item`, `get_item`, `category_search`. One `job.vendoo_api`
+  message carries an ordered op list; the first failure stops it.
+- Routes: `POST /api/jobs/{id}/vendoo-api/probe` (no ids → every item Studio
+  already knows), `POST /api/jobs/{id}/vendoo-api/create` (binds the new item
+  to the conversation and job, records unresolved fields and the diff).
+- Still needs a live session to confirm: the callable's exact acceptance of
+  our item (Vendoo validates server-side), `subscriptionVersion`'s value, and
+  the learned condition/colour vocabularies.
 
 **Plan B — direct marketplace listing** (`docs/marketplace-recipes.md`)
 - `vendoo-extension/background/marketplace-request.js`: the one generic

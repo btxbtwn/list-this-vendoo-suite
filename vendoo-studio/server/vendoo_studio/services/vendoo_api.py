@@ -1,74 +1,173 @@
-"""Write listings through Vendoo's own REST API instead of filling its form.
+"""Build Vendoo items in the exact shape Vendoo's own form produces.
 
-Vendoo's web app talks to ``api.web.vendoo.co`` over a conventional REST API,
-authenticated by the Firebase session cookie a signed-in browser already holds.
-Posting an item there is exact: the values we computed are the values stored, so
-category selection and dropdown matching stop being fuzzy-match problems.
+Vendoo's create-item form never fills anything: it builds an item object,
+uploads photos through the inventory microservice, mints a Firestore id and
+calls the ``items`` Cloud Function with ``{type: "createItem"}``. Studio does the
+same (``vendoo_create``), so a generated listing is stored as data with every
+marketplace section exactly as computed.
 
 See ``docs/vendoo-listing-architecture.md``. This module is the inverse of
-``vendoo_import.listing_from_vendoo`` — that reads Vendoo items into Studio's
-listing shape, this writes Studio listings back out.
+``vendoo_import.listing_from_vendoo`` and mirrors Vendoo's ``getInit*Form``
+defaults, which is what makes the result indistinguishable from a form save.
 
-Vendoo's encodings (condition codes, category objects, colour codes) are not
-guessed here. ``observe_item_schema`` learns them from the user's own existing
-items, and ``vendoo_item_from_listing`` reports any field it could not encode
-confidently rather than sending a value that would silently store wrong.
+Vendoo's coded vocabularies (condition codes, colour codes) are not guessed.
+``observe_item_schema`` learns them from the user's own existing items, and
+``build_vendoo_item`` reports any field it could not encode confidently rather
+than storing a value that looks right and is wrong.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from copy import deepcopy
 from typing import Any
 
 log = logging.getLogger("vendoo_studio.vendoo_api")
 
 API_BASE = "https://api.web.vendoo.co"
+MSVC_BASE = "https://us.vendoo.co"
+FUNCTIONS_BASE = "https://us-central1-vendoo-prod-7948f.cloudfunctions.net"
+FIREBASE_PROJECT = "vendoo-prod-7948f"
 
-# Endpoints observed in the web.vendoo.co bundle. Kept together so a change in
-# Vendoo's API is one edit, not a hunt through call sites.
 GET_ITEM = "/api/item/{item_id}"
-IMPORT_NORMALIZED = "/api/rest/v1/import/items_normalized"
 CATEGORY_SEARCH = "/api/category/search"
-SIZE_QUERY = "/api/rest/v1/size/query"
-# Takes {"images": [url, ...]} and returns Vendoo-hosted image objects. Vendoo's
-# own importer runs every image through this before posting an item, so the
-# stored item never points at a marketplace CDN.
-STATIC_UPLOAD = "/api/static/upload"
+IMAGE_UPLOAD_URL = "/inventory/v1/images/url"
+ITEMS_FUNCTION = "/items"
+# Bulk importer path; takes items that came *from* a marketplace. Kept for
+# reference — the form path above is what a net-new item uses.
+IMPORT_NORMALIZED = "/api/rest/v1/import/items_normalized"
 
 # Deliberately not wired up: these publish to marketplaces, and AGENTS.md says
-# automation stops at saved drafts. Listed so nobody re-derives them by accident.
+# automation stops at saved drafts.
 _LIST_ITEM = "/api/item/{item_id}/list"
 _DELIST_ITEM = "/api/item/{item_id}/delist"
 
 GENERAL_KEY = "generalDetails"
 LISTINGS_KEY = "listings"
-
-# Vendoo's new-item factory defaults to origin "vendoo" for an item created in
-# the app rather than imported from a marketplace, and stamps the item version.
-# "vendoo" is not in Vendoo's MARKETPLACES list, so an import call may reject it
-# — see the open question in docs/vendoo-listing-architecture.md.
 DEFAULT_ORIGIN = "vendoo"
 CURRENT_ITEM_VERSION = 10
 
-# generalDetails fields that carry a coded value plus a human label, e.g.
-# {"value": "v_pre_owned_good", "displayName": "Pre-Owned - Good"}.
-CODED_FIELDS = ("condition", "primaryColor", "secondaryColor", "sizeType")
+# Every marketplace Vendoo's new-item factory seeds a listings section for.
+ALL_MARKETPLACES = (
+    "ebay", "etsy", "poshmark", "mercari", "grailed", "depop", "tradesy", "kidizen",
+    "facebook", "shopify", "sellhound", "vestiaire", "vinted", "whatnot", "sellwild", "vestiaireApi",
+)
+
+# generalDetails fields Vendoo stores as a coded object with a display label.
+CODED_FIELDS = ("condition", "primaryColor", "secondaryColor")
 
 _LABEL_KEYS = ("displayName", "label", "name")
 _VALUE_KEYS = ("value", "id", "key", "code")
 
-SPECIFICS_SOURCES = {
-    "ebay": "ebay_specifics",
-    "poshmark": "poshmark_specifics",
-    "mercari": "mercari_specifics",
-    "depop": "depop_specifics",
-    "etsy": "etsy_specifics",
-}
-
 _PACKAGE_DIMS_RE = re.compile(
     r"^\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*$", re.I
 )
+
+SPECIFICS_SOURCES = {mp: f"{mp}_specifics" for mp in ("ebay", "poshmark", "mercari", "depop", "etsy")}
+
+# Keys in <marketplace>_specifics that Studio keeps for itself, not Vendoo.
+_STUDIO_ONLY_SPECIFIC_KEYS = frozenset({"categoryPath", "category_specifics", "size", "sizeType"})
+
+# Studio names a few Etsy fields differently from Vendoo.
+ETSY_KEY_MAP = {"who_made": "whoMade", "what_is": "whatIsIt", "when_made": "whenMade"}
+
+
+# --------------------------------------------------------------------------
+# Vendoo's defaults (mirrors getInitGeneralDetails / getInit*Form)
+# --------------------------------------------------------------------------
+
+
+def _weight_dims_overrides() -> dict[str, Any]:
+    return {
+        "quantity": "1",
+        "weight": {"pounds": "0", "ounces": "0"},
+        "dimensions": {"length": "0", "width": "0", "height": "0"},
+    }
+
+
+def default_general_details() -> dict[str, Any]:
+    return {
+        "images": [],
+        "videos": [],
+        "title": "",
+        "description": "",
+        "notes": "",
+        "brand": "",
+        "condition": "",
+        "primaryColor": "",
+        "secondaryColor": "",
+        "sku": "",
+        "category": "",
+        "weight": {"pounds": "0", "ounces": "0"},
+        "dimensions": {"length": "0", "width": "0", "height": "0"},
+        "price": "",
+        "cost": "",
+        "tags": [],
+        "quantity": "1",
+        "size": {"option": {"label": "", "value": ""}, "scale": {"label": "", "value": ""}},
+    }
+
+
+def _marketplace_specific_defaults(marketplace: str) -> dict[str, Any]:
+    if marketplace == "ebay":
+        return {
+            "shippingPolicyId": "", "paymentPolicyId": "", "returnsPolicyId": "",
+            "returnPayedBy": "", "returnWithin": "", "returnRefundMethod": "",
+            "shippingService": "", "statusItem": "Active",
+            "shipping": {"cost": "", "method": "Standard", "location": "", "handling": "", "type": ""},
+            "paymentMethod": "PayPal", "conditionDescription": "", "paypalEmail": "",
+            "acceptReturns": "", "pricingFormat": "FixedPriceItem",
+            "pricingFormatDetails": {
+                "auction": {"duration": "Days_7", "startingPrice": "", "buyItNowPrice": "",
+                            "allowBestOffer": "", "acceptOffersOfAtLeast": "", "declineOffersLowerThan": ""},
+                "fixedPrice": {"duration": "GTC", "buyItNowPrice": "", "allowBestOffer": "",
+                               "acceptOffersOfAtLeast": "", "declineOffersLowerThan": ""},
+            },
+        }
+    if marketplace == "etsy":
+        return {
+            "listingState": None, "renewalOption": None, "quantity": 1,
+            "shippingTemplateID": "", "processingProfileID": "", "tags": [],
+            "whoMade": "i_did", "isSupply": True, "whenMade": "2020_2025", "whatIsIt": "finished_product",
+            "returnPolicyID": None, "materials": [], "listingType": "",
+        }
+    if marketplace == "poshmark":
+        return {"originalPrice": ""}
+    if marketplace == "mercari":
+        return {
+            "tags": [], "smartPricing": False, "floorPrice": "",
+            "shipping": {"deliveryMethod": "", "location": ""}, "mercariLocalInformation": "",
+        }
+    if marketplace == "depop":
+        return {
+            "priceCurrency": "USD", "shippingMethods": [], "shippingMethod": "", "nationalShippingCost": "",
+            "age": [], "source": [], "style": [],
+            "location": {"geoLat": 0, "geoLng": 0, "address": "", "countryCode": "", "id": "", "zipCode": ""},
+        }
+    return {}
+
+
+def default_listing_section(marketplace: str) -> dict[str, Any]:
+    """One ``listings.<marketplace>`` entry as Vendoo's factory seeds it."""
+    section: dict[str, Any] = {
+        "marketplaceID": marketplace,
+        "dateCreated": "",
+        "dateLastModified": "",
+        "type": "listing",
+        "status": {"notListed": True},
+        "overrides": _weight_dims_overrides() if marketplace in ("ebay", "etsy", "poshmark", "mercari") else (
+            {"quantity": "1"} if marketplace == "depop" else {}
+        ),
+        "categorySpecifics": {},
+        "listingAttemptMessages": [],
+        "marketplaceSpecifics": _marketplace_specific_defaults(marketplace),
+        "sales": [],
+    }
+    if marketplace in ("shopify", "sellhound", "sellwild", "whatnot"):
+        section["listedID"] = ""
+        section["listingURL"] = ""
+    return section
 
 
 # --------------------------------------------------------------------------
@@ -77,7 +176,6 @@ _PACKAGE_DIMS_RE = re.compile(
 
 
 def _norm(text: Any) -> str:
-    """Fold a label so 'Pre-Owned - Good' and 'pre owned good' match."""
     return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
 
 
@@ -103,12 +201,9 @@ def _code_of(value: Any) -> Any:
 def observe_item_schema(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Build an encoding table from real Vendoo items.
 
-    Returns ``{"fields": {name: {"labels": {normalised label: code},
-    "codes": [...], "shape": "object"|"scalar"}}, "item_count": n}``.
-
-    Every coded field Vendoo returns as an object teaches us one label→code
-    pair. Probing a handful of varied items covers the common vocabulary;
-    anything unseen is reported by the serializer instead of being invented.
+    ``{"fields": {name: {"labels": {normalised label: code}, "codes": [...],
+    "shape": "object"|"scalar"}}, "item_count": n}``. Anything unseen is
+    reported by the serializer instead of being invented.
     """
     fields: dict[str, dict[str, Any]] = {}
 
@@ -128,7 +223,6 @@ def observe_item_schema(items: list[dict[str, Any]]) -> dict[str, Any]:
             return
         if raw not in (None, "") and raw not in entry["codes"]:
             entry["codes"].append(raw)
-            # A bare code like "v_pre_owned_good" still teaches its own label.
             if isinstance(raw, str) and raw.startswith("v_"):
                 entry["labels"].setdefault(_norm(raw[2:]), raw)
 
@@ -148,14 +242,11 @@ def observe_item_schema(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {"fields": fields, "item_count": counted}
 
 
-def encode_field(
-    schema: dict[str, Any] | None, name: str, label: str | None
-) -> tuple[Any, bool]:
+def encode_field(schema: dict[str, Any] | None, name: str, label: str | None) -> tuple[Any, bool]:
     """Encode a human label into Vendoo's stored value.
 
-    Returns ``(value, resolved)``. ``resolved`` is False when the schema has
-    never seen this label — the caller decides whether to send the raw text or
-    leave the field out and tell the user.
+    Returns ``(value, resolved)``; ``resolved`` is False when nothing learned
+    covers this label, so the caller can report it instead of guessing.
     """
     if label in (None, ""):
         return None, True
@@ -167,7 +258,6 @@ def encode_field(
         if entry.get("shape") == "object":
             return {"value": code, "displayName": label}, True
         return code, True
-    # Vendoo already stores it verbatim (brand, sku, free text) — not a guess.
     if label in (entry.get("codes") or []):
         return label, True
     return label, False
@@ -195,148 +285,174 @@ def _string_list(value: Any) -> list[str]:
     return [str(value).strip()]
 
 
-def _dimensions(raw: Any) -> dict[str, float] | None:
+def _num_str(value: Any) -> str:
+    """Vendoo's form stores numbers as strings ("48", "0")."""
+    if value in (None, ""):
+        return ""
+    try:
+        number = float(str(value).replace("$", "").replace(",", ""))
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(number)) if number.is_integer() else f"{number:g}"
+
+
+def _dimensions(raw: Any) -> dict[str, str] | None:
     match = _PACKAGE_DIMS_RE.match(str(raw or ""))
     if not match:
         return None
-    length, width, height = (float(part) for part in match.groups())
-    return {"length": length, "width": width, "height": height}
+    length, width, height = match.groups()
+    return {"length": _num_str(length), "width": _num_str(width), "height": _num_str(height)}
 
 
 def _category(listing: dict[str, Any]) -> Any:
-    """Prefer a resolved Vendoo category object over a display path string.
-
-    ``category_id`` is what ``/api/category/search`` returns for a leaf; the
-    path alone is a display string and Vendoo may not match it.
-    """
+    """Prefer a resolved Vendoo category object; fall back to the display path."""
     category_id = _clean(listing.get("category_id"))
     path = _clean(listing.get("category_path"))
+    parts = [part.strip() for part in str(path or "").split(">") if part.strip()]
     if category_id:
-        out: dict[str, Any] = {"id": category_id}
-        if path:
-            out["displayPath"] = [part.strip() for part in str(path).split(">") if part.strip()]
-        return out
+        return {"id": category_id, "displayPath": parts}
     return path
 
 
-def vendoo_item_from_listing(
+def _size(listing: dict[str, Any]) -> dict[str, Any] | None:
+    size = _clean(listing.get("size")) or _clean(listing.get("size_us"))
+    scale = _clean(listing.get("sizeType"))
+    if not size and not scale:
+        return None
+    return {
+        "option": {"label": size or "", "value": size or ""},
+        "scale": {"label": scale or "", "value": scale or ""},
+    }
+
+
+def _general_details(
     listing: dict[str, Any],
-    schema: dict[str, Any] | None = None,
-    *,
-    images: list[Any] | None = None,
-) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """Convert a Studio listing into a Vendoo item body.
-
-    ``images`` belongs under ``generalDetails``, matching Vendoo's own importer,
-    and should already be the objects returned by :data:`STATIC_UPLOAD` — plain
-    URLs are accepted but leave the item pointing at storage Vendoo does not own.
-
-    Returns ``(item, unresolved)``. ``unresolved`` names every field sent as raw
-    text because the observed schema had no encoding for it — surface these
-    rather than assuming they landed.
-    """
-    unresolved: list[dict[str, str]] = []
+    schema: dict[str, Any] | None,
+    images: list[Any],
+    unresolved: list[dict[str, str]],
+) -> dict[str, Any]:
+    general = default_general_details()
 
     def coded(name: str, label: Any) -> Any:
         value, ok = encode_field(schema, name, _clean(label))
         if not ok:
             unresolved.append({"field": name, "value": str(label)})
-        return value
+        return value if value is not None else ""
 
-    general: dict[str, Any] = {
-        "title": _clean(listing.get("title")),
-        "description": _clean(listing.get("description")),
-        "price": listing.get("price"),
-        "cost": listing.get("cost"),
-        "quantity": listing.get("quantity") or 1,
-        "brand": _clean(listing.get("brand")),
-        "sku": _clean(listing.get("sku")),
-        "notes": _clean(listing.get("internal_notes")),
+    general.update({
+        "images": [{"url": img} if isinstance(img, str) else img for img in images],
+        "title": _clean(listing.get("title")) or "",
+        "description": _clean(listing.get("description")) or "",
+        "notes": _clean(listing.get("internal_notes")) or "",
+        "brand": _clean(listing.get("brand")) or "",
+        "sku": _clean(listing.get("sku")) or "",
+        "price": _num_str(listing.get("price")),
+        "cost": _num_str(listing.get("cost")),
+        "quantity": _num_str(listing.get("quantity") or 1),
+        "tags": _string_list(listing.get("tags")),
         "condition": coded("condition", listing.get("condition")),
         "primaryColor": coded("primaryColor", listing.get("primaryColor")),
         "secondaryColor": coded("secondaryColor", listing.get("secondaryColor")),
-        "categoryV2": _category(listing),
-        "tags": _string_list(listing.get("tags")),
-    }
-
-    size = _clean(listing.get("size")) or _clean(listing.get("size_us"))
-    size_type = _clean(listing.get("sizeType"))
+    })
+    category = _category(listing)
+    if isinstance(category, dict):
+        general["categoryV2"] = category
+    elif category:
+        general["category"] = category
+    size = _size(listing)
     if size:
-        general["size"] = {"option": size, "scale": size_type} if size_type else {"option": size}
-    if size_type:
-        general["sizeType"] = coded("sizeType", size_type)
-
-    weight_lb = listing.get("weight_lb")
-    weight_oz = listing.get("weight_oz")
-    if weight_lb is not None or weight_oz is not None:
-        general["weight"] = {"pounds": int(weight_lb or 0), "ounces": int(weight_oz or 0)}
-
+        general["size"] = size
+    weight_lb, weight_oz = listing.get("weight_lb"), listing.get("weight_oz")
+    if weight_lb not in (None, "") or weight_oz not in (None, ""):
+        general["weight"] = {"pounds": _num_str(weight_lb or 0), "ounces": _num_str(weight_oz or 0)}
     dims = _dimensions(listing.get("package_dimensions_in"))
     if dims:
         general["dimensions"] = dims
-
-    listings: dict[str, Any] = {}
-    for marketplace, source_key in SPECIFICS_SOURCES.items():
-        specifics = listing.get(source_key)
-        if isinstance(specifics, dict) and specifics:
-            listings[marketplace] = {
-                key: value for key, value in specifics.items() if value not in (None, "")
-            }
-
-    if images:
-        general["images"] = [
-            {"url": entry} if isinstance(entry, str) else entry for entry in images
-        ]
-
-    item: dict[str, Any] = {
-        GENERAL_KEY: {key: value for key, value in general.items() if value not in (None, "", [])},
-    }
-    if listings:
-        item[LISTINGS_KEY] = listings
-    # Vendoo keeps labels on the item, not inside generalDetails.
-    labels = _string_list(listing.get("labels"))
-    if labels:
-        item["labels"] = labels
-
-    return item, unresolved
+    return general
 
 
-def wrap_item(
-    item: dict[str, Any],
+def _listing_section(marketplace: str, listing: dict[str, Any], general: dict[str, Any]) -> dict[str, Any]:
+    """Fill one marketplace section from ``<marketplace>_specifics``.
+
+    Known marketplaceSpecifics keys land there; a Vendoo category path becomes
+    the section's ``overrides.categoryV2``; everything else is a category
+    specific (item specifics, size scales), which is where Vendoo keeps
+    per-category form values and where ``vendoo_import`` reads them back from.
+    """
+    section = default_listing_section(marketplace)
+    raw = listing.get(SPECIFICS_SOURCES.get(marketplace, f"{marketplace}_specifics"))
+    specifics = dict(raw) if isinstance(raw, dict) else {}
+    known = section["marketplaceSpecifics"]
+
+    for key in ("weight", "dimensions"):
+        if key in section["overrides"] and general.get(key):
+            section["overrides"][key] = deepcopy(general[key])
+    if "quantity" in section["overrides"]:
+        section["overrides"]["quantity"] = general.get("quantity") or "1"
+
+    path = specifics.pop("categoryPath", None)
+    parts = [str(p).strip() for p in path if str(p or "").strip()] if isinstance(path, list) else []
+    if parts:
+        section["overrides"]["categoryV2"] = {"displayPath": parts}
+
+    nested = specifics.pop("category_specifics", None)
+    if isinstance(nested, dict):
+        section["categorySpecifics"].update({k: v for k, v in nested.items() if v not in (None, "")})
+
+    for key, value in specifics.items():
+        if value in (None, "", []) or key in _STUDIO_ONLY_SPECIFIC_KEYS:
+            continue
+        dest = ETSY_KEY_MAP.get(key, key) if marketplace == "etsy" else key
+        if dest in known:
+            if isinstance(known[dest], dict) and isinstance(value, dict):
+                known[dest] = {**known[dest], **value}
+            elif isinstance(known[dest], list):
+                known[dest] = _string_list(value)
+            elif dest == "originalPrice":
+                known[dest] = _num_str(value)
+            else:
+                known[dest] = value
+        else:
+            section["categorySpecifics"][dest] = value
+    return section
+
+
+def build_vendoo_item(
+    listing: dict[str, Any],
+    schema: dict[str, Any] | None = None,
     *,
+    images: list[Any] | None = None,
     user_id: str = "",
     item_id: str = "",
     origin: str = DEFAULT_ORIGIN,
-) -> dict[str, Any]:
-    """Add the envelope Vendoo's own new-item factory puts around an item.
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """A complete Vendoo item, shaped exactly like a form save.
 
-    Vendoo builds a fresh item as
-    ``{origin, version, status: {notSaved: true}, type: "item", userID, itemID,
-    labels, generalDetails, listings}``. Bare ``generalDetails`` is what the
-    import endpoint takes; this is the shape the app itself creates.
+    ``images`` are the ``{version: 3, id, originalMaxDimension}`` objects the
+    inventory upload returns. Returns ``(item, unresolved)``; ``unresolved``
+    names every coded field sent as plain text because nothing learned covered
+    it — show those to the seller rather than assuming they landed.
     """
-    return {
+    unresolved: list[dict[str, str]] = []
+    general = _general_details(listing, schema, images or [], unresolved)
+    listings = {mp: _listing_section(mp, listing, general) for mp in ALL_MARKETPLACES}
+    item = {
         "origin": origin,
         "version": CURRENT_ITEM_VERSION,
         "status": {"notSaved": True},
         "type": "item",
         "userID": user_id,
         "itemID": item_id,
-        "labels": item.get("labels", []),
-        GENERAL_KEY: item.get(GENERAL_KEY, {}),
-        LISTINGS_KEY: item.get(LISTINGS_KEY, {}),
+        "labels": _string_list(listing.get("labels")),
+        GENERAL_KEY: general,
+        LISTINGS_KEY: listings,
     }
+    return item, unresolved
 
 
-def import_payload(
-    items: list[dict[str, Any]], *, marketplace_user_id: str, marketplace_id: str = "vendoo"
-) -> dict[str, Any]:
-    """Body for ``POST /api/rest/v1/import/items_normalized``."""
-    return {
-        "marketplaceId": marketplace_id,
-        "marketplaceUserId": marketplace_user_id,
-        "items": items,
-    }
+def create_item_payload(item: dict[str, Any], subscription_version: str | None) -> dict[str, Any]:
+    """Body for the ``items`` Cloud Function (callable envelope added by the extension)."""
+    return {"type": "createItem", "payload": {"item": item, "subscriptionVersion": subscription_version}}
 
 
 # --------------------------------------------------------------------------
@@ -345,7 +461,6 @@ def import_payload(
 
 
 def _comparable(value: Any) -> Any:
-    """Reduce a value to what we can meaningfully compare across the round trip."""
     if isinstance(value, dict):
         label = _label_of(value)
         if label:
@@ -356,22 +471,31 @@ def _comparable(value: Any) -> Any:
         return {key: _comparable(part) for key, part in sorted(value.items())}
     if isinstance(value, list):
         return [_comparable(part) for part in value]
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
         return float(value)
-    return _norm(value) if isinstance(value, str) else value
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return _norm(value)
+    return value
 
 
 def diff_roundtrip(sent: dict[str, Any], stored: dict[str, Any]) -> list[dict[str, Any]]:
-    """Compare what we posted against what Vendoo stored.
+    """Fields Vendoo stored differently from what we sent (generalDetails only).
 
-    This is the check the form-filling path could never give us: proof that the
-    values we computed are the values Vendoo holds. Only fields we actually sent
-    are compared — Vendoo defaults everything else.
+    Only values we actually set are compared; Vendoo defaults everything else.
     """
     sent_general = sent.get(GENERAL_KEY) or {}
     stored_general = stored.get(GENERAL_KEY) or {}
+    defaults = default_general_details()
     out: list[dict[str, Any]] = []
     for key, value in sent_general.items():
+        # Blanks and untouched form defaults are Vendoo's to fill in, not ours to check.
+        if value in ("", [], None) or key == "images" or value == defaults.get(key):
+            continue
         want, got = _comparable(value), _comparable(stored_general.get(key))
         if want != got:
             out.append({"field": key, "sent": value, "stored": stored_general.get(key)})
