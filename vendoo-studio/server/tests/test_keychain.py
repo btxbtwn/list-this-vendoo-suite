@@ -34,6 +34,16 @@ class FakeKeyring:
 
 class KeychainTest(unittest.TestCase):
     def setUp(self):
+        self._reset()
+
+    def tearDown(self):
+        # A fake keyring's contents must not outlive its patch. Left in place,
+        # the next _save_store() anywhere in the run flushes this process's
+        # stale store to the real Keychain and drops the seller's secrets.
+        self._reset()
+
+    @staticmethod
+    def _reset():
         keychain._store = None
         keychain._store_readable = False
         keychain._warmed = False
@@ -147,6 +157,16 @@ class KeychainTest(unittest.TestCase):
         fake.denied.clear()
         keychain.set_brave_api_key("BSA-new")
         self.assertEqual(fake.store(), {keychain.KEYRING_ACCOUNT: "sk-mimo", keychain.BRAVE_ACCOUNT: "BSA-new"})
+
+
+class RealKeychainIsUntouchedTest(unittest.TestCase):
+    """The suite must never write to the machine's own Keychain."""
+
+    def test_module_state_is_clean_between_tests(self):
+        # If a previous test leaked a fake store, a setter here would flush it
+        # to the real Keychain. Pristine state is what prevents that.
+        self.assertIsNone(keychain._store)
+        self.assertFalse(keychain._store_readable)
 
 
 if __name__ == "__main__":
