@@ -21,6 +21,7 @@ from typing import Any
 from vendoo_studio.config import DATA_DIR, HOST, PORT
 from vendoo_studio.services import browser_bridge
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
+from vendoo_studio.services.specifics_fill import fill_listing_specifics
 from vendoo_studio.services.vendoo_specifics import (
     MERCARI_STATIC_URL,
     FieldSpec,
@@ -434,12 +435,24 @@ def _photo_ops(job, photos: list[Any]) -> list[dict[str, Any]]:
     return ops
 
 
-async def create_item(job, listing: dict[str, Any], photos: list[Any]) -> dict[str, Any]:
+async def create_item(
+    job,
+    listing: dict[str, Any],
+    photos: list[Any],
+    *,
+    provider=None,
+    evidence: str = "",
+) -> dict[str, Any]:
     """Create the Vendoo item and verify it round-trips.
 
-    Returns ``{item_id, url, unresolved, diff, results}``. ``unresolved`` names
-    fields sent as plain text because no encoding was learned for them yet;
+    Returns ``{item_id, url, unresolved, diff, unfilled, results}``.
+    ``unresolved`` names fields sent as plain text because no encoding covered
+    them; ``unfilled`` names category fields still empty when the item went up;
     ``diff`` lists fields Vendoo stored differently from what we sent.
+
+    With a ``provider``, every field the resolved categories render is put to
+    the model first, so the item is created once, complete — rather than saved
+    bare and filled in afterwards.
     """
     if not photos:
         raise VendooCreateError("Vendoo needs at least one photo")
@@ -448,6 +461,9 @@ async def create_item(job, listing: dict[str, Any], photos: list[Any]) -> dict[s
     listing, category_unresolved = await resolve_listing_categories(job, listing)
     # Ask each resolved leaf what fields it has before anything is encoded.
     specifics = await fetch_listing_specifics(job, listing)
+    listing, unfilled = await fill_listing_specifics(
+        listing, specifics, provider, evidence=evidence
+    )
 
     # Photos and the id first: the item body references both.
     prep = await run_ops(job, [{"op": "session"}, {"op": "new_item_id"}, {"op": "subscription"}, *_photo_ops(job, photos)])
@@ -473,6 +489,7 @@ async def create_item(job, listing: dict[str, Any], photos: list[Any]) -> dict[s
     diff = diff_roundtrip(item, stored) if isinstance(stored, dict) else []
 
     return {
+        "unfilled": unfilled,
         "item_id": item_id,
         "url": f"https://web.vendoo.co/app/item/{item_id}",
         "unresolved": [entry for entry in unresolved],

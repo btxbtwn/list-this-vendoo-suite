@@ -53,8 +53,11 @@ class CreateRouteTest(_RouteTest):
         dispatch = AsyncMock()
         seen: dict = {}
 
-        async def fake_create(job, listing, photos):
-            seen.update(status=job.status, title=listing["title"], photos=len(photos))
+        async def fake_create(job, listing, photos, *, provider=None, evidence=""):
+            seen.update(
+                status=job.status, title=listing["title"], photos=len(photos),
+                evidence=evidence,
+            )
             return CREATED
 
         with patch("vendoo_studio.services.vendoo_create.create_item", fake_create), \
@@ -67,7 +70,10 @@ class CreateRouteTest(_RouteTest):
         dispatch.assert_not_called()
 
         # Held in "dispatched" while it runs so the Send queue skips it.
-        self.assertEqual(seen, {"status": "dispatched", "title": "Levi's 501", "photos": 1})
+        self.assertEqual(
+            seen,
+            {"status": "dispatched", "title": "Levi's 501", "photos": 1, "evidence": ""},
+        )
 
         self.db.expire_all()
         job = JobRepo(self.db).get(body["job_id"])

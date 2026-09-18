@@ -59,6 +59,7 @@ class CreateResponse(BaseModel):
     item_id: str
     url: str
     unresolved: list[dict] = []
+    unfilled: list[dict] = []
     diff: list[dict] = []
 
 
@@ -186,6 +187,7 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.vendoo_create import create_item
+    from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
     from vendoo_studio.services.vendoo_import import merge_notes, vendoo_binding
 
     conv_repo = ConversationRepo(db)
@@ -209,6 +211,12 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
         raise HTTPException(409, "This listing is already queued or sending to Vendoo.")
 
     snapshot = prepare_listing_snapshot(db, conv, revisions[0].listing_json)
+    # The model answers the category's fields before the item goes up, so the
+    # draft is created complete instead of bare.
+    provider = get_listing_provider() if provider_is_configured() else None
+    # The request carries the whole listing already; the seller's notes are the
+    # evidence it does not otherwise have.
+    evidence = str(conv.notes or "")
     job = job_repo.create(
         conv_id=conv_id,
         approved_revision_id=revisions[0].id,
@@ -217,7 +225,7 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
         current_step=CREATE_STEP,
     )
     try:
-        out = await create_item(job, snapshot, photos)
+        out = await create_item(job, snapshot, photos, provider=provider, evidence=evidence)
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
         job_repo.update_status(job.id, "failed", CREATE_STEP, error=str(exc))
         job_repo.add_event(job.id, "vendoo_api_create_failed", CREATE_STEP, {"error": str(exc)})
@@ -231,6 +239,7 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
     job_repo.add_event(job.id, "vendoo_api_created", CREATED_STEP, {
         "item_id": out["item_id"],
         "unresolved": out["unresolved"],
+        "unfilled": out.get("unfilled") or [],
         "diff": out["diff"],
     })
     if out.get("stored"):
@@ -241,5 +250,6 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
         item_id=out["item_id"],
         url=out["url"],
         unresolved=out["unresolved"],
+        unfilled=out.get("unfilled") or [],
         diff=out["diff"],
     )
