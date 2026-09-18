@@ -187,6 +187,7 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.vendoo_create import create_item
+    from vendoo_studio.services.listing_generate import latest_photo_analysis
     from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
     from vendoo_studio.services.vendoo_import import merge_notes, vendoo_binding
 
@@ -214,9 +215,10 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
     # The model answers the category's fields before the item goes up, so the
     # draft is created complete instead of bare.
     provider = get_listing_provider() if provider_is_configured() else None
-    # The request carries the whole listing already; the seller's notes are the
-    # evidence it does not otherwise have.
-    evidence = str(conv.notes or "")
+    # The vision pass already ran during generation and its result is still on
+    # the conversation, so reuse it rather than paying for it again. Seller
+    # notes stand in when there is none.
+    evidence = latest_photo_analysis(conv_repo.get_messages(conv_id)) or str(conv.notes or "")
     job = job_repo.create(
         conv_id=conv_id,
         approved_revision_id=revisions[0].id,

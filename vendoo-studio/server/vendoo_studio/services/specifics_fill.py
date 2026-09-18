@@ -68,6 +68,7 @@ async def fill_listing_specifics(
     Rounds stop early when the model returns nothing, so a field it cannot
     support from the evidence is reported rather than invented.
     """
+    from vendoo_studio.services.fill_log import MAX_PATCH_FIELDS
     from vendoo_studio.services.listing_field_gaps import (
         MAX_GAPS_PER_ROUND,
         _request_missing_field_values,
@@ -90,12 +91,14 @@ async def fill_listing_specifics(
         )
         if not patches:
             break
-        updated = write_values_into_listing(current, patches)
+        # Cap what lands, not just what was asked: a model that answers more
+        # fields than it was given should not get to write them.
+        updated = write_values_into_listing(current, patches[:MAX_PATCH_FIELDS])
         if updated == current:
             # Nothing landed — asking the same question again would not help.
             break
         current = updated
-        filled += len(patches)
+        filled += len(patches[:MAX_PATCH_FIELDS])
 
     remaining = specifics_gaps(current, specifics)
     if filled or remaining:

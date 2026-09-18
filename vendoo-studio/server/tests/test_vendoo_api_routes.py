@@ -49,6 +49,27 @@ class _RouteTest(unittest.TestCase):
 
 
 class CreateRouteTest(_RouteTest):
+    def test_passes_the_stored_photo_analysis_as_evidence(self):
+        """The vision pass already ran; create reuses it instead of re-paying."""
+        analysis = (
+            "Photo analysis:\n- brand: Carol Rose\n- size: M\n"
+            "- color: Red\n- material: Polyester\n- condition: Pre-Owned - Good"
+        )
+        ConversationRepo(self.db).add_message(
+            self.conv.id, "system", analysis, provider="system", model="",
+        )
+        seen: dict = {}
+
+        async def fake_create(job, listing, photos, *, provider=None, evidence=""):
+            seen["evidence"] = evidence
+            return CREATED
+
+        with patch("vendoo_studio.services.vendoo_create.create_item", fake_create), \
+             patch("vendoo_studio.routes.extension.dispatch_queued_jobs", AsyncMock()):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(seen["evidence"], analysis)
+
     def test_creates_item_binds_conversation_and_never_queues_the_form_filler(self):
         dispatch = AsyncMock()
         seen: dict = {}
