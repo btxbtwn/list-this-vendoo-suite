@@ -251,8 +251,9 @@ class BuildItemTest(unittest.TestCase):
         )
 
         depop = listings["depop"]
-        self.assertEqual(depop["marketplaceSpecifics"]["style"], ["Streetwear"])
-        self.assertEqual(depop["marketplaceSpecifics"]["source"], ["Preloved"])
+        # Vendoo's Depop mapper keeps only its option codes, never labels.
+        self.assertEqual(depop["marketplaceSpecifics"]["style"], ["streetwear"])
+        self.assertEqual(depop["marketplaceSpecifics"]["source"], ["preloved"])
         self.assertEqual(depop["overrides"]["brand"], "Levi's")
         self.assertEqual(ebay["overrides"]["brand"], "Levi's")
         self.assertEqual(mercari["overrides"]["brand"], "Levi's")
@@ -272,6 +273,26 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(etsy["overrides"]["brand"], "Levi's")
 
         self.assertEqual(listings["grailed"]["marketplaceSpecifics"], {})
+
+    def test_depop_style_age_source_use_vendoo_codes(self):
+        item, unresolved = build_vendoo_item({
+            "title": "Tee",
+            "depop_specifics": {
+                "style": ["Y2K", "Avant Garde", "Utility", "Nonsense"],
+                "age": "Y2K",
+                "source": "vintage",
+            },
+        }, self.schema)
+        specifics = item["listings"]["depop"]["marketplaceSpecifics"]
+        self.assertEqual(specifics["style"], ["y2_k", "avant_garde", "techwear"])
+        self.assertEqual(specifics["age"], ["y2k"])
+        self.assertEqual(specifics["source"], ["vintage"])
+        self.assertIn({"field": "depop:style", "value": "Nonsense"}, unresolved)
+
+        back = listing_from_vendoo(item, None)["depop_specifics"]
+        self.assertEqual(back["style"], ["Y2K", "Avant Garde", "Utility"])
+        self.assertEqual(back["source"], "Vintage")
+        self.assertEqual(back["age"], "y2k")
 
     def test_unbranded_sets_ebay_brand_and_mercari_no_brand(self):
         item, _ = build_vendoo_item({
@@ -297,7 +318,7 @@ class BuildItemTest(unittest.TestCase):
         self.assertIn("Ground Advantage", mercari["marketplaceSpecifics"]["shippingLabel"])
         self.assertEqual(
             item["listings"]["depop"]["marketplaceSpecifics"]["style"],
-            ["Casual", "Retro", "Boho"],
+            ["casual", "retro", "boho"],
         )
         self.assertEqual(item["listings"]["depop"]["overrides"]["brand"], "Other")
         posh = item["listings"]["poshmark"]["marketplaceSpecifics"]["smartSell"]
