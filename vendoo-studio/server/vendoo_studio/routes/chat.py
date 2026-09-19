@@ -44,7 +44,7 @@ def _require_provider():
     if provider is None:
         raise HTTPException(
             400,
-            "Sign in with ChatGPT in Settings, or add a MiMo API key.",
+            "Sign in with ChatGPT in Settings, or add a MiMo or Cursor API key.",
         )
     return provider
 
@@ -150,14 +150,14 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
         repo.add_message(
             conv_id,
             "system",
-            "Sign in with ChatGPT in Settings, or add a MiMo API key, then retry this prompt.",
+            "Sign in with ChatGPT in Settings, or add a MiMo or Cursor API key, then retry this prompt.",
             provider="system",
             model="",
         )
         repo.update_status(conv_id, "draft")
         raise HTTPException(
             400,
-            "Sign in with ChatGPT in Settings, or add a MiMo API key.",
+            "Sign in with ChatGPT in Settings, or add a MiMo or Cursor API key.",
         )
     provider_name, provider_model = _provider_meta(provider)
 

@@ -298,6 +298,7 @@ class ListingProviderPrefersChatGPTTest(unittest.TestCase):
             ),
             patch("vendoo_studio.services.listing_provider.chatgpt_signed_in", return_value=False),
             patch("vendoo_studio.services.listing_provider.get_api_key", return_value=None),
+            patch("vendoo_studio.services.listing_provider.get_cursor_api_key", return_value=None),
         ):
             self.assertIsNone(listing_provider.get_listing_provider())
             self.assertFalse(listing_provider.provider_is_configured())

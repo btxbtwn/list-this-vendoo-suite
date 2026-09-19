@@ -60,7 +60,7 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Setup guide",
     section: "general",
     targetId: "setup-guide",
-    searchTerms: ["tutorial", "onboarding", "first run", "chatgpt", "mimo", "brave"],
+    searchTerms: ["tutorial", "onboarding", "first run", "chatgpt", "mimo", "cursor", "brave"],
   },
   {
     id: "data-folder",
@@ -81,7 +81,7 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Listing AI",
     section: "providers",
     targetId: "listing-ai",
-    searchTerms: ["chatgpt", "mimo", "provider", "choose", "prefer", "primary", "fallback"],
+    searchTerms: ["chatgpt", "mimo", "cursor", "provider", "choose", "prefer", "primary", "fallback"],
   },
   {
     id: "chatgpt",
@@ -117,6 +117,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     section: "providers",
     targetId: "provider",
     searchTerms: ["api key", "fallback", "xiaomi"],
+  },
+  {
+    id: "cursor",
+    title: "Cursor",
+    section: "providers",
+    targetId: "cursor",
+    searchTerms: ["cursor", "composer", "api key", "sdk"],
   },
   {
     id: "brave",

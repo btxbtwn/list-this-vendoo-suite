@@ -554,8 +554,8 @@ export function ListingSidebar({
             </label>
             <button
               className="sidebar-icon-btn"
-              title={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo key first"}
-              aria-label={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo key first"}
+              title={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo or Cursor key first"}
+              aria-label={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo or Cursor key first"}
               disabled={creating || !canCreate}
               onClick={onCreate}
             >

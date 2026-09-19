@@ -52,7 +52,7 @@ export function SetupChecklist({
       </div>
       <div className="empty-state-rule" />
       <ol className="setup-steps">
-        <Step done={providerConfigured} label="Sign in with ChatGPT, or add a MiMo API key.">
+        <Step done={providerConfigured} label="Sign in with ChatGPT, or add a MiMo or Cursor API key.">
           {providerConfigured ? (
             <p className="setup-step-note">Ready to generate listings.</p>
           ) : (

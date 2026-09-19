@@ -133,6 +133,8 @@ vendoo-studio/
 │   │   ├── listing_revisions.py
 │   │   └── extension_gateway.py
 │   ├── providers/xiaomi_mimo.py
+│   ├── providers/chatgpt_codex.py
+│   ├── providers/cursor_agent.py
 │   └── routes/
 │       ├── conversations.py
 │       ├── listings.py
@@ -314,6 +316,11 @@ GET    /api/settings/brave
 PUT    /api/settings/brave
 POST   /api/settings/brave/test
 DELETE /api/settings/brave
+
+GET    /api/settings/cursor
+PUT    /api/settings/cursor
+POST   /api/settings/cursor/test
+DELETE /api/settings/cursor
 
 POST   /api/conversations
 GET    /api/conversations
@@ -781,7 +788,8 @@ Use a Native Messaging host only if browser-based file assignment is tested and 
 
 - Bind only to `127.0.0.1`.
 - Optional private Tailscale Serve (Settings → Connections → Tailscale HTTPS) may proxy HTTPS from the Tailnet to that loopback port. Do not enable Tailscale Funnel. Do not bind Studio to `0.0.0.0`.
-- Store MiMo API key in macOS Keychain.
+- Store MiMo and Cursor API keys in macOS Keychain.
+- Cursor Listing AI uses the official `cursor-sdk` local agent against an empty scratch workspace under Studio user data (never the product repo). Model default: `composer-2.5`.
 - Redact authorization headers and secrets from logs.
 - Never send the key to React or the extension.
 - Never store the key in SQLite or browser storage.

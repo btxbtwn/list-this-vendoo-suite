@@ -15,7 +15,7 @@ export const SETUP_GUIDE_STEPS = [
 ] as const;
 
 type StepId = (typeof SETUP_GUIDE_STEPS)[number]["id"];
-type ListingChoice = "chatgpt" | "mimo";
+type ListingChoice = "chatgpt" | "mimo" | "cursor";
 
 type FirstRunGuideProps = {
   providerConfigured: boolean;
@@ -38,8 +38,10 @@ export function FirstRunGuide({
   const [step, setStep] = useState<StepId>("welcome");
   const [listingChoice, setListingChoice] = useState<ListingChoice | null>(null);
   const [mimoKey, setMimoKey] = useState("");
+  const [cursorKey, setCursorKey] = useState("");
   const [braveKey, setBraveKey] = useState("");
   const [mimoMessage, setMimoMessage] = useState<string | null>(null);
+  const [cursorMessage, setCursorMessage] = useState<string | null>(null);
   const [braveMessage, setBraveMessage] = useState<string | null>(null);
 
   const { data: provider } = useQuery({
@@ -55,9 +57,16 @@ export function FirstRunGuide({
   const chatgptSignedIn = Boolean(provider?.chatgpt?.signed_in);
   const chatgptPending = provider?.chatgpt?.pending;
   const mimoConfigured = Boolean(provider?.masked_key);
+  const cursorConfigured = Boolean(provider?.masked_cursor_key);
   const braveConfigured = Boolean(brave?.configured);
-  const preferred = provider?.primary === "mimo" ? "mimo" : provider?.primary === "chatgpt" ? "chatgpt" : null;
-  const selectedListing = listingChoice ?? preferred ?? (chatgptSignedIn ? "chatgpt" : mimoConfigured ? "mimo" : "chatgpt");
+  const preferred =
+    provider?.primary === "mimo" || provider?.primary === "cursor" || provider?.primary === "chatgpt"
+      ? provider.primary
+      : null;
+  const selectedListing =
+    listingChoice ??
+    preferred ??
+    (chatgptSignedIn ? "chatgpt" : mimoConfigured ? "mimo" : cursorConfigured ? "cursor" : "chatgpt");
 
   const refreshProvider = () => {
     queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
@@ -99,6 +108,16 @@ export function FirstRunGuide({
     },
     onError: (err: Error) => setMimoMessage(err.message),
   });
+  const saveCursor = useMutation({
+    mutationFn: (key: string) => api.settings.setCursor(key),
+    onSuccess: () => {
+      setCursorKey("");
+      setCursorMessage("Cursor key saved in Keychain.");
+      setPreferred.mutate("cursor");
+      refreshProvider();
+    },
+    onError: (err: Error) => setCursorMessage(err.message),
+  });
   const saveBrave = useMutation({
     mutationFn: (key: string) => api.settings.setBrave(key),
     onSuccess: () => {
@@ -111,16 +130,16 @@ export function FirstRunGuide({
 
   const stepIndex = SETUP_GUIDE_STEPS.findIndex((item) => item.id === step);
   const isLast = step === "ready";
-  const listingReady = chatgptSignedIn || mimoConfigured || providerConfigured;
+  const listingReady = chatgptSignedIn || mimoConfigured || cursorConfigured || providerConfigured;
   const canCreateListing = true;
   const chromeReady = extensionConnected;
   const canAdvance =
     step === "listing-ai" ? listingReady : true;
 
   useEffect(() => {
-    if (!chatgptSignedIn && !mimoConfigured) return;
+    if (!chatgptSignedIn && !mimoConfigured && !cursorConfigured) return;
     queryClient.invalidateQueries({ queryKey: ["status"] });
-  }, [chatgptSignedIn, mimoConfigured, queryClient]);
+  }, [chatgptSignedIn, mimoConfigured, cursorConfigured, queryClient]);
 
   const finish = () => {
     dismissSetupGuide();
@@ -224,7 +243,7 @@ export function FirstRunGuide({
                   List This Studio stays on this Mac. You add product photos, chat writes the listing, then Studio fills a Vendoo draft. It never publishes. You review and send live yourself.
                 </p>
                 <ul className="setup-guide-points">
-                  <li>Choose ChatGPT or a Xiaomi MiMo key so chat can read photos.</li>
+                  <li>Choose ChatGPT, a Xiaomi MiMo key, or a Cursor API key so chat can read photos.</li>
                   <li>Optionally add Brave Search for sold-price comps.</li>
                   <li>Connect everyday Chrome once, then create a listing.</li>
                 </ul>
@@ -259,6 +278,17 @@ export function FirstRunGuide({
                     <strong>Xiaomi MiMo</strong>
                     <span>Paste an API key if you are not using ChatGPT.</span>
                     {mimoConfigured ? <em>Key saved · {provider?.masked_key}</em> : null}
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={selectedListing === "cursor"}
+                    className={`setup-guide-choice${selectedListing === "cursor" ? " selected" : ""}`}
+                    onClick={() => chooseListing("cursor")}
+                  >
+                    <strong>Cursor</strong>
+                    <span>Paste a Cursor API key to use Composer for listings.</span>
+                    {cursorConfigured ? <em>Key saved · {provider?.masked_cursor_key}</em> : null}
                   </button>
                 </div>
                 {selectedListing === "chatgpt" ? (
@@ -296,6 +326,33 @@ export function FirstRunGuide({
                     {chatgptLogin.isError ? (
                       <p className="setup-guide-error">{(chatgptLogin.error as Error).message}</p>
                     ) : null}
+                  </div>
+                ) : selectedListing === "cursor" ? (
+                  <div className="setup-guide-task">
+                    <label className="setup-guide-field">
+                      <span>Cursor API key</span>
+                      <input
+                        className="input font-mono"
+                        type="password"
+                        value={cursorKey}
+                        onChange={(e) => setCursorKey(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && cursorKey.trim()) saveCursor.mutate(cursorKey);
+                        }}
+                        placeholder="cursor_..."
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={!cursorKey.trim() || saveCursor.isPending}
+                      onClick={() => saveCursor.mutate(cursorKey)}
+                    >
+                      {saveCursor.isPending ? "Saving…" : "Save key"}
+                    </button>
+                    {cursorMessage ? <p className="setup-guide-note">{cursorMessage}</p> : null}
                   </div>
                 ) : (
                   <div className="setup-guide-task">
@@ -444,8 +501,8 @@ export function FirstRunGuide({
                 {!canCreateListing ? (
                   <p className="setup-guide-note">
                     {listingReady
-                      ? "Waiting for Studio to see ChatGPT or MiMo before creating a listing."
-                      : "Sign in with ChatGPT or save a MiMo key first."}
+                      ? "Waiting for Studio to see ChatGPT, MiMo, or Cursor before creating a listing."
+                      : "Sign in with ChatGPT or save a MiMo or Cursor key first."}
                   </p>
                 ) : null}
               </>
@@ -465,7 +522,7 @@ export function FirstRunGuide({
                 className="btn btn-primary btn-sm"
                 onClick={goNext}
                 disabled={!canAdvance}
-                title={!canAdvance ? "Choose ChatGPT or MiMo first" : undefined}
+                title={!canAdvance ? "Choose ChatGPT, MiMo, or Cursor first" : undefined}
               >
                 {isLast ? "Done" : (step === "brave" && !braveConfigured) || (step === "chrome" && !chromeReady) ? "Skip for now" : "Continue"}
               </button>

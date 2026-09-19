@@ -10,7 +10,13 @@ export function ProviderStatus() {
 
   const connected = Boolean(data?.configured);
   const providerLabel =
-    data?.provider === "chatgpt" ? "ChatGPT" : data?.provider === "xiaomi-mimo" ? "MiMo" : null;
+    data?.provider === "chatgpt"
+      ? "ChatGPT"
+      : data?.provider === "xiaomi-mimo"
+        ? "MiMo"
+        : data?.provider === "cursor"
+          ? "Cursor"
+          : null;
   const modelName = connected
     ? [providerLabel, data?.listing_model].filter(Boolean).join(" · ") || "listing model"
     : "Not configured";
