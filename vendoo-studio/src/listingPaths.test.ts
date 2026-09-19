@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cloneListing, getNestedValue, setNestedValue } from "./listingPaths";
+import {
+  cloneListing,
+  getListingEditorValue,
+  getNestedValue,
+  labelToJsonKey,
+  resolveSpecificsKey,
+  setListingEditorValue,
+  setNestedValue,
+} from "./listingPaths";
 
 describe("getNestedValue", () => {
   it("reads dotted paths through nested objects", () => {
@@ -36,5 +44,38 @@ describe("cloneListing", () => {
 
   it("treats a missing listing as empty", () => {
     expect(cloneListing(undefined)).toEqual({});
+  });
+});
+
+describe("schema label ↔ listing JSON keys", () => {
+  it("maps Vendoo labels onto camelCase listing keys", () => {
+    expect(labelToJsonKey("Sleeve Length")).toBe("sleeveLength");
+    expect(labelToJsonKey("Brand")).toBe("brand");
+    expect(resolveSpecificsKey({ sleeveLength: "Short Sleeve" }, "Sleeve Length")).toBe("sleeveLength");
+  });
+
+  it("reads schema-labeled paths against camelCase specifics", () => {
+    const listing = {
+      ebay_specifics: {
+        brand: "Bella+Canvas",
+        sleeveLength: "Short Sleeve",
+        accents: "Graphic",
+      },
+    };
+    expect(getListingEditorValue(listing, "ebay_specifics.Brand")).toBe("Bella+Canvas");
+    expect(getListingEditorValue(listing, "ebay_specifics.Sleeve Length")).toBe("Short Sleeve");
+    expect(getListingEditorValue(listing, "ebay_specifics.Accents")).toBe("Graphic");
+  });
+
+  it("writes schema-labeled paths onto camelCase keys without leaving label duplicates", () => {
+    const listing: Record<string, unknown> = {
+      ebay_specifics: { sleeveLength: "Short Sleeve" },
+    };
+    setListingEditorValue(listing, "ebay_specifics.Sleeve Length", "Long Sleeve");
+    setListingEditorValue(listing, "ebay_specifics.Accents", "Logo");
+    expect(listing.ebay_specifics).toEqual({
+      sleeveLength: "Long Sleeve",
+      accents: "Logo",
+    });
   });
 });

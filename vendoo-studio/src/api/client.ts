@@ -117,6 +117,16 @@ export const api = {
       request<{ ok: boolean; forms: MarketplaceForm[] }>(
         `/conversations/${convId}/vendoo-api/fields`,
       ),
+    create: (convId: string) =>
+      request<{
+        ok: boolean;
+        job_id: string;
+        item_id: string;
+        url: string;
+        unresolved: { marketplace?: string; field?: string; reason?: string }[];
+        unfilled: { marketplace?: string; field?: string; reason?: string }[];
+        diff: unknown[];
+      }>(`/conversations/${convId}/vendoo-api/create`, { method: "POST" }),
     save: (convId: string) =>
       request<{ ok: boolean; item_id: string; updated: string[] }>(
         `/conversations/${convId}/vendoo-api/save`, { method: "POST" },

@@ -375,7 +375,7 @@ export function FirstRunGuide({
               <>
                 <h2 id="setup-guide-title" className="setup-guide-title">Connect Chrome</h2>
                 <p className="setup-guide-copy">
-                  Studio opens Vendoo in its own Chrome window for listing fills. Load the listing extension from the folder below once, then sign in to Vendoo. After that, Send to Vendoo fills a draft in the background and stops. It never publishes.
+                  Studio uses Chrome for a signed-in Vendoo session. Load the listing extension from the folder below once, then sign in to Vendoo. After that, Send to Vendoo creates or updates a draft over the API. It never publishes.
                 </p>
                 {!chromeAvailable ? (
                   <p className="setup-guide-copy">
@@ -416,7 +416,7 @@ export function FirstRunGuide({
                     <strong>Listing panel</strong> — the draft fields for Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy. Review here before send.
                   </li>
                   <li>
-                    <strong>Send to Vendoo</strong> — fills and saves a draft in a background Chrome tab. Publish stays a human click on Vendoo.
+                    <strong>Send to Vendoo</strong> — creates or updates a draft over Vendoo's API. Publish stays a human click on Vendoo.
                   </li>
                   <li>
                     <strong>Footer</strong> — extension and listing-AI status. If either is off, fix it in Settings before generating.
