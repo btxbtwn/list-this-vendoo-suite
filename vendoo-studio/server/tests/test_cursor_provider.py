@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import os
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from vendoo_studio.providers.cursor_agent import CursorProvider, _flatten_messages
+from vendoo_studio.providers.cursor_agent import (
+    CursorProvider,
+    _flatten_messages,
+    uvloop_safe_subprocess_env,
+)
 
 
 class FlattenMessagesTest(unittest.TestCase):
@@ -31,6 +38,40 @@ class FlattenMessagesTest(unittest.TestCase):
         self.assertEqual(images, ["img"])
 
 
+class UvloopSafeEnvTest(unittest.TestCase):
+    def test_coerces_path_and_drops_none(self):
+        cleaned = uvloop_safe_subprocess_env(
+            {
+                "OK": "yes",
+                "PATH_VAL": Path("/tmp/cursor"),
+                "NONE_VAL": None,
+                "INT_VAL": 7,
+            }
+        )
+        self.assertEqual(cleaned["OK"], "yes")
+        self.assertEqual(cleaned["PATH_VAL"], "/tmp/cursor")
+        self.assertEqual(cleaned["INT_VAL"], "7")
+        self.assertNotIn("NONE_VAL", cleaned)
+        self.assertTrue(all(isinstance(v, str) for v in cleaned.values()))
+
+    def test_uvloop_accepts_sanitized_env(self):
+        import uvloop
+
+        dirty = dict(os.environ)
+        dirty["CURSOR_TEST_PATH"] = Path("/tmp/cursor-bridge")
+        cleaned = uvloop_safe_subprocess_env(dirty)
+
+        async def _spawn() -> int:
+            process = await asyncio.create_subprocess_exec("/bin/true", env=cleaned)
+            return await process.wait()
+
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        try:
+            self.assertEqual(asyncio.run(_spawn()), 0)
+        finally:
+            asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+
+
 class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
     async def test_chat_streams_text(self):
         provider = CursorProvider(api_key="cursor_test")
@@ -39,31 +80,28 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
             def __init__(self):
                 self.id = "run-1"
 
-            async def iter_text(self):
+            def iter_text(self):
                 yield "Hello"
                 yield " world"
 
-            async def wait(self):
+            def wait(self):
                 return MagicMock(status="finished", result="Hello world", id=self.id)
 
         fake_agent = MagicMock()
-        fake_agent.send = AsyncMock(return_value=FakeRun())
-        fake_agent.__aenter__ = AsyncMock(return_value=fake_agent)
-        fake_agent.__aexit__ = AsyncMock(return_value=None)
+        fake_agent.send = MagicMock(return_value=FakeRun())
+        fake_agent.__enter__ = MagicMock(return_value=fake_agent)
+        fake_agent.__exit__ = MagicMock(return_value=None)
 
         fake_agents = MagicMock()
-        fake_agents.create = AsyncMock(return_value=fake_agent)
+        fake_agents.create = MagicMock(return_value=fake_agent)
 
         fake_client = MagicMock()
         fake_client.agents = fake_agents
-        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
-        fake_client.__aexit__ = AsyncMock(return_value=None)
+        fake_client.__enter__ = MagicMock(return_value=fake_client)
+        fake_client.__exit__ = MagicMock(return_value=None)
 
         with (
-            patch(
-                "cursor_sdk.AsyncClient.launch_bridge",
-                new=AsyncMock(return_value=fake_client),
-            ),
+            patch("cursor_sdk.Client.launch_bridge", return_value=fake_client),
             patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
         ):
             scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
@@ -72,26 +110,23 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
                 chunks.append(chunk)
 
         self.assertEqual("".join(chunks), "Hello world")
-        fake_agent.send.assert_awaited()
+        fake_agent.send.assert_called_once()
 
     async def test_connection_lists_models(self):
         provider = CursorProvider(api_key="cursor_test")
 
         fake_client = MagicMock()
-        fake_client.list_models = AsyncMock(return_value=[MagicMock(id="composer-2.5")])
-        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
-        fake_client.__aexit__ = AsyncMock(return_value=None)
+        fake_client.list_models = MagicMock(return_value=[MagicMock(id="composer-2.5")])
+        fake_client.__enter__ = MagicMock(return_value=fake_client)
+        fake_client.__exit__ = MagicMock(return_value=None)
 
         with (
-            patch(
-                "cursor_sdk.AsyncClient.launch_bridge",
-                new=AsyncMock(return_value=fake_client),
-            ),
+            patch("cursor_sdk.Client.launch_bridge", return_value=fake_client),
             patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
         ):
             scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
             self.assertTrue(await provider.test_connection())
-        fake_client.list_models.assert_awaited_once_with(api_key="cursor_test")
+        fake_client.list_models.assert_called_once_with(api_key="cursor_test")
 
     async def test_connection_auth_failure(self):
         from cursor_sdk import CursorAgentError
@@ -99,15 +134,12 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
         provider = CursorProvider(api_key="bad")
 
         fake_client = MagicMock()
-        fake_client.list_models = AsyncMock(side_effect=CursorAgentError("Invalid User API Key"))
-        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
-        fake_client.__aexit__ = AsyncMock(return_value=None)
+        fake_client.list_models = MagicMock(side_effect=CursorAgentError("Invalid User API Key"))
+        fake_client.__enter__ = MagicMock(return_value=fake_client)
+        fake_client.__exit__ = MagicMock(return_value=None)
 
         with (
-            patch(
-                "cursor_sdk.AsyncClient.launch_bridge",
-                new=AsyncMock(return_value=fake_client),
-            ),
+            patch("cursor_sdk.Client.launch_bridge", return_value=fake_client),
             patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
         ):
             scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
