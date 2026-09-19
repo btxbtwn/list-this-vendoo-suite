@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
@@ -15,6 +15,7 @@ import {
   type SettingsSectionId,
 } from "../components/settingsNav";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
+import { VendooPullOfferHost } from "../components/VendooPullOfferHost";
 import { ToastHost } from "../components/ToastHost";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
@@ -82,6 +83,11 @@ export function App() {
     queryFn: api.status,
     refetchInterval: 4000,
   });
+  const conversationTitles = useMemo(
+    () => Object.fromEntries((conversations || []).map((c) => [c.id, c.title || ""])),
+    [conversations],
+  );
+
   const providerConfigured = Boolean(status?.provider_configured);
   const needsSetup = !status || !status.provider_configured || !status.extension_connected;
   const createListingTitle = "New listing";
@@ -548,6 +554,7 @@ export function App() {
       </footer>
       <ToastHost />
       <ConfirmDialogHost />
+      <VendooPullOfferHost conversationTitles={conversationTitles} />
       {setupGuideOpen ? (
         <Suspense fallback={null}>
           <FirstRunGuide

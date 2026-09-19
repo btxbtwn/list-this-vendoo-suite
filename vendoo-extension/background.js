@@ -943,6 +943,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'VENDOO_ITEM_SAVED') {
+    const itemId = String(msg.item_id || '').trim();
+    if (!itemId) {
+      sendResponse({ ok: false, error: 'missing item_id' });
+      return true;
+    }
+    // Studio's own fill/save job already owns this draft — do not prompt to pull
+    // the write Studio just made.
+    if (activeJob) {
+      sendResponse({ ok: true, skipped: 'active_job' });
+      return true;
+    }
+    send({
+      version: 1,
+      type: 'vendoo.item_saved',
+      message_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
+      sent_at: new Date().toISOString(),
+      payload: { item_id: itemId },
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (msg.type === 'IMPORT_VENDOO_LISTING') {
     importVendooListing(msg.tabId).then(sendResponse).catch((err) => {
       sendResponse({ ok: false, error: err.message });

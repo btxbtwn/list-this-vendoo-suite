@@ -42,6 +42,7 @@ class ExtMessageType(str, enum.Enum):
     JOB_PREVIEW_FRAME = "job.preview_frame"
     BROWSER_RESULT = "browser.result"
     DIAGNOSTIC_OBSERVED = "diagnostic.observed"
+    VENDOO_ITEM_SAVED = "vendoo.item_saved"
     PONG = "pong"
 
 

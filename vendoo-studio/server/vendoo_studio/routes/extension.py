@@ -782,6 +782,22 @@ async def extension_websocket(ws: WebSocket):
                         "error": payload.get("error") or payload.get("api_error"),
                     })
 
+            elif msg_type == "vendoo.item_saved":
+                payload = message.get("payload") or {}
+                item_id = str(payload.get("item_id") or "").strip()
+                if item_id:
+                    from vendoo_studio.repositories.queries import ConversationRepo
+                    from vendoo_studio.services.vendoo_pull_offers import offer_pull
+                    from vendoo_studio.services.vendoo_watch import studio_has_unpushed_edits
+
+                    conv = ConversationRepo(db).find_by_vendoo_item_id(item_id)
+                    if conv:
+                        offer_pull(
+                            conversation_id=conv.id,
+                            item_id=item_id,
+                            conflict=studio_has_unpushed_edits(db, conv.id),
+                        )
+
             elif msg_type == "job.vendoo_api_result":
                 payload = message.get("payload") or {}
                 request_id = payload.get("request_id") or message.get("message_id")
