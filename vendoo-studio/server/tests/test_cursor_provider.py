@@ -235,5 +235,46 @@ class UserSettingsCursorOrderTest(unittest.TestCase):
                 self.assertEqual((primary, fallback), ("cursor", "mimo"))
 
 
+class CursorModelsSettingsTest(unittest.TestCase):
+    def test_persists_auto_and_composer(self):
+        import tempfile
+        from pathlib import Path
+
+        from vendoo_studio.services import user_settings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(user_settings, "settings_path", return_value=Path(tmp) / "settings.json"):
+                self.assertEqual(user_settings.resolved_cursor_models(), ("composer-2.5", "composer-2.5"))
+                saved = user_settings.set_cursor_models(vision_model="auto", listing_model="auto")
+                self.assertEqual(saved, {"vision_model": "auto", "listing_model": "auto"})
+                self.assertEqual(user_settings.resolved_cursor_models(), ("auto", "auto"))
+                user_settings.set_cursor_models(listing_model="composer-2.5")
+                self.assertEqual(user_settings.resolved_cursor_models(), ("auto", "composer-2.5"))
+
+    def test_put_cursor_models_route(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+
+        with (
+            patch("vendoo_studio.services.keychain.get_cursor_api_key", return_value="cursor_key"),
+            patch(
+                "vendoo_studio.services.user_settings.set_cursor_models",
+                return_value={"vision_model": "auto", "listing_model": "auto"},
+            ) as persist,
+            patch(
+                "vendoo_studio.services.user_settings.resolved_cursor_models",
+                return_value=("auto", "auto"),
+            ),
+        ):
+            resp = TestClient(app).put(
+                "/api/settings/cursor/models",
+                json={"vision_model": "auto", "listing_model": "auto"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["vision_model"], "auto")
+        persist.assert_called_once_with(vision_model="auto", listing_model="auto")
+
+
 if __name__ == "__main__":
     unittest.main()

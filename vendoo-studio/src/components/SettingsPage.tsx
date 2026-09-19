@@ -562,15 +562,22 @@ function ProvidersPanel() {
     queryFn: api.settings.provider,
   });
   const chatgptSignedIn = Boolean(provider?.chatgpt?.signed_in);
+  const cursorConfigured = Boolean(provider?.masked_cursor_key);
   const { data: chatgptModels } = useQuery({
     queryKey: ["chatgpt-models"],
     queryFn: api.settings.chatgptModels,
     enabled: chatgptSignedIn && provider?.provider === "chatgpt",
   });
+  const { data: cursorModels } = useQuery({
+    queryKey: ["cursor-models"],
+    queryFn: api.settings.cursorModels,
+    enabled: cursorConfigured && provider?.provider === "cursor",
+  });
 
   const refreshProvider = () => {
     queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
     queryClient.invalidateQueries({ queryKey: ["chatgpt-models"] });
+    queryClient.invalidateQueries({ queryKey: ["cursor-models"] });
     queryClient.invalidateQueries({ queryKey: ["status"] });
   };
 
@@ -625,6 +632,15 @@ function ProvidersPanel() {
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
+  const setCursorModelsMutation = useMutation({
+    mutationFn: (models: { vision_model?: string; listing_model?: string }) =>
+      api.settings.setCursorModels(models),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+      queryClient.invalidateQueries({ queryKey: ["cursor-models"] });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
   const setPreferredMutation = useMutation({
     mutationFn: (order: { primary: ListingProviderId; fallback: ListingFallbackId }) =>
       api.settings.setPreferredProvider(order),
@@ -635,7 +651,6 @@ function ProvidersPanel() {
   const chatgptPending = chatgpt?.pending;
   const pendingCode = chatgptPending?.user_code;
   const mimoConfigured = Boolean(provider?.masked_key);
-  const cursorConfigured = Boolean(provider?.masked_cursor_key);
   const primary: ListingProviderId =
     provider?.primary === "mimo" || provider?.primary === "cursor" ? provider.primary : "chatgpt";
   const fallback: ListingFallbackId =
@@ -671,10 +686,14 @@ function ProvidersPanel() {
 
   const visionModel = usingChatGPT
     ? chatgptModels?.vision_model || provider?.vision_model || "gpt-5.5"
-    : provider?.vision_model || (usingCursor ? "composer-2.5" : "mimo-v2.5");
+    : usingCursor
+      ? cursorModels?.vision_model || provider?.vision_model || "composer-2.5"
+      : provider?.vision_model || "mimo-v2.5";
   const listingModel = usingChatGPT
     ? chatgptModels?.listing_model || provider?.listing_model || "gpt-5.5"
-    : provider?.listing_model || (usingCursor ? "composer-2.5" : "mimo-v2.5-pro");
+    : usingCursor
+      ? cursorModels?.listing_model || provider?.listing_model || "composer-2.5"
+      : provider?.listing_model || "mimo-v2.5-pro";
   const reasoningEffort = chatgptModels?.reasoning_effort || "low";
   const reasoningOptions = chatgptModels?.reasoning_efforts?.length
     ? chatgptModels.reasoning_efforts
@@ -688,12 +707,20 @@ function ProvidersPanel() {
     max: "Max",
   };
   const modelOptions = (() => {
+    if (usingCursor) {
+      const slugs = [...(cursorModels?.models || ["auto", "composer-2.5"])];
+      for (const slug of [visionModel, listingModel]) {
+        if (slug && !slugs.includes(slug)) slugs.push(slug);
+      }
+      return slugs;
+    }
     const slugs = [...(chatgptModels?.models || [])];
     for (const slug of [visionModel, listingModel]) {
       if (slug && !slugs.includes(slug)) slugs.push(slug);
     }
     return slugs;
   })();
+  const modelLabel = (slug: string) => (slug === "auto" ? "Auto" : slug);
 
   useEffect(() => {
     if (!pendingCode) return;
@@ -884,19 +911,36 @@ function ProvidersPanel() {
         <SettingsRow
           title="Vision model"
           description="Used to read product photos."
-          status={usingChatGPT && chatgptModels?.error ? <span className="text-error">{chatgptModels.error}</span> : null}
+          status={
+            usingChatGPT && chatgptModels?.error ? (
+              <span className="text-error">{chatgptModels.error}</span>
+            ) : usingCursor && cursorModels?.error ? (
+              <span className="text-error">{cursorModels.error}</span>
+            ) : null
+          }
           control={
-            usingChatGPT ? (
+            usingChatGPT || usingCursor ? (
               <select
                 className="input settings-model-select"
                 aria-label="Vision model"
                 value={visionModel}
-                disabled={setChatGPTModelsMutation.isPending || modelOptions.length === 0}
-                onChange={(event) => setChatGPTModelsMutation.mutate({ vision_model: event.target.value })}
+                disabled={
+                  (usingChatGPT
+                    ? setChatGPTModelsMutation.isPending
+                    : setCursorModelsMutation.isPending) || modelOptions.length === 0
+                }
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (usingCursor) {
+                    setCursorModelsMutation.mutate({ vision_model: value });
+                  } else {
+                    setChatGPTModelsMutation.mutate({ vision_model: value });
+                  }
+                }}
               >
                 {modelOptions.map((slug) => (
                   <option key={`vision-${slug}`} value={slug}>
-                    {slug}
+                    {modelLabel(slug)}
                   </option>
                 ))}
               </select>
@@ -907,19 +951,30 @@ function ProvidersPanel() {
         />
         <SettingsRow
           title="Listing model"
-          description="Used to write marketplace copy."
+          description="Used to write marketplace copy. Auto lets Cursor pick the best model for the account."
           control={
-            usingChatGPT ? (
+            usingChatGPT || usingCursor ? (
               <select
                 className="input settings-model-select"
                 aria-label="Listing model"
                 value={listingModel}
-                disabled={setChatGPTModelsMutation.isPending || modelOptions.length === 0}
-                onChange={(event) => setChatGPTModelsMutation.mutate({ listing_model: event.target.value })}
+                disabled={
+                  (usingChatGPT
+                    ? setChatGPTModelsMutation.isPending
+                    : setCursorModelsMutation.isPending) || modelOptions.length === 0
+                }
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (usingCursor) {
+                    setCursorModelsMutation.mutate({ listing_model: value });
+                  } else {
+                    setChatGPTModelsMutation.mutate({ listing_model: value });
+                  }
+                }}
               >
                 {modelOptions.map((slug) => (
                   <option key={`listing-${slug}`} value={slug}>
-                    {slug}
+                    {modelLabel(slug)}
                   </option>
                 ))}
               </select>

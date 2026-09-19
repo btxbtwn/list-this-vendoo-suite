@@ -18,6 +18,9 @@ LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "mimo", "cursor"})
 LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "mimo", "cursor", "none"})
 DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "mimo", "cursor"] = "chatgpt"
 DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "mimo", "cursor", "none"] = "mimo"
+CURSOR_MODELS_KEY = "cursor_models"
+DEFAULT_CURSOR_MODEL = "composer-2.5"
+AUTO_CURSOR_MODEL = "auto"
 DEFAULT_SETTLED_SHELF_EXPANDED = True
 
 ListingProviderChoice = Literal["chatgpt", "mimo", "cursor"]
@@ -156,6 +159,58 @@ def set_preferred_listing_provider(preferred: object) -> ListingProviderChoice:
     """Set primary and keep the other provider as fallback."""
     order = set_listing_provider_order(preferred, fallback=None)
     return order["primary"]  # type: ignore[return-value]
+
+
+def _clean_cursor_model_slug(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    slug = value.strip()
+    if not slug:
+        return None
+    # Keep Auto and dotted Composer IDs as the SDK expects them.
+    return slug
+
+
+def get_cursor_models() -> dict[str, str]:
+    raw = read_settings().get(CURSOR_MODELS_KEY)
+    models: dict[str, str] = {}
+    if isinstance(raw, dict):
+        vision = _clean_cursor_model_slug(raw.get("vision_model"))
+        listing = _clean_cursor_model_slug(raw.get("listing_model"))
+        if vision:
+            models["vision_model"] = vision
+        if listing:
+            models["listing_model"] = listing
+    return models
+
+
+def set_cursor_models(
+    *,
+    vision_model: str | None = None,
+    listing_model: str | None = None,
+) -> dict[str, str]:
+    current = get_cursor_models()
+    vision = _clean_cursor_model_slug(vision_model)
+    listing = _clean_cursor_model_slug(listing_model)
+    if vision:
+        current["vision_model"] = vision
+    if listing:
+        current["listing_model"] = listing
+    if not current:
+        raise ValueError("Choose a vision model or listing model.")
+
+    def mutator(payload: dict) -> None:
+        payload[CURSOR_MODELS_KEY] = current
+
+    update_settings(mutator)
+    return current
+
+
+def resolved_cursor_models() -> tuple[str, str]:
+    prefs = get_cursor_models()
+    vision = prefs.get("vision_model") or DEFAULT_CURSOR_MODEL
+    listing = prefs.get("listing_model") or DEFAULT_CURSOR_MODEL
+    return vision, listing
 
 
 def _ui_prefs(settings: dict | None = None) -> dict:

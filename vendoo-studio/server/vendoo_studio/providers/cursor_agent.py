@@ -11,10 +11,14 @@ from pathlib import Path
 
 from vendoo_studio.config import user_data_root
 from vendoo_studio.providers.xiaomi_mimo import VISION_MAX_SIDE, encode_images
+from vendoo_studio.services.user_settings import (
+    DEFAULT_CURSOR_MODEL,
+    resolved_cursor_models,
+)
 
 log = logging.getLogger("vendoo_studio.cursor")
 
-DEFAULT_MODEL = "composer-2.5"
+DEFAULT_MODEL = DEFAULT_CURSOR_MODEL
 TEXT_ONLY_PREAMBLE = (
     "You are a product listing assistant for Vendoo Listing Studio. "
     "Reply with assistant text only. Do not edit files, run shell commands, or use tools. "
@@ -150,11 +154,10 @@ def _flatten_messages(messages: list[dict]) -> tuple[str, list]:
 
 class CursorProvider:
     name = "cursor"
-    vision_model = DEFAULT_MODEL
-    listing_model = DEFAULT_MODEL
 
     def __init__(self, api_key: str):
         self.api_key = normalize_cursor_api_key(api_key)
+        self.vision_model, self.listing_model = resolved_cursor_models()
 
     async def test_connection(self) -> bool:
         """Validate the API key through the same local bridge path used for chat.
@@ -191,6 +194,23 @@ class CursorProvider:
         if not models:
             raise RuntimeError("Cursor API key worked but returned no models for this account.")
         return True
+
+    def list_model_ids(self) -> list[str]:
+        """Return catalog model IDs for Settings (sync; call from a worker thread)."""
+        from cursor_sdk import Client
+
+        scratch = str(listing_scratch_dir())
+        with _patched_bridge_env():
+            with Client.launch_bridge(workspace=scratch) as client:
+                models = list(client.list_models(api_key=self.api_key))
+        ids: list[str] = []
+        for item in models:
+            model_id = getattr(item, "id", None)
+            if model_id is None and isinstance(item, dict):
+                model_id = item.get("id")
+            if isinstance(model_id, str) and model_id.strip():
+                ids.append(model_id.strip())
+        return ids
 
     async def analyze_photos(
         self,
@@ -237,21 +257,21 @@ class CursorProvider:
         ]
         try:
             content = ""
-            async for chunk in self._run(messages, stream=False):
+            async for chunk in self._run(messages, stream=False, model=self.vision_model):
                 content += chunk
             return self._parse_json_response(content)
         except Exception as e:
             return {"error": str(e), "evidence": {}}
 
     async def vision_chat(self, messages: list[dict]):
-        async for content in self._run(messages, stream=True):
+        async for content in self._run(messages, stream=True, model=self.vision_model):
             yield content
 
     async def chat(self, messages: list[dict], stream: bool = True):
-        async for content in self._run(messages, stream=stream):
+        async for content in self._run(messages, stream=stream, model=self.listing_model):
             yield content
 
-    async def _run(self, messages: list[dict], *, stream: bool):
+    async def _run(self, messages: list[dict], *, stream: bool, model: str | None = None):
         from cursor_sdk import (
             Client,
             CursorAgentError,
@@ -259,6 +279,7 @@ class CursorProvider:
             UserMessage,
         )
 
+        selected = (model or self.listing_model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
         prompt, images = _flatten_messages(messages)
         if not prompt:
             prompt = TEXT_ONLY_PREAMBLE
@@ -275,7 +296,7 @@ class CursorProvider:
                 with _patched_bridge_env():
                     with Client.launch_bridge(workspace=scratch) as client:
                         with client.agents.create(
-                            model=self.listing_model,
+                            model=selected,
                             api_key=self.api_key,
                             local=LocalAgentOptions(cwd=scratch, setting_sources=[]),
                         ) as agent:
