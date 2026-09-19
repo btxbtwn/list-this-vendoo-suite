@@ -68,6 +68,18 @@ ALL_MARKETPLACES = (
 # generalDetails fields Vendoo stores as a coded object with a display label.
 CODED_FIELDS = ("condition", "primaryColor", "secondaryColor")
 
+# Vendoo's own colour vocabulary, as its app ships it. Learning these from the
+# seller's items only ever covers colours they have already used, which is how
+# a beige top was stored as the word "Beige" next to a correctly coded
+# "v_Pink". Real items confirm the encoding: v_Silver, v_Black.
+GENERAL_COLORS: dict[str, str] = {
+    "beige": "v_Beige", "black": "v_Black", "blue": "v_Blue", "brown": "v_Brown",
+    "cream": "v_Cream", "gold": "v_Gold", "gray": "v_Gray", "grey": "v_Gray",
+    "green": "v_Green", "multicolor": "v_Multicolor", "multicolour": "v_Multicolor",
+    "orange": "v_Orange", "pink": "v_Pink", "purple": "v_Purple", "red": "v_Red",
+    "silver": "v_Silver", "tan": "v_Tan", "white": "v_White", "yellow": "v_Yellow",
+}
+
 _LABEL_KEYS = ("displayName", "label", "name")
 _VALUE_KEYS = ("value", "id", "key", "code")
 
@@ -542,15 +554,25 @@ def _category(listing: dict[str, Any]) -> Any:
     return path
 
 
-def _size(listing: dict[str, Any]) -> dict[str, Any] | None:
+def _size(listing: dict[str, Any], category_id: Any = None) -> dict[str, Any] | None:
+    """The general form's size, as Vendoo stores it.
+
+    ``categoryId`` ties the size to the general category; without it the form
+    has no scale to read the option against. Options and scales are their own
+    labels here — Vendoo's size vocabulary is not coded.
+    """
     size = _clean(listing.get("size")) or _clean(listing.get("size_us"))
     scale = _clean(listing.get("sizeType"))
     if not size and not scale:
         return None
-    return {
+    out: dict[str, Any] = {
         "option": {"label": size or "", "value": size or ""},
         "scale": {"label": scale or "", "value": scale or ""},
     }
+    category = _clean(category_id)
+    if category:
+        out["categoryId"] = category
+    return out
 
 
 def _general_details(
@@ -562,7 +584,15 @@ def _general_details(
     general = default_general_details()
 
     def coded(name: str, label: Any) -> Any:
-        value, ok = encode_field(schema, name, _clean(label))
+        text = _clean(label)
+        value, ok = encode_field(schema, name, text)
+        if not ok and text and name in ("primaryColor", "secondaryColor"):
+            # What the seller's own items taught us wins — it carries the shape
+            # this account stores. Vendoo's shipped vocabulary only rescues a
+            # colour they have not used before, which is otherwise reported.
+            known = GENERAL_COLORS.get(_norm(text))
+            if known:
+                return known
         if not ok:
             unresolved.append({"field": name, "value": str(label)})
         return value if value is not None else ""
@@ -588,7 +618,7 @@ def _general_details(
         general["category"] = None
     elif category:
         general["category"] = category
-    size = _size(listing)
+    size = _size(listing, (general.get("categoryV2") or {}).get("id") if isinstance(general.get("categoryV2"), dict) else None)
     if size:
         general["size"] = size
     weight_lb, weight_oz = listing.get("weight_lb"), listing.get("weight_oz")

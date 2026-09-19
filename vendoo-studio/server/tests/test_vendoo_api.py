@@ -482,5 +482,50 @@ class DiffRoundTripTest(unittest.TestCase):
         self.assertEqual([entry["field"] for entry in diff], ["sku"])
 
 
+class GeneralFormFieldsTest(unittest.TestCase):
+    """The general form feeds every marketplace, so its own fields must be
+    stored the way Vendoo stores them. Shapes taken from real saved items."""
+
+    LISTING = {
+        "title": "Cat Graphic Tee",
+        "size": "XL",
+        "sizeType": "Regular",
+        "primaryColor": "Beige",
+        "secondaryColor": "Pink",
+        "category_id": "clothing_shoes__accessories__women__women's_clothing__tops",
+        "category_path": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+    }
+
+    def build(self, **over):
+        listing = {**self.LISTING, **over}
+        return build_vendoo_item(listing)
+
+    def test_size_carries_the_category_it_belongs_to(self):
+        item, _ = self.build()
+        size = item["generalDetails"]["size"]
+        self.assertEqual(size["option"], {"label": "XL", "value": "XL"})
+        self.assertEqual(size["scale"], {"label": "Regular", "value": "Regular"})
+        # Without categoryId the form has no scale to read the option against.
+        self.assertEqual(size["categoryId"], self.LISTING["category_id"])
+
+    def test_colours_use_vendoos_vocabulary_not_the_words(self):
+        item, unresolved = self.build()
+        general = item["generalDetails"]
+        self.assertEqual(general["primaryColor"], "v_Beige")
+        self.assertEqual(general["secondaryColor"], "v_Pink")
+        # A colour Vendoo ships is not something to report as unencodable.
+        self.assertEqual([r for r in unresolved if "Color" in r["field"]], [])
+
+    def test_a_colour_vendoo_does_not_ship_is_reported(self):
+        _item, unresolved = self.build(primaryColor="Chartreuse")
+        self.assertEqual(
+            [r["field"] for r in unresolved if r["value"] == "Chartreuse"], ["primaryColor"]
+        )
+
+    def test_size_without_a_category_omits_the_key(self):
+        item, _ = self.build(category_id="", category_path="")
+        self.assertNotIn("categoryId", item["generalDetails"]["size"])
+
+
 if __name__ == "__main__":
     unittest.main()
