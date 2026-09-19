@@ -592,6 +592,8 @@ class UiPrefsConfig(BaseModel):
     recent_vendoo_labels: list[str] | None = None
     settled_shelf_expanded: bool | None = None
     remember_labels: str | list[str] | None = None
+    restore_labels: list[str] | None = None
+    forget_label: str | None = None
 
 
 @router.get("/ui")
@@ -606,8 +608,10 @@ def put_ui_prefs(config: UiPrefsConfig):
     from vendoo_studio.services import user_settings
 
     try:
-        if config.remember_labels is not None:
-            user_settings.remember_vendoo_labels(config.remember_labels)
+        if config.remember_labels is not None or config.restore_labels:
+            user_settings.remember_vendoo_labels(config.remember_labels, config.restore_labels)
+        if config.forget_label is not None:
+            user_settings.forget_vendoo_label(config.forget_label)
         prefs = user_settings.set_ui_prefs(
             recent_vendoo_labels=config.recent_vendoo_labels,
             settled_shelf_expanded=config.settled_shelf_expanded,

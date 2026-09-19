@@ -456,16 +456,20 @@ export const api = {
         ok: boolean;
         recent_vendoo_labels: string[];
         settled_shelf_expanded: boolean;
+        hidden_vendoo_labels: string[];
       }>("/settings/ui"),
     setUi: (body: {
       recent_vendoo_labels?: string[];
       settled_shelf_expanded?: boolean;
       remember_labels?: string | string[];
+      restore_labels?: string[];
+      forget_label?: string;
     }) =>
       request<{
         ok: boolean;
         recent_vendoo_labels: string[];
         settled_shelf_expanded: boolean;
+        hidden_vendoo_labels: string[];
       }>("/settings/ui", { method: "PUT", body: JSON.stringify(body) }),
     formulas: () =>
       request<{
