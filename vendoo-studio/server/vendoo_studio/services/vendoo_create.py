@@ -456,15 +456,33 @@ async def fetch_listing_specifics(job, listing: dict[str, Any]) -> dict[str, dic
     A marketplace that cannot answer is simply left out — ``build_vendoo_item``
     then falls back to what the seller's own items taught us.
     """
-    from vendoo_studio.services.category_fields import load_fields, save_fields
+    from vendoo_studio.services.category_fields import (
+        listing_category_ids,
+        load_fields,
+        save_fields,
+    )
 
     objects = listing.get("marketplace_category_objects")
     objects = objects if isinstance(objects, dict) else {}
+    # Whole category objects only exist once a create has resolved them. During
+    # generation the listing carries breadcrumbs, and those resolve against the
+    # seeded tree — without this the schema looks unavailable and the caller
+    # falls back to discovering fields through a browser.
+    # marketplace -> (leaf id, whole category object when we have one). The
+    # object carries the ancestor path and extras eBay's schema lookup wants;
+    # a breadcrumb-resolved leaf has the id only, which the endpoint accepts.
+    leaves: dict[str, tuple[str, dict[str, Any]]] = {
+        marketplace: (str(resolved["id"]), resolved)
+        for marketplace, resolved in objects.items()
+        if isinstance(resolved, dict) and resolved.get("id")
+    }
+    for marketplace, category_id in listing_category_ids(listing).items():
+        leaves.setdefault(marketplace, (category_id, {}))
+
     out: dict[str, dict[str, FieldSpec]] = {}
-    for marketplace, resolved in objects.items():
-        if marketplace == "general" or not isinstance(resolved, dict) or not resolved.get("id"):
+    for marketplace, (category_id, resolved) in leaves.items():
+        if marketplace == "general" or not category_id:
             continue
-        category_id = str(resolved["id"])
         cached = load_fields(marketplace, category_id)
         if cached:
             out[marketplace] = cached

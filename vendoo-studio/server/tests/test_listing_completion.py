@@ -853,17 +853,17 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         node = self.db.query(CategoryNode).filter_by(marketplace="general", path="Clothing > Tops").one()
         self.assertEqual(node.parent_path, "Clothing")
 
-    async def test_generation_requires_chrome_before_full_listing(self):
+    async def test_generation_works_with_chrome_disconnected(self):
+        """Generation stopped needing a browser when the probe went away."""
         self.manager.connected = False
         self.job.status = "completed"
         self.db.commit()
         provider = Provider({})
         with patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]), \
              patch("vendoo_studio.services.category_selection.select_categories", new=AsyncMock(
-                 return_value={"general": "Clothing > Tops", "ebay": "Clothing > Shirts"})), \
-             self.assertRaisesRegex(RuntimeError, "Connect Chrome"):
-            await prepare_generation_schema(self.db, self.conv.id, provider, "Cotton tee", "")
-        self.assertEqual(provider.messages, [])
+                 return_value={"general": "Clothing > Tops", "ebay": "Clothing > Shirts"})):
+            seed = await prepare_generation_schema(self.db, self.conv.id, provider, "Cotton tee", "")
+        self.assertEqual(seed["category_path"], "Clothing > Tops")
 
     async def test_generation_uses_cached_schema_without_chrome(self):
         self.manager.connected = False
@@ -888,20 +888,22 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.manager.register_wait.assert_not_called()
         self.assertEqual(JobRepo(self.db).list_by_conversation(self.conv.id), [self.job])
 
-    async def test_generation_defers_schema_probe(self):
+    async def test_generation_never_starts_a_chrome_probe(self):
+        """Vendoo serves a category's fields, so nothing is discovered here.
+
+        The probe drove a real draft through Chrome to learn field names and
+        left it in the seller's account. Create resolves each leaf and fetches
+        its schema, so generation has nothing to discover.
+        """
         self.job.status = "completed"
         self.db.commit()
-
-        async def discover():
-            return True
-
-        with patch("vendoo_studio.routes.extension.dispatch_queued_jobs", side_effect=discover), \
+        dispatch = AsyncMock()
+        with patch("vendoo_studio.routes.extension.dispatch_queued_jobs", dispatch), \
              patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]), \
              patch("vendoo_studio.services.category_selection.select_categories", new=AsyncMock(
                  return_value={"general": "Clothing > Tops", "ebay": "Clothing > Shirts"})):
             seed = await prepare_generation_schema(self.db, self.conv.id, Provider({}), "Cotton tee", "")
         self.assertEqual(seed["category_path"], "Clothing > Tops")
-        self.assertEqual(seed["_schema_source"], "deferred_probe")
-        self.assertTrue(seed.get("_schema_probe_job_id"))
-        self.manager.register_wait.assert_called()
-        self.manager.cancel_wait.assert_not_called()
+        self.assertEqual(seed["_schema_source"], "deferred")
+        self.assertIsNone(seed.get("_schema_probe_job_id"))
+        dispatch.assert_not_called()
