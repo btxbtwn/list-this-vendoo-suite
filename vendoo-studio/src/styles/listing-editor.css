@@ -28,6 +28,7 @@
 }
 
 .pr-review-title {
+  flex: 1 1 auto;
   margin: 0;
   min-width: 0;
   overflow: hidden;
@@ -183,11 +184,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
   gap: 6px;
   flex-shrink: 0;
   max-width: 100%;
-  margin-left: auto;
   pointer-events: auto;
   position: relative;
   z-index: 2;
