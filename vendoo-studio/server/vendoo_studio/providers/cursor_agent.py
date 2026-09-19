@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
+import os
 import re
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 from vendoo_studio.config import user_data_root
@@ -16,6 +20,7 @@ TEXT_ONLY_PREAMBLE = (
     "Reply with assistant text only. Do not edit files, run shell commands, or use tools. "
     "When asked for JSON, return only valid JSON with no markdown fences."
 )
+_STREAM_DONE = object()
 
 
 def normalize_cursor_api_key(raw: str) -> str:
@@ -29,6 +34,57 @@ def listing_scratch_dir() -> Path:
     path = user_data_root() / "cursor-listing-workspace"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def uvloop_safe_subprocess_env(source: Mapping[str, object] | None = None) -> dict[str, str]:
+    """Coerce bridge subprocess env to str values uvloop will accept.
+
+    Studio runs uvicorn under uvloop. AsyncBridge passes this mapping to
+    asyncio.create_subprocess_exec, which rejects PathLike/None/int values that
+    subprocess.Popen would otherwise accept.
+    """
+    raw = dict(os.environ if source is None else source)
+    cleaned: dict[str, str] = {}
+    for key, value in raw.items():
+        if isinstance(key, bytes):
+            key_s = key.decode("utf-8", "surrogateescape")
+        elif isinstance(key, str):
+            key_s = key
+        else:
+            log.warning("dropping non-string Cursor bridge env key %r", key)
+            continue
+        if isinstance(value, str):
+            cleaned[key_s] = value
+        elif isinstance(value, bytes):
+            cleaned[key_s] = value.decode("utf-8", "surrogateescape")
+        elif value is None:
+            log.warning("dropping null Cursor bridge env %s", key_s)
+            continue
+        else:
+            coerced = os.fspath(value) if isinstance(value, os.PathLike) else str(value)
+            log.warning(
+                "coercing Cursor bridge env %s from %s",
+                key_s,
+                type(value).__name__,
+            )
+            cleaned[key_s] = coerced
+    return cleaned
+
+
+@contextlib.contextmanager
+def _patched_bridge_env() -> Iterator[None]:
+    import cursor_sdk._bridge as bridge_mod
+
+    original = bridge_mod._bridge_subprocess_env
+
+    def _safe() -> dict[str, str]:
+        return uvloop_safe_subprocess_env(original())
+
+    bridge_mod._bridge_subprocess_env = _safe
+    try:
+        yield
+    finally:
+        bridge_mod._bridge_subprocess_env = original
 
 
 def _image_from_data_url(url: str):
@@ -106,15 +162,22 @@ class CursorProvider:
         Raises RuntimeError with a user-facing message on failure so Settings can
         show the real Cursor/SDK error instead of a generic "Connection failed".
         """
-        from cursor_sdk import AsyncClient, CursorAgentError, CursorSDKError
+        from cursor_sdk import Client, CursorAgentError, CursorSDKError
 
         if not self.api_key:
             raise RuntimeError("Cursor API key is empty.")
 
-        scratch = listing_scratch_dir()
+        scratch = str(listing_scratch_dir())
+
+        def _probe() -> list:
+            with _patched_bridge_env():
+                with Client.launch_bridge(workspace=scratch) as client:
+                    return list(client.list_models(api_key=self.api_key))
+
         try:
-            async with await AsyncClient.launch_bridge(workspace=str(scratch)) as client:
-                models = await client.list_models(api_key=self.api_key)
+            # Sync bridge uses subprocess.Popen, which tolerates PathLike env
+            # values that uvloop's create_subprocess_exec rejects.
+            models = await asyncio.to_thread(_probe)
         except CursorAgentError as exc:
             message = str(exc).strip() or "Cursor authentication failed."
             raise RuntimeError(message) from exc
@@ -186,7 +249,7 @@ class CursorProvider:
 
     async def _run(self, messages: list[dict], *, stream: bool):
         from cursor_sdk import (
-            AsyncClient,
+            Client,
             CursorAgentError,
             LocalAgentOptions,
             UserMessage,
@@ -195,39 +258,62 @@ class CursorProvider:
         prompt, images = _flatten_messages(messages)
         if not prompt:
             prompt = TEXT_ONLY_PREAMBLE
-        scratch = listing_scratch_dir()
+        scratch = str(listing_scratch_dir())
         message = UserMessage(text=prompt, images=images or None)
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[object] = asyncio.Queue()
 
+        def _emit(item: object) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, item)
+
+        def _worker() -> None:
+            try:
+                with _patched_bridge_env():
+                    with Client.launch_bridge(workspace=scratch) as client:
+                        with client.agents.create(
+                            model=self.listing_model,
+                            api_key=self.api_key,
+                            local=LocalAgentOptions(cwd=scratch, setting_sources=[]),
+                        ) as agent:
+                            run = agent.send(message)
+                            if stream:
+                                yielded = False
+                                for chunk in run.iter_text():
+                                    if chunk:
+                                        yielded = True
+                                        _emit(chunk)
+                                result = run.wait()
+                                if result.status == "error":
+                                    raise RuntimeError(f"Cursor run failed: {result.id}")
+                                if not yielded and result.result:
+                                    _emit(result.result)
+                                return
+
+                            result = run.wait()
+                            if result.status == "error":
+                                raise RuntimeError(f"Cursor run failed: {result.id}")
+                            text = (result.result or "").strip()
+                            if not text:
+                                raise RuntimeError("Cursor returned an empty listing response")
+                            _emit(text)
+            except CursorAgentError as exc:
+                _emit(RuntimeError(f"Cursor agent error: {exc}"))
+            except Exception as exc:
+                _emit(exc)
+            finally:
+                _emit(_STREAM_DONE)
+
+        worker_task = asyncio.create_task(asyncio.to_thread(_worker))
         try:
-            async with await AsyncClient.launch_bridge(workspace=str(scratch)) as client:
-                async with await client.agents.create(
-                    model=self.listing_model,
-                    api_key=self.api_key,
-                    local=LocalAgentOptions(cwd=str(scratch), setting_sources=[]),
-                ) as agent:
-                    run = await agent.send(message)
-                    if stream:
-                        yielded = False
-                        async for chunk in run.iter_text():
-                            if chunk:
-                                yielded = True
-                                yield chunk
-                        result = await run.wait()
-                        if result.status == "error":
-                            raise RuntimeError(f"Cursor run failed: {result.id}")
-                        if not yielded and result.result:
-                            yield result.result
-                        return
-
-                    result = await run.wait()
-                    if result.status == "error":
-                        raise RuntimeError(f"Cursor run failed: {result.id}")
-                    text = (result.result or "").strip()
-                    if not text:
-                        raise RuntimeError("Cursor returned an empty listing response")
-                    yield text
-        except CursorAgentError as exc:
-            raise RuntimeError(f"Cursor agent error: {exc}") from exc
+            while True:
+                item = await queue.get()
+                if item is _STREAM_DONE:
+                    break
+                if isinstance(item, BaseException):
+                    raise item
+                yield item  # type: ignore[misc]
+        finally:
+            await worker_task
 
     def _parse_json_response(self, content: str) -> dict:
         try:
