@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { addLabel, removeLabel, splitLabels } from "./itemLabels";
 
 interface Props {
   convId: string;
@@ -55,10 +56,6 @@ type TextKey = Exclude<keyof ItemDetailsData, "garment" | "measurements">;
 const RECENT_LABELS_KEY = "vendoo-studio.recent-labels";
 const MAX_RECENT_LABELS = 12;
 
-function splitLabels(raw: string): string[] {
-  return raw.split(",").map((part) => part.trim()).filter(Boolean);
-}
-
 function readLegacyStoredLabels(): string[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(RECENT_LABELS_KEY) || "[]");
@@ -95,20 +92,6 @@ function labelsFromNotes(notes: string | null | undefined): string[] {
   } catch {
     return [];
   }
-}
-
-function applyLabelSuggestion(raw: string, suggestion: string, known: string[]): string {
-  const parts = splitLabels(raw);
-  const trailing = /,\s*$/.test(raw);
-  const lastToken = trailing ? "" : (raw.includes(",") ? raw.slice(raw.lastIndexOf(",") + 1) : raw).trim();
-  const lastIsKnown = known.some((label) => label.toLowerCase() === lastToken.toLowerCase());
-  const completed = trailing || lastIsKnown || !raw.trim()
-    ? parts
-    : (raw.includes(",") ? parts.slice(0, -1) : []);
-  if (completed.some((label) => label.toLowerCase() === suggestion.toLowerCase())) {
-    return completed.join(", ");
-  }
-  return [...completed, suggestion].join(", ");
 }
 
 const DEFAULTS: ItemDetailsData = {
@@ -165,6 +148,9 @@ export function ItemDetails({ convId }: Props) {
   const saveGenRef = useRef(0);
   const [labelMenuOpen, setLabelMenuOpen] = useState(false);
   const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const [labelDraft, setLabelDraft] = useState("");
+  const labelDraftRef = useRef("");
+  const labelInputRef = useRef<HTMLInputElement | null>(null);
   const migratedLabelsRef = useRef(false);
 
   const { data: conv } = useQuery({
@@ -219,6 +205,7 @@ export function ItemDetails({ convId }: Props) {
   }, [conversations, uiPrefs?.recent_vendoo_labels]);
 
   const [details, setDetails] = useState<ItemDetailsData>({ ...DEFAULTS });
+  const detailsRef = useRef(details);
 
   useEffect(() => {
     if (saveTimerRef.current) {
@@ -226,8 +213,14 @@ export function ItemDetails({ convId }: Props) {
       saveTimerRef.current = null;
     }
     saveGenRef.current += 1;
-    if (conv) setDetails(parseNotes(conv.notes));
-    else setDetails({ ...DEFAULTS });
+    if (conv) {
+      const parsed = parseNotes(conv.notes);
+      detailsRef.current = parsed;
+      setDetails(parsed);
+    } else {
+      detailsRef.current = { ...DEFAULTS };
+      setDetails({ ...DEFAULTS });
+    }
   }, [convId, conv?.notes, conv?.updated_at]);
 
   useEffect(() => {
@@ -240,12 +233,15 @@ export function ItemDetails({ convId }: Props) {
   useEffect(() => {
     setLabelMenuOpen(false);
     setActiveSuggestion(0);
+    labelDraftRef.current = "";
+    setLabelDraft("");
   }, [convId]);
 
   const save = useCallback(async (updated: ItemDetailsData) => {
     const gen = ++saveGenRef.current;
     setSaving(true);
     setSaveError(null);
+    detailsRef.current = updated;
     setDetails(updated);
     rememberLabels(updated.vendooLabels, queryClient);
     const persist = async () => {
@@ -277,6 +273,7 @@ export function ItemDetails({ convId }: Props) {
   }, [convId, queryClient]);
 
   const scheduleSave = useCallback((updated: ItemDetailsData) => {
+    detailsRef.current = updated;
     setDetails(updated);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => save(updated), 500);
@@ -300,27 +297,38 @@ export function ItemDetails({ convId }: Props) {
 
   const currentLabels = splitLabels(details.vendooLabels);
   const selectedKeys = new Set(currentLabels.map((label) => label.toLowerCase()));
-  const trailing = /,\s*$/.test(details.vendooLabels);
-  const lastToken = trailing || !details.vendooLabels.trim()
-    ? ""
-    : (details.vendooLabels.includes(",")
-        ? details.vendooLabels.slice(details.vendooLabels.lastIndexOf(",") + 1)
-        : details.vendooLabels).trim().toLowerCase();
-  const token = lastToken && !recentLabels.some((label) => label.toLowerCase() === lastToken)
-    ? lastToken
-    : "";
+  const token = labelDraft.trim().toLowerCase();
   const labelSuggestions = recentLabels.filter((label) => {
     const key = label.toLowerCase();
-    if (selectedKeys.has(key) && key !== token) return false;
+    if (selectedKeys.has(key)) return false;
     return !token || key.includes(token);
   });
 
-  const chooseLabel = (suggestion: string) => {
-    const next = { ...details, vendooLabels: applyLabelSuggestion(details.vendooLabels, suggestion, recentLabels) };
+  const commitLabels = (vendooLabels: string, draft = "") => {
+    const next = { ...detailsRef.current, vendooLabels };
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    void save(next);
+    labelDraftRef.current = draft;
+    setLabelDraft(draft);
     setActiveSuggestion(0);
+    void save(next);
+  };
+
+  const chooseLabel = (suggestion: string) => {
+    commitLabels(addLabel(detailsRef.current.vendooLabels, suggestion));
     setLabelMenuOpen(true);
+    labelInputRef.current?.focus();
+  };
+
+  const commitDraft = (rawDraft = labelDraftRef.current) => {
+    const draft = rawDraft.trim();
+    if (!draft) return;
+    commitLabels(addLabel(detailsRef.current.vendooLabels, draft));
+    setLabelMenuOpen(true);
+  };
+
+  const removeCommittedLabel = (label: string) => {
+    commitLabels(removeLabel(detailsRef.current.vendooLabels, label), labelDraftRef.current);
+    labelInputRef.current?.focus();
   };
 
   return (
@@ -339,38 +347,90 @@ export function ItemDetails({ convId }: Props) {
         </div>
         <div className="item-field">
           <label className="label">Labels</label>
-          <input
-            {...f("vendooLabels")}
-            placeholder="Add labels"
-            autoComplete="off"
-            role="combobox"
-            aria-expanded={labelMenuOpen && labelSuggestions.length > 0}
-            aria-controls="label-history"
-            aria-autocomplete="list"
-            onFocus={() => { setLabelMenuOpen(true); setActiveSuggestion(0); }}
-            onClick={() => { setLabelMenuOpen(true); setActiveSuggestion(0); }}
-            onBlur={() => setTimeout(() => setLabelMenuOpen(false), 120)}
-            onKeyDown={(e) => {
-              if (!labelMenuOpen && (e.key === "ArrowDown" || e.key === "Enter")) {
+          <div
+            className="label-input"
+            onClick={() => labelInputRef.current?.focus()}
+          >
+            {currentLabels.map((label) => (
+              <span key={label} className="label-chip">
+                <span className="label-chip-text">{label}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${label}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeCommittedLabel(label);
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <input
+              ref={labelInputRef}
+              className="input label-input-field"
+              type="text"
+              value={labelDraft}
+              placeholder={currentLabels.length ? "Add another" : "Add labels"}
+              autoComplete="off"
+              role="combobox"
+              aria-expanded={labelMenuOpen && labelSuggestions.length > 0}
+              aria-controls="label-history"
+              aria-autocomplete="list"
+              onChange={(e) => {
+                labelDraftRef.current = e.target.value;
+                setLabelDraft(e.target.value);
                 setLabelMenuOpen(true);
-                return;
-              }
-              if (!labelSuggestions.length) return;
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setLabelMenuOpen(true);
-                setActiveSuggestion((i) => (i + 1) % labelSuggestions.length);
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setActiveSuggestion((i) => (i - 1 + labelSuggestions.length) % labelSuggestions.length);
-              } else if (e.key === "Enter" && labelMenuOpen) {
-                e.preventDefault();
-                chooseLabel(labelSuggestions[activeSuggestion] || labelSuggestions[0]);
-              } else if (e.key === "Escape") {
-                setLabelMenuOpen(false);
-              }
-            }}
-          />
+                setActiveSuggestion(0);
+              }}
+              onFocus={() => { setLabelMenuOpen(true); setActiveSuggestion(0); }}
+              onClick={() => { setLabelMenuOpen(true); setActiveSuggestion(0); }}
+              onBlur={() => {
+                setTimeout(() => {
+                  setLabelMenuOpen(false);
+                  commitDraft();
+                }, 120);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Backspace" && !labelDraft && currentLabels.length) {
+                  e.preventDefault();
+                  removeCommittedLabel(currentLabels[currentLabels.length - 1]);
+                  return;
+                }
+                if (e.key === "," || e.key === "Enter") {
+                  if (labelDraft.trim()) {
+                    e.preventDefault();
+                    if (e.key === "Enter" && labelMenuOpen && labelSuggestions.length) {
+                      chooseLabel(labelSuggestions[activeSuggestion] || labelSuggestions[0]);
+                    } else {
+                      commitDraft();
+                    }
+                    return;
+                  }
+                  if (e.key === "Enter" && labelMenuOpen && labelSuggestions.length) {
+                    e.preventDefault();
+                    chooseLabel(labelSuggestions[activeSuggestion] || labelSuggestions[0]);
+                  }
+                  return;
+                }
+                if (!labelMenuOpen && e.key === "ArrowDown") {
+                  setLabelMenuOpen(true);
+                  return;
+                }
+                if (!labelSuggestions.length) return;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setLabelMenuOpen(true);
+                  setActiveSuggestion((i) => (i + 1) % labelSuggestions.length);
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveSuggestion((i) => (i - 1 + labelSuggestions.length) % labelSuggestions.length);
+                } else if (e.key === "Escape") {
+                  setLabelMenuOpen(false);
+                }
+              }}
+            />
+          </div>
           {labelMenuOpen && labelSuggestions.length > 0 && (
             <div className="label-history" id="label-history" role="listbox">
               {labelSuggestions.map((label, i) => (
