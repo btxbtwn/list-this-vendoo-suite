@@ -201,8 +201,11 @@ export const api = {
       request<OkResponse>(`/conversations/${convId}/photos/${photoId}`, { method: "DELETE" }),
     delete: (id: string) =>
       request<DeleteConversationResult>(`/conversations/${id}`, { method: "DELETE" }),
-    reset: (id: string) =>
-      request<Conversation>(`/conversations/${id}/reset`, { method: "POST" }),
+    reset: (id: string, opts?: { keepInputs?: boolean }) =>
+      request<Conversation>(`/conversations/${id}/reset`, {
+        method: "POST",
+        body: JSON.stringify({ keep_inputs: Boolean(opts?.keepInputs) }),
+      }),
     reorderPhotos: (convId: string, orderedIds: string[]) =>
       request<OkResponse>(`/conversations/${convId}/photos/order`, {
         method: "PATCH",

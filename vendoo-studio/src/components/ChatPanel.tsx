@@ -465,6 +465,27 @@ export function resetChatLive(convId: string) {
   emitLive(convId);
 }
 
+/** Start a generate for this listing; a mounted ChatPanel picks it up and streams it. */
+export function queueChatGenerate(convId: string) {
+  resetChatLive(convId);
+  patchLive(convId, { generating: true, streamStatus: "Analyzing photos…" });
+}
+
+/** True while the listing is being generated or chat is still answering. */
+export function useChatBusy(convId: string): boolean {
+  return React.useSyncExternalStore(
+    (listener) => {
+      const live = getLive(convId);
+      live.listeners.add(listener);
+      return () => live.listeners.delete(listener);
+    },
+    () => {
+      const live = getLive(convId);
+      return live.streaming || live.generating;
+    },
+  );
+}
+
 function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>) {
   Object.assign(getLive(convId), patch);
   emitLive(convId);

@@ -234,11 +234,13 @@ def get_photos(conv_id: str, db: Session = Depends(get_db)):
     return [_photo_response(p) for p in repo.get_photos(conv_id)]
 
 
-def _wipe_conversation_contents(db: Session, conv_id: str) -> tuple[int, int]:
+def _wipe_conversation_contents(
+    db: Session, conv_id: str, *, keep_photos: bool = False
+) -> tuple[int, int]:
     import os as _os
 
     repo = ConversationRepo(db)
-    photos = repo.get_photos(conv_id)
+    photos = [] if keep_photos else repo.get_photos(conv_id)
     deleted_photos = len(photos)
     for photo in photos:
         filepath = Path(PHOTOS_DIR) / photo.stored_filename
@@ -266,7 +268,8 @@ def _wipe_conversation_contents(db: Session, conv_id: str) -> tuple[int, int]:
     db.query(ListingRevision).filter(ListingRevision.conversation_id == conv_id).delete(synchronize_session=False)
     db.query(Listing).filter(Listing.conversation_id == conv_id).delete(synchronize_session=False)
     db.query(Message).filter(Message.conversation_id == conv_id).delete(synchronize_session=False)
-    db.query(PhotoModel).filter(PhotoModel.conversation_id == conv_id).delete(synchronize_session=False)
+    if not keep_photos:
+        db.query(PhotoModel).filter(PhotoModel.conversation_id == conv_id).delete(synchronize_session=False)
     return len(job_ids), deleted_photos
 
 
@@ -288,8 +291,17 @@ def delete_photo(conv_id: str, photo_id: str, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+class ResetRequest(BaseModel):
+    # Regenerate: drop chat, jobs and generated fields but keep photos and item
+    # details, so the next generate starts from the same inputs as a new listing.
+    keep_inputs: bool = False
+
+
 @router.post("/{conv_id}/reset", response_model=ConversationResponse)
-async def reset_conversation(conv_id: str, db: Session = Depends(get_db)):
+async def reset_conversation(
+    conv_id: str, body: ResetRequest | None = None, db: Session = Depends(get_db)
+):
+    keep_inputs = bool(body and body.keep_inputs)
     repo = ConversationRepo(db)
     conv = repo.get(conv_id)
     if not conv:
@@ -307,6 +319,7 @@ async def reset_conversation(conv_id: str, db: Session = Depends(get_db)):
 
     # Keep the Vendoo draft link across Clear; wipe only Studio form contents.
     binding = vendoo_binding(conv.notes)
+    notes = conv.notes
 
     active_jobs = db.query(Job).filter(
         Job.conversation_id == conv_id,
@@ -321,13 +334,16 @@ async def reset_conversation(conv_id: str, db: Session = Depends(get_db)):
             payload={"job_id": job.id},
         ).model_dump(mode="json"))
 
-    _wipe_conversation_contents(db, conv_id)
+    _wipe_conversation_contents(db, conv_id, keep_photos=keep_inputs)
     db.expire_all()
     conv = repo.get(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
     conv.title = "New Listing"
-    conv.notes = merge_notes(None, binding) if binding else None
+    if keep_inputs:
+        conv.notes = notes
+    else:
+        conv.notes = merge_notes(None, binding) if binding else None
     conv.status = "draft"
     conv.settled_at = None
     conv.unsettled_at = None

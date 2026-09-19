@@ -17,7 +17,8 @@ import {
 } from "../marketplaceFields";
 import { withDropdownOptions } from "../dropdownOptions";
 import { addToast } from "../ui/toast";
-import { ClearListingButton } from "./ClearListingButton";
+import { ClearListingButton, RegenerateListingButton } from "./ClearListingButton";
+import { useChatBusy } from "./ChatPanel";
 import { fetchVendooItemLive } from "../api/vendooItemQuery";
 import {
   CopyableLlmError,
@@ -165,6 +166,12 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
     }
   };
 
+  // Error cards offer "Fix errors" / "Ask chat for fields"; mid-generation the
+  // listing is still being written, so those prompts would chase half-done values.
+  const chatBusy = useChatBusy(convId);
+  const generating = chatBusy || conversation?.status === "in_progress" || schemaProbeActive;
+  const askChat = generating ? undefined : onAskChat;
+
   const listing = data?.listing || {};
   const listingTitle = String(listing.title || "Listing");
   const importedItemId = listingJob?.vendoo_item_id || notesVendooItemId(conversation?.notes);
@@ -216,6 +223,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
                 Browser
               </button>
             )}
+            <RegenerateListingButton convId={convId} className="pr-review-open" onRegenerated={onCleared} />
             <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />
           </div>
         </div>
@@ -276,7 +284,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
               vendooItemId={listingJob.vendoo_item_id || importedItemId}
               vendooUrl={listingJob.vendoo_url || importedUrl}
               listing={listing}
-              onAskChat={onAskChat}
+              onAskChat={askChat}
               onFilled={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
               onJobStarted={onJobStarted}
             />
@@ -352,7 +360,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
           selectedMarketplaces={marketplaceSettings?.selected}
           vendooItemId={importedItemId}
           onJobStarted={onJobStarted}
-          onAskChat={onAskChat}
+          onAskChat={askChat}
         />
       </div>
     </div>

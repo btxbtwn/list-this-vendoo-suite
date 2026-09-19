@@ -608,7 +608,7 @@ export function FillLogPanel({
       {(onAskChat || hasDraft) && (
         <div className="pr-actions">
           <p className="pr-notice">
-            Ask chat for fields generation could not resolve. Send to Vendoo writes the listing onto the draft. Nothing is published.
+            {onAskChat ? "Ask chat for fields generation could not resolve. " : ""}Send to Vendoo writes the listing onto the draft. Nothing is published.
           </p>
           {onAskChat && (
             <div className="pr-action">

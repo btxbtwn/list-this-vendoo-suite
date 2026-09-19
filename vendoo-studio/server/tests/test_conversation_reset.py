@@ -159,6 +159,35 @@ class ConversationResetTest(unittest.TestCase):
         self.assertEqual(ensure.status_code, 200, ensure.text)
         self.assertEqual(ensure.json()["vendoo_item_id"], "QVzIZuKs")
 
+    def test_reset_keep_inputs_keeps_photos_and_notes(self):
+        notes = json.dumps({
+            "vendooItemId": "QVzIZuKs",
+            "condition": "Good",
+            "categoryOverride": "Men > Tops",
+        })
+        self.conv.notes = notes
+        self.db.commit()
+
+        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name):
+            response = self.client.post(
+                f"/api/conversations/{self.conv.id}/reset",
+                json={"keep_inputs": True},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["title"], "New Listing")
+        self.assertEqual(body["status"], "draft")
+        self.assertEqual(body["notes"], notes)
+
+        self.db.expire_all()
+        self.assertEqual(len(ConversationRepo(self.db).get_photos(self.conv.id)), 1)
+        self.assertTrue((Path(self.photos_tmp.name) / "front.jpg").exists())
+        self.assertEqual(ConversationRepo(self.db).get_messages(self.conv.id), [])
+        self.assertEqual(self.db.query(Job).filter(Job.conversation_id == self.conv.id).count(), 0)
+        revisions = ListingRepo(self.db).get_revisions(self.conv.id)
+        self.assertEqual([r.listing_json for r in revisions], [{}])
+
     def test_reset_missing_conversation_is_404(self):
         response = self.client.post("/api/conversations/missing/reset")
         self.assertEqual(response.status_code, 404)
