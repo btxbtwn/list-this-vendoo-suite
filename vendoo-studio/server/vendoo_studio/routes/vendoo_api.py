@@ -297,6 +297,13 @@ async def list_item(conv_id: str, body: ListRequest, db: Session = Depends(get_d
     AGENTS.md: automation must never publish. This route exists for a person
     pressing a button, which is what ``confirm`` records; nothing in Studio
     calls it on its own.
+
+    Only reaches Vendoo's "server marketplaces" — the ones it holds an API
+    connection for. Poshmark and Depop come back "Not a server marketplace":
+    those are listed by Vendoo's own extension calling each site's internal
+    API, and its manifest accepts messages from web.vendoo.co alone, so
+    driving it would mean a Vendoo page and their undocumented message
+    format. Listing those from here is not wired, and would not be one call.
     """
     return await _list_or_delist(conv_id, body, db, delist=False)
 
