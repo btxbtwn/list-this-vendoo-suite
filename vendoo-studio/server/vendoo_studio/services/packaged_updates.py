@@ -24,6 +24,13 @@ ZIP_NAME = "List-This-Studio-macos.zip"
 INFO_NAME = "build_info.json"
 APP_BUNDLE_NAME = f"{APP_NAME}.app"
 USER_AGENT = f"ListThisStudio/{app_version()}"
+GENERIC_RELEASE_NAMES = frozenset(
+    {
+        "list this studio (macos)",
+        "list this studio",
+        "studio-macos",
+    }
+)
 
 
 class PackagedUpdateError(RuntimeError):
@@ -187,6 +194,69 @@ def _download(client: httpx.Client, url: str, destination: Path) -> None:
                 handle.write(chunk)
 
 
+def _is_generic_release_name(name: str | None) -> bool:
+    return (name or "").strip().lower() in GENERIC_RELEASE_NAMES
+
+
+def _body_summary_line(body: str | None) -> str:
+    """First human-readable notes line, skipping sha/ref/install boilerplate."""
+    for raw in (body or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if lower.startswith(("sha:", "ref:", "install", "1.", "2.", "3.", "4.", "5.")):
+            continue
+        if lower.startswith("needs macos"):
+            continue
+        return line
+    return ""
+
+
+def fetch_pr_title(sha: str, client: httpx.Client | None = None) -> str | None:
+    """Return the title of the pull request that introduced ``sha``, if any."""
+    commit = (sha or "").strip()
+    if not commit:
+        return None
+    url = f"{GITHUB_API.rstrip('/')}/repos/{GITHUB_REPO}/commits/{commit}/pulls"
+    own_client = client is None
+    http = client or httpx.Client(timeout=15.0, headers=_headers(), follow_redirects=True)
+    try:
+        response = http.get(url, headers={**_headers(), "Accept": "application/vnd.github+json"})
+        if response.status_code in {404, 422}:
+            return None
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            return None
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            title = str(entry.get("title") or "").strip()
+            if title:
+                return title
+        return None
+    except httpx.HTTPError:
+        return None
+    finally:
+        if own_client:
+            http.close()
+
+
+def release_update_summary(release: dict, remote_sha: str | None, client: httpx.Client | None = None) -> str:
+    """Prefer the merged PR title so the in-app update dialog is meaningful."""
+    pr_title = fetch_pr_title(str(remote_sha or ""), client=client)
+    if pr_title:
+        return pr_title
+    name = (release.get("name") or "").strip()
+    if name and not _is_generic_release_name(name):
+        return name
+    body_line = _body_summary_line(release.get("body"))
+    if body_line:
+        return body_line
+    return ""
+
+
 def remote_build_info(release: dict, client: httpx.Client | None = None) -> dict:
     assets = _asset_map(release)
     info_asset = assets.get(INFO_NAME)
@@ -231,10 +301,7 @@ def check_for_packaged_update() -> dict:
     remote_sha = remote.get("sha")
     local_sha = local.get("sha")
     available = bool(zip_asset) and bool(remote_sha) and remote_sha != local_sha
-    summary = (release.get("name") or "").strip()
-    body = (release.get("body") or "").strip()
-    if body:
-        summary = f"{summary}\n{body.splitlines()[0]}".strip() if summary else body.splitlines()[0]
+    summary = release_update_summary(release, remote_sha) if available else ""
     return {
         "available": available,
         "packaged": True,

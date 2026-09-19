@@ -53,6 +53,7 @@ class PackagedUpdateTest(unittest.TestCase):
         info = packaged_updates.local_build_info()
         self.assertEqual(info["sha"], "aaa1111")
 
+    @patch.object(packaged_updates, "fetch_pr_title", return_value=None)
     @patch.object(packaged_updates, "remote_build_info", return_value={"sha": "bbb2222", "short_sha": "bbb2222", "version": "0.1.0", "ref": "main"})
     @patch.object(
         packaged_updates,
@@ -67,13 +68,44 @@ class PackagedUpdateTest(unittest.TestCase):
             }],
         },
     )
-    def test_newer_github_sha_is_available(self, _fetch, _remote):
+    def test_newer_github_sha_is_available(self, _fetch, _remote, _pr):
         status = packaged_updates.check_for_packaged_update()
         self.assertTrue(status["available"])
         self.assertTrue(status["packaged"])
         self.assertEqual(status["remote_sha"], "bbb2222")
         self.assertEqual(status["download_url"], "https://example.com/List-This-Studio-macos.zip")
+        self.assertEqual(status["summary"], "")
 
+    @patch.object(packaged_updates, "fetch_pr_title", return_value="Prompt to pull when Vendoo is saved")
+    @patch.object(packaged_updates, "remote_build_info", return_value={"sha": "bbb2222", "short_sha": "bbb2222", "version": "0.1.0", "ref": "main"})
+    @patch.object(
+        packaged_updates,
+        "fetch_release",
+        return_value={
+            "name": "List This Studio (macOS)",
+            "body": "sha: bbb2222\nref: main\n\nInstall\n1. Unzip",
+            "html_url": "https://github.com/btxbtwn/list-this-vendoo-suite/releases/tag/studio-macos",
+            "assets": [{
+                "name": "List-This-Studio-macos.zip",
+                "browser_download_url": "https://example.com/List-This-Studio-macos.zip",
+            }],
+        },
+    )
+    def test_summary_prefers_associated_pr_title(self, _fetch, _remote, _pr):
+        status = packaged_updates.check_for_packaged_update()
+        self.assertTrue(status["available"])
+        self.assertEqual(status["summary"], "Prompt to pull when Vendoo is saved")
+        self.assertEqual(status["commits"], ["Prompt to pull when Vendoo is saved"])
+
+    def test_release_update_summary_skips_generic_name_and_sha_body(self):
+        with patch.object(packaged_updates, "fetch_pr_title", return_value=None):
+            summary = packaged_updates.release_update_summary(
+                {"name": "List This Studio (macOS)", "body": "sha: abc\nref: main\nFix the save prompt"},
+                "abc",
+            )
+        self.assertEqual(summary, "Fix the save prompt")
+
+    @patch.object(packaged_updates, "fetch_pr_title", return_value=None)
     @patch.object(packaged_updates, "remote_build_info", return_value={"sha": "aaa1111", "short_sha": "aaa1111", "version": "0.1.0", "ref": "main"})
     @patch.object(
         packaged_updates,
@@ -87,10 +119,11 @@ class PackagedUpdateTest(unittest.TestCase):
             }],
         },
     )
-    def test_same_sha_is_current(self, _fetch, _remote):
+    def test_same_sha_is_current(self, _fetch, _remote, _pr):
         status = packaged_updates.check_for_packaged_update()
         self.assertFalse(status["available"])
         self.assertEqual(status["local_sha"], "aaa1111")
+        self.assertEqual(status["summary"], "")
 
     def test_extract_app_finds_keepparent_bundle(self):
         archive = Path(self.tmp.name) / "List-This-Studio-macos.zip"
