@@ -289,7 +289,8 @@ async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
     if not isinstance(item, dict):
         raise HTTPException(502, "Vendoo returned no item")
 
-    revision_id = apply_pull(db, conv_id, item)
+    # Refresh listing revision + job draft cache (sidebar status) in one path.
+    revision_id = apply_pull(db, conv_id, item, source="vendoo_pull")
     clear_offer(conv_id)
     return {"ok": True, "item_id": item_id, "revision_id": revision_id}
 

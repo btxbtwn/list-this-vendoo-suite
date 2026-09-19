@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 
 log = logging.getLogger("vendoo_studio.vendoo_watch")
 
@@ -26,6 +26,7 @@ __all__ = [
     "sync_state",
     "apply_pull",
     "studio_has_unpushed_edits",
+    "cache_pulled_item",
     "SYNCED_AT",
     "SYNCED_REVISION",
 ]
@@ -86,7 +87,51 @@ def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any
     return {"action": "none", "reason": "up to date", "remote": remote, "revision": local_revision}
 
 
-def apply_pull(db: Session, conv_id: str, item: dict[str, Any]) -> str | None:
+def cache_pulled_item(
+    db: Session,
+    conv_id: str,
+    item: dict[str, Any],
+    *,
+    source: str = "vendoo_pull",
+) -> None:
+    """Refresh the job draft cache so thread marketplace status matches Vendoo.
+
+    The sidebar hover reads ``vendoo_draft`` via the job's cache-only path. Pull
+    already fetches a fresh item; without writing it here, invalidate still
+    serves the stale cache and LISTED / NOT LISTED chips stay wrong.
+    """
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+
+    jobs = JobRepo(db).list_by_conversation(conv_id)
+    if not jobs:
+        return
+    job = jobs[0]
+    conv = ConversationRepo(db).get(conv_id)
+    binding = vendoo_binding(conv.notes if conv else None)
+    item_id = str(
+        (item or {}).get("itemID")
+        or (item or {}).get("itemId")
+        or binding.get("vendooItemId")
+        or job.vendoo_item_id
+        or ""
+    ).strip()
+    url = binding.get("vendooUrl") or job.vendoo_url
+    JobRepo(db).save_vendoo_draft(
+        job.id,
+        item=item,
+        item_id=item_id or None,
+        url=url,
+        source=source,
+    )
+
+
+def apply_pull(
+    db: Session,
+    conv_id: str,
+    item: dict[str, Any],
+    *,
+    source: str = "vendoo_sync",
+) -> str | None:
     """Save Vendoo's version as a revision and record that we are in step."""
     from vendoo_studio.services.vendoo_import import listing_from_vendoo
 
@@ -95,9 +140,10 @@ def apply_pull(db: Session, conv_id: str, item: dict[str, Any]) -> str | None:
     revision = listing_repo.save_revision(
         conv_id,
         listing_from_vendoo(item, None),
-        source="vendoo_sync",
+        source=source,
         parent_revision_id=revisions[0].id if revisions else None,
     )
+    cache_pulled_item(db, conv_id, item, source=source)
     mark_synced(db, conv_id, item, revision.id)
     return revision.id
 

@@ -140,6 +140,41 @@ class CreateRouteTest(_RouteTest):
         self.assertIn("busy", res.json()["detail"])
 
 
+class PullRouteTest(_RouteTest):
+    """Pull must refresh the job draft so thread marketplace status stays current."""
+
+    def test_pull_overwrites_stale_draft_cache(self):
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1"})
+        self.db.commit()
+        rev = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        job = JobRepo(self.db).create(
+            self.conv.id, rev.id, LISTING, vendoo_item_id="itm1", status="completed",
+        )
+        JobRepo(self.db).save_vendoo_draft(
+            job.id,
+            item={"itemID": "itm1", "listings": {"ebay": {"status": {"notListed": True}}}},
+            item_id="itm1",
+            source="stale",
+        )
+        fresh = {
+            "itemID": "itm1",
+            "dateLastModified": 9000,
+            "generalDetails": {"title": "Levi's 501"},
+            "listings": {"ebay": {"status": {"listed": True}}},
+        }
+
+        async def fake_run_ops(job, ops):
+            return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": fresh}]}
+
+        with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/pull")
+        self.assertEqual(res.status_code, 200, res.text)
+        cached = JobRepo(self.db).get_vendoo_draft(job.id)
+        self.assertEqual(cached["source"], "vendoo_pull")
+        self.assertEqual(cached["item"]["listings"]["ebay"]["status"], {"listed": True})
+
+
 class ListRouteTest(_RouteTest):
     """Publishing is seller-triggered. The rails matter more than the call."""
 

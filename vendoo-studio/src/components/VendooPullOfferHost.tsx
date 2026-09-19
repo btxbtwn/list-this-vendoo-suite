@@ -68,6 +68,7 @@ export function VendooPullOfferHost({
           queryClient.invalidateQueries({ queryKey: ["listing", offer.conversation_id] });
           queryClient.invalidateQueries({ queryKey: ["listing-fields", offer.conversation_id] });
           queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
+          queryClient.invalidateQueries({ queryKey: ["vendoo-item-peek"] });
           addToast({
             type: "success",
             title: "Pulled from Vendoo",
