@@ -135,12 +135,32 @@ export const api = {
         `/conversations/${convId}/vendoo-api/save`, { method: "POST" },
       ),
     sync: (convId: string) =>
-      request<{ ok: boolean; action: "pull" | "conflict" | "none"; reason: string; revision_id?: string }>(
+      request<{
+        ok: boolean;
+        action: "offer" | "none";
+        reason: string;
+        item_id?: string;
+        conflict?: boolean;
+      }>(
         `/conversations/${convId}/vendoo-api/sync`, { method: "POST" },
       ),
     pull: (convId: string) =>
       request<{ ok: boolean; item_id: string; revision_id: string }>(
         `/conversations/${convId}/vendoo-api/pull`, { method: "POST" },
+      ),
+    pullOffers: () =>
+      request<{
+        offers: {
+          conversation_id: string;
+          item_id: string;
+          conflict: boolean;
+          offered_at: string;
+        }[];
+      }>("/vendoo-api/pull-offers"),
+    dismissPullOffer: (convId: string) =>
+      request<{ ok: boolean; dismissed: boolean }>(
+        `/conversations/${convId}/vendoo-api/pull-offers/dismiss`,
+        { method: "POST" },
       ),
   },
 

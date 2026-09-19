@@ -21,11 +21,15 @@
   const DEBUG = true;
   let statusBox;
   let runtimeListener = null;
+  let sellerSaveWatchCleanup = null;
 
   window.__vendooStudioBridgeCleanup = function cleanupStudioBridge() {
     if (runtimeListener) {
       chrome.runtime.onMessage.removeListener(runtimeListener);
       runtimeListener = null;
+    }
+    if (typeof sellerSaveWatchCleanup === 'function') {
+      try { sellerSaveWatchCleanup(); } catch (_) {}
     }
     window.__vendooStudioBridge = false;
     window.__vendooStudioBridgeVersion = '';
@@ -4902,7 +4906,19 @@
       }) || null;
   }
 
+  let automationSaving = false;
+
   async function saveGeneralForm() {
+      const previousAutomation = automationSaving;
+      automationSaving = true;
+      try {
+          return await saveGeneralFormBody();
+      } finally {
+          automationSaving = previousAutomation;
+      }
+  }
+
+  async function saveGeneralFormBody() {
       log('Saving form...');
       // Always wait for the SPA save control — tab "complete" fires before React mounts it.
       const saveBtn = await waitForSaveButton(20000, { requireEnabled: true });
@@ -5355,6 +5371,59 @@
   }
   function recentlySaved(withinMs = 20000) {
       return Boolean(lastSaveCompletedAt) && (Date.now() - lastSaveCompletedAt) < withinMs;
+  }
+
+  let lastNotifiedSaveKey = '';
+  function notifyStudioOfSellerSave(itemId) {
+      const id = String(itemId || '').trim();
+      if (!id || automationSaving) return;
+      const key = `${id}:${Math.floor(Date.now() / 2000)}`;
+      if (key === lastNotifiedSaveKey) return;
+      lastNotifiedSaveKey = key;
+      try {
+          chrome.runtime.sendMessage({ type: 'VENDOO_ITEM_SAVED', item_id: id }, () => {
+              void chrome.runtime.lastError;
+          });
+      } catch (_) {
+          // Extension context can go away during reload; seller save still succeeded.
+      }
+  }
+
+  function watchSellerSaves() {
+      if (sellerSaveWatchCleanup) return;
+      let wasDisabled = false;
+      const check = () => {
+          const btn = document.querySelector('[data-testid="save-item-button"]');
+          if (!btn) {
+              wasDisabled = false;
+              return;
+          }
+          const disabled = Boolean(btn.disabled);
+          if (disabled) {
+              wasDisabled = true;
+              return;
+          }
+          if (wasDisabled) {
+              wasDisabled = false;
+              if (!automationSaving) {
+                  const itemId = extractItemId();
+                  if (itemId) notifyStudioOfSellerSave(itemId);
+              }
+          }
+      };
+      const observer = new MutationObserver(check);
+      observer.observe(document.documentElement, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ['disabled'],
+      });
+      const interval = setInterval(check, 1000);
+      sellerSaveWatchCleanup = () => {
+          observer.disconnect();
+          clearInterval(interval);
+          sellerSaveWatchCleanup = null;
+      };
   }
 
   async function activateMarketplaceSection(platform, { afterSave = false } = {}) {
@@ -7000,6 +7069,7 @@
 
   function init() {
       log(`✓ Content script loaded on ${window.location.hostname}`);
+      watchSellerSaves();
       
       runtimeListener = (msg, sender, sendResponse) => {
           if (msg.type === 'PING') {

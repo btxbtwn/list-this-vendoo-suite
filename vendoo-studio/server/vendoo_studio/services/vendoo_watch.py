@@ -22,7 +22,13 @@ log = logging.getLogger("vendoo_studio.vendoo_watch")
 SYNCED_AT = "vendooSyncedAt"
 SYNCED_REVISION = "vendooSyncedRevision"
 
-__all__ = ["sync_state", "apply_pull", "SYNCED_AT", "SYNCED_REVISION"]
+__all__ = [
+    "sync_state",
+    "apply_pull",
+    "studio_has_unpushed_edits",
+    "SYNCED_AT",
+    "SYNCED_REVISION",
+]
 
 
 def _stamp(value: Any) -> int:
@@ -35,6 +41,18 @@ def _stamp(value: Any) -> int:
         return int(str(value))
     except (TypeError, ValueError):
         return 0
+
+
+def studio_has_unpushed_edits(db: Session, conv_id: str) -> bool:
+    """True when Studio's current revision is ahead of the last synced one."""
+    from vendoo_studio.services.vendoo_import import parse_notes
+
+    conv = ConversationRepo(db).get(conv_id)
+    notes = parse_notes(conv.notes if conv else None)
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    local_revision = revisions[0].id if revisions else None
+    synced_revision = str(notes.get(SYNCED_REVISION) or "")
+    return bool(local_revision and synced_revision and local_revision != synced_revision)
 
 
 def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any]:
@@ -54,8 +72,7 @@ def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any
 
     revisions = ListingRepo(db).get_revisions(conv_id)
     local_revision = revisions[0].id if revisions else None
-    synced_revision = str(notes.get(SYNCED_REVISION) or "")
-    local_moved = bool(local_revision and synced_revision and local_revision != synced_revision)
+    local_moved = studio_has_unpushed_edits(db, conv_id)
     remote_moved = bool(remote and seen and remote > seen)
 
     # Nothing recorded yet: adopt Vendoo's state rather than guessing that

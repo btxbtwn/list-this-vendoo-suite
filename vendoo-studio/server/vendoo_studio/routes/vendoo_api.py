@@ -270,7 +270,9 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
 async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
     """Bring edits made in Vendoo back into Studio as a new revision."""
     from vendoo_studio.services.vendoo_create import run_ops
-    from vendoo_studio.services.vendoo_import import listing_from_vendoo, vendoo_binding
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+    from vendoo_studio.services.vendoo_pull_offers import clear_offer
+    from vendoo_studio.services.vendoo_watch import apply_pull
 
     conv_repo = ConversationRepo(db)
     conv = conv_repo.get(conv_id)
@@ -287,14 +289,35 @@ async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
     if not isinstance(item, dict):
         raise HTTPException(502, "Vendoo returned no item")
 
-    listing_repo = ListingRepo(db)
-    revisions = listing_repo.get_revisions(conv_id)
-    listing = listing_from_vendoo(item, None)
-    revision = listing_repo.save_revision(
-        conv_id, listing, source="vendoo_pull",
-        parent_revision_id=revisions[0].id if revisions else None,
-    )
-    return {"ok": True, "item_id": item_id, "revision_id": revision.id}
+    revision_id = apply_pull(db, conv_id, item)
+    clear_offer(conv_id)
+    return {"ok": True, "item_id": item_id, "revision_id": revision_id}
+
+
+@router.get("/api/vendoo-api/pull-offers")
+def list_pull_offers():
+    """Pull prompts waiting after a seller save in Vendoo (no Vendoo API call)."""
+    from vendoo_studio.services.vendoo_pull_offers import list_offers
+
+    return {
+        "offers": [
+            {
+                "conversation_id": o.conversation_id,
+                "item_id": o.item_id,
+                "conflict": o.conflict,
+                "offered_at": o.offered_at,
+            }
+            for o in list_offers()
+        ]
+    }
+
+
+@router.post("/api/conversations/{conv_id}/vendoo-api/pull-offers/dismiss")
+def dismiss_pull_offer(conv_id: str):
+    """Seller declined the pull prompt for this listing."""
+    from vendoo_studio.services.vendoo_pull_offers import clear_offer
+
+    return {"ok": True, "dismissed": clear_offer(conv_id)}
 
 
 class ListRequest(BaseModel):
@@ -393,13 +416,12 @@ async def sync_with_vendoo(conv_id: str, db: Session = Depends(get_db)):
     """Bring in Vendoo's changes when it is safe to, and say so when it is not.
 
     Called when a listing is opened or the app regains focus, so the request
-    pattern follows the seller rather than a clock. Pulls only when Studio has
-    nothing outstanding of its own; when both sides moved, neither wins and the
-    conflict is reported.
+    pattern follows the seller rather than a clock. When Vendoo moved, records
+    a pull offer for the UI to confirm — it does not overwrite Studio silently.
     """
     from vendoo_studio.services.vendoo_create import run_ops
     from vendoo_studio.services.vendoo_import import vendoo_binding
-    from vendoo_studio.services.vendoo_watch import apply_pull, mark_synced, sync_state
+    from vendoo_studio.services.vendoo_watch import mark_synced, sync_state
 
     conv = ConversationRepo(db).get(conv_id)
     if not conv:
@@ -419,11 +441,18 @@ async def sync_with_vendoo(conv_id: str, db: Session = Depends(get_db)):
         return {"ok": True, "action": "none", "reason": "no item"}
 
     state = sync_state(db, conv_id, item)
-    if state["action"] == "pull":
-        revision_id = apply_pull(db, conv_id, item)
-        return {"ok": True, "action": "pull", "reason": state["reason"], "revision_id": revision_id}
-    if state["action"] == "conflict":
-        return {"ok": True, "action": "conflict", "reason": state["reason"], "item_id": item_id}
+    if state["action"] in {"pull", "conflict"}:
+        from vendoo_studio.services.vendoo_pull_offers import offer_pull
+
+        conflict = state["action"] == "conflict"
+        offer_pull(conversation_id=conv_id, item_id=item_id, conflict=conflict)
+        return {
+            "ok": True,
+            "action": "offer",
+            "reason": state["reason"],
+            "item_id": item_id,
+            "conflict": conflict,
+        }
     mark_synced(db, conv_id, item, state.get("revision"))
     return {"ok": True, "action": "none", "reason": state["reason"]}
 
