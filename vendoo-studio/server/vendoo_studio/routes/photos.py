@@ -126,12 +126,12 @@ def serve_photo_thumbnail(photo_id: str, size: int = 96, db: Session = Depends(g
     try:
         thumb = get_or_create_thumbnail(photo.stored_filename, size)
     except FileNotFoundError:
-        raise HTTPException(404, "Photo file not found")
+        raise HTTPException(404, "Photo file not found") from None
     except Exception:
         # HEIC and other formats Pillow cannot decode fall back to the original.
         filepath = Path(PHOTOS_DIR) / photo.stored_filename
         if not filepath.exists():
-            raise HTTPException(404, "Photo file not found")
+            raise HTTPException(404, "Photo file not found") from None
         return FileResponse(str(filepath), media_type=photo.mime_type)
 
     return FileResponse(

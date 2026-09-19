@@ -38,7 +38,7 @@ class PhotoThumbnailTest(unittest.TestCase):
         repo = ConversationRepo(self.db)
         self.conv = repo.create(title="Nike tee")
         self.photos = []
-        for index, name in enumerate(("back.jpg", "front.jpg")):
+        for name in ("back.jpg", "front.jpg"):
             (self.photos_dir / name).write_bytes(_jpeg(1200, 900))
             photo = repo.add_photo(
                 self.conv.id,
