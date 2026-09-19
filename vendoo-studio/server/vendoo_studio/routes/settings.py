@@ -40,10 +40,11 @@ class ChatGPTStatus(BaseModel):
 
 class ProviderStatus(BaseModel):
     provider: str
-    primary: Literal["chatgpt", "mimo"]
-    fallback: Literal["chatgpt", "mimo", "none"]
+    primary: Literal["chatgpt", "mimo", "cursor"]
+    fallback: Literal["chatgpt", "mimo", "cursor", "none"]
     configured: bool
     masked_key: str | None
+    masked_cursor_key: str | None = None
     vision_model: str
     listing_model: str
     base_url: str
@@ -51,8 +52,8 @@ class ProviderStatus(BaseModel):
 
 
 class PreferredProviderConfig(BaseModel):
-    primary: Literal["chatgpt", "mimo"]
-    fallback: Literal["chatgpt", "mimo", "none"] | None = None
+    primary: Literal["chatgpt", "mimo", "cursor"]
+    fallback: Literal["chatgpt", "mimo", "cursor", "none"] | None = None
 
 
 def _chatgpt_status() -> ChatGPTStatus:
@@ -72,13 +73,14 @@ def _chatgpt_status() -> ChatGPTStatus:
 
 @router.get("/provider")
 def get_provider():
-    from vendoo_studio.services.keychain import get_api_key, mask_secret
+    from vendoo_studio.services.keychain import get_api_key, get_cursor_api_key, mask_secret
     from vendoo_studio.services.listing_provider import get_listing_provider
     from vendoo_studio.services.user_settings import get_listing_provider_order
 
     chatgpt = _chatgpt_status()
     key = get_api_key()
     masked = mask_secret(key)
+    masked_cursor = mask_secret(get_cursor_api_key())
     primary, fallback = get_listing_provider_order()
     active = get_listing_provider()
     active_name = getattr(active, "name", None)
@@ -93,9 +95,24 @@ def get_provider():
             fallback=fallback,
             configured=True,
             masked_key=masked,
+            masked_cursor_key=masked_cursor,
             vision_model=vision_model,
             listing_model=listing_model,
             base_url="https://chatgpt.com/backend-api/codex",
+            chatgpt=chatgpt,
+        )
+
+    if active_name == "cursor":
+        return ProviderStatus(
+            provider="cursor",
+            primary=primary,
+            fallback=fallback,
+            configured=True,
+            masked_key=masked,
+            masked_cursor_key=masked_cursor,
+            vision_model="composer-2.5",
+            listing_model="composer-2.5",
+            base_url="cursor-sdk://local",
             chatgpt=chatgpt,
         )
 
@@ -105,6 +122,7 @@ def get_provider():
         fallback=fallback,
         configured=bool(active),
         masked_key=masked,
+        masked_cursor_key=masked_cursor,
         vision_model="mimo-v2.5",
         listing_model="mimo-v2.5-pro",
         base_url="https://api.xiaomimimo.com/v1",
@@ -148,7 +166,10 @@ async def test_connection():
 
     provider = get_listing_provider()
     if provider is None:
-        raise HTTPException(400, "Sign in with ChatGPT in Settings, or add a MiMo API key.")
+        raise HTTPException(
+            400,
+            "Sign in with ChatGPT in Settings, or add a MiMo or Cursor API key.",
+        )
 
     name = getattr(provider, "name", "xiaomi-mimo")
     try:
@@ -359,10 +380,21 @@ class BraveConfig(BaseModel):
     api_key: str | None = None
 
 
+class CursorConfig(BaseModel):
+    api_key: str | None = None
+
+
 def _brave_payload() -> dict:
     from vendoo_studio.services.keychain import get_brave_api_key, mask_secret
 
     key = get_brave_api_key()
+    return {"configured": bool(key), "masked_key": mask_secret(key)}
+
+
+def _cursor_payload() -> dict:
+    from vendoo_studio.services.keychain import get_cursor_api_key, mask_secret
+
+    key = get_cursor_api_key()
     return {"configured": bool(key), "masked_key": mask_secret(key)}
 
 
@@ -396,6 +428,46 @@ async def test_brave():
 
     ok, error = await test_brave_connection()
     return {"ok": ok, "error": error}
+
+
+@router.get("/cursor")
+def get_cursor():
+    return _cursor_payload()
+
+
+@router.put("/cursor")
+def set_cursor(config: CursorConfig):
+    from vendoo_studio.services.keychain import set_cursor_api_key
+
+    key = (config.api_key or "").strip()
+    if not key:
+        raise HTTPException(400, "API key is required")
+    set_cursor_api_key(key)
+    return {"ok": True, **_cursor_payload()}
+
+
+@router.delete("/cursor")
+def delete_cursor():
+    from vendoo_studio.services.keychain import delete_cursor_api_key
+
+    delete_cursor_api_key()
+    return {"ok": True, **_cursor_payload()}
+
+
+@router.post("/cursor/test")
+async def test_cursor():
+    from vendoo_studio.providers.cursor_agent import CursorProvider
+    from vendoo_studio.services.keychain import get_cursor_api_key
+
+    key = get_cursor_api_key()
+    if not key:
+        raise HTTPException(400, "Add a Cursor API key in Settings.")
+    provider = CursorProvider(api_key=key)
+    try:
+        ok = await provider.test_connection()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": ok, "error": None if ok else "Connection failed"}
 
 
 @router.post("/setup-guide/dismiss")

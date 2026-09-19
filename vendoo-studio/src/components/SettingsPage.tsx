@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import type { ListingProviderId } from "../api/types";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
@@ -8,6 +9,22 @@ import {
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionId,
 } from "./settingsNav";
+
+type ListingFallbackId = ListingProviderId | "none";
+
+function providerLabel(choice: ListingFallbackId): string {
+  if (choice === "chatgpt") return "ChatGPT";
+  if (choice === "mimo") return "MiMo";
+  if (choice === "cursor") return "Cursor";
+  return "None";
+}
+
+function activeProviderChoice(providerName: string | undefined): ListingProviderId | null {
+  if (providerName === "chatgpt") return "chatgpt";
+  if (providerName === "xiaomi-mimo") return "mimo";
+  if (providerName === "cursor") return "cursor";
+  return null;
+}
 
 function SettingsSection({
   id,
@@ -532,8 +549,11 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
 function ProvidersPanel() {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
+  const [cursorKey, setCursorKey] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [cursorTesting, setCursorTesting] = useState(false);
+  const [cursorTestResult, setCursorTestResult] = useState<string | null>(null);
 
   const { data: provider } = useQuery({
     queryKey: ["settings-provider"],
@@ -565,6 +585,19 @@ function ProvidersPanel() {
     onSuccess: refreshProvider,
   });
 
+  const setCursorMutation = useMutation({
+    mutationFn: (key: string) => api.settings.setCursor(key),
+    onSuccess: () => {
+      refreshProvider();
+      setCursorKey("");
+    },
+  });
+
+  const deleteCursorMutation = useMutation({
+    mutationFn: () => api.settings.deleteCursor(),
+    onSuccess: refreshProvider,
+  });
+
   const chatgptLoginMutation = useMutation({
     mutationFn: () => api.settings.chatgptLogin(),
     onSuccess: refreshProvider,
@@ -587,7 +620,7 @@ function ProvidersPanel() {
     },
   });
   const setPreferredMutation = useMutation({
-    mutationFn: (order: { primary: "chatgpt" | "mimo"; fallback: "chatgpt" | "mimo" | "none" }) =>
+    mutationFn: (order: { primary: ListingProviderId; fallback: ListingFallbackId }) =>
       api.settings.setPreferredProvider(order),
     onSuccess: refreshProvider,
   });
@@ -596,21 +629,33 @@ function ProvidersPanel() {
   const chatgptPending = chatgpt?.pending;
   const pendingCode = chatgptPending?.user_code;
   const mimoConfigured = Boolean(provider?.masked_key);
-  const primary: "chatgpt" | "mimo" = provider?.primary === "mimo" ? "mimo" : "chatgpt";
-  const fallback: "chatgpt" | "mimo" | "none" =
-    provider?.fallback === "chatgpt" || provider?.fallback === "mimo" || provider?.fallback === "none"
+  const cursorConfigured = Boolean(provider?.masked_cursor_key);
+  const primary: ListingProviderId =
+    provider?.primary === "mimo" || provider?.primary === "cursor" ? provider.primary : "chatgpt";
+  const fallback: ListingFallbackId =
+    provider?.fallback === "chatgpt" ||
+    provider?.fallback === "mimo" ||
+    provider?.fallback === "cursor" ||
+    provider?.fallback === "none"
       ? provider.fallback
       : primary === "chatgpt"
         ? "mimo"
         : "chatgpt";
   const usingChatGPT = provider?.provider === "chatgpt";
-  const primaryReady = primary === "chatgpt" ? chatgptSignedIn : mimoConfigured;
-  const fallbackReady =
-    fallback === "chatgpt" ? chatgptSignedIn : fallback === "mimo" ? mimoConfigured : false;
-  const providerLabel = (choice: "chatgpt" | "mimo" | "none") =>
-    choice === "chatgpt" ? "ChatGPT" : choice === "mimo" ? "MiMo" : "None";
+  const usingCursor = provider?.provider === "cursor";
+  const activeChoice = activeProviderChoice(provider?.provider);
+  const choiceReady = (choice: ListingFallbackId) =>
+    choice === "chatgpt"
+      ? chatgptSignedIn
+      : choice === "mimo"
+        ? mimoConfigured
+        : choice === "cursor"
+          ? cursorConfigured
+          : false;
+  const primaryReady = choiceReady(primary);
+  const fallbackReady = choiceReady(fallback);
 
-  const saveOrder = (nextPrimary: "chatgpt" | "mimo", nextFallback: "chatgpt" | "mimo" | "none") => {
+  const saveOrder = (nextPrimary: ListingProviderId, nextFallback: ListingFallbackId) => {
     let fallbackValue = nextFallback;
     if (fallbackValue === nextPrimary) {
       fallbackValue = "none";
@@ -620,10 +665,10 @@ function ProvidersPanel() {
 
   const visionModel = usingChatGPT
     ? chatgptModels?.vision_model || provider?.vision_model || "gpt-5.5"
-    : provider?.vision_model || "mimo-v2.5";
+    : provider?.vision_model || (usingCursor ? "composer-2.5" : "mimo-v2.5");
   const listingModel = usingChatGPT
     ? chatgptModels?.listing_model || provider?.listing_model || "gpt-5.5"
-    : provider?.listing_model || "mimo-v2.5-pro";
+    : provider?.listing_model || (usingCursor ? "composer-2.5" : "mimo-v2.5-pro");
   const reasoningEffort = chatgptModels?.reasoning_effort || "low";
   const reasoningOptions = chatgptModels?.reasoning_efforts?.length
     ? chatgptModels.reasoning_efforts
@@ -665,9 +710,26 @@ function ProvidersPanel() {
     setTesting(false);
   };
 
+  const handleCursorTest = async () => {
+    setCursorTesting(true);
+    setCursorTestResult(null);
+    try {
+      const result = await api.settings.testCursor();
+      setCursorTestResult(result.ok ? "Connection successful" : (result.error || "Connection failed"));
+    } catch (err) {
+      setCursorTestResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    setCursorTesting(false);
+  };
+
   const saveKey = () => {
     if (!apiKey.trim()) return;
     setKeyMutation.mutate(apiKey);
+  };
+
+  const saveCursorKey = () => {
+    if (!cursorKey.trim()) return;
+    setCursorMutation.mutate(cursorKey);
   };
 
   return (
@@ -682,10 +744,11 @@ function ProvidersPanel() {
               aria-label="Primary listing AI"
               value={primary}
               disabled={setPreferredMutation.isPending}
-              onChange={(event) => saveOrder(event.target.value as "chatgpt" | "mimo", fallback)}
+              onChange={(event) => saveOrder(event.target.value as ListingProviderId, fallback)}
             >
               <option value="chatgpt">ChatGPT</option>
               <option value="mimo">Xiaomi MiMo</option>
+              <option value="cursor">Cursor</option>
             </select>
           }
         />
@@ -699,22 +762,21 @@ function ProvidersPanel() {
               value={fallback === primary ? "none" : fallback}
               disabled={setPreferredMutation.isPending}
               onChange={(event) =>
-                saveOrder(primary, event.target.value as "chatgpt" | "mimo" | "none")
+                saveOrder(primary, event.target.value as ListingFallbackId)
               }
             >
               <option value="none">None</option>
               {primary !== "chatgpt" ? <option value="chatgpt">ChatGPT</option> : null}
               {primary !== "mimo" ? <option value="mimo">Xiaomi MiMo</option> : null}
+              {primary !== "cursor" ? <option value="cursor">Cursor</option> : null}
             </select>
           }
         />
         <SettingsRow title="In use">
           <p className="settings-row-desc">
-            {provider?.configured
-              ? `${providerLabel(provider.provider === "chatgpt" ? "chatgpt" : "mimo")} is active${
-                  provider.provider === (primary === "chatgpt" ? "chatgpt" : "xiaomi-mimo")
-                    ? " (primary)"
-                    : " (fallback)"
+            {provider?.configured && activeChoice
+              ? `${providerLabel(activeChoice)} is active${
+                  activeChoice === primary ? " (primary)" : " (fallback)"
                 }.`
               : primaryReady
                 ? `${providerLabel(primary)} is ready.`
@@ -867,7 +929,9 @@ function ProvidersPanel() {
                 ))}
               </select>
             ) : (
-              <span className="settings-row-value">Not used with MiMo</span>
+              <span className="settings-row-value">
+                {usingCursor ? "Not used with Cursor" : "Not used with MiMo"}
+              </span>
             )
           }
         />
@@ -925,6 +989,80 @@ function ProvidersPanel() {
                   </button>
                 ) : null}
                 <button type="button" className="btn btn-sm btn-ghost settings-danger" onClick={() => deleteKeyMutation.mutate()}>
+                  Remove
+                </button>
+              </>
+            ) : null
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection id="cursor" title="Cursor">
+        <SettingsRow
+          title="API key"
+          description="From Cursor Dashboard → Integrations. Stored in Keychain; listing runs use the local Cursor SDK against an empty scratch folder."
+        >
+          <div className="settings-row-field">
+            <input
+              className="input font-mono"
+              type="password"
+              value={cursorKey}
+              onChange={(e) => setCursorKey(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveCursorKey();
+              }}
+              placeholder="cursor_..."
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={saveCursorKey}
+              disabled={!cursorKey.trim() || setCursorMutation.isPending}
+            >
+              {setCursorMutation.isPending ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </SettingsRow>
+        <SettingsRow
+          title="Status"
+          description={
+            cursorConfigured
+              ? primary === "cursor"
+                ? `Primary · ${provider?.masked_cursor_key}`
+                : fallback === "cursor"
+                  ? `Fallback · ${provider?.masked_cursor_key}`
+                  : `Saved · ${provider?.masked_cursor_key}`
+              : primary === "cursor"
+                ? "Primary — add a Cursor API key"
+                : fallback === "cursor"
+                  ? "Fallback — add a key if other providers are unavailable"
+                  : "Not configured"
+          }
+          status={
+            cursorTestResult ? (
+              <span className={cursorTestResult.includes("successful") ? "text-success" : "text-error"}>
+                {cursorTestResult}
+              </span>
+            ) : null
+          }
+          control={
+            cursorConfigured ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  onClick={handleCursorTest}
+                  disabled={cursorTesting}
+                >
+                  {cursorTesting ? "Testing…" : "Test"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost settings-danger"
+                  onClick={() => deleteCursorMutation.mutate()}
+                >
                   Remove
                 </button>
               </>

@@ -4,6 +4,7 @@ import type {
   FillLogReport,
   Job,
   ListingData,
+  ListingProviderId,
   ListingResponse,
   ListingRevision,
   ListingUpdateResult,
@@ -302,10 +303,10 @@ export const api = {
     deleteKey: () => request<OkResponse>("/settings/provider/key", { method: "DELETE" }),
     testConnection: () => request<ProviderTestResult>("/settings/provider/test", { method: "POST" }),
     setPreferredProvider: (order: {
-      primary: "chatgpt" | "mimo";
-      fallback?: "chatgpt" | "mimo" | "none" | null;
+      primary: ListingProviderId;
+      fallback?: ListingProviderId | "none" | null;
     }) =>
-      request<{ ok: boolean; primary: "chatgpt" | "mimo"; fallback: "chatgpt" | "mimo" | "none" }>(
+      request<{ ok: boolean; primary: ListingProviderId; fallback: ListingProviderId | "none" }>(
         "/settings/provider/preferred",
         {
           method: "PUT",
@@ -323,6 +324,17 @@ export const api = {
         method: "DELETE",
       }),
     testBrave: () => request<{ ok: boolean; error?: string | null }>("/settings/brave/test", { method: "POST" }),
+    cursor: () => request<{ configured: boolean; masked_key: string | null }>("/settings/cursor"),
+    setCursor: (apiKey: string) =>
+      request<{ ok: boolean; configured: boolean; masked_key: string | null }>("/settings/cursor", {
+        method: "PUT",
+        body: JSON.stringify({ api_key: apiKey }),
+      }),
+    deleteCursor: () =>
+      request<{ ok: boolean; configured: boolean; masked_key: string | null }>("/settings/cursor", {
+        method: "DELETE",
+      }),
+    testCursor: () => request<{ ok: boolean; error?: string | null }>("/settings/cursor/test", { method: "POST" }),
     chatgptLogin: () => request<ChatGPTPendingLogin>("/settings/chatgpt/login", { method: "POST" }),
     chatgptCancelLogin: () => request<OkResponse>("/settings/chatgpt/login", { method: "DELETE" }),
     chatgptLogout: () => request<OkResponse>("/settings/chatgpt", { method: "DELETE" }),

@@ -132,7 +132,7 @@ export interface ChatGPTStatus {
   error?: string | null;
 }
 
-export type ListingProviderId = "chatgpt" | "mimo";
+export type ListingProviderId = "chatgpt" | "mimo" | "cursor";
 
 export interface ProviderStatus {
   provider: string;
@@ -140,6 +140,7 @@ export interface ProviderStatus {
   fallback: ListingProviderId | "none";
   configured: boolean;
   masked_key: string | null;
+  masked_cursor_key?: string | null;
   vision_model: string;
   listing_model: string;
   base_url: string;

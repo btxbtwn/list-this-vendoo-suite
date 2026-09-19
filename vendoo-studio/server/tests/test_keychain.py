@@ -68,7 +68,7 @@ class KeychainTest(unittest.TestCase):
 
         found = keychain.warm_keychain()
 
-        self.assertEqual(found, {"api_key": True, "brave": True, "chatgpt": True, "chatgpt_models": True})
+        self.assertEqual(found, {"api_key": True, "brave": True, "cursor": False, "chatgpt": True, "chatgpt_models": True})
         self.assertEqual(keychain.get_api_key(), "sk-mimo")
         self.assertEqual(keychain.get_brave_api_key(), "BSA-test")
         self.assertEqual(keychain.get_chatgpt_tokens(), tokens)

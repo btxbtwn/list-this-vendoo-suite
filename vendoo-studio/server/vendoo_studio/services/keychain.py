@@ -15,6 +15,7 @@ SECRETS_ACCOUNT = "studio-secrets"
 # the migration itself doesn't add prompts.
 KEYRING_ACCOUNT = "xiaomi-mimo-api-key"
 BRAVE_ACCOUNT = "brave-search-api-key"
+CURSOR_ACCOUNT = "cursor-api-key"
 CHATGPT_ACCOUNT = "chatgpt-codex-oauth"
 CHATGPT_MODELS_ACCOUNT = "chatgpt-models"
 LEGACY_ACCOUNTS = (KEYRING_ACCOUNT, BRAVE_ACCOUNT, CHATGPT_ACCOUNT, CHATGPT_MODELS_ACCOUNT)
@@ -181,6 +182,18 @@ def delete_brave_api_key():
     _delete(BRAVE_ACCOUNT)
 
 
+def get_cursor_api_key() -> str | None:
+    return _get(CURSOR_ACCOUNT)
+
+
+def set_cursor_api_key(key: str):
+    _set(CURSOR_ACCOUNT, key)
+
+
+def delete_cursor_api_key():
+    _delete(CURSOR_ACCOUNT)
+
+
 def get_chatgpt_tokens() -> dict | None:
     raw = _get(CHATGPT_ACCOUNT)
     try:
@@ -283,13 +296,15 @@ def warm_keychain() -> dict[str, bool]:
     found = {
         "api_key": bool(get_api_key()),
         "brave": bool(get_brave_api_key()),
+        "cursor": bool(get_cursor_api_key()),
         "chatgpt": bool(get_chatgpt_tokens()),
         "chatgpt_models": bool(get_chatgpt_models()),
     }
     log.info(
-        "keychain warmed api_key=%s brave=%s chatgpt=%s models=%s",
+        "keychain warmed api_key=%s brave=%s cursor=%s chatgpt=%s models=%s",
         found["api_key"],
         found["brave"],
+        found["cursor"],
         found["chatgpt"],
         found["chatgpt_models"],
     )

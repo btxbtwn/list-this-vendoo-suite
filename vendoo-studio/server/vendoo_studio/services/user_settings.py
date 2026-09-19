@@ -14,14 +14,14 @@ UI_PREFS_KEY = "ui"
 RECENT_LABELS_KEY = "recent_vendoo_labels"
 SETTLED_SHELF_KEY = "settled_shelf_expanded"
 MAX_RECENT_LABELS = 12
-LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "mimo"})
-LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "mimo", "none"})
-DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "mimo"] = "chatgpt"
-DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "mimo", "none"] = "mimo"
+LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "mimo", "cursor"})
+LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "mimo", "cursor", "none"})
+DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "mimo", "cursor"] = "chatgpt"
+DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "mimo", "cursor", "none"] = "mimo"
 DEFAULT_SETTLED_SHELF_EXPANDED = True
 
-ListingProviderChoice = Literal["chatgpt", "mimo"]
-ListingFallbackChoice = Literal["chatgpt", "mimo", "none"]
+ListingProviderChoice = Literal["chatgpt", "mimo", "cursor"]
+ListingFallbackChoice = Literal["chatgpt", "mimo", "cursor", "none"]
 
 
 def settings_path() -> Path:
@@ -96,7 +96,11 @@ def normalize_listing_fallback(value: object, *, primary: ListingProviderChoice)
 
 
 def _other_provider(primary: ListingProviderChoice) -> ListingProviderChoice:
-    return "mimo" if primary == "chatgpt" else "chatgpt"
+    if primary == "chatgpt":
+        return "mimo"
+    if primary == "mimo":
+        return "chatgpt"
+    return "chatgpt"
 
 
 def get_listing_provider_order() -> tuple[ListingProviderChoice, ListingFallbackChoice]:
@@ -120,7 +124,7 @@ def set_listing_provider_order(
     fallback: object | None = None,
 ) -> dict[str, str]:
     if not isinstance(primary, str) or primary.strip().lower() not in LISTING_PROVIDER_CHOICES:
-        raise ValueError('Primary listing provider must be "chatgpt" or "mimo".')
+        raise ValueError('Primary listing provider must be "chatgpt", "mimo", or "cursor".')
     primary_choice = normalize_listing_provider(primary)
 
     if fallback is None:
@@ -134,9 +138,9 @@ def set_listing_provider_order(
                 raise ValueError('Fallback must differ from primary, or be "none".')
             fallback_choice = cleaned  # type: ignore[assignment]
         else:
-            raise ValueError('Fallback must be "chatgpt", "mimo", or "none".')
+            raise ValueError('Fallback must be "chatgpt", "mimo", "cursor", or "none".')
     else:
-        raise ValueError('Fallback must be "chatgpt", "mimo", or "none".')
+        raise ValueError('Fallback must be "chatgpt", "mimo", "cursor", or "none".')
 
     def mutator(payload: dict) -> None:
         payload[LISTING_PROVIDER_KEY] = {
