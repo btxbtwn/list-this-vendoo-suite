@@ -29,34 +29,26 @@ class MarketplaceSettingsTest(unittest.TestCase):
         self.assertEqual(marketplaces.get_selected_marketplaces(), list(marketplaces.FILLABLE_MARKETPLACES))
         self.assertEqual(marketplaces.selected_fillable_platforms(), list(marketplaces.FILLABLE_MARKETPLACES))
 
-    def test_persists_catalog_order_and_strips_unsupported(self):
-        selected = marketplaces.set_selected_marketplaces(["ebay", "ebay", "poshmark"])
-        self.assertEqual(selected, ["ebay", "poshmark"])
-        self.assertEqual(marketplaces.get_selected_marketplaces(), ["ebay", "poshmark"])
+    def test_persists_catalog_order_and_keeps_crosslist_only(self):
+        selected = marketplaces.set_selected_marketplaces(["shopify", "ebay", "ebay", "facebook", "poshmark"])
+        self.assertEqual(selected, ["ebay", "poshmark", "facebook", "shopify"])
+        self.assertEqual(marketplaces.get_selected_marketplaces(), ["ebay", "poshmark", "facebook", "shopify"])
+        # Send only fills the marketplaces Studio has form fillers for.
         self.assertEqual(marketplaces.selected_fillable_platforms(), ["ebay", "poshmark"])
 
         payload = json.loads(Path(self.tmp.name, "settings.json").read_text())
-        payload["marketplaces"] = ["ebay", "facebook", "shopify", "not-a-market"]
+        payload["marketplaces"] = ["ebay", "facebook", "not-a-market"]
         Path(self.tmp.name, "settings.json").write_text(json.dumps(payload))
-        # Unknown on read → defaults. Unsupported alone is stripped when readable.
+        # Unknown on read → defaults.
         self.assertEqual(marketplaces.get_selected_marketplaces(), list(marketplaces.FILLABLE_MARKETPLACES))
 
-        payload["marketplaces"] = ["ebay", "facebook", "shopify", "poshmark"]
-        Path(self.tmp.name, "settings.json").write_text(json.dumps(payload))
-        self.assertEqual(marketplaces.get_selected_marketplaces(), ["ebay", "poshmark"])
-        rewritten = json.loads(Path(self.tmp.name, "settings.json").read_text())
-        self.assertEqual(rewritten["marketplaces"], ["ebay", "poshmark"])
+    def test_catalog_covers_vendoo_listable_marketplaces(self):
+        for marketplace_id in ("vinted", "grailed", "whatnot", "vestiaire", "sellwild", "facebook", "shopify"):
+            self.assertIn(marketplace_id, marketplaces.KNOWN_MARKETPLACES)
 
     def test_rejects_unknown_on_write(self):
         with self.assertRaises(ValueError):
             marketplaces.set_selected_marketplaces(["ebay", "not-a-market"])
-
-    def test_rejects_unsupported_on_write(self):
-        with self.assertRaises(ValueError) as ctx:
-            marketplaces.set_selected_marketplaces(["ebay", "facebook", "shopify"])
-        message = str(ctx.exception)
-        self.assertIn("Facebook", message)
-        self.assertIn("cannot be selected for Send", message)
 
     def test_empty_selection_is_general_only(self):
         self.assertEqual(marketplaces.set_selected_marketplaces([]), [])
@@ -89,12 +81,13 @@ class MarketplaceSettingsRouteTest(unittest.TestCase):
         self.assertEqual(saved.json()["selected"], ["poshmark"])
         self.assertEqual(saved.json()["fillable"], ["poshmark"])
 
-        rejected_unsupported = self.client.put(
+        crosslist = self.client.put(
             "/api/settings/marketplaces",
             json={"selected": ["poshmark", "facebook"]},
         )
-        self.assertEqual(rejected_unsupported.status_code, 400)
-        self.assertIn("cannot be selected for Send", rejected_unsupported.json()["detail"])
+        self.assertEqual(crosslist.status_code, 200)
+        self.assertEqual(crosslist.json()["selected"], ["poshmark", "facebook"])
+        self.assertEqual(crosslist.json()["fillable"], ["poshmark"])
 
         rejected = self.client.put("/api/settings/marketplaces", json={"selected": ["ebay", "nope"]})
         self.assertEqual(rejected.status_code, 400)

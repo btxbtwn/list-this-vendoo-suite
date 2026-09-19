@@ -708,12 +708,4 @@ def validate_listing(
                         f"Etsy '{key}' applies to this item — use a real value, not Does Not Apply",
                     )
 
-    unsupported = [name for name in selected if name.lower() not in FILLABLE_MARKETPLACES]
-    for name in unsupported:
-        add_issue(
-            result,
-            f"marketplaces.{name}",
-            f"{name.title()} is selected but is not supported for Send to Vendoo. Deselect it before sending.",
-        )
-
     return result

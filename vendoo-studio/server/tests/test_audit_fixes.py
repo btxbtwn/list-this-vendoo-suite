@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import stat
 import subprocess
@@ -212,10 +213,9 @@ class ValidationCasesTest(unittest.TestCase):
         )
         self.assertTrue(result.can_send)
 
-    def test_unsupported_marketplace_is_an_error(self):
-        result = validate_listing(VALID_LISTING, 5, selected_marketplaces=["facebook"])
-        self.assertFalse(result.can_send)
-        self.assertTrue(any("not supported" in err["message"] for err in result.errors))
+    def test_crosslist_only_marketplace_does_not_block_send(self):
+        result = validate_listing(copy.deepcopy(VALID_LISTING), 5, selected_marketplaces=["ebay", "facebook"])
+        self.assertFalse(any(err["field"].startswith("marketplaces.") for err in result.errors))
 
     def test_invalid_depop_and_etsy_limits(self):
         listing = dict(VALID_LISTING)

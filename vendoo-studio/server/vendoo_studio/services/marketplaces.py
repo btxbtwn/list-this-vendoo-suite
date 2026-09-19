@@ -18,7 +18,10 @@ from vendoo_studio.services.user_settings import read_settings, update_settings
 #   * somewhere for the values to go, which is what this list drives.
 FILLABLE_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
 
-# Marketplaces shown in Settings and Fields. `fillable` ones have Send-to-Vendoo form fillers.
+# Every marketplace Vendoo lists to (its LISTABLE_MARKETPLACES, with
+# vestiaire/vestiaireApi folded together). Any of them can be selected in
+# Settings; `fillable` ones also have Send-to-Vendoo form fillers, the rest are
+# crossposted from Vendoo itself.
 MARKETPLACE_CATALOG: tuple[tuple[str, str, bool], ...] = (
     ("ebay", "eBay", True),
     ("poshmark", "Poshmark", True),
@@ -27,8 +30,11 @@ MARKETPLACE_CATALOG: tuple[tuple[str, str, bool], ...] = (
     ("etsy", "Etsy", True),
     ("facebook", "Facebook", False),
     ("grailed", "Grailed", False),
+    ("vinted", "Vinted", False),
     ("whatnot", "Whatnot", False),
     ("shopify", "Shopify", False),
+    ("vestiaire", "Vestiaire Collective", False),
+    ("sellwild", "Sellwild", False),
 )
 
 KNOWN_MARKETPLACES = tuple(item[0] for item in MARKETPLACE_CATALOG)
@@ -50,11 +56,11 @@ def catalog_payload() -> list[dict]:
 
 
 def normalize_selected(raw: object) -> list[str]:
-    """Normalize a marketplace selection.
+    """Normalize a marketplace selection into catalog order.
 
-    Only fillable platforms may remain selected. Unsupported catalog entries
-    (Facebook, Grailed, Whatnot, Shopify) are dropped so they cannot reach
-    Send or the approved job snapshot.
+    Any Vendoo marketplace may be selected. Send only fills the fillable
+    subset (see `selected_fillable_platforms`), so non-fillable choices never
+    reach a job snapshot.
     """
     if not isinstance(raw, list):
         return list(DEFAULT_SELECTED)
@@ -62,14 +68,7 @@ def normalize_selected(raw: object) -> list[str]:
     unknown = sorted(chosen - set(KNOWN_MARKETPLACES))
     if unknown:
         raise ValueError(f"Unknown marketplace: {', '.join(unknown)}")
-    return [item_id for item_id in FILLABLE_MARKETPLACES if item_id in chosen]
-
-
-def unsupported_in_selection(raw: object) -> list[str]:
-    if not isinstance(raw, list):
-        return []
-    chosen = {str(item).strip().lower() for item in raw if str(item).strip()}
-    return [item_id for item_id, _label, fillable in MARKETPLACE_CATALOG if not fillable and item_id in chosen]
+    return [item_id for item_id in KNOWN_MARKETPLACES if item_id in chosen]
 
 
 def get_selected_marketplaces() -> list[str]:
@@ -77,26 +76,12 @@ def get_selected_marketplaces() -> list[str]:
     if "marketplaces" not in payload:
         return list(DEFAULT_SELECTED)
     try:
-        normalized = normalize_selected(payload.get("marketplaces"))
+        return normalize_selected(payload.get("marketplaces"))
     except ValueError:
         return list(DEFAULT_SELECTED)
-    # Persist strip of unsupported selections so Settings and Send stay aligned.
-    stored = payload.get("marketplaces")
-    if isinstance(stored, list):
-        stored_norm = [str(item).strip().lower() for item in stored if str(item).strip()]
-        if stored_norm != normalized:
-            update_settings(lambda body: body.__setitem__("marketplaces", normalized))
-    return normalized
 
 
 def set_selected_marketplaces(selected: object) -> list[str]:
-    blocked = unsupported_in_selection(selected)
-    if blocked:
-        labels = ", ".join(marketplace_label(item_id) for item_id in blocked)
-        raise ValueError(
-            f"{labels} cannot be selected for Send — automation is not available for "
-            "these marketplaces yet. Choose only eBay, Poshmark, Mercari, Depop, or Etsy."
-        )
     normalized = normalize_selected(selected)
     update_settings(lambda payload: payload.__setitem__("marketplaces", normalized))
     return normalized
