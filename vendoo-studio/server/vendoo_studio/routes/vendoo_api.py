@@ -271,6 +271,7 @@ async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
     """Bring edits made in Vendoo back into Studio as a new revision."""
     from vendoo_studio.services.vendoo_create import run_ops
     from vendoo_studio.services.vendoo_import import listing_from_vendoo, vendoo_binding
+    from vendoo_studio.services.vendoo_watch import cache_pulled_item, mark_synced
 
     conv_repo = ConversationRepo(db)
     conv = conv_repo.get(conv_id)
@@ -294,6 +295,9 @@ async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
         conv_id, listing, source="vendoo_pull",
         parent_revision_id=revisions[0].id if revisions else None,
     )
+    # Sidebar marketplace chips read the job draft cache; keep it in step.
+    cache_pulled_item(db, conv_id, item, source="vendoo_pull")
+    mark_synced(db, conv_id, item, revision.id)
     return {"ok": True, "item_id": item_id, "revision_id": revision.id}
 
 

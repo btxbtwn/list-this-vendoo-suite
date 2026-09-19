@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 from vendoo_studio.database import Base
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
-from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.vendoo_import import merge_notes
 from vendoo_studio.services.vendoo_watch import SYNCED_AT, SYNCED_REVISION, apply_pull, sync_state
 
@@ -69,6 +69,41 @@ class SyncStateTest(unittest.TestCase):
         self.assertEqual(binding[SYNCED_REVISION], revision_id)
         # And syncing again now finds nothing to do.
         self.assertEqual(sync_state(self.db, self.conv.id, self.item(5000))["action"], "none")
+
+    def test_a_pull_refreshes_the_job_draft_cache_for_thread_status(self):
+        """Sidebar marketplace chips read the job draft; pull must overwrite it."""
+        self.note()
+        job = JobRepo(self.db).create(
+            self.conv.id,
+            self.rev.id,
+            {"title": "Tee"},
+            vendoo_item_id="itm1",
+            status="completed",
+        )
+        JobRepo(self.db).save_vendoo_draft(
+            job.id,
+            item={
+                "itemID": "itm1",
+                "listings": {"ebay": {"status": {"notListed": True}}},
+            },
+            item_id="itm1",
+            source="stale",
+        )
+        fresh = {
+            "itemID": "itm1",
+            "dateLastModified": 5000,
+            "generalDetails": {"title": "From Vendoo"},
+            "listings": {
+                "ebay": {"status": {"listed": True}},
+                "depop": {"status": {"notListed": True}},
+            },
+        }
+        apply_pull(self.db, self.conv.id, fresh)
+        cached = JobRepo(self.db).get_vendoo_draft(job.id)
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached["source"], "vendoo_sync")
+        self.assertEqual(cached["item"]["listings"]["ebay"]["status"], {"listed": True})
+        self.assertEqual(cached["item"]["listings"]["depop"]["status"], {"notListed": True})
 
 
 if __name__ == "__main__":

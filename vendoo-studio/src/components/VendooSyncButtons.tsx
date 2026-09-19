@@ -31,6 +31,7 @@ export function VendooSyncButtons({ convId, bound, className }: {
             queryClient.invalidateQueries({ queryKey: ["listing", convId] });
             queryClient.invalidateQueries({ queryKey: ["listing-fields", convId] });
             queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
+            queryClient.invalidateQueries({ queryKey: ["vendoo-item-peek"] });
             addToast({
               type: "success",
               title: "Updated from Vendoo",
@@ -63,6 +64,7 @@ export function VendooSyncButtons({ convId, bound, className }: {
       queryClient.invalidateQueries({ queryKey: ["listing", convId] });
       queryClient.invalidateQueries({ queryKey: ["listing-fields", convId] });
       queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
+      queryClient.invalidateQueries({ queryKey: ["vendoo-item-peek"] });
       addToast({
         type: "success",
         title: "Pulled from Vendoo",
