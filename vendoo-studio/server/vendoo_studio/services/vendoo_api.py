@@ -1311,6 +1311,13 @@ def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str
         if _comparable(want) != _comparable(have):
             out[prefix] = want
 
+    # Labels sit on the item itself. Add Studio's to whatever the seller tagged
+    # in Vendoo; Studio never learns those, so it cannot mean to drop them.
+    have_labels = _string_list(current.get("labels"))
+    want_labels = [label for label in _string_list(desired.get("labels")) if label not in have_labels]
+    if want_labels:
+        out["labels"] = [*have_labels, *want_labels]
+
     general_want = desired.get(GENERAL_KEY) or {}
     general_have = current.get(GENERAL_KEY) or {}
     for key, value in general_want.items():

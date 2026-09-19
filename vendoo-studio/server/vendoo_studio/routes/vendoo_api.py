@@ -232,7 +232,12 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     """
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.vendoo_api import build_vendoo_item, changed_fields
-    from vendoo_studio.services.vendoo_create import fetch_listing_specifics, load_schema, run_ops
+    from vendoo_studio.services.vendoo_create import (
+        fetch_listing_specifics,
+        load_schema,
+        resolve_listing_labels,
+        run_ops,
+    )
     from vendoo_studio.services.vendoo_import import vendoo_binding
 
     conv_repo = ConversationRepo(db)
@@ -254,6 +259,7 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
             (r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None
         ) or {}
         specifics = await fetch_listing_specifics(job, snapshot)
+        snapshot, _label_unresolved = await resolve_listing_labels(job, snapshot)
         desired, _unresolved = build_vendoo_item(
             snapshot, load_schema(), images=[], user_id=str(current.get("userID") or ""),
             item_id=item_id, specifics=specifics,

@@ -106,3 +106,30 @@ test('diagnostic filenames are slugged from the page URL', () => {
   assert.match(name, /^vendoo-diagnostic-web-vendoo-co-app-item-new-marketplace-ebay-\d{4}-\d{2}-\d{2}T[\d-]+Z\.json$/);
   assert.match(call(worker, 'buildDiagnosticFilename', ''), /^vendoo-diagnostic-page-/);
 });
+
+test('Vendoo label names resolve to ids, creating missing labels', async () => {
+  const vm = require('node:vm');
+  const requests = [];
+  worker.__fetch = async (url, opts = {}) => {
+    requests.push({ url, method: opts.method || 'GET', json: opts.json });
+    if ((opts.method || 'GET') === 'GET') {
+      return { ok: true, data: { documents: [
+        { name: 'projects/p/databases/(default)/documents/users/u1/labels/lblToList', fields: { name: { stringValue: 'To List ' } } },
+      ] } };
+    }
+    return { ok: true, data: {} };
+  };
+  vm.runInContext('vendooFetch = (...a) => __fetch(...a)', worker);
+  const out = JSON.parse(JSON.stringify(await vm.runInContext(
+    'resolveVendooLabels({ uid: "u1", access_token: "t" }, { names: ["to list", "Bin 4", "lblToList", "bin 4"] })',
+    worker,
+  )));
+
+  assert.equal(out.ids.length, 2);
+  assert.equal(out.ids[0], 'lblToList');
+  assert.deepEqual(out.created, ['Bin 4']);
+  const created = requests.find((r) => r.method === 'PATCH');
+  assert.match(created.url, new RegExp(`/users/u1/labels/${out.ids[1]}$`));
+  assert.equal(created.json.fields.name.stringValue, 'Bin 4');
+  assert.equal(created.json.fields.id.stringValue, out.ids[1]);
+});

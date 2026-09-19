@@ -553,6 +553,26 @@ def _photo_ops(job, photos: list[Any]) -> list[dict[str, Any]]:
     return ops
 
 
+async def resolve_listing_labels(job, listing: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Swap label names for the Vendoo label ids an item actually stores.
+
+    Vendoo's label box renders only ids it finds in the seller's label list, so
+    a name sent as-is is saved but never shown. Missing labels are created.
+    """
+    names = [str(n).strip() for n in (listing.get("labels") or []) if str(n).strip()]
+    if not names:
+        return listing, []
+    try:
+        reply = await run_ops(job, [{"op": "resolve_labels", "names": names}])
+        ids = _result(reply, "resolve_labels").get("ids")
+    except (VendooCreateError, BrowserBridgeError) as exc:
+        log.warning("Vendoo labels not resolved: %s", exc)
+        ids = None
+    if not isinstance(ids, list):
+        return {**listing, "labels": []}, [{"field": "labels", "value": ", ".join(names)}]
+    return {**listing, "labels": [str(i) for i in ids if i]}, []
+
+
 async def create_item(
     job,
     listing: dict[str, Any],
@@ -597,6 +617,8 @@ async def create_item(
     schema = load_schema()
     mark("vendoo_api_categories")
     listing, category_unresolved = await resolve_listing_categories(job, listing)
+    listing, label_unresolved = await resolve_listing_labels(job, listing)
+    category_unresolved = [*category_unresolved, *label_unresolved]
     mark("vendoo_api_specifics")
     # Ask each resolved leaf what fields it has before anything is encoded.
     specifics = await fetch_listing_specifics(job, listing)
@@ -636,7 +658,8 @@ async def create_item(
         fixes = {
             path: value
             for path, value in changed_fields(stored, item).items()
-            if path.endswith(".style")
+            if path == "labels"
+            or path.endswith(".style")
             or path.endswith(".brand")
             or path.endswith(".noBrand")
             or path.endswith(".marketplaceSpecifics.age")

@@ -757,6 +757,15 @@ class ChangedFieldsTest(unittest.TestCase):
         out = changed_fields(current, self.desired())
         self.assertEqual([p for p in out if p.startswith(("status", "itemID", "dateCreated"))], [])
 
+    def test_labels_are_added_to_the_ones_already_on_the_item(self):
+        current = {**self.CURRENT, "labels": ["idSeller"]}
+        out = changed_fields(current, self.desired(labels=["idToList", "idSeller"]))
+        self.assertEqual(out["labels"], ["idSeller", "idToList"])
+
+    def test_labels_already_on_the_item_write_nothing(self):
+        current = {**self.CURRENT, "labels": ["idToList", "idSeller"]}
+        self.assertNotIn("labels", changed_fields(current, self.desired(labels=["idToList"])))
+
     def test_nothing_to_do_writes_nothing(self):
         item = {
             "generalDetails": dict(self.CURRENT["generalDetails"]),
