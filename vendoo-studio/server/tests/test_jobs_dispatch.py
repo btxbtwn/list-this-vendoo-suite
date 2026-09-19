@@ -509,6 +509,42 @@ class PrepareListingSnapshotRetryTest(unittest.TestCase):
         self.assertEqual(snapshot["category_path"], MEN_TSHIRT_PATH)
         self.assertNotIn("Women", snapshot["category_path"])
 
+    def test_item_details_labels_cog_and_notes_reach_vendoo_form(self):
+        import json
+
+        from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+        from vendoo_studio.services.vendoo_api import build_vendoo_item
+
+        self.conv.notes = json.dumps({
+            "vendooLabels": "A19, To List",
+            "cog": "3.50",
+            "sellerNotes": "Bin 4, small hole on hem",
+        })
+        self.db.commit()
+        snapshot = prepare_listing_snapshot(
+            self.db,
+            self.conv,
+            {"title": "Tee", "cost": 9, "internal_notes": "stale"},
+        )
+        self.assertEqual(snapshot["labels"], ["A19", "To List"])
+        self.assertEqual(snapshot["cost"], 3.5)
+        self.assertEqual(snapshot["internal_notes"], "Bin 4, small hole on hem")
+
+        item, _ = build_vendoo_item(snapshot, None, images=[], user_id="u", item_id="i")
+        general = item["generalDetails"]
+        self.assertEqual(item["labels"], ["A19", "To List"])
+        self.assertEqual(general["cost"], "3.5")
+        self.assertEqual(general["notes"], "Bin 4, small hole on hem")
+
+    def test_blank_item_details_keep_listing_cost_and_notes(self):
+        from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+
+        snapshot = prepare_listing_snapshot(
+            self.db, self.conv, {"title": "Tee", "cost": 9, "internal_notes": "Bin 2"},
+        )
+        self.assertEqual(snapshot["cost"], 9)
+        self.assertEqual(snapshot["internal_notes"], "Bin 2")
+
 
 class ResumeStepForRetryTest(unittest.TestCase):
     def test_failed_marketplace_step_resumes_with_draft(self):
