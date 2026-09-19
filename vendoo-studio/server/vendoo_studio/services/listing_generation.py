@@ -8,6 +8,7 @@ import time
 
 from vendoo_studio.database import SessionLocal
 from vendoo_studio.repositories.queries import ConversationRepo
+from vendoo_studio.services import activity
 from vendoo_studio.services.chat_prompts import (
     listing_generation_messages,
     load_skill_rules,
@@ -215,13 +216,14 @@ async def run_listing_generation(
                 "_schema_source": (schema_seed or {}).get("_schema_source") if isinstance(schema_seed, dict) else None,
                 "_schema_probe_job_id": (schema_seed or {}).get("_schema_probe_job_id") if isinstance(schema_seed, dict) else None,
             }
-            spawn(_finish_generation_background(
+            # Registered before [DONE] reaches the client, so chat stays busy until it ends.
+            activity.track_task(conv_id, "Filling discovered fields…", spawn(_finish_generation_background(
                 conv_id,
                 listing,
                 evidence=evidence_text,
                 schema_meta=schema_meta,
                 provider=provider,
-            ))
+            )))
     except asyncio.CancelledError:
         log.warning("listing generation cancelled for %s; saving any completed text", conv_id)
         for task in child_tasks:

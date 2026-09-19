@@ -252,7 +252,9 @@ def _schedule_saved_item_sync(conv_id: str) -> None:
         except Exception:
             log.exception("Vendoo save sync failed for %s", conv_id)
 
-    task = asyncio.create_task(run())
+    from vendoo_studio.services import activity
+
+    task = activity.track_task(conv_id, "Syncing from Vendoo…", asyncio.create_task(run()))
     _saved_item_syncs.add(task)
     task.add_done_callback(_saved_item_syncs.discard)
 

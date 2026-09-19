@@ -8,6 +8,7 @@ import type {
   ListingResponse,
   ListingRevision,
   ListingUpdateResult,
+  ConversationActivity,
   Message,
   OkResponse,
   Photo,
@@ -193,8 +194,9 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ url_or_id: urlOrId }),
       }),
-    cancelMessages: (id: string) =>
-      request<{ ok: boolean }>(`/conversations/${id}/messages/cancel`, { method: "POST" }),
+    stop: (id: string) =>
+      request<{ ok: boolean }>(`/conversations/${id}/stop`, { method: "POST" }),
+    activity: (id: string) => request<ConversationActivity>(`/conversations/${id}/activity`),
     messages: (id: string) => request<Message[]>(`/conversations/${id}/messages`),
     photos: (id: string) => request<Photo[]>(`/conversations/${id}/photos`),
     deletePhoto: (convId: string, photoId: string) =>

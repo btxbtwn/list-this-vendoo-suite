@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.database import SessionLocal, get_db
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+from vendoo_studio.services import activity
 from vendoo_studio.services.chat_listing import persist_chat_result
 from vendoo_studio.services.chat_prompts import build_chat_messages
 from vendoo_studio.services.listing_generate import (
@@ -105,8 +106,11 @@ async def _browser_fix_stream(conv_id: str, body: ChatMessage, provider, provide
         picked=[item.model_dump() for item in body.browser.fields],
     )
     final = ""
+    work = activity.begin(conv_id, "Fixing the Vendoo draft…")
     try:
         async for item in iter_with_keepalives(FixAgent(request, provider, db_factory=SessionLocal).run()):
+            if work.cancelled:
+                break
             if item is None:
                 yield KEEPALIVE
                 continue
@@ -120,6 +124,11 @@ async def _browser_fix_stream(conv_id: str, body: ChatMessage, provider, provide
         log.exception("browser fix agent failed for %s", conv_id)
         final = f"Error: {str(exc).strip() or type(exc).__name__}"
         yield sse_data(final)
+    finally:
+        activity.end(work)
+    if work.cancelled:
+        yield "data: [DONE]\n\n"
+        return
     stream_db = SessionLocal()
     try:
         if final:
@@ -187,8 +196,12 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
         stream_db = SessionLocal()
         full_text = ""
         stream_error = ""
+        work = activity.begin(conv_id, "Answering…")
         try:
             async for item in iter_with_keepalives(provider.chat(messages, stream=True)):
+                if work.cancelled:
+                    yield "data: [DONE]\n\n"
+                    return
                 if item is None:
                     yield KEEPALIVE
                     continue
@@ -202,7 +215,11 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                 yield sse_event("error", stream_error)
 
             # Persist before [DONE] so Forms/Fields refetch the updated listing JSON.
+            if work.cancelled:
+                yield "data: [DONE]\n\n"
+                return
             yield sse_event("status", "Saving listing…")
+            work.label = "Saving listing…"
             persist_task = asyncio.create_task(
                 persist_chat_result(
                     stream_db,
@@ -215,8 +232,13 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                     user_message=body.text,
                 )
             )
+            # Tracked on its own: a dropped connection cancels this generator, not the save.
+            activity.track_task(conv_id, "Saving listing…", persist_task)
             async for _ in wait_task_keepalives(persist_task, timeout=2.0):
                 yield KEEPALIVE
+            if persist_task.cancelled():
+                yield "data: [DONE]\n\n"
+                return
             try:
                 _operations, saved = persist_task.result()
             except Exception:
@@ -240,6 +262,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                 log.exception("failed to reset status after chat stream error for %s", conv_id)
             yield "data: [DONE]\n\n"
         finally:
+            activity.end(work)
             stream_db.close()
 
     return StreamingResponse(stream_response(), media_type="text/event-stream", headers=SSE_HEADERS)
@@ -351,4 +374,19 @@ async def cancel_chat_message(conv_id: str):
         ConversationRepo(db).update_status(conv_id, "draft")
     finally:
         db.close()
+    return {"ok": True}
+
+
+@router.post("/api/conversations/{conv_id}/stop")
+async def stop_everything(conv_id: str, db: Session = Depends(get_db)):
+    """Chat's Stop: end every piece of work that can still write to this listing."""
+    from vendoo_studio.services.browser_agent import cancel as cancel_browser_fix
+
+    from vendoo_studio.routes.conversations import cancel_conversation_jobs
+
+    stop_generation(conv_id)
+    activity.cancel(conv_id)
+    cancel_browser_fix(conv_id)
+    await cancel_conversation_jobs(db, conv_id)
+    ConversationRepo(db).update_status(conv_id, "draft")
     return {"ok": True}
