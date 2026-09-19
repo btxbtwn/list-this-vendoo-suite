@@ -113,6 +113,36 @@ def get_fill_stats(days: int = Query(30, ge=1, le=365), limit: int = Query(50, g
     return fill_success_stats(db, days=days, limit=limit)
 
 
+@router.get("/marketplace-statuses")
+def get_marketplace_statuses(job_ids: str = Query(""), db: Session = Depends(get_db)):
+    """Per-marketplace Vendoo status from each job's cached draft — never calls Vendoo.
+
+    Returns only the status-bearing slices of the draft so the sidebar can badge
+    every thread with the same logic as the hover popup.
+    """
+    repo = JobRepo(db)
+    result: dict[str, dict] = {}
+    for job_id in dict.fromkeys(item.strip() for item in job_ids.split(",") if item.strip()):
+        cached = repo.get_vendoo_draft(job_id)
+        if not cached:
+            continue
+        item = cached.get("item") if isinstance(cached.get("item"), dict) else {}
+        form = cached.get("form") if isinstance(cached.get("form"), dict) else {}
+        listings = item.get("listings") if isinstance(item.get("listings"), dict) else {}
+        result[job_id] = {
+            "statuses": cached.get("statuses"),
+            "form": {"statuses": form.get("statuses")},
+            "item": {
+                "listings": {
+                    marketplace: {"status": listing.get("status")}
+                    for marketplace, listing in listings.items()
+                    if isinstance(listing, dict)
+                },
+            },
+        }
+    return result
+
+
 @router.get("/{job_id}/timing")
 def get_job_timing(job_id: str, db: Session = Depends(get_db)):
     from vendoo_studio.services.job_metrics import job_timing

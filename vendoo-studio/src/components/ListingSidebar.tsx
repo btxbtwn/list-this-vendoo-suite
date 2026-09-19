@@ -29,6 +29,8 @@ const MARKETPLACE_STATUS_ORDER = [
   "shopify",
   "vinted",
   "whatnot",
+  "grailed",
+  "vestiaire",
   "sellwild",
 ];
 const MARKETPLACE_STATUS_LABELS: Record<string, string> = {
@@ -44,7 +46,11 @@ const MARKETPLACE_STATUS_LABELS: Record<string, string> = {
   whatnot: "Whatnot",
   sellwild: "Sellwild",
   grailed: "Grailed",
+  vestiaire: "Vestiaire Collective",
 };
+// Vendoo keys Vestiaire's API integration separately; Settings treats it as one marketplace.
+const MARKETPLACE_ID_ALIASES: Record<string, string> = { vestiaireApi: "vestiaire" };
+const LISTED_LIVE_STATUSES = new Set(["LISTED", "SOLD"]);
 const INVALID_LIVE_STATUSES = new Set(["BETA", "NEW", "ALPHA"]);
 
 type Listing = {
@@ -318,6 +324,36 @@ export function ListingSidebar({
     ? visibleSettled
     : visibleSettled.filter((listing) => listing.id === selectedConvId && activeView === "listings");
   const hiddenSettledCount = Math.max(0, settledListings.length - visibleSettled.length);
+
+  const { data: marketplaceSettings } = useQuery({
+    queryKey: ["settings-marketplaces"],
+    queryFn: api.settings.marketplaces,
+  });
+  const visibleMarketplaces = useMemo(
+    () => (marketplaceSettings ? new Set(marketplaceSettings.selected) : undefined),
+    [marketplaceSettings],
+  );
+  // Cached Vendoo statuses for every rendered thread, so rows can badge where
+  // they're listed without hovering. Reads the server cache only.
+  const renderedJobIds = useMemo(
+    () =>
+      [...activeListings, ...renderedSettled]
+        .map((listing) => jobIdByConversation.get(listing.id))
+        .filter((id): id is string => Boolean(id))
+        .sort(),
+    [activeListings, renderedSettled, jobIdByConversation],
+  );
+  const { data: statusDrafts } = useQuery({
+    queryKey: ["marketplace-statuses", renderedJobIds.join(",")],
+    queryFn: () => api.jobs.marketplaceStatuses(renderedJobIds),
+    enabled: renderedJobIds.length > 0,
+    refetchInterval: 15000,
+    placeholderData: (previous) => previous,
+  });
+  const statusDraftFor = (conversationId: string) => {
+    const jobId = jobIdByConversation.get(conversationId);
+    return jobId ? statusDrafts?.[jobId] : undefined;
+  };
   const settingsResults = useMemo(() => searchSettings(settingsQuery), [settingsQuery]);
   const isSettingsSearching = settingsQuery.trim().length > 0;
 
@@ -573,6 +609,8 @@ export function ListingSidebar({
                 busy={BUSY_STATUSES.has(String(listing.status || "draft"))}
                 settling={settleListing.isPending}
                 jobId={jobIdByConversation.get(listing.id)}
+                statusDraft={statusDraftFor(listing.id)}
+                visibleMarketplaces={visibleMarketplaces}
                 onSelect={onSelect}
                 onDelete={onDelete}
                 onSettle={(id) => settleListing.mutate(id)}
@@ -604,6 +642,8 @@ export function ListingSidebar({
                     busy={false}
                     settling={unsettleListing.isPending}
                     jobId={jobIdByConversation.get(listing.id)}
+                    statusDraft={statusDraftFor(listing.id)}
+                    visibleMarketplaces={visibleMarketplaces}
                     onSelect={onSelect}
                     onDelete={onDelete}
                     onUnsettle={(id) => unsettleListing.mutate(id)}
@@ -683,7 +723,11 @@ function liveStatusClass(status?: string): string {
   return "";
 }
 
-function marketplaceStatusesFromDraft(draft: Record<string, unknown> | undefined | null): {
+/** Live Vendoo status per marketplace, limited to `visible` (Settings → Marketplaces) when given. */
+function marketplaceStatusesFromDraft(
+  draft: Record<string, unknown> | undefined | null,
+  visible?: Set<string>,
+): {
   id: string;
   label: string;
   status: string;
@@ -715,13 +759,18 @@ function marketplaceStatusesFromDraft(draft: Record<string, unknown> | undefined
   ];
 
   const rows: { id: string; label: string; status: string }[] = [];
-  for (const id of ids) {
-    let status = normalizeLiveStatus(scraped[id]);
-    if (!status && id !== "general") {
-      const listing = listings[id] as Record<string, unknown> | undefined;
+  const seen = new Set<string>();
+  for (const rawId of ids) {
+    const id = MARKETPLACE_ID_ALIASES[rawId] || rawId;
+    if (seen.has(id)) continue;
+    if (visible && id !== "general" && !visible.has(id)) continue;
+    let status = normalizeLiveStatus(scraped[rawId]);
+    if (!status && rawId !== "general") {
+      const listing = listings[rawId] as Record<string, unknown> | undefined;
       status = statusFromListingStatus(listing?.status) || "";
     }
     if (!status) continue;
+    seen.add(id);
     rows.push({ id, label: marketplaceLabel(id), status });
   }
   return rows;
@@ -734,6 +783,8 @@ function ListingRow({
   busy,
   settling,
   jobId,
+  statusDraft,
+  visibleMarketplaces,
   onSelect,
   onDelete,
   onSettle,
@@ -745,6 +796,8 @@ function ListingRow({
   busy: boolean;
   settling: boolean;
   jobId?: string;
+  statusDraft?: Record<string, unknown>;
+  visibleMarketplaces?: Set<string>;
   onSelect: (id: string) => void;
   onDelete: (id: string, title: string) => void;
   onSettle?: (id: string) => void;
@@ -808,12 +861,19 @@ function ListingRow({
     retry: 0,
   });
 
-  const draft = (
+  const fullDraft = (
     peekQuery.data?.ok && peekQuery.dataUpdatedAt >= cachedDraftQuery.dataUpdatedAt
       ? peekQuery.data
-      : cachedDraftQuery.data || peekQuery.data
+      : cachedDraftQuery.data || (peekQuery.data?.ok ? peekQuery.data : undefined)
   ) as Record<string, unknown> | undefined;
-  const marketplaceStatuses = useMemo(() => marketplaceStatusesFromDraft(draft), [draft]);
+  const draft = fullDraft || statusDraft;
+  const marketplaceStatuses = useMemo(
+    () => marketplaceStatusesFromDraft(draft, visibleMarketplaces),
+    [draft, visibleMarketplaces],
+  );
+  const listedMarketplaces = marketplaceStatuses.filter(
+    (row) => row.id !== "general" && LISTED_LIVE_STATUSES.has(row.status),
+  );
   const loadingStatus = Boolean(
     hoverOpen && jobId && !draft && peekQuery.isFetching,
   );
@@ -976,6 +1036,18 @@ function ListingRow({
           </select>
           {settledAt ? <span className="nav-time">{settledAt}</span> : null}
         </div>
+        {listedMarketplaces.length ? (
+          <div
+            className="nav-listed-logos"
+            aria-label={`Listed on ${listedMarketplaces.map((row) => row.label).join(", ")}`}
+          >
+            {listedMarketplaces.map((row) => (
+              <span key={row.id} className={row.status === "SOLD" ? "nav-listed-logo is-sold" : "nav-listed-logo"}>
+                <MarketplaceLogo id={row.id} label={`${row.label} · ${row.status.toLowerCase()}`} size={14} />
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
       {!renaming && (
         <div className="nav-actions">

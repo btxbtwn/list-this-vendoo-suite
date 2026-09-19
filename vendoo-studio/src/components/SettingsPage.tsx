@@ -5,6 +5,7 @@ import type { ListingProviderId } from "../api/types";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
+import { MarketplaceLogo } from "./MarketplaceLogo";
 import {
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionId,
@@ -229,14 +230,14 @@ function MarketplacesSection() {
     <SettingsSection id="marketplaces" title="Marketplaces">
       <SettingsRow
         title="List to"
-        description="Empty-field prompts and Send to Vendoo use only the marketplaces you check."
+        description="Every marketplace Vendoo lists to. The thread status popup and sidebar logos show only the ones you check; empty-field prompts and Send to Vendoo fill the checked ones Studio supports."
         control={
           <>
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              disabled={mutation.isPending || available.filter((item) => item.fillable).length === 0 || selected.filter((id) => available.find((item) => item.id === id)?.fillable).length === available.filter((item) => item.fillable).length}
-              onClick={() => save(available.filter((item) => item.fillable).map((item) => item.id))}
+              disabled={mutation.isPending || available.every((item) => selectedSet.has(item.id))}
+              onClick={() => save(available.map((item) => item.id))}
             >
               All
             </button>
@@ -261,26 +262,26 @@ function MarketplacesSection() {
               <label key={item.id} className="settings-marketplace-option">
                 <input
                   type="checkbox"
-                  checked={item.fillable && selectedSet.has(item.id)}
-                  disabled={mutation.isPending || !item.fillable}
+                  checked={selectedSet.has(item.id)}
+                  disabled={mutation.isPending}
                   onChange={(event) => {
-                    if (!item.fillable) return;
-                    const next = new Set(selected.filter((id) => available.find((entry) => entry.id === id)?.fillable));
+                    const next = new Set(selected);
                     if (event.target.checked) next.add(item.id);
                     else next.delete(item.id);
                     save(next);
                   }}
                 />
+                <MarketplaceLogo id={item.id} label={item.label} size={16} />
                 <span>
                   {item.label}
-                  {!item.fillable ? " — unsupported for Send" : ""}
+                  {!item.fillable ? <span className="settings-marketplace-note"> · Vendoo crosslist only</span> : null}
                 </span>
               </label>
             ))}
             {available.some((item) => !item.fillable) ? (
               <p className="settings-row-desc">
-                Facebook, Grailed, Whatnot, and Shopify are not available for Send. They cannot be selected,
-                cannot enter an approved job snapshot, and are blocked before a job is created.
+                Studio doesn’t fill forms for “Vendoo crosslist only” marketplaces yet — Send skips them and you
+                crosslist to them from Vendoo. Their live status still shows on the thread.
               </p>
             ) : null}
           </div>

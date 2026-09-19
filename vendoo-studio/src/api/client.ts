@@ -259,6 +259,10 @@ export const api = {
         { method: "POST" },
       ),
     fillLog: (id: string) => request<FillLogReport>(`/jobs/${id}/fill-log`),
+    marketplaceStatuses: (ids: string[]) =>
+      request<Record<string, Record<string, unknown>>>(
+        `/jobs/marketplace-statuses?job_ids=${encodeURIComponent(ids.join(","))}`,
+      ),
     vendooItem: (id: string, opts?: { refresh?: boolean; cacheOnly?: boolean; resolvePhotos?: boolean }) => {
       const params = new URLSearchParams();
       if (opts?.refresh) params.set("refresh", "true");
