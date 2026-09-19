@@ -32,6 +32,7 @@ from vendoo_studio.services.vendoo_api import (
     build_vendoo_item,
     category_from_hit,
     category_v2,
+    changed_fields,
     pick_mapped_category,
     diff_roundtrip,
     observe_item_schema,
@@ -627,6 +628,19 @@ async def create_item(
         {"op": "get_item", "item_id": item_id},
     ])
     stored = _result(created, "get_item").get("item")
+    # createItem sometimes drops marketplace fields (Depop style tags, brand
+    # overrides). Push whatever still differs the way a form save would.
+    patch_results: list[Any] = []
+    if isinstance(stored, dict):
+        fixes = changed_fields(stored, item)
+        if fixes:
+            mark("vendoo_api_patch")
+            patched = await run_ops(job, [
+                {"op": "update_item", "item_id": item_id, "updates": fixes},
+                {"op": "get_item", "item_id": item_id},
+            ])
+            patch_results = patched["results"]
+            stored = _result(patched, "get_item").get("item") or stored
     diff = diff_roundtrip(item, stored) if isinstance(stored, dict) else []
 
     return {
@@ -636,5 +650,5 @@ async def create_item(
         "unresolved": [entry for entry in unresolved],
         "diff": diff,
         "stored": stored if isinstance(stored, dict) else None,
-        "results": [*prep["results"], *created["results"]],
+        "results": [*prep["results"], *created["results"], *patch_results],
     }

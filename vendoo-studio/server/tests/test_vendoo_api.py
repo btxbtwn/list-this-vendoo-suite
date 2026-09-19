@@ -246,13 +246,56 @@ class BuildItemTest(unittest.TestCase):
         depop = listings["depop"]
         self.assertEqual(depop["marketplaceSpecifics"]["style"], ["Streetwear"])
         self.assertEqual(depop["marketplaceSpecifics"]["source"], ["Preloved"])
+        self.assertEqual(depop["overrides"]["brand"], "Levi's")
+        self.assertEqual(ebay["overrides"]["brand"], "Levi's")
+        self.assertEqual(mercari["overrides"]["brand"], "Levi's")
+        self.assertFalse(mercari["overrides"].get("noBrand"))
+        self.assertEqual(
+            mercari["marketplaceSpecifics"]["shipping"]["carrierId"],
+            "2509",
+        )
 
         etsy = listings["etsy"]
         self.assertEqual(etsy["marketplaceSpecifics"]["whoMade"], "someone_else")
         self.assertEqual(etsy["marketplaceSpecifics"]["materials"], ["denim"])
         self.assertEqual(etsy["categorySpecifics"], {})
+        self.assertEqual(etsy["overrides"]["brand"], "Levi's")
 
         self.assertEqual(listings["grailed"]["marketplaceSpecifics"], {})
+
+    def test_unbranded_sets_ebay_brand_and_mercari_no_brand(self):
+        item, _ = build_vendoo_item({
+            "title": "Plain tee",
+            "brand": "Unbranded",
+            "depop_specifics": {"style": ["Casual", "Retro", "Boho"]},
+            "mercari_specifics": {"shippingLabel": "USPS Ground Advantage"},
+        }, self.schema)
+        self.assertEqual(item["generalDetails"]["brand"], "Unbranded")
+        self.assertEqual(item["listings"]["ebay"]["overrides"]["brand"], "Unbranded")
+        # Lowercased ebay_specifics must not win over the Unbranded label.
+        item2, _ = build_vendoo_item({
+            "title": "Plain tee",
+            "brand": "Unbranded",
+            "ebay_specifics": {"brand": "unbranded"},
+        }, self.schema)
+        self.assertEqual(item2["listings"]["ebay"]["overrides"]["brand"], "Unbranded")
+
+        mercari = item["listings"]["mercari"]
+        self.assertTrue(mercari["overrides"].get("noBrand"))
+        self.assertNotIn("brand", mercari["overrides"])
+        self.assertEqual(mercari["marketplaceSpecifics"]["shipping"]["carrierId"], "2509")
+        self.assertEqual(
+            item["listings"]["depop"]["marketplaceSpecifics"]["style"],
+            ["Casual", "Retro", "Boho"],
+        )
+        self.assertEqual(item["listings"]["depop"]["overrides"]["brand"], "Other")
+
+    def test_empty_brand_checks_mercari_no_brand(self):
+        item, _ = build_vendoo_item({"title": "Tee", "brand": ""}, self.schema)
+        mercari = item["listings"]["mercari"]
+        self.assertTrue(mercari["overrides"].get("noBrand"))
+        self.assertNotIn("brand", mercari["overrides"])
+        self.assertNotIn("brand", item["listings"]["ebay"]["overrides"])
 
     def test_marketplace_categories_string_sets_category_v2(self):
         item, _ = build_vendoo_item({
@@ -646,6 +689,19 @@ class ChangedFieldsTest(unittest.TestCase):
             "listings": {"ebay": {k: dict(v) for k, v in self.CURRENT["listings"]["ebay"].items()}},
         }
         self.assertEqual(changed_fields(self.CURRENT, item), {})
+
+    def test_brand_case_is_significant(self):
+        """eBay's Brand dropdown matches Unbranded, not lowercased free text."""
+        current = {
+            "generalDetails": {"brand": "Unbranded"},
+            "listings": {"ebay": {"overrides": {"brand": "unbranded"}}},
+        }
+        desired = {
+            "generalDetails": {"brand": "Unbranded"},
+            "listings": {"ebay": {"overrides": {"brand": "Unbranded"}}},
+        }
+        out = changed_fields(current, desired)
+        self.assertEqual(out.get("listings.ebay.overrides.brand"), "Unbranded")
 
 
 if __name__ == "__main__":

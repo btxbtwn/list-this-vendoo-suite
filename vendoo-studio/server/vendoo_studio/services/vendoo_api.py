@@ -94,6 +94,16 @@ SPECIFICS_SOURCES = {mp: f"{mp}_specifics" for mp in ("ebay", "poshmark", "merca
 # Keys in <marketplace>_specifics that Studio keeps for itself, not Vendoo.
 _STUDIO_ONLY_SPECIFIC_KEYS = frozenset({"categoryPath", "category_specifics", "size", "sizeType"})
 
+# Marketplace form brand fields live on overrides, not categorySpecifics. The
+# Chrome filler writes `#listings.<mp>.overrides.brand`; create must too.
+_BRAND_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari", "depop"})
+
+# Values that mean "there is no brand" on Mercari — check No Brand/Not sure.
+_MERCARI_NO_BRAND_TOKENS = frozenset({
+    "", "unbranded", "no brand", "not sure", "no brand not sure", "no brand/not sure",
+    "none", "n a", "na", "unknown",
+})
+
 # Studio names a few Etsy fields differently from Vendoo.
 ETSY_KEY_MAP = {"who_made": "whoMade", "what_is": "whatIsIt", "when_made": "whenMade"}
 
@@ -420,6 +430,61 @@ def _string_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(part).strip() for part in value if str(part or "").strip()]
     return [str(value).strip()]
+
+
+def _listing_brand(listing: dict[str, Any], marketplace: str) -> str:
+    """Brand for one marketplace form: specifics override, else general brand."""
+    raw = listing.get(SPECIFICS_SOURCES.get(marketplace, f"{marketplace}_specifics"))
+    if isinstance(raw, dict):
+        specific = _clean(raw.get("brand"))
+        if specific:
+            return specific
+    return _clean(listing.get("brand")) or ""
+
+
+def _ebay_brand_label(brand: str) -> str:
+    """eBay's Brand dropdown matches ``Unbranded``, not a lowercased free-text."""
+    text = _clean(brand) or ""
+    if _norm(text) == "unbranded":
+        return "Unbranded"
+    return text
+
+
+def _mercari_wants_no_brand(brand: str) -> bool:
+    return _norm(brand) in _MERCARI_NO_BRAND_TOKENS
+
+
+def _apply_marketplace_brand(
+    section: dict[str, Any],
+    marketplace: str,
+    listing: dict[str, Any],
+) -> None:
+    """Put brand where Vendoo's forms actually read it — ``overrides.brand``.
+
+    Mercari has no catch-all brand option: an empty or unlisted brand is the
+    No Brand/Not sure checkbox (``overrides.noBrand``), not a typed value.
+    Depop's catch-all is the ``Other`` option.
+    """
+    if marketplace not in _BRAND_OVERRIDE_MARKETPLACES:
+        return
+    brand = _listing_brand(listing, marketplace)
+    overrides = section.setdefault("overrides", {})
+    if marketplace == "mercari":
+        if _mercari_wants_no_brand(brand):
+            overrides["noBrand"] = True
+            overrides.pop("brand", None)
+        elif brand:
+            overrides["brand"] = brand
+            overrides["noBrand"] = False
+        return
+    if marketplace == "depop" and _mercari_wants_no_brand(brand):
+        overrides["brand"] = "Other"
+        return
+    if not brand:
+        return
+    if marketplace == "ebay":
+        brand = _ebay_brand_label(brand)
+    overrides["brand"] = brand
 
 
 def _num_str(value: Any) -> str:
@@ -831,7 +896,13 @@ def _listing_section(
         cat_id = cat_ids.get(marketplace)
     cat_id = specifics.pop("categoryId", None) or specifics.pop("category_id", None) or cat_id
     # Snapshot before the marketplaceSpecifics pass prunes Studio-only keys.
-    aspects = dict(specifics)
+    # Marketplace form fields that live in marketplaceSpecifics (style, age,
+    # shipping, …) must not be fed to the category-aspects encoder — a leaf
+    # field with the same label would consume them. Size/brand stay in aspects.
+    aspects = {
+        key: value for key, value in specifics.items()
+        if key not in known and key != "category_specifics"
+    }
     for key in list(specifics.keys()):
         if key in _STUDIO_ONLY_SPECIFIC_KEYS or key == "category_specifics":
             specifics.pop(key, None)
@@ -895,6 +966,21 @@ def _listing_section(
             known[dest] = _num_str(value)
         else:
             known[dest] = value
+
+    # Mercari shipping label is Studio wording for the prepaid carrier id.
+    if marketplace == "mercari":
+        label = ""
+        raw_mercari = listing.get("mercari_specifics")
+        if isinstance(raw_mercari, dict):
+            label = _clean(raw_mercari.get("shippingLabel") or raw_mercari.get("shipping_label")) or ""
+        if not label or "ground advantage" in _norm(label):
+            shipping = known.setdefault("shipping", {})
+            if isinstance(shipping, dict):
+                shipping.setdefault("deliveryMethod", "mercari_shipping")
+                shipping.setdefault("payerId", 1)
+                shipping["carrierId"] = MERCARI_GROUND_ADVANTAGE_CARRIER
+
+    _apply_marketplace_brand(section, marketplace, listing)
     return section
 
 
@@ -995,6 +1081,11 @@ def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str
                 walk(f"{prefix}.{key}" if prefix else key, value, (have or {}).get(key) if isinstance(have, dict) else None)
             return
         if want in (None, "", []):
+            return
+        # Brand labels are case-sensitive on the form (``Unbranded`` ≠ ``unbranded``).
+        if prefix.endswith(".brand") or prefix.endswith(".noBrand"):
+            if want != have:
+                out[prefix] = want
             return
         if _comparable(want) != _comparable(have):
             out[prefix] = want
