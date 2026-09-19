@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -17,6 +16,13 @@ TEXT_ONLY_PREAMBLE = (
     "Reply with assistant text only. Do not edit files, run shell commands, or use tools. "
     "When asked for JSON, return only valid JSON with no markdown fences."
 )
+
+
+def normalize_cursor_api_key(raw: str) -> str:
+    key = raw.strip().strip('"').strip("'")
+    if key.lower().startswith("bearer "):
+        key = key[7:].strip()
+    return key
 
 
 def listing_scratch_dir() -> Path:
@@ -92,19 +98,36 @@ class CursorProvider:
     listing_model = DEFAULT_MODEL
 
     def __init__(self, api_key: str):
-        self.api_key = api_key.strip()
+        self.api_key = normalize_cursor_api_key(api_key)
 
     async def test_connection(self) -> bool:
-        from cursor_sdk import Cursor, CursorAgentError
+        """Validate the API key through the same local bridge path used for chat.
 
+        Raises RuntimeError with a user-facing message on failure so Settings can
+        show the real Cursor/SDK error instead of a generic "Connection failed".
+        """
+        from cursor_sdk import AsyncClient, CursorAgentError, CursorSDKError
+
+        if not self.api_key:
+            raise RuntimeError("Cursor API key is empty.")
+
+        scratch = listing_scratch_dir()
         try:
-            models = await asyncio.to_thread(Cursor.models.list, api_key=self.api_key)
-            return bool(models)
-        except CursorAgentError:
-            return False
-        except Exception:
+            async with await AsyncClient.launch_bridge(workspace=str(scratch)) as client:
+                models = await client.list_models(api_key=self.api_key)
+        except CursorAgentError as exc:
+            message = str(exc).strip() or "Cursor authentication failed."
+            raise RuntimeError(message) from exc
+        except CursorSDKError as exc:
+            message = str(exc).strip() or "Cursor SDK is not available."
+            raise RuntimeError(message) from exc
+        except Exception as exc:
             log.warning("Cursor connection test failed", exc_info=True)
-            return False
+            raise RuntimeError(f"Cursor connection failed: {exc}") from exc
+
+        if not models:
+            raise RuntimeError("Cursor API key worked but returned no models for this account.")
+        return True
 
     async def analyze_photos(
         self,
