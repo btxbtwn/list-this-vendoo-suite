@@ -10,11 +10,43 @@ import httpx
 from PIL import Image, ImageOps
 
 MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
+MIMO_TOKEN_PLAN_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
 
 
 # Vision APIs downscale server-side (roughly 2000px long edge), so larger uploads only add latency.
 VISION_MAX_SIDE = 1600
 VISION_JPEG_QUALITY = 85
+
+
+def normalize_mimo_api_key(raw: str) -> str:
+    key = raw.strip().strip('"').strip("'")
+    if key.lower().startswith("bearer "):
+        key = key[7:].strip()
+    return key
+
+
+def mimo_base_url_for_key(api_key: str) -> str:
+    """Pay-as-you-go keys (sk-) use the public API; Token Plan keys (tp-) use the plan host."""
+    key = normalize_mimo_api_key(api_key)
+    if key.lower().startswith("tp-"):
+        return MIMO_TOKEN_PLAN_BASE_URL
+    return MIMO_BASE_URL
+
+
+def _mimo_http_error(resp: httpx.Response) -> str:
+    text = (resp.text or "").strip()
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = None
+    if isinstance(payload, dict):
+        detail = _error_message(payload)
+        if detail:
+            text = detail
+    text = " ".join(text.split())
+    if len(text) > 240:
+        text = text[:237] + "..."
+    return f"MiMo HTTP {resp.status_code}: {text}" if text else f"MiMo HTTP {resp.status_code}"
 
 
 def _raw_data_url(path: str) -> str:
@@ -132,8 +164,8 @@ class MiMoProvider:
     listing_model = "mimo-v2.5-pro"
 
     def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = MIMO_BASE_URL
+        self.api_key = normalize_mimo_api_key(api_key)
+        self.base_url = mimo_base_url_for_key(self.api_key)
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -142,15 +174,24 @@ class MiMoProvider:
         }
 
     async def test_connection(self) -> bool:
+        """Validate the key against GET /models.
+
+        Raises RuntimeError with the API or transport message so Settings can
+        show the real failure instead of a generic "Connection failed".
+        """
+        if not self.api_key:
+            raise RuntimeError("MiMo API key is empty.")
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(
                     f"{self.base_url}/models",
                     headers=self._headers(),
                 )
-                return resp.status_code == 200
-        except Exception:
-            return False
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"MiMo connection failed: {exc}") from exc
+        if resp.status_code == 200:
+            return True
+        raise RuntimeError(_mimo_http_error(resp))
 
     async def analyze_photos(
         self,

@@ -302,6 +302,8 @@ export const api = {
       }),
     deleteKey: () => request<OkResponse>("/settings/provider/key", { method: "DELETE" }),
     testConnection: () => request<ProviderTestResult>("/settings/provider/test", { method: "POST" }),
+    testMimo: () =>
+      request<ProviderTestResult>("/settings/provider/mimo/test", { method: "POST" }),
     setPreferredProvider: (order: {
       primary: ListingProviderId;
       fallback?: ListingProviderId | "none" | null;

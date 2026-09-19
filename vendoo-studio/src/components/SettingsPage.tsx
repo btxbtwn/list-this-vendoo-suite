@@ -552,6 +552,8 @@ function ProvidersPanel() {
   const [cursorKey, setCursorKey] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [mimoTesting, setMimoTesting] = useState(false);
+  const [mimoTestResult, setMimoTestResult] = useState<string | null>(null);
   const [cursorTesting, setCursorTesting] = useState(false);
   const [cursorTestResult, setCursorTestResult] = useState<string | null>(null);
 
@@ -577,12 +579,16 @@ function ProvidersPanel() {
     onSuccess: () => {
       refreshProvider();
       setApiKey("");
+      setMimoTestResult(null);
     },
   });
 
   const deleteKeyMutation = useMutation({
     mutationFn: () => api.settings.deleteKey(),
-    onSuccess: refreshProvider,
+    onSuccess: () => {
+      refreshProvider();
+      setMimoTestResult(null);
+    },
   });
 
   const setCursorMutation = useMutation({
@@ -708,6 +714,18 @@ function ProvidersPanel() {
       setTestResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
     setTesting(false);
+  };
+
+  const handleMimoTest = async () => {
+    setMimoTesting(true);
+    setMimoTestResult(null);
+    try {
+      const result = await api.settings.testMimo();
+      setMimoTestResult(result.ok ? "Connection successful" : (result.error || "Connection failed"));
+    } catch (err) {
+      setMimoTestResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    setMimoTesting(false);
   };
 
   const handleCursorTest = async () => {
@@ -976,18 +994,16 @@ function ProvidersPanel() {
                   : "Not configured"
           }
           status={
-            provider?.provider === "xiaomi-mimo" && testResult ? (
-              <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
+            mimoTestResult ? (
+              <span className={mimoTestResult.includes("successful") ? "text-success" : "text-error"}>{mimoTestResult}</span>
             ) : null
           }
           control={
             mimoConfigured ? (
               <>
-                {provider?.provider === "xiaomi-mimo" ? (
-                  <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
-                    {testing ? "Testing…" : "Test"}
-                  </button>
-                ) : null}
+                <button type="button" className="btn btn-sm btn-outline" onClick={handleMimoTest} disabled={mimoTesting}>
+                  {mimoTesting ? "Testing…" : "Test"}
+                </button>
                 <button type="button" className="btn btn-sm btn-ghost settings-danger" onClick={() => deleteKeyMutation.mutate()}>
                   Remove
                 </button>
