@@ -227,6 +227,8 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 
 **Pitfall: Depop Show Optional Fields are also non-negotiable.** Fill Source, Age, Style (exactly 3), Occasion (exactly 3), and Parcel Size. Omit Size Grouping for Regular sizing (it does not apply). Fill Material only from tag evidence. Never leave applicable optional rows blank.
 
+**Does Not Apply stays in the listing, never on the form.** Keep writing it wherever the rules above call for it — Studio shows the row as answered so it is not chased again. Studio and the extension push a blank to the marketplace form instead of the phrase, because eBay renders "Does Not Apply" verbatim as an item specific.
+
 **Pitfall: eBay Season has no "All Seasons" option.** Choose exactly one of Spring, Summer, Fall, or Winter from the garment (fabric, sleeve, type, title cues). For year-round items, put `"All Seasons"` under **Features** and still set Season to the primary wear season.
 
 **Pitfall: JSON key names must exactly match the extension's `fieldNameMap` keys** (e.g., `unitQuantity` not `unit_quantity` or `qty`). See `references/vendoo-extension-architecture.md` for the full mapping and extension architecture.

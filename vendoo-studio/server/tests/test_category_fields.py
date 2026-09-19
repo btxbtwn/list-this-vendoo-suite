@@ -221,11 +221,31 @@ class DeclineAndFallbackTest(unittest.TestCase):
         self.assertEqual(encode_specific(occasion, "Does Not Apply"), ("", True))
         self.assertEqual(encode_specific(occasion, "N/A"), ("", True))
 
-    def test_a_list_that_offers_it_still_stores_it(self):
+    def test_a_list_that_offers_it_still_blanks_it(self):
         from vendoo_studio.services.vendoo_specifics import encode_specific
 
+        # eBay renders the phrase verbatim on the form, so even the lists that
+        # offer it get the blank. Studio keeps the answer on the listing.
         handmade = self.spec("Handmade", ["Yes", "No", "Does Not Apply"])
-        self.assertEqual(encode_specific(handmade, "Does Not Apply"), ("Does Not Apply", True))
+        self.assertEqual(encode_specific(handmade, "Does Not Apply"), ("", True))
+        self.assertEqual(encode_specific(handmade, "No"), ("No", True))
+
+    def test_free_text_fields_take_the_blank_too(self):
+        from vendoo_studio.services.vendoo_specifics import FieldSpec, encode_specific
+
+        upc = FieldSpec("upc", display="UPC")
+        self.assertEqual(encode_specific(upc, "Does Not Apply"), ("", True))
+        self.assertEqual(encode_specific(upc, "N/A"), ("", True))
+        self.assertEqual(encode_specific(upc, "012345678905"), ("012345678905", True))
+
+    def test_a_not_applicable_answer_is_recognised_whole(self):
+        from vendoo_studio.services.vendoo_specifics import is_not_applicable
+
+        self.assertTrue(is_not_applicable("Does Not Apply"))
+        self.assertTrue(is_not_applicable(["N/A", "does not apply"]))
+        self.assertFalse(is_not_applicable(""))
+        self.assertFalse(is_not_applicable("No"))
+        self.assertFalse(is_not_applicable(["Cotton", "N/A"]))
 
     def test_a_real_value_the_list_lacks_is_still_reported(self):
         from vendoo_studio.services.vendoo_specifics import encode_specific
