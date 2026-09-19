@@ -245,9 +245,10 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(mercari["overrides"]["categoryV2"]["displayPath"], ["Men", "Jeans"])
         self.assertTrue(mercari["marketplaceSpecifics"]["smartPricing"])
         self.assertEqual(mercari["categorySpecifics"], {})
+        # LISTING is 1 lb 8 oz — the 2 lb Ground Advantage tier.
         self.assertEqual(
             mercari["marketplaceSpecifics"]["shipping"]["carrierId"],
-            "2550",
+            "2511",
         )
 
         depop = listings["depop"]
@@ -314,7 +315,8 @@ class BuildItemTest(unittest.TestCase):
         mercari = item["listings"]["mercari"]
         self.assertTrue(mercari["overrides"].get("noBrand"))
         self.assertNotIn("brand", mercari["overrides"])
-        self.assertEqual(mercari["marketplaceSpecifics"]["shipping"]["carrierId"], "2550")
+        # No weight on this listing: the half-pound tier it always ships as.
+        self.assertEqual(mercari["marketplaceSpecifics"]["shipping"]["carrierId"], "2508")
         self.assertIn("Ground Advantage", mercari["marketplaceSpecifics"]["shippingLabel"])
         self.assertEqual(
             item["listings"]["depop"]["marketplaceSpecifics"]["style"],
@@ -326,6 +328,40 @@ class BuildItemTest(unittest.TestCase):
         etsy = item["listings"]["etsy"]["marketplaceSpecifics"]
         self.assertEqual(etsy["whoMade"], "someone_else")
         self.assertEqual(etsy["whatIsIt"], "0")
+
+    def test_mercari_shipping_label_follows_the_weight(self):
+        # Vendoo's form only offers the tiers that carry the package, so a tier
+        # that is too small for the weight shows as an empty Shipping Label.
+        for pounds, ounces, carrier, price in (
+            (0, 3, "2507", "5.87"),
+            (0, 8, "2508", "6.41"),
+            (0, 12, "2509", "7.48"),
+            (1, 0, "2510", "8.12"),
+            (2, 0, "2511", "14.43"),
+            (None, None, "2508", "6.41"),
+        ):
+            with self.subTest(pounds=pounds, ounces=ounces):
+                item, _ = build_vendoo_item({
+                    "title": "Tee",
+                    "weight_lb": pounds,
+                    "weight_oz": ounces,
+                }, self.schema)
+                mercari = item["listings"]["mercari"]["marketplaceSpecifics"]
+                self.assertEqual(mercari["shipping"]["carrierId"], carrier)
+                self.assertIn(f"$ {price}", mercari["shippingLabel"])
+                self.assertEqual(mercari["shipping"]["deliveryMethod"], "mercari_shipping")
+
+    def test_etsy_is_live_and_inherits_general_tags(self):
+        tags = [f"tag{i}" for i in range(15)] + ["a tag far longer than twenty"]
+        item, _ = build_vendoo_item({
+            "title": "Tee",
+            "tags": tags,
+            "etsy_specifics": {"listing_state": "Draft Listing", "listingState": "draft"},
+        }, self.schema)
+        etsy = item["listings"]["etsy"]["marketplaceSpecifics"]
+        self.assertEqual(etsy["listingState"], "active")
+        self.assertEqual(etsy["tags"], tags[:13])
+        self.assertEqual(item["generalDetails"]["tags"], tags)
 
     def test_etsy_display_labels_become_form_codes(self):
         item, _ = build_vendoo_item({
@@ -341,6 +377,7 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(etsy["whoMade"], "someone_else")
         self.assertEqual(etsy["whatIsIt"], "0")
         self.assertEqual(etsy["whenMade"], "2020_2026")
+        self.assertEqual(etsy["listingState"], "active")
         fixed = item["listings"]["ebay"]["marketplaceSpecifics"]["pricingFormatDetails"]["fixedPrice"]
         self.assertTrue(fixed["allowBestOffer"])
         self.assertEqual(fixed["buyItNowPrice"], "16")

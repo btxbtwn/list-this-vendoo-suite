@@ -4497,7 +4497,7 @@
       await fillMarketplaceSize('mercari', data);
 
       const shippingLabel = (data.mercari_specifics && data.mercari_specifics.shippingLabel)
-          || 'USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb';
+          || 'USPS Ground Advantage / 1 - 7 days / $ 6.41 / 0.5 lb';
       const shippingEl = await waitForMarketplaceField('mercari', ['shipping label'], [
           '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId',
           '#listings\\.mercari\\.marketplaceSpecifics\\.shippingLabel',
@@ -4508,7 +4508,12 @@
           const currentVal = (shippingEl.value || '').trim().toLowerCase();
           if (!currentVal.includes('usps ground advantage')) {
               log(`Setting Mercari shipping to ${shippingLabel}`);
-              await fillDropdownField(shippingEl, shippingLabel, 'Shipping Label', false);
+              const filled = await fillDropdownField(shippingEl, shippingLabel, 'Shipping Label', false);
+              // The price in the label is the tier's, and Mercari's rates move.
+              // Fall back to the carrier name so the option still matches.
+              if (filled && filled.status !== 'filled') {
+                  await fillDropdownField(shippingEl, 'USPS Ground Advantage', 'Shipping Label', false);
+              }
           } else {
               log('Mercari shipping already USPS Ground Advantage');
               recordFill({

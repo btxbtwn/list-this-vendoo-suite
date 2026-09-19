@@ -44,6 +44,7 @@ from vendoo_studio.models.etsy_fields import (
     is_etsy_digital_listing,
     resolve_etsy_when,
 )
+from vendoo_studio.models.mercari_shipping import DEFAULT_SHIPPING_LABEL
 from vendoo_studio.models.listing_values import (
     DNA_VALUE,
     ValidationResult,
@@ -171,7 +172,7 @@ def ensure_mercari_shipping_label(listing: dict) -> bool:
     if text_value(raw.get("shippingLabel") or raw.get("shipping_label")):
         return False
     mercari = dict(raw)
-    mercari["shippingLabel"] = "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
+    mercari["shippingLabel"] = DEFAULT_SHIPPING_LABEL
     listing["mercari_specifics"] = mercari
     return True
 

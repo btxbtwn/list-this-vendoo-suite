@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from vendoo_studio.models.mercari_shipping import DEFAULT_SHIPPING_LABEL
 from vendoo_studio.repositories.queries import JobRepo
 
 
@@ -152,7 +153,7 @@ def ensure_listing_defaults(listing_snapshot: dict) -> None:
     if not isinstance(mercari, dict):
         mercari = {}
     label = str(mercari.get("shippingLabel") or "").strip()
-    mercari["shippingLabel"] = label or "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
+    mercari["shippingLabel"] = label or DEFAULT_SHIPPING_LABEL
     listing_snapshot["mercari_specifics"] = mercari
 
     from vendoo_studio.models.validation import normalize_listing_dropdowns
