@@ -26,9 +26,37 @@ SOLD_COMPS_TIMEOUT_SEC = 90
 # How long a usable Brave result waits for ChatGPT comps before winning.
 CHATGPT_GRACE_SEC = 15
 
+COMPS_SETUP_NOTE = (
+    "Sold comps lookup needs ChatGPT signed in or a Brave Search API key in Settings. "
+    "Listing prices will use an estimated baseline until then."
+)
+COMPS_THIN_IDENTITY_NOTE = (
+    "Not enough brand or item detail from the photos to search sold comps. "
+    "Use an estimated baseline and note pricing uncertainty in the description."
+)
+COMPS_TIMEOUT_NOTE = (
+    "Sold comps search timed out. Use an estimated baseline and note pricing "
+    "uncertainty in the description."
+)
+COMPS_FAILED_NOTE = (
+    "Sold comps search failed. Use an estimated baseline and note pricing "
+    "uncertainty in the description."
+)
+
 
 def comps_search_available() -> bool:
     return chatgpt_signed_in() or bool(get_brave_api_key())
+
+
+def comps_setup_note() -> str:
+    """Shown when generate runs without ChatGPT or Brave configured for comps."""
+    return format_sold_comps(
+        SoldCompsReport(query="", source="not configured", note=COMPS_SETUP_NOTE)
+    )
+
+
+def _comps_note(query: str, source: str, note: str) -> str:
+    return format_sold_comps(SoldCompsReport(query=query, source=source, note=note))
 
 
 def format_chatgpt_comps(query: str, answer: str, sources: list[dict]) -> str:
@@ -58,7 +86,7 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
     fields = item_fields(analysis_text, evidence)
     query = sold_comps_query(fields)
     if not query:
-        return ""
+        return _comps_note("", "photo analysis", COMPS_THIN_IDENTITY_NOTE)
 
     tasks: dict[str, asyncio.Task] = {}
     if chatgpt_signed_in():
@@ -66,7 +94,7 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
     if get_brave_api_key():
         tasks["brave"] = asyncio.create_task(research_brave_comps(brave_sold_query(fields) or query))
     if not tasks:
-        return ""
+        return comps_setup_note()
 
     names = {task: name for name, task in tasks.items()}
     results: dict[str, str] = {}
@@ -89,8 +117,10 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
                     results[name] = ""
             if comps_usable(results.get("chatgpt")):
                 return results["chatgpt"]
-            if comps_usable(results.get("brave")) and tasks.get("chatgpt") in pending:
-                # ChatGPT comps are richer; give it a short head start before settling for Brave.
+            # Any Brave answer (usable listings or a thin/failed note) starts the
+            # grace window. Waiting the full ChatGPT timeout when Brave already
+            # finished is how a set Brave key still produced no comps card.
+            if results.get("brave") and tasks.get("chatgpt") in pending:
                 chatgpt_deadline = chatgpt_deadline or loop.time() + CHATGPT_GRACE_SEC
     finally:
         for task in pending:
@@ -98,10 +128,18 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
 
     if comps_usable(results.get("brave")):
         return results["brave"]
-    return results.get("chatgpt") or ""
+    if comps_usable(results.get("chatgpt")):
+        return results["chatgpt"]
+    # Both thin: keep ChatGPT's research note when it finished. Prefer Brave only
+    # when ChatGPT never answered (cancelled after the grace window).
+    if results.get("chatgpt"):
+        return results["chatgpt"]
+    return results.get("brave") or _comps_note(query, "web search", COMPS_FAILED_NOTE)
 
 
 async def research_sold_comps(analysis_text: str | None, evidence: dict | None = None) -> str:
+    fields = item_fields(analysis_text, evidence)
+    query = sold_comps_query(fields)
     try:
         return await asyncio.wait_for(
             _research_sold_comps(analysis_text, evidence),
@@ -109,4 +147,4 @@ async def research_sold_comps(analysis_text: str | None, evidence: dict | None =
         )
     except TimeoutError:
         log.warning("sold comps research timed out after %ss", SOLD_COMPS_TIMEOUT_SEC)
-        return ""
+        return _comps_note(query, "timed out", COMPS_TIMEOUT_NOTE)
