@@ -310,6 +310,15 @@ def _parts(value: Any) -> list[str]:
 
 
 _PARENTHETICAL = re.compile(r"\s*\([^)]*\)")
+# What a model says when an attribute does not apply to the item. Only a real
+# answer when the field actually offers it as a choice.
+_DECLINED = frozenset({
+    "does not apply", "doesn't apply", "not applicable", "n a", "na", "none",
+    "no", "not specified", "unspecified", "unknown", "other",
+})
+# Fields where an unlisted answer belongs under a catch-all rather than being
+# dropped: a brand Vendoo has never heard of is still a brand.
+_OTHER_FALLBACK_FIELDS = frozenset({"brand", "style", "type", "material", "colour", "color"})
 
 
 def _encode_one(spec: FieldSpec, text: str) -> str | None:
@@ -334,6 +343,16 @@ def _encode_one(spec: FieldSpec, text: str) -> str | None:
     return None
 
 
+def _other_option(spec: FieldSpec) -> str | None:
+    """The field's catch-all option, for answers its list does not carry."""
+    if _norm(spec.key) not in _OTHER_FALLBACK_FIELDS and _norm(spec.display) not in _OTHER_FALLBACK_FIELDS:
+        return None
+    for code, display in spec.options.items():
+        if _norm(display) in ("other", "others"):
+            return code
+    return None
+
+
 def encode_specific(spec: FieldSpec, value: Any) -> tuple[Any, bool]:
     """Encode one field's value the way Vendoo stores it.
 
@@ -350,6 +369,13 @@ def encode_specific(spec: FieldSpec, value: Any) -> tuple[Any, bool]:
     resolved = True
     for part in parts:
         code = _encode_one(spec, part)
+        if code is None and spec.selection_only:
+            # "Does Not Apply" against a list that does not offer it is the
+            # model declining, not a value Vendoo rejected. Storing it is
+            # impossible and reporting it buries the real gaps.
+            if _norm(part) in _DECLINED:
+                continue
+            code = _other_option(spec)
         if code is None:
             if spec.selection_only:
                 resolved = False

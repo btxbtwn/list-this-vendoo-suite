@@ -845,6 +845,35 @@ def _listing_section(
     return section
 
 
+def _firestore_now() -> dict[str, int]:
+    """A Firestore timestamp, the shape saved items carry."""
+    import time
+
+    now = time.time()
+    return {"_seconds": int(now), "_nanoseconds": int((now % 1) * 1_000_000_000)}
+
+
+def _mark_saved(item: dict[str, Any], *, incomplete: bool) -> None:
+    """Record the item as saved, the way Vendoo's own save does.
+
+    A new item starts ``{"notSaved": True}`` — literally "Not Saved" in
+    Vendoo's UI — and its save replaces that with ``complete`` or
+    ``inProgress`` depending on whether anything required is still missing,
+    stamping every marketplace form it wrote. Creating an item without doing
+    the same leaves every form looking untouched.
+    """
+    item["status"] = {"inProgress": True} if incomplete else {"complete": True}
+    stamp = _firestore_now()
+    for section in (item.get(LISTINGS_KEY) or {}).values():
+        if not isinstance(section, dict):
+            continue
+        # Only forms that were actually filled out.
+        if not (section.get("categorySpecifics") or (section.get("overrides") or {}).get("categoryV2")):
+            continue
+        section["dateCreated"] = stamp
+        section["dateLastModified"] = stamp
+
+
 def build_vendoo_item(
     listing: dict[str, Any],
     schema: dict[str, Any] | None = None,
@@ -877,7 +906,7 @@ def build_vendoo_item(
     item = {
         "origin": origin,
         "version": CURRENT_ITEM_VERSION,
-        "status": {"notSaved": True},
+        "status": {"notSaved": True},  # replaced by _mark_saved below
         "type": "item",
         "userID": user_id,
         "itemID": item_id,
@@ -885,6 +914,9 @@ def build_vendoo_item(
         GENERAL_KEY: general,
         LISTINGS_KEY: listings,
     }
+    # Anything we could not encode or had to leave empty is Vendoo's
+    # "inProgress"; only a clean item claims to be complete.
+    _mark_saved(item, incomplete=bool(unresolved))
     return item, unresolved
 
 

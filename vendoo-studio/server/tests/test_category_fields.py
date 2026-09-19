@@ -188,5 +188,49 @@ class SchemaFeedsTheGapFillerTest(unittest.TestCase):
         self.assertEqual(by_field["Season"]["options"], ["Spring", "Winter"])
 
 
+class DeclineAndFallbackTest(unittest.TestCase):
+    """What the model says when a list has no answer for the item."""
+
+    def spec(self, key, options, required=False, display=None):
+        return normalize_specifics({key: {
+            "id": key, "display": display or key,
+            "options": {str(i): {"id": v, "display": v} for i, v in enumerate(options)},
+            "rules": {"fieldOptions": {"minValues": 1 if required else 0, "maxValues": 1,
+                                       "selectionMode": "SelectionOnly"}},
+        }})[key]
+
+    def test_does_not_apply_is_a_decline_not_a_rejection(self):
+        from vendoo_studio.services.vendoo_specifics import encode_specific
+
+        occasion = self.spec("Occasion", ["Birthday", "Wedding"])
+        # Nothing to store, and nothing worth reporting either.
+        self.assertEqual(encode_specific(occasion, "Does Not Apply"), ("", True))
+        self.assertEqual(encode_specific(occasion, "N/A"), ("", True))
+
+    def test_a_list_that_offers_it_still_stores_it(self):
+        from vendoo_studio.services.vendoo_specifics import encode_specific
+
+        handmade = self.spec("Handmade", ["Yes", "No", "Does Not Apply"])
+        self.assertEqual(encode_specific(handmade, "Does Not Apply"), ("Does Not Apply", True))
+
+    def test_a_real_value_the_list_lacks_is_still_reported(self):
+        from vendoo_studio.services.vendoo_specifics import encode_specific
+
+        sleeve = self.spec("Sleeve length", ["Long Sleeve", "Sleeveless"])
+        self.assertEqual(encode_specific(sleeve, "Short sleeve"), ("", False))
+
+    def test_an_unlisted_brand_falls_back_to_other(self):
+        from vendoo_studio.services.vendoo_specifics import encode_specific
+
+        brand = self.spec("brand", ["Nike", "Adidas", "Other"], display="Brand")
+        self.assertEqual(encode_specific(brand, "GB Girls"), ("Other", True))
+
+    def test_no_other_option_means_it_is_reported(self):
+        from vendoo_studio.services.vendoo_specifics import encode_specific
+
+        brand = self.spec("brand", ["Nike", "Adidas"], display="Brand")
+        self.assertEqual(encode_specific(brand, "GB Girls"), ("", False))
+
+
 if __name__ == "__main__":
     unittest.main()

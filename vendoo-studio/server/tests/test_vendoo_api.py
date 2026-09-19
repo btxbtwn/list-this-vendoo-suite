@@ -168,7 +168,10 @@ class BuildItemTest(unittest.TestCase):
         item = self.item
         self.assertEqual(item["origin"], "vendoo")
         self.assertEqual(item["version"], CURRENT_ITEM_VERSION)
-        self.assertEqual(item["status"], {"notSaved": True})
+        # Vendoo's own save replaces the factory's "notSaved" with complete or
+        # inProgress; creating one and leaving it notSaved is what made every
+        # marketplace form read as untouched.
+        self.assertIn(item["status"], ({"complete": True}, {"inProgress": True}))
         self.assertEqual(item["type"], "item")
         self.assertEqual(item["userID"], "u1")
         self.assertEqual(item["itemID"], "abc123")
@@ -195,6 +198,26 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(general["images"], IMAGES)
         self.assertEqual(general["category"], "Clothing > Men > Jeans")
         self.assertNotIn("labels", general)
+
+    def test_a_created_item_is_marked_saved_and_its_forms_stamped(self):
+        item, unresolved = build_vendoo_item(
+            {**LISTING, "category_id": "cat_1", "marketplace_category_ids": {"ebay": "53159"}},
+            self.schema,
+        )
+        self.assertEqual(item["status"], {"inProgress": True} if unresolved else {"complete": True})
+        ebay = item["listings"]["ebay"]
+        # A form that was filled carries the dates a save writes.
+        self.assertIn("_seconds", ebay["dateCreated"])
+        self.assertEqual(ebay["dateCreated"], ebay["dateLastModified"])
+        # One nobody touched is left alone.
+        self.assertEqual(item["listings"]["vinted"]["dateLastModified"], "")
+
+    def test_an_item_with_nothing_unresolved_claims_complete(self):
+        item, unresolved = build_vendoo_item(
+            {"title": "Tee", "category_path": "Clothing > Tops"}, self.schema,
+        )
+        self.assertEqual(unresolved, [])
+        self.assertEqual(item["status"], {"complete": True})
 
     def test_category_id_becomes_category_v2(self):
         item, _ = build_vendoo_item({**LISTING, "category_id": "cat_1"}, self.schema)
