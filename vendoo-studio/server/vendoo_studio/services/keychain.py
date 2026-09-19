@@ -24,6 +24,13 @@ LEGACY_ACCOUNTS = (KEYRING_ACCOUNT, BRAVE_ACCOUNT, CHATGPT_ACCOUNT, CHATGPT_MODE
 # moment — would hide the secrets still in the old items for good. With it the
 # sweep happens once, so steady-state launches still read a single item.
 MIGRATION_MARKER = "legacy-migrated"
+# The marker also lives beside the data dir. Keychain items are readable by the
+# binary that wrote them, so a re-signed build — every app update — sees no
+# secrets item, concludes none exists, and sweeps the legacy items again. Those
+# hold whatever was there before consolidation, so a key entered since came
+# back as the old one on every restart. A marker the next build can actually
+# read is what stops that.
+MIGRATION_FLAG_FILE = "keychain-migrated"
 
 _lock = threading.RLock()
 # Accounts this process set or deleted. Only these override what is on disk,
@@ -106,6 +113,37 @@ def _parse_store(raw: str) -> dict[str, str]:
     return {k: v for k, v in parsed.items() if isinstance(k, str) and isinstance(v, str)}
 
 
+def _migration_flag_path():
+    from pathlib import Path
+
+    from vendoo_studio.config import DATA_DIR
+
+    return Path(DATA_DIR) / MIGRATION_FLAG_FILE
+
+
+def _migration_done_on_disk() -> bool:
+    """Whether the legacy items have already been folded in, once and for all."""
+    try:
+        return _migration_flag_path().is_file()
+    except Exception:  # noqa: BLE001 - an unreadable data dir is not a migration
+        return False
+
+
+def _record_migration_done() -> None:
+    try:
+        path = _migration_flag_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "The pre-consolidation Keychain items have been read into "
+            "studio-secrets. They are a snapshot from before that and must not "
+            "be swept again: doing so restores whatever key was current then "
+            "over anything entered since.\n",
+            encoding="utf-8",
+        )
+    except Exception:  # noqa: BLE001 - worth logging, not worth failing over
+        log.warning("could not record that the keychain migration ran", exc_info=True)
+
+
 def _secrets() -> dict[str, str]:
     """Load the secrets item once, migrating the old per-secret items if needed."""
     global _store, _store_readable
@@ -120,7 +158,7 @@ def _secrets() -> dict[str, str]:
             return _store
         _store_readable = True
         _store = _parse_store(raw) if raw is not None else {}
-        if _store.get(MIGRATION_MARKER) != "1":
+        if _store.get(MIGRATION_MARKER) != "1" and not _migration_done_on_disk():
             for account in LEGACY_ACCOUNTS:
                 if account in _store:
                     continue
@@ -131,6 +169,7 @@ def _secrets() -> dict[str, str]:
             _store[MIGRATION_MARKER] = "1"
             _touched.add(MIGRATION_MARKER)
             _save_store()
+            _record_migration_done()
         return _store
 
 
