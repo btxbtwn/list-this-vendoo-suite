@@ -40,7 +40,7 @@ async def request(job, message_type: str, payload: dict[str, Any] | None = None,
     if not manager.connected:
         raise BrowserBridgeError("Connect Chrome to use the Vendoo browser.")
     request_id = uuid.uuid4().hex
-    waiter = manager.register_wait(request_id)
+    waiter = manager.register_wait(request_id, getattr(job, "id", None))
     sent = await manager.send_message(ProtocolMessage(
         type=message_type,
         job_id=job.id,
@@ -52,6 +52,9 @@ async def request(job, message_type: str, payload: dict[str, Any] | None = None,
         raise BrowserBridgeError("Could not reach the Chrome extension.")
     try:
         result = await asyncio.wait_for(waiter, timeout)
+    except asyncio.CancelledError as exc:
+        manager.cancel_wait(request_id)
+        raise BrowserBridgeError("Send was cancelled.") from exc
     except TimeoutError as exc:
         manager.cancel_wait(request_id)
         raise BrowserBridgeError("Chrome did not answer in time.") from exc

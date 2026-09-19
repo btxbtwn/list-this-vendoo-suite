@@ -575,9 +575,17 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
     try:
         out = await create_item(job, snapshot, photos, provider=provider, evidence=evidence)
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        job = job_repo.get(job.id) or job
+        if str(getattr(job, "status", "") or "") == "cancelled" or "cancelled" in str(exc).lower():
+            raise HTTPException(409, "Send was cancelled") from exc
         job_repo.update_status(job.id, "failed", CREATE_STEP, error=str(exc))
         job_repo.add_event(job.id, "vendoo_api_create_failed", CREATE_STEP, {"error": str(exc)})
         raise _http_error(exc) from exc
+
+    job = job_repo.get(job.id) or job
+    if str(getattr(job, "status", "") or "") == "cancelled":
+        # Draft may already exist on Vendoo; do not bind or flip the cancelled job.
+        raise HTTPException(409, "Send was cancelled")
 
     conv.notes = merge_notes(conv.notes, {"vendooItemId": out["item_id"], "vendooUrl": out["url"]})
     db.commit()

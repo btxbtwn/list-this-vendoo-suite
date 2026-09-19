@@ -86,7 +86,18 @@ export function App() {
   const needsSetup = !status || !status.provider_configured || !status.extension_connected;
   const createListingTitle = "New listing";
   const listingJob = jobs?.find((job) => job.conversation_id === selectedConvId && job.status !== "cancelled");
-  const previewOpen = Boolean(listingJob && PREVIEW_JOB_STATUSES.has(String(listingJob.status)));
+  const apiCreateStep = String(listingJob?.current_step || "");
+  const apiCreateRunning = Boolean(
+    listingJob?.status === "dispatched"
+    && (apiCreateStep === "vendoo_api_create" || apiCreateStep.startsWith("vendoo_api_")),
+  );
+  // API create has no draft tab yet — keep the browser pane closed so we do not
+  // show a forever "Connecting to the Vendoo tab" while Chrome talks to the API.
+  const previewOpen = Boolean(
+    listingJob
+    && PREVIEW_JOB_STATUSES.has(String(listingJob.status))
+    && !apiCreateRunning,
+  );
   const browserOpen = Boolean(browserJobId && listingJob?.id === browserJobId);
   const browserPaneOpen = previewOpen || browserOpen;
 

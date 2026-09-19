@@ -64,22 +64,32 @@ class ExtensionManager:
         self.reload_generation: str | None = None
         self._pairing_token: str | None = None
         self._waits: dict[str, asyncio.Future] = {}
+        self._wait_jobs: dict[str, str] = {}
 
-    def register_wait(self, request_id: str) -> asyncio.Future:
+    def register_wait(self, request_id: str, job_id: str | None = None) -> asyncio.Future:
         self.cancel_wait(request_id)
         fut = asyncio.get_running_loop().create_future()
         self._waits[request_id] = fut
+        if job_id:
+            self._wait_jobs[request_id] = job_id
         return fut
 
     def resolve_wait(self, request_id: str, payload: dict) -> None:
+        self._wait_jobs.pop(request_id, None)
         fut = self._waits.pop(request_id, None)
         if fut and not fut.done():
             fut.set_result(payload)
 
     def cancel_wait(self, request_id: str) -> None:
+        self._wait_jobs.pop(request_id, None)
         fut = self._waits.pop(request_id, None)
         if fut and not fut.done():
             fut.cancel()
+
+    def cancel_waits_for_job(self, job_id: str) -> None:
+        for request_id, wait_job_id in list(self._wait_jobs.items()):
+            if wait_job_id == job_id:
+                self.cancel_wait(request_id)
 
     def _mark_disconnected(self) -> None:
         self.connection = None

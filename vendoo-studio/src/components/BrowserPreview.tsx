@@ -689,11 +689,19 @@ export function BrowserPreview({
           </div>
         ) : (
           <div className="browser-preview-empty">
-            <p>{live ? "Connecting to the Vendoo tab…" : "Starting live view…"}</p>
+            <p>
+              {String(step || "").startsWith("vendoo_api")
+                ? "Sending to Vendoo…"
+                : live
+                  ? "Connecting to the Vendoo tab…"
+                  : "Starting live view…"}
+            </p>
             <p className="text-xs text-muted">
-              {interactive
-                ? "Opening the Vendoo draft in Chrome. You can click, type, and point at fields here once it loads."
-                : "Chrome is filling the listing in its own window. That window closes when the draft is saved."}
+              {String(step || "").startsWith("vendoo_api")
+                ? "Chrome talks to Vendoo over the API. No draft tab opens until the send finishes."
+                : interactive
+                  ? "Opening the Vendoo draft in Chrome. You can click, type, and point at fields here once it loads."
+                  : "Chrome is filling the listing in its own window. That window closes when the draft is saved."}
             </p>
           </div>
         )}
