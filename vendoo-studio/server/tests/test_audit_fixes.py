@@ -411,6 +411,8 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertEqual(ebay["mpn"], DNA_VALUE)
         self.assertEqual(ebay["upc"], DNA_VALUE)
         self.assertEqual(ebay["character"], DNA_VALUE)
+        # Fabric Weight stays blank unless an evidenced numeric oz/gsm value is present.
+        self.assertEqual(str(ebay.get("fabricWeight") or "").strip(), "")
         self.assertNotEqual(str(ebay.get("features") or "").strip(), "")
         self.assertNotEqual(str(ebay.get("neckline") or "").strip(), "")
         # DNA must not be used for must-fill apparel attributes.
@@ -420,10 +422,88 @@ class ValidationCasesTest(unittest.TestCase):
         optional_errors = [
             err for err in result.errors
             if str(err.get("field") or "").startswith("ebay_specifics.")
-            and err["field"] not in {"ebay_specifics.material", "ebay_specifics.garmentCare", "ebay_specifics.fabricType"}
+            and err["field"] not in {
+                "ebay_specifics.material",
+                "ebay_specifics.garmentCare",
+                "ebay_specifics.fabricType",
+                "ebay_specifics.fabricWeight",
+            }
         ]
         self.assertFalse(optional_errors, optional_errors)
         self.assertTrue(result.can_send, result.errors)
+
+    def test_ebay_fabric_weight_clears_junk_keeps_numeric(self):
+        from vendoo_studio.models.listing_values import DNA_VALUE
+        from vendoo_studio.models.ebay_fields import (
+            ensure_ebay_category_optionals,
+            normalize_ebay_fabric_weight,
+        )
+
+        self.assertEqual(normalize_ebay_fabric_weight("Lightweight"), ("", True))
+        self.assertEqual(normalize_ebay_fabric_weight("heavyweight"), ("", True))
+        self.assertEqual(normalize_ebay_fabric_weight(DNA_VALUE), ("", True))
+        self.assertEqual(normalize_ebay_fabric_weight("4.5"), ("4.5", False))
+        self.assertEqual(normalize_ebay_fabric_weight("4.5 oz"), ("4.5", True))
+
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "features": "Lightweight",
+            "fabricWeight": "Lightweight",
+        }
+        self.assertTrue(ensure_ebay_category_optionals(listing))
+        self.assertEqual(listing["ebay_specifics"].get("fabricWeight"), "")
+
+        listing["ebay_specifics"]["fabricWeight"] = DNA_VALUE
+        self.assertTrue(ensure_ebay_category_optionals(listing))
+        self.assertEqual(listing["ebay_specifics"].get("fabricWeight"), "")
+
+        listing["ebay_specifics"]["fabricWeight"] = "4.5"
+        ensure_ebay_category_optionals(listing)
+        self.assertEqual(listing["ebay_specifics"].get("fabricWeight"), "4.5")
+
+    def test_ebay_fabric_weight_blank_or_numeric_on_validate(self):
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "season": "Summer",
+            "handmade": "No",
+            "personalize": "No",
+            "unitQuantity": "1",
+            "unitType": "Unit",
+            "pattern": "Solid",
+            "occasion": "Casual",
+            "style": "Basic",
+            "closure": "Pullover",
+            "neckline": "Crew Neck",
+            "features": "Lightweight",
+            "fit": "Regular",
+            "sleeveLength": "Short Sleeve",
+            "vintage": "No",
+            "mpn": "Does Not Apply",
+            "upc": "Does Not Apply",
+            "character": "Does Not Apply",
+            "accents": "Does Not Apply",
+            "theme": "Does Not Apply",
+            "strapType": "Does Not Apply",
+            "fabricWeight": "Does Not Apply",
+            "countryOfOrigin": "Does Not Apply",
+            "sleeveType": "Does Not Apply",
+        }
+        # DNA / Lightweight cleared to blank — allowed when no evidenced number.
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertEqual(listing["ebay_specifics"].get("fabricWeight"), "")
+        self.assertFalse(
+            any(error["field"] == "ebay_specifics.fabricWeight" for error in result.errors),
+            result.errors,
+        )
+
+        listing["ebay_specifics"]["fabricWeight"] = "4.5"
+        result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+        self.assertFalse(
+            any(error["field"] == "ebay_specifics.fabricWeight" for error in result.errors),
+            result.errors,
+        )
 
     def test_ebay_optional_rejects_dna_for_must_fill(self):
         listing = dict(VALID_LISTING)
@@ -449,7 +529,7 @@ class ValidationCasesTest(unittest.TestCase):
             "accents": "Does Not Apply",
             "theme": "Does Not Apply",
             "strapType": "Does Not Apply",
-            "fabricWeight": "Does Not Apply",
+            "fabricWeight": "",
             "countryOfOrigin": "Does Not Apply",
             "sleeveType": "Does Not Apply",
         }

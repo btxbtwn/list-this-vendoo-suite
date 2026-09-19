@@ -275,7 +275,7 @@ def deterministic_gap_patches(
                 ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
                 raw = None
                 for key in (
-                    "mpn", "upc", "character", "characterFamily", "strapType", "fabricWeight",
+                    "mpn", "upc", "character", "characterFamily", "strapType",
                     "theme", "performanceActivity", "accents", "countryOfOrigin", "sleeveType",
                     "personalizationInstructions",
                 ):

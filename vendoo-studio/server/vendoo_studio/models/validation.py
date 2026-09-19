@@ -13,6 +13,7 @@ from vendoo_studio.models.depop_fields import (
 )
 from vendoo_studio.models.ebay_fields import (
     EBAY_CATEGORY_OPTIONAL_KEYS,
+    EBAY_FABRIC_WEIGHT_RE,
     EBAY_KEY_ALIASES,
     EBAY_OPTIONAL_DNA_KEYS,
     EBAY_OPTIONAL_EVIDENCE_KEYS,
@@ -23,6 +24,7 @@ from vendoo_studio.models.ebay_fields import (
     ensure_ebay_category_optionals,
     exact_ebay_season,
     infer_ebay_season,
+    normalize_ebay_fabric_weight,
     normalize_ebay_season_value,
     promote_required_ebay_specifics,
 )
@@ -533,8 +535,23 @@ def validate_listing(
                 add_issue(
                     result,
                     f"ebay_specifics.{key}",
-                    f"eBay '{key}' applies to this item — use a real value, not Does Not Apply",
+                    (
+                        "eBay Fabric Weight must be left blank unless a numeric value "
+                        "(greater than 0, up to 1 decimal) is evidenced — never Does Not Apply"
+                        if key == "fabricWeight"
+                        else f"eBay '{key}' applies to this item — use a real value, not Does Not Apply"
+                    ),
                 )
+                continue
+            if key == "fabricWeight" and text:
+                normalized, _ = normalize_ebay_fabric_weight(text)
+                match = EBAY_FABRIC_WEIGHT_RE.fullmatch(text_value(normalized) or text)
+                if not match or float(match.group(1)) <= 0:
+                    add_issue(
+                        result,
+                        "ebay_specifics.fabricWeight",
+                        "eBay Fabric Weight must be a number greater than 0 with at most 1 decimal place",
+                    )
         ebay_size = text_value(ebay.get("size"))
         if size and ebay_size and ebay_size.lower() != size.lower():
             add_issue(result, "ebay_specifics.size", "eBay size must match the general size")

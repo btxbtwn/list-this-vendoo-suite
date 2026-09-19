@@ -118,13 +118,13 @@ EBAY_OPTIONAL_ALWAYS_DEFAULTS = {
     "features": "Lightweight",
 }
 # Only these may be Does Not Apply when empty — everything else must be a real value.
+# Fabric Weight is numeric on eBay (must be > 0); DNA is rejected at list time.
 EBAY_OPTIONAL_DNA_KEYS = frozenset({
     "mpn",
     "upc",
     "character",
     "characterFamily",
     "strapType",
-    "fabricWeight",
     "theme",
     "performanceActivity",
     "accents",
@@ -133,7 +133,40 @@ EBAY_OPTIONAL_DNA_KEYS = frozenset({
     "personalizationInstructions",
 })
 # Tag-evidence fields: blank stays a warning (never invent), not DNA.
-EBAY_OPTIONAL_EVIDENCE_KEYS = frozenset({"material", "fabricType", "garmentCare"})
+# Fabric Weight: omit when unknown — eBay rejects "Does Not Apply" and requires a number > 0.
+EBAY_OPTIONAL_EVIDENCE_KEYS = frozenset({"material", "fabricType", "garmentCare", "fabricWeight"})
+# Free-text / DNA / Features-chip tokens that must never be submitted as Fabric Weight.
+# Leave blank unless a real numeric oz/gsm value is evidenced — never invent.
+EBAY_FABRIC_WEIGHT_CLEAR = frozenset({
+    "does not apply",
+    "n/a",
+    "na",
+    "n.a",
+    "n.a.",
+    "none",
+    "unknown",
+    "-",
+    "--",
+    "d",
+    "lightweight",
+    "light weight",
+    "light-weight",
+    "light",
+    "midweight",
+    "mid weight",
+    "mid-weight",
+    "medium",
+    "medium weight",
+    "medium-weight",
+    "heavyweight",
+    "heavy weight",
+    "heavy-weight",
+    "heavy",
+})
+EBAY_FABRIC_WEIGHT_RE = re.compile(
+    r"^(\d+(?:\.\d)?)\s*(?:oz(?:/?\s*yd(?:\^?2|²)?)?|g/?m(?:\^?2|²)?|gsm)?$",
+    re.I,
+)
 
 # Lookup keys (field_lookup_key form) for apparel optionals that must not silent-skip.
 EBAY_OPTIONAL_MUST_FILL_LOOKUPS = frozenset({
@@ -170,7 +203,6 @@ EBAY_OPTIONAL_DNA_LOOKUPS = frozenset({
     "character",
     "character family",
     "strap type",
-    "fabric weight",
     "theme",
     "performance activity",
     "accents",
@@ -386,6 +418,28 @@ def _infer_ebay_sleeve_length(listing: dict | None, ebay: dict | None) -> str:
     return "Short Sleeve"
 
 
+def _fabric_weight_word_key(text: str) -> str:
+    return re.sub(r"[\s\-]+", " ", text.casefold()).strip()
+
+
+def normalize_ebay_fabric_weight(value: Any) -> tuple[Any, bool]:
+    """Keep an evidenced numeric oz/gsm value; clear DNA, Features chips, and other junk."""
+    if value is None or (isinstance(value, str) and value.strip() == ""):
+        return "", False
+    if ebay_optional_blank(value):
+        return "", True
+    text = text_value(value)
+    if _fabric_weight_word_key(text) in EBAY_FABRIC_WEIGHT_CLEAR:
+        return "", True
+    match = EBAY_FABRIC_WEIGHT_RE.fullmatch(text)
+    if match:
+        num = match.group(1)
+        if float(num) > 0:
+            return num, num != text
+    # Non-numeric junk must not reach eBay — leave blank rather than invent.
+    return "", True
+
+
 def _infer_ebay_fabric_type(listing: dict | None, ebay: dict | None) -> str | None:
     ebay = ebay if isinstance(ebay, dict) else {}
     material = text_value(ebay_optional_raw(ebay, "material") or (listing or {}).get("material"))
@@ -483,6 +537,20 @@ def ensure_ebay_category_optionals(listing: dict) -> bool:
                 continue
         if ebay_optional_blank(ebay_optional_raw(ebay, key)):
             set_key(key, DNA_VALUE)
+
+    # Fabric Weight: keep evidenced numerics only; clear DNA / Lightweight / other junk.
+    # Never invent a weight — blank when unknown.
+    raw_weight = ebay_optional_raw(ebay, "fabricWeight")
+    if not ebay_optional_blank(raw_weight):
+        normalized_weight, weight_changed = normalize_ebay_fabric_weight(raw_weight)
+        if weight_changed or text_value(normalized_weight) != text_value(raw_weight):
+            ebay["fabricWeight"] = normalized_weight
+            nested = ebay.get("category_specifics")
+            if isinstance(nested, dict) and "fabricWeight" in nested:
+                nested = dict(nested)
+                nested["fabricWeight"] = normalized_weight
+                ebay["category_specifics"] = nested
+            changed = True
 
     # Material: copy fabricType fiber when material empty and fabric looks like a fiber.
     if ebay_optional_blank(ebay_optional_raw(ebay, "material")):
