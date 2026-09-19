@@ -331,7 +331,7 @@ Use these lists only to select valid dropdown values. Outputs should still be th
 ## **eBay Optional Fields - Value Lists**
 
 * “Show Optional Fields” – REQUIRED  
-* Fill every applicable optional row. Use Does Not Apply only when the attribute literally does not apply (MPN, UPC, Character, Theme, Strap Type, Fabric Weight, Accents, Country of Origin, Sleeve Type). Never leave Features, Neckline, Season, Fit, Pattern, Occasion, Closure, Unit Quantity, or Unit Type blank.  
+* Fill every applicable optional row. Use Does Not Apply only when the attribute literally does not apply (MPN, UPC, Character, Theme, Strap Type, Accents, Country of Origin, Sleeve Type). Fabric Weight: leave blank unless a numeric oz/gsm value is evidenced — never Does Not Apply or Lightweight. Never leave Features, Neckline, Season, Fit, Pattern, Occasion, Closure, Unit Quantity, or Unit Type blank.  
 * Accents: Beaded, Bow, Button, Crochet, Embroidered, Fringe, Fur Trim, Glitter, Jewel, Logo, Pleated, Quilted, Rhinestone, Ruffle, Sequin, Strap, Studded, Tasseled, Zipper  
 * Character: (if applicable) Disney, Marvel, Band name, etc.  
 * Closure: Zip, Button, Snap, Tie, Pullover, Hook & Eye, Elastic, Toggle, Velcro, Drawstring, Clasp, Lace-up, Magnetic  

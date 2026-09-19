@@ -3693,6 +3693,15 @@
           }
           return null;
       }
+      // eBay Fabric Weight: keep evidenced numerics only; clear DNA / Lightweight / junk — never invent.
+      if (key === 'fabricWeight') {
+          if (isDoesNotApplyValue(raw)) return '';
+          const wordKey = String(raw).trim().toLowerCase().replace(/[\s\-]+/g, ' ');
+          if (/^(light(weight)?|mid(weight)?|medium( weight)?|heavy(weight)?)$/.test(wordKey)) return '';
+          const match = String(raw).trim().match(/^(\d+(?:\.\d)?)\s*(?:oz(?:\/?\s*yd(?:\^?2|²)?)?|g\/?m(?:\^?2|²)?|gsm)?$/i);
+          if (match && Number(match[1]) > 0) return match[1];
+          return '';
+      }
       if (isDoesNotApplyValue(raw)) return null;
       if (key === 'countryOfOrigin' && /^unknown$/i.test(raw)) return null;
       return value;
@@ -3816,6 +3825,36 @@
               if (isAccountSettingField(fieldName) || isAccountSettingField(key)) continue;
               const isCascade = EBAY_CASCADE_SPECIFIC_KEYS.includes(key);
               if (mapped && typeof mapped === 'object' && !Array.isArray(mapped)) continue;
+              if (key === 'fabricWeight' && (!mapped || mapped === '')) {
+                  // Blank when unknown — clear stale DNA / Lightweight / non-numeric values on the form.
+                  if (!optionalsReady) {
+                      await waitForEbayOptionalCategoryFields();
+                      optionalsReady = true;
+                  }
+                  allInputs = collectEbayCategoryInputs();
+                  const weightEl = findEbaySpecificInput(fieldName, allInputs);
+                  const live = String(weightEl?.value || '').trim();
+                  if (weightEl && live && (isDoesNotApplyValue(live) || !/^(\d+(?:\.\d)?)$/.test(live) || Number(live) <= 0)) {
+                      await clearInput(weightEl);
+                      log(`  ✓ ${fieldName}: cleared (leave blank unless numeric evidence)`);
+                      recordFill({
+                        field: fieldName,
+                        status: 'filled',
+                        reason: 'Cleared invalid Fabric Weight; leave blank unless evidenced numeric',
+                        selector: selectorFor(weightEl, ''),
+                        value: '',
+                      });
+                  } else {
+                      recordFill({
+                        field: fieldName,
+                        status: 'skipped',
+                        reason: 'Fabric Weight left blank (no evidenced numeric value)',
+                        value: specs[key] || '',
+                      });
+                  }
+                  filledNames.add(fieldKey);
+                  continue;
+              }
               if (specs[key] && (mapped == null || mapped === '')) {
                   if (isDoesNotApplyValue(specs[key])) {
                       skipDoesNotApply(fieldName, '', specs[key], null);
