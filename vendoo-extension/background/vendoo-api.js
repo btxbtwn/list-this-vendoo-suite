@@ -21,6 +21,10 @@ const VENDOO_FIRESTORE_BASE = 'https://firestore.googleapis.com/v1/projects/vend
 const VENDOO_TOKEN_REFRESH_URL = 'https://securetoken.googleapis.com/v1/token';
 const VENDOO_APP_URL = 'https://web.vendoo.co/app/';
 const VENDOO_TOKEN_MIN_TTL_MS = 5 * 60 * 1000;
+// Where the signed-in session is kept between calls. Reading it from a page
+// needs a web.vendoo.co tab; refreshing it needs only the refresh token, so
+// caching that is what lets Studio work with Vendoo closed.
+const VENDOO_SESSION_KEY = 'vendoo_session';
 const VENDOO_REQUEST_TIMEOUT_MS = 60000;
 
 // Firestore auto-ids: 20 chars from this alphabet. Vendoo mints the item id
@@ -177,6 +181,34 @@ async function findOrOpenVendooTab() {
   return opened.tabId;
 }
 
+async function loadCachedVendooSession() {
+  try {
+    const stored = await chrome.storage.local.get(VENDOO_SESSION_KEY);
+    const session = stored?.[VENDOO_SESSION_KEY];
+    return session && session.uid && session.refresh_token ? session : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function cacheVendooSession(session) {
+  if (!session?.uid || !session?.refresh_token) return session;
+  try {
+    await chrome.storage.local.set({ [VENDOO_SESSION_KEY]: session });
+  } catch (err) {
+    /* a cache that will not write is not worth failing the call over */
+  }
+  return session;
+}
+
+async function clearCachedVendooSession() {
+  try {
+    await chrome.storage.local.remove(VENDOO_SESSION_KEY);
+  } catch (err) {
+    /* nothing to do */
+  }
+}
+
 async function readVendooSession() {
   const tabId = await findOrOpenVendooTab();
   let lastError = 'No Vendoo session in the page';
@@ -212,13 +244,36 @@ async function refreshVendooToken(session) {
   };
 }
 
+function tokenIsFresh(session) {
+  return Boolean(session?.access_token)
+    && (session.expiration_time - Date.now()) >= VENDOO_TOKEN_MIN_TTL_MS;
+}
+
+// A signed-in session, without opening Vendoo when it can be helped.
+//
+// The cached refresh token mints ID tokens on its own, so once this Chrome
+// profile has signed in to Vendoo, creating, editing, listing and delisting
+// all run with no Vendoo tab anywhere. A tab is read only to bootstrap the
+// first session, or when the refresh token stops working — the seller having
+// signed out, or Firebase having revoked it.
 async function freshVendooSession() {
+  const cached = await loadCachedVendooSession();
+  if (tokenIsFresh(cached)) return cached;
+  if (cached) {
+    try {
+      return await cacheVendooSession(await refreshVendooToken(cached));
+    } catch (err) {
+      // Refusing to refresh means this session is done; fall back to the page.
+      await clearCachedVendooSession();
+    }
+  }
+
   let session = await readVendooSession();
-  if (!session.access_token || session.expiration_time - Date.now() < VENDOO_TOKEN_MIN_TTL_MS) {
+  if (!tokenIsFresh(session)) {
     session = await refreshVendooToken(session);
   }
   if (!session.access_token) throw new Error('Vendoo session has no ID token; sign in to Vendoo again');
-  return session;
+  return cacheVendooSession(session);
 }
 
 async function vendooFetch(url, { method = 'GET', token, json, body, headers = {}, responseType = 'json', timeoutMs } = {}) {
