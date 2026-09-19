@@ -4,6 +4,7 @@ import type {
   FillLogReport,
   Job,
   ListingData,
+  ListingFallbackId,
   ListingProviderId,
   ListingResponse,
   ListingRevision,
@@ -306,9 +307,9 @@ export const api = {
       request<ProviderTestResult>("/settings/provider/mimo/test", { method: "POST" }),
     setPreferredProvider: (order: {
       primary: ListingProviderId;
-      fallback?: ListingProviderId | "none" | null;
+      fallback?: ListingFallbackId | null;
     }) =>
-      request<{ ok: boolean; primary: ListingProviderId; fallback: ListingProviderId | "none" }>(
+      request<{ ok: boolean; primary: ListingProviderId; fallback: ListingFallbackId }>(
         "/settings/provider/preferred",
         {
           method: "PUT",

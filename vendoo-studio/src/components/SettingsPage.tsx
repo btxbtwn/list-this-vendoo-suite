@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { ListingProviderId } from "../api/types";
+import type { ListingFallbackId, ListingProviderId } from "../api/types";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
@@ -10,16 +10,15 @@ import {
   type SettingsSectionId,
 } from "./settingsNav";
 
-type ListingFallbackId = ListingProviderId | "none";
-
-function providerLabel(choice: ListingFallbackId): string {
+function providerLabel(choice: ListingProviderId | ListingFallbackId): string {
+  if (choice === "auto") return "Auto";
   if (choice === "chatgpt") return "ChatGPT";
   if (choice === "mimo") return "MiMo";
   if (choice === "cursor") return "Cursor";
   return "None";
 }
 
-function activeProviderChoice(providerName: string | undefined): ListingProviderId | null {
+function activeProviderChoice(providerName: string | undefined): Exclude<ListingProviderId, "auto"> | null {
   if (providerName === "chatgpt") return "chatgpt";
   if (providerName === "xiaomi-mimo") return "mimo";
   if (providerName === "cursor") return "cursor";
@@ -637,16 +636,23 @@ function ProvidersPanel() {
   const mimoConfigured = Boolean(provider?.masked_key);
   const cursorConfigured = Boolean(provider?.masked_cursor_key);
   const primary: ListingProviderId =
-    provider?.primary === "mimo" || provider?.primary === "cursor" ? provider.primary : "chatgpt";
+    provider?.primary === "auto" ||
+    provider?.primary === "mimo" ||
+    provider?.primary === "cursor" ||
+    provider?.primary === "chatgpt"
+      ? provider.primary
+      : "chatgpt";
   const fallback: ListingFallbackId =
-    provider?.fallback === "chatgpt" ||
-    provider?.fallback === "mimo" ||
-    provider?.fallback === "cursor" ||
-    provider?.fallback === "none"
-      ? provider.fallback
-      : primary === "chatgpt"
-        ? "mimo"
-        : "chatgpt";
+    primary === "auto"
+      ? "none"
+      : provider?.fallback === "chatgpt" ||
+          provider?.fallback === "mimo" ||
+          provider?.fallback === "cursor" ||
+          provider?.fallback === "none"
+        ? provider.fallback
+        : primary === "chatgpt"
+          ? "mimo"
+          : "chatgpt";
   const usingChatGPT = provider?.provider === "chatgpt";
   const usingCursor = provider?.provider === "cursor";
   const activeChoice = activeProviderChoice(provider?.provider);
@@ -658,11 +664,14 @@ function ProvidersPanel() {
         : choice === "cursor"
           ? cursorConfigured
           : false;
-  const primaryReady = choiceReady(primary);
+  const primaryReady =
+    primary === "auto"
+      ? chatgptSignedIn || mimoConfigured || cursorConfigured
+      : choiceReady(primary);
   const fallbackReady = choiceReady(fallback);
 
   const saveOrder = (nextPrimary: ListingProviderId, nextFallback: ListingFallbackId) => {
-    let fallbackValue = nextFallback;
+    let fallbackValue = nextPrimary === "auto" ? "none" : nextFallback;
     if (fallbackValue === nextPrimary) {
       fallbackValue = "none";
     }
@@ -755,7 +764,7 @@ function ProvidersPanel() {
       <SettingsSection id="listing-ai" title="Listing AI">
         <SettingsRow
           title="Primary"
-          description="Tried first when generating listings and reading photos."
+          description="Tried first when generating listings and reading photos. Auto picks the first ready provider (ChatGPT, then MiMo, then Cursor)."
           control={
             <select
               className="input settings-model-select"
@@ -764,6 +773,7 @@ function ProvidersPanel() {
               disabled={setPreferredMutation.isPending}
               onChange={(event) => saveOrder(event.target.value as ListingProviderId, fallback)}
             >
+              <option value="auto">Auto</option>
               <option value="chatgpt">ChatGPT</option>
               <option value="mimo">Xiaomi MiMo</option>
               <option value="cursor">Cursor</option>
@@ -772,21 +782,31 @@ function ProvidersPanel() {
         />
         <SettingsRow
           title="Fallback"
-          description="Used only when the primary provider is not ready."
+          description={
+            primary === "auto"
+              ? "Not used when Primary is Auto."
+              : "Used only when the primary provider is not ready."
+          }
           control={
             <select
               className="input settings-model-select"
               aria-label="Fallback listing AI"
-              value={fallback === primary ? "none" : fallback}
-              disabled={setPreferredMutation.isPending}
+              value={primary === "auto" || fallback === primary ? "none" : fallback}
+              disabled={setPreferredMutation.isPending || primary === "auto"}
               onChange={(event) =>
                 saveOrder(primary, event.target.value as ListingFallbackId)
               }
             >
               <option value="none">None</option>
-              {primary !== "chatgpt" ? <option value="chatgpt">ChatGPT</option> : null}
-              {primary !== "mimo" ? <option value="mimo">Xiaomi MiMo</option> : null}
-              {primary !== "cursor" ? <option value="cursor">Cursor</option> : null}
+              {primary !== "chatgpt" && primary !== "auto" ? (
+                <option value="chatgpt">ChatGPT</option>
+              ) : null}
+              {primary !== "mimo" && primary !== "auto" ? (
+                <option value="mimo">Xiaomi MiMo</option>
+              ) : null}
+              {primary !== "cursor" && primary !== "auto" ? (
+                <option value="cursor">Cursor</option>
+              ) : null}
             </select>
           }
         />
@@ -794,15 +814,21 @@ function ProvidersPanel() {
           <p className="settings-row-desc">
             {provider?.configured && activeChoice
               ? `${providerLabel(activeChoice)} is active${
-                  activeChoice === primary ? " (primary)" : " (fallback)"
+                  primary === "auto"
+                    ? " (auto)"
+                    : activeChoice === primary
+                      ? " (primary)"
+                      : " (fallback)"
                 }.`
               : primaryReady
                 ? `${providerLabel(primary)} is ready.`
                 : fallback !== "none" && fallbackReady
                   ? `${providerLabel(primary)} is not ready — ${providerLabel(fallback)} will be used.`
-                  : `Configure ${providerLabel(primary)}${
-                      fallback !== "none" ? ` or ${providerLabel(fallback)}` : ""
-                    } below.`}
+                  : primary === "auto"
+                    ? "Configure ChatGPT, MiMo, or Cursor below."
+                    : `Configure ${providerLabel(primary)}${
+                        fallback !== "none" ? ` or ${providerLabel(fallback)}` : ""
+                      } below.`}
           </p>
         </SettingsRow>
       </SettingsSection>

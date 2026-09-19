@@ -40,7 +40,7 @@ class ChatGPTStatus(BaseModel):
 
 class ProviderStatus(BaseModel):
     provider: str
-    primary: Literal["chatgpt", "mimo", "cursor"]
+    primary: Literal["auto", "chatgpt", "mimo", "cursor"]
     fallback: Literal["chatgpt", "mimo", "cursor", "none"]
     configured: bool
     masked_key: str | None
@@ -52,7 +52,7 @@ class ProviderStatus(BaseModel):
 
 
 class PreferredProviderConfig(BaseModel):
-    primary: Literal["chatgpt", "mimo", "cursor"]
+    primary: Literal["auto", "chatgpt", "mimo", "cursor"]
     fallback: Literal["chatgpt", "mimo", "cursor", "none"] | None = None
 
 

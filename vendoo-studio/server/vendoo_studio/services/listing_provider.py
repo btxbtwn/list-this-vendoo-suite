@@ -5,7 +5,10 @@ from vendoo_studio.providers.cursor_agent import CursorProvider
 from vendoo_studio.providers.xiaomi_mimo import MiMoProvider
 from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
 from vendoo_studio.services.keychain import get_api_key, get_cursor_api_key
-from vendoo_studio.services.user_settings import get_listing_provider_order
+from vendoo_studio.services.user_settings import (
+    AUTO_LISTING_PROVIDER_ORDER,
+    get_listing_provider_order,
+)
 
 
 def _mimo_provider():
@@ -41,9 +44,17 @@ def _provider_for(choice: str):
 def get_listing_provider():
     """Return the active listing provider.
 
-    Tries the user's primary choice first, then the configured fallback.
+    Primary \"auto\" tries ChatGPT, then MiMo, then Cursor for the first ready
+    provider. Otherwise tries the user's primary choice, then the configured fallback.
     """
     primary, fallback = get_listing_provider_order()
+    if primary == "auto":
+        for choice in AUTO_LISTING_PROVIDER_ORDER:
+            provider = _provider_for(choice)
+            if provider is not None:
+                return provider
+        return None
+
     provider = _provider_for(primary)
     if provider is not None:
         return provider

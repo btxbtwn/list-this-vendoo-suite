@@ -47,6 +47,11 @@ class SetupGuideSettingsTest(unittest.TestCase):
             user_settings.set_listing_provider_order("chatgpt", "none"),
             {"primary": "chatgpt", "fallback": "none"},
         )
+        self.assertEqual(
+            user_settings.set_listing_provider_order("auto", "mimo"),
+            {"primary": "auto", "fallback": "none"},
+        )
+        self.assertEqual(user_settings.get_listing_provider_order(), ("auto", "none"))
         with self.assertRaises(ValueError):
             user_settings.set_listing_provider_order("claude")
         with self.assertRaises(ValueError):
@@ -105,6 +110,12 @@ class SetupGuideRouteTest(unittest.TestCase):
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json(), {"ok": True, "primary": "mimo", "fallback": "none"})
         self.assertEqual(user_settings.get_listing_provider_order(), ("mimo", "none"))
+        auto = self.client.put(
+            "/api/settings/provider/preferred",
+            json={"primary": "auto", "fallback": "cursor"},
+        )
+        self.assertEqual(auto.status_code, 200)
+        self.assertEqual(auto.json(), {"ok": True, "primary": "auto", "fallback": "none"})
         bad = self.client.put("/api/settings/provider/preferred", json={"primary": "claude"})
         self.assertEqual(bad.status_code, 422)
 

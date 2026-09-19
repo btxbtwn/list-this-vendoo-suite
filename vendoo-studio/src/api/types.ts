@@ -132,12 +132,13 @@ export interface ChatGPTStatus {
   error?: string | null;
 }
 
-export type ListingProviderId = "chatgpt" | "mimo" | "cursor";
+export type ListingProviderId = "auto" | "chatgpt" | "mimo" | "cursor";
+export type ListingFallbackId = "chatgpt" | "mimo" | "cursor" | "none";
 
 export interface ProviderStatus {
   provider: string;
   primary: ListingProviderId;
-  fallback: ListingProviderId | "none";
+  fallback: ListingFallbackId;
   configured: boolean;
   masked_key: string | null;
   masked_cursor_key?: string | null;

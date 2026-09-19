@@ -234,6 +234,39 @@ class UserSettingsCursorOrderTest(unittest.TestCase):
                 primary, fallback = user_settings.get_listing_provider_order()
                 self.assertEqual((primary, fallback), ("cursor", "mimo"))
 
+    def test_auto_tries_ready_providers_in_order(self):
+        import tempfile
+        from pathlib import Path
+
+        from vendoo_studio.providers.cursor_agent import CursorProvider
+        from vendoo_studio.providers.xiaomi_mimo import MiMoProvider
+        from vendoo_studio.services import listing_provider, user_settings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(user_settings, "settings_path", return_value=Path(tmp) / "settings.json"):
+                user_settings.set_listing_provider_order("auto", "none")
+                with (
+                    patch("vendoo_studio.services.listing_provider.chatgpt_signed_in", return_value=False),
+                    patch("vendoo_studio.services.listing_provider.get_api_key", return_value="sk-mimo"),
+                    patch(
+                        "vendoo_studio.services.listing_provider.get_cursor_api_key",
+                        return_value="cursor_test",
+                    ),
+                ):
+                    provider = listing_provider.get_listing_provider()
+                    self.assertIsInstance(provider, MiMoProvider)
+
+                with (
+                    patch("vendoo_studio.services.listing_provider.chatgpt_signed_in", return_value=False),
+                    patch("vendoo_studio.services.listing_provider.get_api_key", return_value=None),
+                    patch(
+                        "vendoo_studio.services.listing_provider.get_cursor_api_key",
+                        return_value="cursor_test",
+                    ),
+                ):
+                    provider = listing_provider.get_listing_provider()
+                    self.assertIsInstance(provider, CursorProvider)
+
 
 if __name__ == "__main__":
     unittest.main()

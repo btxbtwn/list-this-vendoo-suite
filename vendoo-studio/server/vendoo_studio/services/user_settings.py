@@ -14,13 +14,15 @@ UI_PREFS_KEY = "ui"
 RECENT_LABELS_KEY = "recent_vendoo_labels"
 SETTLED_SHELF_KEY = "settled_shelf_expanded"
 MAX_RECENT_LABELS = 12
-LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "mimo", "cursor"})
+LISTING_PROVIDER_CHOICES = frozenset({"auto", "chatgpt", "mimo", "cursor"})
 LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "mimo", "cursor", "none"})
-DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "mimo", "cursor"] = "chatgpt"
+# Prefer ChatGPT subscription first, then pay-as-you-go MiMo, then Cursor.
+AUTO_LISTING_PROVIDER_ORDER: tuple[str, ...] = ("chatgpt", "mimo", "cursor")
+DEFAULT_LISTING_PROVIDER: Literal["auto", "chatgpt", "mimo", "cursor"] = "chatgpt"
 DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "mimo", "cursor", "none"] = "mimo"
 DEFAULT_SETTLED_SHELF_EXPANDED = True
 
-ListingProviderChoice = Literal["chatgpt", "mimo", "cursor"]
+ListingProviderChoice = Literal["auto", "chatgpt", "mimo", "cursor"]
 ListingFallbackChoice = Literal["chatgpt", "mimo", "cursor", "none"]
 
 
@@ -86,16 +88,20 @@ def normalize_listing_provider(value: object) -> ListingProviderChoice:
 
 
 def normalize_listing_fallback(value: object, *, primary: ListingProviderChoice) -> ListingFallbackChoice:
+    if primary == "auto":
+        return "none"
     if isinstance(value, str):
         choice = value.strip().lower()
         if choice == "none":
             return "none"
-        if choice in LISTING_PROVIDER_CHOICES and choice != primary:
+        if choice in LISTING_FALLBACK_CHOICES and choice != "none" and choice != primary:
             return choice  # type: ignore[return-value]
     return _other_provider(primary)
 
 
-def _other_provider(primary: ListingProviderChoice) -> ListingProviderChoice:
+def _other_provider(primary: ListingProviderChoice) -> ListingFallbackChoice:
+    if primary == "auto":
+        return "none"
     if primary == "chatgpt":
         return "mimo"
     if primary == "mimo":
@@ -124,16 +130,18 @@ def set_listing_provider_order(
     fallback: object | None = None,
 ) -> dict[str, str]:
     if not isinstance(primary, str) or primary.strip().lower() not in LISTING_PROVIDER_CHOICES:
-        raise ValueError('Primary listing provider must be "chatgpt", "mimo", or "cursor".')
+        raise ValueError('Primary listing provider must be "auto", "chatgpt", "mimo", or "cursor".')
     primary_choice = normalize_listing_provider(primary)
 
-    if fallback is None:
-        fallback_choice: ListingFallbackChoice = _other_provider(primary_choice)
+    if primary_choice == "auto":
+        fallback_choice: ListingFallbackChoice = "none"
+    elif fallback is None:
+        fallback_choice = _other_provider(primary_choice)
     elif isinstance(fallback, str):
         cleaned = fallback.strip().lower()
         if cleaned == "none":
             fallback_choice = "none"
-        elif cleaned in LISTING_PROVIDER_CHOICES:
+        elif cleaned in LISTING_FALLBACK_CHOICES and cleaned != "none":
             if cleaned == primary_choice:
                 raise ValueError('Fallback must differ from primary, or be "none".')
             fallback_choice = cleaned  # type: ignore[assignment]
