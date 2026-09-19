@@ -11,6 +11,7 @@ import {
   type SettingsSearchItem,
   type SettingsSectionId,
 } from "./settingsNav";
+import { statusFromListingStatus } from "./fillLogForms";
 
 const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
@@ -719,9 +720,7 @@ function marketplaceStatusesFromDraft(draft: Record<string, unknown> | undefined
     let status = normalizeLiveStatus(scraped[id]);
     if (!status && id !== "general") {
       const listing = listings[id] as Record<string, unknown> | undefined;
-      const listed = (listing?.status as Record<string, unknown> | undefined)?.listed;
-      if (listed === true) status = "LISTED";
-      else if (listed === false) status = "NOT LISTED";
+      status = statusFromListingStatus(listing?.status) || "";
     }
     if (!status) continue;
     rows.push({ id, label: marketplaceLabel(id), status });

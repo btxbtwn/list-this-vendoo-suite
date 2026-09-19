@@ -4,8 +4,10 @@ import {
   hiddenKeySet,
   leftoverEntries,
   liveStatusClass,
+  liveStatusForMarketplace,
   marketplaceLabel,
   mergeDraftItem,
+  statusFromListingStatus,
 } from "./fillLogForms";
 
 function entry(overrides: Partial<FillLogEntry>): FillLogEntry {
@@ -79,6 +81,19 @@ describe("labels", () => {
     expect(liveStatusClass("NOT LISTED")).toBe("is-not-listed");
     expect(liveStatusClass("failed")).toBe("is-failed");
     expect(liveStatusClass(undefined)).toBe("");
+  });
+
+  it("reads notListed from the Vendoo API status object", () => {
+    expect(statusFromListingStatus({ notListed: true })).toBe("NOT LISTED");
+    expect(statusFromListingStatus({ listed: true })).toBe("LISTED");
+    expect(statusFromListingStatus({ listed: false })).toBe("NOT LISTED");
+    expect(statusFromListingStatus({ sold: true })).toBe("SOLD");
+    expect(liveStatusForMarketplace("ebay", {
+      listings: { ebay: { status: { notListed: true } } },
+    })).toBe("NOT LISTED");
+    expect(liveStatusForMarketplace("depop", {
+      listings: { depop: { status: { listed: true } } },
+    })).toBe("LISTED");
   });
 
   it("keys hidden fields by marketplace and field", () => {
