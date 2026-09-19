@@ -949,7 +949,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, error: 'missing item_id' });
       return true;
     }
-    // Studio's own fill/save job already owns this draft — do not prompt to pull
+    // Studio's own fill/save job already owns this draft — do not pull back
     // the write Studio just made.
     if (activeJob) {
       sendResponse({ ok: true, skipped: 'active_job' });

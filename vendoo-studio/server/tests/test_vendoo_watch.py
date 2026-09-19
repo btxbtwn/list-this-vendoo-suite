@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
+from unittest import mock
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -11,7 +13,15 @@ from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.vendoo_import import merge_notes
-from vendoo_studio.services.vendoo_watch import SYNCED_AT, SYNCED_REVISION, apply_pull, sync_state
+from vendoo_studio.services.browser_bridge import BrowserBridgeError
+from vendoo_studio.services.vendoo_watch import (
+    SYNCED_AT,
+    SYNCED_REVISION,
+    apply_pull,
+    sync_conversation,
+    sync_state,
+    sync_status,
+)
 
 
 class SyncStateTest(unittest.TestCase):
@@ -127,6 +137,59 @@ class SyncStateTest(unittest.TestCase):
         apply_pull(self.db, self.conv.id, fresh)
         cached = JobRepo(self.db).get_vendoo_draft(bound.id)
         self.assertEqual(cached["item"]["listings"]["ebay"]["status"], {"listed": True})
+
+
+class SyncConversationTest(unittest.TestCase):
+    """The seller is never asked: safe pulls apply, conflicts are only recorded."""
+
+    def setUp(self):
+        engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        Base.metadata.create_all(engine)
+        self.db = sessionmaker(bind=engine)()
+        self.conv = ConversationRepo(self.db).create(title="Tee")
+        self.rev = ListingRepo(self.db).save_revision(self.conv.id, {"title": "Tee"}, source="model")
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1", SYNCED_AT: "1000", SYNCED_REVISION: self.rev.id})
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.close()
+
+    def sync(self, *, stamp=2000, error=None):
+        async def fake_run_ops(job, ops):
+            if error:
+                raise error
+            item = {"itemID": "itm1", "dateLastModified": stamp, "generalDetails": {"title": "From Vendoo"}}
+            return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": item}]}
+
+        with mock.patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
+            return asyncio.run(sync_conversation(self.db, self.conv.id))
+
+    def test_vendoo_save_pulls_without_asking(self):
+        result = self.sync()
+        self.assertEqual(result["action"], "pull")
+        self.assertEqual(ListingRepo(self.db).get_revisions(self.conv.id)[0].id, result["revision_id"])
+        status = sync_status(self.db, self.conv.id)
+        self.assertTrue(status["checked_at"])
+        self.assertFalse(status["conflict"])
+        self.assertEqual(status["revision_id"], result["revision_id"])
+
+    def test_up_to_date_still_stamps_the_check(self):
+        result = self.sync(stamp=1000)
+        self.assertEqual(result["action"], "none")
+        self.assertTrue(sync_status(self.db, self.conv.id)["checked_at"])
+
+    def test_conflict_keeps_studio_and_flags_it(self):
+        edited = ListingRepo(self.db).save_revision(self.conv.id, {"title": "Edited here"}, source="user")
+        result = self.sync()
+        self.assertEqual(result["action"], "conflict")
+        self.assertEqual(ListingRepo(self.db).get_revisions(self.conv.id)[0].id, edited.id)
+        self.assertTrue(sync_status(self.db, self.conv.id)["conflict"])
+
+    def test_chrome_away_records_nothing(self):
+        result = self.sync(error=BrowserBridgeError("Connect Chrome"))
+        self.assertEqual(result["action"], "unavailable")
+        self.assertIsNone(sync_status(self.db, self.conv.id)["checked_at"])
 
 
 if __name__ == "__main__":

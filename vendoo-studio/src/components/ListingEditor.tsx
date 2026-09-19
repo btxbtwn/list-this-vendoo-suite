@@ -9,7 +9,7 @@ import { ItemDetails } from "./ItemDetails";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { SendProgress, useSendStep } from "./SendProgress";
 import { OpenListingButton } from "./OpenListingButton";
-import { VendooSyncButtons } from "./VendooSyncButtons";
+import { VendooSyncStatus } from "./VendooSyncStatus";
 import {
   DEPOP_CATEGORY_OPTIONALS,
   EBAY_CATEGORY_OPTIONALS,
@@ -216,11 +216,6 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
                 Browser
               </button>
             )}
-            <VendooSyncButtons
-              convId={convId}
-              bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
-              className="pr-review-open"
-            />
             <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />
           </div>
         </div>
@@ -237,6 +232,10 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
               queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
               ensureDraftMutation.mutate({ importDraft: true });
             }}
+          />
+          <VendooSyncStatus
+            convId={convId}
+            bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
           />
         </div>
         <div className="pr-pills" role="tablist" aria-label="Listing review">

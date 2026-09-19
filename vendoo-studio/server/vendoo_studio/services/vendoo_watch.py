@@ -5,12 +5,18 @@ is a matter of comparing it against what Studio last saw. What to do about it
 is the harder half: pulling unconditionally would throw away edits made in
 Studio, so a pull only happens when Studio has nothing of its own outstanding.
 When both sides moved, neither wins automatically — the conversation is
-reported as conflicted and left to the seller.
+recorded as conflicted and left to the seller.
+
+Syncs run when the seller saves in Vendoo (the extension says so), when a
+listing is opened, and when Studio regains focus — never on a timer. Each one
+stamps the conversation so the editor can show when it last checked.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -21,15 +27,24 @@ log = logging.getLogger("vendoo_studio.vendoo_watch")
 
 SYNCED_AT = "vendooSyncedAt"
 SYNCED_REVISION = "vendooSyncedRevision"
+CHECKED_AT = "vendooCheckedAt"
+SYNC_CONFLICT = "vendooSyncConflict"
 
 __all__ = [
     "sync_state",
+    "sync_conversation",
+    "sync_status",
     "apply_pull",
     "studio_has_unpushed_edits",
     "cache_pulled_item",
     "SYNCED_AT",
     "SYNCED_REVISION",
+    "CHECKED_AT",
 ]
+
+# One sync per conversation at a time: a seller save and a focus event landing
+# together must not both pull and write two revisions.
+_locks: dict[str, asyncio.Lock] = {}
 
 
 def _stamp(value: Any) -> int:
@@ -165,5 +180,72 @@ def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: st
     conv.notes = merge_notes(conv.notes, {
         SYNCED_AT: str(stamp),
         SYNCED_REVISION: str(revision_id or ""),
+        CHECKED_AT: datetime.now(UTC).isoformat(),
+        SYNC_CONFLICT: "",
     })
     db.commit()
+
+
+def _mark_conflict(db: Session, conv_id: str) -> None:
+    """Both sides moved: record the check without taking either version."""
+    from vendoo_studio.services.vendoo_import import merge_notes
+
+    conv = ConversationRepo(db).get(conv_id)
+    if not conv:
+        return
+    conv.notes = merge_notes(conv.notes, {
+        CHECKED_AT: datetime.now(UTC).isoformat(),
+        SYNC_CONFLICT: "1",
+    })
+    db.commit()
+
+
+async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
+    """Read the bound Vendoo item and pull it when that is safe.
+
+    ``action`` is ``pull`` (Studio took Vendoo's version), ``conflict`` (both
+    sides moved; nothing was overwritten), ``none``, or ``unavailable`` (Chrome
+    or Vendoo could not be reached; nothing was recorded).
+    """
+    from vendoo_studio.services.browser_bridge import BrowserBridgeError
+    from vendoo_studio.services.vendoo_create import VendooCreateError, run_ops
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+
+    lock = _locks.setdefault(conv_id, asyncio.Lock())
+    async with lock:
+        conv = ConversationRepo(db).get(conv_id)
+        item_id = vendoo_binding(conv.notes if conv else None).get("vendooItemId")
+        if not item_id:
+            return {"action": "none", "reason": "no vendoo draft"}
+        try:
+            reply = await run_ops(SimpleNamespace(id=None), [{"op": "get_item", "item_id": item_id}])
+        except (BrowserBridgeError, VendooCreateError) as exc:
+            return {"action": "unavailable", "reason": str(exc) or "vendoo unavailable"}
+        item = next((r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None)
+        if not isinstance(item, dict):
+            return {"action": "unavailable", "reason": "no item"}
+
+        # Another request may have pulled while this one waited on Chrome.
+        db.expire_all()
+        state = sync_state(db, conv_id, item)
+        result: dict[str, Any] = {"action": state["action"], "reason": state["reason"], "item_id": item_id}
+        if state["action"] == "pull":
+            result["revision_id"] = apply_pull(db, conv_id, item)
+        elif state["action"] == "conflict":
+            _mark_conflict(db, conv_id)
+        else:
+            mark_synced(db, conv_id, item, state.get("revision"))
+        return result
+
+
+def sync_status(db: Session, conv_id: str) -> dict[str, Any]:
+    """What the editor shows: when Studio last checked Vendoo and how it went."""
+    from vendoo_studio.services.vendoo_import import parse_notes
+
+    conv = ConversationRepo(db).get(conv_id)
+    notes = parse_notes(conv.notes if conv else None)
+    return {
+        "checked_at": notes.get(CHECKED_AT) or None,
+        "conflict": bool(notes.get(SYNC_CONFLICT)),
+        "revision_id": notes.get(SYNCED_REVISION) or None,
+    }

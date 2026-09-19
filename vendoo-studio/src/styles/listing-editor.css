@@ -83,6 +83,46 @@
   font-family: inherit;
 }
 
+.pr-vendoo-sync {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pr-vendoo-sync-btn {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.pr-vendoo-sync-btn:hover:not(:disabled),
+.pr-vendoo-sync-btn:focus-visible {
+  color: var(--color-text);
+}
+
+.pr-vendoo-sync-btn:disabled {
+  cursor: default;
+}
+
+.pr-vendoo-sync-btn.is-stale {
+  opacity: 0.7;
+}
+
+.pr-vendoo-sync-btn.is-conflict {
+  color: var(--color-draft);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .pr-vendoo-link-form {
   display: flex;
   align-items: center;

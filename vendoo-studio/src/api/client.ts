@@ -61,6 +61,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface VendooSyncStatus {
+  checked_at: string | null;
+  conflict: boolean;
+  revision_id: string | null;
+}
+
 export interface BrowserRect {
   x: number;
   y: number;
@@ -137,30 +143,18 @@ export const api = {
     sync: (convId: string) =>
       request<{
         ok: boolean;
-        action: "offer" | "none";
+        action: "pull" | "conflict" | "none" | "unavailable";
         reason: string;
         item_id?: string;
-        conflict?: boolean;
+        revision_id?: string;
       }>(
         `/conversations/${convId}/vendoo-api/sync`, { method: "POST" },
       ),
+    syncStatus: (convId: string) =>
+      request<VendooSyncStatus>(`/conversations/${convId}/vendoo-api/sync`),
     pull: (convId: string) =>
       request<{ ok: boolean; item_id: string; revision_id: string }>(
         `/conversations/${convId}/vendoo-api/pull`, { method: "POST" },
-      ),
-    pullOffers: () =>
-      request<{
-        offers: {
-          conversation_id: string;
-          item_id: string;
-          conflict: boolean;
-          offered_at: string;
-        }[];
-      }>("/vendoo-api/pull-offers"),
-    dismissPullOffer: (convId: string) =>
-      request<{ ok: boolean; dismissed: boolean }>(
-        `/conversations/${convId}/vendoo-api/pull-offers/dismiss`,
-        { method: "POST" },
       ),
   },
 

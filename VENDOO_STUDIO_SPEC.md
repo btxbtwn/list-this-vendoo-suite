@@ -342,6 +342,7 @@ POST   /api/conversations/{conversation_id}/vendoo-api/create
 POST   /api/conversations/{conversation_id}/vendoo-api/save
 POST   /api/conversations/{conversation_id}/vendoo-api/pull
 POST   /api/conversations/{conversation_id}/vendoo-api/sync
+GET    /api/conversations/{conversation_id}/vendoo-api/sync
 POST   /api/conversations/{conversation_id}/vendoo-api/list
 POST   /api/conversations/{conversation_id}/vendoo-api/delist
 
