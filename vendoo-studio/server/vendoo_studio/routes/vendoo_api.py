@@ -365,6 +365,33 @@ async def category_map(body: MapRequest):
     }}
 
 
+class UpdateRequest(BaseModel):
+    item_id: str
+    updates: dict = Field(default_factory=dict)
+
+
+@router.post("/api/vendoo-api/update")
+async def update_item_fields(body: UpdateRequest):
+    """Write specific dotted paths onto a Vendoo item.
+
+    The field-level counterpart to reading one back: needed whenever Studio
+    has to correct state Vendoo set, such as a listing status left behind by a
+    failed delist.
+    """
+    from vendoo_studio.services.vendoo_create import run_ops
+
+    if not body.updates:
+        raise HTTPException(400, "Pass at least one field to update")
+    try:
+        reply = await run_ops(SimpleNamespace(id=None), [{
+            "op": "update_item", "item_id": body.item_id, "updates": body.updates,
+        }])
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    hit = next((r for r in reply.get("results", []) if r.get("op") == "update_item"), {})
+    return {"ok": True, "item_id": body.item_id, "updated": hit.get("updated") or []}
+
+
 class SizesRequest(BaseModel):
     category_id: str
     marketplace_id: str = "vendoo"
