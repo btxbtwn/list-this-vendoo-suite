@@ -208,6 +208,40 @@ class ListRouteTest(_RouteTest):
         self.assertEqual(sent["op"], "delist_item")
 
 
+class DeleteRouteTest(_RouteTest):
+    """Deleting cannot be undone, so the rails matter more than the call."""
+
+    def test_refuses_without_confirmation(self):
+        res = self.client.post("/api/vendoo-api/delete", json={"item_ids": ["junk1"]})
+        self.assertEqual(res.status_code, 400)
+
+    def test_refuses_an_empty_list(self):
+        res = self.client.post("/api/vendoo-api/delete", json={"item_ids": [], "confirm": True})
+        self.assertEqual(res.status_code, 422)
+
+    def test_never_deletes_an_item_a_conversation_points_at(self):
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        conv.notes = merge_notes(conv.notes, {"vendooItemId": "keepme"})
+        self.db.commit()
+        sent = []
+
+        async def fake_run_ops(job, ops):
+            sent.extend(op["item_id"] for op in ops)
+            return {"ok": True, "results": [
+                {"op": "delete_item", "ok": True, "deleted": op["item_id"]} for op in ops
+            ]}
+
+        with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
+            res = self.client.post(
+                "/api/vendoo-api/delete",
+                json={"item_ids": ["keepme", "junk1"], "confirm": True},
+            )
+        body = res.json()
+        self.assertEqual(sent, ["junk1"])
+        self.assertEqual(body["deleted"], ["junk1"])
+        self.assertEqual(body["refused"], ["keepme"])
+
+
 class ProbeRouteTest(_RouteTest):
     def test_defaults_to_every_known_item(self):
         conv = ConversationRepo(self.db).get(self.conv.id)

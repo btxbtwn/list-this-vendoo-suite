@@ -405,6 +405,41 @@ async def sync_with_vendoo(conv_id: str, db: Session = Depends(get_db)):
     return {"ok": True, "action": "none", "reason": state["reason"]}
 
 
+class DeleteRequest(BaseModel):
+    """Items must be named and the call confirmed. Deleting cannot be undone."""
+    item_ids: list[str] = Field(min_length=1, max_length=50)
+    confirm: bool = False
+
+
+@router.post("/api/vendoo-api/delete")
+async def delete_items(body: DeleteRequest, db: Session = Depends(get_db)):
+    """Remove Vendoo drafts by id, refusing any a conversation still points at."""
+    from vendoo_studio.services.vendoo_create import run_ops
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+
+    if not body.confirm:
+        raise HTTPException(400, "Confirm the delete: it cannot be undone.")
+    bound = {
+        vendoo_binding(conv.notes).get("vendooItemId")
+        for conv in ConversationRepo(db).list_all()
+    }
+    wanted = [str(i).strip() for i in body.item_ids if str(i or "").strip()]
+    refused = sorted({i for i in wanted if i in bound})
+    targets = [i for i in wanted if i not in bound]
+    if not targets:
+        return {"ok": True, "deleted": [], "refused": refused}
+    log.warning("seller-triggered delete of %s", targets)
+    try:
+        reply = await run_ops(
+            SimpleNamespace(id=None),
+            [{"op": "delete_item", "item_id": i, "throttle_ms": 150} for i in targets],
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    deleted = [r.get("deleted") for r in reply.get("results", []) if r.get("op") == "delete_item" and r.get("ok")]
+    return {"ok": True, "deleted": deleted, "refused": refused}
+
+
 class UpdateRequest(BaseModel):
     item_id: str
     updates: dict = Field(default_factory=dict)

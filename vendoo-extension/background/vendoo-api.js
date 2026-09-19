@@ -497,6 +497,16 @@ async function updateVendooItem(session, call) {
   return { updated: paths };
 }
 
+// Vendoo deletes an item by removing its Firestore document; there is no API
+// call for it. Irreversible, so Studio only sends this when asked by name.
+async function deleteVendooItem(session, call) {
+  const url = `${VENDOO_FIRESTORE_BASE}/users/${encodeURIComponent(session.uid)}`
+    + `/items/${encodeURIComponent(call.item_id)}`;
+  const res = await vendooFetch(url, { method: 'DELETE', token: session.access_token });
+  if (!res.ok) throw new Error(vendooError(`delete ${call.item_id}`, res));
+  return { deleted: call.item_id };
+}
+
 async function searchVendooCategory(session, call) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/category/search`, {
     method: 'POST',
@@ -546,6 +556,9 @@ async function runVendooApiOps(ops) {
           break;
         case 'category_search':
           results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
+          break;
+        case 'delete_item':
+          results.push({ op: 'delete_item', ok: true, ...(await deleteVendooItem(session, op)) });
           break;
         case 'update_item':
           results.push({ op: 'update_item', ok: true, item_id: op.item_id, ...(await updateVendooItem(session, op)) });
