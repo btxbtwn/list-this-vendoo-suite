@@ -354,12 +354,26 @@ async def prepare_generation_schema(
     seed["category_path"] = paths["general"]
     status("Matching marketplace categories…")
     mapped = await mapped_marketplace_paths(paths["general"], platforms)
-    if not mapped:
-        # No mapper (no Chrome, say). Fall back to asking for each tree, which
-        # is what this did before.
-        paths = await select_categories(db, provider, analysis, notes, platforms, override)
-        seed["category_path"] = paths["general"]
-        mapped = {mp: path for mp, path in paths.items() if mp != "general"}
+    if mapped:
+        from vendoo_studio.services.category_lookup import marketplace_path_fits_general
+
+        mapped = {
+            mp: path
+            for mp, path in mapped.items()
+            if marketplace_path_fits_general(paths["general"], path)
+        }
+    missing = [mp for mp in platforms if mp not in mapped]
+    if missing:
+        # No mapper (no Chrome, say), or mapper returned hardware collisions —
+        # ask for the missing trees. Lock the general leaf we already chose.
+        fallback = await select_categories(
+            db, provider, analysis, notes, missing, override or paths["general"],
+        )
+        seed["category_path"] = fallback.get("general") or paths["general"]
+        for marketplace in missing:
+            path = fallback.get(marketplace)
+            if path:
+                mapped[marketplace] = path
     seed["marketplace_categories"] = mapped
     conv = ConversationRepo(db).get(conv_id)
     seed_probe_general_fields(seed, conv.notes if conv else notes)

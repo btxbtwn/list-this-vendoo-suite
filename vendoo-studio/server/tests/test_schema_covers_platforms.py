@@ -71,6 +71,41 @@ class SchemaCoversPlatformsTest(unittest.TestCase):
         self.assertNotIn("selector", payload["ebay"]["fields"][0])
         self.assertIsNone(cached_schema_payload(self.db, path, ["general", "ebay", "depop"]))
 
+    def test_poisoned_tee_nuts_cache_is_ignored(self) -> None:
+        """Earlier tee→Fastener Nuts probes must not stick under women's Tops."""
+        from vendoo_studio.models.catalog import CategorySchema
+        from vendoo_studio.models.conversation import utcnow
+
+        path = "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops"
+        self.db.add(CategorySchema(
+            general_path=path,
+            marketplace="ebay",
+            category_path="Business & Industrial > Fasteners & Hardware > Fastener Nuts > Tee Nuts",
+            fields=[{"label": "Brand", "type": "text"}],
+            observed_at=utcnow(),
+        ))
+        self.db.add(CategorySchema(
+            general_path=path,
+            marketplace="mercari",
+            category_path="Toys & Collectibles > Dress Up & Pretend Play > Play Teepees",
+            fields=[{"label": "Brand", "type": "text"}],
+            observed_at=utcnow(),
+        ))
+        self.db.commit()
+        self.assertIsNone(cached_schema_payload(self.db, path, ["ebay", "mercari"]))
+        self.assertFalse(schema_covers_platforms(self.db, path, ["ebay", "mercari"]))
+
+        # Fresh writes of hardware under an apparel general are refused.
+        remember_schema(self.db, path, {
+            "poshmark": {
+                "category": {"path": "Business & Industrial > Fasteners & Hardware > Fastener Nuts > Tee Nuts"},
+                "fields": [{"label": "Brand", "type": "text"}],
+            },
+        })
+        self.assertIsNone(
+            self.db.query(CategorySchema).filter_by(general_path=path, marketplace="poshmark").one_or_none()
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

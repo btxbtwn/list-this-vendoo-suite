@@ -4,7 +4,12 @@ import unittest
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-from vendoo_studio.services.category_lookup import category_search_query, pick_category_path
+from vendoo_studio.services.category_lookup import (
+    category_search_query,
+    condense_category_search_query,
+    marketplace_path_fits_general,
+    pick_category_path,
+)
 from vendoo_studio.services.registry import MEN_TSHIRT_PATH
 
 
@@ -29,6 +34,27 @@ class CategorySearchQueryTest(unittest.TestCase):
             "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters",
         )
         self.assertEqual(query, "Men Sweaters")
+
+
+class MarketplacePathFitsGeneralTest(unittest.TestCase):
+    def test_rejects_tee_nuts_under_women_tops(self):
+        general = "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops"
+        self.assertFalse(marketplace_path_fits_general(
+            general,
+            "Business & Industrial > Fasteners & Hardware > Fastener Nuts > Tee Nuts",
+        ))
+        self.assertFalse(marketplace_path_fits_general(
+            general,
+            "Toys & Collectibles > Dress Up & Pretend Play > Play Teepees",
+        ))
+        self.assertTrue(marketplace_path_fits_general(
+            general,
+            "Women > Tops > T-shirts",
+        ))
+        self.assertTrue(marketplace_path_fits_general(
+            general,
+            "Clothing > Women's Clothing > Tops & Tees > T-shirts",
+        ))
 
 
 class PickCategoryPathTest(unittest.TestCase):
@@ -169,6 +195,47 @@ class ResolveCategorySnapshotTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ListingRepo(db).get_revisions(conv.id)[0].listing_json["category_path"], target)
         finally:
             db.close()
+
+
+class StatedDepartmentTest(unittest.TestCase):
+    """The vision pass states who an item is cut for; the query must use it.
+
+    A women's tee routinely names no department in its brand, size or style,
+    and "Women's Clothing > Tops" shares no word with "T-Shirt" — so without
+    this the correct category cannot be ranked at all.
+    """
+
+    ANALYSIS = (
+        "Photo analysis:\n- brand: Belle\n- size: Small\n- color: Black\n"
+        "- style: Graphic Scoop Neck Tee\n- department: Women\n- category: T-Shirt"
+    )
+
+    def test_department_reaches_the_query(self):
+        query = condense_category_search_query(self.ANALYSIS).lower()
+        self.assertIn("women", query)
+
+    def test_department_survives_a_garment_that_names_no_gender(self):
+        # Nothing here says "women" except the department line.
+        self.assertNotIn("women", self.ANALYSIS.replace("- department: Women", "").lower())
+        self.assertIn("women", condense_category_search_query(self.ANALYSIS).lower())
+
+    def test_stated_department_beats_a_stray_word(self):
+        analysis = (
+            "Photo analysis:\n- style: Tee from the men's floor of a department store\n"
+            "- department: Women\n- category: T-Shirt"
+        )
+        query = condense_category_search_query(analysis).lower()
+        # "men" is a substring of "women", so check the department token itself.
+        self.assertEqual(query.split()[0], "women")
+
+    def test_girls_and_boys_are_departments_too(self):
+        for stated, expected in (("Girls", "girls"), ("Boys", "boys")):
+            analysis = f"Photo analysis:\n- department: {stated}\n- category: T-Shirt"
+            self.assertIn(expected, condense_category_search_query(analysis).lower())
+
+    def test_no_department_line_still_works(self):
+        analysis = "Photo analysis:\n- category: Women's T-Shirt"
+        self.assertIn("women", condense_category_search_query(analysis).lower())
 
 
 if __name__ == "__main__":

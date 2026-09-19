@@ -1,10 +1,13 @@
 """Observed category trees and reusable field definitions, without listing values."""
 import json
+import logging
 
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.catalog import CategoryNode, CategorySchema
 from vendoo_studio.models.conversation import utcnow
+
+log = logging.getLogger("vendoo_studio.category_catalog")
 
 
 def remember_path(db: Session, marketplace: str, path: str) -> None:
@@ -23,6 +26,8 @@ def remember_path(db: Session, marketplace: str, path: str) -> None:
 def remember_schema(db: Session, general_path: str, schema: dict) -> None:
     if not general_path:
         return
+    from vendoo_studio.services.category_lookup import marketplace_path_fits_general
+
     remember_path(db, "general", general_path)
     for marketplace, section in schema.items():
         if not isinstance(section, dict) or section.get("error") or not section.get("fields"):
@@ -30,6 +35,12 @@ def remember_schema(db: Session, general_path: str, schema: dict) -> None:
         category = section.get("category") or {}
         path = str(category.get("path") or "")
         if not path:
+            continue
+        if marketplace != "general" and not marketplace_path_fits_general(general_path, path):
+            log.warning(
+                "refusing to cache incompatible %s category under %s: %s",
+                marketplace, general_path, path,
+            )
             continue
         remember_path(db, marketplace, path)
         # Never cache values, errors or selectors from a seller's particular item.
@@ -64,6 +75,8 @@ def _schema_rows_by_marketplace(db: Session, general_path: str) -> dict[str, Cat
 
 def schema_covers_platforms(db: Session, general_path: str, platforms: list[str]) -> bool:
     """True when every fillable marketplace already has a cached field schema for this category."""
+    from vendoo_studio.services.category_lookup import marketplace_path_fits_general
+
     path = str(general_path or "").strip()
     wanted = [str(item or "").strip().lower() for item in (platforms or []) if str(item or "").strip()]
     if not path or not wanted:
@@ -73,7 +86,10 @@ def schema_covers_platforms(db: Session, general_path: str, platforms: list[str]
         row = rows.get(marketplace)
         if row is None:
             return False
-        if not str(row.category_path or "").strip():
+        category_path = str(row.category_path or "").strip()
+        if not category_path:
+            return False
+        if marketplace != "general" and not marketplace_path_fits_general(path, category_path):
             return False
         fields = row.fields if isinstance(row.fields, list) else []
         if not fields:
@@ -83,6 +99,8 @@ def schema_covers_platforms(db: Session, general_path: str, platforms: list[str]
 
 def cached_schema_payload(db: Session, general_path: str, platforms: list[str]) -> dict | None:
     """Probe-shaped schema from category_schemas, or None when any marketplace is incomplete."""
+    from vendoo_studio.services.category_lookup import marketplace_path_fits_general
+
     path = str(general_path or "").strip()
     wanted = [str(item or "").strip().lower() for item in (platforms or []) if str(item or "").strip()]
     if not path or not wanted:
@@ -96,6 +114,10 @@ def cached_schema_payload(db: Session, general_path: str, platforms: list[str]) 
         category_path = str(row.category_path or "").strip()
         fields = row.fields if isinstance(row.fields, list) else []
         if not category_path or not fields:
+            return None
+        if marketplace != "general" and not marketplace_path_fits_general(path, category_path):
+            # Poisoned cache from earlier tee→Tee Nuts / Teepees ranking — miss so
+            # generate remaps instead of reusing hardware under women's Tops.
             return None
         payload[marketplace] = {
             "category": {"path": category_path, "status": "cached"},

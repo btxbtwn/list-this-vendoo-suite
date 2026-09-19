@@ -35,7 +35,8 @@ def normalize_evidence(payload: Any) -> dict:
         return {}
     nested = payload.get("evidence")
     if isinstance(nested, dict) and any(
-        key in nested for key in ("brand", "size", "color", "material", "style", "category", "condition")
+        key in nested
+        for key in ("brand", "size", "color", "material", "style", "category", "department", "condition")
     ):
         return nested
     return payload
@@ -60,7 +61,9 @@ def latest_photo_analysis(messages: list[Any]) -> str | None:
 def format_photo_analysis(evidence: dict) -> str:
     evidence = normalize_evidence(evidence)
     parts = ["Photo analysis:"]
-    for field_key in ("brand", "size", "color", "material", "style", "category", "condition"):
+    # department before category: the trees split on it, and a reader — human or
+    # model — should see who the item is for before what it is.
+    for field_key in ("brand", "size", "color", "material", "style", "department", "category", "condition"):
         fd = evidence.get(field_key)
         value = _evidence_value(fd)
         if not value:
