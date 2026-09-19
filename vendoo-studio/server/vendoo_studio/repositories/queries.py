@@ -80,6 +80,27 @@ class ConversationRepo:
     def list_all(self) -> list[Conversation]:
         return self.db.query(Conversation).order_by(Conversation.updated_at.desc()).all()
 
+    def cover_photo_ids(self) -> dict[str, str]:
+        """Map each conversation to its first photo, for sidebar thumbnails."""
+        rows = (
+            self.db.query(Photo.conversation_id, Photo.id)
+            .order_by(Photo.conversation_id, Photo.display_order, Photo.created_at)
+            .all()
+        )
+        covers: dict[str, str] = {}
+        for conv_id, photo_id in rows:
+            covers.setdefault(conv_id, photo_id)
+        return covers
+
+    def cover_photo_id(self, conv_id: str) -> str | None:
+        row = (
+            self.db.query(Photo.id)
+            .filter(Photo.conversation_id == conv_id)
+            .order_by(Photo.display_order, Photo.created_at)
+            .first()
+        )
+        return row[0] if row else None
+
     def update_status(
         self,
         conv_id: str,

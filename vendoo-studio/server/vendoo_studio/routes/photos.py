@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 from vendoo_studio.database import get_db
 from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.repositories.queries import ConversationRepo
-from vendoo_studio.services.photos import process_upload
+from vendoo_studio.services.photos import (
+    THUMBNAIL_MIME,
+    THUMBNAIL_SIZES,
+    get_or_create_thumbnail,
+    process_upload,
+)
 
 router = APIRouter(tags=["photos"])
 
@@ -104,3 +109,33 @@ def serve_photo(photo_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Photo file not found")
 
     return FileResponse(str(filepath), media_type=photo.mime_type)
+
+
+@router.get("/api/photos/{photo_id}/thumb")
+def serve_photo_thumbnail(photo_id: str, size: int = 96, db: Session = Depends(get_db)):
+    from fastapi.responses import FileResponse
+    from vendoo_studio.models.conversation import Photo
+
+    if size not in THUMBNAIL_SIZES:
+        raise HTTPException(400, f"Unsupported thumbnail size: {size}")
+
+    photo = db.query(Photo).filter(Photo.id == photo_id).first()
+    if not photo:
+        raise HTTPException(404, "Photo not found")
+
+    try:
+        thumb = get_or_create_thumbnail(photo.stored_filename, size)
+    except FileNotFoundError:
+        raise HTTPException(404, "Photo file not found") from None
+    except Exception:
+        # HEIC and other formats Pillow cannot decode fall back to the original.
+        filepath = Path(PHOTOS_DIR) / photo.stored_filename
+        if not filepath.exists():
+            raise HTTPException(404, "Photo file not found") from None
+        return FileResponse(str(filepath), media_type=photo.mime_type)
+
+    return FileResponse(
+        str(thumb),
+        media_type=THUMBNAIL_MIME,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )

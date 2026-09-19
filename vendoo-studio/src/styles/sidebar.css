@@ -281,15 +281,52 @@ html.desktop-app .workspace-drag-region {
 }
 
 .nav-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   width: 100%;
   padding: 7px 10px;
-  padding-right: 76px;
   border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   text-align: left;
   min-width: 0;
   color: var(--color-text-secondary);
+}
+
+.nav-link-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--color-ink-raised);
+  color: var(--color-ink-muted);
+}
+
+.nav-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.nav-link.settled .nav-thumb-img {
+  opacity: 0.55;
+}
+
+.nav-item:hover .nav-link.settled .nav-thumb-img,
+.nav-item:focus-within .nav-link.settled .nav-thumb-img,
+.nav-link.settled.selected .nav-thumb-img {
+  opacity: 1;
 }
 
 .nav-link:hover {
@@ -318,6 +355,14 @@ html.desktop-app .workspace-drag-region {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* Hover actions float over the title line; fade the title under them instead of
+   reserving space, so full titles stay readable while scanning. */
+.nav-item:hover .nav-link-title,
+.nav-item:focus-within .nav-link-title {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 76px), transparent calc(100% - 56px));
+  mask-image: linear-gradient(to right, #000 calc(100% - 76px), transparent calc(100% - 56px));
 }
 
 .nav-rename-input {

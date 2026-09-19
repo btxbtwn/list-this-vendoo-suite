@@ -61,6 +61,7 @@ type Listing = {
   unsettled_at?: string | null;
   created_at?: string;
   updated_at?: string;
+  cover_photo_url?: string | null;
 };
 
 interface Props {
@@ -804,6 +805,7 @@ function ListingRow({
   onUnsettle?: (id: string) => void;
 }) {
   const title = listing.title || "Untitled";
+  const coverUrl = listing.cover_photo_url || null;
   const status = String(listing.status || "draft");
   const statusClass = status.replace(/_/g, "-");
   const settledAt = settled ? compactRelativeTime(listing.settled_at || listing.updated_at) : "";
@@ -976,78 +978,92 @@ function ListingRow({
           if (!renaming) onSelect(listing.id);
         }}
       >
-        {renaming ? (
-          <input
-            ref={renameInputRef}
-            className="nav-rename-input"
-            value={draftTitle}
-            aria-label={`Rename ${title}`}
-            disabled={renameListing.isPending}
-            onChange={(e) => setDraftTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                e.currentTarget.blur();
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                cancelRename();
-              }
-            }}
-            onBlur={commitRename}
-          />
-        ) : (
-          <button
-            type="button"
-            className="nav-link-title"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect(listing.id);
-            }}
-            onDoubleClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              startRename();
-            }}
-          >
-            {title}
-          </button>
-        )}
-        <div className="nav-link-meta">
-          <select
-            className={`nav-status-select nav-status-${statusClass}`}
-            value={status}
-            aria-label={`Status for ${title}`}
-            disabled={updateStatus.isPending}
-            title="Change listing status"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              e.stopPropagation();
-              const next = e.target.value;
-              if (next === status) return;
-              updateStatus.mutate(next);
-            }}
-          >
-            {statusOptions.map((option) => (
-              <option key={option} value={option} disabled={BUSY_STATUSES.has(option)}>
-                {option.replace(/_/g, " ")}
-              </option>
-            ))}
-          </select>
-          {settledAt ? <span className="nav-time">{settledAt}</span> : null}
+        <div className="nav-thumb" aria-hidden="true">
+          {coverUrl ? (
+            <img className="nav-thumb-img" src={coverUrl} alt="" loading="lazy" draggable={false} />
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M2 11l3.2-3.2a1.2 1.2 0 011.7 0L10 10.9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              <circle cx="10.4" cy="6" r="1.1" fill="currentColor" />
+            </svg>
+          )}
         </div>
-        {listedMarketplaces.length ? (
-          <div
-            className="nav-listed-logos"
-            aria-label={`Listed on ${listedMarketplaces.map((row) => row.label).join(", ")}`}
-          >
-            {listedMarketplaces.map((row) => (
-              <span key={row.id} className={row.status === "SOLD" ? "nav-listed-logo is-sold" : "nav-listed-logo"}>
-                <MarketplaceLogo id={row.id} label={`${row.label} · ${row.status.toLowerCase()}`} size={14} />
-              </span>
-            ))}
+        <div className="nav-link-body">
+          {renaming ? (
+            <input
+              ref={renameInputRef}
+              className="nav-rename-input"
+              value={draftTitle}
+              aria-label={`Rename ${title}`}
+              disabled={renameListing.isPending}
+              onChange={(e) => setDraftTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelRename();
+                }
+              }}
+              onBlur={commitRename}
+            />
+          ) : (
+            <button
+              type="button"
+              className="nav-link-title"
+              title={title}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(listing.id);
+              }}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                startRename();
+              }}
+            >
+              {title}
+            </button>
+          )}
+          <div className="nav-link-meta">
+            <select
+              className={`nav-status-select nav-status-${statusClass}`}
+              value={status}
+              aria-label={`Status for ${title}`}
+              disabled={updateStatus.isPending}
+              title="Change listing status"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                e.stopPropagation();
+                const next = e.target.value;
+                if (next === status) return;
+                updateStatus.mutate(next);
+              }}
+            >
+              {statusOptions.map((option) => (
+                <option key={option} value={option} disabled={BUSY_STATUSES.has(option)}>
+                  {option.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            {settledAt ? <span className="nav-time">{settledAt}</span> : null}
           </div>
-        ) : null}
+          {listedMarketplaces.length ? (
+            <div
+              className="nav-listed-logos"
+              aria-label={`Listed on ${listedMarketplaces.map((row) => row.label).join(", ")}`}
+            >
+              {listedMarketplaces.map((row) => (
+                <span key={row.id} className={row.status === "SOLD" ? "nav-listed-logo is-sold" : "nav-listed-logo"}>
+                  <MarketplaceLogo id={row.id} label={`${row.label} · ${row.status.toLowerCase()}`} size={14} />
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </div>
       {!renaming && (
         <div className="nav-actions">

@@ -11,6 +11,7 @@ export interface Conversation {
   unsettled_at?: string | null;
   created_at: string;
   updated_at: string;
+  cover_photo_url?: string | null;
 }
 
 export interface Message {

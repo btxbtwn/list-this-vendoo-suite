@@ -14,8 +14,12 @@ from vendoo_studio.repositories.queries import (
     MANUAL_LISTING_STATUSES,
 )
 from vendoo_studio.models.conversation import Photo as PhotoModel, utcnow
+from vendoo_studio.services.photos import delete_thumbnails
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
+
+# Sidebar thumbnails render at 40px, so 96px covers high-DPI screens.
+COVER_THUMB_SIZE = 96
 
 
 class ConversationCreate(BaseModel):
@@ -34,6 +38,7 @@ class ConversationResponse(BaseModel):
     unsettled_at: str | None = None
     created_at: str
     updated_at: str
+    cover_photo_url: str | None = None
 
 
 class MessageResponse(BaseModel):
@@ -74,7 +79,8 @@ def create_conversation(body: ConversationCreate, db: Session = Depends(get_db))
 def list_conversations(db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
     repo.reconcile_job_statuses()
-    return [_conv_response(c) for c in repo.list_all()]
+    covers = repo.cover_photo_ids()
+    return [_conv_response(c, _cover_photo_url(covers.get(c.id))) for c in repo.list_all()]
 
 
 @router.get("/{conv_id}", response_model=ConversationResponse)
@@ -83,7 +89,7 @@ def get_conversation(conv_id: str, db: Session = Depends(get_db)):
     conv = repo.get(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
-    return _conv_response(conv)
+    return _conv_response(conv, _cover_url_for(db, conv_id))
 
 
 class ConversationUpdate(BaseModel):
@@ -106,7 +112,7 @@ def settle_conversation(conv_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Conversation not found")
     if conv.status in BUSY_LISTING_STATUSES:
         raise HTTPException(409, "Cannot settle a listing that is still in progress")
-    return _conv_response(repo.settle(conv_id))
+    return _conv_response(repo.settle(conv_id), _cover_url_for(db, conv_id))
 
 
 @router.post("/{conv_id}/unsettle", response_model=ConversationResponse)
@@ -115,7 +121,7 @@ def unsettle_conversation(conv_id: str, db: Session = Depends(get_db)):
     conv = repo.get(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
-    return _conv_response(repo.unsettle(conv_id))
+    return _conv_response(repo.unsettle(conv_id), _cover_url_for(db, conv_id))
 
 
 class VendooLinkRequest(BaseModel):
@@ -171,7 +177,7 @@ def link_vendoo_draft(conv_id: str, body: VendooLinkRequest, db: Session = Depen
     db.refresh(conv)
     linked = vendoo_binding(conv.notes)
     return VendooLinkResponse(
-        conversation=_conv_response(conv),
+        conversation=_conv_response(conv, _cover_url_for(db, conv_id)),
         vendoo_item_id=linked.get("vendooItemId") or item_id,
         vendoo_url=linked.get("vendooUrl") or item_url,
     )
@@ -214,11 +220,11 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
                 db.refresh(conv)
                 changed = False
             conv = repo.update_status(conv_id, status, touch_updated_at=True)
-            return _conv_response(conv)
+            return _conv_response(conv, _cover_url_for(db, conv_id))
     if changed:
         db.commit()
         db.refresh(conv)
-    return _conv_response(conv)
+    return _conv_response(conv, _cover_url_for(db, conv_id))
 
 
 @router.get("/{conv_id}/messages")
@@ -324,6 +330,7 @@ def _wipe_conversation_contents(
         filepath = Path(PHOTOS_DIR) / photo.stored_filename
         if filepath.exists():
             _os.remove(filepath)
+        delete_thumbnails(photo.stored_filename)
 
     from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
     from vendoo_studio.models.fill_log import FillLogEntry
@@ -364,6 +371,7 @@ def delete_photo(conv_id: str, photo_id: str, db: Session = Depends(get_db)):
     filepath = Path(PHOTOS_DIR) / target.stored_filename
     if filepath.exists():
         os.remove(filepath)
+    delete_thumbnails(target.stored_filename)
 
     repo.delete_photo(conv_id, photo_id)
     return {"ok": True}
@@ -436,7 +444,7 @@ async def reset_conversation(
     db.commit()
     db.refresh(conv)
     clear_listing_hidden_fields(conv_id)
-    return _conv_response(conv)
+    return _conv_response(conv, _cover_url_for(db, conv_id))
 
 
 @router.delete("/{conv_id}", response_model=DeleteConversationResponse)
@@ -481,7 +489,15 @@ def _iso(value) -> str | None:
     return value.isoformat() if value else None
 
 
-def _conv_response(conv) -> ConversationResponse:
+def _cover_photo_url(photo_id: str | None) -> str | None:
+    return f"/api/photos/{photo_id}/thumb?size={COVER_THUMB_SIZE}" if photo_id else None
+
+
+def _cover_url_for(db: Session, conv_id: str) -> str | None:
+    return _cover_photo_url(ConversationRepo(db).cover_photo_id(conv_id))
+
+
+def _conv_response(conv, cover_photo_url: str | None = None) -> ConversationResponse:
     return ConversationResponse(
         id=conv.id,
         title=conv.title,
@@ -491,6 +507,7 @@ def _conv_response(conv) -> ConversationResponse:
         unsettled_at=_iso(conv.unsettled_at),
         created_at=conv.created_at.isoformat() if conv.created_at else "",
         updated_at=conv.updated_at.isoformat() if conv.updated_at else "",
+        cover_photo_url=cover_photo_url,
     )
 
 

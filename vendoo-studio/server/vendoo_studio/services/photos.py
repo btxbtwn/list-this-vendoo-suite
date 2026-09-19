@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import UploadFile
-from PIL import Image
+from PIL import Image, ImageOps
 
 from vendoo_studio.config import PHOTOS_DIR, ALLOWED_PHOTO_MIME, MAX_PHOTO_SIZE_MB
 
@@ -75,3 +75,44 @@ def process_bytes(contents: bytes, filename: str | None = None, content_type: st
 async def process_upload(conv_id: str, file: UploadFile):
     contents = await file.read()
     return process_bytes(contents, file.filename, file.content_type)
+
+
+THUMBNAIL_SIZES = (96, 192)
+THUMBNAIL_MIME = "image/jpeg"
+
+
+def thumbnail_path(stored_filename: str, size: int) -> Path:
+    stem = Path(stored_filename).stem
+    return Path(PHOTOS_DIR) / "thumbs" / f"{stem}_{size}.jpg"
+
+
+def get_or_create_thumbnail(stored_filename: str, size: int) -> Path:
+    """Return a cached square-ish JPEG thumbnail, rendering it on first request."""
+    source = Path(PHOTOS_DIR) / stored_filename
+    if not source.exists():
+        raise FileNotFoundError(stored_filename)
+
+    target = thumbnail_path(stored_filename, size)
+    if target.exists() and target.stat().st_mtime >= source.stat().st_mtime:
+        return target
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with Image.open(source) as img:
+        img = ImageOps.exif_transpose(img)
+        img.thumbnail((size, size), Image.Resampling.LANCZOS)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        tmp = target.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        img.save(tmp, "JPEG", quality=82, optimize=True)
+    os.replace(tmp, target)
+    return target
+
+
+def delete_thumbnails(stored_filename: str) -> None:
+    for size in THUMBNAIL_SIZES:
+        path = thumbnail_path(stored_filename, size)
+        if path.exists():
+            try:
+                os.remove(path)
+            except OSError:
+                pass
