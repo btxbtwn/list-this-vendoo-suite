@@ -73,9 +73,13 @@ function clearLegacyStoredLabels() {
   }
 }
 
-function rememberLabels(raw: string, queryClient?: ReturnType<typeof useQueryClient>) {
+function rememberLabels(
+  raw: string,
+  restore: string[],
+  queryClient?: ReturnType<typeof useQueryClient>,
+) {
   void api.settings
-    .setUi({ remember_labels: raw })
+    .setUi({ remember_labels: raw, ...(restore.length ? { restore_labels: restore } : {}) })
     .then(() => {
       queryClient?.invalidateQueries({ queryKey: ["settings-ui"] });
     })
@@ -188,8 +192,13 @@ export function ItemDetails({ convId }: Props) {
       });
   }, [uiPrefs, queryClient]);
 
+  const hiddenLabelKeys = useMemo(
+    () => new Set((uiPrefs?.hidden_vendoo_labels || []).map((label) => label.toLowerCase())),
+    [uiPrefs?.hidden_vendoo_labels],
+  );
+
   const recentLabels = useMemo(() => {
-    const seen = new Set<string>();
+    const seen = new Set<string>(hiddenLabelKeys);
     const ordered: string[] = [];
     for (const label of [
       ...(uiPrefs?.recent_vendoo_labels || []),
@@ -202,7 +211,7 @@ export function ItemDetails({ convId }: Props) {
       ordered.push(label);
     }
     return ordered.slice(0, MAX_RECENT_LABELS);
-  }, [conversations, uiPrefs?.recent_vendoo_labels]);
+  }, [conversations, uiPrefs?.recent_vendoo_labels, hiddenLabelKeys]);
 
   const [details, setDetails] = useState<ItemDetailsData>({ ...DEFAULTS });
   const detailsRef = useRef(details);
@@ -243,7 +252,10 @@ export function ItemDetails({ convId }: Props) {
     setSaveError(null);
     detailsRef.current = updated;
     setDetails(updated);
-    rememberLabels(updated.vendooLabels, queryClient);
+    // Labels newly typed into this listing come back even if removed from the history.
+    const savedKeys = new Set(splitLabels(parseNotes(conv?.notes ?? null).vendooLabels).map((l) => l.toLowerCase()));
+    const added = splitLabels(updated.vendooLabels).filter((label) => !savedKeys.has(label.toLowerCase()));
+    rememberLabels(updated.vendooLabels, added, queryClient);
     const persist = async () => {
       try {
         if (gen !== saveGenRef.current) return;
@@ -270,7 +282,7 @@ export function ItemDetails({ convId }: Props) {
     const queued = saveChainRef.current.catch(() => undefined).then(persist);
     saveChainRef.current = queued;
     await queued;
-  }, [convId, queryClient]);
+  }, [convId, conv?.notes, queryClient]);
 
   const scheduleSave = useCallback((updated: ItemDetailsData) => {
     detailsRef.current = updated;
@@ -329,6 +341,20 @@ export function ItemDetails({ convId }: Props) {
   const removeCommittedLabel = (label: string) => {
     commitLabels(removeLabel(detailsRef.current.vendooLabels, label), labelDraftRef.current);
     labelInputRef.current?.focus();
+  };
+
+  const forgetLabel = (label: string) => {
+    const key = label.toLowerCase();
+    queryClient.setQueryData(["settings-ui"], (prev: typeof uiPrefs) => prev && {
+      ...prev,
+      recent_vendoo_labels: prev.recent_vendoo_labels.filter((item) => item.toLowerCase() !== key),
+      hidden_vendoo_labels: [label, ...(prev.hidden_vendoo_labels || [])],
+    });
+    setActiveSuggestion((i) => Math.max(0, Math.min(i, labelSuggestions.length - 2)));
+    void api.settings
+      .setUi({ forget_label: label })
+      .catch(() => { /* best-effort; refetch below restores truth */ })
+      .finally(() => queryClient.invalidateQueries({ queryKey: ["settings-ui"] }));
   };
 
   return (
@@ -434,18 +460,32 @@ export function ItemDetails({ convId }: Props) {
           {labelMenuOpen && labelSuggestions.length > 0 && (
             <div className="label-history" id="label-history" role="listbox">
               {labelSuggestions.map((label, i) => (
-                <button
+                <div
                   key={label}
-                  type="button"
-                  role="option"
-                  aria-selected={i === activeSuggestion}
-                  className={`label-history-item${i === activeSuggestion ? " active" : ""}`}
-                  onMouseDown={(e) => e.preventDefault()}
+                  className={`label-history-row${i === activeSuggestion ? " active" : ""}`}
                   onMouseEnter={() => setActiveSuggestion(i)}
-                  onClick={() => chooseLabel(label)}
                 >
-                  {label}
-                </button>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === activeSuggestion}
+                    className="label-history-item"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => chooseLabel(label)}
+                  >
+                    {label}
+                  </button>
+                  <button
+                    type="button"
+                    className="label-history-remove"
+                    aria-label={`Remove "${label}" from label history`}
+                    title="Remove from history"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => forgetLabel(label)}
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
             </div>
           )}

@@ -13,7 +13,9 @@ LISTING_PROVIDER_KEY = "listing_provider"
 UI_PREFS_KEY = "ui"
 RECENT_LABELS_KEY = "recent_vendoo_labels"
 SETTLED_SHELF_KEY = "settled_shelf_expanded"
+HIDDEN_LABELS_KEY = "hidden_vendoo_labels"
 MAX_RECENT_LABELS = 12
+MAX_HIDDEN_LABELS = 200
 LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "mimo", "cursor"})
 LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "mimo", "cursor", "none"})
 DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "mimo", "cursor"] = "chatgpt"
@@ -219,7 +221,7 @@ def _ui_prefs(settings: dict | None = None) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
-def _clean_recent_labels(value: object) -> list[str]:
+def _clean_recent_labels(value: object, limit: int = MAX_RECENT_LABELS) -> list[str]:
     if not isinstance(value, list):
         return []
     seen: set[str] = set()
@@ -235,9 +237,13 @@ def _clean_recent_labels(value: object) -> list[str]:
             continue
         seen.add(key)
         labels.append(label)
-        if len(labels) >= MAX_RECENT_LABELS:
+        if len(labels) >= limit:
             break
     return labels
+
+
+def _clean_hidden_labels(value: object) -> list[str]:
+    return _clean_recent_labels(value, MAX_HIDDEN_LABELS)
 
 
 def get_ui_prefs() -> dict:
@@ -246,6 +252,7 @@ def get_ui_prefs() -> dict:
     return {
         RECENT_LABELS_KEY: _clean_recent_labels(ui.get(RECENT_LABELS_KEY)),
         SETTLED_SHELF_KEY: DEFAULT_SETTLED_SHELF_EXPANDED if not isinstance(settled, bool) else settled,
+        HIDDEN_LABELS_KEY: _clean_hidden_labels(ui.get(HIDDEN_LABELS_KEY)),
     }
 
 
@@ -271,7 +278,12 @@ def set_ui_prefs(
     return get_ui_prefs()
 
 
-def remember_vendoo_labels(raw: object) -> list[str]:
+def remember_vendoo_labels(raw: object, restore: object = None) -> list[str]:
+    """Push labels to the front of the history.
+
+    Labels the seller removed from the history stay hidden unless they are in
+    ``restore`` (labels newly typed into a listing), which un-hides them.
+    """
     if isinstance(raw, str):
         candidates: object = [part.strip() for part in raw.split(",")]
     elif isinstance(raw, list):
@@ -279,22 +291,55 @@ def remember_vendoo_labels(raw: object) -> list[str]:
     else:
         candidates = []
     incoming = _clean_recent_labels(candidates)
-    if not incoming:
+    restored = {label.casefold() for label in _clean_hidden_labels(restore)}
+    if not incoming and not restored:
         return get_ui_prefs()[RECENT_LABELS_KEY]
 
     def mutator(payload: dict) -> None:
         ui = dict(_ui_prefs(payload))
+        hidden = [
+            label for label in _clean_hidden_labels(ui.get(HIDDEN_LABELS_KEY))
+            if label.casefold() not in restored
+        ]
+        hidden_keys = {label.casefold() for label in hidden}
+        fresh = [label for label in incoming if label.casefold() not in hidden_keys]
         existing = _clean_recent_labels(ui.get(RECENT_LABELS_KEY))
-        remembered = {label.casefold() for label in incoming}
+        remembered = {label.casefold() for label in fresh}
         merged = [
-            *incoming,
+            *fresh,
             *[label for label in existing if label.casefold() not in remembered],
         ]
         ui[RECENT_LABELS_KEY] = merged[:MAX_RECENT_LABELS]
+        ui[HIDDEN_LABELS_KEY] = hidden
         payload[UI_PREFS_KEY] = ui
 
     update_settings(mutator)
     return get_ui_prefs()[RECENT_LABELS_KEY]
+
+
+def forget_vendoo_label(raw: object) -> dict:
+    """Drop a label from the history and keep it out of future suggestions."""
+    cleaned = _clean_recent_labels([raw]) if isinstance(raw, str) else []
+    if not cleaned:
+        raise ValueError("forget_label must be a non-empty string")
+    label = cleaned[0]
+    key = label.casefold()
+
+    def mutator(payload: dict) -> None:
+        ui = dict(_ui_prefs(payload))
+        ui[RECENT_LABELS_KEY] = [
+            item for item in _clean_recent_labels(ui.get(RECENT_LABELS_KEY))
+            if item.casefold() != key
+        ]
+        hidden = [
+            item for item in _clean_hidden_labels(ui.get(HIDDEN_LABELS_KEY))
+            if item.casefold() != key
+        ]
+        ui[HIDDEN_LABELS_KEY] = [label, *hidden][:MAX_HIDDEN_LABELS]
+        payload[UI_PREFS_KEY] = ui
+
+    update_settings(mutator)
+    return get_ui_prefs()
 
 
 LISTING_FORMULAS_KEY = "listing_formulas"

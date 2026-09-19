@@ -59,11 +59,11 @@ class SetupGuideSettingsTest(unittest.TestCase):
     def test_ui_prefs_default_and_persist(self):
         self.assertEqual(
             user_settings.get_ui_prefs(),
-            {"recent_vendoo_labels": [], "settled_shelf_expanded": True},
+            {"recent_vendoo_labels": [], "settled_shelf_expanded": True, "hidden_vendoo_labels": []},
         )
         self.assertEqual(
             user_settings.set_ui_prefs(settled_shelf_expanded=False),
-            {"recent_vendoo_labels": [], "settled_shelf_expanded": False},
+            {"recent_vendoo_labels": [], "settled_shelf_expanded": False, "hidden_vendoo_labels": []},
         )
         self.assertEqual(
             user_settings.remember_vendoo_labels("Vintage, Nike, vintage"),
@@ -72,6 +72,22 @@ class SetupGuideSettingsTest(unittest.TestCase):
         stored = json.loads(Path(self.tmp.name, "settings.json").read_text())
         self.assertEqual(stored["ui"]["settled_shelf_expanded"], False)
         self.assertEqual(stored["ui"]["recent_vendoo_labels"], ["Vintage", "Nike"])
+
+    def test_forgotten_label_stays_hidden_until_restored(self):
+        user_settings.remember_vendoo_labels("Vintage, Nike")
+        prefs = user_settings.forget_vendoo_label("vintage")
+        self.assertEqual(prefs["recent_vendoo_labels"], ["Nike"])
+        self.assertEqual(prefs["hidden_vendoo_labels"], ["vintage"])
+        # Re-saving a listing that still has the label doesn't bring it back.
+        self.assertEqual(user_settings.remember_vendoo_labels("Vintage, Nike"), ["Nike"])
+        # Typing it into a listing again does.
+        self.assertEqual(
+            user_settings.remember_vendoo_labels("Vintage, Nike", ["Vintage"]),
+            ["Vintage", "Nike"],
+        )
+        self.assertEqual(user_settings.get_ui_prefs()["hidden_vendoo_labels"], [])
+        with self.assertRaises(ValueError):
+            user_settings.forget_vendoo_label("  ")
 
 
 class SetupGuideRouteTest(unittest.TestCase):
@@ -127,6 +143,11 @@ class SetupGuideRouteTest(unittest.TestCase):
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json()["settled_shelf_expanded"], False)
         self.assertEqual(saved.json()["recent_vendoo_labels"], ["Thrifted"])
+
+        forgot = self.client.put("/api/settings/ui", json={"forget_label": "Thrifted"})
+        self.assertEqual(forgot.status_code, 200)
+        self.assertEqual(forgot.json()["recent_vendoo_labels"], [])
+        self.assertEqual(forgot.json()["hidden_vendoo_labels"], ["Thrifted"])
 
         status = self.client.get("/api/status")
         self.assertEqual(status.status_code, 200)
