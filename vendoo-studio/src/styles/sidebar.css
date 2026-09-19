@@ -404,7 +404,7 @@ html.desktop-app .workspace-drag-region {
 .nav-vendoo-status-popup {
   position: fixed;
   z-index: 80;
-  width: 196px;
+  width: 220px;
   padding: 8px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -438,6 +438,29 @@ html.desktop-app .workspace-drag-region {
   gap: 8px;
   min-height: 22px;
   padding: 0 2px;
+}
+
+.nav-vendoo-status-row .marketplace-logo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.nav-vendoo-status-row .marketplace-logo-fallback {
+  background: #5c6578;
+}
+
+.nav-vendoo-status-row .marketplace-logo-letter {
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
 }
 
 .nav-vendoo-status-market {

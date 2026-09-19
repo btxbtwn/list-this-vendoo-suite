@@ -25,6 +25,7 @@ SYNCED_REVISION = "vendooSyncedRevision"
 __all__ = [
     "sync_state",
     "apply_pull",
+    "studio_has_unpushed_edits",
     "cache_pulled_item",
     "SYNCED_AT",
     "SYNCED_REVISION",
@@ -41,6 +42,18 @@ def _stamp(value: Any) -> int:
         return int(str(value))
     except (TypeError, ValueError):
         return 0
+
+
+def studio_has_unpushed_edits(db: Session, conv_id: str) -> bool:
+    """True when Studio's current revision is ahead of the last synced one."""
+    from vendoo_studio.services.vendoo_import import parse_notes
+
+    conv = ConversationRepo(db).get(conv_id)
+    notes = parse_notes(conv.notes if conv else None)
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    local_revision = revisions[0].id if revisions else None
+    synced_revision = str(notes.get(SYNCED_REVISION) or "")
+    return bool(local_revision and synced_revision and local_revision != synced_revision)
 
 
 def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any]:
@@ -60,8 +73,7 @@ def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any
 
     revisions = ListingRepo(db).get_revisions(conv_id)
     local_revision = revisions[0].id if revisions else None
-    synced_revision = str(notes.get(SYNCED_REVISION) or "")
-    local_moved = bool(local_revision and synced_revision and local_revision != synced_revision)
+    local_moved = studio_has_unpushed_edits(db, conv_id)
     remote_moved = bool(remote and seen and remote > seen)
 
     # Nothing recorded yet: adopt Vendoo's state rather than guessing that
@@ -113,7 +125,13 @@ def cache_pulled_item(
     )
 
 
-def apply_pull(db: Session, conv_id: str, item: dict[str, Any]) -> str | None:
+def apply_pull(
+    db: Session,
+    conv_id: str,
+    item: dict[str, Any],
+    *,
+    source: str = "vendoo_sync",
+) -> str | None:
     """Save Vendoo's version as a revision and record that we are in step."""
     from vendoo_studio.services.vendoo_import import listing_from_vendoo
 
@@ -122,10 +140,10 @@ def apply_pull(db: Session, conv_id: str, item: dict[str, Any]) -> str | None:
     revision = listing_repo.save_revision(
         conv_id,
         listing_from_vendoo(item, None),
-        source="vendoo_sync",
+        source=source,
         parent_revision_id=revisions[0].id if revisions else None,
     )
-    cache_pulled_item(db, conv_id, item, source="vendoo_sync")
+    cache_pulled_item(db, conv_id, item, source=source)
     mark_synced(db, conv_id, item, revision.id)
     return revision.id
 
