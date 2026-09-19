@@ -266,14 +266,18 @@ async def analyze_photos(conv_id: str, db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(502, PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
     try:
-        require_photo_analysis(result)
+        _evidence, analysis_text = require_photo_analysis(result)
     except PhotoAnalysisError as exc:
         raise HTTPException(502, str(exc)) from exc
 
+    # Store what was read, not that it was read. Generation looks for the most
+    # recent analysis in the conversation; a summary line is not one, so
+    # re-analysing left the previous reading in place for good — a listing kept
+    # being generated from photos that had since been read again.
     repo.add_message(
         conv_id,
         "system",
-        f"Photo analysis complete. Found: {len(photos)} photos analyzed.",
+        analysis_text,
         provider=vision_name,
         model=vision_model,
     )
