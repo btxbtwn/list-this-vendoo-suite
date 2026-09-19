@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from vendoo_studio.config import skills_dir
+from vendoo_studio.models.mercari_shipping import DEFAULT_SHIPPING_LABEL
 
 DNA_VALUE = "Does Not Apply"
 
@@ -73,9 +74,7 @@ def dropdown_options() -> dict[str, Any]:
 
 # USPS Ground Advantage tier shown on this seller's Mercari form. The scraped
 # dropdown JSON only recorded "disabled" because Mercari was disconnected.
-_MERCARI_SHIPPING_LABELS = (
-    "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb",
-)
+_MERCARI_SHIPPING_LABELS = (DEFAULT_SHIPPING_LABEL,)
 
 
 @lru_cache(maxsize=1)

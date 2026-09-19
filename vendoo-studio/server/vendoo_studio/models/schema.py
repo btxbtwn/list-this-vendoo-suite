@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from vendoo_studio.models.mercari_shipping import DEFAULT_SHIPPING_LABEL
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -250,7 +252,7 @@ class MercariSpecifics(BaseModel):
         return data
 
     categoryPath: list[str] = Field(default_factory=list)
-    shippingLabel: str = "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
+    shippingLabel: str = DEFAULT_SHIPPING_LABEL
 
 
 class ListingSchema(BaseModel):

@@ -24,6 +24,11 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from vendoo_studio.models.mercari_shipping import (
+    DEFAULT_SHIPPING_LABEL,
+    ground_advantage,
+    package_ounces,
+)
 from vendoo_studio.models.schema import DEPOP_OPTION_CODES
 from vendoo_studio.services.vendoo_specifics import (
     FieldSpec,
@@ -88,10 +93,9 @@ _PACKAGE_DIMS_RE = re.compile(
     r"^\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*$", re.I
 )
 
-# USPS Ground Advantage (0.5 lb tier), as Vendoo shows it on this seller's form
-# and stores it on drafts that have the label selected.
-MERCARI_GROUND_ADVANTAGE_CARRIER = "2550"
-MERCARI_GROUND_ADVANTAGE_LABEL = "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
+# USPS Ground Advantage, the prepaid label this seller ships every item with.
+# The tier follows the package weight — see ``models.mercari_shipping``.
+MERCARI_GROUND_ADVANTAGE_LABEL = DEFAULT_SHIPPING_LABEL
 
 # Poshmark Smart Sell floor used on this seller's working drafts.
 POSHMARK_SMART_SELL_MIN = "5"
@@ -107,6 +111,10 @@ ETSY_WHAT_CODES = {
     "a finished product": "0",
     "a supply or tool to make things": "1",
 }
+# Vendoo's listingStateOptions: draft = Draft Listing, active = Live Listing, edit = Inactive.
+ETSY_LIVE_LISTING = "active"
+ETSY_TAG_LIMIT = 13
+ETSY_TAG_MAX_LENGTH = 20
 
 SPECIFICS_SOURCES = {mp: f"{mp}_specifics" for mp in ("ebay", "poshmark", "mercari", "depop", "etsy")}
 
@@ -212,11 +220,12 @@ def _marketplace_specific_defaults(marketplace: str) -> dict[str, Any]:
     if marketplace == "mercari":
         return {
             "tags": [], "smartPricing": False, "floorPrice": "",
-            # Mercari's prepaid Ground Advantage label (0.5 lb / $5.66 tier).
+            # Mercari's prepaid Ground Advantage label; the tier is rewritten
+            # from the package weight once the listing's weight is known.
             "shippingLabel": MERCARI_GROUND_ADVANTAGE_LABEL,
             "shipping": {
                 "deliveryMethod": "mercari_shipping", "location": "",
-                "payerId": 1, "carrierId": MERCARI_GROUND_ADVANTAGE_CARRIER,
+                "payerId": 1, "carrierId": ground_advantage(None)[0],
             },
             "mercariLocalInformation": "",
         }
@@ -560,6 +569,19 @@ def _apply_etsy_listing_codes(known: dict[str, Any], listing: dict[str, Any]) ->
     known["whenMade"] = _etsy_when_code(when)
     # Finished-product resale is a supply of someone else's work.
     known["isSupply"] = _etsy_what_code(what) == "0" or bool(known.get("isSupply", True))
+    # Always "Live Listing"; the form stores the code, not the label.
+    known["listingState"] = ETSY_LIVE_LISTING
+
+
+def _apply_etsy_tags(known: dict[str, Any], general: dict[str, Any]) -> None:
+    """Etsy Tags come from the general form's Tags.
+
+    Vendoo's form save copies them over; an API write has to do it itself or
+    the Etsy form shows no tags.
+    """
+    tags = [tag for tag in _string_list(general.get("tags")) if len(tag) <= ETSY_TAG_MAX_LENGTH]
+    if tags:
+        known["tags"] = tags[:ETSY_TAG_LIMIT]
 
 
 def _apply_poshmark_smart_sell(known: dict[str, Any]) -> None:
@@ -572,13 +594,24 @@ def _apply_poshmark_smart_sell(known: dict[str, Any]) -> None:
         smart["minPrice"] = POSHMARK_SMART_SELL_MIN
 
 
-def _apply_mercari_shipping(known: dict[str, Any], listing: dict[str, Any]) -> None:
-    """Always select the Ground Advantage / 0.5 lb prepaid label."""
+def _apply_mercari_shipping(
+    known: dict[str, Any],
+    listing: dict[str, Any],
+    weight: dict[str, Any] | None = None,
+) -> None:
+    """Always select the prepaid Ground Advantage label for this weight.
+
+    The form lists only the tiers that carry the package, so the id has to
+    match the listing's weight — a fixed one sits outside the list and shows
+    as an empty Shipping Label.
+    """
     raw = listing.get("mercari_specifics")
     raw = raw if isinstance(raw, dict) else {}
+    ounces = package_ounces((weight or {}).get("pounds"), (weight or {}).get("ounces"))
+    carrier_id, tier_label = ground_advantage(ounces)
     label = _clean(raw.get("shippingLabel") or raw.get("shipping_label")) or ""
     if not label or "ground advantage" in _norm(label):
-        label = MERCARI_GROUND_ADVANTAGE_LABEL
+        label = tier_label
     known["shippingLabel"] = label
     shipping = known.get("shipping")
     if not isinstance(shipping, dict):
@@ -586,7 +619,7 @@ def _apply_mercari_shipping(known: dict[str, Any], listing: dict[str, Any]) -> N
         known["shipping"] = shipping
     shipping.setdefault("deliveryMethod", "mercari_shipping")
     shipping.setdefault("payerId", 1)
-    shipping["carrierId"] = MERCARI_GROUND_ADVANTAGE_CARRIER
+    shipping["carrierId"] = carrier_id
 
 
 def _mercari_wants_no_brand(brand: str) -> bool:
@@ -1184,10 +1217,11 @@ def _listing_section(
         _apply_ebay_pricing(known, general, listing)
     elif marketplace == "etsy":
         _apply_etsy_listing_codes(known, listing)
+        _apply_etsy_tags(known, general)
     elif marketplace == "poshmark":
         _apply_poshmark_smart_sell(known)
     elif marketplace == "mercari":
-        _apply_mercari_shipping(known, listing)
+        _apply_mercari_shipping(known, listing, section["overrides"].get("weight"))
     elif marketplace == "depop":
         _apply_depop_option_codes(known, unresolved)
 

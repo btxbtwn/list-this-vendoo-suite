@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import httpx
 
 from vendoo_studio.config import MAX_PHOTO_COUNT
+from vendoo_studio.models.mercari_shipping import DEFAULT_SHIPPING_LABEL
 from vendoo_studio.models.schema import DEPOP_OPTION_CODES, ListingSchema
 from vendoo_studio.services.photos import process_bytes
 
@@ -707,7 +708,7 @@ def _mercari_specifics(section: Any) -> dict[str, Any]:
         specifics["categoryPath"] = [part.strip() for part in path.split(">") if part.strip()]
     elif not isinstance(path, list):
         specifics["categoryPath"] = []
-    label = _text(specifics.get("shippingLabel")) or "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
+    label = _text(specifics.get("shippingLabel")) or DEFAULT_SHIPPING_LABEL
     specifics["shippingLabel"] = label
     return specifics
 
