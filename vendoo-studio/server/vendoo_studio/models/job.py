@@ -15,6 +15,11 @@ def is_terminal_job_status(status: str | None) -> bool:
     return str(status or "") in TERMINAL_JOB_STATUSES
 
 
+def is_vendoo_api_step(step: str | None) -> bool:
+    """True for API create/save work — never hand these to the form-filler."""
+    return str(step or "").startswith("vendoo_api")
+
+
 class Job(Base):
     __tablename__ = "jobs"
 

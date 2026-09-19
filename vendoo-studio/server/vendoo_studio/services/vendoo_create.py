@@ -556,15 +556,38 @@ async def create_item(
     if not photos:
         raise VendooCreateError("Vendoo needs at least one photo")
 
+    def mark(step: str) -> None:
+        from sqlalchemy.orm import object_session
+
+        from vendoo_studio.repositories.queries import JobRepo
+
+        try:
+            session = object_session(job)
+        except Exception:  # noqa: BLE001 - tests pass a plain namespace
+            return
+        if session is None:
+            return
+        JobRepo(session).update_status(job.id, "dispatched", step)
+        session.refresh(job)
+        status = str(getattr(job, "status", "") or "")
+        if status in {"cancelled", "failed"}:
+            raise VendooCreateError(
+                getattr(job, "last_error", None) or f"Send was {status}"
+            )
+
     schema = load_schema()
+    mark("vendoo_api_categories")
     listing, category_unresolved = await resolve_listing_categories(job, listing)
+    mark("vendoo_api_specifics")
     # Ask each resolved leaf what fields it has before anything is encoded.
     specifics = await fetch_listing_specifics(job, listing)
+    mark("vendoo_api_fields")
     listing, unfilled = await fill_listing_specifics(
         listing, specifics, provider, evidence=evidence
     )
 
     # Photos and the id first: the item body references both.
+    mark("vendoo_api_photos")
     prep = await run_ops(job, [{"op": "session"}, {"op": "new_item_id"}, {"op": "subscription"}, *_photo_ops(job, photos)])
     uid = str(_result(prep, "session").get("uid") or "")
     item_id = str(_result(prep, "new_item_id").get("item_id") or "")
@@ -580,6 +603,7 @@ async def create_item(
     )
     unresolved = [*category_unresolved, *unresolved]
 
+    mark("vendoo_api_create")
     created = await run_ops(job, [
         {"op": "create_item", "item": item, "subscription_version": subscription_version},
         {"op": "get_item", "item_id": item_id},

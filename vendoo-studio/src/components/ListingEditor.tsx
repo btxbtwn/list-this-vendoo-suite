@@ -818,6 +818,14 @@ function SendToVendooButton({
   };
 
   if ((probeActive || apiCreateActive || formFillActive) && existingJob) {
+    const stepKey = String(existingJob.current_step || "");
+    const apiCreateCopy: Record<string, string> = {
+      vendoo_api_categories: "Resolving marketplace categories…",
+      vendoo_api_specifics: "Reading category fields from Vendoo…",
+      vendoo_api_fields: "Filling marketplace fields…",
+      vendoo_api_photos: "Uploading photos to Vendoo…",
+      vendoo_api_create: "Creating the Vendoo draft…",
+    };
     const label = probeActive
       ? "Discovering fields"
       : apiCreateActive
@@ -826,7 +834,7 @@ function SendToVendooButton({
     const statusText = probeActive
       ? (existingJob.current_step || existingJob.status)
       : apiCreateActive
-        ? "Creating the Vendoo draft…"
+        ? (apiCreateCopy[stepKey] || "Working with Vendoo…")
         : `${existingJob.status}: ${existingJob.current_step || "queued"}`;
     return (
       <div className="job-card">

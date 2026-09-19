@@ -871,6 +871,8 @@ async def cancel_job(job_id: str, db: Session = Depends(get_db)):
 
     from vendoo_studio.models.protocol import ProtocolMessage
     from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
+    # Drop in-flight job.vendoo_api waits so API create/save stops promptly.
+    extension_manager.cancel_waits_for_job(job_id)
     await extension_manager.send_message(ProtocolMessage(
         type="job.cancel",
         job_id=job_id,

@@ -300,9 +300,19 @@ class JobRepo:
         )
 
     def requeue_interrupted(self) -> list[Job]:
+        from vendoo_studio.models.job import is_vendoo_api_step
+
         jobs = self.db.query(Job).filter(Job.status == "dispatched").all()
         for job in jobs:
-            if job.current_step in {"filling_fields", "resolving_fields", "verifying_draft"}:
+            if is_vendoo_api_step(job.current_step):
+                # Must not become a form-filler queue entry — that path opens a
+                # Vendoo tab and fills the SPA instead of calling createItem.
+                job.status = "failed"
+                job.last_error = (
+                    "Chrome reconnected during Send to Vendoo. "
+                    "Click Send to Vendoo again."
+                )
+            elif job.current_step in {"filling_fields", "resolving_fields", "verifying_draft"}:
                 job.status = "failed"
                 job.last_error = (
                     "Chrome disconnected during leftover field fill. "
