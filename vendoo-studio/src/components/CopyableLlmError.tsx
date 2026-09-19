@@ -262,7 +262,8 @@ ${replyShape(fields)}`;
 
 export function emptyFieldsButtonLabel(count: number): string {
   const n = Math.max(0, Math.floor(Number(count) || 0));
-  return `Fill ${n} empty field${n === 1 ? "" : "s"}`;
+  if (n <= 0) return "Ask chat for fields";
+  return `Ask chat for ${n} field${n === 1 ? "" : "s"}`;
 }
 
 export function CopyableLlmError({
@@ -290,7 +291,6 @@ export function CopyableLlmError({
       <div className="llm-error-text text-xs text-error">{body}</div>
       {onAskChat && (
         <div className="llm-error-ask">
-          <div className="llm-error-ask-header">Ask chat</div>
           <div className="llm-error-actions">
             <button
               type="button"
@@ -302,7 +302,7 @@ export function CopyableLlmError({
             </button>
             <button
               type="button"
-              className="btn btn-sm btn-secondary"
+              className="btn btn-sm"
               disabled={!canFillEmpty}
               title={canFillEmpty
                 ? "Send empty listing fields to chat. Does not change Vendoo yet."
@@ -315,6 +315,9 @@ export function CopyableLlmError({
               {emptyFieldsButtonLabel(emptyCount)}
             </button>
           </div>
+          <p className="llm-error-ask-hint">
+            Empty listing values — writes listing JSON only, not Vendoo.
+          </p>
         </div>
       )}
     </div>
