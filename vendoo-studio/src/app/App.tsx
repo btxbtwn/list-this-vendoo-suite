@@ -543,7 +543,7 @@ export function App() {
           <ProviderStatus />
         </div>
         <div className="status-right">
-          <div>V 0.1.0</div>
+          <div>V {status?.version || "…"}</div>
         </div>
       </footer>
       <ToastHost />

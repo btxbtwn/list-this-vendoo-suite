@@ -18,9 +18,10 @@ from vendoo_studio.services.chatgpt_oauth import (
     refresh_chatgpt_tokens,
 )
 from vendoo_studio.services.keychain import get_chatgpt_models
+from vendoo_studio.version import app_version
 
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
-USER_AGENT = "VendooStudio/0.1.0"
+USER_AGENT = f"VendooStudio/{app_version()}"
 MODELS_CLIENT_VERSION = "1.0.0"
 VISION_MODEL = "gpt-5.5"
 LISTING_MODEL = "gpt-5.5"

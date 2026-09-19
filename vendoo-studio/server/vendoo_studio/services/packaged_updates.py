@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 
 from vendoo_studio.config import APP_NAME, is_frozen, resource_root, user_data_root
+from vendoo_studio.version import app_version
 
 GITHUB_API = os.environ.get("VENDOO_STUDIO_GITHUB_API", "https://api.github.com")
 GITHUB_REPO = os.environ.get("VENDOO_STUDIO_GITHUB_REPO", "btxbtwn/list-this-vendoo-suite")
@@ -22,7 +23,7 @@ RELEASE_TAG = os.environ.get("VENDOO_STUDIO_RELEASE_TAG", "studio-macos")
 ZIP_NAME = "List-This-Studio-macos.zip"
 INFO_NAME = "build_info.json"
 APP_BUNDLE_NAME = f"{APP_NAME}.app"
-USER_AGENT = "ListThisStudio/0.1.0"
+USER_AGENT = f"ListThisStudio/{app_version()}"
 
 
 class PackagedUpdateError(RuntimeError):
@@ -38,15 +39,16 @@ def build_info_path() -> Path:
 
 def local_build_info() -> dict:
     path = build_info_path()
+    fallback = app_version()
     if not path.is_file():
-        return {"version": "0.1.0", "sha": None, "short_sha": None, "ref": None}
+        return {"version": fallback, "sha": None, "short_sha": None, "ref": None}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"version": "0.1.0", "sha": None, "short_sha": None, "ref": None}
+        return {"version": fallback, "sha": None, "short_sha": None, "ref": None}
     sha = payload.get("sha")
     return {
-        "version": payload.get("version") or "0.1.0",
+        "version": payload.get("version") or fallback,
         "sha": sha,
         "short_sha": payload.get("short_sha") or (sha[:7] if sha else None),
         "ref": payload.get("ref"),
@@ -197,7 +199,7 @@ def remote_build_info(release: dict, client: httpx.Client | None = None) -> dict
             payload = response.json()
             sha = payload.get("sha")
             return {
-                "version": payload.get("version") or "0.1.0",
+                "version": payload.get("version") or app_version(),
                 "sha": sha,
                 "short_sha": payload.get("short_sha") or (sha[:7] if sha else None),
                 "ref": payload.get("ref"),
@@ -208,8 +210,8 @@ def remote_build_info(release: dict, client: httpx.Client | None = None) -> dict
     sha = release.get("target_commitish")
     if sha and len(str(sha)) >= 7 and all(ch in "0123456789abcdef" for ch in str(sha).lower()[:7]):
         sha = str(sha)
-        return {"version": "0.1.0", "sha": sha, "short_sha": sha[:7], "ref": "main"}
-    return {"version": "0.1.0", "sha": None, "short_sha": None, "ref": None}
+        return {"version": app_version(), "sha": sha, "short_sha": sha[:7], "ref": "main"}
+    return {"version": app_version(), "sha": None, "short_sha": None, "ref": None}
 
 
 def check_for_packaged_update() -> dict:

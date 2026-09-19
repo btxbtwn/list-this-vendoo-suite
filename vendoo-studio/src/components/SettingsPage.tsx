@@ -523,7 +523,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
       </SettingsSection>
       <SettingsSection id="about" title="About">
         <DataFolderRow />
-        <AboutVersionRow version={status?.version || "0.1.0"} />
+        <AboutVersionRow version={status?.version || "…"} />
       </SettingsSection>
     </>
   );
