@@ -35,6 +35,14 @@ def ops_for(fake, name):
     raise AssertionError(f"no request carried {name}")
 
 
+def every_op(fake, name):
+    """Every op of this kind, across all requests."""
+    found = []
+    for _type, payload in fake.sent:
+        found.extend(op for op in ((payload or {}).get("ops") or []) if op.get("op") == name)
+    return found
+
+
 def specifics_reply(fields=None):
     """A ``category_specifics`` reply shaped like Vendoo's payload."""
     return {"ok": True, "results": [
@@ -50,9 +58,12 @@ class FakeBridge:
     the fallback. Pass ``specifics`` to script a real one.
     """
 
-    def __init__(self, replies, specifics=None):
+    def __init__(self, replies, specifics=None, mapped=None):
         self.replies = list(replies)
         self.specifics = specifics
+        # {marketplace: match}. Unset means Vendoo maps nothing, so the caller
+        # falls back to searching each marketplace.
+        self.mapped = mapped
         self.sent = []
 
     async def request(self, job, message_type, payload=None, *, timeout=0):
@@ -60,6 +71,13 @@ class FakeBridge:
         ops = (payload or {}).get("ops") or []
         if ops and all(op.get("op") == "category_specifics" for op in ops):
             return self.specifics or specifics_reply()
+        if ops and all(op.get("op") == "category_map" for op in ops):
+            return {"ok": True, "results": [{
+                "op": "category_map", "ok": True,
+                "marketplace_id": op["marketplace_id"],
+                "match": (self.mapped or {}).get(op["marketplace_id"]),
+                "recommendations": [],
+            } for op in ops]}
         return self.replies.pop(0)
 
 
@@ -191,6 +209,8 @@ class CreateTest(_TmpSchema):
             {"ok": True, "results": [
                 {"op": "category_search", "ok": True, "leaf": {"id": "gen1", "is_leaf": True, "path": "Clothing > Men > Jeans"},
                  "matches": [{"id": "gen1", "is_leaf": True, "path": "Clothing > Men > Jeans"}]},
+            ]},
+            {"ok": True, "results": [
                 {"op": "category_search", "ok": True, "leaf": {"id": "posh1", "is_leaf": True, "path": "Men > Jeans > Straight"},
                  "matches": [{"id": "posh1", "is_leaf": True, "path": "Men > Jeans > Straight"}]},
             ]},
@@ -203,14 +223,99 @@ class CreateTest(_TmpSchema):
                 mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
             out = run(create_item(JOB, listing, PHOTOS))
         self.assertEqual(out["item_id"], "NEWid1234567890abcde")
-        search_ops = ops_for(fake, "category_search")
-        self.assertEqual([op["op"] for op in search_ops], ["category_search", "category_search"])
-        self.assertEqual(search_ops[0]["marketplace_id"], "vendoo")
-        self.assertEqual(search_ops[1]["marketplace_id"], "poshmark")
+        # General is settled on its own first, then Vendoo is asked to map it.
+        # Poshmark is only searched because this mapper answers nothing.
+        search_ops = every_op(fake, "category_search")
+        self.assertEqual([op["marketplace_id"] for op in search_ops], ["vendoo", "poshmark"])
+        self.assertEqual([op["marketplace_id"] for op in every_op(fake, "category_map")], ["poshmark"])
         self.assertEqual([op["op"] for op in ops_for(fake, "session")][:3], ["session", "new_item_id", "subscription"])
         item = ops_for(fake, "create_item")[0]["item"]
         self.assertEqual(item["generalDetails"]["categoryV2"]["id"], "gen1")
         self.assertEqual(item["listings"]["poshmark"]["overrides"]["categoryV2"]["id"], "posh1")
+
+    def test_vendoo_maps_the_marketplaces_from_one_general_choice(self):
+        """Each marketplace follows from the general category, not its own search."""
+        listing = {
+            **LISTING,
+            "category_path": "Clothing > Men > Jeans",
+            "marketplace_categories": {
+                "ebay": "Clothing > Men > Jeans",
+                "poshmark": "Men > Jeans > Straight",
+            },
+        }
+        replies = [
+            {"ok": True, "results": [
+                {"op": "category_search", "ok": True,
+                 "leaf": {"id": "gen1", "is_leaf": True, "path": "Clothing > Men > Jeans",
+                          "parent_category_id_path": ["clothing", "clothing__men"]},
+                 "matches": []},
+            ]},
+            *self._replies(),
+        ]
+        mapped = {
+            "ebay": {"id": "1154", "is_leaf": True, "all_category_label": ["Clothing", "Men", "Jeans"],
+                     "parent_category_id_path": ["11450", "1059"]},
+            "poshmark": {"id": "posh1", "is_leaf": True,
+                         "all_category_label": ["Men", "Jeans", "Straight"],
+                         "parent_category_id_path": ["men", "men_jeans"]},
+        }
+        Path(self.tmp.name, "schema.json").write_text(json.dumps({"fields": {}, "item_count": 0}))
+        fake = FakeBridge(replies, mapped=mapped)
+        with mock.patch.object(vendoo_create, "tree_leaf", return_value=None), \
+                mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out = run(create_item(JOB, listing, PHOTOS))
+
+        self.assertEqual(out["item_id"], "NEWid1234567890abcde")
+        # Only the general tree is searched; the rest are mapped from it.
+        self.assertEqual([op["marketplace_id"] for op in every_op(fake, "category_search")], ["vendoo"])
+        self.assertEqual(
+            sorted(op["marketplace_id"] for op in every_op(fake, "category_map")),
+            ["ebay", "poshmark"],
+        )
+        # The mapper is handed the general category it maps from.
+        self.assertEqual(every_op(fake, "category_map")[0]["general_category"]["id"], "gen1")
+        item = ops_for(fake, "create_item")[0]["item"]
+        self.assertEqual(item["listings"]["ebay"]["overrides"]["categoryV2"]["id"], "1154")
+        self.assertEqual(item["listings"]["poshmark"]["overrides"]["categoryV2"]["id"], "posh1")
+        self.assertEqual([r for r in out["unresolved"] if r["field"].startswith("category:")], [])
+
+    def test_a_marketplace_the_mapper_skips_is_still_searched(self):
+        """A partial mapping leaves the rest to the old path, not unresolved."""
+        listing = {
+            **LISTING,
+            "category_path": "Clothing > Men > Jeans",
+            "marketplace_categories": {
+                "ebay": "Clothing > Men > Jeans",
+                "poshmark": "Men > Jeans > Straight",
+            },
+        }
+        replies = [
+            {"ok": True, "results": [
+                {"op": "category_search", "ok": True,
+                 "leaf": {"id": "gen1", "is_leaf": True, "path": "Clothing > Men > Jeans"},
+                 "matches": []},
+            ]},
+            {"ok": True, "results": [
+                {"op": "category_search", "ok": True,
+                 "leaf": {"id": "posh1", "is_leaf": True, "path": "Men > Jeans > Straight"},
+                 "matches": []},
+            ]},
+            *self._replies(),
+        ]
+        Path(self.tmp.name, "schema.json").write_text(json.dumps({"fields": {}, "item_count": 0}))
+        fake = FakeBridge(replies, mapped={"ebay": {
+            "id": "1154", "is_leaf": True, "all_category_label": ["Clothing", "Men", "Jeans"],
+        }})
+        with mock.patch.object(vendoo_create, "tree_leaf", return_value=None), \
+                mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out = run(create_item(JOB, listing, PHOTOS))
+
+        # eBay came from the mapper, Poshmark from its own search.
+        self.assertEqual([op["marketplace_id"] for op in every_op(fake, "category_search")], ["vendoo", "poshmark"])
+        item = ops_for(fake, "create_item")[0]["item"]
+        self.assertEqual(item["listings"]["ebay"]["overrides"]["categoryV2"]["id"], "1154")
+        self.assertEqual(item["listings"]["poshmark"]["overrides"]["categoryV2"]["id"], "posh1")
+        self.assertEqual([r for r in out["unresolved"] if r["field"].startswith("category:")], [])
 
     def test_falls_back_to_local_tree_when_search_finds_nothing(self):
         """Search runs first for ``extras``/``path``; the tree still covers a miss."""
@@ -234,6 +339,8 @@ class CreateTest(_TmpSchema):
         replies = [
             {"ok": True, "results": [
                 {"op": "category_search", "ok": True, "leaf": None, "matches": []},
+            ]},
+            {"ok": True, "results": [
                 {"op": "category_search", "ok": True, "leaf": None, "matches": []},
             ]},
             *self._replies(),
@@ -244,7 +351,7 @@ class CreateTest(_TmpSchema):
                 mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
             out = run(create_item(JOB, listing, PHOTOS))
         self.assertEqual(out["item_id"], "NEWid1234567890abcde")
-        self.assertEqual([op["op"] for op in ops_for(fake, "category_search")], ["category_search", "category_search"])
+        self.assertEqual([op["marketplace_id"] for op in every_op(fake, "category_search")], ["vendoo", "ebay"])
         item = ops_for(fake, "create_item")[0]["item"]
         general = item["generalDetails"]["categoryV2"]
         self.assertEqual(general["id"], "slug_jeans")

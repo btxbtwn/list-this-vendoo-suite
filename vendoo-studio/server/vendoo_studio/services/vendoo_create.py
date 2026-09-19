@@ -31,6 +31,7 @@ from vendoo_studio.services.vendoo_specifics import (
 from vendoo_studio.services.vendoo_api import (
     build_vendoo_item,
     category_from_hit,
+    category_v2,
     diff_roundtrip,
     observe_item_schema,
     path_parts,
@@ -245,12 +246,94 @@ def _tree_ancestors(db, marketplace: str, category_id: str) -> list[str]:
     return list(reversed(chain))
 
 
+async def _hits_by_search(
+    job,
+    targets: list[tuple[str, str, str]],
+    unresolved: list[dict[str, str]],
+) -> dict[str, dict[str, Any]]:
+    """Resolve each target on its own, by live search then the seeded tree.
+
+    Only a live hit carries ``extras.siteId`` and the ancestor id chain, and
+    eBay's form throws without them; the tree covers search being unavailable.
+    """
+    if not targets:
+        return {}
+    ops = [
+        {
+            "op": "category_search",
+            "text": path,
+            # Vendoo's search API names the general tree ``vendoo``.
+            "marketplace_id": "vendoo" if marketplace_id == "general" else marketplace_id,
+            "throttle_ms": 200,
+        }
+        for _, marketplace_id, path in targets
+    ]
+    reply = await run_ops(job, ops)
+    results = [row for row in reply.get("results", []) if row.get("op") == "category_search"]
+    hits: dict[str, dict[str, Any]] = {}
+    for (key, marketplace_id, path), result in zip(targets, results):
+        hit = None
+        if result.get("ok"):
+            matches = list(result.get("matches") or [])
+            leaf = result.get("leaf")
+            if isinstance(leaf, dict):
+                matches = [leaf, *[m for m in matches if m is not leaf]]
+            hit = pick_category_hit(matches, path)
+        if not (hit and hit.get("id")):
+            hit = tree_leaf(marketplace_id, path)
+        if hit and hit.get("id"):
+            hits[key] = hit
+        else:
+            unresolved.append({"field": f"category:{key}", "value": path})
+    return hits
+
+
+async def _hits_by_mapping(
+    job,
+    general: dict[str, Any],
+    targets: list[tuple[str, str, str]],
+) -> dict[str, dict[str, Any]]:
+    """Ask Vendoo which category each marketplace uses for this general one.
+
+    Vendoo's forms map from the general category rather than choosing per
+    marketplace, and so should we: searching each marketplace for the same
+    listing text means six chances to land somewhere unrelated, when the
+    answer is a property of the general category. A marketplace the mapper
+    has nothing for is left out, for the caller to resolve the old way.
+    """
+    if not (general.get("id") and targets):
+        return {}
+    ops = [
+        {
+            "op": "category_map",
+            "marketplace_id": key,
+            "general_category": general,
+            "throttle_ms": 150,
+        }
+        for key, _marketplace_id, _path in targets
+    ]
+    try:
+        reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=REQUEST_TIMEOUT_SEC)
+    except BrowserBridgeError as exc:
+        log.info("category mapper unavailable: %s", exc)
+        return {}
+    hits: dict[str, dict[str, Any]] = {}
+    for row in reply.get("results") or []:
+        if row.get("op") != "category_map" or not row.get("ok"):
+            continue
+        match = row.get("match")
+        if isinstance(match, dict) and match.get("id"):
+            hits[str(row.get("marketplace_id"))] = match
+    return hits
+
+
 async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """Resolve Studio breadcrumbs into Vendoo ``categoryV2`` leaf ids.
 
-    Prefers the local category tree (correct per-marketplace ids). Falls back to
-    live ``category_search`` when the path is missing from the tree. Without a
-    chosen leaf, Vendoo's UI keeps marketplace/optional fields locked.
+    The general category is settled first, then Vendoo maps it to each
+    marketplace. Anything it will not map falls back to searching that
+    marketplace directly. Without a chosen leaf, Vendoo's UI keeps
+    marketplace/optional fields locked.
     """
     listing = dict(listing)
     unresolved: list[dict[str, str]] = []
@@ -258,39 +341,29 @@ async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict
     if not targets:
         return listing, unresolved
 
-    # Search first: only a live hit carries ``extras.siteId`` and the ancestor
-    # id chain, and eBay's form throws without them. The seeded tree is the
-    # fallback for when search is unavailable or finds nothing.
-    pending_search: list[tuple[str, str, str]] = list(targets)
-    resolved_hits: dict[str, dict[str, Any]] = {}
+    general_target = next((row for row in targets if row[0] == "general"), None)
+    market_targets = [row for row in targets if row[0] != "general"]
 
-    if pending_search:
-        ops = [
-            {
-                "op": "category_search",
-                "text": path,
-                # Vendoo's search API names the general tree ``vendoo``.
-                "marketplace_id": "vendoo" if marketplace_id == "general" else marketplace_id,
-                "throttle_ms": 200,
-            }
-            for _, marketplace_id, path in pending_search
-        ]
-        reply = await run_ops(job, ops)
-        results = [row for row in reply.get("results", []) if row.get("op") == "category_search"]
-        for (key, marketplace_id, path), result in zip(pending_search, results):
-            hit = None
-            if result.get("ok"):
-                matches = list(result.get("matches") or [])
-                leaf = result.get("leaf")
-                if isinstance(leaf, dict):
-                    matches = [leaf, *[m for m in matches if m is not leaf]]
-                hit = pick_category_hit(matches, path)
-            if not (hit and hit.get("id")):
-                hit = tree_leaf(marketplace_id, path)
-            if hit and hit.get("id"):
-                resolved_hits[key] = hit
-            else:
-                unresolved.append({"field": f"category:{key}", "value": path})
+    resolved_hits: dict[str, dict[str, Any]] = {}
+    general_v2: dict[str, Any] | None = None
+    if general_target:
+        resolved_hits.update(await _hits_by_search(job, [general_target], unresolved))
+        general_v2 = category_from_hit(resolved_hits.get("general"), general_target[2])
+    else:
+        # Already resolved on the listing — still enough to map from.
+        objects = listing.get("marketplace_category_objects")
+        if isinstance(objects, dict) and isinstance(objects.get("general"), dict):
+            general_v2 = objects["general"]
+        elif listing.get("category_id"):
+            general_v2 = category_v2(listing.get("category_id"), listing.get("category_path"))
+
+    if general_v2 and market_targets:
+        mapped = await _hits_by_mapping(job, general_v2, market_targets)
+        resolved_hits.update(mapped)
+        market_targets = [row for row in market_targets if row[0] not in mapped]
+
+    if market_targets:
+        resolved_hits.update(await _hits_by_search(job, market_targets, unresolved))
 
     ids = dict(listing.get("marketplace_category_ids") or {}) if isinstance(listing.get("marketplace_category_ids"), dict) else {}
     raw = listing.get("marketplace_category_objects")
