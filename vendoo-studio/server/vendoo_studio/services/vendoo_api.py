@@ -29,7 +29,6 @@ from vendoo_studio.services.vendoo_specifics import (
     encode_scaled,
     encode_specific,
     missing_required,
-    normalize_specifics,
     scale_key,
     specifics_key,
 )

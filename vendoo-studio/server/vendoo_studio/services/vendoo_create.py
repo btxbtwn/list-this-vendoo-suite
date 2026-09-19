@@ -294,7 +294,7 @@ async def _hits_by_search(
     reply = await run_ops(job, ops)
     results = [row for row in reply.get("results", []) if row.get("op") == "category_search"]
     hits: dict[str, dict[str, Any]] = {}
-    for (key, marketplace_id, path), result in zip(searchable, results):
+    for (key, marketplace_id, path), result in zip(searchable, results, strict=True):
         hit = None
         if result.get("ok"):
             matches = list(result.get("matches") or [])

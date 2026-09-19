@@ -71,7 +71,7 @@ def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any
 
 def apply_pull(db: Session, conv_id: str, item: dict[str, Any]) -> str | None:
     """Save Vendoo's version as a revision and record that we are in step."""
-    from vendoo_studio.services.vendoo_import import listing_from_vendoo, merge_notes
+    from vendoo_studio.services.vendoo_import import listing_from_vendoo
 
     listing_repo = ListingRepo(db)
     revisions = listing_repo.get_revisions(conv_id)
