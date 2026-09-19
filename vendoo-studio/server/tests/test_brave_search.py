@@ -37,6 +37,10 @@ class CompQueryTest(unittest.TestCase):
         query = sold_comps_query({"brand": "Nike", "category": "T-Shirt", "style": "Graphic Tee"})
         self.assertEqual(query, "Nike T-Shirt sold comps")
 
+    def test_query_uses_category_path_leaf(self):
+        query = sold_comps_query({"brand": "GB Girls", "category": "Tops > T-Shirts"})
+        self.assertEqual(query, "GB Girls T-Shirts sold comps")
+
     def test_query_empty_without_brand_or_item(self):
         self.assertEqual(sold_comps_query({"size": "M"}), "")
 

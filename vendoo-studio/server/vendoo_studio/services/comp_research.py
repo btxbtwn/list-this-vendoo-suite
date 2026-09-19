@@ -117,10 +117,11 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
                     results[name] = ""
             if comps_usable(results.get("chatgpt")):
                 return results["chatgpt"]
-            # Any Brave answer (usable listings or a thin/failed note) starts the
-            # grace window. Waiting the full ChatGPT timeout when Brave already
-            # finished is how a set Brave key still produced no comps card.
-            if results.get("brave") and tasks.get("chatgpt") in pending:
+            # Only usable Brave listings start the grace window. A thin Brave
+            # answer finishes in seconds while ChatGPT web search takes far
+            # longer than the grace, so cutting ChatGPT off there turned every
+            # generation into "No sold listings found".
+            if comps_usable(results.get("brave")) and tasks.get("chatgpt") in pending:
                 chatgpt_deadline = chatgpt_deadline or loop.time() + CHATGPT_GRACE_SEC
     finally:
         for task in pending:

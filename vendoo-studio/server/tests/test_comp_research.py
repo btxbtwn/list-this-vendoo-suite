@@ -197,17 +197,16 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
             text = await research_sold_comps(ANALYSIS)
         self.assertIn("Source: Brave Search", text)
 
-    async def test_thin_brave_still_wins_over_hanging_chatgpt(self):
-        """Brave key set + ChatGPT signed in must not wait 90s when Brave returns thin/failed."""
+    async def test_thin_brave_waits_for_slower_chatgpt_comps(self):
+        """A thin Brave answer must not cut ChatGPT off after the grace window."""
         import asyncio
 
         async def slow_chatgpt(_query: str) -> str:
-            await asyncio.sleep(60)
+            await asyncio.sleep(0.2)
             return CHATGPT_COMPS
 
         with (
             patch("vendoo_studio.services.comp_research.CHATGPT_GRACE_SEC", 0.05),
-            patch("vendoo_studio.services.comp_research.SOLD_COMPS_TIMEOUT_SEC", 5),
             patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
             patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=slow_chatgpt),
             patch(
@@ -217,8 +216,8 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
             patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
         ):
             text = await research_sold_comps(ANALYSIS)
-        self.assertIn("Source: Brave Search", text)
-        self.assertNotIn("Source: ChatGPT", text)
+        self.assertIn("Source: ChatGPT web search", text)
+        self.assertTrue(comps_usable(text))
 
     async def test_skips_when_no_search_provider(self):
         with (
