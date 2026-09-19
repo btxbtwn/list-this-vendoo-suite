@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import logging
 import subprocess
+from datetime import UTC, datetime
 import sys
 import threading
 import time
@@ -23,6 +25,9 @@ INSTALL_PRESERVE = (
     "vendoo-studio/dist",
     "vendoo-studio/server/vendoo_studio/desktop.py",
 )
+
+
+log = logging.getLogger("vendoo_studio.updates")
 
 
 class UpdateBlocked(Exception):
@@ -155,7 +160,12 @@ def _copy_preserved(src_root: Path, dest_root: Path) -> None:
 
 
 def ensure_standalone_clone(root: Path) -> Path:
-    """Replace a linked git worktree with an independent clone of the GitHub repo."""
+    """Replace a linked git worktree with an independent clone of the GitHub repo.
+
+    Callers must check ``dirty_files`` first: this moves the existing tree
+    aside wholesale, so anything uncommitted in it stops being reachable from
+    the repo it belonged to.
+    """
     if _is_dev() or not is_linked_worktree(root):
         if not _is_dev():
             _ensure_origin_url(root)
@@ -258,7 +268,40 @@ def reinstall_app() -> dict:
         raise UpdateBlocked(str(exc)) from exc
 
 
+def preserve_dirty_tree(root: Path) -> Path | None:
+    """Write uncommitted changes to a patch before an update discards them.
+
+    Returns the patch path, or None when the tree was clean. Failing to write
+    it is not worth blocking an update over, but it is worth logging.
+    """
+    try:
+        dirty = dirty_files(root)
+    except Exception:  # noqa: BLE001 - a tree we cannot read has nothing to save
+        return None
+    if not dirty:
+        return None
+    try:
+        from vendoo_studio.config import DATA_DIR
+
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        target = Path(DATA_DIR) / "discarded-changes" / f"{root.name}-{stamp}.patch"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_run(["git", "diff", "HEAD"], root) + "\n", encoding="utf-8")
+        log.warning(
+            "update discarding %s uncommitted file(s) in %s; saved to %s",
+            len(dirty), root, target,
+        )
+        return target
+    except Exception:  # noqa: BLE001
+        log.warning("could not preserve uncommitted changes in %s", root, exc_info=True)
+        return None
+
+
 def apply_update_at(root: Path) -> dict:
+    # An update is a hard reset onto the remote, and discarding local dirt is
+    # the point. But it has taken a branch's worth of unpushed work with it, so
+    # keep a copy first: the update still proceeds, and nothing is unrecoverable.
+    preserved = preserve_dirty_tree(root)
     if not _is_dev():
         root = ensure_standalone_clone(root)
     fetch(root)
@@ -268,7 +311,10 @@ def apply_update_at(root: Path) -> dict:
     pin_to_remote(root, remote_ref)
     sha = rev_parse(root, "HEAD")
     rebuilt = _rebuild_frontend_if_needed(root)
-    return {"ok": True, "updated": True, "sha": sha, "rebuilt": rebuilt}
+    out = {"ok": True, "updated": True, "sha": sha, "rebuilt": rebuilt}
+    if preserved:
+        out["preserved_patch"] = str(preserved)
+    return out
 
 
 def _rebuild_frontend_if_needed(root: Path) -> bool:

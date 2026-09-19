@@ -1,13 +1,14 @@
 import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { Job, ListingData } from "../api/types";
+import type { Job, ListingData, MarketplaceForm } from "../api/types";
 import { cloneListing, getNestedValue, setNestedValue } from "../listingPaths";
 import { FillLogPanel } from "./FillLogPanel";
 import { PhotoTray } from "./PhotoTray";
 import { ItemDetails } from "./ItemDetails";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { OpenListingButton } from "./OpenListingButton";
+import { VendooSyncButtons } from "./VendooSyncButtons";
 import {
   DEPOP_CATEGORY_OPTIONALS,
   EBAY_CATEGORY_OPTIONALS,
@@ -38,6 +39,8 @@ interface EditorField {
   label: string;
   type?: string;
   defaultValue?: string;
+  required?: boolean;
+  options?: string[];
 }
 
 export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOpenBrowser, browserOpen }: Props) {
@@ -208,6 +211,11 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
                 Browser
               </button>
             )}
+            <VendooSyncButtons
+              convId={convId}
+              bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
+              className="pr-review-open"
+            />
             <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />
           </div>
         </div>
@@ -319,6 +327,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
               </div>
             ) : (
               <StructuredEditor
+                convId={convId}
                 listing={listing}
                 revisionId={data?.current_revision_id}
                 tab={editTab}
@@ -348,6 +357,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
 }
 
 function StructuredEditor({
+  convId,
   listing,
   revisionId,
   tab,
@@ -356,6 +366,7 @@ function StructuredEditor({
   onChange,
   onCategoryMatched,
 }: {
+  convId: string;
   listing: ListingData;
   revisionId?: string | null;
   tab: string;
@@ -365,7 +376,18 @@ function StructuredEditor({
   onCategoryMatched?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const fields = getFieldsForTab(listing, tab);
+  // What Vendoo says this listing's category actually renders, rather than a
+  // list kept by hand here. Falls back to the static one while it loads, or
+  // for a category no schema has been fetched for.
+  const { data: forms } = useQuery({
+    queryKey: ["listing-fields", convId],
+    queryFn: () => api.vendooApi.listingFields(convId),
+    staleTime: 60_000,
+  });
+  const fields = React.useMemo(
+    () => schemaFieldsForTab(forms?.forms, tab) ?? getFieldsForTab(listing, tab),
+    [forms, listing, tab],
+  );
   const [local, setLocal] = React.useState<Record<string, string>>({});
   const { data: extStatus } = useQuery({
     queryKey: ["extension-status"],
@@ -443,12 +465,43 @@ function StructuredEditor({
         {gridFields.map((f) => (
           <div key={f.key} className={f.label === "Category" ? "field-row field-full" : "field-row"}>
             <label className="label">{f.label}</label>
-            <input className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
+            <input
+              className="input"
+              type={f.type || "text"}
+              value={local[f.key] || ""}
+              // Vendoo only accepts its own options for these, so offer them
+              // rather than letting a near-miss be typed in.
+              list={f.options?.length ? `${f.key}-options` : undefined}
+              onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })}
+              onBlur={() => handleBlur(f.key)}
+            />
+            {f.options?.length ? (
+              <datalist id={`${f.key}-options`}>
+                {f.options.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
+            ) : null}
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+/** Fields for this tab from Vendoo's own schema, or null when it has none. */
+function schemaFieldsForTab(
+  forms: MarketplaceForm[] | undefined,
+  tab: string,
+): EditorField[] | null {
+  const form = forms?.find((entry) => entry.marketplace === tab);
+  if (!form?.known || !form.fields.length) return null;
+  return form.fields.map((field) => ({
+    key: `${tab}_specifics.${field.key}`,
+    label: field.required ? `${field.label} *` : field.label,
+    required: field.required,
+    options: field.options,
+  }));
 }
 
 function getFieldsForTab(listing: ListingData | undefined, tab: string): EditorField[] {

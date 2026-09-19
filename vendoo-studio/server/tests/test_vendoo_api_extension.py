@@ -19,7 +19,16 @@ globalThis.send = (m) => sent.push(m);
 globalThis.findVisibleVendooTab = async () => ({ id: 7 });
 globalThis.openVisibleVendooWindow = async () => ({ tabId: 7 });
 globalThis.waitForTabComplete = async () => true;
-globalThis.chrome = { scripting: { executeScript: async () => [{ result: session }] } };
+const closedTabs = [];
+globalThis.chrome = {
+  scripting: { executeScript: async () => [{ result: session }] },
+  // The executor closes crashed /item/ tabs before reading the session, so a
+  // bare scripting stub is not enough to run it.
+  tabs: {
+    query: async () => [{ id: 9, url: 'https://web.vendoo.co/app/item/crashed' }],
+    remove: async (id) => { closedTabs.push(id); },
+  },
+};
 globalThis.fetch = async (url, init) => {
   const record = { url: String(url), method: (init && init.method) || 'GET', headers: init && init.headers ? { ...init.headers } : {} };
   if (init && typeof init.body === 'string') record.body = init.body;
@@ -42,7 +51,7 @@ eval(src);
 (async () => {
   const msg = { type: 'job.vendoo_api', job_id: 'job-1', payload: { request_id: 'r1', ops: %(ops)s } };
   await handleVendooApiMessage(msg);
-  process.stdout.write(JSON.stringify({ sent, fetches }));
+  process.stdout.write(JSON.stringify({ sent, fetches, closedTabs }));
 })();
 """
 
@@ -58,6 +67,12 @@ def run_node(ops, session=FRESH) -> dict:
 
 
 class VendooApiExtensionTest(unittest.TestCase):
+    def test_crashed_item_tabs_are_closed_before_reading_the_session(self):
+        """A crashed ``/item/`` tab breaks the session read, so it goes first."""
+        out = run_node([{"op": "session"}])
+        self.assertEqual(out["closedTabs"], [9])
+        self.assertTrue(out["sent"][0]["payload"]["ok"])
+
     def test_full_create_sequence(self):
         out = run_node([
             {"op": "session"}, {"op": "new_item_id"}, {"op": "subscription"},

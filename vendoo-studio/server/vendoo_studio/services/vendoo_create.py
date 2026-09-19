@@ -21,16 +21,30 @@ from typing import Any
 from vendoo_studio.config import DATA_DIR, HOST, PORT
 from vendoo_studio.services import browser_bridge
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
+from vendoo_studio.services.specifics_fill import fill_listing_specifics
+from vendoo_studio.services.vendoo_specifics import (
+    MERCARI_STATIC_URL,
+    FieldSpec,
+    mercari_specifics,
+    normalize_specifics,
+)
 from vendoo_studio.services.vendoo_api import (
     build_vendoo_item,
+    category_from_hit,
+    category_v2,
+    pick_mapped_category,
     diff_roundtrip,
     observe_item_schema,
+    path_parts,
+    pick_category_hit,
 )
 
 log = logging.getLogger("vendoo_studio.vendoo_create")
 
 REQUEST_TIMEOUT_SEC = 240.0
 SCHEMA_FILE = "vendoo-item-schema.json"
+# Marketplaces whose category tree unlocks the rest of that form's fields.
+CATEGORY_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
 
 __all__ = ["BrowserBridgeError", "VendooCreateError", "create_item", "probe_schema", "load_schema"]
 
@@ -91,11 +105,15 @@ def save_schema(schema: dict[str, Any]) -> Path:
     return path
 
 
-async def probe_schema(job, item_ids: list[str]) -> dict[str, Any]:
+async def probe_schema(job, item_ids: list[str], *, reset: bool = False) -> dict[str, Any]:
     """Read existing items and learn Vendoo's encodings from them.
 
     Merges with any schema learned before, so every probe only widens what we
     know. Returns the merged schema plus which ids could not be read.
+
+    ``reset`` discards what was learned first. Probing an item Studio created
+    itself teaches it its own mistakes — a rejected value read back looks like
+    a valid code — so a bad encoding has to be forgettable.
     """
     ids = [str(item_id).strip() for item_id in item_ids if str(item_id or "").strip()]
     if not ids:
@@ -109,7 +127,7 @@ async def probe_schema(job, item_ids: list[str]) -> dict[str, Any]:
         raise VendooCreateError(str(reply["error"]))
 
     learned = observe_item_schema(items)
-    previous = load_schema() or {"fields": {}, "item_count": 0}
+    previous = {} if reset else (load_schema() or {})
     merged_fields: dict[str, Any] = {k: dict(v) for k, v in (previous.get("fields") or {}).items()}
     for name, entry in learned["fields"].items():
         target = merged_fields.setdefault(name, {"labels": {}, "codes": [], "shape": entry["shape"]})
@@ -117,13 +135,372 @@ async def probe_schema(job, item_ids: list[str]) -> dict[str, Any]:
         target["codes"] = list(dict.fromkeys([*target.get("codes", []), *entry["codes"]]))
         if entry["shape"] == "object":
             target["shape"] = "object"
+    merged_markets: dict[str, Any] = {
+        mp: {name: dict(table) for name, table in (entry or {}).items()}
+        for mp, entry in (previous.get("marketplaces") or {}).items()
+    }
+    for mp, entry in learned["marketplaces"].items():
+        target = merged_markets.setdefault(mp, {})
+        for name, table in entry.items():
+            target[name] = {**target.get(name, {}), **table}
+    merged_aspects: dict[str, Any] = {mp: dict(shapes) for mp, shapes in (previous.get("aspects") or {}).items()}
+    for mp, shapes in learned["aspects"].items():
+        target = merged_aspects.setdefault(mp, {})
+        for suffix, shape in shapes.items():
+            # A list seen once outranks a scalar: multi-select aspects hold one
+            # value most of the time.
+            if shape == "list" or suffix not in target:
+                target[suffix] = shape
     schema = {
         "fields": merged_fields,
+        "marketplaces": merged_markets,
+        "aspects": merged_aspects,
         "item_count": int(previous.get("item_count") or 0) + learned["item_count"],
         "samples": [item.get("itemID") for item in items if item.get("itemID")][:50],
     }
     save_schema(schema)
     return {"schema": schema, "learned_from": len(items), "failures": failures}
+
+
+# --------------------------------------------------------------------------
+# Category resolution (unlocks marketplace fields the same way a picker does)
+# --------------------------------------------------------------------------
+
+
+def _mappable_marketplaces() -> tuple[str, ...]:
+    """Marketplaces the seller lists on, which are the ones worth mapping to."""
+    try:
+        from vendoo_studio.services.marketplaces import selected_fillable_platforms
+
+        return tuple(selected_fillable_platforms())
+    except Exception:  # noqa: BLE001 - settings are not worth failing a create over
+        return ()
+
+
+def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """``(key, marketplace_id, path)`` rows that still need a Vendoo leaf id."""
+    targets: list[tuple[str, str, str]] = []
+    general_path = str(listing.get("category_path") or "").strip()
+    if general_path and not str(listing.get("category_id") or "").strip():
+        # General tree uses slug ids (``clothing_shoes__accessories__…``), not
+        # eBay numeric leaves — search/lookup against marketplace ``general``.
+        targets.append(("general", "general", general_path))
+
+    cats = listing.get("marketplace_categories")
+    cats = cats if isinstance(cats, dict) else {}
+    ids = listing.get("marketplace_category_ids")
+    ids = ids if isinstance(ids, dict) else {}
+    for marketplace in CATEGORY_MARKETPLACES:
+        if str(ids.get(marketplace) or "").strip():
+            continue
+        path = str(cats.get(marketplace) or "").strip()
+        if not path:
+            # No breadcrumb of its own is fine now: the mapper works from the
+            # general category. Only for marketplaces the seller actually
+            # lists on, and quietly — searching needs text, so these go
+            # unresolved-free when nothing maps.
+            if marketplace in _mappable_marketplaces() and (
+                general_path or str(listing.get("category_id") or "").strip()
+            ):
+                targets.append((marketplace, marketplace, ""))
+            continue
+        targets.append((marketplace, marketplace, path))
+    return targets
+
+
+def tree_leaf(marketplace: str, path: str) -> dict[str, Any] | None:
+    """Exact leaf from the seeded ``category_tree_nodes`` table, when present."""
+    import sqlite3
+
+    from vendoo_studio.config import DATABASE_PATH
+    from vendoo_studio.services.vendoo_api import path_parts
+
+    parts = path_parts(path)
+    wanted = " > ".join(parts)
+    if not wanted:
+        return None
+    try:
+        with sqlite3.connect(DATABASE_PATH) as db:
+            row = db.execute(
+                "SELECT category_id, path, label, has_children FROM category_tree_nodes "
+                "WHERE marketplace = ? AND path = ? AND is_leaf = 1 LIMIT 1",
+                (marketplace, wanted),
+            ).fetchone()
+            if not row:
+                return None
+            cat_id, node_path, label, has_children = row
+            ancestors = _tree_ancestors(db, marketplace, str(cat_id))
+    except sqlite3.Error:
+        return None
+    # Shaped like a ``category_search`` hit so one mapper handles both. The
+    # tree has no ``payload_text``, so ``extras`` only comes from a live hit.
+    return {
+        "id": str(cat_id),
+        "is_leaf": True,
+        "has_children": bool(has_children),
+        "last_subcategory_label": label,
+        "all_category_label": path_parts(node_path),
+        "parent_category_id_path": ancestors,
+    }
+
+
+def _tree_ancestors(db, marketplace: str, category_id: str) -> list[str]:
+    """Ancestor ids root-first, which ``categoryV2.path`` lists before the leaf."""
+    chain: list[str] = []
+    seen: set[str] = set()
+    current = category_id
+    while current and current not in seen:
+        seen.add(current)
+        row = db.execute(
+            "SELECT parent_id FROM category_tree_nodes WHERE marketplace = ? AND category_id = ?",
+            (marketplace, current),
+        ).fetchone()
+        if not row or not row[0]:
+            break
+        parent = str(row[0])
+        # The seeded tree hangs every root off a ``__root`` sentinel Vendoo
+        # does not store.
+        if parent.startswith("__") or parent in ("", "root", "0"):
+            break
+        chain.append(parent)
+        current = parent
+    return list(reversed(chain))
+
+
+async def _hits_by_search(
+    job,
+    targets: list[tuple[str, str, str]],
+    unresolved: list[dict[str, str]],
+) -> dict[str, dict[str, Any]]:
+    """Resolve each target on its own, by live search then the seeded tree.
+
+    Only a live hit carries ``extras.siteId`` and the ancestor id chain, and
+    eBay's form throws without them; the tree covers search being unavailable.
+    """
+    # A mapping-only target has no text to search for.
+    searchable = [row for row in targets if str(row[2] or "").strip()]
+    if not searchable:
+        return {}
+    ops = [
+        {
+            "op": "category_search",
+            "text": path,
+            # Vendoo's search API names the general tree ``vendoo``.
+            "marketplace_id": "vendoo" if marketplace_id == "general" else marketplace_id,
+            "throttle_ms": 200,
+        }
+        for _, marketplace_id, path in searchable
+    ]
+    reply = await run_ops(job, ops)
+    results = [row for row in reply.get("results", []) if row.get("op") == "category_search"]
+    hits: dict[str, dict[str, Any]] = {}
+    for (key, marketplace_id, path), result in zip(searchable, results, strict=True):
+        hit = None
+        if result.get("ok"):
+            matches = list(result.get("matches") or [])
+            leaf = result.get("leaf")
+            if isinstance(leaf, dict):
+                matches = [leaf, *[m for m in matches if m is not leaf]]
+            hit = pick_category_hit(matches, path)
+        if not (hit and hit.get("id")):
+            hit = tree_leaf(marketplace_id, path)
+        if hit and hit.get("id"):
+            hits[key] = hit
+        else:
+            unresolved.append({"field": f"category:{key}", "value": path})
+    return hits
+
+
+async def _hits_by_mapping(
+    job,
+    general: dict[str, Any],
+    targets: list[tuple[str, str, str]],
+) -> dict[str, dict[str, Any]]:
+    """Ask Vendoo which category each marketplace uses for this general one.
+
+    Vendoo's forms map from the general category rather than choosing per
+    marketplace, and so should we: searching each marketplace for the same
+    listing text means six chances to land somewhere unrelated, when the
+    answer is a property of the general category. A marketplace the mapper
+    has nothing for is left out, for the caller to resolve the old way.
+    """
+    if not (general.get("id") and targets):
+        return {}
+    ops = [
+        {
+            "op": "category_map",
+            "marketplace_id": key,
+            "general_category": general,
+            "throttle_ms": 150,
+        }
+        for key, _marketplace_id, _path in targets
+    ]
+    try:
+        reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=REQUEST_TIMEOUT_SEC)
+    except BrowserBridgeError as exc:
+        log.info("category mapper unavailable: %s", exc)
+        return {}
+    hits: dict[str, dict[str, Any]] = {}
+    for row in reply.get("results") or []:
+        if row.get("op") != "category_map" or not row.get("ok"):
+            continue
+        # Its single match is sometimes the wrong branch; the alternates it
+        # returns alongside are worth reading before taking it.
+        best = pick_mapped_category(general, row.get("match"), row.get("recommendations"))
+        if isinstance(best, dict) and best.get("id"):
+            hits[str(row.get("marketplace_id"))] = best
+    return hits
+
+
+async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Resolve Studio breadcrumbs into Vendoo ``categoryV2`` leaf ids.
+
+    The general category is settled first, then Vendoo maps it to each
+    marketplace. Anything it will not map falls back to searching that
+    marketplace directly. Without a chosen leaf, Vendoo's UI keeps
+    marketplace/optional fields locked.
+    """
+    listing = dict(listing)
+    unresolved: list[dict[str, str]] = []
+    targets = _category_targets(listing)
+    if not targets:
+        return listing, unresolved
+
+    general_target = next((row for row in targets if row[0] == "general"), None)
+    market_targets = [row for row in targets if row[0] != "general"]
+
+    resolved_hits: dict[str, dict[str, Any]] = {}
+    general_v2: dict[str, Any] | None = None
+    if general_target:
+        resolved_hits.update(await _hits_by_search(job, [general_target], unresolved))
+        general_v2 = category_from_hit(resolved_hits.get("general"), general_target[2])
+    else:
+        # Already resolved on the listing — still enough to map from.
+        objects = listing.get("marketplace_category_objects")
+        if isinstance(objects, dict) and isinstance(objects.get("general"), dict):
+            general_v2 = objects["general"]
+        elif listing.get("category_id"):
+            general_v2 = category_v2(listing.get("category_id"), listing.get("category_path"))
+
+    if general_v2 and market_targets:
+        mapped = await _hits_by_mapping(job, general_v2, market_targets)
+        resolved_hits.update(mapped)
+        market_targets = [row for row in market_targets if row[0] not in mapped]
+
+    if market_targets:
+        resolved_hits.update(await _hits_by_search(job, market_targets, unresolved))
+
+    ids = dict(listing.get("marketplace_category_ids") or {}) if isinstance(listing.get("marketplace_category_ids"), dict) else {}
+    raw = listing.get("marketplace_category_objects")
+    objects = dict(raw) if isinstance(raw, dict) else {}
+    for key, _marketplace_id, path in targets:
+        hit = resolved_hits.get(key)
+        resolved = category_from_hit(hit, path) if hit else None
+        if not resolved or not resolved.get("id"):
+            # Only a breadcrumb the seller actually chose is worth reporting.
+            if path and not any(row.get("field") == f"category:{key}" for row in unresolved):
+                unresolved.append({"field": f"category:{key}", "value": path})
+            continue
+        parts = resolved.get("displayPath") or path_parts(path)
+        # Keep the whole object: rebuilding it from an id and a breadcrumb
+        # drops the fields eBay's form reads.
+        objects[key] = resolved
+        if key == "general":
+            listing["category_id"] = resolved["id"]
+            if parts:
+                listing["category_path"] = " > ".join(parts)
+            continue
+        ids[key] = resolved["id"]
+        spec_key = f"{key}_specifics"
+        specifics = dict(listing.get(spec_key) or {}) if isinstance(listing.get(spec_key), dict) else {}
+        specifics["categoryPath"] = parts
+        specifics["categoryId"] = resolved["id"]
+        listing[spec_key] = specifics
+
+    if ids:
+        listing["marketplace_category_ids"] = ids
+    if objects:
+        listing["marketplace_category_objects"] = objects
+    return listing, unresolved
+
+
+async def mercari_fields(category_id: str) -> dict[str, FieldSpec]:
+    """Mercari's size options for one category, from Vendoo's static asset.
+
+    Needs no Vendoo session and no extension — the file is public — so this is
+    a plain server-side fetch rather than a browser round trip.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.get(MERCARI_STATIC_URL, headers={"Accept-Encoding": "gzip"})
+            res.raise_for_status()
+            master = res.json()
+    except Exception as exc:  # noqa: BLE001 - a missing schema is not fatal
+        log.info("No Mercari size data: %s", exc)
+        return {}
+    return mercari_specifics(master, category_id)
+
+
+async def fetch_listing_specifics(job, listing: dict[str, Any]) -> dict[str, dict[str, FieldSpec]]:
+    """Vendoo's own field schema for every leaf this listing resolved.
+
+    This is the call each marketplace form makes as soon as a category is
+    picked, and it is the only authority on which fields that category has,
+    which are required, which hold a list and which coded option ids are
+    legal. One request per marketplace: the extension stops a batch at its
+    first failure, and some marketplaces have no schema to serve.
+
+    Answers are cached per leaf, so a category only costs one round trip ever.
+    A marketplace that cannot answer is simply left out — ``build_vendoo_item``
+    then falls back to what the seller's own items taught us.
+    """
+    from vendoo_studio.services.category_fields import load_fields, save_fields
+
+    objects = listing.get("marketplace_category_objects")
+    objects = objects if isinstance(objects, dict) else {}
+    out: dict[str, dict[str, FieldSpec]] = {}
+    for marketplace, resolved in objects.items():
+        if marketplace == "general" or not isinstance(resolved, dict) or not resolved.get("id"):
+            continue
+        category_id = str(resolved["id"])
+        cached = load_fields(marketplace, category_id)
+        if cached:
+            out[marketplace] = cached
+            continue
+        if marketplace == "mercari":
+            # Mercari's schema is a public static file, not an API answer.
+            specs = await mercari_fields(category_id)
+            if specs:
+                out[marketplace] = specs
+                save_fields(marketplace, category_id, specs)
+            continue
+        op = {
+            "op": "category_specifics",
+            "category_id": category_id,
+            "marketplace_id": marketplace,
+            "path": [str(part) for part in (resolved.get("path") or []) if str(part or "").strip()],
+            "extras": resolved.get("extras") if isinstance(resolved.get("extras"), dict) else {},
+        }
+        try:
+            reply = await browser_bridge.request(
+                job, "job.vendoo_api", {"ops": [op]}, timeout=REQUEST_TIMEOUT_SEC
+            )
+        except BrowserBridgeError as exc:
+            log.info("No %s category schema: %s", marketplace, exc)
+            continue
+        hit = next(
+            (r for r in (reply.get("results") or []) if r.get("op") == "category_specifics"), {}
+        )
+        if not hit.get("ok"):
+            log.info("No %s category schema: %s", marketplace, hit.get("error") or "empty reply")
+            continue
+        specs = normalize_specifics(hit.get("specifics"))
+        if specs:
+            out[marketplace] = specs
+            save_fields(marketplace, category_id, specs)
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -157,17 +534,35 @@ def _photo_ops(job, photos: list[Any]) -> list[dict[str, Any]]:
     return ops
 
 
-async def create_item(job, listing: dict[str, Any], photos: list[Any]) -> dict[str, Any]:
+async def create_item(
+    job,
+    listing: dict[str, Any],
+    photos: list[Any],
+    *,
+    provider=None,
+    evidence: str = "",
+) -> dict[str, Any]:
     """Create the Vendoo item and verify it round-trips.
 
-    Returns ``{item_id, url, unresolved, diff, results}``. ``unresolved`` names
-    fields sent as plain text because no encoding was learned for them yet;
+    Returns ``{item_id, url, unresolved, diff, unfilled, results}``.
+    ``unresolved`` names fields sent as plain text because no encoding covered
+    them; ``unfilled`` names category fields still empty when the item went up;
     ``diff`` lists fields Vendoo stored differently from what we sent.
+
+    With a ``provider``, every field the resolved categories render is put to
+    the model first, so the item is created once, complete — rather than saved
+    bare and filled in afterwards.
     """
     if not photos:
         raise VendooCreateError("Vendoo needs at least one photo")
 
     schema = load_schema()
+    listing, category_unresolved = await resolve_listing_categories(job, listing)
+    # Ask each resolved leaf what fields it has before anything is encoded.
+    specifics = await fetch_listing_specifics(job, listing)
+    listing, unfilled = await fill_listing_specifics(
+        listing, specifics, provider, evidence=evidence
+    )
 
     # Photos and the id first: the item body references both.
     prep = await run_ops(job, [{"op": "session"}, {"op": "new_item_id"}, {"op": "subscription"}, *_photo_ops(job, photos)])
@@ -180,7 +575,10 @@ async def create_item(job, listing: dict[str, Any], photos: list[Any]) -> dict[s
     if len(images) != len(photos):
         raise VendooCreateError(f"Only {len(images)} of {len(photos)} photos uploaded", results=prep["results"])
 
-    item, unresolved = build_vendoo_item(listing, schema, images=images, user_id=uid, item_id=item_id)
+    item, unresolved = build_vendoo_item(
+        listing, schema, images=images, user_id=uid, item_id=item_id, specifics=specifics
+    )
+    unresolved = [*category_unresolved, *unresolved]
 
     created = await run_ops(job, [
         {"op": "create_item", "item": item, "subscription_version": subscription_version},
@@ -190,6 +588,7 @@ async def create_item(job, listing: dict[str, Any], photos: list[Any]) -> dict[s
     diff = diff_roundtrip(item, stored) if isinstance(stored, dict) else []
 
     return {
+        "unfilled": unfilled,
         "item_id": item_id,
         "url": f"https://web.vendoo.co/app/item/{item_id}",
         "unresolved": [entry for entry in unresolved],

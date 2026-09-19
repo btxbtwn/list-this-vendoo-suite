@@ -18,6 +18,11 @@ BRAVE_ACCOUNT = "brave-search-api-key"
 CHATGPT_ACCOUNT = "chatgpt-codex-oauth"
 CHATGPT_MODELS_ACCOUNT = "chatgpt-models"
 LEGACY_ACCOUNTS = (KEYRING_ACCOUNT, BRAVE_ACCOUNT, CHATGPT_ACCOUNT, CHATGPT_MODELS_ACCOUNT)
+# Set once the legacy sweep has run. Without it a consolidated item written
+# while the Keychain was unreadable — carrying only what was set at that
+# moment — would hide the secrets still in the old items for good. With it the
+# sweep happens once, so steady-state launches still read a single item.
+MIGRATION_MARKER = "legacy-migrated"
 
 _lock = threading.RLock()
 _store: dict[str, str] | None = None
@@ -89,15 +94,15 @@ def _secrets() -> dict[str, str]:
             _store, _store_readable = {}, False
             return _store
         _store_readable = True
-        if raw is not None:
-            _store = _parse_store(raw)
-            return _store
-        _store = {}
-        for account in LEGACY_ACCOUNTS:
-            value = _read_password(account)
-            if value:
-                _store[account] = value
-        if _store:
+        _store = _parse_store(raw) if raw is not None else {}
+        if _store.get(MIGRATION_MARKER) != "1":
+            for account in LEGACY_ACCOUNTS:
+                if account in _store:
+                    continue
+                value = _read_password(account)
+                if value:
+                    _store[account] = value
+            _store[MIGRATION_MARKER] = "1"
             _save_store()
         return _store
 

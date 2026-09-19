@@ -3,6 +3,19 @@ from __future__ import annotations
 from vendoo_studio.services.user_settings import read_settings, update_settings
 
 # Order used when filling Vendoo marketplace forms.
+#
+# The goal is to sell everywhere Vendoo reaches, so treat this list as the
+# current reach rather than the intended one. Adding a marketplace needs two
+# things, and they are independent:
+#
+#   * a field schema. Vendoo answers
+#     GET /api/category/specifics/{marketplace}/category/{id} for ebay, etsy,
+#     whatnot, sellwild, vestiaireApi, shopify, mercari, grailed, poshmark,
+#     facebook, depop, vestiaire, vinted and vendoo — so grailed, vinted,
+#     facebook, whatnot and kidizen could be filled today with no new
+#     discovery work. Tradesy is gone: Vendoo dropped it from that list and
+#     the company itself closed in 2022.
+#   * somewhere for the values to go, which is what this list drives.
 FILLABLE_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
 
 # Marketplaces shown in Settings and Fields. `fillable` ones have Send-to-Vendoo form fillers.
