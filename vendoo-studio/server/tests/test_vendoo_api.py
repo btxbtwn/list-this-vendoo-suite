@@ -776,6 +776,21 @@ class ChangedFieldsTest(unittest.TestCase):
         out = changed_fields(current, desired)
         self.assertEqual(out.get("listings.ebay.overrides.brand"), "Unbranded")
 
+    def test_depop_codes_replace_stored_labels(self):
+        """Drafts saved with labels must be rewritten; Depop rejects "Modern"."""
+        current = {"listings": {"depop": {"marketplaceSpecifics": {
+            "age": ["Modern"], "source": ["Preloved"], "style": ["Casual", "Avant Garde"],
+        }}}}
+        desired = {"listings": {"depop": {"marketplaceSpecifics": {
+            "age": ["modern"], "source": ["preloved"], "style": ["casual", "avant_garde"],
+        }}}}
+        out = changed_fields(current, desired)
+        prefix = "listings.depop.marketplaceSpecifics."
+        self.assertEqual(out[prefix + "age"], ["modern"])
+        self.assertEqual(out[prefix + "source"], ["preloved"])
+        self.assertEqual(out[prefix + "style"], ["casual", "avant_garde"])
+        self.assertEqual(changed_fields(desired, desired), {})
+
 
 if __name__ == "__main__":
     unittest.main()
