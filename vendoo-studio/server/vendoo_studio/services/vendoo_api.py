@@ -86,8 +86,25 @@ _PACKAGE_DIMS_RE = re.compile(
     r"^\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*$", re.I
 )
 
-# USPS Ground Advantage, as Vendoo recorded it on this seller's listed items.
-MERCARI_GROUND_ADVANTAGE_CARRIER = "2509"
+# USPS Ground Advantage (0.5 lb tier), as Vendoo shows it on this seller's form
+# and stores it on drafts that have the label selected.
+MERCARI_GROUND_ADVANTAGE_CARRIER = "2550"
+MERCARI_GROUND_ADVANTAGE_LABEL = "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
+
+# Poshmark Smart Sell floor used on this seller's working drafts.
+POSHMARK_SMART_SELL_MIN = "5"
+
+# Etsy form codes (display labels overwrite these and leave the dropdown blank).
+ETSY_WHO_CODES = {
+    "another company or person": "someone_else",
+    "someone else": "someone_else",
+    "a member of my shop": "collective",
+    "i did": "i_did",
+}
+ETSY_WHAT_CODES = {
+    "a finished product": "0",
+    "a supply or tool to make things": "1",
+}
 
 SPECIFICS_SOURCES = {mp: f"{mp}_specifics" for mp in ("ebay", "poshmark", "mercari", "depop", "etsy")}
 
@@ -170,7 +187,8 @@ def _marketplace_specific_defaults(marketplace: str) -> dict[str, Any]:
             "pricingFormatDetails": {
                 "auction": {"duration": "Days_7", "startingPrice": "", "buyItNowPrice": "",
                             "allowBestOffer": "", "acceptOffersOfAtLeast": "", "declineOffersLowerThan": ""},
-                "fixedPrice": {"duration": "GTC", "buyItNowPrice": "", "allowBestOffer": "",
+                # Fixed Price + Best Offer with Auto-accept — matches this seller's drafts.
+                "fixedPrice": {"duration": "GTC", "buyItNowPrice": "", "allowBestOffer": True,
                                "acceptOffersOfAtLeast": "", "declineOffersLowerThan": ""},
             },
         }
@@ -185,13 +203,15 @@ def _marketplace_specific_defaults(marketplace: str) -> dict[str, Any]:
             "returnPolicyID": None, "materials": [], "listingType": "",
         }
     if marketplace == "poshmark":
-        return {"originalPrice": ""}
+        return {
+            "originalPrice": "",
+            "smartSell": {"enabled": True, "minPrice": POSHMARK_SMART_SELL_MIN},
+        }
     if marketplace == "mercari":
         return {
             "tags": [], "smartPricing": False, "floorPrice": "",
-            # Mercari's prepaid label, which is what every listing here uses.
-            # payerId 1 is the seller paying; carrierId is the one a listed
-            # item of this seller's carries.
+            # Mercari's prepaid Ground Advantage label (0.5 lb / $5.66 tier).
+            "shippingLabel": MERCARI_GROUND_ADVANTAGE_LABEL,
             "shipping": {
                 "deliveryMethod": "mercari_shipping", "location": "",
                 "payerId": 1, "carrierId": MERCARI_GROUND_ADVANTAGE_CARRIER,
@@ -442,12 +462,129 @@ def _listing_brand(listing: dict[str, Any], marketplace: str) -> str:
     return _clean(listing.get("brand")) or ""
 
 
+def _ebay_auto_accept_minimum(price: Any) -> str:
+    """Auto-accept floor for Fixed Price + Best Offer (~40% of list, min $5)."""
+    try:
+        amount = float(str(price or "").replace("$", "").replace(",", "").strip() or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    if amount <= 0:
+        return "5"
+    return str(max(5, int(round(amount * 0.4))))
+
+
+def _apply_ebay_pricing(
+    known: dict[str, Any],
+    general: dict[str, Any],
+    listing: dict[str, Any],
+) -> None:
+    """Force Fixed Price with Best Offer Auto-accept + minimum offer."""
+    known["pricingFormat"] = "FixedPriceItem"
+    details = known.get("pricingFormatDetails")
+    if not isinstance(details, dict):
+        details = {}
+        known["pricingFormatDetails"] = details
+    fixed = details.get("fixedPrice")
+    if not isinstance(fixed, dict):
+        fixed = {}
+        details["fixedPrice"] = fixed
+    price = _num_str(listing.get("price") or general.get("price"))
+    if price and not _clean(fixed.get("buyItNowPrice")):
+        fixed["buyItNowPrice"] = price
+    fixed["duration"] = _clean(fixed.get("duration")) or "GTC"
+    fixed["allowBestOffer"] = True
+    minimum = _ebay_auto_accept_minimum(price or fixed.get("buyItNowPrice"))
+    fixed["acceptOffersOfAtLeast"] = minimum
+    try:
+        fixed["declineOffersLowerThan"] = str(max(1, int(minimum) - 1))
+    except (TypeError, ValueError):
+        fixed["declineOffersLowerThan"] = "4"
+
+
+def _etsy_who_code(raw: Any) -> str:
+    text = _clean(raw) or ""
+    if not text:
+        return "someone_else"
+    if text in {"someone_else", "collective", "i_did"}:
+        return text
+    return ETSY_WHO_CODES.get(_norm(text), "someone_else")
+
+
+def _etsy_what_code(raw: Any) -> str:
+    text = _clean(raw) or ""
+    if not text:
+        return "0"
+    if text in {"0", "1"}:
+        return text
+    return ETSY_WHAT_CODES.get(_norm(text), "0")
+
+
+def _etsy_when_code(raw: Any) -> str:
+    text = _clean(raw) or ""
+    if not text:
+        return "2020_2026"
+    compact = text.replace(" ", "").replace("-", "_")
+    if re.fullmatch(r"\d{4}_\d{4}", compact):
+        return compact
+    normalized = _norm(text)
+    if "2020" in normalized:
+        return "2020_2026"
+    if "2010" in normalized:
+        return "2010_2019"
+    if "2007" in normalized:
+        return "2007_2009"
+    if "2000" in normalized:
+        return "2000_2006"
+    return "2020_2026"
+
+
 def _ebay_brand_label(brand: str) -> str:
     """eBay's Brand dropdown matches ``Unbranded``, not a lowercased free-text."""
     text = _clean(brand) or ""
     if _norm(text) == "unbranded":
         return "Unbranded"
     return text
+
+
+def _apply_etsy_listing_codes(known: dict[str, Any], listing: dict[str, Any]) -> None:
+    """Map Studio's Etsy display labels onto the codes the form stores."""
+    raw = listing.get("etsy_specifics")
+    raw = raw if isinstance(raw, dict) else {}
+    who = known.get("whoMade") or raw.get("who_made") or raw.get("whoMade")
+    what = known.get("whatIsIt") or raw.get("what_is") or raw.get("whatIsIt")
+    when = known.get("whenMade") or raw.get("when_made") or raw.get("whenMade")
+    known["whoMade"] = _etsy_who_code(who)
+    known["whatIsIt"] = _etsy_what_code(what)
+    known["whenMade"] = _etsy_when_code(when)
+    # Finished-product resale is a supply of someone else's work.
+    known["isSupply"] = _etsy_what_code(what) == "0" or bool(known.get("isSupply", True))
+
+
+def _apply_poshmark_smart_sell(known: dict[str, Any]) -> None:
+    smart = known.get("smartSell")
+    if not isinstance(smart, dict):
+        smart = {}
+        known["smartSell"] = smart
+    smart["enabled"] = True
+    if not _clean(smart.get("minPrice")):
+        smart["minPrice"] = POSHMARK_SMART_SELL_MIN
+
+
+def _apply_mercari_shipping(known: dict[str, Any], listing: dict[str, Any]) -> None:
+    """Always select the Ground Advantage / 0.5 lb prepaid label."""
+    raw = listing.get("mercari_specifics")
+    raw = raw if isinstance(raw, dict) else {}
+    label = _clean(raw.get("shippingLabel") or raw.get("shipping_label")) or ""
+    if not label or "ground advantage" in _norm(label):
+        label = MERCARI_GROUND_ADVANTAGE_LABEL
+    known["shippingLabel"] = label
+    shipping = known.get("shipping")
+    if not isinstance(shipping, dict):
+        shipping = {}
+        known["shipping"] = shipping
+    shipping.setdefault("deliveryMethod", "mercari_shipping")
+    shipping.setdefault("payerId", 1)
+    shipping["carrierId"] = MERCARI_GROUND_ADVANTAGE_CARRIER
 
 
 def _mercari_wants_no_brand(brand: str) -> bool:
@@ -967,18 +1104,15 @@ def _listing_section(
         else:
             known[dest] = value
 
-    # Mercari shipping label is Studio wording for the prepaid carrier id.
-    if marketplace == "mercari":
-        label = ""
-        raw_mercari = listing.get("mercari_specifics")
-        if isinstance(raw_mercari, dict):
-            label = _clean(raw_mercari.get("shippingLabel") or raw_mercari.get("shipping_label")) or ""
-        if not label or "ground advantage" in _norm(label):
-            shipping = known.setdefault("shipping", {})
-            if isinstance(shipping, dict):
-                shipping.setdefault("deliveryMethod", "mercari_shipping")
-                shipping.setdefault("payerId", 1)
-                shipping["carrierId"] = MERCARI_GROUND_ADVANTAGE_CARRIER
+    # Mercari / eBay / Etsy / Poshmark form defaults the seller expects every time.
+    if marketplace == "ebay":
+        _apply_ebay_pricing(known, general, listing)
+    elif marketplace == "etsy":
+        _apply_etsy_listing_codes(known, listing)
+    elif marketplace == "poshmark":
+        _apply_poshmark_smart_sell(known)
+    elif marketplace == "mercari":
+        _apply_mercari_shipping(known, listing)
 
     _apply_marketplace_brand(section, marketplace, listing)
     return section

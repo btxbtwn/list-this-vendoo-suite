@@ -507,7 +507,7 @@ function getFieldsForTab(listing: ListingData | undefined, tab: string): EditorF
         { key: "condition", label: "Condition" },
         { key: "brand", label: "Brand" },
         { key: "quantity", label: "Quantity", type: "number" },
-        { key: "mercari_specifics.shippingLabel", label: "Shipping Label", defaultValue: "USPS Ground Advantage" },
+        { key: "mercari_specifics.shippingLabel", label: "Shipping Label", defaultValue: "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb" },
         ...specificsFields(listing?.mercari_specifics, "mercari_specifics", ["shippingLabel"]),
       ];
     case "depop":

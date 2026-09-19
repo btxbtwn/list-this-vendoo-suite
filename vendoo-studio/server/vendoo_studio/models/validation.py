@@ -169,7 +169,7 @@ def ensure_mercari_shipping_label(listing: dict) -> bool:
     if text_value(raw.get("shippingLabel") or raw.get("shipping_label")):
         return False
     mercari = dict(raw)
-    mercari["shippingLabel"] = "USPS Ground Advantage"
+    mercari["shippingLabel"] = "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
     listing["mercari_specifics"] = mercari
     return True
 

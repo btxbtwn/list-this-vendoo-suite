@@ -641,6 +641,14 @@ async def create_item(
             or path.endswith(".noBrand")
             or path.endswith(".marketplaceSpecifics.age")
             or path.endswith(".marketplaceSpecifics.source")
+            or path.endswith(".marketplaceSpecifics.whoMade")
+            or path.endswith(".marketplaceSpecifics.whatIsIt")
+            or path.endswith(".marketplaceSpecifics.whenMade")
+            or path.endswith(".marketplaceSpecifics.smartSell")
+            or path.endswith(".marketplaceSpecifics.shippingLabel")
+            or ".marketplaceSpecifics.shipping." in path
+            or ".marketplaceSpecifics.pricingFormat" in path
+            or ".pricingFormatDetails.fixedPrice." in path
         }
         if fixes:
             mark("vendoo_api_patch")

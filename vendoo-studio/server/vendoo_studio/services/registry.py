@@ -9,7 +9,7 @@ from vendoo_studio.repositories.queries import RegistryRepo, _normalize_label
 
 CANONICAL_DEFAULTS: dict[str, dict[str, str]] = {
     "mercari": {
-        "shipping label": "USPS Ground Advantage",
+        "shipping label": "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb",
         # Mercari has no "Other" brand — an unlisted brand is the No Brand checkbox.
         "brand": "No Brand/Not sure",
     },

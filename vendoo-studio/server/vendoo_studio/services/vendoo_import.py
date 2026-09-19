@@ -707,7 +707,7 @@ def _mercari_specifics(section: Any) -> dict[str, Any]:
         specifics["categoryPath"] = [part.strip() for part in path.split(">") if part.strip()]
     elif not isinstance(path, list):
         specifics["categoryPath"] = []
-    label = _text(specifics.get("shippingLabel")) or "USPS Ground Advantage"
+    label = _text(specifics.get("shippingLabel")) or "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
     specifics["shippingLabel"] = label
     return specifics
 

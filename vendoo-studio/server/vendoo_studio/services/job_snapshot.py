@@ -141,7 +141,7 @@ def ensure_listing_defaults(listing_snapshot: dict) -> None:
     if not isinstance(mercari, dict):
         mercari = {}
     label = str(mercari.get("shippingLabel") or "").strip()
-    mercari["shippingLabel"] = label or "USPS Ground Advantage"
+    mercari["shippingLabel"] = label or "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
     listing_snapshot["mercari_specifics"] = mercari
 
     from vendoo_studio.models.validation import normalize_listing_dropdowns
