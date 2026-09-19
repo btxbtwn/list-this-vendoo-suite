@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { withDropdownOptions } from "./dropdownOptions";
 
+type Field = { key: string; label: string; options?: string[] };
+
 const FORMS = {
   vendoo: {
     condition: ["New With Tags/Box", "Pre-Owned - Good"],
@@ -20,41 +22,35 @@ const FORMS = {
 
 describe("withDropdownOptions", () => {
   it("attaches general condition and size options from the vendoo form", () => {
-    const fields = withDropdownOptions(
-      [
-        { key: "condition", label: "Condition" },
-        { key: "size", label: "Size" },
-        { key: "brand", label: "Brand" },
-      ],
-      "general",
-      FORMS,
-    );
+    const input: Field[] = [
+      { key: "condition", label: "Condition" },
+      { key: "size", label: "Size" },
+      { key: "brand", label: "Brand" },
+    ];
+    const fields = withDropdownOptions(input, "general", FORMS);
     expect(fields[0].options).toEqual(["New With Tags/Box", "Pre-Owned - Good"]);
     expect(fields[1].options).toEqual(["S", "M", "L"]);
     expect(fields[2].options).toBeUndefined();
   });
 
   it("matches marketplace field leaves case-insensitively", () => {
-    const fields = withDropdownOptions(
-      [
-        { key: "depop_specifics.style", label: "Style" },
-        { key: "ebay_specifics.type", label: "Type" },
-        { key: "mercari_specifics.shippingLabel", label: "Shipping Label" },
-      ],
-      "depop",
-      FORMS,
-    );
+    const depopInput: Field[] = [
+      { key: "depop_specifics.style", label: "Style" },
+      { key: "ebay_specifics.type", label: "Type" },
+      { key: "mercari_specifics.shippingLabel", label: "Shipping Label" },
+    ];
+    const fields = withDropdownOptions(depopInput, "depop", FORMS);
     expect(fields[0].options).toEqual(["Streetwear", "Sportswear"]);
 
     const ebay = withDropdownOptions(
-      [{ key: "ebay_specifics.type", label: "Type" }],
+      [{ key: "ebay_specifics.type", label: "Type" }] as Field[],
       "ebay",
       FORMS,
     );
     expect(ebay[0].options).toEqual(["T-Shirt"]);
 
     const mercari = withDropdownOptions(
-      [{ key: "mercari_specifics.shippingLabel", label: "Shipping Label" }],
+      [{ key: "mercari_specifics.shippingLabel", label: "Shipping Label" }] as Field[],
       "mercari",
       FORMS,
     );
@@ -63,7 +59,7 @@ describe("withDropdownOptions", () => {
 
   it("keeps live schema options when already present", () => {
     const fields = withDropdownOptions(
-      [{ key: "depop_specifics.style", label: "Style", options: ["Live Only"] }],
+      [{ key: "depop_specifics.style", label: "Style", options: ["Live Only"] }] as Field[],
       "depop",
       FORMS,
     );
