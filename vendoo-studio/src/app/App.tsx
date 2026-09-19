@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
@@ -16,6 +16,7 @@ import {
 } from "../components/settingsNav";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ToastHost } from "../components/ToastHost";
+import { PanelResizeHandle, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
 import { addToast } from "../ui/toast";
@@ -32,6 +33,9 @@ const FirstRunGuide = lazy(() =>
 
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
+const SIDEBAR_WIDTH: PanelWidthLimits = { min: 200, max: 420, maxVw: 30 };
+const DETAIL_WIDTH: PanelWidthLimits = { min: 300, max: 640, maxVw: 45 };
+const MAIN_PANEL_MIN_WIDTH = 360;
 let setupGuideAutoOpen: boolean | null = null;
 
 function useMobileLayout() {
@@ -66,6 +70,13 @@ export function App() {
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const [browserExpanded, setBrowserExpanded] = useState(false);
   const wasPreviewOpen = useRef(false);
+  const mainPanelRef = useRef<HTMLElement>(null);
+  const [sidebarWidth, setSidebarWidth] = usePanelWidth("sidebar");
+  const [detailWidth, setDetailWidth] = usePanelWidth("detail");
+  const panelWidthStyle = {
+    ...(sidebarWidth ? { "--sidebar-width": `${sidebarWidth}px` } : {}),
+    ...(detailWidth ? { "--detail-width": `${detailWidth}px` } : {}),
+  } as CSSProperties;
 
   const { data: conversations } = useQuery({
     queryKey: ["conversations"],
@@ -308,7 +319,7 @@ export function App() {
   });
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" style={panelWidthStyle}>
       <div className={`app-content mobile-pane-${mobilePane}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}`}>
         <ListingSidebar
           conversations={conversations}
@@ -327,6 +338,15 @@ export function App() {
           onCloseSettings={closeSettings}
           onSettingsSectionChange={handleSettingsSectionChange}
           onSettingsSearchResult={handleSettingsSearchResult}
+        />
+        <PanelResizeHandle
+          label="Resize listings sidebar"
+          panel="before"
+          width={sidebarWidth}
+          onResize={setSidebarWidth}
+          absorberRef={mainPanelRef}
+          absorberMin={MAIN_PANEL_MIN_WIDTH}
+          {...SIDEBAR_WIDTH}
         />
 
         <div className="workspace-frame">
@@ -401,7 +421,7 @@ export function App() {
               </>
             ) : null}
           </header>
-          <main className="panel main-panel">
+          <main className="panel main-panel" ref={mainPanelRef}>
             <div className="workspace-drag-region pywebview-drag-region" aria-hidden="true" />
             {activeView === "settings" ? (
               <Suspense fallback={null}>
@@ -473,6 +493,17 @@ export function App() {
             )}
           </main>
 
+          {activeView !== "settings" && (
+            <PanelResizeHandle
+              label="Resize listing editor"
+              panel="after"
+              width={detailWidth}
+              onResize={setDetailWidth}
+              absorberRef={mainPanelRef}
+              absorberMin={MAIN_PANEL_MIN_WIDTH}
+              {...DETAIL_WIDTH}
+            />
+          )}
           {activeView !== "settings" && (
             <aside className="panel detail-panel">
               {selectedConvId ? (
