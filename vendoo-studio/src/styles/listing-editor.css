@@ -21,6 +21,7 @@
 
 .pr-review-title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -119,6 +120,7 @@
   color: var(--color-text);
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   pointer-events: auto;
   position: relative;
@@ -139,9 +141,12 @@
 
 .pr-review-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   flex-shrink: 0;
+  max-width: 100%;
   margin-left: auto;
   pointer-events: auto;
   position: relative;

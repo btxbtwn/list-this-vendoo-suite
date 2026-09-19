@@ -1204,8 +1204,9 @@ console.log(JSON.stringify({ blouse, tee }));
         self.assertIn("Marketplace:", panel)
         self.assertIn("Current value:", panel)
         self.assertIn("Ask chat for", panel)
-        self.assertIn("Apply on Vendoo", panel)
-        self.assertIn("Set Vendoo category", panel)
+        self.assertIn("Send to Vendoo writes the listing onto the draft", panel)
+        self.assertNotIn("Apply on Vendoo", panel)
+        self.assertNotIn("Set Vendoo category", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
         self.assertIn("isAlreadySetEntry", panel)
         self.assertIn(
@@ -1226,8 +1227,10 @@ console.log(JSON.stringify({ blouse, tee }));
         editor = (
             Path(__file__).resolve().parents[2] / "src" / "components" / "ListingEditor.tsx"
         ).read_text(encoding="utf-8")
-        self.assertIn("completionBlockerPrompt", editor)
-        self.assertIn("blocker_fields", editor)
+        # Send blockers use the shared validation prompt; completionBlockerPrompt
+        # remains for non-Send surfaces (shipping / category / optionals).
+        self.assertIn("validationErrorsPrompt", editor)
+        self.assertNotIn("completionBlockerPrompt", editor)
         self.assertIn("onAskChat={onAskChat}", editor)
 
 
