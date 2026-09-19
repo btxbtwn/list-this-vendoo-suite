@@ -76,19 +76,50 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_connection_lists_models(self):
         provider = CursorProvider(api_key="cursor_test")
-        with patch("cursor_sdk.Cursor.models.list", return_value=[MagicMock(id="composer-2.5")]):
+
+        fake_client = MagicMock()
+        fake_client.list_models = AsyncMock(return_value=[MagicMock(id="composer-2.5")])
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(
+                "cursor_sdk.AsyncClient.launch_bridge",
+                new=AsyncMock(return_value=fake_client),
+            ),
+            patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
+        ):
+            scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
             self.assertTrue(await provider.test_connection())
+        fake_client.list_models.assert_awaited_once_with(api_key="cursor_test")
 
     async def test_connection_auth_failure(self):
         from cursor_sdk import CursorAgentError
 
         provider = CursorProvider(api_key="bad")
 
-        def boom(**_kwargs):
-            raise CursorAgentError("nope")
+        fake_client = MagicMock()
+        fake_client.list_models = AsyncMock(side_effect=CursorAgentError("Invalid User API Key"))
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("cursor_sdk.Cursor.models.list", side_effect=boom):
-            self.assertFalse(await provider.test_connection())
+        with (
+            patch(
+                "cursor_sdk.AsyncClient.launch_bridge",
+                new=AsyncMock(return_value=fake_client),
+            ),
+            patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
+        ):
+            scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
+            with self.assertRaises(RuntimeError) as ctx:
+                await provider.test_connection()
+        self.assertIn("Invalid User API Key", str(ctx.exception))
+
+    def test_normalize_cursor_api_key(self):
+        from vendoo_studio.providers.cursor_agent import normalize_cursor_api_key
+
+        self.assertEqual(normalize_cursor_api_key('  "cursor_abc"  '), "cursor_abc")
+        self.assertEqual(normalize_cursor_api_key("Bearer cursor_abc"), "cursor_abc")
 
 
 class ListingProviderCursorTest(unittest.TestCase):
