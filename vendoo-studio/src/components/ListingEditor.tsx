@@ -14,6 +14,7 @@ import {
   EBAY_CATEGORY_OPTIONALS,
   ETSY_CATEGORY_OPTIONALS,
 } from "../marketplaceFields";
+import { withDropdownOptions } from "../dropdownOptions";
 import { addToast } from "../ui/toast";
 import { ClearListingButton } from "./ClearListingButton";
 import { fetchVendooItemLive } from "../api/vendooItemQuery";
@@ -372,9 +373,19 @@ function StructuredEditor({
     queryFn: () => api.vendooApi.listingFields(convId),
     staleTime: 60_000,
   });
+  const { data: dropdownOptions } = useQuery({
+    queryKey: ["catalog-dropdown-options"],
+    queryFn: api.catalog.dropdownOptions,
+    staleTime: Infinity,
+  });
   const fields = React.useMemo(
-    () => schemaFieldsForTab(forms?.forms, tab) ?? getFieldsForTab(listing, tab),
-    [forms, listing, tab],
+    () =>
+      withDropdownOptions(
+        schemaFieldsForTab(forms?.forms, tab) ?? getFieldsForTab(listing, tab),
+        tab,
+        dropdownOptions?.forms,
+      ),
+    [forms, listing, tab, dropdownOptions?.forms],
   );
   const [local, setLocal] = React.useState<Record<string, string>>({});
 
@@ -400,6 +411,17 @@ function StructuredEditor({
     onChange(updated);
   };
 
+  const commitField = (key: string, value: string) => {
+    const nextLocal = { ...local, [key]: value };
+    setLocal(nextLocal);
+    const updated = cloneListing(listing);
+    for (const field of fields) {
+      if (nextLocal[field.key] == null) continue;
+      setListingEditorValue(updated, field.key, coerce(nextLocal[field.key]));
+    }
+    onChange(updated);
+  };
+
   const generalFields = fields.filter((f) => ["title", "description", "category_path"].includes(f.key));
   const gridFields = fields.filter((f) => !["title", "description", "category_path"].includes(f.key));
 
@@ -420,23 +442,30 @@ function StructuredEditor({
         {gridFields.map((f) => (
           <div key={f.key} className={f.label === "Category" ? "field-row field-full" : "field-row"}>
             <label className="label">{f.label}</label>
-            <input
-              className="input"
-              type={f.type || "text"}
-              value={local[f.key] || ""}
-              // Vendoo only accepts its own options for these, so offer them
-              // rather than letting a near-miss be typed in.
-              list={f.options?.length ? `${f.key}-options` : undefined}
-              onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })}
-              onBlur={() => handleBlur(f.key)}
-            />
             {f.options?.length ? (
-              <datalist id={`${f.key}-options`}>
+              <select
+                className="input"
+                value={local[f.key] || ""}
+                onChange={(e) => commitField(f.key, e.target.value)}
+              >
+                <option value="">—</option>
+                {local[f.key]
+                  && !f.options.some((option) => option === local[f.key]) ? (
+                  <option value={local[f.key]}>{local[f.key]} (current)</option>
+                ) : null}
                 {f.options.map((option) => (
-                  <option key={option} value={option} />
+                  <option key={option} value={option}>{option}</option>
                 ))}
-              </datalist>
-            ) : null}
+              </select>
+            ) : (
+              <input
+                className="input"
+                type={f.type || "text"}
+                value={local[f.key] || ""}
+                onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })}
+                onBlur={() => handleBlur(f.key)}
+              />
+            )}
           </div>
         ))}
       </div>
@@ -485,6 +514,7 @@ function getFieldsForTab(listing: ListingData | undefined, tab: string): EditorF
         { key: "ebay_specifics.size", label: "Size" },
         { key: "ebay_specifics.sizeType", label: "Size Type" },
         { key: "ebay_specifics.type", label: "Type" },
+        { key: "ebay_specifics.pricingFormat", label: "Pricing Format" },
         { key: "ebay_specifics.conditionDescription", label: "Condition Description" },
         ...EBAY_CATEGORY_OPTIONALS.map((field) => ({
           key: `ebay_specifics.category_specifics.${field.key}`,
@@ -523,10 +553,15 @@ function getFieldsForTab(listing: ListingData | undefined, tab: string): EditorF
       return mergeSpecificsWithDefaults(
         listing?.etsy_specifics,
         "etsy_specifics",
-        ETSY_CATEGORY_OPTIONALS.map((field) => ({
-          key: `etsy_specifics.category_specifics.${field.key}`,
-          label: field.label,
-        })),
+        [
+          { key: "etsy_specifics.whoMade", label: "Who Made It?" },
+          { key: "etsy_specifics.whatIsIt", label: "What Is It?" },
+          { key: "etsy_specifics.whenMade", label: "When Was It Made?" },
+          ...ETSY_CATEGORY_OPTIONALS.map((field) => ({
+            key: `etsy_specifics.category_specifics.${field.key}`,
+            label: field.label,
+          })),
+        ],
       );
     default:
       return [];

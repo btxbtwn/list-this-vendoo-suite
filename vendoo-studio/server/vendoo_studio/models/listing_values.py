@@ -71,6 +71,42 @@ def dropdown_options() -> dict[str, Any]:
         return {}
 
 
+# USPS Ground Advantage tier shown on this seller's Mercari form. The scraped
+# dropdown JSON only recorded "disabled" because Mercari was disconnected.
+_MERCARI_SHIPPING_LABELS = (
+    "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb",
+)
+
+
+@lru_cache(maxsize=1)
+def marketplace_dropdown_forms() -> dict[str, dict[str, list[str]]]:
+    """Static Vendoo option lists for the Forms editor, keyed by marketplace then field."""
+    raw = dropdown_options().get("forms") or {}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict[str, list[str]]] = {}
+    for marketplace, fields in raw.items():
+        if not isinstance(fields, dict):
+            continue
+        cleaned: dict[str, list[str]] = {}
+        for field, options in fields.items():
+            labels = [
+                str(option).strip()
+                for option in (options if isinstance(options, list) else [])
+                if str(option).strip() and str(option).strip() != "----"
+            ]
+            if labels:
+                cleaned[str(field)] = labels
+        if cleaned:
+            out[str(marketplace)] = cleaned
+    mercari = out.setdefault("mercari", {})
+    mercari["shippingLabel"] = list(_MERCARI_SHIPPING_LABELS)
+    ebay = out.setdefault("ebay", {})
+    # Scrape used display labels; createItem stores FixedPriceItem.
+    ebay["pricingFormat"] = ["Fixed Price", "Auction Style", "FixedPriceItem"]
+    return out
+
+
 def dedupe_schema_errors(errors: Iterable[dict[str, str]]) -> list[dict[str, str]]:
     seen: set[tuple[str, str]] = set()
     out: list[dict[str, str]] = []

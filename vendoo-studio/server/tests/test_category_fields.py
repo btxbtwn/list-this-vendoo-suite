@@ -84,6 +84,20 @@ class CategoryFieldsCacheTest(unittest.TestCase):
         self.assertEqual(res.status_code, 404)
 
 
+class DropdownOptionsRouteTest(unittest.TestCase):
+    def test_serves_skill_scrape_with_mercari_shipping(self):
+        client = TestClient(app)
+        res = client.get("/api/catalog/dropdown-options")
+        self.assertEqual(res.status_code, 200)
+        forms = res.json()["forms"]
+        self.assertIn("Streetwear", forms["depop"]["style"])
+        self.assertIn("Another company or person", forms["etsy"]["whoMade"])
+        self.assertTrue(
+            any("Ground Advantage" in label for label in forms["mercari"]["shippingLabel"])
+        )
+        self.assertIn("FixedPriceItem", forms["ebay"]["pricingFormat"])
+
+
 class MercariSpecificsTest(unittest.TestCase):
     """Mercari's schema comes from a static file, keyed flat as {cat}_Size."""
 

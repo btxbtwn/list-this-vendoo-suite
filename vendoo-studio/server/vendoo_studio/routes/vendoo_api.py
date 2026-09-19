@@ -171,9 +171,14 @@ async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
     revisions = ListingRepo(db).get_revisions(conv_id)
     listing = revisions[0].listing_json if revisions else {}
 
+    from vendoo_studio.models.listing_values import marketplace_dropdown_forms
+
+    static_forms = marketplace_dropdown_forms()
     out: list[dict] = []
     for marketplace, category_id in sorted(listing_category_ids(listing).items()):
         specs = load_fields(marketplace, category_id)
+        static = static_forms.get(marketplace) or {}
+        static_by_fold = {key.casefold(): values for key, values in static.items()}
         if not specs:
             out.append({
                 "marketplace": marketplace, "category_id": category_id,
@@ -183,6 +188,17 @@ async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
         fields = []
         for spec in specs.values():
             label = spec.display or spec.key
+            options = sorted(spec.options.values())
+            if not options:
+                # Category schema sometimes omits the closed list; fall back to
+                # the skill scrape so the Forms editor still offers choices.
+                options = list(
+                    static.get(spec.key)
+                    or static.get(label)
+                    or static_by_fold.get(str(spec.key).casefold())
+                    or static_by_fold.get(str(label).casefold())
+                    or []
+                )
             fields.append({
                 "key": spec.key,
                 "label": label,
@@ -190,7 +206,7 @@ async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
                 "required": spec.required,
                 "multi": spec.multi,
                 "selection_only": spec.selection_only,
-                "options": sorted(spec.options.values()),
+                "options": options,
             })
         fields.sort(key=lambda row: (not row["required"], row["label"]))
         out.append({

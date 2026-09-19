@@ -75,6 +75,18 @@ async def sync_categories(db: Session = Depends(get_db)):
     return {"started": True}
 
 
+@router.get("/dropdown-options")
+def dropdown_options():
+    """Static Vendoo dropdown lists from the skill reference scrape.
+
+    Used by the Forms editor when a category schema has not been cached yet, so
+    sellers can pick valid condition / style / shipping values without guessing.
+    """
+    from vendoo_studio.models.listing_values import marketplace_dropdown_forms
+
+    return {"forms": marketplace_dropdown_forms()}
+
+
 @router.get("/fields")
 def fields(marketplace: str, category_id: str):
     """Vendoo's field list for one marketplace category.
