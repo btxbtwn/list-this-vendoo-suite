@@ -115,14 +115,14 @@ class ListingGenerateHelpersTest(unittest.TestCase):
 
     def test_seller_item_details_from_notes(self):
         notes = json.dumps({
-            "condition": "Good",
+            "sellerNotes": "Small stain near hem",
             "cog": "1.72",
             "pitToPit": "16.5",
             "length": "26.5",
             "sleeve": "8",
         })
         details = seller_item_details(notes)
-        self.assertIn("Good", details)
+        self.assertIn("Notes: Small stain near hem", details)
         self.assertIn('Pit to pit: 16.5"', details)
         self.assertIn('Length: 26.5"', details)
         self.assertIn('Sleeve: 8"', details)

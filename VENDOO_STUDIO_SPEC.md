@@ -204,7 +204,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Reorder and remove photos before approval.
 - Image preview.
 - Notes, cost, SKU, labels, measurements, and package-dimensions inputs.
-- Item details use bordered field cells in two rows: condition, category, labels, and package dimensions on the first row; cost, Poshmark original price, and garment measurements (pit to pit, length, sleeve) on the second. Narrow screens reduce this to two columns.
+- Item details use a full-width notes textarea, then bordered field cells: labels and package dimensions on one row; cost, Poshmark original price, and garment measurements (pit to pit, length, sleeve) on the next. Narrow screens reduce the grids to two columns (then one). Condition and category are inferred from photos and notes, not seller inputs.
 - Poshmark and Mercari inspector tabs expose every field their automation steps fill, including shared listing values and marketplace-specific defaults.
 - Marketplace tab strips include additional space below the active underline before the first field row.
 

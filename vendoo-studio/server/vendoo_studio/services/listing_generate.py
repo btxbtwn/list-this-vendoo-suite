@@ -559,6 +559,9 @@ def seller_item_details(notes: str | None) -> str:
         return f"Seller notes: {notes}"
 
     lines = []
+    seller_notes = str(parsed.get("sellerNotes") or "").strip()
+    if seller_notes:
+        lines.append(f"- Notes: {seller_notes}")
     if parsed.get("condition"):
         lines.append(f"- Condition: {parsed['condition']}")
     category = str(parsed.get("categoryOverride") or "").strip()
