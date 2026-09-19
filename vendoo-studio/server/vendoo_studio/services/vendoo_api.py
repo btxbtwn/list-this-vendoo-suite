@@ -1262,6 +1262,9 @@ def build_vendoo_item(
 # Only the parts of an item Studio is responsible for. Vendoo owns the rest —
 # ids, dates, listing state — and a save must not reach into them.
 _OWNED_LISTING_BUCKETS = ("overrides", "categorySpecifics", "marketplaceSpecifics")
+_EXACT_DEPOP_PATHS = frozenset(
+    f"{LISTINGS_KEY}.depop.marketplaceSpecifics.{field}" for field in DEPOP_OPTION_CODES
+)
 
 
 def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str, str | Any]:
@@ -1281,8 +1284,9 @@ def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str
             return
         if want in (None, "", []):
             return
-        # Brand labels are case-sensitive on the form (``Unbranded`` ≠ ``unbranded``).
-        if prefix.endswith(".brand") or prefix.endswith(".noBrand"):
+        # Brand labels are case-sensitive on the form (``Unbranded`` ≠ ``unbranded``),
+        # and Depop option codes must replace stored labels (``modern`` ≠ ``Modern``).
+        if prefix.endswith((".brand", ".noBrand")) or prefix in _EXACT_DEPOP_PATHS:
             if want != have:
                 out[prefix] = want
             return
