@@ -80,10 +80,11 @@ export function VendooSyncButtons({ convId, bound, className }: {
       className={className}
       disabled={pull.isPending}
       title="Bring changes made in Vendoo back into Studio"
+      aria-label="Pull from Vendoo"
       onMouseDown={(event) => event.stopPropagation()}
       onClick={() => pull.mutate()}
     >
-      {pull.isPending ? "Pulling…" : "Pull from Vendoo"}
+      {pull.isPending ? "Pulling…" : "Pull"}
     </button>
   );
 }
