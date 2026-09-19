@@ -255,12 +255,18 @@
 }
 
 .tab-group::-webkit-scrollbar {
-  height: 4px;
+  height: var(--scrollbar-size);
 }
 
 .tab-group::-webkit-scrollbar-thumb {
-  background: var(--color-border-bright);
-  border-radius: 4px;
+  background-color: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.tab-group::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 .tab-btn {
