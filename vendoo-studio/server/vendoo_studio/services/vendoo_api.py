@@ -921,6 +921,58 @@ def build_vendoo_item(
     return item, unresolved
 
 
+# Only the parts of an item Studio is responsible for. Vendoo owns the rest —
+# ids, dates, listing state — and a save must not reach into them.
+_OWNED_LISTING_BUCKETS = ("overrides", "categorySpecifics", "marketplaceSpecifics")
+
+
+def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str, str | Any]:
+    """Dotted Firestore paths where ``desired`` differs from what Vendoo holds.
+
+    Vendoo's own edit writes just the touched paths rather than the whole
+    document, so an unrelated field a seller changed in Vendoo survives a save
+    from Studio. Empty values in ``desired`` are skipped: Studio not knowing
+    something is not the same as the seller clearing it.
+    """
+    out: dict[str, Any] = {}
+
+    def walk(prefix: str, want: Any, have: Any) -> None:
+        if isinstance(want, dict):
+            for key, value in want.items():
+                walk(f"{prefix}.{key}" if prefix else key, value, (have or {}).get(key) if isinstance(have, dict) else None)
+            return
+        if want in (None, "", []):
+            return
+        if _comparable(want) != _comparable(have):
+            out[prefix] = want
+
+    general_want = desired.get(GENERAL_KEY) or {}
+    general_have = current.get(GENERAL_KEY) or {}
+    for key, value in general_want.items():
+        if key == "images":  # uploaded separately; never re-sent as a diff
+            continue
+        walk(f"{GENERAL_KEY}.{key}", value, general_have.get(key))
+
+    listings_want = desired.get(LISTINGS_KEY) or {}
+    listings_have = current.get(LISTINGS_KEY) or {}
+    for marketplace, section in listings_want.items():
+        if not isinstance(section, dict):
+            continue
+        have_section = listings_have.get(marketplace) or {}
+        for bucket in _OWNED_LISTING_BUCKETS:
+            if not isinstance(section.get(bucket), dict):
+                continue
+            for key, value in section[bucket].items():
+                if key == "images":
+                    continue
+                walk(
+                    f"{LISTINGS_KEY}.{marketplace}.{bucket}.{key}",
+                    value,
+                    (have_section.get(bucket) or {}).get(key),
+                )
+    return out
+
+
 def create_item_payload(item: dict[str, Any], subscription_version: str | None) -> dict[str, Any]:
     """Body for the ``items`` Cloud Function (callable envelope added by the extension)."""
     return {"type": "createItem", "payload": {"item": item, "subscriptionVersion": subscription_version}}

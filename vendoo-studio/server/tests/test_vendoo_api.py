@@ -4,6 +4,7 @@ import unittest
 
 from vendoo_studio.services.vendoo_specifics import normalize_specifics
 from vendoo_studio.services.vendoo_api import (
+    changed_fields,
     ALL_MARKETPLACES,
     CURRENT_ITEM_VERSION,
     build_vendoo_item,
@@ -548,6 +549,62 @@ class GeneralFormFieldsTest(unittest.TestCase):
     def test_size_without_a_category_omits_the_key(self):
         item, _ = self.build(category_id="", category_path="")
         self.assertNotIn("categoryId", item["generalDetails"]["size"])
+
+
+class ChangedFieldsTest(unittest.TestCase):
+    """A save writes the fields that differ, and nothing else."""
+
+    CURRENT = {
+        "generalDetails": {"title": "Old", "brand": "GB Girls", "price": "15"},
+        "listings": {
+            "ebay": {
+                "overrides": {"title": "Old", "condition": "3000"},
+                "categorySpecifics": {"53159_Size Type": "Regular"},
+                "marketplaceSpecifics": {"shippingPolicyId": 253383644010},
+            },
+        },
+    }
+
+    def desired(self, **over):
+        item = {
+            "generalDetails": {"title": "New", "brand": "GB Girls", "price": "15"},
+            "listings": {
+                "ebay": {
+                    "overrides": {"title": "New", "condition": "3000"},
+                    "categorySpecifics": {"53159_Size Type": "Regular", "53159_Season": ["Spring"]},
+                    "marketplaceSpecifics": {"shippingPolicyId": ""},
+                },
+            },
+        }
+        item.update(over)
+        return item
+
+    def test_only_differing_paths_are_written(self):
+        out = changed_fields(self.CURRENT, self.desired())
+        self.assertEqual(sorted(out), [
+            "generalDetails.title",
+            "listings.ebay.categorySpecifics.53159_Season",
+            "listings.ebay.overrides.title",
+        ])
+        self.assertEqual(out["generalDetails.title"], "New")
+        self.assertEqual(out["listings.ebay.categorySpecifics.53159_Season"], ["Spring"])
+
+    def test_an_empty_desired_value_never_clears_vendoo(self):
+        """Studio not knowing something is not the seller erasing it."""
+        out = changed_fields(self.CURRENT, self.desired())
+        self.assertNotIn("listings.ebay.marketplaceSpecifics.shippingPolicyId", out)
+
+    def test_fields_vendoo_owns_are_untouched(self):
+        current = {**self.CURRENT, "status": {"complete": True}, "itemID": "abc"}
+        out = changed_fields(current, self.desired())
+        self.assertEqual([p for p in out if p.startswith(("status", "itemID", "dateCreated"))], [])
+
+    def test_nothing_to_do_writes_nothing(self):
+        item = {
+            "generalDetails": dict(self.CURRENT["generalDetails"]),
+            "listings": {"ebay": {k: dict(v) for k, v in self.CURRENT["listings"]["ebay"].items()}},
+        }
+        self.assertEqual(changed_fields(self.CURRENT, item), {})
 
 
 if __name__ == "__main__":

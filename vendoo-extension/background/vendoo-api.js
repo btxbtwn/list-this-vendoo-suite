@@ -430,6 +430,73 @@ async function delistVendooItem(session, call) {
   return { result: res.data };
 }
 
+// Firestore's REST shape for one value. Vendoo stores numbers as strings, so
+// only the types its documents actually carry are handled.
+function firestoreValue(value) {
+  if (value === null || value === undefined) return { nullValue: null };
+  if (typeof value === 'boolean') return { booleanValue: value };
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
+  }
+  if (Array.isArray(value)) {
+    return { arrayValue: { values: value.map(firestoreValue) } };
+  }
+  if (typeof value === 'object') {
+    const fields = {};
+    for (const [key, inner] of Object.entries(value)) fields[key] = firestoreValue(inner);
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(value) };
+}
+
+// A field path segment is quoted unless it is a plain identifier — category
+// aspect keys like ``53159_Size Type`` carry spaces and start with a digit.
+function firestorePathSegment(segment) {
+  return /^[A-Za-z_][A-Za-z_0-9]*$/.test(segment) ? segment : `\`${segment.replace(/`/g, '\\`')}\``;
+}
+
+function firestoreFieldPath(path) {
+  return String(path).split('.').map(firestorePathSegment).join('.');
+}
+
+// Edit an item the way Vendoo's own form does: a Firestore update of just the
+// fields that changed, so nothing else in the document is disturbed.
+async function updateVendooItem(session, call) {
+  const updates = call.updates && typeof call.updates === 'object' ? call.updates : {};
+  const paths = Object.keys(updates);
+  if (!paths.length) return { updated: [] };
+
+  // Firestore wants the value nested under the path's first segment, with the
+  // full path in the mask.
+  const fields = {};
+  for (const [path, value] of Object.entries(updates)) {
+    const [head, ...rest] = String(path).split('.');
+    if (!rest.length) {
+      fields[head] = firestoreValue(value);
+      continue;
+    }
+    let node = fields[head] || (fields[head] = { mapValue: { fields: {} } });
+    for (let i = 0; i < rest.length - 1; i += 1) {
+      const part = rest[i];
+      const parent = node.mapValue.fields;
+      node = parent[part] || (parent[part] = { mapValue: { fields: {} } });
+    }
+    node.mapValue.fields[rest[rest.length - 1]] = firestoreValue(value);
+  }
+
+  const params = new URLSearchParams();
+  for (const path of paths) params.append('updateMask.fieldPaths', firestoreFieldPath(path));
+  const url = `${VENDOO_FIRESTORE_BASE}/users/${encodeURIComponent(session.uid)}`
+    + `/items/${encodeURIComponent(call.item_id)}?${params}`;
+  const res = await vendooFetch(url, {
+    method: 'PATCH',
+    token: session.access_token,
+    json: { fields },
+  });
+  if (!res.ok) throw new Error(vendooError(`update ${call.item_id}`, res));
+  return { updated: paths };
+}
+
 async function searchVendooCategory(session, call) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/category/search`, {
     method: 'POST',
@@ -479,6 +546,9 @@ async function runVendooApiOps(ops) {
           break;
         case 'category_search':
           results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
+          break;
+        case 'update_item':
+          results.push({ op: 'update_item', ok: true, item_id: op.item_id, ...(await updateVendooItem(session, op)) });
           break;
         case 'list_item':
           results.push({ op: 'list_item', ok: true, item_id: op.item_id, ...(await listVendooItem(session, op)) });

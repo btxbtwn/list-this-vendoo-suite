@@ -153,6 +153,134 @@ async def category_search(body: CategorySearchRequest):
     return {"ok": True, "leaf": hit.get("leaf"), "matches": hit.get("matches", [])}
 
 
+@router.get("/api/conversations/{conv_id}/vendoo-api/fields")
+async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
+    """Every field each marketplace form renders for *this* listing's categories.
+
+    One row per field with what the listing currently answers, so the app can
+    show a form per marketplace rather than a flat blob: the label Vendoo uses,
+    whether it insists on it, whether it takes several values, and the exact
+    options it accepts.
+    """
+    from vendoo_studio.services.category_fields import listing_category_ids, load_fields
+    from vendoo_studio.services.fill_log import listing_value_for_field
+
+    conv = ConversationRepo(db).get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    listing = revisions[0].listing_json if revisions else {}
+
+    out: list[dict] = []
+    for marketplace, category_id in sorted(listing_category_ids(listing).items()):
+        specs = load_fields(marketplace, category_id)
+        if not specs:
+            out.append({
+                "marketplace": marketplace, "category_id": category_id,
+                "known": False, "fields": [],
+            })
+            continue
+        fields = []
+        for spec in specs.values():
+            label = spec.display or spec.key
+            fields.append({
+                "key": spec.key,
+                "label": label,
+                "value": listing_value_for_field(listing, marketplace, label),
+                "required": spec.required,
+                "multi": spec.multi,
+                "selection_only": spec.selection_only,
+                "options": sorted(spec.options.values()),
+            })
+        fields.sort(key=lambda row: (not row["required"], row["label"]))
+        out.append({
+            "marketplace": marketplace, "category_id": category_id,
+            "known": True, "fields": fields,
+        })
+    return {"ok": True, "forms": out}
+
+
+class SaveResponse(BaseModel):
+    ok: bool
+    item_id: str
+    updated: list[str] = []
+
+
+@router.post("/api/conversations/{conv_id}/vendoo-api/save", response_model=SaveResponse)
+async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
+    """Push this conversation's edits onto its Vendoo draft.
+
+    Writes only the fields that differ, the way Vendoo's own form save does, so
+    anything the seller changed in Vendoo and Studio does not know about is
+    left alone. This edits a draft; it does not list.
+    """
+    from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+    from vendoo_studio.services.vendoo_api import build_vendoo_item, changed_fields
+    from vendoo_studio.services.vendoo_create import fetch_listing_specifics, load_schema, run_ops
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+
+    conv_repo = ConversationRepo(db)
+    conv = conv_repo.get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    item_id = vendoo_binding(conv.notes).get("vendooItemId")
+    if not item_id:
+        raise HTTPException(409, "This listing has no Vendoo draft to save to.")
+    revisions = ListingRepo(db).get_revisions(conv_id)
+    if not revisions:
+        raise HTTPException(400, "No listing to save.")
+
+    snapshot = prepare_listing_snapshot(db, conv, revisions[0].listing_json)
+    job = SimpleNamespace(id=None)
+    try:
+        reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+        current = next(
+            (r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None
+        ) or {}
+        specifics = await fetch_listing_specifics(job, snapshot)
+        desired, _unresolved = build_vendoo_item(
+            snapshot, load_schema(), images=[], user_id=str(current.get("userID") or ""),
+            item_id=item_id, specifics=specifics,
+        )
+        updates = changed_fields(current, desired)
+        if updates:
+            await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": updates}])
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    return SaveResponse(ok=True, item_id=item_id, updated=sorted(updates))
+
+
+@router.post("/api/conversations/{conv_id}/vendoo-api/pull")
+async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
+    """Bring edits made in Vendoo back into Studio as a new revision."""
+    from vendoo_studio.services.vendoo_create import run_ops
+    from vendoo_studio.services.vendoo_import import listing_from_vendoo, vendoo_binding
+
+    conv_repo = ConversationRepo(db)
+    conv = conv_repo.get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    item_id = vendoo_binding(conv.notes).get("vendooItemId")
+    if not item_id:
+        raise HTTPException(409, "This listing has no Vendoo draft to pull from.")
+    try:
+        reply = await run_ops(SimpleNamespace(id=None), [{"op": "get_item", "item_id": item_id}])
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    item = next((r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None)
+    if not isinstance(item, dict):
+        raise HTTPException(502, "Vendoo returned no item")
+
+    listing_repo = ListingRepo(db)
+    revisions = listing_repo.get_revisions(conv_id)
+    listing = listing_from_vendoo(item, None)
+    revision = listing_repo.save_revision(
+        conv_id, listing, source="vendoo_pull",
+        parent_revision_id=revisions[0].id if revisions else None,
+    )
+    return {"ok": True, "item_id": item_id, "revision_id": revision.id}
+
+
 class ListRequest(BaseModel):
     """Marketplaces must be named, and the seller must confirm in the same call.
 

@@ -232,5 +232,51 @@ class DeclineAndFallbackTest(unittest.TestCase):
         self.assertEqual(encode_specific(brand, "GB Girls"), ("", False))
 
 
+class ListingFieldsRouteTest(unittest.TestCase):
+    """The app needs a form per marketplace, not one flat list of fields."""
+
+    def test_groups_by_marketplace_with_values_and_options(self):
+        from vendoo_studio.services import category_fields as cf
+        from vendoo_studio.services.vendoo_specifics import normalize_specifics
+
+        specs = normalize_specifics({
+            "Season": {"id": "Season", "display": "Season", "options": {
+                "0": {"id": "Spring", "display": "Spring"}},
+                "rules": {"fieldOptions": {"minValues": 0, "maxValues": 2, "selectionMode": "SelectionOnly"}}},
+            "Department": {"id": "Department", "display": "Department", "options": {
+                "0": {"id": "Girls", "display": "Girls"}},
+                "rules": {"fieldOptions": {"minValues": 1, "maxValues": 1, "selectionMode": "SelectionOnly"}}},
+        })
+        listing = {"ebay_specifics": {"department": "Girls"}}
+
+        with mock.patch.object(cf, "listing_category_ids", return_value={"ebay": "53159"}), \
+                mock.patch.object(cf, "load_fields", return_value=specs), \
+                mock.patch("vendoo_studio.repositories.queries.ConversationRepo.get", return_value=object()), \
+                mock.patch("vendoo_studio.repositories.queries.ListingRepo.get_revisions",
+                           return_value=[type("R", (), {"listing_json": listing})()]):
+            client = TestClient(app)
+            body = client.get("/api/conversations/c1/vendoo-api/fields").json()
+
+        form = body["forms"][0]
+        self.assertEqual(form["marketplace"], "ebay")
+        self.assertTrue(form["known"])
+        # Required first, so what blocks a listing reads at the top.
+        self.assertEqual([f["label"] for f in form["fields"]], ["Department", "Season"])
+        self.assertEqual(form["fields"][0]["value"], "Girls")
+        self.assertEqual(form["fields"][1]["options"], ["Spring"])
+        self.assertTrue(form["fields"][1]["multi"])
+
+    def test_a_category_with_no_cached_schema_is_marked_unknown(self):
+        from vendoo_studio.services import category_fields as cf
+
+        with mock.patch.object(cf, "listing_category_ids", return_value={"vinted": "9"}), \
+                mock.patch.object(cf, "load_fields", return_value=None), \
+                mock.patch("vendoo_studio.repositories.queries.ConversationRepo.get", return_value=object()), \
+                mock.patch("vendoo_studio.repositories.queries.ListingRepo.get_revisions", return_value=[]):
+            body = TestClient(app).get("/api/conversations/c1/vendoo-api/fields").json()
+        self.assertEqual(body["forms"][0]["known"], False)
+        self.assertEqual(body["forms"][0]["fields"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
