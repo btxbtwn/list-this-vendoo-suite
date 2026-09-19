@@ -18,7 +18,7 @@ Generate accurate, formula-compliant marketplace listings from product photos. E
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | photos | array | Yes* | Product images (minimum: front, tag/label, any flaws). If `path` is provided, load the images from there. |
-| measurements | string | No | User-provided measurements. For tops, the Studio passes structured Pit to pit (in), Length (in), and Sleeve (in) values formatted as e.g. `- Measurements: Pit to pit: 22.5"; Length: 27"; Sleeve: 9"`. Use these exact values in the description; do not modify or estimate them. |
+| measurements | string | No | User-provided measurements. The Studio passes the measurements for the seller's selected garment type (inches): tops as `- Measurements (top): Pit to pit: 22.5"; Length: 27"; Sleeve: 9"`, pants and shorts as `- Measurements (pants): Waist: 16"; Rise: 11"; Inseam: 30"; Leg opening: 8"`. Use these exact values in the description; do not modify or estimate them. |
 | path | string | No | Local file or folder path for the product photos. If it is a folder, save `listing.json` for standard listings or `listing.md` for Etsy digital downloads there. If it is a file, save the output in that file's parent folder. |
 
 ## Input Requirements

@@ -357,7 +357,7 @@ def ensure_physical_description(listing: dict) -> bool:
         meas = re.sub(r"\s+", " ", meas_match.group(1)).strip().rstrip(".")
     else:
         bits = re.findall(
-            r"(?i)(?:pit\s*to\s*pit|length|sleeve)\s*[:=]?\s*[\d.\/\"]+\s*(?:inches|in|\"|”)?",
+            r"(?i)(?:pit\s*to\s*pit|length|sleeve|waist|rise|inseam|leg\s*opening)\s*[:=]?\s*[\d.\/\"]+\s*(?:inches|in|\"|”)?",
             desc,
         )
         if bits:
@@ -551,6 +551,40 @@ def _preserve_formula_copy(original: dict, updated: dict, blockers: list[dict]) 
     return out
 
 
+# Keys and labels mirror GARMENTS in src/components/ItemDetails.tsx.
+GARMENT_MEASUREMENTS: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {
+    "top": ("Top", (("pitToPit", "Pit to pit"), ("length", "Length"), ("sleeve", "Sleeve"))),
+    "pants": (
+        "Pants",
+        (("waist", "Waist"), ("rise", "Rise"), ("inseam", "Inseam"), ("legOpening", "Leg opening")),
+    ),
+    "shorts": (
+        "Shorts",
+        (("waist", "Waist"), ("rise", "Rise"), ("inseam", "Inseam"), ("legOpening", "Leg opening")),
+    ),
+}
+
+
+def _seller_measurements(parsed: dict) -> str:
+    """Only the selected garment's measurements; the others stay saved but unused."""
+    garment = parsed.get("garment")
+    if garment not in GARMENT_MEASUREMENTS:
+        return ""
+    label, fields = GARMENT_MEASUREMENTS[garment]
+    measurements = parsed.get("measurements")
+    values = measurements.get(garment) if isinstance(measurements, dict) else None
+    if not isinstance(values, dict):
+        return ""
+    parts = [
+        f'{name}: {str(values.get(key) or "").strip()}"'
+        for key, name in fields
+        if str(values.get(key) or "").strip()
+    ]
+    if not parts:
+        return ""
+    return f"- Measurements ({label.lower()}): " + "; ".join(parts)
+
+
 def seller_item_details(notes: str | None) -> str:
     if not notes:
         return ""
@@ -577,18 +611,9 @@ def seller_item_details(notes: str | None) -> str:
         lines.append(f"- Cost of goods: ${parsed['cog']}")
     if parsed.get("packageDimensions"):
         lines.append(f"- Package dimensions: {parsed['packageDimensions']}")
-    pit_to_pit = (parsed.get("pitToPit") or "").strip()
-    length_val = (parsed.get("length") or "").strip()
-    sleeve_val = (parsed.get("sleeve") or "").strip()
-    if pit_to_pit or length_val or sleeve_val:
-        parts = []
-        if pit_to_pit:
-            parts.append(f'Pit to pit: {pit_to_pit}"')
-        if length_val:
-            parts.append(f'Length: {length_val}"')
-        if sleeve_val:
-            parts.append(f'Sleeve: {sleeve_val}"')
-        lines.append("- Measurements: " + "; ".join(parts))
+    measurements = _seller_measurements(parsed)
+    if measurements:
+        lines.append(measurements)
     if not lines:
         return ""
     return "Known item details from the seller:\n" + "\n".join(lines)

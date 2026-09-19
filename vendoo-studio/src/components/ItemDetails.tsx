@@ -6,16 +6,60 @@ interface Props {
   convId: string;
 }
 
+type Garment = "top" | "pants" | "shorts";
+
+interface MeasurementField {
+  key: string;
+  label: string;
+  placeholder: string;
+}
+
+// Keys and labels mirror GARMENT_MEASUREMENTS in server listing_generate.py.
+const GARMENTS: { id: Garment; label: string; fields: MeasurementField[] }[] = [
+  {
+    id: "top",
+    label: "Top",
+    fields: [
+      { key: "pitToPit", label: "Pit to Pit", placeholder: "22.5" },
+      { key: "length", label: "Length", placeholder: "27" },
+      { key: "sleeve", label: "Sleeve", placeholder: "9" },
+    ],
+  },
+  {
+    id: "pants",
+    label: "Pants",
+    fields: [
+      { key: "waist", label: "Waist", placeholder: "16" },
+      { key: "rise", label: "Rise", placeholder: "11" },
+      { key: "inseam", label: "Inseam", placeholder: "30" },
+      { key: "legOpening", label: "Leg Opening", placeholder: "8" },
+    ],
+  },
+  {
+    id: "shorts",
+    label: "Shorts",
+    fields: [
+      { key: "waist", label: "Waist", placeholder: "16" },
+      { key: "rise", label: "Rise", placeholder: "11" },
+      { key: "inseam", label: "Inseam", placeholder: "7" },
+      { key: "legOpening", label: "Leg Opening", placeholder: "11" },
+    ],
+  },
+];
+
+type Measurements = Record<Garment, Record<string, string>>;
+
 interface ItemDetailsData {
   sellerNotes: string;
   cog: string;
   packageDimensions: string;
-  pitToPit: string;
-  length: string;
-  sleeve: string;
   vendooLabels: string;
   poshmarkOriginalPrice: string;
+  garment: Garment;
+  measurements: Measurements;
 }
+
+type TextKey = Exclude<keyof ItemDetailsData, "garment" | "measurements">;
 
 const RECENT_LABELS_KEY = "vendoo-studio.recent-labels";
 const MAX_RECENT_LABELS = 12;
@@ -80,29 +124,41 @@ const DEFAULTS: ItemDetailsData = {
   sellerNotes: "",
   cog: "",
   packageDimensions: "13x10x3",
-  pitToPit: "",
-  length: "",
-  sleeve: "",
   vendooLabels: "",
   poshmarkOriginalPrice: "0",
+  garment: "top",
+  measurements: { top: {}, pants: {}, shorts: {} },
 };
 
+function parseMeasurements(raw: unknown): Measurements {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const out: Measurements = { top: {}, pants: {}, shorts: {} };
+  for (const garment of GARMENTS) {
+    const values = source[garment.id];
+    if (!values || typeof values !== "object") continue;
+    for (const field of garment.fields) {
+      const value = (values as Record<string, unknown>)[field.key];
+      if (typeof value === "string" && value) out[garment.id][field.key] = value;
+    }
+  }
+  return out;
+}
+
 function parseNotes(notes: string | null): ItemDetailsData {
-  if (!notes) return { ...DEFAULTS };
+  if (!notes) return { ...DEFAULTS, measurements: parseMeasurements(null) };
   try {
     const parsed = JSON.parse(notes);
     return {
       sellerNotes: parsed.sellerNotes || "",
       cog: parsed.cog || "",
       packageDimensions: parsed.packageDimensions || "13x10x3",
-      pitToPit: parsed.pitToPit || "",
-      length: parsed.length || "",
-      sleeve: parsed.sleeve || "",
       vendooLabels: parsed.vendooLabels ?? DEFAULTS.vendooLabels,
       poshmarkOriginalPrice: parsed.poshmarkOriginalPrice ?? "0",
+      garment: GARMENTS.some((g) => g.id === parsed.garment) ? parsed.garment : DEFAULTS.garment,
+      measurements: parseMeasurements(parsed.measurements),
     };
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, measurements: parseMeasurements(null) };
   }
 }
 
@@ -207,11 +263,10 @@ export function ItemDetails({ convId }: Props) {
           sellerNotes: updated.sellerNotes,
           cog: updated.cog,
           packageDimensions: updated.packageDimensions,
-          pitToPit: updated.pitToPit,
-          length: updated.length,
-          sleeve: updated.sleeve,
           vendooLabels: updated.vendooLabels,
           poshmarkOriginalPrice: updated.poshmarkOriginalPrice,
+          garment: updated.garment,
+          measurements: updated.measurements,
         })});
         if (gen !== saveGenRef.current) return;
         queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
@@ -233,11 +288,20 @@ export function ItemDetails({ convId }: Props) {
     saveTimerRef.current = setTimeout(() => save(updated), 500);
   }, [save]);
 
-  const f = (key: keyof ItemDetailsData, type = "text") => ({
+  const f = (key: TextKey, type = "text") => ({
     className: "input",
     type,
     value: details[key],
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => scheduleSave({ ...details, [key]: e.target.value }),
+  });
+
+  const garment = GARMENTS.find((g) => g.id === details.garment) || GARMENTS[0];
+  const setMeasurement = (key: string, value: string) => scheduleSave({
+    ...details,
+    measurements: {
+      ...details.measurements,
+      [garment.id]: { ...details.measurements[garment.id], [key]: value },
+    },
   });
 
   const currentLabels = splitLabels(details.vendooLabels);
@@ -267,17 +331,18 @@ export function ItemDetails({ convId }: Props) {
 
   return (
     <div className="item-details">
-      <div className="item-field item-field-notes">
-        <label className="label">Notes</label>
-        <textarea
-          className="input"
-          value={details.sellerNotes}
-          placeholder="Flaws, provenance, sizing quirks, or other seller notes"
-          rows={3}
-          onChange={(e) => scheduleSave({ ...details, sellerNotes: e.target.value })}
-        />
-      </div>
-      <div className="item-row">
+      <section className="item-section" aria-labelledby="item-section-listing">
+        <h3 className="item-section-title" id="item-section-listing">Notes &amp; Labels</h3>
+        <div className="item-field item-field-notes">
+          <label className="label">Notes</label>
+          <textarea
+            className="input"
+            value={details.sellerNotes}
+            placeholder="Flaws, provenance, sizing quirks, or other seller notes"
+            rows={3}
+            onChange={(e) => scheduleSave({ ...details, sellerNotes: e.target.value })}
+          />
+        </div>
         <div className="item-field">
           <label className="label">Labels</label>
           <input
@@ -331,33 +396,64 @@ export function ItemDetails({ convId }: Props) {
             </div>
           )}
         </div>
-        <div className="item-field">
-          <label className="label">Package L×W×H</label>
-          <input {...f("packageDimensions")} placeholder="13x10x3" />
+      </section>
+
+      <section className="item-section" aria-labelledby="item-section-pricing">
+        <h3 className="item-section-title" id="item-section-pricing">Pricing &amp; Shipping</h3>
+        <div className="item-row item-row-3">
+          <div className="item-field">
+            <label className="label">COG ($)</label>
+            <input {...f("cog", "number")} step="0.01" placeholder="0.00" />
+          </div>
+          <div className="item-field">
+            <label className="label">Posh Orig ($)</label>
+            <input {...f("poshmarkOriginalPrice", "number")} step="1" placeholder="0" />
+          </div>
+          <div className="item-field">
+            <label className="label">Package L×W×H</label>
+            <input {...f("packageDimensions")} placeholder="13x10x3" />
+          </div>
         </div>
-      </div>
-      <div className="item-row item-row-measures">
-        <div className="item-field">
-          <label className="label">COG ($)</label>
-          <input {...f("cog", "number")} step="0.01" placeholder="0.00" />
+      </section>
+
+      <section className="item-section" aria-labelledby="item-section-measurements">
+        <div className="item-section-header">
+          <h3 className="item-section-title" id="item-section-measurements">Measurements (in)</h3>
+          <div className="pr-pills item-garment-pills" role="radiogroup" aria-label="Garment type">
+            {GARMENTS.map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                role="radio"
+                aria-checked={g.id === garment.id}
+                className={`pr-pill${g.id === garment.id ? " is-active" : ""}`}
+                onClick={() => {
+                  if (g.id === garment.id) return;
+                  if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+                  void save({ ...details, garment: g.id });
+                }}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="item-field">
-          <label className="label">Posh Orig ($)</label>
-          <input {...f("poshmarkOriginalPrice", "number")} step="1" placeholder="0" />
+        <div className={`item-row item-row-${garment.fields.length}`}>
+          {garment.fields.map((field) => (
+            <div className="item-field" key={`${garment.id}-${field.key}`}>
+              <label className="label">{field.label}</label>
+              <input
+                className="input"
+                type="number"
+                step="0.25"
+                placeholder={field.placeholder}
+                value={details.measurements[garment.id][field.key] || ""}
+                onChange={(e) => setMeasurement(field.key, e.target.value)}
+              />
+            </div>
+          ))}
         </div>
-        <div className="item-field">
-          <label className="label">Pit to Pit</label>
-          <input {...f("pitToPit", "number")} step="0.25" placeholder="22.5" />
-        </div>
-        <div className="item-field">
-          <label className="label">Length</label>
-          <input {...f("length", "number")} step="0.25" placeholder="27" />
-        </div>
-        <div className="item-field">
-          <label className="label">Sleeve</label>
-          <input {...f("sleeve", "number")} step="0.25" placeholder="9" />
-        </div>
-      </div>
+      </section>
       {saving && <span className="item-saving">SAVING…</span>}
       {saveError && (
         <span className="item-saving text-error">
