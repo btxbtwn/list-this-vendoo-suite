@@ -166,6 +166,16 @@ async def probe_schema(job, item_ids: list[str], *, reset: bool = False) -> dict
 # --------------------------------------------------------------------------
 
 
+def _mappable_marketplaces() -> tuple[str, ...]:
+    """Marketplaces the seller lists on, which are the ones worth mapping to."""
+    try:
+        from vendoo_studio.services.marketplaces import selected_fillable_platforms
+
+        return tuple(selected_fillable_platforms())
+    except Exception:  # noqa: BLE001 - settings are not worth failing a create over
+        return ()
+
+
 def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
     """``(key, marketplace_id, path)`` rows that still need a Vendoo leaf id."""
     targets: list[tuple[str, str, str]] = []
@@ -180,8 +190,18 @@ def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
     ids = listing.get("marketplace_category_ids")
     ids = ids if isinstance(ids, dict) else {}
     for marketplace in CATEGORY_MARKETPLACES:
+        if str(ids.get(marketplace) or "").strip():
+            continue
         path = str(cats.get(marketplace) or "").strip()
-        if not path or str(ids.get(marketplace) or "").strip():
+        if not path:
+            # No breadcrumb of its own is fine now: the mapper works from the
+            # general category. Only for marketplaces the seller actually
+            # lists on, and quietly — searching needs text, so these go
+            # unresolved-free when nothing maps.
+            if marketplace in _mappable_marketplaces() and (
+                general_path or str(listing.get("category_id") or "").strip()
+            ):
+                targets.append((marketplace, marketplace, ""))
             continue
         targets.append((marketplace, marketplace, path))
     return targets
@@ -256,7 +276,9 @@ async def _hits_by_search(
     Only a live hit carries ``extras.siteId`` and the ancestor id chain, and
     eBay's form throws without them; the tree covers search being unavailable.
     """
-    if not targets:
+    # A mapping-only target has no text to search for.
+    searchable = [row for row in targets if str(row[2] or "").strip()]
+    if not searchable:
         return {}
     ops = [
         {
@@ -266,12 +288,12 @@ async def _hits_by_search(
             "marketplace_id": "vendoo" if marketplace_id == "general" else marketplace_id,
             "throttle_ms": 200,
         }
-        for _, marketplace_id, path in targets
+        for _, marketplace_id, path in searchable
     ]
     reply = await run_ops(job, ops)
     results = [row for row in reply.get("results", []) if row.get("op") == "category_search"]
     hits: dict[str, dict[str, Any]] = {}
-    for (key, marketplace_id, path), result in zip(targets, results):
+    for (key, marketplace_id, path), result in zip(searchable, results):
         hit = None
         if result.get("ok"):
             matches = list(result.get("matches") or [])
@@ -370,9 +392,10 @@ async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict
     objects = dict(raw) if isinstance(raw, dict) else {}
     for key, _marketplace_id, path in targets:
         hit = resolved_hits.get(key)
-        resolved = category_from_hit(hit, path)
+        resolved = category_from_hit(hit, path) if hit else None
         if not resolved or not resolved.get("id"):
-            if not any(row.get("field") == f"category:{key}" for row in unresolved):
+            # Only a breadcrumb the seller actually chose is worth reporting.
+            if path and not any(row.get("field") == f"category:{key}" for row in unresolved):
                 unresolved.append({"field": f"category:{key}", "value": path})
             continue
         parts = resolved.get("displayPath") or path_parts(path)

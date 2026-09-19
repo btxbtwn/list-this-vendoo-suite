@@ -24,6 +24,13 @@ _TEE_LEAF_RE = re.compile(r"\bt-?shirts?\b|\btees?\b", re.I)
 _SWEAT_RE = re.compile(r"\bsweatshirts?\b|\bhoodies?\b|\bsweaters?\b", re.I)
 _WOMEN_RE = re.compile(r"\bwomen(?:['’]s)?\b", re.I)
 _MEN_RE = re.compile(r"\bmen(?:['’]s)?\b", re.I)
+# Girls'/boys' items were read as having no gender at all, which threw away
+# half the query on every kids' listing.
+_GIRLS_RE = re.compile(r"\bgirls?(?:['’]s)?\b", re.I)
+_BOYS_RE = re.compile(r"\bboys?(?:['’]s)?\b", re.I)
+# The vision pass states what the item is. Nothing else in the analysis comes
+# close as a category signal, and it was being dropped.
+_ANALYSIS_CATEGORY_RE = re.compile(r"^\s*[-*]?\s*category\s*:\s*(.+)$", re.I | re.M)
 
 
 def _path_leaf(category: str) -> str:
@@ -118,6 +125,15 @@ def condense_category_search_query(*texts: str, override: str = "") -> str:
         style = _STYLE_RE.search(joined)
         if style:
             parts.append(re.sub(r"[\s-]+", " ", style.group(1)).strip())
+    # The analysis already classified the item; a bare garment word like "Tee"
+    # matches Fastener Nuts as readily as it matches a t-shirt.
+    stated = _analysis_category(joined) if not override else ""
+    if stated:
+        seen = {part.casefold() for part in parts}
+        for word in re.findall(r"[A-Za-z0-9']+", stated):
+            if len(word) > 2 and word.casefold() not in seen and word.casefold() not in _SEARCH_STOPWORDS:
+                seen.add(word.casefold())
+                parts.append(word)
     if parts:
         return " ".join(parts)
     if override:
@@ -130,13 +146,35 @@ def condense_category_search_query(*texts: str, override: str = "") -> str:
 
 
 def _gender(text: str) -> str | None:
-    has_women = bool(_WOMEN_RE.search(text or ""))
-    has_men = bool(_MEN_RE.search(text or ""))
+    text = text or ""
+    has_women = bool(_WOMEN_RE.search(text))
+    has_men = bool(_MEN_RE.search(text))
     if has_men and not has_women:
         return "men"
     if has_women and not has_men:
         return "women"
+    if has_women and has_men:
+        return None
+    # Only consider kids when neither adult department was named, so "women's"
+    # beside a girls' size still reads as womenswear.
+    has_girls = bool(_GIRLS_RE.search(text))
+    has_boys = bool(_BOYS_RE.search(text))
+    if has_girls and not has_boys:
+        return "girls"
+    if has_boys and not has_girls:
+        return "boys"
     return None
+
+
+def _analysis_category(text: str) -> str:
+    """What the photo analysis called the item, e.g. "Girls' Graphic T-Shirt"."""
+    match = _ANALYSIS_CATEGORY_RE.search(text or "")
+    if not match:
+        return ""
+    value = re.sub(r"\s+", " ", match.group(1)).strip()
+    # Strip a trailing parenthetical source note the analysis sometimes adds.
+    value = re.sub(r"\s*\((?:source|from)[^)]*\)\s*$", "", value, flags=re.I).strip()
+    return value if len(value) <= 60 else ""
 
 
 def _wrong_garment(path: str, query: str, listing: dict | None) -> bool:

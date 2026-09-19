@@ -30,6 +30,37 @@ PROBE_STEPS = frozenset({
 _PROBE_DEFAULT_CONDITION = "Good"
 
 
+async def mapped_marketplace_paths(general_path: str, platforms: list[str]) -> dict[str, str]:
+    """Ask Vendoo which category each marketplace uses for this general one.
+
+    Breadcrumbs, because that is what the form filler selects in Vendoo's UI.
+    Empty when the general category is not in the local tree or the browser is
+    not there to ask, so the caller can fall back.
+    """
+    from types import SimpleNamespace
+
+    from vendoo_studio.services.vendoo_api import category_from_hit
+    from vendoo_studio.services.vendoo_create import _hits_by_mapping, tree_leaf
+
+    if not general_path or not platforms:
+        return {}
+    general = category_from_hit(tree_leaf("general", general_path), general_path)
+    if not (general and general.get("id")):
+        return {}
+    targets = [(mp, mp, "") for mp in platforms]
+    try:
+        hits = await _hits_by_mapping(SimpleNamespace(id=None), general, targets)
+    except Exception:  # noqa: BLE001 - generation should not fail over this
+        log.info("category mapping unavailable during generate", exc_info=True)
+        return {}
+    out: dict[str, str] = {}
+    for marketplace, hit in hits.items():
+        labels = hit.get("all_category_label") or hit.get("displayPath") or []
+        if isinstance(labels, list) and labels:
+            out[marketplace] = " > ".join(str(part) for part in labels)
+    return out
+
+
 def is_schema_probe_job(job: Job | None) -> bool:
     if not job or not isinstance(job.listing_snapshot, dict):
         return False
@@ -292,10 +323,22 @@ async def prepare_generation_schema(
     revisions = ListingRepo(db).get_revisions(conv_id)
     seed = deepcopy(revisions[0].listing_json) if revisions else {}
     platforms = selected_fillable_platforms()
-    status("Choosing marketplace categories…")
-    paths = await select_categories(db, provider, analysis, notes, platforms, override)
+    status("Choosing a category…")
+    # One question, not six: the model settles the general category and Vendoo
+    # maps it to each marketplace. Asking it to pick for every tree at once put
+    # ~90 candidates in one prompt, which is what kept timing out and falling
+    # back to keyword ranking — the fallback that chose Fastener Nuts.
+    paths = await select_categories(db, provider, analysis, notes, [], override)
     seed["category_path"] = paths["general"]
-    seed["marketplace_categories"] = {mp: path for mp, path in paths.items() if mp != "general"}
+    status("Matching marketplace categories…")
+    mapped = await mapped_marketplace_paths(paths["general"], platforms)
+    if not mapped:
+        # No mapper (no Chrome, say). Fall back to asking for each tree, which
+        # is what this did before.
+        paths = await select_categories(db, provider, analysis, notes, platforms, override)
+        seed["category_path"] = paths["general"]
+        mapped = {mp: path for mp, path in paths.items() if mp != "general"}
+    seed["marketplace_categories"] = mapped
     conv = ConversationRepo(db).get(conv_id)
     seed_probe_general_fields(seed, conv.notes if conv else notes)
     ListingRepo(db).save_revision(

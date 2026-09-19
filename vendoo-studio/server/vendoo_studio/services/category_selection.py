@@ -15,6 +15,9 @@ from vendoo_studio.services.registry import WOMEN_TOPS_SEEDS
 
 log = logging.getLogger("vendoo_studio.category_selection")
 DEFAULT_TOP_K = 15
+# Long enough that a slow answer still beats keyword ranking, which is the only
+# other thing that can choose.
+SELECTION_TIMEOUT_SEC = 150
 # Ceiling on rows pulled in for ranking. Enough for any real query, far short
 # of reading a whole marketplace tree into memory.
 MAX_RANKED_ROWS = 400
@@ -58,6 +61,14 @@ def _terminal_node(db, marketplace: str, path: str) -> CategoryTreeNode | None:
         .first()
     )
     return node
+
+
+def _selection_stream(provider, messages: list[dict]):
+    """The provider's fastest path that still streams, reasoning skipped."""
+    quick = getattr(provider, "quick_chat", None)
+    if callable(quick):
+        return quick(messages)
+    return provider.chat(messages, stream=True)
 
 
 def _candidate_query(analysis: str, notes: str, override: str = "") -> str:
@@ -125,10 +136,14 @@ async def _ask_model(provider, analysis: str, notes: str, choices: dict) -> dict
     }, ensure_ascii=False)}]
     text = ""
     try:
-        # Keep this short so Chrome field discovery can start; catalog ranking
-        # finishes any marketplace the model does not answer in time.
-        async with asyncio.timeout(45):
-            async for chunk in provider.chat(messages, stream=True):
+        # Picking one of a handful of supplied paths does not need a reasoning
+        # pass, and the reasoning model kept spending the whole budget before
+        # answering — leaving keyword ranking to choose, which is how a girls'
+        # tee came back as Fastener Nuts. The old budget was kept short so
+        # Chrome field discovery could start; the category-specifics endpoint
+        # replaced that, so there is nothing waiting on this any more.
+        async with asyncio.timeout(SELECTION_TIMEOUT_SEC):
+            async for chunk in _selection_stream(provider, messages):
                 kind, value = unpack_stream_item(chunk)
                 if kind != "thinking":
                     text += value or ""

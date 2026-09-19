@@ -121,7 +121,17 @@ class ProbeTest(_TmpSchema):
             run(probe_schema(JOB, []))
 
 
-class CreateTest(_TmpSchema):
+class _NoExtraMapping(_TmpSchema):
+    """Target only the marketplaces a test names, not this machine's settings."""
+
+    def setUp(self):
+        super().setUp()
+        patch = mock.patch.object(vendoo_create, "_mappable_marketplaces", return_value=())
+        patch.start()
+        self.addCleanup(patch.stop)
+
+
+class CreateTest(_NoExtraMapping):
     def _replies(self):
         return [
             {"ok": True, "uid": "u1", "results": [
@@ -317,6 +327,38 @@ class CreateTest(_TmpSchema):
         self.assertEqual(item["listings"]["poshmark"]["overrides"]["categoryV2"]["id"], "posh1")
         self.assertEqual([r for r in out["unresolved"] if r["field"].startswith("category:")], [])
 
+    def test_a_marketplace_with_no_breadcrumb_is_mapped_anyway(self):
+        """Generation need not pick a category per marketplace any more."""
+        listing = {**LISTING, "category_path": "Clothing > Men > Jeans"}
+        replies = [
+            {"ok": True, "results": [
+                {"op": "category_search", "ok": True,
+                 "leaf": {"id": "gen1", "is_leaf": True, "path": "Clothing > Men > Jeans"},
+                 "matches": []},
+            ]},
+            *self._replies(),
+        ]
+        Path(self.tmp.name, "schema.json").write_text(json.dumps({"fields": {}, "item_count": 0}))
+        fake = FakeBridge(replies, mapped={"ebay": {
+            "id": "1154", "is_leaf": True, "all_category_label": ["Clothing", "Men", "Jeans"],
+        }})
+        with mock.patch.object(vendoo_create, "_mappable_marketplaces", return_value=("ebay", "etsy")), \
+                mock.patch.object(vendoo_create, "tree_leaf", return_value=None), \
+                mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out = run(create_item(JOB, listing, PHOTOS))
+
+        # Only the general tree is searched; eBay and Etsy are mapping targets.
+        self.assertEqual([op["marketplace_id"] for op in every_op(fake, "category_search")], ["vendoo"])
+        self.assertEqual(
+            sorted(op["marketplace_id"] for op in every_op(fake, "category_map")), ["ebay", "etsy"]
+        )
+        item = ops_for(fake, "create_item")[0]["item"]
+        self.assertEqual(item["listings"]["ebay"]["overrides"]["categoryV2"]["id"], "1154")
+        # Etsy mapped to nothing and had no breadcrumb, so it is simply absent
+        # rather than reported as something the seller must fix.
+        self.assertNotIn("categoryV2", item["listings"]["etsy"]["overrides"])
+        self.assertEqual([r for r in out["unresolved"] if r["field"].startswith("category:")], [])
+
     def test_falls_back_to_local_tree_when_search_finds_nothing(self):
         """Search runs first for ``extras``/``path``; the tree still covers a miss."""
         listing = {
@@ -363,7 +405,7 @@ class CreateTest(_TmpSchema):
         self.assertIs(ebay["isLeaf"], True)
 
 
-class ResolveCategoriesTest(_TmpSchema):
+class ResolveCategoriesTest(_NoExtraMapping):
     def test_asks_each_leaf_for_its_field_schema(self):
         """The fetch passes the leaf's ancestor chain and extras through.
 
