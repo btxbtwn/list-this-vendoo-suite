@@ -105,6 +105,29 @@ class SyncStateTest(unittest.TestCase):
         self.assertEqual(cached["item"]["listings"]["ebay"]["status"], {"listed": True})
         self.assertEqual(cached["item"]["listings"]["depop"]["status"], {"notListed": True})
 
+    def test_a_pull_refreshes_the_bound_job_even_when_a_newer_job_exists(self):
+        """The sidebar may read an older bound job; a newer unbound one must not hide it."""
+        self.note()
+        bound = JobRepo(self.db).create(
+            self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
+        )
+        JobRepo(self.db).save_vendoo_draft(
+            bound.id,
+            item={"itemID": "itm1", "listings": {"ebay": {"status": {"notListed": True}}}},
+            item_id="itm1",
+            source="stale",
+        )
+        JobRepo(self.db).create(self.conv.id, self.rev.id, {"title": "Tee"}, status="failed")
+        fresh = {
+            "itemID": "itm1",
+            "dateLastModified": 5000,
+            "generalDetails": {"title": "From Vendoo"},
+            "listings": {"ebay": {"status": {"listed": True}}},
+        }
+        apply_pull(self.db, self.conv.id, fresh)
+        cached = JobRepo(self.db).get_vendoo_draft(bound.id)
+        self.assertEqual(cached["item"]["listings"]["ebay"]["status"], {"listed": True})
+
 
 if __name__ == "__main__":
     unittest.main()

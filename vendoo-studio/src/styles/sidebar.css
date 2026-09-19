@@ -480,45 +480,6 @@ html.desktop-app .workspace-drag-region {
   line-height: 1.35;
 }
 
-.nav-context-menu {
-  position: fixed;
-  z-index: 90;
-  display: flex;
-  flex-direction: column;
-  min-width: 168px;
-  padding: 4px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-ink-raised);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
-}
-
-.nav-context-menu-item {
-  display: block;
-  width: 100%;
-  margin: 0;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  text-align: left;
-}
-
-.nav-context-menu-item:hover:not(:disabled),
-.nav-context-menu-item:focus-visible:not(:disabled) {
-  background: var(--color-ink-hover);
-  outline: none;
-}
-
-.nav-context-menu-item:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
 .nav-time {
   font-size: 11px;
   font-weight: var(--weight-medium);
