@@ -813,6 +813,24 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         db.close()
         self.assertTrue(any((m.text or "").startswith("Sold comps:") for m in messages))
 
+    async def test_generate_surfaces_comps_setup_when_search_unavailable(self):
+        """Cursor/MiMo generate without ChatGPT must still show a SOLD COMPS card."""
+        from vendoo_studio.services.comp_research import COMPS_SETUP_NOTE
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                async for _ in resp.aiter_text():
+                    pass
+        db = self.Session()
+        messages = ConversationRepo(db).get_messages(self.conv_id)
+        db.close()
+        comps = [m for m in messages if (m.text or "").startswith("Sold comps:")]
+        self.assertEqual(len(comps), 1)
+        self.assertIn(COMPS_SETUP_NOTE, comps[0].text)
+        prompt = _first_generate_prompt(self.provider)
+        self.assertIn(COMPS_SETUP_NOTE, prompt)
+
     async def test_keepalives_emit_while_waiting_for_model(self):
         async def slow():
             await asyncio.sleep(0.2)

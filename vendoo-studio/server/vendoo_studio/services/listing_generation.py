@@ -14,6 +14,7 @@ from vendoo_studio.services.chat_prompts import (
 )
 from vendoo_studio.services.comp_research import (
     comps_search_available,
+    comps_setup_note,
     research_sold_comps,
 )
 from vendoo_studio.services.listing_generate import (
@@ -125,9 +126,14 @@ async def run_listing_generation(
         ))
         child_tasks.append(schema_task)
         comps_task = None
+        comps_text = ""
         if comps_search_available():
             comps_task = asyncio.create_task(research_sold_comps(prompt_analysis, evidence))
             child_tasks.append(comps_task)
+        else:
+            # Cursor/MiMo can generate without ChatGPT; comps still need ChatGPT or Brave.
+            # Surface that in chat so the SOLD COMPS card does not silently disappear.
+            comps_text = comps_setup_note()
 
         pending = {schema_task, *([comps_task] if comps_task else [])}
         while pending:
@@ -138,12 +144,16 @@ async def run_listing_generation(
             run.pulse()
         mark("categories_and_comps")
         schema_seed = schema_task.result()
-        comps_text = ""
         if comps_task is not None:
             comps_text = comps_task.result() or ""
-            if comps_text:
-                source = "chatgpt" if "Source: ChatGPT" in comps_text else "brave"
-                stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
+        if comps_text:
+            if "Source: ChatGPT" in comps_text:
+                source = "chatgpt"
+            elif "Source: Brave" in comps_text:
+                source = "brave"
+            else:
+                source = "system"
+            stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
 
         messages = listing_generation_messages(
             listing_rules,

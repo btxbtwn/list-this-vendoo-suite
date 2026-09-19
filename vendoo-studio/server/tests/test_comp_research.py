@@ -4,7 +4,11 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from vendoo_studio.services.comp_research import (
+    COMPS_FAILED_NOTE,
+    COMPS_SETUP_NOTE,
+    COMPS_TIMEOUT_NOTE,
     comps_search_available,
+    comps_setup_note,
     comps_usable,
     format_chatgpt_comps,
     research_sold_comps,
@@ -193,15 +197,39 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
             text = await research_sold_comps(ANALYSIS)
         self.assertIn("Source: Brave Search", text)
 
+    async def test_thin_brave_still_wins_over_hanging_chatgpt(self):
+        """Brave key set + ChatGPT signed in must not wait 90s when Brave returns thin/failed."""
+        import asyncio
+
+        async def slow_chatgpt(_query: str) -> str:
+            await asyncio.sleep(60)
+            return CHATGPT_COMPS
+
+        with (
+            patch("vendoo_studio.services.comp_research.CHATGPT_GRACE_SEC", 0.05),
+            patch("vendoo_studio.services.comp_research.SOLD_COMPS_TIMEOUT_SEC", 5),
+            patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=slow_chatgpt),
+            patch(
+                "vendoo_studio.services.comp_research.research_brave_comps",
+                new=AsyncMock(return_value=EMPTY_COMPS.replace("ChatGPT web search", "Brave Search")),
+            ),
+            patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
+        ):
+            text = await research_sold_comps(ANALYSIS)
+        self.assertIn("Source: Brave Search", text)
+        self.assertNotIn("Source: ChatGPT", text)
+
     async def test_skips_when_no_search_provider(self):
         with (
             patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=False),
             patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value=None),
         ):
             text = await research_sold_comps(ANALYSIS)
-        self.assertEqual(text, "")
+        self.assertTrue(text.startswith("Sold comps:"))
+        self.assertIn(COMPS_SETUP_NOTE, text)
 
-    async def test_timeout_returns_empty_instead_of_hanging(self):
+    async def test_timeout_returns_note_instead_of_hanging(self):
         import asyncio
 
         async def hang(_query: str) -> str:
@@ -215,7 +243,27 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
             patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value=None),
         ):
             text = await research_sold_comps(ANALYSIS)
-        self.assertEqual(text, "")
+        self.assertTrue(text.startswith("Sold comps:"))
+        self.assertIn(COMPS_TIMEOUT_NOTE, text)
+
+    async def test_chatgpt_exception_without_brave_returns_failure_note(self):
+        with (
+            patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
+            patch(
+                "vendoo_studio.services.comp_research.research_chatgpt_comps",
+                new=AsyncMock(side_effect=RuntimeError("ChatGPT HTTP 401")),
+            ),
+            patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value=None),
+        ):
+            text = await research_sold_comps(ANALYSIS)
+        self.assertTrue(text.startswith("Sold comps:"))
+        self.assertIn(COMPS_FAILED_NOTE, text)
+
+    def test_setup_note_is_parseable_sold_comps_card(self):
+        text = comps_setup_note()
+        self.assertTrue(text.startswith("Sold comps:"))
+        self.assertIn(COMPS_SETUP_NOTE, text)
+        self.assertFalse(comps_usable(text))
 
 
 if __name__ == "__main__":

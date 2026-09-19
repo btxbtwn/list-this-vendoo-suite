@@ -182,7 +182,7 @@ function BraveSearchSection({ chatgptSignedIn }: { chatgptSignedIn: boolean }) {
             ? `Fallback · ${brave?.masked_key}`
             : chatgptSignedIn
               ? "Optional fallback when ChatGPT web search misses comps"
-              : "Not configured — listing prices use an estimated baseline unless ChatGPT is signed in"
+              : "Not configured — sold comps need this key or ChatGPT signed in (Cursor/MiMo alone are not enough)"
         }
         status={
           testResult ? (
@@ -1071,7 +1071,7 @@ function ProvidersPanel() {
       <SettingsSection id="cursor" title="Cursor">
         <SettingsRow
           title="API key"
-          description="From Cursor Dashboard → Integrations. Stored in Keychain; listing runs use the local Cursor SDK against an empty scratch folder."
+          description="From Cursor Dashboard → Integrations. Stored in Keychain; listing runs use the local Cursor SDK against an empty scratch folder. Sold comps still need ChatGPT signed in or a Brave Search key."
         >
           <div className="settings-row-field">
             <input
