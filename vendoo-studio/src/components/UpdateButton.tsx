@@ -27,23 +27,40 @@ async function waitForReload() {
   window.location.reload();
 }
 
-function installConfirmationMessage(data: UpdateStatus) {
+export function updateHeadline(data: { summary?: string | null } | null | undefined): string {
+  return (data?.summary || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean) || "";
+}
+
+export function installConfirmationMessage(data: UpdateStatus) {
   const version = data.short_sha || (data.remote_sha ? data.remote_sha.slice(0, 7) : "");
-  const title = `Install update${version ? ` ${version}` : ""} and restart List This Studio?`;
+  const headline = updateHeadline(data);
   if (data.packaged) {
+    const title = headline
+      ? `Install “${headline}” and restart List This Studio?`
+      : `Install update${version ? ` ${version}` : ""} and restart List This Studio?`;
+    const details = [
+      version ? `Build ${version}` : "",
+      headline ? "" : "A new Mac build is on GitHub.",
+    ].filter(Boolean);
     return [
       title,
       "",
-      data.summary || "A new Mac build is on GitHub.",
+      ...details,
       "",
       "The app will quit and reopen. Make sure you're ready before continuing.",
     ].join("\n");
   }
   const n = data.behind || 0;
   const lines = (data.commits || []).slice(0, 5);
+  const title = headline
+    ? `Install “${headline}” and restart List This Studio?`
+    : `Install update${version ? ` ${version}` : ""} and restart List This Studio?`;
   const details = [
-    data.summary || `Update available on main (${n} commit${n === 1 ? "" : "s"}).`,
-    ...lines,
+    headline ? "" : `Update available on main (${n} commit${n === 1 ? "" : "s"}).`,
+    ...lines.filter((line) => line.trim() && line.trim() !== headline),
   ].filter(Boolean);
   return [
     title,
@@ -103,7 +120,7 @@ export function useStudioUpdate() {
           : "Check for Updates";
 
   const description = available
-    ? "Update available."
+    ? updateHeadline(data) || "Update available."
     : "Current version of the application.";
 
   const iconTooltip = busy
@@ -111,7 +128,7 @@ export function useStudioUpdate() {
     : checking
       ? "Checking for updates…"
       : available
-        ? data?.summary || "Update available"
+        ? updateHeadline(data) || "Update available"
         : data?.error || "Check for updates";
 
   const onClick = async () => {
