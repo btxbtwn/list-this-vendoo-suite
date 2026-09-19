@@ -293,9 +293,12 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
 
 _TEE_RE = re.compile(r"\bt-?shirts?\b|\btees?\b|graphic tee", re.I)
 _LONG_SLEEVE_RE = re.compile(r"long\s*sleeve", re.I)
+_SHORT_SLEEVE_RE = re.compile(r"short\s*sleeve", re.I)
 _BLOUSE_RE = re.compile(r"\bblouses?\b", re.I)
 _BUTTON_UP_RE = re.compile(r"button[\s-]*(up|front|down)", re.I)
 _POSHMARK_ROOT_RE = re.compile(r"^(men|women|kids|pets|home|electronics)\s*>", re.I)
+_TANK_PATH_RE = re.compile(r"\btank\b", re.I)
+_SLEEVELESS_ITEM_RE = re.compile(r"\b(?:sleeveless|tank|cami|halter|strapless)\b", re.I)
 
 
 def _is_blouse_listing(haystack: str) -> bool:
@@ -303,10 +306,41 @@ def _is_blouse_listing(haystack: str) -> bool:
     return (bool(_BLOUSE_RE.search(haystack)) or bool(_BUTTON_UP_RE.search(haystack))) and not is_tee
 
 
+def _poshmark_haystack(listing: dict, raw: str) -> str:
+    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    sleeve = str(ebay.get("sleeveLength") or "") if isinstance(ebay, dict) else ""
+    return f"{raw} {_listing_text(listing)} {sleeve} {listing.get('sleeveLength') or ''} {listing.get('description') or ''}"
+
+
+def _listing_garment_haystack(listing: dict) -> str:
+    """Garment signals from the listing only — never the category path being remapped."""
+    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    sleeve = str(ebay.get("sleeveLength") or "") if isinstance(ebay, dict) else ""
+    return (
+        f"{_listing_text(listing)} {sleeve} {listing.get('sleeveLength') or ''} "
+        f"{listing.get('description') or ''}"
+    )
+
+
+def _stale_tank_path(path: str, listing: dict) -> bool:
+    """True when a Tank Tops leaf was mapped for a sleeved tee."""
+    if not _TANK_PATH_RE.search(path or ""):
+        return False
+    garment = _listing_garment_haystack(listing)
+    if not _TEE_RE.search(garment):
+        return False
+    # Real tanks keep the leaf; short/long sleeve wording (or type T-Shirt without
+    # sleeveless cues) means the mapper confused parent "Tops" with Tank Tops.
+    if _SHORT_SLEEVE_RE.search(garment) or _LONG_SLEEVE_RE.search(garment):
+        return True
+    return not _SLEEVELESS_ITEM_RE.search(garment)
+
+
 def map_poshmark_category_path(category: str, listing: dict | None = None) -> str:
     """Map a Vendoo/listing category onto a selectable Poshmark path."""
     listing = listing if isinstance(listing, dict) else {}
     raw = (category or "").strip() or str(listing.get("category_path") or "").strip()
+    haystack = _poshmark_haystack(listing, raw)
     specifics = listing.get("poshmark_specifics")
     if isinstance(specifics, dict):
         explicit = specifics.get("category_path") or specifics.get("categoryPath")
@@ -321,19 +355,14 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
             listing_is_women = gender == "women"
             stale_women = listing_is_men and bool(_WOMEN_RE.search(explicit_path))
             stale_men = listing_is_women and bool(_MEN_RE.search(explicit_path)) and not _WOMEN_RE.search(explicit_path)
-            if not stale_women and not stale_men:
+            if not stale_women and not stale_men and not _stale_tank_path(explicit_path, listing):
                 return explicit_path
 
-    if _POSHMARK_ROOT_RE.search(raw):
+    if _POSHMARK_ROOT_RE.search(raw) and not _stale_tank_path(raw, listing):
         return raw
     if _NON_TOP_RE.search(_path_leaf(raw)):
         return raw
 
-    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
-    sleeve = ""
-    if isinstance(ebay, dict):
-        sleeve = str(ebay.get("sleeveLength") or "")
-    haystack = f"{raw} {_listing_text(listing)} {sleeve} {listing.get('sleeveLength') or ''}"
     gender = _listing_gender(listing, raw)
     is_women = gender == "women"
     is_men = gender == "men"

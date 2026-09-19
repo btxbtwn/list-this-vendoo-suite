@@ -39,7 +39,7 @@ _NON_TOP_INTENT_RE = re.compile(
 )
 # Subtypes that steal a plain scoop-neck / graphic tee when search ranks by "tee".
 _TOP_NOISE_RE = re.compile(
-    r"\bcrop\b|\bhalter\b|\btube\b|\bmuscle\b|\blaptop\b|\bslipper|\bflats?\b|\bheadband|"
+    r"\bcrop\b|\bhalter\b|\btube\b|\bmuscle\b|\btanks?\b|\blaptop\b|\bslipper|\bflats?\b|\bheadband|"
     r"\bhats?\b|\bwallets?\b|\bswim|\bbikini|\bmaternity\b|\bactivewear\b|\bvintage\b",
     re.I,
 )

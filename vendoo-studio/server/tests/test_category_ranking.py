@@ -107,3 +107,20 @@ class CategoryRankingTest(unittest.TestCase):
             tube, apparel=True, women_tops=True,
             context="Women black tube top",
         ))
+
+    def test_tank_tops_stay_out_unless_listing_says_tank(self):
+        from vendoo_studio.services.category_selection import _usable_search_node
+
+        tank = CategoryTreeNode(
+            marketplace="poshmark", category_id="tank", parent_id="",
+            path="Women > Tops > Tank Tops",
+            label="Tank Tops", is_leaf=True, has_children=False,
+        )
+        self.assertFalse(_usable_search_node(
+            tank, apparel=True, women_tops=True,
+            context="Women Faded Glory short sleeve graphic tee",
+        ))
+        self.assertTrue(_usable_search_node(
+            tank, apparel=True, women_tops=True,
+            context="Women Faded Glory sleeveless tank",
+        ))
