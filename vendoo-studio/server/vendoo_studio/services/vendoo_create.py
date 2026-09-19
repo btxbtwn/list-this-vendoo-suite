@@ -32,6 +32,7 @@ from vendoo_studio.services.vendoo_api import (
     build_vendoo_item,
     category_from_hit,
     category_v2,
+    pick_mapped_category,
     diff_roundtrip,
     observe_item_schema,
     path_parts,
@@ -343,9 +344,11 @@ async def _hits_by_mapping(
     for row in reply.get("results") or []:
         if row.get("op") != "category_map" or not row.get("ok"):
             continue
-        match = row.get("match")
-        if isinstance(match, dict) and match.get("id"):
-            hits[str(row.get("marketplace_id"))] = match
+        # Its single match is sometimes the wrong branch; the alternates it
+        # returns alongside are worth reading before taking it.
+        best = pick_mapped_category(general, row.get("match"), row.get("recommendations"))
+        if isinstance(best, dict) and best.get("id"):
+            hits[str(row.get("marketplace_id"))] = best
     return hits
 
 

@@ -504,6 +504,47 @@ def _hit_extras(hit: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _path_words(parts: list[str]) -> set[str]:
+    """Every distinct word in these path segments, normalised."""
+    return {word for part in parts for word in _norm(part).split()}
+
+
+def pick_mapped_category(
+    general: dict[str, Any],
+    match: dict[str, Any] | None,
+    recommendations: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """The best of Vendoo's mapping answers for a general category.
+
+    Its ``match`` is a single guess and is sometimes the wrong branch — a
+    girls' t-shirt came back as Boys' on eBay and as Tanks on Etsy, with the
+    right leaf sitting in ``recommendations``. Score them all against the
+    general category the seller chose: agreeing with its leaf counts most,
+    then agreeing anywhere in the path. The match keeps ties, so this only
+    overrides it when something genuinely fits better.
+    """
+    candidates = [c for c in [match, *(recommendations or [])] if isinstance(c, dict) and c.get("id")]
+    if not candidates:
+        return None
+    want_parts = [str(part) for part in (general.get("displayPath") or [])]
+    if not want_parts:
+        return candidates[0]
+    want_all = _path_words(want_parts)
+    want_leaf = _path_words(want_parts[-1:])
+
+    def score(candidate: dict[str, Any]) -> tuple[int, int]:
+        parts = [str(part) for part in hit_display_path(candidate)]
+        if not parts:
+            return (0, 0)
+        return (
+            len(want_leaf & _path_words(parts[-1:])),
+            len(want_all & _path_words(parts)),
+        )
+
+    best = max(range(len(candidates)), key=lambda i: (*score(candidates[i]), -i))
+    return candidates[best]
+
+
 def category_from_hit(hit: dict[str, Any] | None, fallback_path: str = "") -> dict[str, Any] | None:
     """Turn a ``/api/category/search`` hit into Vendoo's full ``categoryV2``.
 

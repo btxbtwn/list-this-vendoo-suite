@@ -5,6 +5,7 @@ import unittest
 from vendoo_studio.services.vendoo_specifics import normalize_specifics
 from vendoo_studio.services.vendoo_api import (
     changed_fields,
+    pick_mapped_category,
     ALL_MARKETPLACES,
     CURRENT_ITEM_VERSION,
     build_vendoo_item,
@@ -549,6 +550,46 @@ class GeneralFormFieldsTest(unittest.TestCase):
     def test_size_without_a_category_omits_the_key(self):
         item, _ = self.build(category_id="", category_path="")
         self.assertNotIn("categoryId", item["generalDetails"]["size"])
+
+
+class MappedCategoryTest(unittest.TestCase):
+    """Vendoo's mapper offers alternates; its first answer is not always best."""
+
+    GENERAL = {"displayPath": [
+        "Clothing, Shoes & Accessories", "Kids", "Girls",
+        "Girls' Clothing (Sizes 4 & Up)", "Tops, Shirts & T-Shirts",
+    ]}
+
+    def hit(self, cid, labels):
+        return {"id": cid, "all_category_label": labels}
+
+    def test_the_wrong_gender_loses_to_the_right_one(self):
+        # Real answer for a girls' tee: eBay matched Boys', with Girls' among
+        # the alternates. Boys' Department offers no "Girls" at all.
+        match = self.hit("260966", ["Clothing, Shoes & Accessories", "Kids", "Boys",
+                                    "Boys' Clothing (Sizes 4 & Up)", "Tops, Shirts & T-Shirts"])
+        recs = [self.hit("260965", ["Clothing, Shoes & Accessories", "Kids", "Girls",
+                                    "Girls' Clothing (Sizes 4 & Up)", "Tops, Shirts & T-Shirts"])]
+        self.assertEqual(pick_mapped_category(self.GENERAL, match, recs)["id"], "260965")
+
+    def test_the_wrong_garment_loses_to_the_right_one(self):
+        # Etsy matched Tanks, whose Sleeve length offers only "Sleeveless".
+        match = self.hit("11142", ["Clothing", "Girls' Clothing", "Tops & Tees", "Tanks"])
+        recs = [self.hit("11143", ["Clothing", "Girls' Clothing", "Tops & Tees", "T-shirts"])]
+        self.assertEqual(pick_mapped_category(self.GENERAL, match, recs)["id"], "11143")
+
+    def test_the_match_keeps_a_tie(self):
+        """Only override Vendoo when something genuinely fits better."""
+        match = self.hit("a", ["Clothing", "Girls' Clothing", "Tops & Tees", "T-shirts"])
+        recs = [self.hit("b", ["Clothing", "Girls' Clothing", "Tops & Tees", "T-shirts"])]
+        self.assertEqual(pick_mapped_category(self.GENERAL, match, recs)["id"], "a")
+
+    def test_no_answer_at_all_is_none(self):
+        self.assertIsNone(pick_mapped_category(self.GENERAL, None, []))
+
+    def test_without_a_general_path_the_match_stands(self):
+        match = self.hit("a", ["Anything"])
+        self.assertEqual(pick_mapped_category({}, match, [self.hit("b", ["Other"])])["id"], "a")
 
 
 class ChangedFieldsTest(unittest.TestCase):

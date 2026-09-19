@@ -8,6 +8,7 @@ import { PhotoTray } from "./PhotoTray";
 import { ItemDetails } from "./ItemDetails";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { OpenListingButton } from "./OpenListingButton";
+import { VendooSyncButtons } from "./VendooSyncButtons";
 import {
   DEPOP_CATEGORY_OPTIONALS,
   EBAY_CATEGORY_OPTIONALS,
@@ -210,6 +211,11 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
                 Browser
               </button>
             )}
+            <VendooSyncButtons
+              convId={convId}
+              bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
+              className="pr-review-open"
+            />
             <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />
           </div>
         </div>
