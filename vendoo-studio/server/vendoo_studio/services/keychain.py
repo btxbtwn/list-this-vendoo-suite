@@ -38,10 +38,32 @@ def mask_secret(value: str | None) -> str | None:
     return "***"
 
 
+def _keyring():
+    """The keyring module, with a backend chosen rather than discovered.
+
+    Packaged, this app has no usable backend: keyring finds one by reading
+    entry points from installed distributions, and a frozen bundle does not
+    expose them — the packaging step even strips *.dist-info, because codesign
+    treats those directories as bundles. keyring then falls back to its "fail"
+    backend and every secret reads as absent, which looks exactly like the
+    seller never entered one. Name the macOS backend instead; there is only
+    ever one right answer here.
+    """
+    import keyring
+
+    try:
+        from keyring.backends import fail, macOS
+
+        if isinstance(keyring.get_keyring(), fail.Keyring):
+            keyring.set_keyring(macOS.Keyring())
+    except Exception:  # noqa: BLE001 - a keyring we cannot inspect is used as-is
+        pass
+    return keyring
+
+
 def _read_password(account: str) -> str | None:
     try:
-        import keyring
-        return keyring.get_password(KEYRING_SERVICE, account)
+        return _keyring().get_password(KEYRING_SERVICE, account)
     except Exception:
         log.warning("keychain read failed for %s", account, exc_info=True)
         return None
@@ -49,8 +71,7 @@ def _read_password(account: str) -> str | None:
 
 def _write_password(account: str, value: str) -> bool:
     try:
-        import keyring
-        keyring.set_password(KEYRING_SERVICE, account, value)
+        _keyring().set_password(KEYRING_SERVICE, account, value)
         return True
     except Exception:
         log.warning("keychain write failed for %s", account, exc_info=True)
@@ -63,8 +84,7 @@ class _Unavailable(Exception):
 
 def _read_item(account: str) -> str | None:
     try:
-        import keyring
-        return keyring.get_password(KEYRING_SERVICE, account)
+        return _keyring().get_password(KEYRING_SERVICE, account)
     except Exception as exc:
         log.warning("keychain read failed for %s", account, exc_info=True)
         raise _Unavailable(account) from exc
