@@ -202,20 +202,50 @@ def etsy_when_raw(etsy: dict[str, Any], listing: dict[str, Any] | None = None) -
     return ""
 
 
-def etsy_who_raw(etsy: dict[str, Any]) -> str:
-    for key in ("who_made", "whoMade", "whoMadeIt", "whoMadeIt?", "Who Made It?"):
+def _etsy_choice_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+# Vendoo stores who/what as codes (someone_else, "0"), which come back on
+# import; the model also paraphrases the labels. Both map to the dropdown label.
+ETSY_WHO_ALIASES = {
+    **{_etsy_choice_key(label): label for label in VALID_ETSY_WHO},
+    "someone else": "Another company or person",
+    "another company": "Another company or person",
+    "collective": "A member of my shop",
+    "i did": "I did",
+}
+ETSY_WHAT_ALIASES = {
+    **{_etsy_choice_key(label): label for label in VALID_ETSY_WHAT},
+    "0": "A finished product",
+    "false": "A finished product",
+    "finished product": "A finished product",
+    "1": "A supply or tool to make things",
+    "true": "A supply or tool to make things",
+    "supply or tool to make things": "A supply or tool to make things",
+    "a supply or tool": "A supply or tool to make things",
+    "supply": "A supply or tool to make things",
+}
+
+
+def _etsy_choice(etsy: dict[str, Any], keys: tuple[str, ...], aliases: dict[str, str]) -> str:
+    for key in keys:
         text = _scalar_text(etsy.get(key)) if key in etsy else None
         if text:
-            return text
+            return aliases.get(_etsy_choice_key(text), text)
     return ""
+
+
+def etsy_who_raw(etsy: dict[str, Any]) -> str:
+    return _etsy_choice(
+        etsy, ("who_made", "whoMade", "whoMadeIt", "whoMadeIt?", "Who Made It?"), ETSY_WHO_ALIASES
+    )
 
 
 def etsy_what_raw(etsy: dict[str, Any]) -> str:
-    for key in ("what_is", "whatIs", "whatIsIt", "whatIsIt?", "What Is It?"):
-        text = _scalar_text(etsy.get(key)) if key in etsy else None
-        if text:
-            return text
-    return ""
+    return _etsy_choice(
+        etsy, ("what_is", "whatIs", "whatIsIt", "whatIsIt?", "What Is It?"), ETSY_WHAT_ALIASES
+    )
 
 
 def resolve_etsy_when(raw: str, options: list[str]) -> str:
