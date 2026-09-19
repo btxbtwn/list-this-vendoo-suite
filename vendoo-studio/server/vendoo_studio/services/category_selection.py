@@ -4,6 +4,8 @@ import json
 import logging
 import re
 
+from sqlalchemy import or_
+
 from vendoo_studio.models.catalog import CategoryTree, CategoryTreeNode
 from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.services.catalog_index import search_catalog
@@ -13,6 +15,9 @@ from vendoo_studio.services.registry import WOMEN_TOPS_SEEDS
 
 log = logging.getLogger("vendoo_studio.category_selection")
 DEFAULT_TOP_K = 15
+# Ceiling on rows pulled in for ranking. Enough for any real query, far short
+# of reading a whole marketplace tree into memory.
+MAX_RANKED_ROWS = 400
 _SELLER_QUESTION_RE = re.compile(
     r"\b(please|confirm|additional details?|tell me|what (?:is|are)|is (?:this|the)|"
     r"or provide|which (?:is|are)|can you|could you|vintage\b.*\?)\b|\?",
@@ -133,14 +138,71 @@ async def _ask_model(provider, analysis: str, notes: str, choices: dict) -> dict
     return parse_resolution(text)
 
 
-def _leaf_query_under(db, marketplace: str, path_prefix: str) -> list[CategoryTreeNode]:
-    prefix = path_prefix.rstrip()
-    rows = db.query(CategoryTreeNode).filter_by(
+def _escape_like(text: str) -> str:
+    """Escape a LIKE pattern so a category label cannot act as a wildcard."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _leaf_query_under(db, marketplace: str, path_prefix: str, *, limit: int | None = None):
+    """Leaves under a path, filtered by the database rather than by Python.
+
+    There are ~18k leaves per large marketplace. Reading them all to keep a
+    handful is what made every generation cost tens of megabytes of ORM
+    objects, and a second of CPU, before the model was even asked.
+    """
+    query = db.query(CategoryTreeNode).filter_by(
         marketplace=marketplace, is_leaf=True, has_children=False,
-    ).order_by(CategoryTreeNode.path).all()
-    if not prefix:
-        return rows
-    return [node for node in rows if node.path == prefix or node.path.startswith(prefix + " >")]
+    )
+    prefix = (path_prefix or "").rstrip()
+    if prefix:
+        query = query.filter(
+            or_(
+                CategoryTreeNode.path == prefix,
+                CategoryTreeNode.path.like(f"{_escape_like(prefix)} >%", escape="\\"),
+            )
+        )
+    query = query.order_by(CategoryTreeNode.path)
+    return query.limit(limit).all() if limit else query.all()
+
+
+def _query_tokens(query: str) -> list[str]:
+    return [token for token in re.findall(r"[a-z0-9']+", (query or "").casefold()) if len(token) > 2]
+
+
+_SIBILANT_ES = ("ses", "xes", "zes", "ches", "shes")
+
+
+def _singular(word: str) -> str:
+    """Crude de-pluralisation so "tee" and "Tees" are the same word.
+
+    Only drop "es" after a sibilant ("dresses" -> "dress"); elsewhere it is a
+    plain "s" ("tees" -> "tee", not "te").
+    """
+    if len(word) > 3 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 4 and word.endswith(_SIBILANT_ES):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _words(text: str) -> set[str]:
+    return {_singular(word) for word in re.findall(r"[a-z0-9']+", text)}
+
+
+# A token has to be a whole word in the path. Substring matching is how "tee"
+# from a t-shirt title scored "Play Teepees" and "Fastener Nuts > Tee Nuts".
+def _word_hits(path: str, tokens: list[str]) -> tuple[int, int]:
+    """``(hits in the leaf label, hits anywhere)`` for scoring."""
+    path_l = (path or "").casefold()
+    words = _words(path_l)
+    leaf_words = _words(path_l.rsplit(">", 1)[-1])
+    wanted = {_singular(token) for token in tokens}
+    return (
+        len(wanted & leaf_words),
+        len(wanted & words),
+    )
 
 
 def _leaves_matching_query(
@@ -151,21 +213,51 @@ def _leaves_matching_query(
     *,
     limit: int = DEFAULT_TOP_K,
 ) -> list[CategoryTreeNode]:
-    """Use the complete tree when semantic search misses — rank leaves by query tokens."""
-    rows = _leaf_query_under(db, marketplace, path_prefix)
-    tokens = [token for token in re.findall(r"[a-z0-9']+", (query or "").casefold()) if len(token) > 2]
-    if not rows:
-        return []
+    """Rank leaves by query tokens, letting SQL discard the ones that cannot match."""
+    tokens = _query_tokens(query)
     if not tokens:
-        return rows[:limit]
-    scored: list[tuple[int, CategoryTreeNode]] = []
+        return _leaf_query_under(db, marketplace, path_prefix, limit=limit)
+
+    # Only rows containing at least one token can score, so let SQLite find
+    # them. The word check still happens below; this just narrows the set.
+    rows = _leaf_query_under_matching(db, marketplace, path_prefix, tokens)
+    if not rows:
+        return _leaf_query_under(db, marketplace, path_prefix, limit=limit)
+
+    scored: list[tuple[int, int, int, CategoryTreeNode]] = []
     for node in rows:
-        path_l = (node.path or "").casefold()
-        score = sum(1 for token in tokens if token in path_l)
-        if score:
-            scored.append((score, node))
-    scored.sort(key=lambda item: (-item[0], item[1].path or ""))
-    return [node for _, node in scored[:limit]] or rows[:limit]
+        leaf_hits, all_hits = _word_hits(node.path or "", tokens)
+        if not all_hits:
+            continue
+        # A token matching the leaf itself ("Tops") means more than one
+        # matching an ancestor, and a shorter path breaks ties by specificity
+        # rather than by alphabet — which is what let "Business & Industrial"
+        # win every tie it was in.
+        scored.append((-leaf_hits, -all_hits, len(node.path or ""), node))
+    if not scored:
+        return _leaf_query_under(db, marketplace, path_prefix, limit=limit)
+    scored.sort(key=lambda item: (item[0], item[1], item[2], item[3].path or ""))
+    return [node for *_rank, node in scored[:limit]]
+
+
+def _leaf_query_under_matching(db, marketplace: str, path_prefix: str, tokens: list[str]):
+    """Leaves whose path contains any query token, chosen by the database."""
+    query = db.query(CategoryTreeNode).filter_by(
+        marketplace=marketplace, is_leaf=True, has_children=False,
+    )
+    prefix = (path_prefix or "").rstrip()
+    if prefix:
+        query = query.filter(
+            or_(
+                CategoryTreeNode.path == prefix,
+                CategoryTreeNode.path.like(f"{_escape_like(prefix)} >%", escape="\\"),
+            )
+        )
+    query = query.filter(
+        or_(*[CategoryTreeNode.path.ilike(f"%{_escape_like(token)}%", escape="\\") for token in tokens])
+    )
+    # Generous next to the handful returned, but small next to 18k.
+    return query.order_by(CategoryTreeNode.path).limit(MAX_RANKED_ROWS).all()
 
 
 def _collect_choices(

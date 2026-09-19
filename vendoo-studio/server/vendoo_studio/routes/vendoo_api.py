@@ -150,6 +150,28 @@ async def category_search(body: CategorySearchRequest):
     return {"ok": True, "leaf": hit.get("leaf"), "matches": hit.get("matches", [])}
 
 
+class SizesRequest(BaseModel):
+    category_id: str
+    marketplace_id: str = "vendoo"
+
+
+@router.post("/api/vendoo-api/sizes")
+async def category_sizes(body: SizesRequest):
+    """The sizes and size types one category offers, coded as the form stores them."""
+    from vendoo_studio.services.vendoo_create import run_ops
+
+    try:
+        reply = await run_ops(SimpleNamespace(id=None), [{
+            "op": "size_query",
+            "category_id": body.category_id,
+            "marketplace_id": body.marketplace_id,
+        }])
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    hit = next((r for r in reply.get("results", []) if r.get("op") == "size_query"), {})
+    return {"ok": True, "sizes": hit.get("sizes")}
+
+
 @router.post("/api/vendoo-api/category-specifics")
 async def category_specifics(body: SpecificsRequest):
     """The field schema Vendoo's own forms render a category from."""

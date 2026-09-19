@@ -345,6 +345,19 @@ async function getVendooCategorySpecifics(session, call) {
   return { specifics: res.data };
 }
 
+// The size vocabulary one category offers: ``values`` are the sizes and
+// ``scales`` the size types, both as {label, value} with the coded value the
+// form stores. The general form is marketplace ``vendoo``.
+async function queryVendooSizes(session, call) {
+  const res = await vendooFetch(`${VENDOO_API_BASE}/api/rest/v1/size/query`, {
+    method: 'POST',
+    token: session.access_token,
+    json: { categoryId: call.category_id, marketplace: call.marketplace_id || 'vendoo' },
+  });
+  if (!res.ok) throw new Error(vendooError(`size query ${call.category_id}`, res));
+  return { sizes: res.data };
+}
+
 async function searchVendooCategory(session, call) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/category/search`, {
     method: 'POST',
@@ -394,6 +407,14 @@ async function runVendooApiOps(ops) {
           break;
         case 'category_search':
           results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
+          break;
+        case 'size_query':
+          results.push({
+            op: 'size_query',
+            ok: true,
+            category_id: op.category_id,
+            ...(await queryVendooSizes(session, op)),
+          });
           break;
         case 'category_specifics':
           results.push({
