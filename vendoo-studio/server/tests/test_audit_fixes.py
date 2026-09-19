@@ -432,6 +432,32 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertFalse(optional_errors, optional_errors)
         self.assertTrue(result.can_send, result.errors)
 
+    def test_ebay_vintage_follows_era_not_style_words(self):
+        from vendoo_studio.models.ebay_fields import ensure_ebay_category_optionals
+
+        listing = dict(VALID_LISTING)
+        listing["title"] = "Y2K Graphic Tee Black Vintage Style Streetwear"
+        listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "vintage": "No"}
+        listing["etsy_specifics"] = {"when_made": "2010 - 2019"}
+        ensure_ebay_category_optionals(listing)
+        self.assertEqual(listing["ebay_specifics"]["vintage"], "No")
+
+        # A stale Yes on a modern-era item is corrected before send.
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "vintage": "Yes",
+            "category_specifics": {"Vintage": "Yes"},
+        }
+        self.assertTrue(ensure_ebay_category_optionals(listing))
+        self.assertEqual(listing["ebay_specifics"]["vintage"], "No")
+        self.assertEqual(listing["ebay_specifics"]["category_specifics"], {"vintage": "No"})
+
+        # A genuinely old item keeps the model's Yes.
+        listing["ebay_specifics"] = {**VALID_LISTING["ebay_specifics"], "vintage": "Yes"}
+        listing["etsy_specifics"] = {"when_made": "1990s"}
+        ensure_ebay_category_optionals(listing)
+        self.assertEqual(listing["ebay_specifics"]["vintage"], "Yes")
+
     def test_ebay_fabric_weight_clears_junk_keeps_numeric(self):
         from vendoo_studio.models.listing_values import DNA_VALUE
         from vendoo_studio.models.ebay_fields import (

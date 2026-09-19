@@ -523,11 +523,22 @@ def ensure_ebay_category_optionals(listing: dict) -> bool:
     if fabric and ebay_optional_blank(ebay_optional_raw(ebay, "fabricType")):
         set_key("fabricType", fabric)
 
-    vintage_hay = ebay_season_haystack(listing, ebay)
-    if re.search(r"\b(?:vintage|y2k|90s|80s|70s)\b", vintage_hay):
-        current_vintage = text_value(ebay_optional_raw(ebay, "vintage"))
-        if current_vintage.casefold() == "no" or ebay_optional_blank(ebay_optional_raw(ebay, "vintage")):
-            ebay["vintage"] = "Yes"
+    # Vintage follows the item's era, never style words: a "Y2K" or "vintage-style"
+    # tee made in the 2010s is not vintage. A modern Etsy When Made forces No.
+    from vendoo_studio.models.etsy_fields import etsy_when_is_modern, etsy_when_raw
+
+    etsy = listing.get("etsy_specifics")
+    when_made = etsy_when_raw(etsy if isinstance(etsy, dict) else {}, {**listing, "ebay_specifics": ebay})
+    if when_made and etsy_when_is_modern(when_made):
+        if text_value(ebay_optional_raw(ebay, "vintage")).casefold() != "no":
+            ebay["vintage"] = "No"
+            ebay.pop("Vintage", None)
+            nested = ebay.get("category_specifics")
+            if isinstance(nested, dict) and ({"vintage", "Vintage"} & nested.keys()):
+                ebay["category_specifics"] = {
+                    **{k: v for k, v in nested.items() if k != "Vintage"},
+                    "vintage": "No",
+                }
             changed = True
 
     for key in EBAY_OPTIONAL_DNA_KEYS:
