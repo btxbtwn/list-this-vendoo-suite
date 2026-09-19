@@ -12,6 +12,7 @@ import {
   type SettingsSectionId,
 } from "./settingsNav";
 import { statusFromListingStatus } from "./fillLogForms";
+import { MarketplaceLogo } from "./MarketplaceLogo";
 
 const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
@@ -1151,6 +1152,7 @@ function ListingRow({
             <ul className="nav-vendoo-status-list">
               {marketplaceStatuses.map((row) => (
                 <li key={row.id} className="nav-vendoo-status-row">
+                  <MarketplaceLogo id={row.id} label={row.label} size={16} />
                   <span className="nav-vendoo-status-market">{row.label}</span>
                   <span className={`pr-live-status ${liveStatusClass(row.status)}`}>{row.status}</span>
                 </li>
