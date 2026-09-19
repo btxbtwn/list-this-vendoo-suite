@@ -2,10 +2,47 @@
 
 .item-details {
   position: relative;
+  container-type: inline-size;
   flex-shrink: 0;
   padding: 10px 14px 12px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border-light);
+}
+
+.item-section + .item-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.item-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.item-section-title {
+  margin: 0 0 6px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.item-section-header .item-section-title {
+  margin-bottom: 0;
+}
+
+.item-garment-pills {
+  margin: 0;
+}
+
+.item-garment-pills .pr-pill {
+  padding: 3px 9px;
+  font-size: 11px;
 }
 
 .item-row {
@@ -15,13 +52,29 @@
   align-items: start;
 }
 
-.item-row-measures {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+.item-row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.item-field-notes + .item-row,
-.item-row + .item-row {
+.item-row-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.item-section > .item-field + .item-field {
   margin-top: 8px;
+}
+
+/* The editor panel is resizable; wrap wide rows to the panel, not the viewport. */
+@container (max-width: 460px) {
+  .item-row-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 320px) {
+  .item-row-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .item-field {

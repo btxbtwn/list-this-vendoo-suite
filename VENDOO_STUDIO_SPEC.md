@@ -204,7 +204,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Reorder and remove photos before approval.
 - Image preview.
 - Notes, cost, SKU, labels, measurements, and package-dimensions inputs.
-- Item details use a full-width notes textarea, then bordered field cells: labels and package dimensions on one row; cost, Poshmark original price, and garment measurements (pit to pit, length, sleeve) on the next. Narrow screens reduce the grids to two columns (then one). Condition and category are inferred from photos and notes, not seller inputs.
+- Item details are grouped into titled sections: **Notes & Labels** (full-width notes textarea and labels), **Pricing & Shipping** (cost, Poshmark original price, package dimensions), and **Measurements** with a Top / Pants / Shorts toggle. Tops take pit to pit, length and sleeve; pants and shorts each keep their own waist, rise, inseam and leg opening. Each garment's values are saved separately and only the selected garment's measurements reach generation. Grids wrap to the editor panel's width, and narrow screens reduce them to two columns (then one). Condition and category are inferred from photos and notes, not seller inputs.
 - Poshmark and Mercari inspector tabs expose every field their automation steps fill, including shared listing values and marketplace-specific defaults.
 - Marketplace tab strips include additional space below the active underline before the first field row.
 
