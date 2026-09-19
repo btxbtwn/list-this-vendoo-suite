@@ -734,6 +734,18 @@ async def complete_job(db: Session, job_id: str) -> None:
         pause_job(db, job, "Chrome disconnected before the remaining fields could be filled.", gaps)
 
 
+def completion_running(job_id: str) -> bool:
+    task = _tasks.get(job_id)
+    return task is not None and not task.done()
+
+
+def cancel_completion(job_id: str) -> None:
+    _pending_completion.discard(job_id)
+    task = _tasks.get(job_id)
+    if task is not None and not task.done():
+        task.cancel()
+
+
 def schedule_completion(job_id: str) -> None:
     existing = _tasks.get(job_id)
     if existing is not None and not existing.done():

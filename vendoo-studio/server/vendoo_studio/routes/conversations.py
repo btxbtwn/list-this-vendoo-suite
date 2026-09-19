@@ -228,6 +228,84 @@ def get_messages(conv_id: str, db: Session = Depends(get_db)):
     return [_msg_response(m) for m in msgs]
 
 
+class ActivityResponse(BaseModel):
+    busy: bool
+    items: list[str]
+    message_count: int
+    last_message_id: str | None
+
+
+def _job_activity_label(job) -> str:
+    from vendoo_studio.services.schema_probe import is_schema_probe_job
+
+    if is_schema_probe_job(job):
+        return "Discovering fields in Chrome…"
+    if job.status in ("queued", "awaiting_extension"):
+        return "Vendoo draft waiting for Chrome…"
+    return "Working on the Vendoo draft…"
+
+
+@router.get("/{conv_id}/activity", response_model=ActivityResponse)
+def get_activity(conv_id: str, db: Session = Depends(get_db)):
+    """Everything still running for this listing — chat is only done when this is empty."""
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
+    from vendoo_studio.models.conversation import Message
+    from vendoo_studio.services import activity
+    from vendoo_studio.services.listing_completion import completion_running
+    from vendoo_studio.services.streaming import active_generation
+
+    items: list[str] = []
+    run = active_generation(conv_id)
+    if run is not None:
+        items.append(run.last_status or "Generating listing…")
+    items.extend(activity.running(conv_id))
+    for job in db.query(Job).filter(Job.conversation_id == conv_id).all():
+        if job.status in ACTIVE_JOB_STATUSES or completion_running(job.id):
+            items.append(_job_activity_label(job))
+    items = list(dict.fromkeys(items))
+
+    messages = db.query(Message).filter(Message.conversation_id == conv_id)
+    last = messages.order_by(Message.created_at.desc()).first()
+    return ActivityResponse(
+        busy=bool(items),
+        items=items,
+        message_count=messages.count(),
+        last_message_id=last.id if last else None,
+    )
+
+
+async def cancel_conversation_jobs(db: Session, conv_id: str) -> int:
+    """Cancel this listing's running Chrome/Vendoo jobs and their field repair."""
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
+    from vendoo_studio.models.protocol import ProtocolMessage
+    from vendoo_studio.repositories.queries import JobRepo
+    from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
+    from vendoo_studio.services.listing_completion import cancel_completion, completion_running
+
+    jobs = [
+        job
+        for job in db.query(Job).filter(Job.conversation_id == conv_id).all()
+        if job.status in ACTIVE_JOB_STATUSES or completion_running(job.id)
+    ]
+    for job in jobs:
+        cancel_completion(job.id)
+        if job.status not in ACTIVE_JOB_STATUSES:
+            continue
+        job.status = "cancelled"
+        job.current_step = None
+        db.commit()
+        JobRepo(db).add_event(job.id, "cancelled")
+        extension_manager.cancel_waits_for_job(job.id)
+        await extension_manager.send_message(ProtocolMessage(
+            type="job.cancel",
+            job_id=job.id,
+            payload={"job_id": job.id},
+        ).model_dump(mode="json"))
+    if jobs:
+        await dispatch_queued_jobs()
+    return len(jobs)
+
+
 @router.get("/{conv_id}/photos")
 def get_photos(conv_id: str, db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
@@ -315,7 +393,11 @@ async def reset_conversation(
     from vendoo_studio.services.hidden_fields import clear_listing_hidden_fields
     from vendoo_studio.services.vendoo_import import merge_notes, vendoo_binding
 
+    from vendoo_studio.services import activity
+
     stop_generation(conv_id, discard=True)
+    # Post-generate field fills would otherwise write into the cleared chat.
+    activity.cancel(conv_id)
 
     # Keep the Vendoo draft link across Clear; wipe only Studio form contents.
     binding = vendoo_binding(conv.notes)

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
-import type { Job, Message } from "../api/types";
+import type { ConversationActivity, Job, Message } from "../api/types";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
@@ -508,6 +508,7 @@ async function refreshListingQueries(queryClient: QueryClient, convId: string) {
   await queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
   queryClient.invalidateQueries({ queryKey: ["conversations"] });
   queryClient.invalidateQueries({ queryKey: ["fill-log"] });
+  queryClient.invalidateQueries({ queryKey: ["activity", convId] });
 }
 
 export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, browser, onBrowserFieldsChange }: Props) {
@@ -522,6 +523,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const [streamStatus, setStreamStatus] = useState(live.streamStatus);
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(live.failedAction);
   const [lastSendText, setLastSendText] = useState(live.lastSendText);
+  const [stopping, setStopping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const thinkingBodyRef = useRef<HTMLDivElement>(null);
@@ -542,10 +544,20 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     scrollChatToBottom();
   }, [scrollChatToBottom]);
 
+  // The server's view of the listing: background field fills, saves, syncs and
+  // Vendoo jobs keep running after a chat stream ends and can still post here.
+  const { data: activity } = useQuery({
+    queryKey: ["activity", convId],
+    queryFn: () => api.conversations.activity(convId),
+    refetchInterval: (query) => (getLive(convId).streaming || getLive(convId).generating || query.state.data?.busy ? 1000 : 2000),
+  });
+  const serverBusy = Boolean(activity?.busy);
+  const busy = streaming || generating || serverBusy;
+
   const { data: messages, isLoading } = useQuery({
     queryKey: ["messages", convId],
     queryFn: () => api.conversations.messages(convId),
-    refetchInterval: streaming || generating ? 2000 : false,
+    refetchInterval: busy ? 1000 : false,
   });
 
   const { data: photos } = useQuery({
@@ -556,14 +568,29 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const { data: listing } = useQuery({
     queryKey: ["listing", convId],
     queryFn: () => api.listings.get(convId),
-    refetchInterval: streaming || generating ? 2000 : false,
+    refetchInterval: busy ? 2000 : false,
   });
 
   const { data: jobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: () => api.jobs.list(),
-    refetchInterval: streaming || generating ? 2000 : 5000,
+    refetchInterval: busy ? 2000 : 5000,
   });
+
+  // Anything posted in the background shows up as soon as activity notices it.
+  const lastMessageId = messages?.length ? messages[messages.length - 1].id : null;
+  useEffect(() => {
+    if (!activity || !messages) return;
+    if (activity.message_count === messages.length && activity.last_message_id === lastMessageId) return;
+    void queryClient.invalidateQueries({ queryKey: ["messages", convId] });
+  }, [activity, messages, lastMessageId, convId, queryClient]);
+
+  // Background work that finishes on its own may have changed the listing too.
+  const wasServerBusyRef = useRef(serverBusy);
+  useEffect(() => {
+    if (wasServerBusyRef.current && !serverBusy) void refreshListingQueries(queryClient, convId);
+    wasServerBusyRef.current = serverBusy;
+  }, [serverBusy, convId, queryClient]);
 
   const activeProbe = (jobs || []).find(
     (j) =>
@@ -822,7 +849,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const sendMessage = useCallback(async (text: string) => {
     const browserContext = browserRef.current;
     const pointedAt = browserContext?.fields || [];
-    if ((!text && !pointedAt.length) || getLive(convId).streaming) return;
+    const running = getLive(convId).streaming
+      || Boolean(queryClient.getQueryData<ConversationActivity>(["activity", convId])?.busy);
+    if ((!text && !pointedAt.length) || running) return;
     pinChatToBottom();
     const liveState = getLive(convId);
     liveState.controller?.abort();
@@ -935,38 +964,35 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   }, [convId, queryClient, pinChatToBottom, onBrowserFieldsChange]);
 
   useEffect(() => {
-    if (!queuedMessage || streaming) return;
+    if (!queuedMessage || busy) return;
     const text = queuedMessage;
     onQueuedMessageConsumed?.();
     void sendMessage(text);
-  }, [queuedMessage, streaming, sendMessage, onQueuedMessageConsumed]);
+  }, [queuedMessage, busy, sendMessage, onQueuedMessageConsumed]);
 
   const handleSend = useCallback(() => {
+    if (busy) return;
     void sendMessage(input.trim());
-  }, [input, sendMessage]);
+  }, [busy, input, sendMessage]);
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = useCallback(async () => {
     const liveState = getLive(convId);
-    const wasGenerating = liveState.generating;
-    patchLive(convId, { userCancelled: true, restoreInputOnAbort: true });
-    liveState.controller?.abort();
-    if (wasGenerating) {
-      void fetch(`/api/conversations/${convId}/generate/cancel`, { method: "POST" });
+    setStopping(true);
+    if (liveState.controller) {
+      patchLive(convId, { userCancelled: true, restoreInputOnAbort: true });
+      liveState.controller.abort();
     } else {
-      void api.conversations.cancelMessages(convId);
+      patchLive(convId, { generating: false, streaming: false });
     }
-    const probe = (jobs || []).find(
-      (j) =>
-        j.conversation_id === convId
-        && j.mode === "schema_probe"
-        && ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || "")),
-    );
-    if (probe?.id) {
-      void api.jobs.cancel(probe.id).then(() => {
-        queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      });
-    }
-  }, [convId, jobs, queryClient]);
+    // One stop for everything: generation, chat saves, field fills, Chrome/Vendoo jobs.
+    await api.conversations.stop(convId).catch(() => undefined);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["activity", convId] }),
+      queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+    ]);
+    await refreshListingQueries(queryClient, convId);
+    setStopping(false);
+  }, [convId, queryClient]);
 
   const handleCancelDiscovery = useCallback(async () => {
     const probeId = activeProbe?.id;
@@ -1038,7 +1064,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       }),
   );
   const showStreamBubble = Boolean(streamText && !streamFailed && !streamAlreadyPersisted);
-  const busy = streaming || generating;
   const canRetry = failedAction === "send" ? Boolean(lastSendText) : Boolean(hasPhotos);
   const awaitingSellerAnswers = Boolean(
     messages?.length
@@ -1051,6 +1076,19 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         });
       })(),
   );
+  const localLabel = streaming || generating
+    ? streamStatus && streamStatus !== "thinking"
+      ? streamStatus
+      : generating ? "Analyzing photos…" : "Answering…"
+    : "";
+  const activityItems = [
+    ...(localLabel ? [localLabel] : []),
+    ...(activity?.items || []).filter((item) => item !== localLabel),
+  ];
+  // Right after a local stream starts, the server may not have reported it yet.
+  const activityLabel = localLabel
+    ? activityItems.length > 1 ? `${localLabel} (+${activityItems.length - 1} more)` : localLabel
+    : activityItems.join(" · ") || "Finishing up…";
   const composerPlaceholder = browser
     ? "Tell Studio what to fix in the Vendoo draft..."
     : !hasPhotos
@@ -1255,6 +1293,20 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       </div>
 
       <div className="chat-composer">
+        {(busy || hasMessages) && (
+          <div
+            className={`chat-activity${busy ? " is-busy" : " is-done"}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="chat-activity-dot" aria-hidden="true" />
+            <span className="chat-activity-text">
+              {busy
+                ? `${stopping ? "Stopping" : "Working"} — ${activityLabel}`
+                : "Done — nothing running"}
+            </span>
+          </div>
+        )}
         {browser && browser.fields.length > 0 && (
           <div className="chat-browser-fields" aria-label="Fields pointed at in the Vendoo browser">
             <div className="chat-browser-fields-head">
@@ -1322,8 +1374,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
             <button
               type="button"
               className="chat-send chat-send-cancel"
-              onClick={handleCancel}
-              aria-label="Cancel"
+              onClick={() => { void handleCancel(); }}
+              disabled={stopping}
+              aria-label="Stop"
+              title="Stop everything running for this listing"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
                 <rect x="1" y="1" width="8" height="8" rx="1" />

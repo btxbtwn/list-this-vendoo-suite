@@ -23,6 +23,14 @@ export interface Message {
   created_at: string;
 }
 
+/** Everything still running for a listing; chat is only done when ``busy`` is false. */
+export interface ConversationActivity {
+  busy: boolean;
+  items: string[];
+  message_count: number;
+  last_message_id: string | null;
+}
+
 export interface Photo {
   id: string;
   conversation_id: string;
