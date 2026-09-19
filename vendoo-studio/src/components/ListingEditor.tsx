@@ -875,7 +875,10 @@ function SendToVendooButton({
     });
   }, [sendBlockers]);
   const blockerText = uniqueBlockers.map((err) => err.message).join(" · ");
-  const sendLabel = "Send to Vendoo";
+  const sendLabel = bound ? "Update Vendoo" : "Send to Vendoo";
+  const sendHint = bound
+    ? "Linked. Use Fix errors or Ask chat for fields to fill the rest, then Update Vendoo."
+    : "Sends the starting fields and links a Vendoo draft. Then use Fix errors or Ask chat for fields to fill the rest.";
 
   const startSend = () => {
     if (!canSend) {
@@ -997,7 +1000,7 @@ function SendToVendooButton({
     <div>
       <button
         type="button"
-        className="btn btn-success"
+        className={bound ? "btn btn-primary" : "btn btn-success"}
         style={{ width: "100%" }}
         disabled={sendMutation.isPending || !canSend}
         title={bound
@@ -1012,6 +1015,7 @@ function SendToVendooButton({
           </span>
         ) : sendLabel}
       </button>
+      {!sendMutation.isPending && <div className="send-hint">{sendHint}</div>}
       {sendMutation.isPending && (
         <SendProgress label={bound ? "Writing changed fields to Vendoo…" : "Starting the send…"} />
       )}
