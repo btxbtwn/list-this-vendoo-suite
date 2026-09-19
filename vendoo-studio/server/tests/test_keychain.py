@@ -52,6 +52,12 @@ class KeychainTest(unittest.TestCase):
         # another's disk contents.
         keychain._touched.clear()
         keychain._deleted.clear()
+        # The migration marker also lives on disk now, so it is per-test state
+        # too: leaving it behind makes one test's migration skip another's.
+        try:
+            keychain._migration_flag_path().unlink()
+        except Exception:
+            pass
 
     def use(self, fake: FakeKeyring):
         module = types.ModuleType("keyring")
@@ -214,6 +220,44 @@ class StaleCacheTest(KeychainTest):
         }))
         keychain.delete_api_key()
         self.assertNotIn(keychain.KEYRING_ACCOUNT, fake.store())
+
+
+class ResignedBuildTest(KeychainTest):
+    """Every app update ships a re-signed binary.
+
+    Keychain items are readable by the binary that wrote them, so the new build
+    sees no secrets item and concludes there is none. Sweeping the legacy items
+    again at that point restores whatever key was current before consolidation
+    — which is how a freshly entered key kept coming back as a two-day-old one
+    on every restart.
+    """
+
+    def test_a_build_that_cannot_see_the_item_does_not_resurrect_the_old_key(self):
+        # First build: migrates the legacy key and records that it did.
+        first = self.use(FakeKeyring({keychain.KEYRING_ACCOUNT: "sk-from-2-days-ago"}))
+        self.assertEqual(keychain.get_api_key(), "sk-from-2-days-ago")
+        # The seller then enters a current key.
+        keychain.set_api_key("sk-current")
+        self.assertEqual(first.store()[keychain.KEYRING_ACCOUNT], "sk-current")
+
+        # New build: a restart clears memory but the data dir survives, which
+        # is the whole point of recording the migration there.
+        keychain._store = None
+        keychain._store_readable = False
+        keychain._warmed = False
+        keychain._touched.clear()
+        keychain._deleted.clear()
+        second = self.use(FakeKeyring({keychain.KEYRING_ACCOUNT: "sk-from-2-days-ago"}))
+
+        self.assertIsNone(keychain.get_api_key())
+        # Critically: it did not hand back the stale key as if it were current.
+        self.assertNotEqual(keychain.get_api_key(), "sk-from-2-days-ago")
+        self.assertNotIn(keychain.KEYRING_ACCOUNT, second.items.get(keychain.SECRETS_ACCOUNT, "{}"))
+
+    def test_the_first_migration_still_happens(self):
+        fake = self.use(FakeKeyring({keychain.KEYRING_ACCOUNT: "sk-legacy"}))
+        self.assertEqual(keychain.get_api_key(), "sk-legacy")
+        self.assertEqual(fake.store()[keychain.KEYRING_ACCOUNT], "sk-legacy")
 
 
 class RealKeychainIsUntouchedTest(unittest.TestCase):
