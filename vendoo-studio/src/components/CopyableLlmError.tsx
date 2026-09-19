@@ -282,24 +282,28 @@ export function CopyableLlmError({
   className?: string;
 }) {
   const body = String(text || "").trim();
-  if (!body) return null;
   const emptyCount = Math.max(0, Math.floor(Number(emptyFieldsCount) || 0));
   const canFillEmpty = Boolean(onAskChat && emptyFieldsPrompt && emptyCount > 0);
+  // No error and nothing left to fill — nothing to show. With fields still
+  // empty the card stays so its fill button survives the error clearing.
+  if (!body && !canFillEmpty) return null;
 
   return (
     <div className={`llm-error-card${className ? ` ${className}` : ""}`}>
-      <div className="llm-error-text text-xs text-error">{body}</div>
+      {body && <div className="llm-error-text text-xs text-error">{body}</div>}
       {onAskChat && (
         <div className="llm-error-ask">
           <div className="llm-error-actions">
-            <button
-              type="button"
-              className="btn btn-sm btn-secondary"
-              title="Send these errors to chat so it can fix them"
-              onClick={() => onAskChat(prompt)}
-            >
-              Fix errors
-            </button>
+            {body && (
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                title="Send these errors to chat so it can fix them"
+                onClick={() => onAskChat(prompt)}
+              >
+                Fix errors
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-sm"
