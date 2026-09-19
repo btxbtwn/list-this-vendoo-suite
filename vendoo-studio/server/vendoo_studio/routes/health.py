@@ -7,13 +7,14 @@ from vendoo_studio.config import is_packaged
 from vendoo_studio.database import get_db
 from vendoo_studio.services.chrome_bridge import chrome_executable
 from vendoo_studio.services.user_settings import setup_guide_dismissed
+from vendoo_studio.version import app_version
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.1.0", "service": "vendoo-studio"}
+    return {"status": "ok", "version": app_version(), "service": "vendoo-studio"}
 
 
 @router.get("/api/status")
@@ -29,7 +30,7 @@ def status(db: Session = Depends(get_db)):
     active_jobs = db.query(Job).filter(Job.status.in_(ACTIVE_JOB_STATUSES)).all()
 
     return {
-        "version": "0.1.0",
+        "version": app_version(),
         "provider_configured": provider_is_configured(),
         "extension_connected": extension_manager.connected,
         "active_job_id": active_jobs[0].id if active_jobs else None,

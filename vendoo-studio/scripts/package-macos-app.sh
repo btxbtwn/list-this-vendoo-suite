@@ -33,14 +33,15 @@ fi
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 SHORT="$(git -C "$REPO" rev-parse --short HEAD)"
 REF="$(git -C "$REPO" rev-parse --abbrev-ref HEAD)"
-"$PYTHON" - "$ROOT/desktop/build_info.json" "$SHA" "$SHORT" "$REF" <<'PY'
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
+"$PYTHON" - "$ROOT/desktop/build_info.json" "$SHA" "$SHORT" "$REF" "$VERSION" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 path.write_text(json.dumps({
-    "version": "0.1.0",
+    "version": sys.argv[5],
     "sha": sys.argv[2],
     "short_sha": sys.argv[3],
     "ref": sys.argv[4],

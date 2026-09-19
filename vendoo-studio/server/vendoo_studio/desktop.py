@@ -16,6 +16,7 @@ import urllib.request
 from pathlib import Path
 
 from vendoo_studio.config import BASE_DIR, HOST, PORT, extension_source_dir, frontend_dist_dir, is_frozen
+from vendoo_studio.version import app_version
 
 CHANNELS = {
     "production": {
@@ -513,8 +514,8 @@ def install_macos_app(destination: Path | None = None, channel_name: str = "prod
         "CFBundleName": channel["app_name"],
         "CFBundleDisplayName": channel["app_name"],
         "CFBundleIdentifier": channel["bundle_id"],
-        "CFBundleVersion": "0.1.0",
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": app_version(),
+        "CFBundleShortVersionString": app_version(),
         "CFBundleExecutable": channel["executable"],
         "CFBundlePackageType": "APPL",
         "LSMinimumSystemVersion": "13.0",

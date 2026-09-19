@@ -1,0 +1,17 @@
+---
+description: Bump List This Studio app version on every Studio pull request
+alwaysApply: true
+---
+
+# Studio version bump on PRs
+
+Whenever you **create** or **update** a pull request that changes anything under `vendoo-studio/`:
+
+1. If this PR does not already include a Studio version bump commit, bump the **patch** version before pushing:
+   ```bash
+   cd vendoo-studio && ./scripts/bump-version.sh
+   ```
+   Commit the resulting `VERSION`, `package.json`, `package-lock.json`, `pyproject.toml`, and `desktop/build_info.json` changes (message like `Bump Studio to 0.1.N`).
+2. Do this once per PR (not on every push). If the PR already bumped the version, leave it.
+3. Use `./scripts/bump-version.sh minor` or `major` only when the user asks for a larger bump.
+4. The status bar and Settings → About read this version from the API; do not hardcode `V 0.1.0` in the UI.

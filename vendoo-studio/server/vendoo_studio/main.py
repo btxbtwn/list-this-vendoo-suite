@@ -11,6 +11,7 @@ from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, frontend_dist_dir
 from vendoo_studio.database import init_db
 from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop, imports
 from vendoo_studio.routes import browser, catalog, vendoo_api
+from vendoo_studio.version import app_version
 
 
 @asynccontextmanager
@@ -51,7 +52,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Vendoo Listing Studio",
-    version="0.1.0",
+    version=app_version(),
     description="Local web app for generating and automating Vendoo marketplace listings",
     lifespan=lifespan,
 )
