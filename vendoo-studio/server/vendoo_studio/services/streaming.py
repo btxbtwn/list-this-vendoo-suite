@@ -83,6 +83,20 @@ def active_generation(conv_id: str) -> GenerationRun | None:
     return None
 
 
+def generation_is_current(conv_id: str, run: GenerationRun) -> bool:
+    """False once Stop, Clear or Regenerate let go of this run.
+
+    Cancelling only lands at the run's next await; anything it would still
+    write after that belongs to a chat that has been wiped or restarted.
+    """
+    return _generations.get(conv_id) is run and not run.cancelling
+
+
+def generation_discarded(conv_id: str, run: GenerationRun) -> bool:
+    """True when Clear/Regenerate dropped this run (Stop keeps it registered)."""
+    return _generations.get(conv_id) is not run
+
+
 def stop_generation(conv_id: str, *, discard: bool = False) -> None:
     run = _generations.get(conv_id)
     if not run:
@@ -149,6 +163,14 @@ async def reset_generations() -> None:
 
 def stream_generation(run: GenerationRun) -> StreamingResponse:
     return StreamingResponse(_follow_generation(run), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+def stream_finished() -> StreamingResponse:
+    """A reconnect that finds no run: the one it followed already ended."""
+    async def done():
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(done(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 def _sse_encode(text: str) -> str:

@@ -646,7 +646,7 @@ def listing_save_summary(
             if missing:
                 parts.append(f"{missing} required field(s) still missing in Studio")
             if discovered:
-                parts.append(f"{discovered} discovered field(s) still empty in Studio")
+                parts.append("some discovered fields are still empty")
             return (
                 f"{lead} with questions outstanding. "
                 + " — ".join(parts)
@@ -658,20 +658,17 @@ def listing_save_summary(
         if missing:
             parts.append(f"{missing} required field(s) still missing in Studio")
         if discovered:
-            parts.append(f"{discovered} discovered field(s) still empty in Studio")
+            # No count: the Fields panel counts its own forms, and two different
+            # numbers for "empty fields" read as chat contradicting itself.
+            parts.append("some discovered fields are still empty")
         return (
             f"{lead}. "
             + " — ".join(parts)
             + ". Open Fields to review what still needs chat, then Send when ready."
         )
-    if repaired:
-        return (
-            "Listing repaired. Required and discovered Studio fields are filled — values continue applying on Vendoo "
-            "in the background when Chrome is connected. Review Fields, then Send when the draft looks right."
-        )
     return (
-        "Listing saved. Required Studio fields are filled — discovered fields and Vendoo apply continue "
-        "in the background when Chrome is connected. Review Fields, then Send when the draft looks right."
+        f"{lead}. Required and discovered Studio fields are filled. "
+        "Review Fields, then Send when the draft looks right."
     )
 
 
