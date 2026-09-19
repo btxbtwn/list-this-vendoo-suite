@@ -27,8 +27,8 @@ async function waitForReload() {
   window.location.reload();
 }
 
-export function updateHeadline(data: UpdateStatus): string {
-  return (data.summary || "")
+export function updateHeadline(data: { summary?: string | null } | null | undefined): string {
+  return (data?.summary || "")
     .split("\n")
     .map((line) => line.trim())
     .find(Boolean) || "";
@@ -120,7 +120,7 @@ export function useStudioUpdate() {
           : "Check for Updates";
 
   const description = available
-    ? updateHeadline(data || {}) || "Update available."
+    ? updateHeadline(data) || "Update available."
     : "Current version of the application.";
 
   const iconTooltip = busy
@@ -128,7 +128,7 @@ export function useStudioUpdate() {
     : checking
       ? "Checking for updates…"
       : available
-        ? updateHeadline(data || {}) || "Update available"
+        ? updateHeadline(data) || "Update available"
         : data?.error || "Check for updates";
 
   const onClick = async () => {

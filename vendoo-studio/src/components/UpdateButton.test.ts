@@ -4,6 +4,7 @@ import { installConfirmationMessage } from "./UpdateButton";
 describe("installConfirmationMessage", () => {
   it("puts the PR title in the packaged update dialog title", () => {
     const message = installConfirmationMessage({
+      available: true,
       packaged: true,
       summary: "Prompt to pull when Vendoo is saved",
       short_sha: "abc1234",
@@ -17,6 +18,7 @@ describe("installConfirmationMessage", () => {
 
   it("falls back to the sha when there is no summary", () => {
     const message = installConfirmationMessage({
+      available: true,
       packaged: true,
       short_sha: "deadbeef",
     });
