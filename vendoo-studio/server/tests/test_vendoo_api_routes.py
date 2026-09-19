@@ -140,6 +140,74 @@ class CreateRouteTest(_RouteTest):
         self.assertIn("busy", res.json()["detail"])
 
 
+class ListRouteTest(_RouteTest):
+    """Publishing is seller-triggered. The rails matter more than the call."""
+
+    def bind(self):
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1"})
+        self.db.commit()
+
+    def test_refuses_without_confirmation(self):
+        self.bind()
+        res = self.client.post(
+            f"/api/conversations/{self.conv.id}/vendoo-api/list",
+            json={"marketplaces": ["ebay"]},
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Confirm", res.json()["detail"])
+
+    def test_refuses_without_a_named_marketplace(self):
+        self.bind()
+        res = self.client.post(
+            f"/api/conversations/{self.conv.id}/vendoo-api/list",
+            json={"marketplaces": [], "confirm": True},
+        )
+        # Never publish everywhere by omission.
+        self.assertEqual(res.status_code, 422)
+
+    def test_refuses_when_no_draft_exists(self):
+        res = self.client.post(
+            f"/api/conversations/{self.conv.id}/vendoo-api/list",
+            json={"marketplaces": ["ebay"], "confirm": True},
+        )
+        self.assertEqual(res.status_code, 409)
+
+    def test_confirmed_list_sends_only_the_named_marketplaces(self):
+        self.bind()
+        sent = {}
+
+        async def fake_run_ops(job, ops):
+            sent.update(ops[0])
+            return {"ok": True, "results": [{"op": "list_item", "ok": True, "result": {"queued": True}}]}
+
+        with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
+            res = self.client.post(
+                f"/api/conversations/{self.conv.id}/vendoo-api/list",
+                json={"marketplaces": ["eBay", " poshmark "], "confirm": True},
+            )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(sent["op"], "list_item")
+        self.assertEqual(sent["marketplaces"], ["ebay", "poshmark"])
+        self.assertEqual(res.json()["action"], "list")
+
+    def test_delist_uses_the_delist_op(self):
+        self.bind()
+        sent = {}
+
+        async def fake_run_ops(job, ops):
+            sent.update(ops[0])
+            return {"ok": True, "results": [{"op": "delist_item", "ok": True, "result": {}}]}
+
+        with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
+            res = self.client.post(
+                f"/api/conversations/{self.conv.id}/vendoo-api/delist",
+                json={"marketplaces": ["ebay"], "confirm": True},
+            )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(sent["op"], "delist_item")
+
+
 class ProbeRouteTest(_RouteTest):
     def test_defaults_to_every_known_item(self):
         conv = ConversationRepo(self.db).get(self.conv.id)

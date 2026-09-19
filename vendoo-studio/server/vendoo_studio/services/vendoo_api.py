@@ -853,7 +853,7 @@ def _firestore_now() -> dict[str, int]:
     return {"_seconds": int(now), "_nanoseconds": int((now % 1) * 1_000_000_000)}
 
 
-def _mark_saved(item: dict[str, Any], *, incomplete: bool) -> None:
+def _mark_saved(item: dict[str, Any], *, incomplete: bool = False) -> None:
     """Record the item as saved, the way Vendoo's own save does.
 
     A new item starts ``{"notSaved": True}`` — literally "Not Saved" in
@@ -862,7 +862,10 @@ def _mark_saved(item: dict[str, Any], *, incomplete: bool) -> None:
     stamping every marketplace form it wrote. Creating an item without doing
     the same leaves every form looking untouched.
     """
-    item["status"] = {"inProgress": True} if incomplete else {"complete": True}
+    # Complete, not inProgress: a draft Studio created is finished work as far
+    # as Studio is concerned. Vendoo recomputes this on its own next save, so
+    # a required field still missing will show there rather than here.
+    item["status"] = {"complete": True}
     stamp = _firestore_now()
     for section in (item.get(LISTINGS_KEY) or {}).values():
         if not isinstance(section, dict):
@@ -914,9 +917,7 @@ def build_vendoo_item(
         GENERAL_KEY: general,
         LISTINGS_KEY: listings,
     }
-    # Anything we could not encode or had to leave empty is Vendoo's
-    # "inProgress"; only a clean item claims to be complete.
-    _mark_saved(item, incomplete=bool(unresolved))
+    _mark_saved(item)
     return item, unresolved
 
 

@@ -7,6 +7,8 @@ instead of picking it up.
 """
 from __future__ import annotations
 
+import logging
+
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,6 +21,7 @@ from vendoo_studio.services.browser_bridge import BrowserBridgeError
 from vendoo_studio.services.vendoo_create import VendooCreateError
 
 router = APIRouter(tags=["vendoo-api"])
+log = logging.getLogger("vendoo_studio.vendoo_api_routes")
 
 CREATE_STEP = "vendoo_api_create"
 CREATED_STEP = "vendoo_api_created"
@@ -148,6 +151,60 @@ async def category_search(body: CategorySearchRequest):
         raise _http_error(exc) from exc
     hit = next((r for r in reply.get("results", []) if r.get("op") == "category_search"), {})
     return {"ok": True, "leaf": hit.get("leaf"), "matches": hit.get("matches", [])}
+
+
+class ListRequest(BaseModel):
+    """Marketplaces must be named, and the seller must confirm in the same call.
+
+    No default of "everywhere": publishing is not something to get by omission.
+    """
+    marketplaces: list[str] = Field(min_length=1, max_length=15)
+    confirm: bool = False
+
+
+@router.post("/api/conversations/{conv_id}/vendoo-api/list")
+async def list_item(conv_id: str, body: ListRequest, db: Session = Depends(get_db)):
+    """Publish this conversation's Vendoo draft. Seller-triggered only.
+
+    AGENTS.md: automation must never publish. This route exists for a person
+    pressing a button, which is what ``confirm`` records; nothing in Studio
+    calls it on its own.
+    """
+    return await _list_or_delist(conv_id, body, db, delist=False)
+
+
+@router.post("/api/conversations/{conv_id}/vendoo-api/delist")
+async def delist_item(conv_id: str, body: ListRequest, db: Session = Depends(get_db)):
+    """Take this conversation's listings down. Seller-triggered only."""
+    return await _list_or_delist(conv_id, body, db, delist=True)
+
+
+async def _list_or_delist(conv_id: str, body: ListRequest, db: Session, *, delist: bool):
+    from vendoo_studio.services.vendoo_create import run_ops
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+
+    action = "delist" if delist else "list"
+    if not body.confirm:
+        raise HTTPException(400, f"Confirm the {action} before it is sent to the marketplaces.")
+    conv = ConversationRepo(db).get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    item_id = vendoo_binding(conv.notes).get("vendooItemId")
+    if not item_id:
+        raise HTTPException(409, "This listing has no Vendoo draft to " + action + ".")
+    op = {
+        "op": "delist_item" if delist else "list_item",
+        "item_id": item_id,
+        "marketplaces": [str(mp).strip().lower() for mp in body.marketplaces if str(mp or "").strip()],
+    }
+    log.warning("seller-triggered %s of %s to %s", action, item_id, op["marketplaces"])
+    try:
+        reply = await run_ops(SimpleNamespace(id=None), [op])
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    hit = next((r for r in reply.get("results", []) if r.get("op") == op["op"]), {})
+    return {"ok": True, "action": action, "item_id": item_id,
+            "marketplaces": op["marketplaces"], "result": hit.get("result")}
 
 
 class MapRequest(BaseModel):

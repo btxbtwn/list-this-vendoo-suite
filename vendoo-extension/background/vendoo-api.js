@@ -10,7 +10,9 @@
 // web.vendoo.co (read once in the page's MAIN world); every other call runs
 // from the service worker with a Bearer header, no cookies needed.
 //
-// Publishing is out of scope: /api/item/{id}/list is deliberately absent.
+// Listing and delisting go through Vendoo's own backend, which holds the
+// seller's marketplace connections — no marketplace tab is ever opened. Both
+// are reachable only from a Studio route the seller triggers by hand.
 
 const VENDOO_API_BASE = 'https://api.web.vendoo.co';
 const VENDOO_MSVC_BASE = 'https://us.vendoo.co';
@@ -400,6 +402,34 @@ async function mapVendooCategory(session, call) {
   return { match: res.data?.match || null, recommendations: res.data?.recommendations || [] };
 }
 
+// Vendoo lists server-side for marketplaces it has an API connection to, and
+// through its own extension for the rest. Either way this one call does it.
+async function listVendooItem(session, call) {
+  const marketplaces = Array.isArray(call.marketplaces) ? call.marketplaces.filter(Boolean) : [];
+  if (!marketplaces.length) throw new Error('Listing needs at least one marketplace');
+  const res = await vendooFetch(`${VENDOO_API_BASE}/api/item/${encodeURIComponent(call.item_id)}/list`, {
+    method: 'POST',
+    token: session.access_token,
+    json: { marketplaces, flags: call.flags || {} },
+    timeoutMs: 180000,
+  });
+  if (!res.ok) throw new Error(vendooError(`list ${call.item_id}`, res));
+  return { result: res.data };
+}
+
+async function delistVendooItem(session, call) {
+  const marketplaces = Array.isArray(call.marketplaces) ? call.marketplaces.filter(Boolean) : [];
+  if (!marketplaces.length) throw new Error('Delisting needs at least one marketplace');
+  const res = await vendooFetch(`${VENDOO_API_BASE}/api/item/${encodeURIComponent(call.item_id)}/delist`, {
+    method: 'POST',
+    token: session.access_token,
+    json: { marketplaces, userId: session.uid },
+    timeoutMs: 180000,
+  });
+  if (!res.ok) throw new Error(vendooError(`delist ${call.item_id}`, res));
+  return { result: res.data };
+}
+
 async function searchVendooCategory(session, call) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/category/search`, {
     method: 'POST',
@@ -449,6 +479,12 @@ async function runVendooApiOps(ops) {
           break;
         case 'category_search':
           results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
+          break;
+        case 'list_item':
+          results.push({ op: 'list_item', ok: true, item_id: op.item_id, ...(await listVendooItem(session, op)) });
+          break;
+        case 'delist_item':
+          results.push({ op: 'delist_item', ok: true, item_id: op.item_id, ...(await delistVendooItem(session, op)) });
           break;
         case 'category_map':
           results.push({

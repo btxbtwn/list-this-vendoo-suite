@@ -171,7 +171,7 @@ class BuildItemTest(unittest.TestCase):
         # Vendoo's own save replaces the factory's "notSaved" with complete or
         # inProgress; creating one and leaving it notSaved is what made every
         # marketplace form read as untouched.
-        self.assertIn(item["status"], ({"complete": True}, {"inProgress": True}))
+        self.assertEqual(item["status"], {"complete": True})
         self.assertEqual(item["type"], "item")
         self.assertEqual(item["userID"], "u1")
         self.assertEqual(item["itemID"], "abc123")
@@ -204,7 +204,7 @@ class BuildItemTest(unittest.TestCase):
             {**LISTING, "category_id": "cat_1", "marketplace_category_ids": {"ebay": "53159"}},
             self.schema,
         )
-        self.assertEqual(item["status"], {"inProgress": True} if unresolved else {"complete": True})
+        self.assertEqual(item["status"], {"complete": True})
         ebay = item["listings"]["ebay"]
         # A form that was filled carries the dates a save writes.
         self.assertIn("_seconds", ebay["dateCreated"])
