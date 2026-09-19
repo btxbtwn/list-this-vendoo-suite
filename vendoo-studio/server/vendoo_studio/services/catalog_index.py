@@ -626,6 +626,23 @@ def _lexical_tokens(query: str) -> list[str]:
     ]
 
 
+def _singular_token(word: str) -> str:
+    if len(word) > 3 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 4 and word.endswith(("ses", "xes", "zes", "ches", "shes")):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _whole_word_score(path: str, tokens: list[str]) -> int:
+    """Score by whole path words only — substring \"tee\" must not hit Teepees."""
+    words = {_singular_token(word) for word in re.findall(r"[a-z0-9']+", (path or "").casefold())}
+    wanted = {_singular_token(token) for token in tokens}
+    return len(wanted & words)
+
+
 def _lexical_fallback(
     db: Session,
     query: str,
@@ -635,7 +652,7 @@ def _lexical_fallback(
     top_k: int,
     path_prefix: str,
 ) -> list[dict]:
-    """Substring rank when the Semble index is empty or returns nothing."""
+    """Whole-word rank when the Semble index is empty or returns nothing."""
     tokens = _lexical_tokens(query)
     hits: list[tuple[int, dict]] = []
     if kind in {"category", "all"}:
@@ -645,8 +662,7 @@ def _lexical_fallback(
         for node in q.all():
             if path_prefix and not node.path.startswith(path_prefix.rstrip() + " >") and node.path != path_prefix:
                 continue
-            hay = node.path.casefold()
-            score = sum(hay.count(token) for token in tokens) if tokens else 0
+            score = _whole_word_score(node.path or "", tokens) if tokens else 0
             if tokens and score <= 0:
                 continue
             hits.append((score, {
@@ -662,8 +678,8 @@ def _lexical_fallback(
         if marketplace:
             q = q.filter_by(marketplace=marketplace)
         for row in q.all():
-            hay = f"{row.general_path} {row.category_path}".casefold()
-            score = sum(hay.count(token) for token in tokens) if tokens else 0
+            hay = f"{row.general_path} {row.category_path}"
+            score = _whole_word_score(hay, tokens) if tokens else 0
             if tokens and score <= 0:
                 continue
             hits.append((score, {

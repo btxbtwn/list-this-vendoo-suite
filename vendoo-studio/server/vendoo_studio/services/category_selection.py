@@ -9,7 +9,11 @@ from sqlalchemy import or_
 from vendoo_studio.models.catalog import CategoryTree, CategoryTreeNode
 from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.services.catalog_index import search_catalog
-from vendoo_studio.services.category_lookup import condense_category_search_query
+from vendoo_studio.services.category_lookup import (
+    condense_category_search_query,
+    is_apparel_general,
+    is_non_apparel_path,
+)
 from vendoo_studio.services.listing_completion import parse_resolution
 from vendoo_studio.services.registry import WOMEN_TOPS_SEEDS
 
@@ -33,9 +37,15 @@ _NON_TOP_INTENT_RE = re.compile(
     r"\bcoats?\b|\bhoodies?\b|\bsweatshirts?\b|\bsweaters?\b",
     re.I,
 )
+# Subtypes that steal a plain scoop-neck / graphic tee when search ranks by "tee".
 _TOP_NOISE_RE = re.compile(
-    r"\bcrop\b|\bhalter\b|\btube\b|\blaptop\b|\bslipper|\bflats?\b|\bheadband|"
+    r"\bcrop\b|\bhalter\b|\btube\b|\bmuscle\b|\blaptop\b|\bslipper|\bflats?\b|\bheadband|"
     r"\bhats?\b|\bwallets?\b|\bswim|\bbikini|\bmaternity\b|\bactivewear\b|\bvintage\b",
+    re.I,
+)
+_APPAREL_INTENT_RE = re.compile(
+    r"\b(clothing|women|men|kids|girls|boys|tops?|t-?shirts?|tees?|blouses?|shirts?|"
+    r"dresses?|jeans?|pants?|skirts?|sweaters?|hoodies?)\b",
     re.I,
 )
 
@@ -96,6 +106,35 @@ def _preferred_seed_paths(marketplace: str, analysis: str, notes: str, override:
     if not _women_tops_intent(analysis, notes, override):
         return []
     return list(WOMEN_TOPS_SEEDS.get(marketplace) or [])
+
+
+def _apparel_intent(*texts: str) -> bool:
+    joined = "\n".join(str(text or "") for text in texts)
+    if is_apparel_general(joined):
+        return True
+    return bool(_APPAREL_INTENT_RE.search(joined)) and not is_non_apparel_path(joined)
+
+
+def _usable_search_node(
+    node: CategoryTreeNode,
+    *,
+    apparel: bool,
+    women_tops: bool,
+    context: str = "",
+) -> bool:
+    path = node.path or ""
+    if apparel and is_non_apparel_path(path):
+        return False
+    if not women_tops:
+        return True
+    # Only the leaf matters — parent "Crop & Tube Tops" must not veto a Tube Tops
+    # listing that never said "crop".
+    leaf = path.rsplit(">", 1)[-1]
+    for match in _TOP_NOISE_RE.finditer(leaf):
+        token = match.group(0)
+        if not re.search(rf"\b{re.escape(token)}\b", context, re.I):
+            return False
+    return True
 
 
 def _search_retry_hint(question: str) -> str:
@@ -289,6 +328,8 @@ def _collect_choices(
     choices: dict[str, list[dict]] = {}
     nodes_by_marketplace: dict[str, dict[str, CategoryTreeNode]] = {}
     women_tops = _women_tops_intent(analysis, notes, override, query)
+    apparel = women_tops or _apparel_intent(analysis, notes, override, query)
+    context = "\n".join(str(text or "") for text in (analysis, notes, override, query))
     for marketplace in marketplaces:
         if marketplace in selected:
             continue
@@ -332,15 +373,23 @@ def _collect_choices(
             node = db.get(CategoryTreeNode, (marketplace, str(hit.get("id") or "")))
             if node is None or not node.is_leaf or node.has_children:
                 continue
+            if not _usable_search_node(
+                node, apparel=apparel, women_tops=women_tops, context=context,
+            ):
+                continue
             search_nodes.append(node)
 
-        if women_tops:
-            clean = [node for node in search_nodes if not _TOP_NOISE_RE.search(node.path or "")]
-            noisy = [node for node in search_nodes if _TOP_NOISE_RE.search(node.path or "")]
-            for node in clean + noisy:
-                _take(node)
-        else:
-            for node in search_nodes:
+        for node in search_nodes:
+            _take(node)
+
+        # Seeds + filtered search can be empty when the index only returned
+        # hardware collisions; fall back to word-ranked clothing leaves.
+        if not ordered:
+            for node in _leaves_matching_query(db, marketplace, query, prefix):
+                if not _usable_search_node(
+                    node, apparel=apparel, women_tops=women_tops, context=context,
+                ):
+                    continue
                 _take(node)
 
         if not ordered:

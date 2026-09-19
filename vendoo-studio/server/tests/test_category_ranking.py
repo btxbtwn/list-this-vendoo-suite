@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -65,3 +66,44 @@ class CategoryRankingTest(unittest.TestCase):
         self.db.commit()
         rows = _leaves_matching_query(self.db, "ebay", TITLE, "Odd")
         self.assertEqual([n.path for n in rows], ["Odd > 100%_Cotton Tee"])
+
+    def test_apparel_intent_drops_hardware_candidates(self):
+        """Semble/lexical hits can still surface Tee Nuts; choices must not."""
+        from vendoo_studio.services.category_selection import _collect_choices
+
+        with patch(
+            "vendoo_studio.services.category_selection.search_catalog",
+            return_value=[
+                {"id": "0", "path": PATHS[0], "label": "Tee Nuts"},
+                {"id": "3", "path": PATHS[3], "label": "Graphic Tees"},
+            ],
+        ):
+            choices, _nodes = _collect_choices(
+                self.db,
+                ["ebay"],
+                "women tee",
+                {},
+                "",
+                analysis="category: Women's Graphic T-Shirt\nDepartment: Women",
+                notes="",
+            )
+        paths = [row["path"] for row in choices["ebay"]]
+        self.assertNotIn(PATHS[0], paths)
+        self.assertIn(PATHS[3], paths)
+
+    def test_tube_tops_stay_out_unless_listing_says_tube(self):
+        from vendoo_studio.services.category_selection import _usable_search_node
+
+        tube = CategoryTreeNode(
+            marketplace="etsy", category_id="t", parent_id="",
+            path="Clothing > Women's Clothing > Tops & Tees > Crop & Tube Tops > Tube Tops",
+            label="Tube Tops", is_leaf=True, has_children=False,
+        )
+        self.assertFalse(_usable_search_node(
+            tube, apparel=True, women_tops=True,
+            context="Women scoop neck graphic tee",
+        ))
+        self.assertTrue(_usable_search_node(
+            tube, apparel=True, women_tops=True,
+            context="Women black tube top",
+        ))

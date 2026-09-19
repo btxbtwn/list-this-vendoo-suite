@@ -31,11 +31,67 @@ _BOYS_RE = re.compile(r"\bboys?(?:['’]s)?\b", re.I)
 # The vision pass states what the item is. Nothing else in the analysis comes
 # close as a category signal, and it was being dropped.
 _ANALYSIS_CATEGORY_RE = re.compile(r"^\s*[-*]?\s*category\s*:\s*(.+)$", re.I | re.M)
+# The vision pass states who the item is cut for. Nothing else in the analysis
+# carries it reliably: a women's tee often names no department anywhere, and
+# the category trees split on department before anything else.
+_ANALYSIS_DEPARTMENT_RE = re.compile(r"^\s*[-*]?\s*department\s*:\s*(.+)$", re.I | re.M)
+_DEPARTMENT_WORDS = {
+    "women": "women", "womens": "women", "woman": "women", "ladies": "women",
+    "men": "men", "mens": "men", "man": "men",
+    "girls": "girls", "girl": "girls",
+    "boys": "boys", "boy": "boys",
+    "baby": "baby", "infant": "baby", "toddler": "baby",
+}
+# Roots / leaves that "tee" keyword ranking kept confusing with clothing.
+_NON_APPAREL_PATH_RE = re.compile(
+    r"(^|\s)(business\s*&\s*industrial|toys?\s*&\s*collectibles|electronics|motors|"
+    r"home\s*&\s*garden|pet\s*supplies|everything\s*else)\b|"
+    r"\b(fastener\s*nuts?|tee\s*nuts?|play\s*teepees?|bottle\s*caps?)\b",
+    re.I,
+)
+_APPAREL_GENERAL_RE = re.compile(
+    r"\b(clothing|shoes|accessories|women|men|kids|girls|boys|baby)\b",
+    re.I,
+)
+_APPAREL_MARKET_RE = re.compile(
+    r"\b(clothing|fashion|women|men|kids|girls|boys|baby|tops?|tees?|t-?shirts?|"
+    r"blouses?|shirts?|dresses?|jeans?|pants?|skirts?|shoes|accessories)\b",
+    re.I,
+)
 
 
 def _path_leaf(category: str) -> str:
     parts = [part.strip() for part in str(category or "").split(">") if part.strip()]
     return parts[-1] if parts else ""
+
+
+def is_apparel_general(path: str) -> bool:
+    """True when the general breadcrumb is clothing/fashion rather than hardware."""
+    text = str(path or "").strip()
+    if not text or _NON_APPAREL_PATH_RE.search(text):
+        return False
+    return bool(_APPAREL_GENERAL_RE.search(text))
+
+
+def is_non_apparel_path(path: str) -> bool:
+    """True for hardware/toys paths that keyword search used to score for \"tee\"."""
+    return bool(_NON_APPAREL_PATH_RE.search(str(path or "")))
+
+
+def marketplace_path_fits_general(general_path: str, marketplace_path: str) -> bool:
+    """Reject cached or ranked marketplace leaves that cannot belong under this general.
+
+    A women's Tops general must not reuse a remembered Fastener Nuts / Play Teepees
+    leaf from an earlier poisoned cache entry.
+    """
+    market = str(marketplace_path or "").strip()
+    if not market:
+        return False
+    if not is_apparel_general(general_path):
+        return True
+    if is_non_apparel_path(market):
+        return False
+    return bool(_APPAREL_MARKET_RE.search(market))
 
 
 def _listing_department(listing: dict | None) -> str:
@@ -145,8 +201,24 @@ def condense_category_search_query(*texts: str, override: str = "") -> str:
     return " ".join(tokens[:8]).strip()
 
 
+def _stated_department(text: str) -> str | None:
+    """The department the analysis named outright, if it named one."""
+    match = _ANALYSIS_DEPARTMENT_RE.search(text or "")
+    if not match:
+        return None
+    for word in re.findall(r"[a-z]+", match.group(1).casefold()):
+        if word in _DEPARTMENT_WORDS:
+            return _DEPARTMENT_WORDS[word]
+    return None
+
+
 def _gender(text: str) -> str | None:
     text = text or ""
+    # An explicit department beats inferring one from stray words: "men" shows
+    # up inside plenty of listings that are not menswear.
+    stated = _stated_department(text)
+    if stated:
+        return stated
     has_women = bool(_WOMEN_RE.search(text))
     has_men = bool(_MEN_RE.search(text))
     if has_men and not has_women:
