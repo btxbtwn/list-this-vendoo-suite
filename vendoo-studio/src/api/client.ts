@@ -357,6 +357,18 @@ export const api = {
           body: JSON.stringify(models),
         },
       ),
+    cursorModels: () =>
+      request<{
+        models: string[];
+        vision_model: string;
+        listing_model: string;
+        error?: string | null;
+      }>("/settings/cursor/models"),
+    setCursorModels: (models: { vision_model?: string; listing_model?: string }) =>
+      request<{ ok: boolean; vision_model: string; listing_model: string }>("/settings/cursor/models", {
+        method: "PUT",
+        body: JSON.stringify(models),
+      }),
     marketplaces: () =>
       request<{
         available: { id: string; label: string; fillable: boolean }[];

@@ -14,6 +14,11 @@ class ChatGPTModelsConfig(BaseModel):
     reasoning_effort: str | None = None
 
 
+class CursorModelsConfig(BaseModel):
+    vision_model: str | None = None
+    listing_model: str | None = None
+
+
 class ProviderConfig(BaseModel):
     api_key: str | None = None
 
@@ -103,6 +108,9 @@ def get_provider():
         )
 
     if active_name == "cursor":
+        from vendoo_studio.services.user_settings import resolved_cursor_models
+
+        vision_model, listing_model = resolved_cursor_models()
         return ProviderStatus(
             provider="cursor",
             primary=primary,
@@ -110,8 +118,8 @@ def get_provider():
             configured=True,
             masked_key=masked,
             masked_cursor_key=masked_cursor,
-            vision_model="composer-2.5",
-            listing_model="composer-2.5",
+            vision_model=vision_model,
+            listing_model=listing_model,
             base_url="cursor-sdk://local",
             chatgpt=chatgpt,
         )
@@ -265,6 +273,65 @@ def set_chatgpt_models(config: ChatGPTModelsConfig):
         "listing_model": listing_model,
         "reasoning_effort": clamp_reasoning_effort(resolved_chatgpt_reasoning(), listing_model),
     }
+
+
+@router.get("/cursor/models")
+async def cursor_models():
+    """Return saved Cursor model prefs and catalog IDs when a key is present."""
+    import asyncio
+
+    from vendoo_studio.providers.cursor_agent import CursorProvider
+    from vendoo_studio.services.keychain import get_cursor_api_key
+    from vendoo_studio.services.user_settings import (
+        AUTO_CURSOR_MODEL,
+        DEFAULT_CURSOR_MODEL,
+        resolved_cursor_models,
+    )
+
+    vision_model, listing_model = resolved_cursor_models()
+    slugs = [AUTO_CURSOR_MODEL, DEFAULT_CURSOR_MODEL]
+    error = None
+    key = get_cursor_api_key()
+    if key:
+        try:
+            provider = CursorProvider(api_key=key)
+            for model_id in await asyncio.to_thread(provider.list_model_ids):
+                if model_id not in slugs:
+                    slugs.append(model_id)
+        except Exception as exc:
+            error = str(exc)
+    for slug in (vision_model, listing_model):
+        if slug and slug not in slugs:
+            slugs.append(slug)
+    return {
+        "models": slugs,
+        "vision_model": vision_model,
+        "listing_model": listing_model,
+        "error": error,
+    }
+
+
+@router.put("/cursor/models")
+def set_cursor_models(config: CursorModelsConfig):
+    from vendoo_studio.services.keychain import get_cursor_api_key
+    from vendoo_studio.services.user_settings import (
+        resolved_cursor_models,
+        set_cursor_models as persist_cursor_models,
+    )
+
+    if not get_cursor_api_key():
+        raise HTTPException(400, "Add a Cursor API key in Settings.")
+
+    vision = (config.vision_model or "").strip()
+    listing = (config.listing_model or "").strip()
+    if not vision and not listing:
+        raise HTTPException(400, "Choose a vision model or listing model.")
+    try:
+        persist_cursor_models(vision_model=vision or None, listing_model=listing or None)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    vision_model, listing_model = resolved_cursor_models()
+    return {"ok": True, "vision_model": vision_model, "listing_model": listing_model}
 
 
 def _marketplaces_payload(selected: list[str]) -> dict:
