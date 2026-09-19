@@ -102,27 +102,30 @@ def cache_pulled_item(
     """
     from vendoo_studio.services.vendoo_import import vendoo_binding
 
-    jobs = JobRepo(db).list_by_conversation(conv_id)
+    repo = JobRepo(db)
+    # The sidebar reads the newest non-cancelled job bound to Vendoo, which is
+    # not always the newest job; refresh every live job so none keeps a stale draft.
+    jobs = [job for job in repo.list_by_conversation(conv_id) if job.status != "cancelled"]
     if not jobs:
         return
-    job = jobs[0]
     conv = ConversationRepo(db).get(conv_id)
     binding = vendoo_binding(conv.notes if conv else None)
-    item_id = str(
-        (item or {}).get("itemID")
-        or (item or {}).get("itemId")
-        or binding.get("vendooItemId")
-        or job.vendoo_item_id
-        or ""
-    ).strip()
-    url = binding.get("vendooUrl") or job.vendoo_url
-    JobRepo(db).save_vendoo_draft(
-        job.id,
-        item=item,
-        item_id=item_id or None,
-        url=url,
-        source=source,
-    )
+    for job in jobs:
+        item_id = str(
+            (item or {}).get("itemID")
+            or (item or {}).get("itemId")
+            or binding.get("vendooItemId")
+            or job.vendoo_item_id
+            or ""
+        ).strip()
+        url = binding.get("vendooUrl") or job.vendoo_url
+        repo.save_vendoo_draft(
+            job.id,
+            item=item,
+            item_id=item_id or None,
+            url=url,
+            source=source,
+        )
 
 
 def apply_pull(
