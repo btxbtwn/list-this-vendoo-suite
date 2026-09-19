@@ -30,6 +30,28 @@ PROBE_STEPS = frozenset({
 _PROBE_DEFAULT_CONDITION = "Good"
 
 
+async def api_category_schemas(listing: dict) -> dict[str, dict]:
+    """Field schemas for this listing's leaves, straight from Vendoo.
+
+    Empty when nothing could be resolved or fetched, which is the signal to
+    fall back to discovering them through a browser. A marketplace Vendoo has
+    no schema for is not a reason to probe the ones it does.
+    """
+    from types import SimpleNamespace
+
+    from vendoo_studio.services.category_fields import listing_category_ids
+    from vendoo_studio.services.vendoo_create import fetch_listing_specifics
+
+    if not listing_category_ids(listing):
+        return {}
+    try:
+        specifics = await fetch_listing_specifics(SimpleNamespace(id=None), listing)
+    except Exception:  # noqa: BLE001 - a probe is the fallback, not a failure
+        log.info("category specifics unavailable; falling back to discovery", exc_info=True)
+        return {}
+    return {mp: fields for mp, fields in (specifics or {}).items() if fields}
+
+
 async def mapped_marketplace_paths(general_path: str, platforms: list[str]) -> dict[str, str]:
     """Ask Vendoo which category each marketplace uses for this general one.
 
@@ -367,6 +389,20 @@ async def prepare_generation_schema(
         status("Using cached category fields…")
         log.info("generation schema cache hit conv=%s category=%s", conv_id, category_path)
         seed["_schema_source"] = "cache"
+        return seed
+
+    # Vendoo answers what a probe used to discover. A probe drives a real
+    # draft through Chrome and leaves it in the seller's account; asking the
+    # category-specifics endpoint costs one request and no draft at all.
+    api_specs = await api_category_schemas(seed)
+    if api_specs:
+        seed["_schema_source"] = "api"
+        status("Using Vendoo's category fields…")
+        log.info(
+            "generation schema from the API for %s: %s",
+            conv_id,
+            ", ".join(f"{mp}:{len(fields)}" for mp, fields in sorted(api_specs.items())),
+        )
         return seed
 
     result = maybe_start_schema_probe(db, conv_id, listing=seed, reason="before_generation")

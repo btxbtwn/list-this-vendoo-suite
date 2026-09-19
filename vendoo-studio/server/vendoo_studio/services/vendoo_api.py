@@ -87,6 +87,9 @@ _PACKAGE_DIMS_RE = re.compile(
     r"^\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*$", re.I
 )
 
+# USPS Ground Advantage, as Vendoo recorded it on this seller's listed items.
+MERCARI_GROUND_ADVANTAGE_CARRIER = "2509"
+
 SPECIFICS_SOURCES = {mp: f"{mp}_specifics" for mp in ("ebay", "poshmark", "mercari", "depop", "etsy")}
 
 # Keys in <marketplace>_specifics that Studio keeps for itself, not Vendoo.
@@ -166,7 +169,10 @@ def _marketplace_specific_defaults(marketplace: str) -> dict[str, Any]:
         return {
             "listingState": None, "renewalOption": None, "quantity": 1,
             "shippingTemplateID": "", "processingProfileID": "", "tags": [],
-            "whoMade": "i_did", "isSupply": True, "whenMade": "2020_2025", "whatIsIt": "finished_product",
+            # Taken from an item this seller actually listed. "i_did" is wrong
+            # for resale — Etsy asks who made it, and it was not the seller —
+            # and Vendoo stores whatIsIt coded rather than as a word.
+            "whoMade": "someone_else", "isSupply": True, "whenMade": "2020_2026", "whatIsIt": "0",
             "returnPolicyID": None, "materials": [], "listingType": "",
         }
     if marketplace == "poshmark":
@@ -174,7 +180,14 @@ def _marketplace_specific_defaults(marketplace: str) -> dict[str, Any]:
     if marketplace == "mercari":
         return {
             "tags": [], "smartPricing": False, "floorPrice": "",
-            "shipping": {"deliveryMethod": "", "location": ""}, "mercariLocalInformation": "",
+            # Mercari's prepaid label, which is what every listing here uses.
+            # payerId 1 is the seller paying; carrierId is the one a listed
+            # item of this seller's carries.
+            "shipping": {
+                "deliveryMethod": "mercari_shipping", "location": "",
+                "payerId": 1, "carrierId": MERCARI_GROUND_ADVANTAGE_CARRIER,
+            },
+            "mercariLocalInformation": "",
         }
     if marketplace == "depop":
         return {
