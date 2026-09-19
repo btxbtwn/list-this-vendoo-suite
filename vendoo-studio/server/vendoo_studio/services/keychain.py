@@ -26,6 +26,10 @@ LEGACY_ACCOUNTS = (KEYRING_ACCOUNT, BRAVE_ACCOUNT, CHATGPT_ACCOUNT, CHATGPT_MODE
 MIGRATION_MARKER = "legacy-migrated"
 
 _lock = threading.RLock()
+# Accounts this process set or deleted. Only these override what is on disk,
+# so a stale cache cannot roll back a secret another process just wrote.
+_touched: set[str] = set()
+_deleted: set[str] = set()
 _store: dict[str, str] | None = None
 _store_readable = False
 _warmed = False
@@ -123,22 +127,36 @@ def _secrets() -> dict[str, str]:
                 value = _read_password(account)
                 if value:
                     _store[account] = value
+                    _touched.add(account)
             _store[MIGRATION_MARKER] = "1"
+            _touched.add(MIGRATION_MARKER)
             _save_store()
         return _store
 
 
 def _save_store() -> bool:
+    """Write the store back, without discarding another process's newer values.
+
+    Studio runs as more than one process and each caches this item. A process
+    that loaded its copy minutes ago must not stamp that copy over a secret the
+    seller has since entered somewhere else — which is exactly how a key
+    entered in Settings kept reverting. Anything this process never touched is
+    taken from the item as it stands right now.
+    """
     global _store, _store_readable
     with _lock:
-        if not _store_readable:
-            try:
-                raw = _read_item(SECRETS_ACCOUNT)
-            except _Unavailable:
-                return False
-            _store = {**(_parse_store(raw) if raw else {}), **(_store or {})}
-            _store_readable = True
-        return _write_password(SECRETS_ACCOUNT, json.dumps(_store or {}))
+        try:
+            raw = _read_item(SECRETS_ACCOUNT)
+        except _Unavailable:
+            # Never overwrite an item we could not read.
+            return False
+        on_disk = _parse_store(raw) if raw else {}
+        merged = {**on_disk, **{k: v for k, v in (_store or {}).items() if k in _touched}}
+        for account in list(on_disk):
+            if account in _deleted:
+                merged.pop(account, None)
+        _store, _store_readable = merged, True
+        return _write_password(SECRETS_ACCOUNT, json.dumps(merged))
 
 
 def _get(account: str) -> str | None:
@@ -149,12 +167,16 @@ def _get(account: str) -> str | None:
 def _set(account: str, value: str) -> None:
     with _lock:
         _secrets()[account] = value
+        _touched.add(account)
+        _deleted.discard(account)
         _save_store()
 
 
 def _delete(account: str) -> None:
     with _lock:
         if _secrets().pop(account, None) is not None:
+            _deleted.add(account)
+            _touched.discard(account)
             _save_store()
 
 

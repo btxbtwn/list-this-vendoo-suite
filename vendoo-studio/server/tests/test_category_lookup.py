@@ -240,3 +240,27 @@ class StatedDepartmentTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EveryVisionProviderAsksForDepartmentTest(unittest.TestCase):
+    """Adding a field to one provider's prompt is not adding it.
+
+    The department was added to two providers and missed on the third, and
+    the third was the one the app had switched to — so the analysis came back
+    without it and the category query lost its department again.
+    """
+
+    def test_all_three_providers_request_it(self):
+        from pathlib import Path
+
+        providers = Path(__file__).resolve().parents[1] / "vendoo_studio" / "providers"
+        missing = [
+            path.name
+            for path in (
+                providers / "xiaomi_mimo.py",
+                providers / "chatgpt_codex.py",
+                providers / "cursor_agent.py",
+            )
+            if "- department:" not in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(missing, [], f"vision prompts missing department: {missing}")

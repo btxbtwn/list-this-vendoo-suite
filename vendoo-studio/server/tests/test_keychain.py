@@ -47,6 +47,11 @@ class KeychainTest(unittest.TestCase):
         keychain._store = None
         keychain._store_readable = False
         keychain._warmed = False
+        # Which accounts a process claims to have changed is per-process state
+        # too; leaking it between tests makes one test's writes override
+        # another's disk contents.
+        keychain._touched.clear()
+        keychain._deleted.clear()
 
     def use(self, fake: FakeKeyring):
         module = types.ModuleType("keyring")
@@ -125,7 +130,10 @@ class KeychainTest(unittest.TestCase):
         keychain.get_api_key()
 
         self.assertEqual(keychain.get_api_key(), "sk-new")
-        self.assertEqual(fake.reads, [keychain.SECRETS_ACCOUNT])
+        # The legacy items stay untouched — that is what the consolidation is
+        # for. The secrets item itself is re-read before each write so a stale
+        # cache cannot roll back another process's newer value.
+        self.assertEqual(set(fake.reads), {keychain.SECRETS_ACCOUNT})
         # warm_keychain re-saves once to rebind the item to this binary.
         self.assertEqual(fake.writes, [keychain.SECRETS_ACCOUNT])
 
@@ -157,6 +165,55 @@ class KeychainTest(unittest.TestCase):
         fake.denied.clear()
         keychain.set_brave_api_key("BSA-new")
         self.assertEqual(fake.store(), {keychain.KEYRING_ACCOUNT: "sk-mimo", keychain.BRAVE_ACCOUNT: "BSA-new"})
+
+
+class StaleCacheTest(KeychainTest):
+    """Studio runs as several processes and each caches this item.
+
+    A key entered in Settings kept reverting to an older one, because a
+    process that had loaded its copy earlier later wrote that copy back.
+    """
+
+    def test_a_stale_process_does_not_roll_back_a_newer_key(self):
+        fake = self.use(FakeKeyring({
+            keychain.SECRETS_ACCOUNT: json.dumps({
+                keychain.KEYRING_ACCOUNT: "sk-old",
+                keychain.MIGRATION_MARKER: "1",
+            }),
+        }))
+        # This process loads the old value and holds it.
+        self.assertEqual(keychain.get_api_key(), "sk-old")
+
+        # Another process stores a new key in the meantime.
+        fake.items[keychain.SECRETS_ACCOUNT] = json.dumps({
+            keychain.KEYRING_ACCOUNT: "sk-new",
+            keychain.MIGRATION_MARKER: "1",
+        })
+
+        # Anything this process writes must leave that alone.
+        keychain.set_brave_api_key("BSA-something")
+        self.assertEqual(fake.store()[keychain.KEYRING_ACCOUNT], "sk-new")
+        self.assertEqual(fake.store()[keychain.BRAVE_ACCOUNT], "BSA-something")
+
+    def test_this_process_still_wins_for_what_it_set(self):
+        fake = self.use(FakeKeyring({
+            keychain.SECRETS_ACCOUNT: json.dumps({
+                keychain.KEYRING_ACCOUNT: "sk-old",
+                keychain.MIGRATION_MARKER: "1",
+            }),
+        }))
+        keychain.set_api_key("sk-mine")
+        self.assertEqual(fake.store()[keychain.KEYRING_ACCOUNT], "sk-mine")
+
+    def test_a_delete_still_removes_it(self):
+        fake = self.use(FakeKeyring({
+            keychain.SECRETS_ACCOUNT: json.dumps({
+                keychain.KEYRING_ACCOUNT: "sk-old",
+                keychain.MIGRATION_MARKER: "1",
+            }),
+        }))
+        keychain.delete_api_key()
+        self.assertNotIn(keychain.KEYRING_ACCOUNT, fake.store())
 
 
 class RealKeychainIsUntouchedTest(unittest.TestCase):
