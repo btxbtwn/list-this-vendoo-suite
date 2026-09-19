@@ -16,6 +16,24 @@ class CategorySchema(Base):
     __table_args__ = (UniqueConstraint("general_path", "marketplace"),)
 
 
+class CategoryFieldSchema(Base):
+    """Vendoo's own field list for one marketplace category, cached.
+
+    Keyed by the marketplace's own leaf id rather than a Vendoo general path:
+    that is what ``/api/category/specifics`` answers on, and two general paths
+    can resolve to the same leaf.
+    """
+
+    __tablename__ = "category_field_schemas"
+
+    id = Column(String, primary_key=True, default=new_id)
+    marketplace = Column(String, nullable=False)
+    category_id = Column(String, nullable=False)
+    fields = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+    __table_args__ = (UniqueConstraint("marketplace", "category_id"),)
+
+
 class CategoryNode(Base):
     __tablename__ = "category_nodes"
 

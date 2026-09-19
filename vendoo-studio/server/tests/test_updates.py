@@ -69,6 +69,10 @@ class ProductionUpdateTest(unittest.TestCase):
         self.assertEqual(result["sha"], updates.rev_parse(self.local, "origin/main"))
         self.assertEqual((self.local / "README.md").read_text(encoding="utf-8"), "one\n")
         self.assertFalse(updates.dirty_files(self.local))
+        # Discarded, but not gone: an update once took unpushed work with it.
+        patch = Path(result["preserved_patch"])
+        self.assertTrue(patch.is_file())
+        self.assertIn("local dirt", patch.read_text(encoding="utf-8"))
 
     def test_dev_update_pins_main_and_discards_dirty_files(self):
         os.environ["VENDOO_STUDIO_DEV"] = "1"

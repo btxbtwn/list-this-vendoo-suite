@@ -30,6 +30,7 @@ importScripts('preview-screencast.js');
 importScripts('background/tabs.js');
 importScripts('background/fill-fields.js');
 importScripts('background/vendoo-item.js');
+importScripts('background/vendoo-api.js');
 importScripts('background/job-steps.js');
 importScripts('background/import-listing.js');
 importScripts('background/popup-actions.js');
@@ -459,6 +460,11 @@ async function handleStudioMessage(msg) {
         return;
       }
       await runVendooGet(jobId, payload);
+      break;
+    }
+
+    case 'job.vendoo_api': {
+      await handleVendooApiMessage(msg);
       break;
     }
 

@@ -771,6 +771,20 @@ async def extension_websocket(ws: WebSocket):
                         "error": payload.get("error") or payload.get("api_error"),
                     })
 
+            elif msg_type == "job.vendoo_api_result":
+                payload = message.get("payload") or {}
+                request_id = payload.get("request_id") or message.get("message_id")
+                if request_id:
+                    extension_manager.resolve_wait(str(request_id), payload)
+                job_id = message.get("job_id")
+                if job_id:
+                    from vendoo_studio.repositories.queries import JobRepo
+                    JobRepo(db).add_event(job_id, "vendoo_api", None, {
+                        "ok": bool(payload.get("ok")),
+                        "ops": [r.get("op") for r in (payload.get("results") or []) if isinstance(r, dict)],
+                        "error": payload.get("error"),
+                    })
+
             elif msg_type == "job.categories":
                 payload = message.get("payload") or {}
                 request_id = payload.get("request_id") or message.get("message_id")

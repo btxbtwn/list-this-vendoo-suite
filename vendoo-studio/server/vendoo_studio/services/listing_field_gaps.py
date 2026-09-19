@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.catalog import CategorySchema
+from vendoo_studio.services.category_fields import listing_category_ids, load_fields
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.fill_log import (
     MAX_PATCH_FIELDS,
@@ -42,17 +43,17 @@ GAP_FILL_SYSTEM = (
     "Rules:\n"
     "- Fill ONLY the listed fields. Do not rewrite unrelated listing values.\n"
     "- Use marketplace ids and field names exactly as listed.\n"
-    "- Use a real value from photo or seller evidence, or Does Not Apply when the field truly does not apply.\n"
-    "- For eBay Show Optional Fields: fill every applicable row; Does Not Apply only when it literally does not apply. "
-    "Season must be Spring, Summer, Fall, or Winter.\n"
-    "- For Etsy Show Optional Fields: fill every applicable row with exact Etsy dropdown values; "
-    "Does Not Apply only for Graphic, Collar style, Holiday, Occasion, Sustainability when they truly do not apply.\n"
-    "- For Depop Show Optional Fields: fill Source, Age, Style (up to 3), Occasion (up to 3), Parcel Size; "
-    "omit Size Grouping for Regular; Material only from evidence. Parcel Size must match the packaged "
-    "weight: under 4oz Extra extra small, under 8oz Extra small, under 12oz Small, under 1lb Medium, "
-    "under 2lb Large, otherwise Extra large.\n"
-    "- Across every marketplace optional/item-specific field: fill when it pertains; Does Not Apply only when it literally does not apply.\n"
-    "- When allowed options are listed, copy one exactly.\n"
+    "- Use a real value from photo or seller evidence.\n"
+    "- When allowed options are listed, copy one of them exactly, character for "
+    "character. Those are the only values the field accepts.\n"
+    "- When a field does not apply to the item, leave it out of your reply "
+    "entirely. Do NOT answer \"Does Not Apply\" unless it appears in that "
+    "field's allowed options — it is rejected everywhere else, and an omitted "
+    "field is handled properly.\n"
+    "- Fill every field that does pertain, on every marketplace.\n"
+    "- Depop Parcel Size follows the packaged weight: under 4oz Extra extra "
+    "small, under 8oz Extra small, under 12oz Small, under 1lb Medium, under "
+    "2lb Large, otherwise Extra large.\n"
     "- Estimate packaged shipping weight and package dimensions from item type when asked.\n"
     "- Never invent brand, measurements, material, age, or origin without evidence.\n"
     "- Include every listed field that you can resolve; omit fields that need a seller question."
@@ -130,6 +131,18 @@ def collect_empty_discovered_fields(db: Session, listing: dict) -> list[dict[str
                 label,
                 options=options,
                 required=bool(field.get("required")),
+            )
+
+    # Vendoo's own per-category schema, where we have it: it names every field
+    # the category renders, which of them it requires, and each coded option.
+    # Unlike the scraped rows above it needs no browser and covers any leaf.
+    for marketplace, category_id in listing_category_ids(listing).items():
+        for spec in (load_fields(marketplace, category_id) or {}).values():
+            consider(
+                marketplace,
+                spec.display or spec.key,
+                options=sorted(spec.options.values()) or None,
+                required=spec.required,
             )
 
     registry = RegistryService(db)

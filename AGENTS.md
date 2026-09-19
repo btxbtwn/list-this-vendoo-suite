@@ -4,7 +4,13 @@
 
 Monorepo combining the `list-this` skill family, the Vendoo Chrome extension, and Vendoo Listing Studio. The skills generate marketplace-ready listings from product photos; the extension fills six platforms from a single JSON payload; Vendoo Studio provides a local interface for listing creation and automation.
 
-**Invariant:** Automation must never publish listings. Stop at saved drafts and require human approval before sending.
+**Invariant:** Automation must never publish listings. Generation, category
+resolution and draft creation run unattended and stop at a saved draft.
+Publishing and delisting happen only when the seller asks for them: the
+`vendoo-api/list` and `vendoo-api/delist` routes require the marketplaces to be
+named explicitly and the call to carry `confirm`, and nothing in Studio calls
+them on its own. No code path may publish everywhere by default, on a queue, on
+a retry, or as a side effect of any other action.
 
 ## Source of Truth
 

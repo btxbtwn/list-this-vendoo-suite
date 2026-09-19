@@ -22,7 +22,13 @@
     "https://www.depop.com/*",
     "https://www.etsy.com/*",
     "http://127.0.0.1:4318/*",
-    "ws://127.0.0.1:4318/*"
+    "ws://127.0.0.1:4318/*",
+    "https://us.vendoo.co/*",
+    "https://us-central1-vendoo-prod-7948f.cloudfunctions.net/*",
+    "https://securetoken.googleapis.com/*",
+    "https://firestore.googleapis.com/*",
+    "https://storage.googleapis.com/*",
+    "https://firebasestorage.googleapis.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -38,28 +44,54 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://app.vendoo.co/*", "https://web.vendoo.co/*"],
-      "js": ["content-script-version.js", "content-scripts/vendoo.js"]
+      "matches": [
+        "https://app.vendoo.co/*",
+        "https://web.vendoo.co/*"
+      ],
+      "js": [
+        "content-script-version.js",
+        "content-scripts/vendoo.js"
+      ]
     },
     {
-      "matches": ["https://www.ebay.com/*"],
-      "js": ["content-scripts/ebay.js"]
+      "matches": [
+        "https://www.ebay.com/*"
+      ],
+      "js": [
+        "content-scripts/ebay.js"
+      ]
     },
     {
-      "matches": ["https://poshmark.com/*"],
-      "js": ["content-scripts/poshmark.js"]
+      "matches": [
+        "https://poshmark.com/*"
+      ],
+      "js": [
+        "content-scripts/poshmark.js"
+      ]
     },
     {
-      "matches": ["https://www.mercari.com/*"],
-      "js": ["content-scripts/mercari.js"]
+      "matches": [
+        "https://www.mercari.com/*"
+      ],
+      "js": [
+        "content-scripts/mercari.js"
+      ]
     },
     {
-      "matches": ["https://www.depop.com/*"],
-      "js": ["content-scripts/depop.js"]
+      "matches": [
+        "https://www.depop.com/*"
+      ],
+      "js": [
+        "content-scripts/depop.js"
+      ]
     },
     {
-      "matches": ["https://www.etsy.com/*"],
-      "js": ["content-scripts/etsy.js"]
+      "matches": [
+        "https://www.etsy.com/*"
+      ],
+      "js": [
+        "content-scripts/etsy.js"
+      ]
     }
   ],
   "icons": {
