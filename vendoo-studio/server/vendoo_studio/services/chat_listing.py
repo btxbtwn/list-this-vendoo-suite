@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
@@ -257,16 +256,6 @@ async def persist_chat_result(
         )
         if saved:
             await _maybe_resolve_vendoo_category(db, conv_id, operations=operations)
-        from vendoo_studio.repositories.queries import JobRepo
-        from vendoo_studio.routes.jobs import resume_completion
-
-        for job in JobRepo(db).list_by_conversation(conv_id):
-            if job.current_step == "awaiting_answers":
-                try:
-                    await resume_completion(job.id, db)
-                except HTTPException as exc:
-                    stream_repo.add_message(conv_id, "system", str(exc.detail), provider="system", model="")
-                break
     elif stream_error or not full_text.strip():
         stream_repo.add_message(
             conv_id,

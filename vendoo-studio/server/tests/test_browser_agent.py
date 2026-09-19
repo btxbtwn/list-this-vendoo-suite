@@ -168,7 +168,7 @@ class FixAgentLoopTest(AgentTestBase):
             self.draft.fields[0]["value"] = patches[0]["value"]
             return True, None
 
-        with patch("vendoo_studio.services.auto_apply.apply_patches", side_effect=apply) as applied:
+        with patch("vendoo_studio.services.browser_fill.apply_patches", side_effect=apply) as applied:
             final = self.run_agent(provider, "Add 90s to the title")[-1][1]
         patches = applied.call_args.args[3]
         self.assertEqual(patches, [{"marketplace": "general", "field": "Title", "value": "Vintage Tee 90s",
@@ -238,7 +238,7 @@ class FixAgentLoopTest(AgentTestBase):
             return True, None
 
         picked = [{"marketplace": "ebay", "label": "Neckline", "value": ""}]
-        with patch("vendoo_studio.services.auto_apply.apply_patches", side_effect=silent) as applied:
+        with patch("vendoo_studio.services.browser_fill.apply_patches", side_effect=silent) as applied:
             final = self.run_agent(provider, "fill these", picked)[-1][1]
         self.assertEqual([p["field"] for p in applied.call_args.args[3]], ["Neckline"])
         self.assertIn("failed: the form still shows these empty: Neckline", final)
@@ -292,7 +292,7 @@ class FixAgentLoopTest(AgentTestBase):
         async def silent(db, job, listing, patches, announce=True):
             return True, None
 
-        with patch("vendoo_studio.services.auto_apply.apply_patches", side_effect=silent) as applied:
+        with patch("vendoo_studio.services.browser_fill.apply_patches", side_effect=silent) as applied:
             final = self.run_agent(provider, "set the material")[-1][1]
         self.assertEqual(applied.call_count, 1, "the same failed value must not go to the form twice")
         self.assertIn("skipped values the form already rejected: Material", final)

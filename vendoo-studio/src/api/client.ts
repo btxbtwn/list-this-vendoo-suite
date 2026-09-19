@@ -222,14 +222,6 @@ export const api = {
   },
 
   jobs: {
-    create: (conversationId: string, opts?: { confirmOverwrite?: boolean }) =>
-      request<Job>("/jobs", {
-        method: "POST",
-        body: JSON.stringify({
-          conversation_id: conversationId,
-          confirm_overwrite: Boolean(opts?.confirmOverwrite),
-        }),
-      }),
     list: (conversationId?: string) => {
       const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : "";
       return request<Job[]>(`/jobs${query}`);
@@ -246,11 +238,6 @@ export const api = {
         { method: "POST" },
       ),
     fillLog: (id: string) => request<FillLogReport>(`/jobs/${id}/fill-log`),
-    fillFields: (id: string, fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
-      request<Job>(`/jobs/${id}/fill-fields`, {
-        method: "POST",
-        body: JSON.stringify({ fields }),
-      }),
     vendooItem: (id: string, opts?: { refresh?: boolean; cacheOnly?: boolean; resolvePhotos?: boolean }) => {
       const params = new URLSearchParams();
       if (opts?.refresh) params.set("refresh", "true");
@@ -289,7 +276,6 @@ export const api = {
       snapshot: (id: string) =>
         request<{ ok: boolean; url: string; viewport: BrowserViewport; fields: BrowserField[] }>(`/jobs/${id}/browser/snapshot`),
     },
-    retry: (id: string) => request<Job>(`/jobs/${id}/retry`, { method: "POST" }),
     cancel: (id: string) => request<Job>(`/jobs/${id}/cancel`, { method: "POST" }),
   },
 

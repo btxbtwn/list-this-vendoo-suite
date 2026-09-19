@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -845,32 +845,6 @@ class JobSafetyRouteTest(unittest.TestCase):
         latest = ListingRepo(self.db).get_revisions(self.conv.id)[0]
         self.assertEqual(latest.source, "user_form")
         self.assertEqual(latest.listing_json.get("size"), "10")
-
-    def test_retry_requires_validation_and_one_active_job(self):
-        failed = Job(
-            conversation_id=self.conv.id,
-            approved_revision_id="rev1",
-            listing_snapshot=VALID_LISTING,
-            status="failed",
-        )
-        active = Job(
-            conversation_id=self.other.id,
-            approved_revision_id="rev2",
-            listing_snapshot=VALID_LISTING,
-            status="dispatched",
-        )
-        self.db.add_all([failed, active])
-        self.db.commit()
-        with patch("vendoo_studio.models.validation.get_selected_marketplaces", return_value=["ebay", "poshmark", "mercari", "depop"]), patch(
-            "vendoo_studio.routes.extension.dispatch_queued_jobs", new_callable=AsyncMock
-        ):
-            response = self.client.post(f"/api/jobs/{failed.id}/retry")
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["status"], "queued")
-        self.assertEqual(body["id"], failed.id)
-        self.db.refresh(active)
-        self.assertEqual(active.status, "dispatched")
 
     def test_terminal_status_is_not_overwritten(self):
         job = Job(

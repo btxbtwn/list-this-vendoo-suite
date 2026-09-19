@@ -431,7 +431,7 @@ class FixAgent:
 
     async def _fill(self, action: dict[str, Any], snapshot: dict[str, Any]) -> str:
         from vendoo_studio.repositories.queries import ListingRepo
-        from vendoo_studio.services.auto_apply import apply_patches
+        from vendoo_studio.services.browser_fill import apply_patches
 
         patches: list[dict[str, str]] = []
         refused: list[str] = []
