@@ -50,7 +50,8 @@ def item_fields(analysis_text: str | None, evidence: dict | None = None) -> dict
 
 def _query_core(fields: dict[str, str]) -> list[str]:
     brand = fields.get("brand", "").strip()
-    item = (fields.get("category") or fields.get("style") or "").strip()
+    # Category arrives as a taxonomy path ("Tops > T-Shirts"); search the leaf.
+    item = (fields.get("category") or fields.get("style") or "").split(">")[-1].strip()
     return [part for part in (brand, item) if part]
 
 
