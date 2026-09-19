@@ -2,7 +2,7 @@ import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { Job, ListingData, MarketplaceForm } from "../api/types";
-import { cloneListing, getNestedValue, setNestedValue } from "../listingPaths";
+import { cloneListing, getListingEditorValue, setListingEditorValue } from "../listingPaths";
 import { FillLogPanel } from "./FillLogPanel";
 import { PhotoTray } from "./PhotoTray";
 import { ItemDetails } from "./ItemDetails";
@@ -14,13 +14,11 @@ import {
   EBAY_CATEGORY_OPTIONALS,
   ETSY_CATEGORY_OPTIONALS,
 } from "../marketplaceFields";
-import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
 import { ClearListingButton } from "./ClearListingButton";
 import { fetchVendooItemLive } from "../api/vendooItemQuery";
 import {
   CopyableLlmError,
-  completionBlockerPrompt,
   jobErrorPrompt,
   validationErrorsPrompt,
 } from "./CopyableLlmError";
@@ -63,14 +61,14 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
   const ensureDraftMutation = useMutation({
     mutationFn: async (opts?: { importDraft?: boolean }) => {
       const job = await api.jobs.ensureDraft(convId);
-      // Live read stays inside the mutation so Refresh stays pending until Chrome finishes.
+      // Live API read stays inside the mutation so attach waits until the draft is loaded.
       // Importing needs blob: preview photos resolved and uploaded by the extension first,
       // since only the Vendoo tab itself can read a blob: URL.
       const fresh = await fetchVendooItemLive(queryClient, job.id, {
         force: true,
         resolvePhotos: Boolean(opts?.importDraft),
       });
-      // Linking adopts the draft; plain Refresh must not overwrite Studio edits.
+      // Linking adopts the draft; plain attach must not overwrite Studio edits.
       const imported = opts?.importDraft ? await api.jobs.importDraft(job.id) : null;
       return { job, fresh, imported };
     },
@@ -282,11 +280,11 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
                 {jobsLoading || ensureDraftMutation.isPending
                   ? "Loading fields…"
                   : importedItemId
-                    ? "This listing already has a Vendoo draft, but its job isn’t loaded yet. Refresh attaches the draft and reads live fields from Vendoo (Chrome must be connected)."
-                    : "Send this listing to Vendoo, then open Fields to review each marketplace and apply missing values."}
+                    ? "This listing already has a Vendoo draft, but its job isn’t loaded yet."
+                    : "Send this listing to Vendoo, then open Fields to review each marketplace."}
               </p>
               {ensureError && <p className="text-xs text-error" style={{ marginTop: 8 }}>{ensureError}</p>}
-              {importedItemId && !jobsLoading && (
+              {importedItemId && !jobsLoading && ensureError && (
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
@@ -299,7 +297,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
                     ensureDraftMutation.mutate();
                   }}
                 >
-                  {ensureDraftMutation.isPending || jobsFetching ? "Refreshing…" : "Refresh fields"}
+                  {ensureDraftMutation.isPending || jobsFetching ? "Retrying…" : "Retry"}
                 </button>
               )}
             </div>
@@ -331,10 +329,7 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
                 listing={listing}
                 revisionId={data?.current_revision_id}
                 tab={editTab}
-                jobId={listingJob?.id}
-                jobBusy={listingJob?.status === "dispatched"}
                 onChange={(updated) => updateMutation.mutate(updated)}
-                onCategoryMatched={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
               />
             )}
           </>
@@ -361,21 +356,14 @@ function StructuredEditor({
   listing,
   revisionId,
   tab,
-  jobId,
-  jobBusy,
   onChange,
-  onCategoryMatched,
 }: {
   convId: string;
   listing: ListingData;
   revisionId?: string | null;
   tab: string;
-  jobId?: string;
-  jobBusy?: boolean;
   onChange: (v: ListingData) => void;
-  onCategoryMatched?: () => void;
 }) {
-  const queryClient = useQueryClient();
   // What Vendoo says this listing's category actually renders, rather than a
   // list kept by hand here. Falls back to the static one while it loads, or
   // for a category no schema has been fetched for.
@@ -389,44 +377,25 @@ function StructuredEditor({
     [forms, listing, tab],
   );
   const [local, setLocal] = React.useState<Record<string, string>>({});
-  const { data: extStatus } = useQuery({
-    queryKey: ["extension-status"],
-    queryFn: api.extension.status,
-    refetchInterval: 5000,
-  });
-
-  const resolveCategory = useMutation({
-    mutationFn: () => api.jobs.resolveCategory(jobId || "", local.category_path || stringValue(listing.category_path)),
-    onSuccess: (result) => {
-      if (result.path) {
-        setLocal((current) => ({ ...current, category_path: result.path || "" }));
-        addToast({ type: "success", title: "Matched Vendoo category", description: result.path });
-      }
-      queryClient.invalidateQueries({ queryKey: ["listing"] });
-      queryClient.invalidateQueries({ queryKey: ["conversation"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      onCategoryMatched?.();
-    },
-    onError: (err: Error) => {
-      addToast({ type: "error", title: "Could not match category", description: err.message || "Vendoo picker search failed" });
-    },
-  });
 
   React.useEffect(() => {
     const init: Record<string, string> = {};
     fields.forEach((f) => {
-      const val = getNestedValue(listing, f.key);
-      init[f.key] = val != null ? String(val) : f.defaultValue || "";
+      const val = getListingEditorValue(listing, f.key);
+      // Schema labels ("Sleeve Length") don't match JSON keys ("sleeveLength");
+      // the fields API already resolved the value — use it when the path miss.
+      const text = val != null && String(val).trim() !== "" ? String(val) : (f.defaultValue || "");
+      init[f.key] = text;
     });
     setLocal(init);
-  }, [listing, revisionId, tab]);
+  }, [listing, revisionId, tab, fields]);
 
   const handleBlur = (key: string) => {
     if (local[key] == null) return;
     const updated = cloneListing(listing);
     for (const field of fields) {
       if (local[field.key] == null) continue;
-      setNestedValue(updated, field.key, coerce(local[field.key]));
+      setListingEditorValue(updated, field.key, coerce(local[field.key]));
     }
     onChange(updated);
   };
@@ -442,21 +411,7 @@ function StructuredEditor({
           {f.key === "description" ? (
             <textarea className="input" style={{ height: 100 }} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
           ) : (
-            <>
-              <input className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
-              {f.key === "category_path" && jobId ? (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  style={{ marginTop: 6 }}
-                  disabled={!extStatus?.connected || jobBusy || resolveCategory.isPending}
-                  title={!extStatus?.connected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker"}
-                  onClick={() => resolveCategory.mutate()}
-                >
-                  {resolveCategory.isPending ? "Matching on Vendoo…" : "Match on Vendoo"}
-                </button>
-              ) : null}
-            </>
+            <input className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
           )}
         </div>
       ))}
@@ -497,10 +452,13 @@ function schemaFieldsForTab(
   const form = forms?.find((entry) => entry.marketplace === tab);
   if (!form?.known || !form.fields.length) return null;
   return form.fields.map((field) => ({
+    // Schema keys are Vendoo labels ("Sleeve Length"); listing JSON uses camelCase.
+    // getListingEditorValue / setListingEditorValue bridge the two.
     key: `${tab}_specifics.${field.key}`,
     label: field.required ? `${field.label} *` : field.label,
     required: field.required,
     options: field.options,
+    defaultValue: field.value != null ? String(field.value) : "",
   }));
 }
 
@@ -728,10 +686,6 @@ function VendooLinkControl({
   );
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
 function coerce(val: string): string | number | null {
   if (val === "") return null;
   if (!isNaN(Number(val)) && val.trim() !== "") return Number(val);
@@ -757,6 +711,7 @@ function SendToVendooButton({
 }) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
+  const bound = Boolean(vendooItemId);
 
   const { data: extStatus } = useQuery({
     queryKey: ["extension-status"],
@@ -770,40 +725,44 @@ function SendToVendooButton({
     refetchInterval: 2000,
   });
 
-  const rememberJob = (job: Job) => {
-    if (!job?.id) return;
-    queryClient.setQueryData(["jobs", convId], (old: Job[] | undefined) => {
-      const rest = (old || []).filter((item) => item.id !== job.id);
-      return [job, ...rest];
-    });
-    queryClient.setQueryData(["jobs"], (old: Job[] | undefined) => {
-      const rest = (old || []).filter((item) => item.id !== job.id);
-      return [job, ...rest];
-    });
-  };
-
   const sendMutation = useMutation({
-    mutationFn: () => api.jobs.create(convId, { confirmOverwrite: Boolean(vendooItemId) }),
-    onSuccess: (job) => {
+    mutationFn: async () => {
+      if (bound) {
+        return { kind: "save" as const, ...(await api.vendooApi.save(convId)) };
+      }
+      return { kind: "create" as const, ...(await api.vendooApi.create(convId)) };
+    },
+    onSuccess: (res) => {
       setError(null);
-      rememberJob(job);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+      queryClient.invalidateQueries({ queryKey: ["listing-fields", convId] });
       queryClient.invalidateQueries({ queryKey: ["fill-log"] });
+      queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
+      if (res.kind === "create") {
+        const gaps = [...(res.unresolved || []), ...(res.unfilled || [])];
+        addToast({
+          type: gaps.length ? "error" : "success",
+          title: "Sent to Vendoo",
+          description: gaps.length
+            ? `Draft created. ${gaps.length} field${gaps.length === 1 ? "" : "s"} still need a value.`
+            : "Draft created with marketplace fields filled.",
+        });
+      } else {
+        addToast({
+          type: "success",
+          title: res.updated.length ? "Sent to Vendoo" : "Nothing to send",
+          description: res.updated.length
+            ? `${res.updated.length} field${res.updated.length === 1 ? "" : "s"} written.`
+            : "Vendoo already matches this listing.",
+        });
+      }
       onJobStarted?.();
     },
     onError: (err: Error) => setError(err.message || "Failed to send"),
-  });
-
-  const retryMutation = useMutation({
-    mutationFn: (jobId: string) => api.jobs.retry(jobId),
-    onSuccess: (job) => {
-      setError(null);
-      rememberJob(job);
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
-      onJobStarted?.();
-    },
-    onError: (err: Error) => setError(err.message || "Failed to retry"),
   });
 
   const cancelMutation = useMutation({
@@ -819,27 +778,24 @@ function SendToVendooButton({
   const existingJob = jobs?.find(
     (j) => j.conversation_id === convId && j.status !== "cancelled" && j.status !== "imported",
   );
-  // Jobs come back newest-first, so a cancelled head job means the last send was stopped by hand.
-  const latestFillJob = jobs?.find((j) => j.conversation_id === convId && j.mode !== "schema_probe");
-  const cancelledJob = latestFillJob?.status === "cancelled" ? latestFillJob : null;
   const isSchemaProbe = existingJob?.mode === "schema_probe";
   const probeActive = Boolean(
     isSchemaProbe && ["queued", "awaiting_extension", "dispatched"].includes(String(existingJob?.status || "")),
   );
-  // Completed/failed schema probes must not capture the Send button — create a real fill job instead.
-  const fillJob = isSchemaProbe && !probeActive ? null : existingJob;
-  const extensionConnected = extStatus?.connected ?? false;
-  const overwriteItemId = vendooItemId || fillJob?.vendoo_item_id || existingJob?.vendoo_item_id || null;
-  // Field discovery may already bind a Vendoo draft ID. That is still a first Send from the operator's
-  // point of view until a real fill/import job has run for this conversation.
-  const hasSentBefore = (jobs || []).some(
-    (j) =>
-      j.conversation_id === convId
-      && j.status !== "cancelled"
-      && j.mode !== "schema_probe",
+  const step = String(existingJob?.current_step || "");
+  const apiCreateActive = Boolean(
+    existingJob
+    && existingJob.status === "dispatched"
+    && (step === "vendoo_api_create" || step.startsWith("vendoo_api_")),
   );
-  const treatAsUpdate = Boolean(overwriteItemId && hasSentBefore);
-  const sendLabel = treatAsUpdate ? "Update Vendoo listing" : "Send to Vendoo";
+  // Legacy form-filler jobs may still be mid-flight after an older send.
+  const formFillActive = Boolean(
+    existingJob
+    && !isSchemaProbe
+    && !apiCreateActive
+    && ["queued", "awaiting_extension", "dispatched"].includes(String(existingJob.status || "")),
+  );
+  const extensionConnected = extStatus?.connected ?? false;
   const uniqueBlockers = React.useMemo(() => {
     const seen = new Set<string>();
     return sendBlockers.filter((err) => {
@@ -850,36 +806,40 @@ function SendToVendooButton({
     });
   }, [sendBlockers]);
   const blockerText = uniqueBlockers.map((err) => err.message).join(" · ");
+  const sendLabel = "Send to Vendoo";
 
-  const confirmOverwriteIfNeeded = async () => {
-    if (!treatAsUpdate) return true;
-    return confirmDialog(
-      "Overwrite this existing Vendoo listing?\nThis does not publish. If it is already live, saving may update those marketplace listings.",
-    );
-  };
-
-  // Cancelled jobs cannot be retried server-side, so a restart starts a fresh send from current fields.
-  const startSend = async () => {
+  const startSend = () => {
     if (!canSend) {
       setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
       return;
     }
-    if (!(await confirmOverwriteIfNeeded())) return;
     setError(null);
     sendMutation.mutate();
   };
 
-  if (probeActive && existingJob) {
+  if ((probeActive || apiCreateActive || formFillActive) && existingJob) {
+    const label = probeActive
+      ? "Discovering fields"
+      : apiCreateActive
+        ? "Sending to Vendoo"
+        : "Job Status";
+    const statusText = probeActive
+      ? (existingJob.current_step || existingJob.status)
+      : apiCreateActive
+        ? "Creating the Vendoo draft…"
+        : `${existingJob.status}: ${existingJob.current_step || "queued"}`;
     return (
       <div className="job-card">
         <div className="job-card-header">
           <div className="job-card-copy">
-            <div className="job-card-label">Discovering fields</div>
+            <div className="job-card-label">{label}</div>
             <div className="job-card-status">
-              {existingJob.current_step || existingJob.status}
-              <div className="mt-4 text-xs text-muted">
-                Matching the Vendoo category and reading marketplace fields into this listing.
-              </div>
+              {statusText}
+              {probeActive && (
+                <div className="mt-4 text-xs text-muted">
+                  Matching the Vendoo category and reading marketplace fields into this listing.
+                </div>
+              )}
             </div>
           </div>
           <div className="job-card-actions">
@@ -893,122 +853,19 @@ function SendToVendooButton({
             </button>
           </div>
         </div>
+        {existingJob.last_error && (
+          <CopyableLlmError
+            className="job-card-detail"
+            text={existingJob.last_error}
+            prompt={jobErrorPrompt(existingJob.last_error, listingTitle)}
+            onAskChat={onAskChat}
+          />
+        )}
         {error && (
           <CopyableLlmError
             className="job-card-detail"
             text={error}
             prompt={jobErrorPrompt(error, listingTitle)}
-            onAskChat={onAskChat}
-          />
-        )}
-      </div>
-    );
-  }
-
-  if (fillJob) {
-    const isFailed = fillJob.status === "failed";
-    const isDispatched = fillJob.status === "dispatched";
-    const isCompleted = fillJob.status === "completed";
-    const isQueued = fillJob.status === "queued" || fillJob.status === "awaiting_extension";
-    const completionStep = ["awaiting_answers", "completion_blocked", "resolving_fields", "verifying_draft", "verified_complete"].includes(fillJob.current_step || "");
-    const queueJobs = (jobs || [])
-      .filter((j) =>
-        ["queued", "awaiting_extension", "dispatched"].includes(String(j.status || ""))
-        && j.mode !== "schema_probe",
-      )
-      .slice()
-      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
-    const queuePosition = Math.max(1, queueJobs.findIndex((j) => j.id === fillJob.id) + 1);
-    const queueDepth = queueJobs.length;
-    const waitingInQueue = isQueued && (queuePosition > 1 || queueJobs.some((j) => j.status === "dispatched" && j.id !== fillJob.id));
-    const stepLabel: Record<string, string> = {
-      awaiting_answers: "Waiting for draft review",
-      completion_blocked: "Completion needs review",
-      resolving_fields: "Resolving missing fields",
-      verifying_draft: "Checking the saved draft",
-      verified_complete: "Saved draft verified complete",
-      fields_applied: "Empty fields applied on Vendoo",
-    };
-    const leftoverFilling = isDispatched && (completionStep || fillJob.current_step === "filling_fields");
-    const canRestart = (isFailed || isDispatched || isCompleted) && !leftoverFilling;
-    const canCancel = !isCompleted;
-    const statusText = waitingInQueue
-      ? `Queued (#${queuePosition} of ${queueDepth}) — waiting for the current send to finish`
-      : isQueued && fillJob.status === "awaiting_extension"
-        ? "Waiting for Chrome"
-        : isQueued
-          ? (queueDepth > 1 ? `Queued (#${queuePosition} of ${queueDepth})` : "Queued — starting soon")
-          : (stepLabel[fillJob.current_step || ""] || `${fillJob.status}: ${fillJob.current_step || "queued"}`);
-    const buttonLabel = retryMutation.isPending
-      ? "Sending..."
-      : isFailed
-        ? (completionStep ? "Resume verification" : "Retry")
-        : isCompleted
-          ? sendLabel
-          : "Restart Job";
-    return (
-      <div className={`job-card${isFailed ? " job-card-error" : ""}`}>
-        <div className="job-card-header">
-          <div className="job-card-copy">
-            <div className="job-card-label">Job Status</div>
-            <div className={`job-card-status${isFailed ? " error" : ""}`}>{statusText}</div>
-          </div>
-          <div className="job-card-actions">
-            {canRestart && (
-              <button
-                type="button"
-                className="btn btn-primary btn-sm job-card-action"
-                disabled={retryMutation.isPending || cancelMutation.isPending}
-                onClick={async () => {
-                  if (!completionStep && !(await confirmOverwriteIfNeeded())) return;
-                  setError(null);
-                  retryMutation.mutate(fillJob.id);
-                }}
-              >
-                {buttonLabel}
-              </button>
-            )}
-            {canCancel && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm job-card-action"
-                disabled={cancelMutation.isPending}
-                onClick={() => { setError(null); cancelMutation.mutate(fillJob.id); }}
-              >
-                {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
-              </button>
-            )}
-          </div>
-        </div>
-        {fillJob.last_error && (
-          <CopyableLlmError
-            className="job-card-detail"
-            text={fillJob.last_error}
-            prompt={
-              completionStep
-                ? completionBlockerPrompt(
-                    fillJob.last_error,
-                    listingTitle,
-                    Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
-                  )
-                : jobErrorPrompt(
-                    fillJob.last_error,
-                    listingTitle,
-                    Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
-                  )
-            }
-            onAskChat={onAskChat}
-          />
-        )}
-        {error && (
-          <CopyableLlmError
-            className="job-card-detail"
-            text={error}
-            prompt={jobErrorPrompt(
-              error,
-              listingTitle,
-              Array.isArray(fillJob.blocker_fields) ? fillJob.blocker_fields : null,
-            )}
             onAskChat={onAskChat}
           />
         )}
@@ -1032,43 +889,12 @@ function SendToVendooButton({
   );
   const errorCard = displayError ? (
     <CopyableLlmError
-      className={cancelledJob ? "job-card-detail" : "mt-8"}
+      className="mt-8"
       text={displayError}
       prompt={uniqueBlockers.length ? blockerPrompt : jobErrorPrompt(displayError, listingTitle)}
       onAskChat={onAskChat}
     />
   ) : null;
-
-  if (cancelledJob) {
-    return (
-      <div className="job-card">
-        <div className="job-card-header">
-          <div className="job-card-copy">
-            <div className="job-card-label">Job Status</div>
-            <div className="job-card-status">
-              Cancelled
-              <div className="mt-4 text-xs text-muted">
-                {canSend
-                  ? "Restart sends this listing to Vendoo again using the current fields."
-                  : "Fix the fields listed below, then restart."}
-              </div>
-            </div>
-          </div>
-          <div className="job-card-actions">
-            <button
-              type="button"
-              className="btn btn-primary btn-sm job-card-action"
-              disabled={sendMutation.isPending || !canSend}
-              onClick={startSend}
-            >
-              {sendMutation.isPending ? "Restarting..." : treatAsUpdate ? "Restart update" : "Restart listing"}
-            </button>
-          </div>
-        </div>
-        {errorCard}
-      </div>
-    );
-  }
 
   return (
     <div>
@@ -1077,9 +903,12 @@ function SendToVendooButton({
         className="btn btn-success"
         style={{ width: "100%" }}
         disabled={sendMutation.isPending || !canSend}
+        title={bound
+          ? "Write this listing's changed fields onto the Vendoo draft"
+          : "Create a Vendoo draft with marketplace fields filled"}
         onClick={startSend}
       >
-        {sendMutation.isPending ? "Sending..." : sendLabel}
+        {sendMutation.isPending ? "Sending…" : sendLabel}
       </button>
       {errorCard}
     </div>

@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { FillLogReport } from "../api/types";
 import {
-  fetchVendooItemLive,
   VENDOO_ITEM_STALE_MS,
   vendooItemQueryKey,
 } from "../api/vendooItemQuery";
@@ -17,7 +16,6 @@ import {
   emptyFieldsPrompt,
   emptyHiddenFields,
   fieldMatchKey,
-  fieldNeedsVendooApply,
   fieldsNeedingListingValues,
   fillFailureEntries,
   filterForms,
@@ -33,12 +31,10 @@ import {
   leftoverGeneratedValue,
   listingFieldEmpty,
   listingTextForField,
-  listingValueForField,
   liveStatusClass,
   marketplaceLabel,
   mergeDraftItem,
   normalizeFieldName,
-  patchableChangedFields,
   sourceFormsForJob,
   vendooTextForField,
   withoutHiddenFields,
@@ -47,12 +43,11 @@ import {
   type OpenMenu,
 } from "./fillLogForms";
 
-function useVendooDraft(jobId: string, enabled: boolean, liveRefresh = true) {
+function useVendooDraft(jobId: string, enabled: boolean) {
   return useQuery({
     queryKey: vendooItemQueryKey(jobId),
-    // Live hydrate: cache-only reads can overwrite a just-finished Chrome scrape.
-    // While Send/verify owns the Vendoo tab, stay on cache so Discovering… cannot race it.
-    queryFn: () => api.jobs.vendooItem(jobId, liveRefresh ? { refresh: true } : { cacheOnly: true }),
+    // Tab-free API read of the saved item (session via Chrome; no Vendoo tab).
+    queryFn: () => api.jobs.vendooItem(jobId, { refresh: true }),
     enabled,
     staleTime: VENDOO_ITEM_STALE_MS,
     retry: 1,
@@ -99,13 +94,11 @@ export function FillLogPanel({
   jobId,
   conversationId,
   jobStatus,
-  jobStep,
   vendooItemId,
   vendooUrl,
   listing,
   onAskChat,
   onFilled,
-  onJobStarted,
 }: {
   jobId: string;
   conversationId?: string;
@@ -140,20 +133,11 @@ export function FillLogPanel({
   const [selected, setSelected] = React.useState<string | null>(null);
   const [values, setValues] = React.useState<Record<string, string>>({});
   const [openMenu, setOpenMenu] = React.useState<OpenMenu>(null);
-  const resolving =
-    jobStatus === "dispatched"
-    && (jobStep === "resolving_fields" || jobStep === "verifying_draft");
-  const filling = jobStatus === "dispatched" && !resolving;
   const hasDraft = Boolean(vendooItemId || vendooUrl);
   const chromeConnected = Boolean(extStatus?.connected);
-  const awaitingFill = React.useRef(false);
-  const sawFilling = React.useRef(false);
-  const fillingRef = React.useRef(filling);
-  fillingRef.current = filling;
 
-  const draftQuery = useVendooDraft(jobId, hasDraft, !(resolving || filling));
+  const draftQuery = useVendooDraft(jobId, hasDraft && chromeConnected);
   const draft = draftQuery.data;
-  const [refreshingDraft, setRefreshingDraft] = React.useState(false);
   const { sourceForms, fromVendooDraft } = sourceFormsForJob(
     mergeDraftItem(draft),
     report,
@@ -219,57 +203,16 @@ export function FillLogPanel({
     };
   }, [openMenu]);
 
-  const refreshDraftLive = async () => {
-    if (!hasDraft) return;
-    if (resolving || filling) {
-      return;
-    }
-    setShowJson(false);
-    setRefreshingDraft(true);
-    try {
-      // Always hit Chrome with refresh=true via the shared query so remounts
-      // don't replace the live scrape with a server-cache response.
-      const fresh = await fetchVendooItemLive(queryClient, jobId, { force: true });
-      if (fresh?.error || fresh?.api_error) {
-        addToast({
-          type: "error",
-          title: "Could not fully refresh Vendoo draft",
-          description: String(fresh.error || fresh.api_error),
-        });
-      }
-    } catch (error) {
-      addToast({ type: "error", title: (error as Error).message || "Could not refresh Vendoo draft" });
-    } finally {
-      setRefreshingDraft(false);
-    }
-  };
-
-  const rereadDraft = () => {
-    awaitingFill.current = false;
-    sawFilling.current = false;
+  const prevJobStatus = React.useRef(jobStatus);
+  React.useEffect(() => {
+    const prev = prevJobStatus.current;
+    prevJobStatus.current = jobStatus;
+    if (!hasDraft || !chromeConnected) return;
+    if (jobStatus !== "completed" || prev === "completed" || prev == null) return;
+    queryClient.invalidateQueries({ queryKey: vendooItemQueryKey(jobId) });
     queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
-    queryClient.invalidateQueries({ queryKey: ["listing"] });
-    if (hasDraft) void refreshDraftLive();
     onFilled?.();
-  };
-
-  const fillMutation = useMutation({
-    mutationFn: (fields: { id?: string; marketplace?: string; field?: string; value?: string }[]) =>
-      api.jobs.fillFields(jobId, fields),
-    onSuccess: () => {
-      awaitingFill.current = true;
-      sawFilling.current = fillingRef.current;
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["fill-log", jobId] });
-      queryClient.invalidateQueries({ queryKey: ["listing"] });
-      onFilled?.();
-      onJobStarted?.();
-      window.setTimeout(() => {
-        if (awaitingFill.current && !sawFilling.current && !fillingRef.current) rereadDraft();
-      }, 8000);
-    },
-  });
-  const busy = fillMutation.isPending || filling || resolving;
+  }, [jobStatus, hasDraft, chromeConnected, jobId, queryClient, onFilled]);
 
   const hideMutation = useMutation({
     mutationFn: (body: {
@@ -320,45 +263,6 @@ export function FillLogPanel({
     },
   });
 
-  const resolveCategory = useMutation({
-    mutationFn: () => api.jobs.resolveCategory(jobId, String(listing?.category_path || "")),
-    onSuccess: (result) => {
-      addToast({
-        type: "success",
-        title: "Matched Vendoo category",
-        description: result.path || "Saved the picker category onto this listing.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["listing"] });
-      queryClient.invalidateQueries({ queryKey: ["conversation"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: vendooItemQueryKey(jobId) });
-      onFilled?.();
-    },
-    onError: (err: Error) => {
-      addToast({ type: "error", title: "Could not match category", description: err.message });
-    },
-  });
-
-  React.useEffect(() => {
-    if (!awaitingFill.current) return;
-    if (filling) {
-      sawFilling.current = true;
-      return;
-    }
-    if (sawFilling.current) rereadDraft();
-  }, [filling]);
-
-  const prevJobStatus = React.useRef(jobStatus);
-  React.useEffect(() => {
-    const prev = prevJobStatus.current;
-    prevJobStatus.current = jobStatus;
-    if (!hasDraft || !chromeConnected) return;
-    if (jobStatus !== "completed" || prev === "completed" || prev == null) return;
-    // Leftover-fill completion already triggers rereadDraft above.
-    if (awaitingFill.current) return;
-    rereadDraft();
-  }, [jobStatus, hasDraft, chromeConnected, onAskChat]);
-
   const hiddenKeys = hiddenKeySet(hidden);
   const askChatFields = fieldsNeedingListingValues(visibleSourceForms, listing).filter(
     ({ form, field }) => !hiddenKeys.has(hiddenFieldKey(form.id, fieldMatchKey(field))),
@@ -383,29 +287,6 @@ export function FillLogPanel({
     }
     return count;
   })();
-  // With a live draft read, Apply is only empty or mismatched fields. Matching
-  // controls stay untouched so retries do not re-walk every marketplace form.
-  const fillPayload = fromVendooDraft
-    ? patchableChangedFields(visibleSourceForms, listing, values)
-    : (() => {
-        const payload: { id?: string; marketplace: string; field: string; value: string }[] = [];
-        const seen = new Set<string>();
-        for (const entry of report ? leftoverEntries(report) : []) {
-          const key = `${entry.marketplace.toLowerCase()}:${entry.field.toLowerCase()}`;
-          if (seen.has(key)) continue;
-          const typed = String(values[entry.id] || "").trim();
-          const value = typed || listingValueForField(listing, entry.marketplace, {
-            key: entry.field,
-            label: entry.field,
-            value: "",
-            missing: true,
-          });
-          if (!value) continue;
-          seen.add(key);
-          payload.push({ id: entry.id, marketplace: entry.marketplace, field: entry.field, value });
-        }
-        return payload;
-      })();
 
   const hideField = (formId: string, field: DraftField, scope: "always" | "listing") => {
     if (scope === "listing" && !conversationId) return;
@@ -516,19 +397,6 @@ export function FillLogPanel({
             )}
           </div>
         )}
-        {hasDraft && (
-          <button
-            type="button"
-            className="pr-icon-btn pr-read"
-            disabled={draftQuery.isFetching || refreshingDraft}
-            onClick={() => {
-              void refreshDraftLive();
-            }}
-            title={chromeConnected ? "Re-read the live Vendoo form" : "Connect Chrome to refresh from Vendoo"}
-          >
-            {draftQuery.isFetching || refreshingDraft ? "Discovering…" : draft ? "Refresh" : "Read draft"}
-          </button>
-        )}
         {draft?.ok && (
           <button type="button" className="pr-icon-btn pr-read" onClick={() => setShowJson((value) => !value)}>
             {showJson ? "Hide JSON" : "JSON"}
@@ -537,16 +405,14 @@ export function FillLogPanel({
       </div>
 
       {draftQuery.isFetching && (
-        <p className="pr-notice">
-          Opening each marketplace form and expanding optional fields so Studio can list every empty field…
-        </p>
+        <p className="pr-notice">Reading the Vendoo draft…</p>
       )}
 
       {hasDraft && !fromVendooDraft && !draftQuery.isFetching && (
         <p className="pr-notice">
           {chromeConnected
-            ? "Read the Vendoo draft to compare listing JSON against the live form."
-            : "Connect Chrome, then read the Vendoo draft to compare listing JSON against the live form."}
+            ? "Waiting for the Vendoo draft to load."
+            : "Connect Chrome to compare listing JSON against the Vendoo draft."}
         </p>
       )}
 
@@ -559,12 +425,12 @@ export function FillLogPanel({
         <div className="pr-empty">
           <p>
             {draftQuery.isFetching
-              ? "Discovering every marketplace form and optional field…"
+              ? "Reading the Vendoo draft…"
               : !chromeConnected && hasDraft
-                ? "Connect Chrome to read Vendoo fields. Ask chat can still write values, then Apply types only empty or changed fields."
+                ? "Connect Chrome to read Vendoo fields. Ask chat can still write listing values."
                 : hasDraft
-                  ? "Read the Vendoo draft to compare listing JSON against each marketplace form."
-                  : "Send this listing to Vendoo to review each marketplace form. After generate, Studio also discovers live Vendoo fields once the category is known."}
+                  ? "Could not load marketplace fields from this Vendoo draft yet."
+                  : "Send this listing to Vendoo to review each marketplace form."}
           </p>
           {!chromeConnected && hasDraft && <ConnectChromeButton />}
         </div>
@@ -686,27 +552,11 @@ export function FillLogPanel({
                               <button
                                 type="button"
                                 className="pr-read"
-                                disabled={busy}
                                 onClick={() => onAskChat(leftover && FILL_FAILURE_STATUSES.has(leftover.status)
                                   ? leftoverFieldPrompt(listing, leftover, applyValue || vendooText)
                                   : emptyFieldsPrompt([{ ...selectedForm, fields: [field] }], fromVendooDraft, listing))}
                               >
                                 Ask chat
-                              </button>
-                            )}
-                            {!field.notApplicable && applyValue && fromVendooDraft && fieldNeedsVendooApply(field, applyValue) && chromeConnected && (
-                              <button
-                                type="button"
-                                className="pr-read"
-                                disabled={busy}
-                                onClick={() => fillMutation.mutate([{
-                                  id: leftover?.id,
-                                  marketplace: selectedForm.id,
-                                  field: leftover?.field || field.label,
-                                  value: applyValue,
-                                }])}
-                              >
-                                Apply
                               </button>
                             )}
                             {menuOpen && canHide && (
@@ -757,29 +607,15 @@ export function FillLogPanel({
       {(onAskChat || hasDraft) && (
         <div className="pr-actions">
           <p className="pr-notice">
-            Ask chat only for fields generation could not resolve. After generate, Studio fills discovered listing values and applies them on Vendoo when Chrome is connected. Nothing is published.
+            Ask chat for fields generation could not resolve. Send to Vendoo writes the listing onto the draft. Nothing is published.
           </p>
-          {hasDraft && (
-            <div className="pr-action">
-              <button
-                type="button"
-                className="btn btn-sm"
-                disabled={resolveCategory.isPending || busy || !chromeConnected}
-                title={!chromeConnected ? "Connect Chrome to search the Vendoo category picker" : "Search the live Vendoo category picker and save the match"}
-                onClick={() => resolveCategory.mutate()}
-              >
-                {resolveCategory.isPending ? "Setting category…" : "Set Vendoo category"}
-              </button>
-              <p className="pr-action-hint">Picks the matching category in Vendoo. Start here if the category is wrong.</p>
-            </div>
-          )}
           {onAskChat && (
             <div className="pr-action">
               <button
                 type="button"
                 className="btn btn-sm"
-                disabled={busy || askChatTargets === 0}
-                title="Send empty listing fields and Apply/Send failures to chat. Does not change Vendoo yet."
+                disabled={askChatTargets === 0}
+                title="Send empty listing fields to chat. Does not change Vendoo yet."
                 onClick={() => onAskChat(askChatGapsPrompt(
                   visibleSourceForms,
                   fromVendooDraft,
@@ -792,56 +628,11 @@ export function FillLogPanel({
                   : "Ask chat for fields"}
               </button>
               <p className="pr-action-hint">
-                Empty listing values and failed Apply/Send fields — writes listing JSON only, not Vendoo.
+                Empty listing values — writes listing JSON only, not Vendoo.
               </p>
             </div>
           )}
-          <div className="pr-action">
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={busy || fillPayload.length === 0 || !chromeConnected}
-              title={
-                !chromeConnected
-                  ? "Connect Chrome to type these values into the Vendoo draft"
-                  : resolving
-                    ? "Wait for field repair to finish before applying"
-                  : fillPayload.length
-                    ? "Type listing values into empty Vendoo draft fields"
-                    : "Ask chat to write listing values first"
-              }
-              onClick={() => fillMutation.mutate(fillPayload)}
-            >
-              {fillMutation.isPending || filling
-                ? "Applying on Vendoo…"
-                : resolving
-                  ? (jobStep === "verifying_draft" ? "Checking draft…" : "Resolving fields…")
-                : fillPayload.length
-                  ? `Apply ${fillPayload.length} value${fillPayload.length === 1 ? "" : "s"} on Vendoo`
-                  : "Apply values on Vendoo"}
-            </button>
-            <p className="pr-action-hint">
-              {!chromeConnected
-                ? "Connect Chrome to type listing values into the Vendoo draft."
-                : resolving
-                  ? "Waiting on the listing assistant to resolve saved-draft gaps. Does not publish."
-                : fillPayload.length
-                  ? "Listing has these values; Vendoo draft fields are still empty."
-                  : "Ask chat to write listing values first, then apply them here."}
-            </p>
-          </div>
         </div>
-      )}
-
-      {fillPayload.length > 0 && !busy && (
-        <p className="pr-notice">
-          {fillPayload.length} listing value{fillPayload.length === 1 ? "" : "s"} ready for Vendoo.
-          Review the Listing and Vendoo columns above, then click Apply on Vendoo.
-        </p>
-      )}
-
-      {fillMutation.error && (
-        <div className="text-xs text-error">{(fillMutation.error as Error).message || "Failed to apply values on Vendoo"}</div>
       )}
 
       {showJson && draft?.ok && (

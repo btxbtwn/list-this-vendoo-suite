@@ -3,10 +3,10 @@ import { api } from "./client";
 
 export const vendooItemQueryKey = (jobId: string) => ["vendoo-item", jobId] as const;
 
-/** Keep a live scrape fresh so remounts don't immediately replace it with a cache read. */
+/** Keep an API draft read fresh so remounts don't immediately replace it with a cache read. */
 export const VENDOO_ITEM_STALE_MS = 60_000;
 
-/** Read the live Vendoo form through Chrome and own the shared React Query cache. */
+/** Read the Vendoo draft (API get_item, or tab scrape when resolving photos) and own the shared React Query cache. */
 export async function fetchVendooItemLive(
   queryClient: QueryClient,
   jobId: string,

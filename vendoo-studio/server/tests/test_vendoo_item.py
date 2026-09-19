@@ -67,56 +67,49 @@ class VendooItemRouteTest(unittest.TestCase):
     def test_vendoo_item_returns_draft_json(self):
         self._connect_chrome()
 
-        async def fake_dispatch(job, request_id, **kwargs):
-            extension_manager.resolve_wait(request_id, {
+        async def fake_ops(job, ops):
+            self.assertEqual(ops, [{"op": "get_item", "item_id": "abc123"}])
+            return {
                 "ok": True,
-                "source": "api+form",
-                "item_id": "abc123",
-                "url": "https://web.vendoo.co/app/item/abc123",
-                "item": {
-                    "itemID": "abc123",
-                    "generalDetails": {"title": "Nike tee"},
-                    "listings": {
-                        "ebay": {"status": {"listed": True}},
-                        "depop": {"status": {"listed": False}},
+                "results": [{
+                    "op": "get_item",
+                    "ok": True,
+                    "item_id": "abc123",
+                    "item": {
+                        "itemID": "abc123",
+                        "generalDetails": {"title": "Nike tee"},
+                        "listings": {
+                            "ebay": {"status": {"listed": True}},
+                            "depop": {"status": {"listed": False}},
+                        },
                     },
-                },
-                "form": {"generalDetails": {"title": "Nike tee"}},
-                "statuses": {
-                    "general": "COMPLETE",
-                    "ebay": "LISTED",
-                    "depop": "NOT LISTED",
-                },
-            })
-            return True
+                }],
+            }
 
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=fake_dispatch)):
+        with patch("vendoo_studio.services.vendoo_create.run_ops", new=AsyncMock(side_effect=fake_ops)):
             response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertTrue(body["ok"])
-        self.assertEqual(body["source"], "api+form")
+        self.assertEqual(body["source"], "api")
         self.assertEqual(body["item"]["generalDetails"]["title"], "Nike tee")
-        self.assertEqual(body["form"]["generalDetails"]["title"], "Nike tee")
-        self.assertEqual(body["statuses"]["ebay"], "LISTED")
-        self.assertEqual(body["statuses"]["depop"], "NOT LISTED")
-        self.assertEqual(body["statuses"]["general"], "COMPLETE")
+        self.assertIsNone(body["form"])
 
         cached = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
         self.assertEqual(cached.status_code, 200, cached.text)
-        self.assertEqual(cached.json()["statuses"]["ebay"], "LISTED")
+        self.assertEqual(cached.json()["item"]["generalDetails"]["title"], "Nike tee")
 
     def test_vendoo_item_cache_only_skips_live_read(self):
         self._connect_chrome()
-        dispatch = AsyncMock(return_value=True)
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=dispatch):
+        run_ops = AsyncMock()
+        with patch("vendoo_studio.services.vendoo_create.run_ops", new=run_ops):
             response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item?cache_only=true")
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertFalse(body["ok"])
         self.assertIn("No cached", body["error"] or "")
-        dispatch.assert_not_called()
+        run_ops.assert_not_called()
 
     def test_vendoo_item_requires_connected_chrome(self):
         response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
@@ -139,15 +132,12 @@ class VendooItemRouteTest(unittest.TestCase):
 
     def test_vendoo_item_read_failure(self):
         self._connect_chrome()
+        from vendoo_studio.services.vendoo_create import VendooCreateError
 
-        async def fake_dispatch(job, request_id, **kwargs):
-            extension_manager.resolve_wait(request_id, {
-                "ok": False,
-                "error": "GET /api/item returned 401",
-            })
-            return True
-
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=fake_dispatch)):
+        with patch(
+            "vendoo_studio.services.vendoo_create.run_ops",
+            new=AsyncMock(side_effect=VendooCreateError("GET /api/item returned 401")),
+        ):
             response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
 
         self.assertEqual(response.status_code, 502)
@@ -155,63 +145,48 @@ class VendooItemRouteTest(unittest.TestCase):
 
     def test_vendoo_item_refresh_failure_does_not_return_stale_cache(self):
         self._connect_chrome()
+        from vendoo_studio.services.vendoo_create import VendooCreateError
 
-        async def ok_dispatch(job, request_id, **kwargs):
-            extension_manager.resolve_wait(request_id, {
+        async def ok_ops(job, ops):
+            return {
                 "ok": True,
-                "source": "api+form",
-                "item_id": "abc123",
-                "url": "https://web.vendoo.co/app/item/abc123",
-                "item": {"itemID": "abc123", "generalDetails": {"title": "Old title"}},
-                "form": {"generalDetails": {"title": "Old title"}},
-            })
-            return True
+                "results": [{
+                    "op": "get_item",
+                    "ok": True,
+                    "item_id": "abc123",
+                    "item": {"itemID": "abc123", "generalDetails": {"title": "Old title"}},
+                }],
+            }
 
-        async def fail_dispatch(job, request_id, **kwargs):
-            extension_manager.resolve_wait(request_id, {
-                "ok": False,
-                "error": "Tab closed during refresh",
-            })
-            return True
-
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=ok_dispatch)):
+        with patch("vendoo_studio.services.vendoo_create.run_ops", new=AsyncMock(side_effect=ok_ops)):
             primed = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
         self.assertEqual(primed.status_code, 200, primed.text)
 
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=fail_dispatch)):
+        with patch(
+            "vendoo_studio.services.vendoo_create.run_ops",
+            new=AsyncMock(side_effect=VendooCreateError("Vendoo API read failed")),
+        ):
             response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item?refresh=true")
 
         self.assertEqual(response.status_code, 502, response.text)
-        self.assertIn("Tab closed", response.json()["detail"])
+        self.assertIn("Vendoo API read failed", response.json()["detail"])
 
-    def test_vendoo_item_times_out(self):
+    def test_vendoo_item_api_refresh_works_during_verification(self):
+        """API get_item does not share the Vendoo tab, so verification does not block it."""
         self._connect_chrome()
 
-        with patch("vendoo_studio.routes.extension.VENDOO_GET_TIMEOUT_SEC", 0.05), patch(
-            "vendoo_studio.routes.extension.dispatch_vendoo_get",
-            new=AsyncMock(return_value=True),
-        ):
-            response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
-
-        self.assertEqual(response.status_code, 504)
-        self.assertIn("did not return", response.json()["detail"])
-
-    def test_vendoo_item_refresh_paused_during_verification(self):
-        self._connect_chrome()
-
-        async def ok_dispatch(job, request_id, **kwargs):
-            extension_manager.resolve_wait(request_id, {
+        async def ok_ops(job, ops):
+            return {
                 "ok": True,
-                "source": "form",
-                "item_id": "abc123",
-                "url": "https://web.vendoo.co/app/item/abc123",
-                "item": {"itemID": "abc123"},
-                "form": {"generalDetails": {"title": "Nike tee"}},
-                "statuses": {"general": "COMPLETE"},
-            })
-            return True
+                "results": [{
+                    "op": "get_item",
+                    "ok": True,
+                    "item_id": "abc123",
+                    "item": {"itemID": "abc123", "generalDetails": {"title": "Nike tee"}},
+                }],
+            }
 
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=ok_dispatch)):
+        with patch("vendoo_studio.services.vendoo_create.run_ops", new=AsyncMock(side_effect=ok_ops)):
             primed = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
         self.assertEqual(primed.status_code, 200, primed.text)
 
@@ -220,13 +195,43 @@ class VendooItemRouteTest(unittest.TestCase):
         self.db.commit()
 
         dispatch = AsyncMock(return_value=True)
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=dispatch):
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=dispatch), patch(
+            "vendoo_studio.services.vendoo_create.run_ops",
+            new=AsyncMock(side_effect=ok_ops),
+        ):
             response = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item?refresh=true")
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertTrue(body["ok"])
-        self.assertIn("paused", (body.get("api_error") or "").lower())
+        self.assertEqual(body["source"], "api")
+        self.assertIsNone(body.get("api_error"))
         dispatch.assert_not_called()
+
+    def test_vendoo_item_resolve_photos_still_uses_tab(self):
+        self._connect_chrome()
+
+        async def fake_dispatch(job, request_id, **kwargs):
+            self.assertTrue(kwargs.get("resolve_photos"))
+            extension_manager.resolve_wait(request_id, {
+                "ok": True,
+                "source": "live",
+                "item_id": "abc123",
+                "url": "https://web.vendoo.co/app/item/abc123",
+                "item": {"itemID": "abc123", "images": [{"url": "https://cdn.example/a.jpg"}]},
+                "form": None,
+            })
+            return True
+
+        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=fake_dispatch)):
+            response = self.client.post(
+                f"/api/jobs/{self.job.id}/vendoo-item?refresh=true&resolve_photos=true"
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["source"], "live")
+        self.assertEqual(body["item"]["images"][0]["url"], "https://cdn.example/a.jpg")
 
 
 class ResolveCategoryRouteTest(unittest.TestCase):

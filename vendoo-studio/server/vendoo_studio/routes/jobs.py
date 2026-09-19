@@ -394,91 +394,159 @@ async def get_vendoo_item(
             )
         raise HTTPException(400, "Chrome is not connected")
 
-    # Fields live scrape shares the Vendoo tab with Send/verify. Serving cache (or a busy
-    # error) prevents Discovering… from fighting marketplace form mounting mid-verification.
-    from vendoo_studio.services.completion_readback import AUTOMATION_TAB_STEPS
+    # Blob photo URLs still need the live Vendoo tab. Everything else reads the
+    # saved item over the API with the extension session — no draft tab.
+    if resolve_photos:
+        from vendoo_studio.services.completion_readback import AUTOMATION_TAB_STEPS
 
-    if job.status == "dispatched" and str(job.current_step or "") in AUTOMATION_TAB_STEPS:
-        if cached:
-            return VendooItemResponse(
-                ok=True,
-                source=cached.get("source") or "cache",
-                item_id=cached.get("item_id") or job.vendoo_item_id,
-                url=cached.get("url") or job.vendoo_url,
-                error=None,
-                api_error="Draft refresh paused while automation uses the Vendoo tab",
-                item=cached.get("item"),
-                form=cached.get("form"),
-                statuses=cached.get("statuses"),
+        if job.status == "dispatched" and str(job.current_step or "") in AUTOMATION_TAB_STEPS:
+            if cached:
+                return VendooItemResponse(
+                    ok=True,
+                    source=cached.get("source") or "cache",
+                    item_id=cached.get("item_id") or job.vendoo_item_id,
+                    url=cached.get("url") or job.vendoo_url,
+                    error=None,
+                    api_error="Draft refresh paused while automation uses the Vendoo tab",
+                    item=cached.get("item"),
+                    form=cached.get("form"),
+                    statuses=cached.get("statuses"),
+                )
+            raise HTTPException(
+                409,
+                "Draft refresh is paused while verification or fill is using the Vendoo tab",
             )
-        raise HTTPException(
-            409,
-            "Draft refresh is paused while verification or fill is using the Vendoo tab",
+
+        request_id = uuid.uuid4().hex[:12]
+        waiter = extension_manager.register_wait(request_id)
+        try:
+            sent = await dispatch_vendoo_get(job, request_id, resolve_photos=True)
+            if not sent:
+                raise HTTPException(503, "Could not reach the Chrome extension")
+            try:
+                payload = await asyncio.wait_for(waiter, timeout=VENDOO_GET_TIMEOUT_SEC)
+            except TimeoutError:
+                raise HTTPException(
+                    504,
+                    "Chrome did not return the Vendoo draft in time. Open the listing tab and try again.",
+                ) from None
+        finally:
+            extension_manager.cancel_wait(request_id)
+
+        if not payload.get("ok"):
+            if refresh:
+                raise HTTPException(502, payload.get("error") or "Could not refresh the Vendoo draft")
+            if cached:
+                return VendooItemResponse(
+                    ok=True,
+                    source=cached.get("source") or "cache",
+                    item_id=cached.get("item_id") or job.vendoo_item_id,
+                    url=cached.get("url") or job.vendoo_url,
+                    error=payload.get("error"),
+                    api_error=payload.get("api_error"),
+                    item=cached.get("item"),
+                    form=cached.get("form"),
+                    statuses=cached.get("statuses"),
+                )
+            raise HTTPException(502, payload.get("error") or "Could not read the Vendoo draft")
+
+        statuses = payload.get("statuses")
+        if not isinstance(statuses, dict):
+            form = payload.get("form")
+            statuses = form.get("statuses") if isinstance(form, dict) else None
+            if not isinstance(statuses, dict):
+                statuses = None
+
+        repo.save_vendoo_draft(
+            job.id,
+            item=payload.get("item"),
+            form=payload.get("form"),
+            item_id=payload.get("item_id") or job.vendoo_item_id,
+            url=payload.get("url") or job.vendoo_url,
+            source=payload.get("source") or "live",
+            step=job.current_step,
+            statuses=statuses,
+        )
+        return VendooItemResponse(
+            ok=True,
+            source=payload.get("source"),
+            item_id=payload.get("item_id") or job.vendoo_item_id,
+            url=payload.get("url") or job.vendoo_url,
+            error=payload.get("error"),
+            api_error=payload.get("api_error"),
+            item=payload.get("item"),
+            form=payload.get("form"),
+            statuses=statuses,
         )
 
-    request_id = uuid.uuid4().hex[:12]
-    waiter = extension_manager.register_wait(request_id)
-    try:
-        sent = await dispatch_vendoo_get(job, request_id, resolve_photos=resolve_photos)
-        if not sent:
-            raise HTTPException(503, "Could not reach the Chrome extension")
-        try:
-            payload = await asyncio.wait_for(waiter, timeout=VENDOO_GET_TIMEOUT_SEC)
-        except TimeoutError:
-            raise HTTPException(
-                504,
-                "Chrome did not return the Vendoo draft in time. Open the listing tab and try again.",
-            ) from None
-    finally:
-        extension_manager.cancel_wait(request_id)
+    from vendoo_studio.routes.extension import durable_vendoo_item_id
+    from vendoo_studio.services.browser_bridge import BrowserBridgeError
+    from vendoo_studio.services.vendoo_create import VendooCreateError, run_ops
 
-    if not payload.get("ok"):
-        # Explicit refresh must not silently re-serve a stale draft — that makes
-        # Fields keep showing empty counts after Fill / Refresh.
+    item_id = durable_vendoo_item_id(job.vendoo_item_id)
+    if not item_id:
+        raise HTTPException(400, "No Vendoo draft is available yet. Import or send the listing first.")
+
+    try:
+        reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+    except (VendooCreateError, BrowserBridgeError) as exc:
         if refresh:
-            raise HTTPException(502, payload.get("error") or "Could not refresh the Vendoo draft")
+            raise HTTPException(502, str(exc)) from exc
         if cached:
             return VendooItemResponse(
                 ok=True,
                 source=cached.get("source") or "cache",
                 item_id=cached.get("item_id") or job.vendoo_item_id,
                 url=cached.get("url") or job.vendoo_url,
-                error=payload.get("error"),
-                api_error=payload.get("api_error"),
+                error=str(exc),
+                api_error=None,
                 item=cached.get("item"),
                 form=cached.get("form"),
                 statuses=cached.get("statuses"),
             )
-        raise HTTPException(502, payload.get("error") or "Could not read the Vendoo draft")
+        raise HTTPException(502, str(exc)) from exc
 
-    statuses = payload.get("statuses")
-    if not isinstance(statuses, dict):
-        form = payload.get("form")
-        statuses = form.get("statuses") if isinstance(form, dict) else None
-        if not isinstance(statuses, dict):
-            statuses = None
+    hit = next((row for row in reply.get("results", []) if row.get("op") == "get_item"), {})
+    item = hit.get("item") if isinstance(hit.get("item"), dict) else None
+    if not item:
+        message = "Vendoo returned no item for this draft"
+        if refresh:
+            raise HTTPException(502, message)
+        if cached:
+            return VendooItemResponse(
+                ok=True,
+                source=cached.get("source") or "cache",
+                item_id=cached.get("item_id") or job.vendoo_item_id,
+                url=cached.get("url") or job.vendoo_url,
+                error=message,
+                api_error=None,
+                item=cached.get("item"),
+                form=cached.get("form"),
+                statuses=cached.get("statuses"),
+            )
+        raise HTTPException(502, message)
 
+    url = job.vendoo_url or f"https://web.vendoo.co/app/item/{item_id}"
     repo.save_vendoo_draft(
         job.id,
-        item=payload.get("item"),
-        form=payload.get("form"),
-        item_id=payload.get("item_id") or job.vendoo_item_id,
-        url=payload.get("url") or job.vendoo_url,
-        source=payload.get("source") or "live",
+        item=item,
+        form=None,
+        item_id=item_id,
+        url=url,
+        source="api",
         step=job.current_step,
-        statuses=statuses,
+        statuses=None,
     )
-
     return VendooItemResponse(
         ok=True,
-        source=payload.get("source"),
-        item_id=payload.get("item_id") or job.vendoo_item_id,
-        url=payload.get("url") or job.vendoo_url,
-        error=payload.get("error"),
-        api_error=payload.get("api_error"),
-        item=payload.get("item"),
-        form=payload.get("form"),
-        statuses=statuses,
+        source="api",
+        item_id=item_id,
+        url=url,
+        error=None,
+        api_error=None,
+        item=item,
+        form=None,
+        statuses=None,
     )
 
 
