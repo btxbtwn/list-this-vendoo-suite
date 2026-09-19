@@ -8,6 +8,7 @@ import {
 } from "../api/vendooItemQuery";
 import { addToast } from "../ui/toast";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import { emptyFieldsButtonLabel } from "./CopyableLlmError";
 import {
   EMPTY_CELL,
   FILL_FAILURE_STATUSES,
@@ -623,9 +624,7 @@ export function FillLogPanel({
                   fillFailures,
                 ))}
               >
-                {askChatTargets
-                  ? `Ask chat for ${askChatTargets} field${askChatTargets === 1 ? "" : "s"}`
-                  : "Ask chat for fields"}
+                {emptyFieldsButtonLabel(askChatTargets)}
               </button>
               <p className="pr-action-hint">
                 Empty listing values — writes listing JSON only, not Vendoo.
