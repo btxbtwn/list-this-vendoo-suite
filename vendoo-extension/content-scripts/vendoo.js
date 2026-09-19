@@ -223,9 +223,13 @@
     target.dataset.vendooNotApplicable = '1';
   }
 
-  function skipDoesNotApply(fieldName, selectorText, value, el) {
+  // The listing keeps "Does Not Apply" so Studio can show the field was
+  // answered; the marketplace form gets a blank, never the phrase.
+  async function skipDoesNotApply(fieldName, selectorText, value, el) {
+    const shown = el ? displayedFieldValue(el) : '';
+    if (shown) await clearControl(el);
     markFieldDoesNotApply(el);
-    log(`  ○ ${fieldName}: does not apply (skipped)`);
+    log(`  ○ ${fieldName}: does not apply (${shown ? 'blanked' : 'left blank'})`);
     recordFill({
       field: fieldName,
       status: 'not_applicable',
@@ -3857,7 +3861,7 @@
               }
               if (specs[key] && (mapped == null || mapped === '')) {
                   if (isDoesNotApplyValue(specs[key])) {
-                      skipDoesNotApply(fieldName, '', specs[key], null);
+                      await skipDoesNotApply(fieldName, '', specs[key], null);
                   } else {
                       recordFill({
                         field: fieldName,

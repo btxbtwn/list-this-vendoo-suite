@@ -32,6 +32,7 @@ __all__ = [
     "specs_to_rows",
     "encode_specific",
     "encode_scaled",
+    "is_not_applicable",
     "specifics_key",
     "scale_key",
     "missing_required",
@@ -316,9 +317,21 @@ _DECLINED = frozenset({
     "does not apply", "doesn't apply", "not applicable", "n a", "na", "none",
     "no", "not specified", "unspecified", "unknown", "other",
 })
+# The literal "this attribute does not apply" answers, already normalized. The
+# listing keeps them so Studio can show the field was answered; a marketplace
+# form never gets the phrase itself.
+_NOT_APPLICABLE = frozenset({
+    "does not apply", "doesn t apply", "doesnt apply", "not applicable", "n a", "na",
+})
 # Fields where an unlisted answer belongs under a catch-all rather than being
 # dropped: a brand Vendoo has never heard of is still a brand.
 _OTHER_FALLBACK_FIELDS = frozenset({"brand", "style", "type", "material", "colour", "color"})
+
+
+def is_not_applicable(value: Any) -> bool:
+    """Every part of ``value`` says the attribute does not apply."""
+    parts = _parts(value)
+    return bool(parts) and all(_norm(part) in _NOT_APPLICABLE for part in parts)
 
 
 def _encode_one(spec: FieldSpec, text: str) -> str | None:
@@ -368,11 +381,16 @@ def encode_specific(spec: FieldSpec, value: Any) -> tuple[Any, bool]:
     encoded: list[str] = []
     resolved = True
     for part in parts:
+        # "Does Not Apply" is the model declining, never something to write —
+        # even on the lists that offer it as a choice. eBay renders the phrase
+        # verbatim in the form, so the field is left blank instead.
+        if _norm(part) in _NOT_APPLICABLE:
+            continue
         code = _encode_one(spec, part)
         if code is None and spec.selection_only:
-            # "Does Not Apply" against a list that does not offer it is the
-            # model declining, not a value Vendoo rejected. Storing it is
-            # impossible and reporting it buries the real gaps.
+            # The rest of the declines ("none", "unknown") against a list
+            # that does not offer them are the model declining too, not a
+            # value Vendoo rejected. Reporting them buries the real gaps.
             if _norm(part) in _DECLINED:
                 continue
             code = _other_option(spec)

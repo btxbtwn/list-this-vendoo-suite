@@ -29,6 +29,7 @@ from vendoo_studio.services.vendoo_specifics import (
     FieldSpec,
     encode_scaled,
     encode_specific,
+    is_not_applicable,
     missing_required,
     scale_key,
     specifics_key,
@@ -974,7 +975,11 @@ def _category_specifics(
             })
             continue
         if stored in (None, "", []):
-            continue
+            # An explicit "Does Not Apply" blanks the form field; having no
+            # value at all leaves whatever the seller already put there.
+            if not is_not_applicable(value):
+                continue
+            stored = [] if spec.multi else ""
         out[specifics_key(category_id, spec.key)] = stored
     return out
 
@@ -1010,6 +1015,13 @@ def _learned_category_specifics(
             parts = [str(part).strip() for part in value if str(part or "").strip()]
         else:
             parts = [str(value).strip()] if str(value or "").strip() else []
+        if is_not_applicable(value):
+            # Same rule without Vendoo's schema: the phrase never reaches the
+            # form, and the field it was answered for is blanked.
+            out[specifics_key(category_id, suffix)] = (
+                [] if aspect_is_multi(schema, marketplace, suffix) else ""
+            )
+            continue
         if not parts:
             continue
         out[specifics_key(category_id, suffix)] = (
@@ -1273,7 +1285,9 @@ def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str
     Vendoo's own edit writes just the touched paths rather than the whole
     document, so an unrelated field a seller changed in Vendoo survives a save
     from Studio. Empty values in ``desired`` are skipped: Studio not knowing
-    something is not the same as the seller clearing it.
+    something is not the same as the seller clearing it — the exception being a
+    "Does Not Apply" on the draft, which is cleared because the marketplace
+    form shows the phrase as the item specific's value.
     """
     out: dict[str, Any] = {}
 
@@ -1283,6 +1297,10 @@ def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str
                 walk(f"{prefix}.{key}" if prefix else key, value, (have or {}).get(key) if isinstance(have, dict) else None)
             return
         if want in (None, "", []):
+            # One empty is worth pushing: a "Does Not Apply" already sitting on
+            # the draft, which the form renders verbatim as an item specific.
+            if is_not_applicable(have):
+                out[prefix] = want
             return
         # Brand labels are case-sensitive on the form (``Unbranded`` ≠ ``unbranded``),
         # and Depop option codes must replace stored labels (``modern`` ≠ ``Modern``).

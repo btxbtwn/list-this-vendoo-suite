@@ -412,7 +412,8 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(stored["53159_Size"], "M")
         self.assertEqual(stored["53159_Size Type"], "Regular")
         self.assertEqual(stored["53159_Type"], "Top")
-        self.assertEqual(stored["53159_upc"], "Does Not Apply")
+        # The listing keeps "Does Not Apply"; the form field is pushed blank.
+        self.assertEqual(stored["53159_upc"], "")
         # maxValues > 1 means Vendoo stores a list, and a bare string there is
         # what breaks the form.
         self.assertEqual(stored["53159_Season"], ["Spring"])
@@ -762,6 +763,24 @@ class ChangedFieldsTest(unittest.TestCase):
             "listings": {"ebay": {k: dict(v) for k, v in self.CURRENT["listings"]["ebay"].items()}},
         }
         self.assertEqual(changed_fields(self.CURRENT, item), {})
+
+    def test_a_does_not_apply_already_on_the_draft_is_cleared(self):
+        """The form shows the phrase verbatim, so this one empty is pushed."""
+        current = {
+            "generalDetails": {"title": "Old"},
+            "listings": {"ebay": {"categorySpecifics": {
+                "53159_upc": "Does Not Apply", "53159_Theme": ["N/A"],
+            }}},
+        }
+        desired = {
+            "generalDetails": {"title": "Old"},
+            "listings": {"ebay": {"categorySpecifics": {
+                "53159_upc": "", "53159_Theme": [],
+            }}},
+        }
+        out = changed_fields(current, desired)
+        self.assertEqual(out["listings.ebay.categorySpecifics.53159_upc"], "")
+        self.assertEqual(out["listings.ebay.categorySpecifics.53159_Theme"], [])
 
     def test_brand_case_is_significant(self):
         """eBay's Brand dropdown matches Unbranded, not lowercased free text."""
