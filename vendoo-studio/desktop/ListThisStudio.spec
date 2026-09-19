@@ -5,7 +5,7 @@ from pathlib import Path
 from PyInstaller.building.api import COLLECT, EXE, PYZ
 from PyInstaller.building.build_main import Analysis
 from PyInstaller.building.osx import BUNDLE
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 SPECDIR = Path(SPECPATH)
 STUDIO = SPECDIR.parent
@@ -49,12 +49,7 @@ datas = [
     *tree(REPO / "vendoo-extension", "vendoo-extension"),
     *collect_data_files("webview"),
 ]
-SEED = STUDIO / "data" / "category-trees-seed.json.gz"
-if SEED.is_file():
-    datas.append((str(SEED), "data"))
-if BUILD_INFO.is_file():
-    datas.append((str(BUILD_INFO), "."))
-
+binaries: list = []
 hiddenimports = [
     *collect_submodules("vendoo_studio"),
     *collect_submodules("webview"),
@@ -72,10 +67,25 @@ hiddenimports = [
     "sqlalchemy.dialects.sqlite",
 ]
 
+try:
+    cursor_datas, cursor_binaries, cursor_hidden = collect_all("cursor_sdk")
+    datas.extend(cursor_datas)
+    binaries.extend(cursor_binaries)
+    hiddenimports.extend(cursor_hidden)
+except Exception:
+    # Dev installs without cursor-sdk still package; runtime surfaces a clear error.
+    pass
+
+SEED = STUDIO / "data" / "category-trees-seed.json.gz"
+if SEED.is_file():
+    datas.append((str(SEED), "data"))
+if BUILD_INFO.is_file():
+    datas.append((str(BUILD_INFO), "."))
+
 a = Analysis(
     [str(STUDIO / "server" / "vendoo_studio" / "desktop.py")],
     pathex=[str(STUDIO / "server")],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

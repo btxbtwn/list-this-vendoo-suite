@@ -437,9 +437,10 @@ def get_cursor():
 
 @router.put("/cursor")
 def set_cursor(config: CursorConfig):
+    from vendoo_studio.providers.cursor_agent import normalize_cursor_api_key
     from vendoo_studio.services.keychain import set_cursor_api_key
 
-    key = (config.api_key or "").strip()
+    key = normalize_cursor_api_key(config.api_key or "")
     if not key:
         raise HTTPException(400, "API key is required")
     set_cursor_api_key(key)
