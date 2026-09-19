@@ -232,7 +232,7 @@ class MercariSpecifics(BaseModel):
         return data
 
     categoryPath: list[str] = Field(default_factory=list)
-    shippingLabel: str = "USPS Ground Advantage"
+    shippingLabel: str = "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
 
 
 class ListingSchema(BaseModel):

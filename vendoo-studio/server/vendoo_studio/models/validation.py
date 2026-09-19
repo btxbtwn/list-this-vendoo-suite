@@ -169,7 +169,7 @@ def ensure_mercari_shipping_label(listing: dict) -> bool:
     if text_value(raw.get("shippingLabel") or raw.get("shipping_label")):
         return False
     mercari = dict(raw)
-    mercari["shippingLabel"] = "USPS Ground Advantage"
+    mercari["shippingLabel"] = "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb"
     listing["mercari_specifics"] = mercari
     return True
 
@@ -326,15 +326,23 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
 
     depop = listing.get("depop_specifics")
     if isinstance(depop, dict):
+        depop = dict(depop)
+        depop_changed = False
         raw = text_value(depop.get("parcelSize") or depop.get("parcel_size"))
         canonical = canonical_option(raw, VALID_DEPOP_PARCEL) if raw else None
         if canonical and canonical != raw:
-            depop = dict(depop)
             depop["parcelSize"] = canonical
             if "parcel_size" in depop:
                 depop["parcel_size"] = canonical
-            listing["depop_specifics"] = depop
-            changed = True
+            depop_changed = True
+        for key, allowed in (("source", VALID_DEPOP_SOURCE), ("age", VALID_DEPOP_AGE)):
+            raw_value = text_value(depop.get(key))
+            if not raw_value:
+                continue
+            hit = canonical_option(raw_value, allowed)
+            if hit and hit != raw_value:
+                depop[key] = hit
+                depop_changed = True
         styles = as_list(depop.get("style"))
         mapped: list[str] = []
         had_invalid = False
@@ -350,10 +358,11 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
                 mapped = ["Casual", "Retro", "Boho"]
             mapped = mapped[:3]
             if mapped != styles:
-                depop = dict(depop)
                 depop["style"] = mapped
-                listing["depop_specifics"] = depop
-                changed = True
+                depop_changed = True
+        if depop_changed:
+            listing["depop_specifics"] = depop
+            changed = True
 
     etsy = listing.get("etsy_specifics")
     if isinstance(etsy, dict):
@@ -556,12 +565,12 @@ def validate_listing(
     depop = depop or {}
     if "depop" in selected_set:
         source = text_value(depop.get("source"))
-        if source and source not in VALID_DEPOP_SOURCE:
+        if source and not allowed_match(source, VALID_DEPOP_SOURCE):
             add_issue(result, "depop_specifics.source", "Depop source is not a current dropdown value")
         elif not source:
             add_issue(result, "depop_specifics.source", "Depop source is required")
         age = text_value(depop.get("age"))
-        if age and age not in VALID_DEPOP_AGE:
+        if age and not allowed_match(age, VALID_DEPOP_AGE):
             add_issue(result, "depop_specifics.age", "Depop age is not a current dropdown value")
         elif not age:
             add_issue(result, "depop_specifics.age", "Depop age is required")
@@ -571,14 +580,14 @@ def validate_listing(
         elif len(styles) > 3:
             add_issue(result, "depop_specifics.style", "Depop allows only 3 style tags")
         for style in styles:
-            if style not in VALID_DEPOP_STYLE:
+            if not allowed_match(style, VALID_DEPOP_STYLE):
                 add_issue(result, "depop_specifics.style", f"Depop style '{style}' is not a current dropdown value")
                 break
         occasions = as_list(depop.get("occasion"))
         if not occasions:
             add_issue(result, "depop_specifics.occasion", "Depop occasion tags are required")
         for occasion in occasions:
-            if occasion not in VALID_DEPOP_OCCASION:
+            if not allowed_match(occasion, VALID_DEPOP_OCCASION):
                 add_issue(result, "depop_specifics.occasion", f"Depop occasion '{occasion}' is not a current dropdown value")
                 break
         parcel = text_value(depop.get("parcelSize") or depop.get("parcel_size"))

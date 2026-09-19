@@ -346,6 +346,30 @@ class ValidationCasesTest(unittest.TestCase):
             result.errors,
         )
 
+    def test_depop_source_and_age_case_variants_are_healed(self):
+        import copy
+
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = copy.deepcopy(VALID_LISTING)
+        listing["depop_specifics"] = {
+            **VALID_LISTING["depop_specifics"],
+            "source": "preloved",
+            "age": "modern",
+        }
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["depop_specifics"]["source"], "Preloved")
+        self.assertEqual(listing["depop_specifics"]["age"], "Modern")
+        result = validate_listing(
+            listing, 5, selected_marketplaces=["depop", "ebay", "etsy", "poshmark", "mercari"]
+        )
+        self.assertFalse(
+            [err for err in result.errors if err["field"] in {
+                "depop_specifics.source", "depop_specifics.age",
+            }],
+            result.errors,
+        )
+
     def test_required_ebay_keys_promote_out_of_category_specifics(self):
         import copy
 

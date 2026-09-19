@@ -149,7 +149,10 @@ class DefaultSectionTest(unittest.TestCase):
         self.assertEqual(section["status"], {"notListed": True})
         self.assertEqual(section["overrides"]["quantity"], "1")
         self.assertEqual(section["overrides"]["weight"], {"pounds": "0", "ounces": "0"})
-        self.assertEqual(section["marketplaceSpecifics"], {"originalPrice": ""})
+        self.assertEqual(section["marketplaceSpecifics"], {
+            "originalPrice": "",
+            "smartSell": {"enabled": True, "minPrice": "5"},
+        })
         self.assertEqual(section["sales"], [])
 
     def test_ebay_and_etsy_defaults(self):
@@ -242,17 +245,92 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(mercari["overrides"]["categoryV2"]["displayPath"], ["Men", "Jeans"])
         self.assertTrue(mercari["marketplaceSpecifics"]["smartPricing"])
         self.assertEqual(mercari["categorySpecifics"], {})
+        self.assertEqual(
+            mercari["marketplaceSpecifics"]["shipping"]["carrierId"],
+            "2550",
+        )
 
         depop = listings["depop"]
         self.assertEqual(depop["marketplaceSpecifics"]["style"], ["Streetwear"])
         self.assertEqual(depop["marketplaceSpecifics"]["source"], ["Preloved"])
-
+        self.assertEqual(depop["overrides"]["brand"], "Levi's")
+        self.assertEqual(ebay["overrides"]["brand"], "Levi's")
+        self.assertEqual(mercari["overrides"]["brand"], "Levi's")
+        self.assertFalse(mercari["overrides"].get("noBrand"))
+        fixed = ebay["marketplaceSpecifics"]["pricingFormatDetails"]["fixedPrice"]
+        self.assertEqual(ebay["marketplaceSpecifics"]["pricingFormat"], "FixedPriceItem")
+        self.assertTrue(fixed["allowBestOffer"])
+        self.assertEqual(fixed["buyItNowPrice"], "48")
+        self.assertEqual(fixed["acceptOffersOfAtLeast"], "19")
+        self.assertEqual(posh["marketplaceSpecifics"]["smartSell"], {"enabled": True, "minPrice": "5"})
         etsy = listings["etsy"]
         self.assertEqual(etsy["marketplaceSpecifics"]["whoMade"], "someone_else")
+        self.assertEqual(etsy["marketplaceSpecifics"]["whatIsIt"], "0")
+        self.assertEqual(etsy["marketplaceSpecifics"]["whenMade"], "2020_2026")
         self.assertEqual(etsy["marketplaceSpecifics"]["materials"], ["denim"])
         self.assertEqual(etsy["categorySpecifics"], {})
+        self.assertEqual(etsy["overrides"]["brand"], "Levi's")
 
         self.assertEqual(listings["grailed"]["marketplaceSpecifics"], {})
+
+    def test_unbranded_sets_ebay_brand_and_mercari_no_brand(self):
+        item, _ = build_vendoo_item({
+            "title": "Plain tee",
+            "brand": "Unbranded",
+            "depop_specifics": {"style": ["Casual", "Retro", "Boho"]},
+            "mercari_specifics": {"shippingLabel": "USPS Ground Advantage"},
+        }, self.schema)
+        self.assertEqual(item["generalDetails"]["brand"], "Unbranded")
+        self.assertEqual(item["listings"]["ebay"]["overrides"]["brand"], "Unbranded")
+        # Lowercased ebay_specifics must not win over the Unbranded label.
+        item2, _ = build_vendoo_item({
+            "title": "Plain tee",
+            "brand": "Unbranded",
+            "ebay_specifics": {"brand": "unbranded"},
+        }, self.schema)
+        self.assertEqual(item2["listings"]["ebay"]["overrides"]["brand"], "Unbranded")
+
+        mercari = item["listings"]["mercari"]
+        self.assertTrue(mercari["overrides"].get("noBrand"))
+        self.assertNotIn("brand", mercari["overrides"])
+        self.assertEqual(mercari["marketplaceSpecifics"]["shipping"]["carrierId"], "2550")
+        self.assertIn("Ground Advantage", mercari["marketplaceSpecifics"]["shippingLabel"])
+        self.assertEqual(
+            item["listings"]["depop"]["marketplaceSpecifics"]["style"],
+            ["Casual", "Retro", "Boho"],
+        )
+        self.assertEqual(item["listings"]["depop"]["overrides"]["brand"], "Other")
+        posh = item["listings"]["poshmark"]["marketplaceSpecifics"]["smartSell"]
+        self.assertEqual(posh, {"enabled": True, "minPrice": "5"})
+        etsy = item["listings"]["etsy"]["marketplaceSpecifics"]
+        self.assertEqual(etsy["whoMade"], "someone_else")
+        self.assertEqual(etsy["whatIsIt"], "0")
+
+    def test_etsy_display_labels_become_form_codes(self):
+        item, _ = build_vendoo_item({
+            "title": "Tee",
+            "price": 16,
+            "etsy_specifics": {
+                "who_made": "Another company or person",
+                "what_is": "A finished product",
+                "when_made": "2020 - 2026 (Recently)",
+            },
+        }, self.schema)
+        etsy = item["listings"]["etsy"]["marketplaceSpecifics"]
+        self.assertEqual(etsy["whoMade"], "someone_else")
+        self.assertEqual(etsy["whatIsIt"], "0")
+        self.assertEqual(etsy["whenMade"], "2020_2026")
+        fixed = item["listings"]["ebay"]["marketplaceSpecifics"]["pricingFormatDetails"]["fixedPrice"]
+        self.assertTrue(fixed["allowBestOffer"])
+        self.assertEqual(fixed["buyItNowPrice"], "16")
+        self.assertEqual(fixed["acceptOffersOfAtLeast"], "6")
+
+    def test_empty_brand_checks_mercari_no_brand(self):
+        item, _ = build_vendoo_item({"title": "Tee", "brand": ""}, self.schema)
+        mercari = item["listings"]["mercari"]
+        self.assertTrue(mercari["overrides"].get("noBrand"))
+        self.assertNotIn("brand", mercari["overrides"])
+        self.assertNotIn("brand", item["listings"]["ebay"]["overrides"])
 
     def test_marketplace_categories_string_sets_category_v2(self):
         item, _ = build_vendoo_item({
@@ -646,6 +724,19 @@ class ChangedFieldsTest(unittest.TestCase):
             "listings": {"ebay": {k: dict(v) for k, v in self.CURRENT["listings"]["ebay"].items()}},
         }
         self.assertEqual(changed_fields(self.CURRENT, item), {})
+
+    def test_brand_case_is_significant(self):
+        """eBay's Brand dropdown matches Unbranded, not lowercased free text."""
+        current = {
+            "generalDetails": {"brand": "Unbranded"},
+            "listings": {"ebay": {"overrides": {"brand": "unbranded"}}},
+        }
+        desired = {
+            "generalDetails": {"brand": "Unbranded"},
+            "listings": {"ebay": {"overrides": {"brand": "Unbranded"}}},
+        }
+        out = changed_fields(current, desired)
+        self.assertEqual(out.get("listings.ebay.overrides.brand"), "Unbranded")
 
 
 if __name__ == "__main__":

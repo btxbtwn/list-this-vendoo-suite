@@ -4426,7 +4426,8 @@
 
       await fillMarketplaceSize('mercari', data);
 
-      const shippingLabel = (data.mercari_specifics && data.mercari_specifics.shippingLabel) || 'USPS Ground Advantage';
+      const shippingLabel = (data.mercari_specifics && data.mercari_specifics.shippingLabel)
+          || 'USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb';
       const shippingEl = await waitForMarketplaceField('mercari', ['shipping label'], [
           '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId',
           '#listings\\.mercari\\.marketplaceSpecifics\\.shippingLabel',

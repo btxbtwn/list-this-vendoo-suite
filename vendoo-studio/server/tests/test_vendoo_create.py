@@ -78,6 +78,21 @@ class FakeBridge:
                 "match": (self.mapped or {}).get(op["marketplace_id"]),
                 "recommendations": [],
             } for op in ops]}
+        # Post-create brand/style repair: answer without consuming scripted replies.
+        if ops and ops[0].get("op") == "update_item":
+            results = []
+            for op in ops:
+                if op.get("op") == "update_item":
+                    results.append({"op": "update_item", "ok": True, "item_id": op.get("item_id")})
+                elif op.get("op") == "get_item":
+                    results.append({
+                        "op": "get_item", "ok": True,
+                        "item_id": op.get("item_id"),
+                        "item": {"itemID": op.get("item_id")},
+                    })
+                else:
+                    raise AssertionError(f"unexpected op in update batch: {op.get('op')}")
+            return {"ok": True, "results": results}
         return self.replies.pop(0)
 
 

@@ -244,7 +244,7 @@ class CategoryMappingTest(unittest.TestCase):
         }
         ensure_listing_defaults(listing)
         self.assertEqual(listing["category_path"], WOMEN_TOPS_PATH)
-        self.assertEqual(listing["mercari_specifics"]["shippingLabel"], "USPS Ground Advantage")
+        self.assertEqual(listing["mercari_specifics"]["shippingLabel"], "USPS Ground Advantage / 1 - 7 days / $ 5.66 / 0.5 lb")
 
 
 class PoshmarkCategoryMappingTest(unittest.TestCase):

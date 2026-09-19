@@ -32,6 +32,7 @@ from vendoo_studio.services.vendoo_api import (
     build_vendoo_item,
     category_from_hit,
     category_v2,
+    changed_fields,
     pick_mapped_category,
     diff_roundtrip,
     observe_item_schema,
@@ -627,6 +628,37 @@ async def create_item(
         {"op": "get_item", "item_id": item_id},
     ])
     stored = _result(created, "get_item").get("item")
+    # createItem sometimes drops marketplace fields (Depop style tags, brand
+    # overrides, Mercari No Brand). Push only those — not every account default
+    # Vendoo filled in after create.
+    patch_results: list[Any] = []
+    if isinstance(stored, dict):
+        fixes = {
+            path: value
+            for path, value in changed_fields(stored, item).items()
+            if path.endswith(".style")
+            or path.endswith(".brand")
+            or path.endswith(".noBrand")
+            or path.endswith(".marketplaceSpecifics.age")
+            or path.endswith(".marketplaceSpecifics.source")
+            or path.endswith(".marketplaceSpecifics.whoMade")
+            or path.endswith(".marketplaceSpecifics.whatIsIt")
+            or path.endswith(".marketplaceSpecifics.whenMade")
+            or path.endswith(".marketplaceSpecifics.smartSell")
+            or path.endswith(".marketplaceSpecifics.shippingLabel")
+            or ".marketplaceSpecifics.shipping." in path
+            or ".marketplaceSpecifics.pricingFormat" in path
+            or ".pricingFormatDetails.fixedPrice." in path
+        }
+        if fixes:
+            mark("vendoo_api_patch")
+            patched = await run_ops(job, [
+                {"op": "update_item", "item_id": item_id, "updates": fixes},
+                {"op": "get_item", "item_id": item_id},
+            ])
+            patch_results = patched["results"]
+            # Round-trip diff still uses the create get_item — the patch only
+            # repairs marketplace fields createItem dropped.
     diff = diff_roundtrip(item, stored) if isinstance(stored, dict) else []
 
     return {
@@ -636,5 +668,5 @@ async def create_item(
         "unresolved": [entry for entry in unresolved],
         "diff": diff,
         "stored": stored if isinstance(stored, dict) else None,
-        "results": [*prep["results"], *created["results"]],
+        "results": [*prep["results"], *created["results"], *patch_results],
     }
