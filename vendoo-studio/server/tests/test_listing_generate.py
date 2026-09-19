@@ -120,7 +120,7 @@ class ListingGenerateHelpersTest(unittest.TestCase):
             "garment": "top",
             "measurements": {
                 "top": {"pitToPit": "16.5", "length": "26.5", "sleeve": "8"},
-                "shorts": {"waist": "15", "inseam": "5"},
+                "pants": {"waist": "15", "inseam": "5"},
             },
         })
         details = seller_item_details(notes)
@@ -128,16 +128,14 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         self.assertIn('Measurements (top): Pit to pit: 16.5"; Length: 26.5"; Sleeve: 8"', details)
         self.assertNotIn("Inseam", details)
 
-    def test_seller_item_details_uses_selected_bottoms(self):
-        measurements = {
-            "pants": {"waist": "16", "rise": "11", "inseam": "30", "legOpening": "8"},
-            "shorts": {"waist": "15", "inseam": "5"},
-        }
+    def test_seller_item_details_uses_pants_for_bottoms(self):
+        measurements = {"pants": {"waist": "16", "rise": "11", "inseam": "30", "legOpening": "8"}}
         pants = seller_item_details(json.dumps({"garment": "pants", "measurements": measurements}))
         self.assertIn('Measurements (pants): Waist: 16"; Rise: 11"; Inseam: 30"; Leg opening: 8"', pants)
-        shorts = seller_item_details(json.dumps({"garment": "shorts", "measurements": measurements}))
-        self.assertIn('Measurements (shorts): Waist: 15"; Inseam: 5"', shorts)
-        self.assertNotIn("30", shorts)
+
+    def test_seller_item_details_reads_legacy_shorts_as_pants(self):
+        notes = json.dumps({"garment": "shorts", "measurements": {"shorts": {"waist": "15", "inseam": "5"}}})
+        self.assertIn('Measurements (pants): Waist: 15"; Inseam: 5"', seller_item_details(notes))
 
     def test_latest_photo_analysis(self):
         class Msg:
