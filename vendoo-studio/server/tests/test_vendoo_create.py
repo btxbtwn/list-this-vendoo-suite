@@ -10,7 +10,14 @@ from unittest import mock
 
 from vendoo_studio.services import category_fields, vendoo_create
 from vendoo_studio.services.vendoo_specifics import normalize_specifics
-from vendoo_studio.services.vendoo_create import VendooCreateError, create_item, load_schema, probe_schema, resolve_listing_categories
+from vendoo_studio.services.vendoo_create import (
+    VendooCreateError,
+    create_item,
+    load_schema,
+    probe_schema,
+    resolve_listing_categories,
+    resolve_listing_labels,
+)
 
 
 def run(coro):
@@ -194,6 +201,18 @@ class CreateTest(_NoExtraMapping):
         self.assertEqual(item["generalDetails"]["condition"]["value"], "v_pre_owned_good")
         self.assertEqual([img["id"] for img in item["generalDetails"]["images"]], ["images/u1/a.jpg", "images/u1/b.png"])
         self.assertEqual(create_ops[1], {"op": "get_item", "item_id": "NEWid1234567890abcde"})
+
+    def test_sends_label_ids_not_names(self):
+        """Vendoo's label box only shows ids it finds in the seller's labels."""
+        resolved = {"ok": True, "uid": "u1", "results": [
+            {"op": "resolve_labels", "ok": True, "ids": ["lblToList"], "created": []},
+        ]}
+        fake = FakeBridge([resolved, *self._replies()])
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            run(create_item(JOB, {**LISTING, "labels": ["To List"]}, PHOTOS))
+
+        self.assertEqual(ops_for(fake, "resolve_labels"), [{"op": "resolve_labels", "names": ["To List"]}])
+        self.assertEqual(ops_for(fake, "create_item")[0]["item"]["labels"], ["lblToList"])
 
     def test_reports_unresolved_and_diff(self):
         replies = self._replies()
@@ -520,3 +539,24 @@ class ResolveCategoriesTest(_NoExtraMapping):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolveLabelsTest(unittest.TestCase):
+    def test_no_labels_sends_nothing(self):
+        fake = FakeBridge([])
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            listing, unresolved = run(resolve_listing_labels(JOB, dict(LISTING)))
+        self.assertEqual(fake.sent, [])
+        self.assertEqual(unresolved, [])
+        self.assertNotIn("labels", listing)
+
+    def test_an_extension_that_cannot_resolve_drops_the_names(self):
+        """A name would be saved but never shown, so report it instead."""
+        failed = {"ok": False, "results": [
+            {"op": "resolve_labels", "ok": False, "error": "Unknown Vendoo API op: resolve_labels"},
+        ]}
+        fake = FakeBridge([failed])
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            listing, unresolved = run(resolve_listing_labels(JOB, {**LISTING, "labels": ["To List", "Bin 4"]}))
+        self.assertEqual(listing["labels"], [])
+        self.assertEqual(unresolved, [{"field": "labels", "value": "To List, Bin 4"}])

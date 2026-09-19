@@ -552,6 +552,67 @@ async function updateVendooItem(session, call) {
   return { updated: paths };
 }
 
+// An item's ``labels`` are ids into users/{uid}/labels, not names — the form
+// shows only chips whose id it finds there. Match names the way Vendoo does
+// (trimmed, case-insensitive) and create any that are missing, as picking
+// "Create" in the label box would. An id passed in (a pulled item) is kept.
+const VENDOO_LABEL_COLOR = '#4852e8';
+
+async function listVendooLabels(session) {
+  const base = `${VENDOO_FIRESTORE_BASE}/users/${encodeURIComponent(session.uid)}/labels`;
+  const labels = [];
+  let pageToken = '';
+  do {
+    const params = new URLSearchParams({ pageSize: '300' });
+    if (pageToken) params.set('pageToken', pageToken);
+    const res = await vendooFetch(`${base}?${params}`, { token: session.access_token });
+    if (!res.ok) throw new Error(vendooError('list labels', res));
+    for (const doc of res.data?.documents || []) {
+      const id = String(doc.name || '').split('/').pop();
+      const name = doc.fields?.name?.stringValue || '';
+      if (id) labels.push({ id, name });
+    }
+    pageToken = res.data?.nextPageToken || '';
+  } while (pageToken);
+  return labels;
+}
+
+async function resolveVendooLabels(session, call) {
+  const names = Array.isArray(call.names) ? call.names : [];
+  const existing = await listVendooLabels(session);
+  const byName = new Map(existing.map((label) => [label.name.trim().toLowerCase(), label.id]));
+  const ids = new Set(existing.map((label) => label.id));
+  const out = [];
+  const created = [];
+  for (const raw of names) {
+    const name = String(raw || '').trim();
+    if (!name) continue;
+    let id = ids.has(name) ? name : byName.get(name.toLowerCase());
+    if (!id) {
+      id = vendooFirestoreId();
+      const url = `${VENDOO_FIRESTORE_BASE}/users/${encodeURIComponent(session.uid)}/labels/${id}`;
+      const res = await vendooFetch(url, {
+        method: 'PATCH',
+        token: session.access_token,
+        json: {
+          fields: {
+            id: { stringValue: id },
+            name: { stringValue: name },
+            color: { stringValue: VENDOO_LABEL_COLOR },
+            createdAt: { timestampValue: new Date().toISOString() },
+          },
+        },
+      });
+      if (!res.ok) throw new Error(vendooError(`create label ${name}`, res));
+      byName.set(name.toLowerCase(), id);
+      ids.add(id);
+      created.push(name);
+    }
+    if (!out.includes(id)) out.push(id);
+  }
+  return { ids: out, created };
+}
+
 // Vendoo deletes an item by removing its Firestore document; there is no API
 // call for it. Irreversible, so Studio only sends this when asked by name.
 async function deleteVendooItem(session, call) {
@@ -611,6 +672,9 @@ async function runVendooApiOps(ops) {
           break;
         case 'category_search':
           results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
+          break;
+        case 'resolve_labels':
+          results.push({ op: 'resolve_labels', ok: true, ...(await resolveVendooLabels(session, op)) });
           break;
         case 'delete_item':
           results.push({ op: 'delete_item', ok: true, ...(await deleteVendooItem(session, op)) });
