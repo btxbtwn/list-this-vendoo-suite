@@ -17,6 +17,7 @@ import type {
   RevisionRestoreResult,
   ValidationResult,
   VendooItemResult,
+  MarketplaceForm,
 } from "./types";
 
 const BASE = "/api";
@@ -111,6 +112,21 @@ export const api = {
       {status: string; nodes: number; pending_branches: number; error: string | null}>}>("/catalog/sync"),
     sync: () => request<{started: boolean}>("/catalog/sync", {method: "POST"}),
   },
+  vendooApi: {
+    listingFields: (convId: string) =>
+      request<{ ok: boolean; forms: MarketplaceForm[] }>(
+        `/conversations/${convId}/vendoo-api/fields`,
+      ),
+    save: (convId: string) =>
+      request<{ ok: boolean; item_id: string; updated: string[] }>(
+        `/conversations/${convId}/vendoo-api/save`, { method: "POST" },
+      ),
+    pull: (convId: string) =>
+      request<{ ok: boolean; item_id: string; revision_id: string }>(
+        `/conversations/${convId}/vendoo-api/pull`, { method: "POST" },
+      ),
+  },
+
   health: () => request<{ status: string; version: string }>("/health"),
 
   status: () =>

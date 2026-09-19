@@ -169,3 +169,23 @@ export interface FillLogReport {
   by_marketplace: Record<string, { summary: Record<string, number>; entries: FillLogEntry[] }>;
   log_path: string | null;
 }
+
+
+/** One field a marketplace form renders, as Vendoo's category schema defines it. */
+export interface MarketplaceFormField {
+  key: string;
+  label: string;
+  value: string;
+  required: boolean;
+  multi: boolean;
+  selection_only: boolean;
+  options: string[];
+}
+
+/** A marketplace's form for one listing. ``known`` is false when no schema is cached. */
+export interface MarketplaceForm {
+  marketplace: string;
+  category_id: string;
+  known: boolean;
+  fields: MarketplaceFormField[];
+}
