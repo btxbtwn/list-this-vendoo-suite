@@ -90,6 +90,17 @@ def prepare_listing_snapshot(
         listing_snapshot["labels"] = [
             label.strip() for label in raw_labels.split(",") if label.strip()
         ]
+    # Item Details COG and Notes are Vendoo's Cost of Goods and Internal Notes.
+    cog_raw = str(conv_notes.get("cog") or "").strip()
+    try:
+        cog = float(cog_raw) if cog_raw else None
+    except ValueError:
+        cog = None
+    if cog is not None:
+        listing_snapshot["cost"] = cog
+    seller_notes = str(conv_notes.get("sellerNotes") or "").strip()
+    if seller_notes:
+        listing_snapshot["internal_notes"] = seller_notes
     listing_category = str(listing_snapshot.get("category_path") or "").strip()
     category_override = str(conv_notes.get("categoryOverride") or "").strip()
     if category_override and (not prefer_listing_category or not listing_category):
