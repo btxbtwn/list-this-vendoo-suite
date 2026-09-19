@@ -268,10 +268,9 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
 
 @router.post("/api/conversations/{conv_id}/vendoo-api/pull")
 async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
-    """Bring edits made in Vendoo back into Studio as a new revision."""
+    """Take Vendoo's version even when Studio has edits of its own."""
     from vendoo_studio.services.vendoo_create import run_ops
     from vendoo_studio.services.vendoo_import import vendoo_binding
-    from vendoo_studio.services.vendoo_pull_offers import clear_offer
     from vendoo_studio.services.vendoo_watch import apply_pull
 
     conv_repo = ConversationRepo(db)
@@ -291,34 +290,7 @@ async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
 
     # Refresh listing revision + job draft cache (sidebar status) in one path.
     revision_id = apply_pull(db, conv_id, item, source="vendoo_pull")
-    clear_offer(conv_id)
     return {"ok": True, "item_id": item_id, "revision_id": revision_id}
-
-
-@router.get("/api/vendoo-api/pull-offers")
-def list_pull_offers():
-    """Pull prompts waiting after a seller save in Vendoo (no Vendoo API call)."""
-    from vendoo_studio.services.vendoo_pull_offers import list_offers
-
-    return {
-        "offers": [
-            {
-                "conversation_id": o.conversation_id,
-                "item_id": o.item_id,
-                "conflict": o.conflict,
-                "offered_at": o.offered_at,
-            }
-            for o in list_offers()
-        ]
-    }
-
-
-@router.post("/api/conversations/{conv_id}/vendoo-api/pull-offers/dismiss")
-def dismiss_pull_offer(conv_id: str):
-    """Seller declined the pull prompt for this listing."""
-    from vendoo_studio.services.vendoo_pull_offers import clear_offer
-
-    return {"ok": True, "dismissed": clear_offer(conv_id)}
 
 
 class ListRequest(BaseModel):
@@ -414,48 +386,26 @@ async def category_map(body: MapRequest):
 
 @router.post("/api/conversations/{conv_id}/vendoo-api/sync")
 async def sync_with_vendoo(conv_id: str, db: Session = Depends(get_db)):
-    """Bring in Vendoo's changes when it is safe to, and say so when it is not.
+    """Pull Vendoo's changes when it is safe to; report a conflict when not.
 
     Called when a listing is opened or the app regains focus, so the request
-    pattern follows the seller rather than a clock. When Vendoo moved, records
-    a pull offer for the UI to confirm — it does not overwrite Studio silently.
+    pattern follows the seller rather than a clock.
     """
-    from vendoo_studio.services.vendoo_create import run_ops
-    from vendoo_studio.services.vendoo_import import vendoo_binding
-    from vendoo_studio.services.vendoo_watch import mark_synced, sync_state
+    from vendoo_studio.services.vendoo_watch import sync_conversation
 
-    conv = ConversationRepo(db).get(conv_id)
-    if not conv:
+    if not ConversationRepo(db).get(conv_id):
         raise HTTPException(404, "Conversation not found")
-    item_id = vendoo_binding(conv.notes).get("vendooItemId")
-    if not item_id:
-        return {"ok": True, "action": "none", "reason": "no vendoo draft"}
-    try:
-        reply = await run_ops(SimpleNamespace(id=None), [{"op": "get_item", "item_id": item_id}])
-    except BrowserBridgeError:
-        # No browser is not a failure worth interrupting the seller over.
-        return {"ok": True, "action": "none", "reason": "chrome unavailable"}
-    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
-        raise _http_error(exc) from exc
-    item = next((r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None)
-    if not isinstance(item, dict):
-        return {"ok": True, "action": "none", "reason": "no item"}
+    return {"ok": True, **await sync_conversation(db, conv_id)}
 
-    state = sync_state(db, conv_id, item)
-    if state["action"] in {"pull", "conflict"}:
-        from vendoo_studio.services.vendoo_pull_offers import offer_pull
 
-        conflict = state["action"] == "conflict"
-        offer_pull(conversation_id=conv_id, item_id=item_id, conflict=conflict)
-        return {
-            "ok": True,
-            "action": "offer",
-            "reason": state["reason"],
-            "item_id": item_id,
-            "conflict": conflict,
-        }
-    mark_synced(db, conv_id, item, state.get("revision"))
-    return {"ok": True, "action": "none", "reason": state["reason"]}
+@router.get("/api/conversations/{conv_id}/vendoo-api/sync")
+def vendoo_sync_status(conv_id: str, db: Session = Depends(get_db)):
+    """When Studio last checked Vendoo for this listing. Reads SQLite only."""
+    from vendoo_studio.services.vendoo_watch import sync_status
+
+    if not ConversationRepo(db).get(conv_id):
+        raise HTTPException(404, "Conversation not found")
+    return sync_status(db, conv_id)
 
 
 class DeleteRequest(BaseModel):

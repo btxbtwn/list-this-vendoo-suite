@@ -234,6 +234,29 @@ def schedule_advance_job_queue() -> None:
     loop.create_task(dispatch_queued_jobs())
 
 
+_saved_item_syncs: set[asyncio.Task] = set()
+
+
+def _schedule_saved_item_sync(conv_id: str) -> None:
+    """Pull a draft the seller just saved in Vendoo.
+
+    Runs beside the socket loop, which has to keep reading for the extension
+    to answer the get_item this sync sends.
+    """
+    from vendoo_studio.services.vendoo_watch import sync_conversation
+
+    async def run() -> None:
+        try:
+            with SessionLocal() as db:
+                await sync_conversation(db, conv_id)
+        except Exception:
+            log.exception("Vendoo save sync failed for %s", conv_id)
+
+    task = asyncio.create_task(run())
+    _saved_item_syncs.add(task)
+    task.add_done_callback(_saved_item_syncs.discard)
+
+
 async def dispatch_queued_jobs():
     from vendoo_studio.services.category_tree import syncing
     if syncing():
@@ -787,16 +810,10 @@ async def extension_websocket(ws: WebSocket):
                 item_id = str(payload.get("item_id") or "").strip()
                 if item_id:
                     from vendoo_studio.repositories.queries import ConversationRepo
-                    from vendoo_studio.services.vendoo_pull_offers import offer_pull
-                    from vendoo_studio.services.vendoo_watch import studio_has_unpushed_edits
 
                     conv = ConversationRepo(db).find_by_vendoo_item_id(item_id)
                     if conv:
-                        offer_pull(
-                            conversation_id=conv.id,
-                            item_id=item_id,
-                            conflict=studio_has_unpushed_edits(db, conv.id),
-                        )
+                        _schedule_saved_item_sync(conv.id)
 
             elif msg_type == "job.vendoo_api_result":
                 payload = message.get("payload") or {}
