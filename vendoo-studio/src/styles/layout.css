@@ -27,7 +27,7 @@
 }
 
 .sidebar {
-  width: var(--sidebar-width);
+  width: clamp(200px, var(--sidebar-width), 30vw);
   flex-shrink: 0;
   min-height: 0;
   background: var(--color-ink);
@@ -37,6 +37,56 @@
   overflow: hidden;
   border-right: 1px solid var(--color-ink-border);
   padding: var(--space-2) 0 var(--space-2) var(--space-2);
+}
+
+/* Vertical splitter sitting on the border between two panels. It takes no
+   layout width; the grab area overhangs both sides. */
+.panel-resize-handle {
+  position: relative;
+  flex: 0 0 0;
+  width: 0;
+  z-index: 5;
+  outline: none;
+}
+
+.panel-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.panel-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: var(--color-cobalt);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease 0.15s;
+}
+
+.panel-resize-handle:hover::after,
+.panel-resize-handle:focus-visible::after,
+.panel-resize-handle.is-dragging::after {
+  opacity: 1;
+}
+
+.panel-resize-handle.is-dragging::after {
+  transition: none;
+}
+
+/* Keep the pointer and text selection steady while dragging over panels. */
+.app-shell:has(.panel-resize-handle.is-dragging) {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .workspace-frame {
@@ -433,7 +483,7 @@
 }
 
 .detail-panel {
-  width: 380px;
+  width: clamp(300px, var(--detail-width, 380px), 45vw);
   flex-shrink: 0;
   min-width: 0;
   background: var(--color-ink);
