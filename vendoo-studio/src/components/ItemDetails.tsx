@@ -7,14 +7,13 @@ interface Props {
 }
 
 interface ItemDetailsData {
-  condition: string;
+  sellerNotes: string;
   cog: string;
   packageDimensions: string;
   pitToPit: string;
   length: string;
   sleeve: string;
   vendooLabels: string;
-  categoryOverride: string;
   poshmarkOriginalPrice: string;
 }
 
@@ -77,26 +76,14 @@ function applyLabelSuggestion(raw: string, suggestion: string, known: string[]):
   return [...completed, suggestion].join(", ");
 }
 
-const CATEGORY_SUGGESTIONS = [
-  "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
-  "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts",
-  "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > Polos",
-  "Clothing, Shoes & Accessories > Women > Women's Clothing > Dresses",
-  "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters",
-  "Clothing, Shoes & Accessories > Women > Women's Clothing > Sweaters",
-  "Clothing, Shoes & Accessories > Men > Men's Clothing > Jeans",
-  "Clothing, Shoes & Accessories > Women > Women's Clothing > Jeans",
-];
-
 const DEFAULTS: ItemDetailsData = {
-  condition: "",
+  sellerNotes: "",
   cog: "",
   packageDimensions: "13x10x3",
   pitToPit: "",
   length: "",
   sleeve: "",
   vendooLabels: "",
-  categoryOverride: "",
   poshmarkOriginalPrice: "0",
 };
 
@@ -105,14 +92,13 @@ function parseNotes(notes: string | null): ItemDetailsData {
   try {
     const parsed = JSON.parse(notes);
     return {
-      condition: parsed.condition || "",
+      sellerNotes: parsed.sellerNotes || "",
       cog: parsed.cog || "",
       packageDimensions: parsed.packageDimensions || "13x10x3",
       pitToPit: parsed.pitToPit || "",
       length: parsed.length || "",
       sleeve: parsed.sleeve || "",
       vendooLabels: parsed.vendooLabels ?? DEFAULTS.vendooLabels,
-      categoryOverride: parsed.categoryOverride || "",
       poshmarkOriginalPrice: parsed.poshmarkOriginalPrice ?? "0",
     };
   } catch {
@@ -216,14 +202,15 @@ export function ItemDetails({ convId }: Props) {
       try {
         if (gen !== saveGenRef.current) return;
         await api.conversations.update(convId, { notes: JSON.stringify({
-          condition: updated.condition,
+          // Clear obsolete seller-entered condition; categoryOverride stays agent-managed.
+          condition: "",
+          sellerNotes: updated.sellerNotes,
           cog: updated.cog,
           packageDimensions: updated.packageDimensions,
           pitToPit: updated.pitToPit,
           length: updated.length,
           sleeve: updated.sleeve,
           vendooLabels: updated.vendooLabels,
-          categoryOverride: updated.categoryOverride,
           poshmarkOriginalPrice: updated.poshmarkOriginalPrice,
         })});
         if (gen !== saveGenRef.current) return;
@@ -280,16 +267,17 @@ export function ItemDetails({ convId }: Props) {
 
   return (
     <div className="item-details">
+      <div className="item-field item-field-notes">
+        <label className="label">Notes</label>
+        <textarea
+          className="input"
+          value={details.sellerNotes}
+          placeholder="Flaws, provenance, sizing quirks, or other seller notes"
+          rows={3}
+          onChange={(e) => scheduleSave({ ...details, sellerNotes: e.target.value })}
+        />
+      </div>
       <div className="item-row">
-        <div className="item-field">
-          <label className="label">Condition</label>
-          <input {...f("condition")} placeholder="Good" />
-        </div>
-        <div className="item-field">
-          <label className="label">Category</label>
-          <input {...f("categoryOverride")} placeholder="Select a category" list="cats" />
-          <datalist id="cats">{CATEGORY_SUGGESTIONS.map(c => <option key={c} value={c} />)}</datalist>
-        </div>
         <div className="item-field">
           <label className="label">Labels</label>
           <input
