@@ -2393,23 +2393,37 @@
 
   function normalizePoshmarkCategoryPath(data) {
       const explicit = explicitPoshmarkCategoryPath(data);
-      const categoryPath = String(data?.category_path || '').trim();
-      const hay = categoryHaystack(data, categoryPath);
-      const hayLower = normalizeText(hay);
+      const categoryPath = String(
+          data?.marketplace_categories?.poshmark
+          || data?.category_path
+          || '',
+      ).trim();
+      const garmentHay = normalizeText(categoryHaystack(data, ''));
+      const hayLower = normalizeText(categoryHaystack(data, categoryPath));
       const isWomen = /\bwomen/.test(hayLower);
       const isMen = /\bmen/.test(hayLower) && !/\bwomen/.test(hayLower);
+      const isTee = /t-?shirts?|\btees?\b|graphic tee/.test(garmentHay);
+      const sleevelessItem = /\b(?:sleeveless|tank|cami|halter|strapless)\b/.test(garmentHay);
+      const sleevedTee = isTee && (
+          /short\s*sleeve/.test(garmentHay)
+          || /long\s*sleeve/.test(garmentHay)
+          || !sleevelessItem
+      );
+      const staleTankPath = (path) => /\btank\b/.test(normalizeText(path || '')) && sleevedTee;
       if (explicit) {
           const explicitLower = normalizeText(explicit);
           const staleWomen = isMen && /\bwomen/.test(explicitLower);
           const staleMen = isWomen && /\bmen/.test(explicitLower) && !/\bwomen/.test(explicitLower);
-          if (!staleWomen && !staleMen) return explicit;
+          if (!staleWomen && !staleMen && !staleTankPath(explicit)) return explicit;
       }
-      if (/^(men|women|kids|pets|home|electronics)\s*>/i.test(categoryPath)) return categoryPath;
-      const { isTee, isBlouse } = blouseVsTeeSignals(hayLower);
+      if (/^(men|women|kids|pets|home|electronics)\s*>/i.test(categoryPath) && !staleTankPath(categoryPath)) {
+          return categoryPath;
+      }
+      const { isTee: teeSignal, isBlouse } = blouseVsTeeSignals(hayLower);
       const longSleeve = /long\s*sleeve/.test(hayLower);
       const teeLeaf = longSleeve ? 'Tees - Long Sleeve' : 'Tees - Short Sleeve';
-      if (isMen && isTee) return `Men > Shirts > ${teeLeaf}`;
-      if (isWomen && isTee) return `Women > Tops > ${teeLeaf}`;
+      if (isMen && teeSignal) return `Men > Shirts > ${teeLeaf}`;
+      if (isWomen && teeSignal) return `Women > Tops > ${teeLeaf}`;
       if (isWomen && isBlouse) return 'Women > Tops > Blouses';
       return categoryPath;
   }
@@ -3242,11 +3256,20 @@
   }
 
   async function fillMarketplaceCategory(marketplace, data) {
-      const categoryPath = data.marketplace_categories?.[marketplace] || (marketplace === 'poshmark'
+      let categoryPath = data.marketplace_categories?.[marketplace] || (marketplace === 'poshmark'
           ? normalizePoshmarkCategoryPath(data)
           : marketplace === 'mercari'
               ? normalizeMercariCategoryPath(data)
           : String(data?.category_path || '').trim());
+      if (marketplace === 'poshmark') {
+          categoryPath = normalizePoshmarkCategoryPath({
+              ...data,
+              marketplace_categories: {
+                  ...(data.marketplace_categories || {}),
+                  poshmark: categoryPath,
+              },
+          });
+      }
       if (!categoryPath) {
           recordFill({ field: 'Category', status: 'skipped', reason: 'No value in listing' });
           return { status: 'skipped' };

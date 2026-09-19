@@ -270,7 +270,14 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     marketplace = str(marketplace or "general").strip().lower()
     key = field_lookup_key(field)
     if key == "category" and marketplace in (source.get("marketplace_categories") or {}):
-        return str(source["marketplace_categories"][marketplace])
+        result = str(source["marketplace_categories"][marketplace])
+        if marketplace == "poshmark":
+            from vendoo_studio.services.registry import map_poshmark_category_path
+            return map_poshmark_category_path(result, source)
+        if marketplace == "mercari":
+            from vendoo_studio.services.registry import map_mercari_category_path
+            return map_mercari_category_path(result, source)
+        return result
     if marketplace in {"", "general", "unknown"}:
         if key in {"weight lbs", "weight lb", "pounds"}:
             return _stringify_listing_value(source.get("weight_lb"))

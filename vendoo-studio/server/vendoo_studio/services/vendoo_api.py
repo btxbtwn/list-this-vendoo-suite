@@ -723,6 +723,17 @@ def _path_words(parts: list[str]) -> set[str]:
     return {word for part in parts for word in _norm(part).split()}
 
 
+# Parent-category words that every Tops/Shirts child repeats in its leaf label.
+# Counting them as a leaf match made "Tank Tops" beat "Tees - Short Sleeve"
+# whenever the general leaf was bare "Tops".
+_PARENT_LEAF_WORDS = frozenset({"tops", "top", "shirts", "shirt", "clothing", "clothes"})
+# Sleeveless / specialty subtypes Vendoo often returns for a plain tee under Tops.
+_SUBTYPE_LEAF_WORDS = frozenset({
+    "tank", "tanks", "crop", "crops", "halter", "tube", "muscle", "cami", "camisole",
+})
+_TEE_LEAF_WORDS = frozenset({"tee", "tees", "tshirt", "tshirts"})
+
+
 def pick_mapped_category(
     general: dict[str, Any],
     match: dict[str, Any] | None,
@@ -745,15 +756,29 @@ def pick_mapped_category(
         return candidates[0]
     want_all = _path_words(want_parts)
     want_leaf = _path_words(want_parts[-1:])
+    # Bare "Tops" / "Shirts" leaves have no distinctive garment word — prefer a
+    # tee recommendation over Tank Tops when Vendoo's match is the subtype.
+    bare_parent_leaf = bool(want_leaf) and want_leaf <= _PARENT_LEAF_WORDS
+    want_names_tank = bool(want_all & _SUBTYPE_LEAF_WORDS)
 
-    def score(candidate: dict[str, Any]) -> tuple[int, int]:
+    def score(candidate: dict[str, Any]) -> tuple[int, int, int]:
         parts = [str(part) for part in hit_display_path(candidate)]
         if not parts:
-            return (0, 0)
-        return (
-            len(want_leaf & _path_words(parts[-1:])),
-            len(want_all & _path_words(parts)),
-        )
+            return (0, 0, 0)
+        leaf_words = _path_words(parts[-1:])
+        # Only distinctive leaf words count — "tops" inside "Tank Tops" is an
+        # echo of the parent category, not a real leaf match.
+        leaf_hits = len((want_leaf - _PARENT_LEAF_WORDS) & leaf_words)
+        leaf_hits += len(want_leaf & (leaf_words - _PARENT_LEAF_WORDS))
+        path_hits = len(want_all & _path_words(parts))
+        garment = 0
+        if leaf_words & _TEE_LEAF_WORDS:
+            garment = 2
+        elif leaf_words & _SUBTYPE_LEAF_WORDS:
+            garment = 0 if (bare_parent_leaf and not want_names_tank) else 1
+        else:
+            garment = 1
+        return (leaf_hits, path_hits, garment)
 
     best = max(range(len(candidates)), key=lambda i: (*score(candidates[i]), -i))
     return candidates[best]
@@ -1027,6 +1052,11 @@ def _listing_section(
         cats = listing.get("marketplace_categories")
         if isinstance(cats, dict):
             parts = path_parts(cats.get(marketplace))
+    if marketplace == "poshmark" and parts:
+        from vendoo_studio.services.registry import map_poshmark_category_path
+
+        mapped = map_poshmark_category_path(" > ".join(parts), listing)
+        parts = path_parts(mapped) or parts
     cat_ids = listing.get("marketplace_category_ids")
     cat_id = None
     if isinstance(cat_ids, dict):

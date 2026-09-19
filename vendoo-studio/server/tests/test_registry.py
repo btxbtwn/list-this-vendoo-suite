@@ -302,6 +302,31 @@ class PoshmarkCategoryMappingTest(unittest.TestCase):
         )
         self.assertEqual(mapped, POSHMARK_MEN_SHORT_TEE)
 
+    def test_remaps_stale_tank_tops_for_short_sleeve_tee(self):
+        mapped = map_poshmark_category_path(
+            "Women > Tops > Tank Tops",
+            {
+                "title": "Faded Glory L Graphic T-Shirt Short Sleeve",
+                "department": "Women",
+                "ebay_specifics": {"type": "T-Shirt", "sleeveLength": "Short Sleeve"},
+                "marketplace_categories": {"poshmark": "Women > Tops > Tank Tops"},
+                "poshmark_specifics": {"categoryPath": ["Women", "Tops", "Tank Tops"]},
+            },
+        )
+        self.assertEqual(mapped, POSHMARK_WOMEN_SHORT_TEE)
+
+    def test_keeps_tank_tops_for_sleeveless_tank(self):
+        mapped = map_poshmark_category_path(
+            "Women > Tops > Tank Tops",
+            {
+                "title": "Faded Glory Sleeveless Tank Top",
+                "department": "Women",
+                "ebay_specifics": {"type": "Tank", "sleeveLength": "Sleeveless"},
+                "poshmark_specifics": {"categoryPath": ["Women", "Tops", "Tank Tops"]},
+            },
+        )
+        self.assertEqual(mapped, "Women > Tops > Tank Tops")
+
     def test_does_not_map_sweatshirt_to_poshmark_tee(self):
         path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters"
         mapped = map_poshmark_category_path(
