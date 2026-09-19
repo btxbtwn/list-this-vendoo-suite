@@ -132,12 +132,13 @@ def get_provider():
 
 @router.put("/provider")
 def set_provider(config: ProviderConfig):
+    from vendoo_studio.providers.xiaomi_mimo import normalize_mimo_api_key
     from vendoo_studio.services.keychain import set_api_key
 
-    if not config.api_key:
+    key = normalize_mimo_api_key(config.api_key or "")
+    if not key:
         raise HTTPException(400, "API key is required")
-
-    set_api_key(config.api_key)
+    set_api_key(key)
     return {"ok": True}
 
 
@@ -176,7 +177,28 @@ async def test_connection():
         ok = await provider.test_connection()
     except Exception as exc:
         return {"ok": False, "provider": name, "error": str(exc)}
-    return {"ok": ok, "provider": name}
+    return {"ok": ok, "provider": name, "error": None if ok else "Connection failed"}
+
+
+@router.post("/provider/mimo/test")
+async def test_mimo():
+    """Always exercise the saved MiMo key, even when another provider is primary."""
+    from vendoo_studio.providers.xiaomi_mimo import MiMoProvider
+    from vendoo_studio.services.keychain import get_api_key
+
+    key = get_api_key()
+    if not key:
+        raise HTTPException(400, "Add a MiMo API key in Settings.")
+    provider = MiMoProvider(api_key=key)
+    try:
+        ok = await provider.test_connection()
+    except Exception as exc:
+        return {"ok": False, "provider": "xiaomi-mimo", "error": str(exc)}
+    return {
+        "ok": ok,
+        "provider": "xiaomi-mimo",
+        "error": None if ok else "Connection failed",
+    }
 
 
 @router.get("/chatgpt/models")
