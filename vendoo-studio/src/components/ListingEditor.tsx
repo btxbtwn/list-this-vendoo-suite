@@ -7,6 +7,7 @@ import { FillLogPanel } from "./FillLogPanel";
 import { PhotoTray } from "./PhotoTray";
 import { ItemDetails } from "./ItemDetails";
 import { ConnectChromeButton } from "./ConnectChromeButton";
+import { SendProgress, useSendStep } from "./SendProgress";
 import { OpenListingButton } from "./OpenListingButton";
 import { VendooSyncButtons } from "./VendooSyncButtons";
 import {
@@ -855,6 +856,7 @@ function SendToVendooButton({
     && !apiCreateActive
     && ["queued", "awaiting_extension", "dispatched"].includes(String(existingJob.status || "")),
   );
+  const sendStep = useSendStep(step, apiCreateActive);
   const extensionConnected = extStatus?.connected ?? false;
   const uniqueBlockers = React.useMemo(() => {
     const seen = new Set<string>();
@@ -902,7 +904,9 @@ function SendToVendooButton({
           <div className="job-card-copy">
             <div className="job-card-label">{label}</div>
             <div className="job-card-status">
-              {statusText}
+              {apiCreateActive ? (
+                <SendProgress label={statusText} floor={sendStep.floor} ceiling={sendStep.ceiling} />
+              ) : statusText}
               {probeActive && (
                 <div className="mt-4 text-xs text-muted">
                   Matching the Vendoo category and reading marketplace fields into this listing.
@@ -982,8 +986,16 @@ function SendToVendooButton({
           : "Create a Vendoo draft with marketplace fields filled"}
         onClick={startSend}
       >
-        {sendMutation.isPending ? "Sending…" : sendLabel}
+        {sendMutation.isPending ? (
+          <span className="send-btn-busy">
+            <span className="send-spinner" aria-hidden="true" />
+            Sending…
+          </span>
+        ) : sendLabel}
       </button>
+      {sendMutation.isPending && (
+        <SendProgress label={bound ? "Writing changed fields to Vendoo…" : "Starting the send…"} />
+      )}
       {errorCard}
     </div>
   );
