@@ -260,32 +260,61 @@ ${replyShape(fields)}`;
   return jobErrorPrompt(detail, title);
 }
 
+export function emptyFieldsButtonLabel(count: number): string {
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  return `Fill ${n} empty field${n === 1 ? "" : "s"}`;
+}
+
 export function CopyableLlmError({
   text,
   prompt,
   onAskChat,
+  emptyFieldsCount = 0,
+  emptyFieldsPrompt,
   className,
 }: {
   text: string;
   prompt: string;
   onAskChat?: (text: string) => void;
+  emptyFieldsCount?: number;
+  emptyFieldsPrompt?: string;
   className?: string;
 }) {
   const body = String(text || "").trim();
   if (!body) return null;
+  const emptyCount = Math.max(0, Math.floor(Number(emptyFieldsCount) || 0));
+  const canFillEmpty = Boolean(onAskChat && emptyFieldsPrompt && emptyCount > 0);
 
   return (
     <div className={`llm-error-card${className ? ` ${className}` : ""}`}>
       <div className="llm-error-text text-xs text-error">{body}</div>
       {onAskChat && (
-        <div className="llm-error-actions">
-          <button
-            type="button"
-            className="btn btn-sm btn-secondary"
-            onClick={() => onAskChat(prompt)}
-          >
-            Ask chat
-          </button>
+        <div className="llm-error-ask">
+          <div className="llm-error-ask-header">Ask chat</div>
+          <div className="llm-error-actions">
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              title="Send these errors to chat so it can fix them"
+              onClick={() => onAskChat(prompt)}
+            >
+              Fix errors
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              disabled={!canFillEmpty}
+              title={canFillEmpty
+                ? "Send empty listing fields to chat. Does not change Vendoo yet."
+                : "No empty listing fields to fill"}
+              onClick={() => {
+                if (!canFillEmpty || !emptyFieldsPrompt) return;
+                onAskChat(emptyFieldsPrompt);
+              }}
+            >
+              {emptyFieldsButtonLabel(emptyCount)}
+            </button>
+          </div>
         </div>
       )}
     </div>
