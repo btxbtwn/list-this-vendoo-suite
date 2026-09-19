@@ -22,6 +22,11 @@ import {
   jobErrorPrompt,
   validationErrorsPrompt,
 } from "./CopyableLlmError";
+import {
+  emptyFieldsPrompt,
+  fieldsNeedingListingValues,
+  sourceFormsForJob,
+} from "./fillLogForms";
 
 interface Props {
   convId: string;
@@ -341,7 +346,9 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
           convId={convId}
           canSend={data?.can_send ?? false}
           sendBlockers={data?.errors || []}
+          listing={listing}
           listingTitle={listingTitle}
+          selectedMarketplaces={marketplaceSettings?.selected}
           vendooItemId={importedItemId}
           onJobStarted={onJobStarted}
           onAskChat={onAskChat}
@@ -696,7 +703,9 @@ function SendToVendooButton({
   convId,
   canSend,
   sendBlockers,
+  listing,
   listingTitle,
+  selectedMarketplaces,
   vendooItemId,
   onJobStarted,
   onAskChat,
@@ -704,7 +713,9 @@ function SendToVendooButton({
   convId: string;
   canSend: boolean;
   sendBlockers: { field?: string; message?: string }[];
+  listing?: Record<string, unknown>;
   listingTitle?: string;
+  selectedMarketplaces?: string[];
   vendooItemId?: string | null;
   onJobStarted?: () => void;
   onAskChat?: (text: string) => void;
@@ -712,6 +723,19 @@ function SendToVendooButton({
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
   const bound = Boolean(vendooItemId);
+  const { sourceForms, fromVendooDraft } = React.useMemo(
+    () => sourceFormsForJob(undefined, undefined, listing, selectedMarketplaces),
+    [listing, selectedMarketplaces],
+  );
+  const emptyFields = React.useMemo(
+    () => fieldsNeedingListingValues(sourceForms, listing),
+    [sourceForms, listing],
+  );
+  const emptyFieldsCount = emptyFields.length;
+  const fillEmptyPrompt = React.useMemo(
+    () => (emptyFieldsCount ? emptyFieldsPrompt(sourceForms, fromVendooDraft, listing) : undefined),
+    [emptyFieldsCount, sourceForms, fromVendooDraft, listing],
+  );
 
   const { data: extStatus } = useQuery({
     queryKey: ["extension-status"],
@@ -868,6 +892,8 @@ function SendToVendooButton({
             text={existingJob.last_error}
             prompt={jobErrorPrompt(existingJob.last_error, listingTitle)}
             onAskChat={onAskChat}
+            emptyFieldsCount={emptyFieldsCount}
+            emptyFieldsPrompt={fillEmptyPrompt}
           />
         )}
         {error && (
@@ -876,6 +902,8 @@ function SendToVendooButton({
             text={error}
             prompt={jobErrorPrompt(error, listingTitle)}
             onAskChat={onAskChat}
+            emptyFieldsCount={emptyFieldsCount}
+            emptyFieldsPrompt={fillEmptyPrompt}
           />
         )}
       </div>
@@ -902,6 +930,8 @@ function SendToVendooButton({
       text={displayError}
       prompt={uniqueBlockers.length ? blockerPrompt : jobErrorPrompt(displayError, listingTitle)}
       onAskChat={onAskChat}
+      emptyFieldsCount={emptyFieldsCount}
+      emptyFieldsPrompt={fillEmptyPrompt}
     />
   ) : null;
 
