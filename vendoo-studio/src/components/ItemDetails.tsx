@@ -6,7 +6,7 @@ interface Props {
   convId: string;
 }
 
-type Garment = "top" | "pants" | "shorts";
+type Garment = "top" | "pants";
 
 interface MeasurementField {
   key: string;
@@ -25,6 +25,7 @@ const GARMENTS: { id: Garment; label: string; fields: MeasurementField[] }[] = [
       { key: "sleeve", label: "Sleeve", placeholder: "9" },
     ],
   },
+  // Pants cover shorts too: same waist, rise, inseam and leg opening.
   {
     id: "pants",
     label: "Pants",
@@ -33,16 +34,6 @@ const GARMENTS: { id: Garment; label: string; fields: MeasurementField[] }[] = [
       { key: "rise", label: "Rise", placeholder: "11" },
       { key: "inseam", label: "Inseam", placeholder: "30" },
       { key: "legOpening", label: "Leg Opening", placeholder: "8" },
-    ],
-  },
-  {
-    id: "shorts",
-    label: "Shorts",
-    fields: [
-      { key: "waist", label: "Waist", placeholder: "16" },
-      { key: "rise", label: "Rise", placeholder: "11" },
-      { key: "inseam", label: "Inseam", placeholder: "7" },
-      { key: "legOpening", label: "Leg Opening", placeholder: "11" },
     ],
   },
 ];
@@ -127,14 +118,15 @@ const DEFAULTS: ItemDetailsData = {
   vendooLabels: "",
   poshmarkOriginalPrice: "0",
   garment: "top",
-  measurements: { top: {}, pants: {}, shorts: {} },
+  measurements: { top: {}, pants: {} },
 };
 
 function parseMeasurements(raw: unknown): Measurements {
   const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const out: Measurements = { top: {}, pants: {}, shorts: {} };
+  const out: Measurements = { top: {}, pants: {} };
   for (const garment of GARMENTS) {
-    const values = source[garment.id];
+    // Listings saved before shorts folded into pants kept a separate shorts set.
+    const values = source[garment.id] ?? (garment.id === "pants" ? source.shorts : undefined);
     if (!values || typeof values !== "object") continue;
     for (const field of garment.fields) {
       const value = (values as Record<string, unknown>)[field.key];
@@ -154,7 +146,9 @@ function parseNotes(notes: string | null): ItemDetailsData {
       packageDimensions: parsed.packageDimensions || "13x10x3",
       vendooLabels: parsed.vendooLabels ?? DEFAULTS.vendooLabels,
       poshmarkOriginalPrice: parsed.poshmarkOriginalPrice ?? "0",
-      garment: GARMENTS.some((g) => g.id === parsed.garment) ? parsed.garment : DEFAULTS.garment,
+      garment: parsed.garment === "shorts"
+        ? "pants"
+        : GARMENTS.some((g) => g.id === parsed.garment) ? parsed.garment : DEFAULTS.garment,
       measurements: parseMeasurements(parsed.measurements),
     };
   } catch {

@@ -551,15 +551,12 @@ def _preserve_formula_copy(original: dict, updated: dict, blockers: list[dict]) 
     return out
 
 
-# Keys and labels mirror GARMENTS in src/components/ItemDetails.tsx.
+# Keys and labels mirror GARMENTS in src/components/ItemDetails.tsx. Pants cover
+# shorts too, since both take the same measurements.
 GARMENT_MEASUREMENTS: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {
     "top": ("Top", (("pitToPit", "Pit to pit"), ("length", "Length"), ("sleeve", "Sleeve"))),
     "pants": (
         "Pants",
-        (("waist", "Waist"), ("rise", "Rise"), ("inseam", "Inseam"), ("legOpening", "Leg opening")),
-    ),
-    "shorts": (
-        "Shorts",
         (("waist", "Waist"), ("rise", "Rise"), ("inseam", "Inseam"), ("legOpening", "Leg opening")),
     ),
 }
@@ -568,11 +565,17 @@ GARMENT_MEASUREMENTS: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {
 def _seller_measurements(parsed: dict) -> str:
     """Only the selected garment's measurements; the others stay saved but unused."""
     garment = parsed.get("garment")
+    if garment == "shorts":  # saved before shorts folded into pants
+        garment = "pants"
     if garment not in GARMENT_MEASUREMENTS:
         return ""
     label, fields = GARMENT_MEASUREMENTS[garment]
     measurements = parsed.get("measurements")
-    values = measurements.get(garment) if isinstance(measurements, dict) else None
+    values = None
+    if isinstance(measurements, dict):
+        values = measurements.get(garment)
+        if values is None and garment == "pants":
+            values = measurements.get("shorts")
     if not isinstance(values, dict):
         return ""
     parts = [
