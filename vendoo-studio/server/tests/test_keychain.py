@@ -169,5 +169,36 @@ class RealKeychainIsUntouchedTest(unittest.TestCase):
         self.assertFalse(keychain._store_readable)
 
 
+class BackendSelectionTest(unittest.TestCase):
+    """Packaged, keyring cannot discover its backend, so we name it."""
+
+    def test_a_failing_backend_is_replaced_with_the_macos_one(self):
+        import keyring
+        from keyring.backends import fail, macOS
+
+        original = keyring.get_keyring()
+        self.addCleanup(keyring.set_keyring, original)
+        # What a frozen bundle looks like: no entry points, so keyring settles
+        # on the backend that reports every secret as absent.
+        keyring.set_keyring(fail.Keyring())
+
+        keychain._keyring()
+
+        self.assertIsInstance(keyring.get_keyring(), macOS.Keyring)
+
+    def test_a_working_backend_is_left_alone(self):
+        import keyring
+        from keyring.backends import macOS
+
+        original = keyring.get_keyring()
+        self.addCleanup(keyring.set_keyring, original)
+        chosen = macOS.Keyring()
+        keyring.set_keyring(chosen)
+
+        keychain._keyring()
+
+        self.assertIs(keyring.get_keyring(), chosen)
+
+
 if __name__ == "__main__":
     unittest.main()
