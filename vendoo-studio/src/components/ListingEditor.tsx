@@ -944,6 +944,17 @@ function SendToVendooButton({
             emptyFieldsPrompt={fillEmptyPrompt}
           />
         )}
+        {!existingJob.last_error && !error && (
+          // No error to show, but empty fields still deserve their fill button.
+          <CopyableLlmError
+            className="job-card-detail"
+            text=""
+            prompt=""
+            onAskChat={onAskChat}
+            emptyFieldsCount={emptyFieldsCount}
+            emptyFieldsPrompt={fillEmptyPrompt}
+          />
+        )}
       </div>
     );
   }
@@ -962,7 +973,8 @@ function SendToVendooButton({
     uniqueBlockers.length ? uniqueBlockers : [{ message: displayError }],
     listingTitle,
   );
-  const errorCard = displayError ? (
+  // Rendered even without an error so the fill button stays while fields are empty.
+  const errorCard = (
     <CopyableLlmError
       className="mt-8"
       text={displayError}
@@ -971,7 +983,7 @@ function SendToVendooButton({
       emptyFieldsCount={emptyFieldsCount}
       emptyFieldsPrompt={fillEmptyPrompt}
     />
-  ) : null;
+  );
 
   return (
     <div>
