@@ -39,7 +39,11 @@ export function PhotoTray({ convId }: Props) {
 
   const deleteMutation = useMutation({
     mutationFn: (photoId: string) => api.conversations.deletePhoto(convId, photoId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["photos", convId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["photos", convId] });
+      // The sidebar thumbnail comes from the conversation list's cover photo.
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
   });
 
   const reorderMutation = useMutation({
@@ -62,7 +66,10 @@ export function PhotoTray({ convId }: Props) {
       }
       setUploadError(err.message || "Reorder failed");
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["photos", convId] }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["photos", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
   });
 
   const previewIndex = photos?.findIndex((p) => p.id === previewId) ?? -1;
@@ -171,6 +178,7 @@ export function PhotoTray({ convId }: Props) {
     try {
       const result = await api.conversations.uploadPhotos(convId, Array.from(fileList));
       await queryClient.invalidateQueries({ queryKey: ["photos", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const errors = result.errors || [];
       if (errors.length) {
         setUploadError(errors.join("; "));
