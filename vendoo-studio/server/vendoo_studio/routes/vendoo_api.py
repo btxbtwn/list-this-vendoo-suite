@@ -365,6 +365,46 @@ async def category_map(body: MapRequest):
     }}
 
 
+@router.post("/api/conversations/{conv_id}/vendoo-api/sync")
+async def sync_with_vendoo(conv_id: str, db: Session = Depends(get_db)):
+    """Bring in Vendoo's changes when it is safe to, and say so when it is not.
+
+    Called when a listing is opened or the app regains focus, so the request
+    pattern follows the seller rather than a clock. Pulls only when Studio has
+    nothing outstanding of its own; when both sides moved, neither wins and the
+    conflict is reported.
+    """
+    from vendoo_studio.services.vendoo_create import run_ops
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+    from vendoo_studio.services.vendoo_watch import apply_pull, mark_synced, sync_state
+
+    conv = ConversationRepo(db).get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    item_id = vendoo_binding(conv.notes).get("vendooItemId")
+    if not item_id:
+        return {"ok": True, "action": "none", "reason": "no vendoo draft"}
+    try:
+        reply = await run_ops(SimpleNamespace(id=None), [{"op": "get_item", "item_id": item_id}])
+    except BrowserBridgeError:
+        # No browser is not a failure worth interrupting the seller over.
+        return {"ok": True, "action": "none", "reason": "chrome unavailable"}
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    item = next((r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None)
+    if not isinstance(item, dict):
+        return {"ok": True, "action": "none", "reason": "no item"}
+
+    state = sync_state(db, conv_id, item)
+    if state["action"] == "pull":
+        revision_id = apply_pull(db, conv_id, item)
+        return {"ok": True, "action": "pull", "reason": state["reason"], "revision_id": revision_id}
+    if state["action"] == "conflict":
+        return {"ok": True, "action": "conflict", "reason": state["reason"], "item_id": item_id}
+    mark_synced(db, conv_id, item, state.get("revision"))
+    return {"ok": True, "action": "none", "reason": state["reason"]}
+
+
 class UpdateRequest(BaseModel):
     item_id: str
     updates: dict = Field(default_factory=dict)

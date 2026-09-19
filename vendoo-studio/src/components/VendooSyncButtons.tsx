@@ -1,3 +1,4 @@
+import React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { addToast } from "../ui/toast";
@@ -15,6 +16,46 @@ export function VendooSyncButtons({ convId, bound, className }: {
   className?: string;
 }) {
   const queryClient = useQueryClient();
+
+  // Sync when the listing is opened and whenever the app comes back to the
+  // front, so the request pattern follows the seller rather than a clock. A
+  // timer would be a steady, obviously automated heartbeat against Vendoo.
+  React.useEffect(() => {
+    if (!bound) return undefined;
+    let cancelled = false;
+    const run = () => {
+      api.vendooApi
+        .sync(convId)
+        .then((res) => {
+          if (cancelled || res.action === "none") return;
+          if (res.action === "pull") {
+            queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+            queryClient.invalidateQueries({ queryKey: ["listing-fields", convId] });
+            addToast({
+              type: "success",
+              title: "Updated from Vendoo",
+              description: "Changes made in Vendoo are now in Studio.",
+            });
+          } else if (res.action === "conflict") {
+            addToast({
+              type: "error",
+              title: "Changed in both places",
+              description: "Vendoo and Studio both changed. Save or Pull to choose which wins.",
+            });
+          }
+        })
+        .catch(() => {
+          // A sync that cannot run is not worth interrupting anyone over.
+        });
+    };
+    run();
+    const onFocus = () => run();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [convId, bound, queryClient]);
 
   const save = useMutation({
     mutationFn: () => api.vendooApi.save(convId),

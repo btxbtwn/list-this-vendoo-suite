@@ -121,6 +121,10 @@ export const api = {
       request<{ ok: boolean; item_id: string; updated: string[] }>(
         `/conversations/${convId}/vendoo-api/save`, { method: "POST" },
       ),
+    sync: (convId: string) =>
+      request<{ ok: boolean; action: "pull" | "conflict" | "none"; reason: string; revision_id?: string }>(
+        `/conversations/${convId}/vendoo-api/sync`, { method: "POST" },
+      ),
     pull: (convId: string) =>
       request<{ ok: boolean; item_id: string; revision_id: string }>(
         `/conversations/${convId}/vendoo-api/pull`, { method: "POST" },
