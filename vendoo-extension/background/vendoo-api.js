@@ -358,6 +358,48 @@ async function queryVendooSizes(session, call) {
   return { sizes: res.data };
 }
 
+// Vendoo's own mapping from a general category to a marketplace's. Its forms
+// use this, so one good general choice settles every marketplace instead of
+// each being guessed separately. ``reverse`` goes the other way.
+async function mapVendooCategory(session, call) {
+  const general = call.general_category || {};
+  const path = Array.isArray(general.path) ? general.path : [];
+  const displayPath = Array.isArray(general.displayPath) ? general.displayPath : [];
+  const source = call.source_marketplace_id || 'vendoo';
+  const country = call.country_code || 'US';
+  // Shape the mapper expects (Vendoo's fromV2Category).
+  const generalCategory = {
+    id: general.id,
+    doc_id: [source, general.id].join(':'),
+    marketplace_id: source,
+    parent_category_id: path.slice(0, -1).pop() || '__root',
+    all_category_label: displayPath,
+    last_subcategory_label: general.displayName || '',
+    completion_text: displayPath.join(' '),
+    most_relevant_text: general.displayName || '',
+    parent_category_id_path: path.slice(0, -1),
+    searchable_text: path.slice(0, -1),
+    is_leaf: Boolean(general.isLeaf),
+    has_children: Boolean(general.hasChildren),
+    country_code: country,
+    status: 'active',
+  };
+  const params = new URLSearchParams({
+    user_id: session.uid,
+    marketplace_id: call.marketplace_id,
+    general_category_marketplace_id: source,
+    country_code: country,
+    // axios JSON-encodes nested params; match that.
+    general_category: JSON.stringify(generalCategory),
+  });
+  const route = call.reverse ? 'reverse' : 'mapper';
+  const res = await vendooFetch(`${VENDOO_API_BASE}/api/category/${route}?${params}`, {
+    token: session.access_token,
+  });
+  if (!res.ok) throw new Error(vendooError(`category ${route} ${call.marketplace_id}`, res));
+  return { match: res.data?.match || null, recommendations: res.data?.recommendations || [] };
+}
+
 async function searchVendooCategory(session, call) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/category/search`, {
     method: 'POST',
@@ -407,6 +449,14 @@ async function runVendooApiOps(ops) {
           break;
         case 'category_search':
           results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
+          break;
+        case 'category_map':
+          results.push({
+            op: 'category_map',
+            ok: true,
+            marketplace_id: op.marketplace_id,
+            ...(await mapVendooCategory(session, op)),
+          });
           break;
         case 'size_query':
           results.push({

@@ -150,6 +150,36 @@ async def category_search(body: CategorySearchRequest):
     return {"ok": True, "leaf": hit.get("leaf"), "matches": hit.get("matches", [])}
 
 
+class MapRequest(BaseModel):
+    general_category: dict
+    marketplace_ids: list[str] = Field(default_factory=list, max_length=12)
+    reverse: bool = False
+
+
+@router.post("/api/vendoo-api/category-map")
+async def category_map(body: MapRequest):
+    """Map one general category to each marketplace, the way Vendoo's forms do."""
+    from vendoo_studio.services.vendoo_create import run_ops
+
+    ops = [{
+        "op": "category_map",
+        "marketplace_id": mp,
+        "general_category": body.general_category,
+        "reverse": body.reverse,
+        "throttle_ms": 150,
+    } for mp in body.marketplace_ids]
+    if not ops:
+        raise HTTPException(400, "Pass at least one marketplace id")
+    try:
+        reply = await run_ops(SimpleNamespace(id=None), ops)
+    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        raise _http_error(exc) from exc
+    return {"ok": True, "matches": {
+        r.get("marketplace_id"): {"match": r.get("match"), "recommendations": r.get("recommendations")}
+        for r in reply.get("results", []) if r.get("op") == "category_map"
+    }}
+
+
 class SizesRequest(BaseModel):
     category_id: str
     marketplace_id: str = "vendoo"
