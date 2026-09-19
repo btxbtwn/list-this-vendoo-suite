@@ -242,11 +242,12 @@ async def dispatch_queued_jobs():
     try:
         from vendoo_studio.repositories.queries import JobRepo
         from vendoo_studio.services.schema_probe import is_schema_probe_job, listing_for_extension
+        from vendoo_studio.models.job import is_vendoo_api_step
         repo = JobRepo(db)
         # One Chrome fill at a time; later approvals wait in queued / awaiting_extension.
         if repo.get_running():
             return
-        jobs = repo.get_dispatchable()
+        jobs = [job for job in repo.get_dispatchable() if not is_vendoo_api_step(job.current_step)]
         if not jobs:
             return
         if not extension_manager.connected:

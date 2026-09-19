@@ -569,8 +569,11 @@ async def create_item(
             return
         JobRepo(session).update_status(job.id, "dispatched", step)
         session.refresh(job)
-        if str(getattr(job, "status", "") or "") == "cancelled":
-            raise VendooCreateError("Send was cancelled")
+        status = str(getattr(job, "status", "") or "")
+        if status in {"cancelled", "failed"}:
+            raise VendooCreateError(
+                getattr(job, "last_error", None) or f"Send was {status}"
+            )
 
     schema = load_schema()
     mark("vendoo_api_categories")

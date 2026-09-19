@@ -120,6 +120,18 @@ class JobRepoActiveTest(unittest.TestCase):
         self.assertEqual(requeued[0].id, job.id)
         self.assertEqual(requeued[0].status, "queued")
 
+    def test_requeue_interrupted_fails_api_create_without_form_fill(self):
+        job = self._job("dispatched")
+        job.current_step = "vendoo_api_fields"
+        self.db.commit()
+
+        recovered = JobRepo(self.db).requeue_interrupted()
+
+        self.assertEqual(len(recovered), 1)
+        self.assertEqual(recovered[0].status, "failed")
+        self.assertEqual(recovered[0].current_step, "vendoo_api_fields")
+        self.assertIn("Send to Vendoo again", recovered[0].last_error)
+
     def test_requeue_interrupted_fails_leftover_fill_without_restarting_job(self):
         job = self._job("dispatched")
         job.current_step = "filling_fields"
