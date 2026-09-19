@@ -41,6 +41,24 @@ VALID_DEPOP_MATERIAL = frozenset((
     "Tweed", "Velvet", "Viscose", "Wool",
 ))
 
+# Vendoo stores Depop style/age/source as option codes, not labels, and its
+# Depop mapper drops anything that is not a known code. Codes are the
+# lowercased label except where Vendoo's option list says otherwise.
+_DEPOP_CODE_EXCEPTIONS = {
+    "style": {"Avant Garde": "avant_garde", "Utility": "techwear", "Y2K": "y2_k"},
+}
+DEPOP_OPTION_CODES: dict[str, dict[str, str]] = {
+    field: {
+        label: _DEPOP_CODE_EXCEPTIONS.get(field, {}).get(label, label.lower())
+        for label in labels
+    }
+    for field, labels in (
+        ("style", VALID_DEPOP_STYLE),
+        ("age", VALID_DEPOP_AGE),
+        ("source", VALID_DEPOP_SOURCE),
+    )
+}
+
 PACKAGE_DIMS_PATTERN = r"^\d+(\.\d+)?\s*x\s*\d+(\.\d+)?\s*x\s*\d+(\.\d+)?$"
 
 

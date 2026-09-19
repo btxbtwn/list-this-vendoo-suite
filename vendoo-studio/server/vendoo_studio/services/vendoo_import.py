@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import httpx
 
 from vendoo_studio.config import MAX_PHOTO_COUNT
-from vendoo_studio.models.schema import ListingSchema
+from vendoo_studio.models.schema import DEPOP_OPTION_CODES, ListingSchema
 from vendoo_studio.services.photos import process_bytes
 
 log = logging.getLogger("vendoo_studio.vendoo_import")
@@ -713,7 +713,16 @@ def _mercari_specifics(section: Any) -> dict[str, Any]:
 
 
 def _depop_specifics(section: Any) -> dict[str, Any]:
-    return _copy_specifics(section)
+    specifics = _copy_specifics(section)
+    # Vendoo stores style/age/source as option codes; Studio speaks labels.
+    for field, codes in DEPOP_OPTION_CODES.items():
+        labels = {code: label for label, code in codes.items()}
+        value = specifics.get(field)
+        if isinstance(value, list):
+            specifics[field] = [labels.get(item, item) for item in value]
+        elif isinstance(value, str):
+            specifics[field] = labels.get(value, value)
+    return specifics
 
 
 def _etsy_specifics(section: Any) -> dict[str, Any]:

@@ -24,6 +24,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from vendoo_studio.models.schema import DEPOP_OPTION_CODES
 from vendoo_studio.services.vendoo_specifics import (
     FieldSpec,
     encode_scaled,
@@ -992,6 +993,38 @@ def _learned_category_specifics(
     return out
 
 
+def depop_option_codes(field: str, value: Any) -> tuple[list[str], list[str]]:
+    """Encode Depop style/age/source labels (or codes) as Vendoo's codes.
+
+    Returns ``(codes, unknown)``; Vendoo's Depop mapper would drop the unknown
+    ones anyway, so they are reported rather than sent.
+    """
+    lookup: dict[str, str] = {}
+    for label, code in DEPOP_OPTION_CODES[field].items():
+        lookup[_norm(label)] = code
+        lookup[_norm(code)] = code
+    codes: list[str] = []
+    unknown: list[str] = []
+    for item in _string_list(value):
+        code = lookup.get(_norm(item))
+        if code is None:
+            unknown.append(item)
+        elif code not in codes:
+            codes.append(code)
+    return codes, unknown
+
+
+def _apply_depop_option_codes(
+    known: dict[str, Any], unresolved: list[dict[str, str]] | None
+) -> None:
+    for field in DEPOP_OPTION_CODES:
+        codes, unknown = depop_option_codes(field, known.get(field))
+        known[field] = codes
+        if unresolved is not None:
+            for item in unknown:
+                unresolved.append({"field": f"depop:{field}", "value": item})
+
+
 def _listing_section(
     marketplace: str,
     listing: dict[str, Any],
@@ -1113,6 +1146,8 @@ def _listing_section(
         _apply_poshmark_smart_sell(known)
     elif marketplace == "mercari":
         _apply_mercari_shipping(known, listing)
+    elif marketplace == "depop":
+        _apply_depop_option_codes(known, unresolved)
 
     _apply_marketplace_brand(section, marketplace, listing)
     return section
