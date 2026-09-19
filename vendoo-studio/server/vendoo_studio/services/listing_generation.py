@@ -36,6 +36,8 @@ from vendoo_studio.services.schema_probe import (
 from vendoo_studio.services.streaming import (
     GenerationRun,
     await_with_pulses,
+    generation_discarded,
+    generation_is_current,
     iter_with_keepalives,
     spawn,
     sse_data,
@@ -70,6 +72,12 @@ async def run_listing_generation(
     stage_started = time.monotonic()
     timings: dict[str, float] = {}
 
+    def still_current() -> bool:
+        # Clear/Regenerate wipe the chat while this run is still unwinding.
+        if generation_is_current(conv_id, run):
+            return True
+        raise asyncio.CancelledError()
+
     def mark(stage: str) -> None:
         nonlocal stage_started
         now = time.monotonic()
@@ -102,6 +110,7 @@ async def run_listing_generation(
             except Exception as exc:
                 raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
             prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
+            still_current()
             stream_repo.add_message(conv_id, "system", analysis_text, provider=vision_name, model=vision_model)
 
         if existing:
@@ -154,6 +163,7 @@ async def run_listing_generation(
                 source = "brave"
             else:
                 source = "system"
+            still_current()
             stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
 
         messages = listing_generation_messages(
@@ -183,6 +193,7 @@ async def run_listing_generation(
         if not extract_listing_json(full_text):
             run.publish(sse_event("status", "Repairing listing JSON…"))
         needed_repair = not extract_listing_json(full_text)
+        still_current()
         run.publish(sse_event("status", "Filling required fields…"))
         listing = await await_with_pulses(
             run,
@@ -191,14 +202,6 @@ async def run_listing_generation(
             ),
             child_tasks,
         )
-        if listing:
-            stream_repo.add_message(
-                conv_id,
-                "system",
-                listing_save_summary(stream_db, conv_id, listing, repaired=needed_repair),
-                provider="system",
-                model="",
-            )
         mark("repair_and_finalize")
         log.info(
             "generation timing conv=%s total=%.2fs %s",
@@ -223,13 +226,20 @@ async def run_listing_generation(
                 evidence=evidence_text,
                 schema_meta=schema_meta,
                 provider=provider,
+                repaired=needed_repair,
             )))
     except asyncio.CancelledError:
         log.warning("listing generation cancelled for %s; saving any completed text", conv_id)
         for task in child_tasks:
             if not task.done():
                 task.cancel()
-        if full_text.strip() and not full_text.lstrip().lower().startswith("error:"):
+        # Clear/Regenerate discarded this run; saving now would write the old
+        # listing into the wiped conversation.
+        if (
+            not generation_discarded(conv_id, run)
+            and full_text.strip()
+            and not full_text.lstrip().lower().startswith("error:")
+        ):
             try:
                 await persist_generated_listing_with_repair(
                     stream_db, conv_id, full_text, provider
@@ -277,6 +287,7 @@ async def _finish_generation_background(
     evidence: str,
     schema_meta: dict | None,
     provider,
+    repaired: bool = False,
 ) -> None:
     """Fill remaining discovered fields after the generate stream ends.
 
@@ -301,12 +312,21 @@ async def _finish_generation_background(
 
         from vendoo_studio.services.listing_field_gaps import fill_listing_field_gaps
 
-        await fill_listing_field_gaps(
+        current = await fill_listing_field_gaps(
             db,
             conv_id,
             current,
             provider,
             evidence=evidence,
+        )
+        # Posted only now: said before the fill, it reported fields as empty
+        # and "Send when ready" while chat was still filling them.
+        repo.add_message(
+            conv_id,
+            "system",
+            listing_save_summary(db, conv_id, current, repaired=repaired),
+            provider="system",
+            model="",
         )
     except Exception:
         log.exception("post-generate finish failed for %s", conv_id)

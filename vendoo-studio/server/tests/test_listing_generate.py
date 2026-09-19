@@ -1010,6 +1010,59 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(revisions, [])
         self.assertIsNone(streaming.active_generation(self.conv_id))
 
+    async def test_resume_after_run_finished_does_not_start_a_second_run(self):
+        """A dropped connection reconnects; it must not generate the listing twice."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                async for _ in resp.aiter_text():
+                    pass
+            analyze_calls = self.provider.analyze_calls
+            chat_calls = self.provider.chat_calls
+            async with client.stream(
+                "POST", f"/api/conversations/{self.conv_id}/generate?resume=1"
+            ) as resp:
+                self.assertEqual(resp.status_code, 200)
+                body = "".join([chunk async for chunk in resp.aiter_text()])
+        self.assertIn("[DONE]", body)
+        self.assertEqual(self.provider.analyze_calls, analyze_calls)
+        self.assertEqual(self.provider.chat_calls, chat_calls)
+
+    async def test_discarded_run_stops_writing_into_the_wiped_chat(self):
+        """Regenerate wipes the chat; the old run must not post cards into it."""
+        gate = asyncio.Event()
+        self.provider.analyze_gate = gate
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async def read_stream():
+                async with client.stream("POST", f"/api/conversations/{self.conv_id}/generate") as resp:
+                    async for _ in resp.aiter_text():
+                        pass
+
+            reader = asyncio.create_task(read_stream())
+            await self._wait_until_generating()
+            run = streaming.active_generation(self.conv_id)
+            # The run is let go of while it is mid-step, so its cancellation
+            # lands only after the analysis it is waiting on comes back.
+            streaming._generations.pop(self.conv_id, None)
+            gate.set()
+            if run and run.task:
+                try:
+                    await run.task
+                except asyncio.CancelledError:
+                    pass
+            reader.cancel()
+            try:
+                await reader
+            except asyncio.CancelledError:
+                pass
+        db = self.Session()
+        messages = ConversationRepo(db).get_messages(self.conv_id)
+        revisions = ListingRepo(db).get_revisions(self.conv_id)
+        db.close()
+        self.assertEqual([m.text for m in messages], [])
+        self.assertEqual(revisions, [])
+
 
 if __name__ == "__main__":
     unittest.main()

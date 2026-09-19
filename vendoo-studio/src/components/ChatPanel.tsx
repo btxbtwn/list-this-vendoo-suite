@@ -218,7 +218,9 @@ function assistantDisplayText(text: string): string {
       return parsed.message.trim();
     }
     if (isListingJson(json) || isListingJson(text)) {
-      return "Listing saved. Open Fields to see what is still missing in Studio and on Vendoo.";
+      // The save summary that follows says what is still empty; claiming it
+      // here too gave chat two answers that disagreed.
+      return "Listing generated.";
     }
   } catch {
     /* ignore */
@@ -425,6 +427,8 @@ type LiveStream = {
   lastSendText: string;
   userCancelled: boolean;
   restoreInputOnAbort: boolean;
+  /** Set by queueChatGenerate: the next attach starts a run instead of resuming one. */
+  startQueued: boolean;
   listeners: Set<() => void>;
 };
 
@@ -443,6 +447,7 @@ function emptyLive(): Omit<LiveStream, "listeners"> {
     lastSendText: "",
     userCancelled: false,
     restoreInputOnAbort: false,
+    startQueued: false,
   };
 }
 
@@ -468,7 +473,7 @@ export function resetChatLive(convId: string) {
 /** Start a generate for this listing; a mounted ChatPanel picks it up and streams it. */
 export function queueChatGenerate(convId: string) {
   resetChatLive(convId);
-  patchLive(convId, { generating: true, streamStatus: "Analyzing photos…" });
+  patchLive(convId, { generating: true, streamStatus: "Analyzing photos…", startQueued: true });
 }
 
 /** True while the listing is being generated or chat is still answering. */
@@ -666,7 +671,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     touchYRef.current = y;
   }, []);
 
-  const streamFromFetch = useCallback(async (url: string, initialStatus = "") => {
+  const streamFromFetch = useCallback(async (url: string, initialStatus = "", resumeFirst = false) => {
     const liveState = getLive(convId);
     liveState.controller?.abort();
     const controller = new AbortController();
@@ -702,8 +707,11 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       return /^(load failed|failed to fetch|networkerror when attempting to fetch resource|network request failed|the internet connection appears to be offline\.?)$/i.test(msg.trim())
         || /failed to fetch|networkerror|load failed/i.test(msg);
     };
-    const readStream = async (): Promise<{ content: string; sawDone: boolean }> => {
-      const res = await fetch(url, { ...SSE_FETCH, signal: controller.signal });
+    const readStream = async (resume: boolean): Promise<{ content: string; sawDone: boolean }> => {
+      // A reconnect only follows the run it lost; if that run already ended,
+      // the server answers [DONE] instead of starting a second generation.
+      const target = resume ? `${url}${url.includes("?") ? "&" : "?"}resume=1` : url;
+      const res = await fetch(target, { ...SSE_FETCH, signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Request failed" }));
         throw Object.assign(new Error(detailFromResponseBody(err) || "Request failed"), {
@@ -727,7 +735,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       while (stillMine()) {
         attempt += 1;
         try {
-          const result = await readStream();
+          const result = await readStream(canResumeGenerate && (resumeFirst || attempt > 1));
           assembled = result.content;
           sawDone = result.sawDone;
           if (
@@ -1104,9 +1112,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       if (typeof document !== "undefined" && document.hidden) return;
       const liveState = getLive(convId);
       if (liveState.controller || liveState.userCancelled || !liveState.generating) return;
+      const start = liveState.startQueued;
+      liveState.startQueued = false;
       void streamFromFetch(
         `/api/conversations/${convId}/generate`,
         liveState.streamStatus || "Analyzing photos…",
+        !start,
       );
     };
     document.addEventListener("visibilitychange", reattach);

@@ -169,7 +169,14 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
   // Error cards offer "Fix errors" / "Ask chat for fields"; mid-generation the
   // listing is still being written, so those prompts would chase half-done values.
   const chatBusy = useChatBusy(convId);
-  const generating = chatBusy || conversation?.status === "in_progress" || schemaProbeActive;
+  // Same query ChatPanel polls: background field fills keep writing after the
+  // stream ends, and "Ask chat" beside "Filling discovered fields…" contradicts it.
+  const { data: activity } = useQuery({
+    queryKey: ["activity", convId],
+    queryFn: () => api.conversations.activity(convId),
+    refetchInterval: (query) => (query.state.data?.busy ? 1000 : 2000),
+  });
+  const generating = chatBusy || Boolean(activity?.busy) || conversation?.status === "in_progress" || schemaProbeActive;
   const askChat = generating ? undefined : onAskChat;
 
   const listing = data?.listing || {};

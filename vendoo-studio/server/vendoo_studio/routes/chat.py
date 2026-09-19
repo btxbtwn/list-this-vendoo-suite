@@ -35,6 +35,7 @@ from vendoo_studio.services.streaming import (
     sse_for_stream_item,
     start_generation,
     stop_generation,
+    stream_finished,
     stream_generation,
     wait_task_keepalives,
 )
@@ -182,7 +183,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                                    or not (revisions[0].listing_json or {}).get("title")):
         # Seller answers during category discovery resume the same generation
         # pipeline; chat must not bypass the schema prerequisite.
-        return await generate_listing(conv_id, db)
+        return await generate_listing(conv_id, db=db)
 
     repo.update_status(conv_id, "in_progress")
 
@@ -309,7 +310,7 @@ async def analyze_photos(conv_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/api/conversations/{conv_id}/generate")
-async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
+async def generate_listing(conv_id: str, resume: bool = False, db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
     conv = repo.get(conv_id)
     if not conv:
@@ -321,6 +322,10 @@ async def generate_listing(conv_id: str, db: Session = Depends(get_db)):
     existing = active_generation(conv_id)
     if existing is not None:
         return stream_generation(existing)
+    if resume:
+        # Reconnecting after the run ended must not start a second one: that
+        # posted a second photo analysis and comps card beside the first.
+        return stream_finished()
 
     photos = repo.get_photos(conv_id)
     if not photos:
