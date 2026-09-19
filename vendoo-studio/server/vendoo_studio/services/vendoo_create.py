@@ -561,7 +561,10 @@ async def create_item(
 
         from vendoo_studio.repositories.queries import JobRepo
 
-        session = object_session(job)
+        try:
+            session = object_session(job)
+        except Exception:  # noqa: BLE001 - tests pass a plain namespace
+            return
         if session is None:
             return
         JobRepo(session).update_status(job.id, "dispatched", step)
