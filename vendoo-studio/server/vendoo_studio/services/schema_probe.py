@@ -331,7 +331,6 @@ async def prepare_generation_schema(
     on_status=None,
 ) -> dict:
     """Resolve a category; reuse cached schemas or kick Chrome discovery without blocking generate."""
-    from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
     from vendoo_studio.services.category_catalog import cached_schema_payload
     from vendoo_studio.services.category_selection import select_categories
     from vendoo_studio.services.marketplaces import selected_fillable_platforms
@@ -419,63 +418,13 @@ async def prepare_generation_schema(
         )
         return seed
 
-    result = maybe_start_schema_probe(db, conv_id, listing=seed, reason="before_generation")
-    if result.get("reason") == "cached":
-        cached = cached_schema_payload(db, category_path, required)
-        if cached:
-            seed["_schema_source"] = "cache"
-            status("Using cached category fields…")
-            return seed
-
-    job_id = result.get("job_id")
-    if result.get("reason") == "already_done" and job_id:
-        db.expire_all()
-        schema = _schema_from_probe_job(db, job_id)
-        if schema:
-            try:
-                job_platforms = (JobRepo(db).get(job_id).listing_snapshot or {}).get("platforms") or platforms
-                _validate_schema_paths(schema, paths, job_platforms)
-                seed["_schema_source"] = "prior_probe"
-                status("Using discovered category fields…")
-                return seed
-            except RuntimeError:
-                log.warning("prior probe schema incomplete for %s; rediscovering", conv_id)
-
-    if not job_id:
-        reason = str(result.get("reason") or "unknown")
-        if reason in {"busy", "already_running"}:
-            seed["_schema_source"] = "deferred_busy"
-            seed["_schema_probe_job_id"] = result.get("active_job_id") or result.get("job_id")
-            status("Generating with known fields while Chrome is busy…")
-            return seed
-        start_errors = {
-            "cached": "Cached category fields were found but could not be loaded. Retry generation.",
-            "no_category": "Category discovery could not start: no verified category path yet.",
-            "conversation_not_found": "Category discovery could not start: conversation not found.",
-            "error": "Category discovery could not start because of an internal Studio error. Check Studio logs.",
-        }
-        raise RuntimeError(start_errors.get(reason, f"Category discovery could not start: {reason}"))
-
-    if not extension_manager.connected:
-        if result.get("started"):
-            job = JobRepo(db).get(job_id)
-            if job and job.status in {"queued", "awaiting_extension"}:
-                job.status = "failed"
-                job.current_step = "discovering_schema"
-                job.last_error = "Chrome disconnected before category discovery"
-                db.commit()
-        raise RuntimeError("Connect Chrome to discover the category fields before generating the listing.")
-
-    # Kick Chrome discovery but do not block listing generation on it.
-    status("Discovering fields in Chrome in the background…")
-    if result.get("started"):
-        await dispatch_queued_jobs()
-    seed["_schema_source"] = "deferred_probe"
-    seed["_schema_probe_job_id"] = job_id
-    try:
-        extension_manager.register_wait("schema:" + job_id)
-    except Exception:
-        log.exception("failed to register deferred schema wait for %s", job_id)
+    # Vendoo answers what a browser tour used to discover, so there is nothing
+    # left to discover. Generating without a schema is fine: create resolves
+    # each leaf and fetches its fields then, and the gap filler works from
+    # whatever is cached by that point. Driving Chrome here only ever cost a
+    # throwaway draft in the seller's account and a failure mode when it broke.
+    seed["_schema_source"] = "deferred"
+    status("Generating with the category's own fields…")
     return seed
 
 
