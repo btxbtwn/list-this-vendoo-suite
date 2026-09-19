@@ -11,8 +11,8 @@ Create a purpose-built local web application that lets the user:
 5. Edit individual fields or raw JSON directly.
 6. Validate the approved listing.
 7. Click **Send to Vendoo**.
-8. Have the Chrome extension open a new Vendoo listing, upload the approved photos, fill and verify the general form, and fill and verify each selected marketplace.
-9. Watch progress and retry failed steps from the web app.
+8. Send the approved listing to Vendoo as one call to Vendoo's own item API — photos to the inventory service, then `createItem` with every marketplace section already resolved. No marketplace form is opened or filled.
+9. Watch progress in the web app, and pull back anything edited in Vendoo.
 
 The system is local-only, intended for one user, runs one Chrome automation job at a time (additional approved Sends wait in a FIFO queue), and must always stop before publication.
 
@@ -338,10 +338,16 @@ POST   /api/conversations/{conversation_id}/listing/validate
 GET    /api/conversations/{conversation_id}/revisions
 POST   /api/conversations/{conversation_id}/revisions/{revision_id}/restore
 
-POST   /api/jobs
+POST   /api/conversations/{conversation_id}/vendoo-api/create
+POST   /api/conversations/{conversation_id}/vendoo-api/save
+POST   /api/conversations/{conversation_id}/vendoo-api/pull
+POST   /api/conversations/{conversation_id}/vendoo-api/sync
+POST   /api/conversations/{conversation_id}/vendoo-api/list
+POST   /api/conversations/{conversation_id}/vendoo-api/delist
+
+POST   /api/jobs/ensure-draft
 GET    /api/jobs
 GET    /api/jobs/{job_id}
-POST   /api/jobs/{job_id}/retry
 POST   /api/jobs/{job_id}/cancel
 GET    /api/jobs/{job_id}/events
 GET    /api/jobs/{job_id}/photos/{photo_id}

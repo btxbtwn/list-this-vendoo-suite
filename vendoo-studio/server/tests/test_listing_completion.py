@@ -888,6 +888,27 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.manager.register_wait.assert_not_called()
         self.assertEqual(JobRepo(self.db).list_by_conversation(self.conv.id), [self.job])
 
+    async def test_generation_never_fills_the_vendoo_form(self):
+        """Send is the only push to Vendoo, and Send is a Vendoo API call.
+
+        Generation used to type its values straight onto the bound draft, so a
+        seller who regenerated after a Send watched the old form-filler run
+        without having asked for it.
+        """
+        from vendoo_studio.services.listing_generation import _finish_generation_background
+
+        self.job.status = "completed"
+        self.job.current_step = "vendoo_api_created"
+        self.db.commit()
+        gaps = AsyncMock(return_value=self.listing)
+        with patch("vendoo_studio.services.listing_generation.SessionLocal", return_value=self.db), \
+             patch("vendoo_studio.services.listing_field_gaps.fill_listing_field_gaps", new=gaps):
+            await _finish_generation_background(
+                self.conv.id, self.listing, evidence="tag says cotton", schema_meta=None, provider=None,
+            )
+        gaps.assert_awaited_once()
+        self.dispatch.assert_not_awaited()
+
     async def test_generation_never_starts_a_chrome_probe(self):
         """Vendoo serves a category's fields, so nothing is discovered here.
 

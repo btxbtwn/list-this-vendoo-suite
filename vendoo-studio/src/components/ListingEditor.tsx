@@ -788,7 +788,8 @@ function SendToVendooButton({
     && existingJob.status === "dispatched"
     && (step === "vendoo_api_create" || step.startsWith("vendoo_api_")),
   );
-  // Legacy form-filler jobs may still be mid-flight after an older send.
+  // A browser fix the seller asked chat for is typing into the Vendoo form.
+  // Send itself never gets here: it is a Vendoo API call, reported above.
   const formFillActive = Boolean(
     existingJob
     && !isSchemaProbe
@@ -830,7 +831,7 @@ function SendToVendooButton({
       ? "Discovering fields"
       : apiCreateActive
         ? "Sending to Vendoo"
-        : "Job Status";
+        : "Filling fields in the browser";
     const statusText = probeActive
       ? (existingJob.current_step || existingJob.status)
       : apiCreateActive

@@ -266,7 +266,13 @@ async def _finish_generation_background(
     schema_meta: dict | None,
     provider,
 ) -> None:
-    """Fill remaining discovered fields and auto-apply after the generate stream ends."""
+    """Fill remaining discovered fields after the generate stream ends.
+
+    Generation stops at a saved listing. Nothing here reaches Vendoo: the
+    seller presses Send, and Send is one Vendoo API call (``vendoo-api/create``
+    or ``vendoo-api/save``). An automatic push from here used to type the
+    values into the Vendoo form instead, which is the old path and is gone.
+    """
     db = SessionLocal()
     repo = ConversationRepo(db)
     try:
@@ -283,37 +289,20 @@ async def _finish_generation_background(
 
         from vendoo_studio.services.listing_field_gaps import fill_listing_field_gaps
 
-        current = await fill_listing_field_gaps(
+        await fill_listing_field_gaps(
             db,
             conv_id,
             current,
             provider,
             evidence=evidence,
         )
-
-        from vendoo_studio.services.auto_apply import auto_apply_after_generation
-
-        apply_result = await auto_apply_after_generation(
-            db, conv_id, current, provider=provider, evidence=evidence,
-        )
-        if apply_result.get("applied"):
-            # auto_apply already records a system message on success
-            pass
-        elif apply_result.get("error"):
-            repo.add_message(
-                conv_id,
-                "system",
-                f"Could not apply generated values on Vendoo: {apply_result['error']}",
-                provider="system",
-                model="",
-            )
     except Exception:
         log.exception("post-generate finish failed for %s", conv_id)
         try:
             repo.add_message(
                 conv_id,
                 "system",
-                "Listing saved, but finishing discovered fields or Vendoo apply failed. Retry from Fields.",
+                "Listing saved, but finishing discovered fields failed. Retry generate.",
                 provider="system",
                 model="",
             )
