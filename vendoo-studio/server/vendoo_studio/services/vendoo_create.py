@@ -629,10 +629,19 @@ async def create_item(
     ])
     stored = _result(created, "get_item").get("item")
     # createItem sometimes drops marketplace fields (Depop style tags, brand
-    # overrides). Push whatever still differs the way a form save would.
+    # overrides, Mercari No Brand). Push only those — not every account default
+    # Vendoo filled in after create.
     patch_results: list[Any] = []
     if isinstance(stored, dict):
-        fixes = changed_fields(stored, item)
+        fixes = {
+            path: value
+            for path, value in changed_fields(stored, item).items()
+            if path.endswith(".style")
+            or path.endswith(".brand")
+            or path.endswith(".noBrand")
+            or path.endswith(".marketplaceSpecifics.age")
+            or path.endswith(".marketplaceSpecifics.source")
+        }
         if fixes:
             mark("vendoo_api_patch")
             patched = await run_ops(job, [
@@ -640,7 +649,8 @@ async def create_item(
                 {"op": "get_item", "item_id": item_id},
             ])
             patch_results = patched["results"]
-            stored = _result(patched, "get_item").get("item") or stored
+            # Round-trip diff still uses the create get_item — the patch only
+            # repairs marketplace fields createItem dropped.
     diff = diff_roundtrip(item, stored) if isinstance(stored, dict) else []
 
     return {
