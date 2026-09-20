@@ -1,4 +1,4 @@
-import { optionsForField, type DropdownForms } from "../dropdownOptions";
+import { OPTIONS_RULE, optionsForField, type DropdownForms } from "../dropdownOptions";
 
 type Blocker = { field?: string; message?: string };
 
@@ -87,12 +87,6 @@ function missingFieldsJsonExamples(fields: BlockerField[]): string {
   return examples.join(",") || '{"marketplace":"ebay","field":"Brand","value":"..."}';
 }
 
-/** Every fix prompt says this: a listed dropdown is the whole menu. */
-const OPTIONS_RULE =
-  "When a field lists options, every value you send for it must be copied from that list verbatim "
-  + "(same spelling, spacing and capitalization). Anything outside the list — \"Other\", \"Mixed\", "
-  + "\"Unknown\" — fails validation again. If nothing in the list fits, leave that field out of your "
-  + "reply and say why in prose.";
 
 function fieldLines(fields: BlockerField[]): string {
   return fields

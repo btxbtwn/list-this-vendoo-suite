@@ -123,6 +123,12 @@ export function FillLogPanel({
     queryKey: ["settings-marketplaces"],
     queryFn: api.settings.marketplaces,
   });
+  // Ask-chat prompts carry each field's real dropdown list, not just its name.
+  const { data: dropdownOptions } = useQuery({
+    queryKey: ["catalog-dropdown-options"],
+    queryFn: api.catalog.dropdownOptions,
+    staleTime: Infinity,
+  });
   const hiddenQueryKey = ["settings-hidden-fields", conversationId] as const;
   const { data: hiddenData } = useQuery({
     queryKey: hiddenQueryKey,
@@ -554,8 +560,13 @@ export function FillLogPanel({
                                 type="button"
                                 className="pr-read"
                                 onClick={() => onAskChat(leftover && FILL_FAILURE_STATUSES.has(leftover.status)
-                                  ? leftoverFieldPrompt(listing, leftover, applyValue || vendooText)
-                                  : emptyFieldsPrompt([{ ...selectedForm, fields: [field] }], fromVendooDraft, listing))}
+                                  ? leftoverFieldPrompt(listing, leftover, applyValue || vendooText, dropdownOptions?.forms)
+                                  : emptyFieldsPrompt(
+                                    [{ ...selectedForm, fields: [field] }],
+                                    fromVendooDraft,
+                                    listing,
+                                    dropdownOptions?.forms,
+                                  ))}
                               >
                                 Ask chat
                               </button>
@@ -622,6 +633,7 @@ export function FillLogPanel({
                   fromVendooDraft,
                   listing,
                   fillFailures,
+                  dropdownOptions?.forms,
                 ))}
               >
                 {emptyFieldsButtonLabel(askChatTargets)}

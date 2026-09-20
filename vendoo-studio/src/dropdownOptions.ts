@@ -2,6 +2,16 @@
 
 export type DropdownForms = Record<string, Record<string, string[]>>;
 
+/**
+ * Every fix prompt says this: a listed dropdown is the whole menu, and a value
+ * outside it has to be cleared rather than swapped for another invention.
+ */
+export const OPTIONS_RULE =
+  "When a field lists options, every value you send for it must be copied from that list verbatim "
+  + "(same spelling, spacing and capitalization). Anything outside the list — \"Other\", \"Mixed\", "
+  + "\"Unknown\" — fails validation again. If nothing in the list fits, send that field with an empty "
+  + "value (\"value\": \"\") to clear whatever is there now, and say why in prose.";
+
 const GENERAL_FIELD_ALIASES: Record<string, string> = {
   condition: "condition",
   primarycolor: "primaryColor",

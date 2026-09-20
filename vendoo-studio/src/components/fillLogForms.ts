@@ -1,5 +1,6 @@
 /** Pure form, field, and prompt logic behind the Fields panel. */
 import type { FillLogEntry, FillLogReport } from "../api/types";
+import { OPTIONS_RULE, optionsForField, type DropdownForms } from "../dropdownOptions";
 import {
   DEPOP_CATEGORY_OPTIONALS,
   EBAY_CATEGORY_CORE,
@@ -52,6 +53,8 @@ function isAlreadySetEntry(entry: { status?: string; reason?: string }): boolean
 }
 export const EMPTY_CELL = "— empty —";
 export const UNREAD_CELL = "— not read —";
+/** Keep the option dump readable when a dropdown has hundreds of entries. */
+const MAX_PROMPT_OPTIONS = 60;
 const DOES_NOT_APPLY_RE = /^(d|n\/?a|n\.a\.?|does not apply|none|unknown|-+)$/i;
 
 export interface FormSyncCounts {
@@ -464,10 +467,24 @@ function leftoverStatusLabel(entry: FillLogEntry): string {
   return entry.status;
 }
 
+/** Vendoo's dropdown list for a field, so chat answers with a value the form takes. */
+function optionsLine(
+  dropdowns: DropdownForms | undefined,
+  marketplace: string,
+  field: string,
+): string {
+  const options = optionsForField(dropdowns, marketplace, field);
+  if (!options?.length) return "";
+  const shown = options.slice(0, MAX_PROMPT_OPTIONS);
+  const rest = options.length - shown.length;
+  return `\n  Options (use only these, verbatim): ${shown.join(" | ")}${rest > 0 ? ` (+${rest} more)` : ""}`;
+}
+
 export function leftoverFieldPrompt(
   listing: Record<string, unknown> | undefined,
   entry: FillLogEntry,
   currentValue: string,
+  dropdowns?: DropdownForms,
 ): string {
   const title = listingTitle(listing);
   const current = String(currentValue || entry.value_preview || "").trim() || "(empty)";
@@ -476,12 +493,14 @@ export function leftoverFieldPrompt(
 
 Listing: ${title}
 Marketplace: ${entry.marketplace}
-Field: ${entry.field}
+Field: ${entry.field}${optionsLine(dropdowns, entry.marketplace, entry.field)}
 Current value: ${current}
 Status: ${leftoverStatusLabel(entry)}
 Failure reason: ${reason}
 
 Generate a value for ONLY this field from the photos and current listing. Do not rewrite unrelated fields.
+
+${OPTIONS_RULE}
 
 Reply with JSON in this exact shape:
 
@@ -495,15 +514,25 @@ export function emptyFieldsPrompt(
   forms: DraftForm[],
   fromDraft: boolean,
   listing?: Record<string, unknown>,
+  dropdowns?: DropdownForms,
 ): string {
   const title = listingTitle(listing);
-  const rows: { marketplace: string; form: string; field: string; current: string; status: string; reason: string }[] = [];
+  const rows: {
+    marketplace: string;
+    form: string;
+    field: string;
+    options: string;
+    current: string;
+    status: string;
+    reason: string;
+  }[] = [];
   for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
     const leftover = field.leftover;
     rows.push({
       marketplace: form.id,
       form: form.label,
       field: field.label,
+      options: optionsLine(dropdowns, form.id, field.key) || optionsLine(dropdowns, form.id, field.label),
       current: listingTextForField(listing, form.id, field) || EMPTY_CELL,
       status: leftover ? leftoverStatusLabel(leftover) : "missing in listing",
       reason: leftover?.reason || (fromDraft
@@ -514,7 +543,7 @@ export function emptyFieldsPrompt(
   const limited = rows.slice(0, 50);
   const lines = limited.map((row) => `- Listing: ${title}
   Marketplace: ${row.marketplace}
-  Field: ${row.field}
+  Field: ${row.field}${row.options}
   Current value: ${row.current}
   Status: ${row.status}
   Reason: ${row.reason}`);
@@ -531,6 +560,8 @@ Reply with JSON in this exact shape:
 
 Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
 
+${OPTIONS_RULE}
+
 When the item's brand is not offered by a marketplace, answer "Other" for Depop and "No Brand/Not sure" for Mercari — never substitute a different brand.
 
 Empty fields:
@@ -543,6 +574,7 @@ export function askChatGapsPrompt(
   fromDraft: boolean,
   listing: Record<string, unknown> | undefined,
   failures: FillLogEntry[],
+  dropdowns?: DropdownForms,
 ): string {
   const title = listingTitle(listing);
   const seen = new Set<string>();
@@ -563,7 +595,7 @@ export function askChatGapsPrompt(
     pushLine(
       `- Listing: ${title}
   Marketplace: ${entry.marketplace}
-  Field: ${field}
+  Field: ${field}${optionsLine(dropdowns, entry.marketplace, field)}
   Current value: ${current}
   Status: ${leftoverStatusLabel(entry)}
   Reason: ${reason}`,
@@ -577,7 +609,7 @@ export function askChatGapsPrompt(
     pushLine(
       `- Listing: ${title}
   Marketplace: ${form.id}
-  Field: ${field.label}
+  Field: ${field.label}${optionsLine(dropdowns, form.id, field.key) || optionsLine(dropdowns, form.id, field.label)}
   Current value: ${listingTextForField(listing, form.id, field) || EMPTY_CELL}
   Status: ${leftover ? leftoverStatusLabel(leftover) : "missing in listing"}
   Reason: ${leftover?.reason || (fromDraft
@@ -603,6 +635,8 @@ Reply with JSON in this exact shape:
 \`\`\`
 
 Use the marketplace ids and field names exactly as listed. Studio updates the listing JSON and Forms/Fields UI when this reply finishes; filling the live Vendoo draft is a separate step.
+
+${OPTIONS_RULE}
 
 When the item's brand is not offered by a marketplace, answer "Other" for Depop and "No Brand/Not sure" for Mercari — never substitute a different brand.
 
