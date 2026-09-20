@@ -11,6 +11,7 @@ function run(overrides: Partial<VendooBulkImport> = {}): VendooBulkImport {
     updated: 0,
     skipped: 0,
     failed: 0,
+    deleted: 0,
     photos: 0,
     current_title: "",
     started_at: "",
@@ -31,6 +32,10 @@ describe("importSummary", () => {
     expect(importSummary(run({ imported: 1, updated: 2, skipped: 3, failed: 4 }))).toBe(
       "1 new, 2 updated, 3 unchanged, 4 failed",
     );
+  });
+
+  it("names the listings a deleted Vendoo item took with it", () => {
+    expect(importSummary(run({ updated: 2, deleted: 3 }))).toBe("2 updated, 3 removed");
   });
 
   it("counts the photos that came down with them", () => {

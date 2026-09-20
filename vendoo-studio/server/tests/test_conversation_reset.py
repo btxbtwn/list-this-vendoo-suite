@@ -6,6 +6,7 @@ import os
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -29,6 +30,16 @@ JPEG_BYTES = bytes([
     0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
     0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9,
 ])
+
+
+@contextmanager
+def photos_dir(path: str):
+    """Point both the photo routes and the wipe at a throwaway directory."""
+    with (
+        patch("vendoo_studio.routes.conversations.PHOTOS_DIR", path),
+        patch("vendoo_studio.services.listing_delete.PHOTOS_DIR", path),
+    ):
+        yield
 
 
 class ConversationResetTest(unittest.TestCase):
@@ -96,7 +107,7 @@ class ConversationResetTest(unittest.TestCase):
             os.environ["VENDOO_STUDIO_DATA_DIR"] = self._data
 
     def test_reset_wipes_listing_and_keeps_conversation(self):
-        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name):
+        with photos_dir(self.photos_tmp.name):
             response = self.client.post(f"/api/conversations/{self.conv.id}/reset")
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -134,7 +145,7 @@ class ConversationResetTest(unittest.TestCase):
         })
         self.db.commit()
 
-        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name):
+        with photos_dir(self.photos_tmp.name):
             response = self.client.post(f"/api/conversations/{self.conv.id}/reset")
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -169,7 +180,7 @@ class ConversationResetTest(unittest.TestCase):
         })
         self.db.commit()
 
-        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name), \
+        with photos_dir(self.photos_tmp.name), \
              patch(
                  "vendoo_studio.services.vendoo_create.resolve_label_display_names",
                  new=AsyncMock(side_effect=lambda _job, labels: list(labels)),
@@ -222,7 +233,7 @@ class ConversationResetTest(unittest.TestCase):
             def cancel_wait(self, _request_id: str) -> None:
                 return None
 
-        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name), \
+        with photos_dir(self.photos_tmp.name), \
              patch(
                  "vendoo_studio.services.browser_bridge._manager",
                  return_value=SilentChrome(),
@@ -268,7 +279,7 @@ class ConversationResetTest(unittest.TestCase):
             def cancel_wait(self, _request_id: str) -> None:
                 return None
 
-        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name), \
+        with photos_dir(self.photos_tmp.name), \
              patch(
                  "vendoo_studio.services.browser_bridge._manager",
                  return_value=SilentChrome(),
@@ -291,7 +302,7 @@ class ConversationResetTest(unittest.TestCase):
         self.conv.notes = notes
         self.db.commit()
 
-        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name), \
+        with photos_dir(self.photos_tmp.name), \
              patch(
                  "vendoo_studio.services.vendoo_create.resolve_label_display_names",
                  new=AsyncMock(side_effect=lambda _job, labels: list(labels)),
@@ -347,7 +358,7 @@ class ConversationResetTest(unittest.TestCase):
         )
         self.db.commit()
 
-        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name), \
+        with photos_dir(self.photos_tmp.name), \
              patch(
                  "vendoo_studio.services.vendoo_create.resolve_label_display_names",
                  new=AsyncMock(side_effect=lambda _job, labels: list(labels)),
@@ -379,7 +390,7 @@ class ConversationResetTest(unittest.TestCase):
         )
         self.db.commit()
 
-        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name):
+        with photos_dir(self.photos_tmp.name):
             response = self.client.post(f"/api/conversations/{self.conv.id}/reset")
 
         self.assertEqual(response.status_code, 200, response.text)

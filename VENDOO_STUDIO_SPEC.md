@@ -197,7 +197,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Listings wear Vendoo's own Inventory labels — `Draft`, `Active`, `Sold` — taken from the bound item, plus `Failed` for a send that broke. `In progress` shows during MiMo generation or refinement and `Listing` during queued/running Vendoo automation.
 - The label is read-only: Studio reports what Vendoo says and offers no way to set it, so a listing can never claim a state Vendoo does not agree with.
 - Sold listings settle onto the collapsed shelf, so the working list holds what is still sellable.
-- Import the whole Vendoo inventory in one run (sidebar footer), photos included. Items already imported are refreshed only when Vendoo's copy changed, so the run doubles as a sync.
+- Import the whole Vendoo inventory in one run (sidebar footer), photos included. Items already imported are refreshed only when Vendoo's copy changed, so the run doubles as a sync. A run that reaches the last page also deletes the listings whose Vendoo item is gone, so deleting in Vendoo deletes here; listings never bound to a Vendoo item are left alone, and an inventory that reads as empty deletes nothing.
 - Show last-updated time and completed Vendoo draft link.
 
 ### Workspace

@@ -5,8 +5,10 @@ which its own inventory page reads, so one paged listing enumerates the account
 without an ``/api/item`` call per listing. Each item is imported whole, photos
 included, so a finished run leaves nothing to fetch later.
 
-Re-running is a sync: an item whose Vendoo document has not changed since the
-last pass is skipped, so nothing local is overwritten without a reason.
+Re-running is a sync in both directions: an item whose Vendoo document has not
+changed since the last pass is skipped, so nothing local is overwritten without
+a reason, and a bound listing the inventory no longer carries is deleted here,
+so what Studio shows is what Vendoo has.
 """
 from __future__ import annotations
 
@@ -34,6 +36,7 @@ class BulkImportProgress:
     updated: int = 0
     skipped: int = 0
     failed: int = 0
+    deleted: int = 0
     photos: int = 0
     current_title: str = ""
     started_at: str = ""
@@ -146,6 +149,7 @@ async def _run() -> None:
     try:
         _progress.total = await _count_items()
         page_token = ""
+        seen_ids: set[str] = set()
         with SessionLocal() as db:
             conv_repo = ConversationRepo(db)
             while True:
@@ -154,6 +158,7 @@ async def _run() -> None:
                     item_id = str(item.get("id") or "").strip()
                     if not item_id:
                         continue
+                    seen_ids.add(item_id)
                     title = _item_title(item)
                     _progress.current_title = title
                     try:
@@ -201,6 +206,7 @@ async def _run() -> None:
                         _progress.processed += 1
                 if not page_token:
                     break
+            _delete_missing(db, conv_repo, seen_ids)
     except asyncio.CancelledError:
         _progress.cancelled = True
         raise
@@ -211,6 +217,37 @@ async def _run() -> None:
         _progress.running = False
         _progress.current_title = ""
         _progress.finished_at = utcnow().isoformat()
+
+
+def _delete_missing(db, conv_repo, seen_ids: set[str]) -> None:
+    """Drop the listings whose Vendoo item was not in the inventory.
+
+    Only a run that reached the last page gets here, so an item is missing
+    because the seller deleted it in Vendoo, not because the pass stopped
+    early. Listings that were never bound to a Vendoo item are left alone.
+    """
+    from vendoo_studio.services.listing_delete import ListingBusy, delete_listing
+
+    if not seen_ids:
+        # An inventory that reads as empty is far likelier a Vendoo session
+        # that went quiet than an account with nothing in it, and a sweep on
+        # that reading would take the whole sidebar with it.
+        log.warning("Vendoo inventory came back empty; leaving local listings alone")
+        return
+
+    for conv_id, item_id in conv_repo.vendoo_bound_item_ids().items():
+        if item_id in seen_ids:
+            continue
+        try:
+            delete_listing(db, conv_id)
+        except ListingBusy:
+            log.info("Vendoo item %s is gone but its listing is busy; keeping it", item_id)
+            continue
+        except Exception as exc:  # noqa: BLE001 - one stuck listing must not end the sweep
+            log.warning("Could not delete the listing for deleted Vendoo item %s: %s", item_id, exc)
+            db.rollback()
+            continue
+        _progress.deleted += 1
 
 
 def _item_title(item: dict) -> str:
