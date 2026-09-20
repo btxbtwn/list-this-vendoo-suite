@@ -1,7 +1,9 @@
 /* ── Sidebar ── */
 
+/* Desktop: the window titlebar owns collapse/settings. Mobile keeps this brand
+   band because the desktop topbar is hidden below 900px. */
 .sidebar-header {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 10px;
   height: var(--workspace-topbar-height);
@@ -36,18 +38,15 @@ html.desktop-app .sidebar {
   padding-left: 0;
 }
 
-html.desktop-app .sidebar-header {
+html.desktop-app .workspace-topbar {
   height: var(--titlebar-height);
+  /* Traffic lights, then the same 10px gap T3 leaves before the first control. */
   padding-left: var(--traffic-light-inset);
+  padding-right: 10px;
 }
 
 html.desktop-app .editor-header {
   height: var(--titlebar-height);
-}
-
-/* Collapsed sidebar: the topbar carries the window's traffic lights instead. */
-html.desktop-app .app-content.sidebar-collapsed .workspace-topbar {
-  padding-left: calc(var(--traffic-light-inset) - var(--space-2));
 }
 
 .sidebar-collapse {
@@ -82,7 +81,7 @@ html.desktop-app .app-content.sidebar-collapsed .workspace-topbar {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  padding: 0 var(--sidebar-content-inset) 8px;
+  padding: 8px var(--sidebar-content-inset);
 }
 
 .sidebar-search {

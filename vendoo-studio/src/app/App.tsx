@@ -366,6 +366,16 @@ export function App() {
 
   return (
     <div className="app-shell" style={panelWidthStyle}>
+      <WorkspaceTopbar
+        crumbs={crumbs}
+        sidebarOpen={!sidebarHidden}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+        detailOpen={activeView === "settings" ? null : !detailHidden}
+        onToggleDetail={() => setDetailCollapsed(!detailCollapsed)}
+        settingsOpen={activeView === "settings"}
+        onOpenSettings={openSettings}
+        onCloseSettings={closeSettings}
+      />
       <div
         className={`app-content mobile-pane-${mobilePane}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}${sidebarHidden ? " sidebar-collapsed" : ""}`}
       >
@@ -387,7 +397,6 @@ export function App() {
             onCloseSettings={closeSettings}
             onSettingsSectionChange={handleSettingsSectionChange}
             onSettingsSearchResult={handleSettingsSearchResult}
-            onCollapse={() => setSidebarCollapsed(true)}
           />
         )}
         {sidebarHidden ? null : (
@@ -474,13 +483,6 @@ export function App() {
               </>
             ) : null}
           </header>
-          <WorkspaceTopbar
-            crumbs={crumbs}
-            sidebarCollapsed={sidebarHidden}
-            onShowSidebar={() => setSidebarCollapsed(false)}
-            detailOpen={activeView === "settings" ? null : !detailHidden}
-            onToggleDetail={() => setDetailCollapsed(!detailCollapsed)}
-          />
           <div className="workspace-body">
             <main className="panel main-panel" ref={mainPanelRef}>
               {activeView === "settings" ? (

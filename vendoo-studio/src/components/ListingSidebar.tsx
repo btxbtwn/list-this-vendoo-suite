@@ -13,7 +13,7 @@ import {
 import { statusFromListingStatus } from "./fillLogForms";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ListingFilters } from "./ListingFilters";
-import { PanelLeftIcon, stopTitlebarDrag } from "./WorkspaceTopbar";
+import { stopTitlebarDrag } from "./WorkspaceTopbar";
 import {
   DEFAULT_LISTING_FILTERS,
   filterListings,
@@ -114,7 +114,6 @@ interface Props {
   onCloseSettings: () => void;
   onSettingsSectionChange: (section: SettingsSectionId) => void;
   onSettingsSearchResult: (item: SettingsSearchItem) => void;
-  onCollapse: () => void;
 }
 
 export function HamburgerIcon() {
@@ -277,7 +276,6 @@ export function ListingSidebar({
   onCloseSettings,
   onSettingsSectionChange,
   onSettingsSearchResult,
-  onCollapse,
 }: Props) {
   const queryClient = useQueryClient();
   const legacySettled = readLegacySettledExpanded();
@@ -527,18 +525,6 @@ export function ListingSidebar({
       aria-hidden={mobileOpen === false ? true : undefined}
     >
       <div className="sidebar-header pywebview-drag-region">
-        <button
-          type="button"
-          className="titlebar-control sidebar-collapse"
-          aria-label="Hide listings"
-          aria-expanded={true}
-          aria-controls="listings-sidebar"
-          title="Hide listings"
-          onMouseDown={stopTitlebarDrag}
-          onClick={onCollapse}
-        >
-          <PanelLeftIcon open />
-        </button>
         <div className="sidebar-brand">
           <span className="sidebar-wordmark">Vendoo</span>
           <span className="sidebar-product">Studio</span>
@@ -549,6 +535,7 @@ export function ListingSidebar({
             className="sidebar-icon-btn sidebar-header-settings"
             title="Settings"
             aria-label="Settings"
+            onMouseDown={stopTitlebarDrag}
             onClick={onOpenSettings}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -563,6 +550,7 @@ export function ListingSidebar({
             className="sidebar-icon-btn sidebar-header-settings"
             title="Back to listings"
             aria-label="Back to listings"
+            onMouseDown={stopTitlebarDrag}
             onClick={onCloseSettings}
           >
             <BackIcon />
