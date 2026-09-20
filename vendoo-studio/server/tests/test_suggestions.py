@@ -66,6 +66,7 @@ class SuggestionsTest(unittest.TestCase):
         self.convs.add_photo(conv.id, "a.jpg", "a.jpg", "image/jpeg", 12)
         card = self._by_title("New photos")
         self.assertEqual(card["kind"], "ready_to_generate")
+        self.assertIsNone(card["age_days"])
         self.assertTrue(card["cover_photo_url"].startswith("/api/photos/"))
         self.assertEqual(card["action"], "open")
 
@@ -102,6 +103,7 @@ class SuggestionsTest(unittest.TestCase):
         self.db.commit()
         cards = [card for card in list_suggestions(self.db, now=NOW) if card["kind"] == "stale_active"]
         self.assertEqual([card["title"] for card in cards], ["Ninety", "Sixty", "Thirty"])
+        self.assertEqual([card["age_days"] for card in cards], [90, 60, 30])
         self.assertIn("30 days", cards[-1]["reason"])
         self.assertIn("eBay", cards[-1]["reason"])
         self.assertTrue(cards[0]["score"] > cards[1]["score"] > cards[2]["score"])

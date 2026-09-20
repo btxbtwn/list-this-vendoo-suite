@@ -131,6 +131,7 @@ def _card_for(
     kind: str | None = None
     reason = ""
     score = 0
+    days: int | None = None
 
     if status == KIND_FAILED:
         kind = KIND_FAILED
@@ -171,6 +172,7 @@ def _card_for(
         "action": "open",
         "score": score,
         "cover_photo_url": cover,
+        "age_days": days if kind == KIND_STALE_ACTIVE else None,
     }
 
 

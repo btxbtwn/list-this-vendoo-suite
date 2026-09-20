@@ -284,6 +284,7 @@ export interface Suggestion {
   action: "open" | string;
   score: number;
   cover_photo_url?: string | null;
+  age_days?: number | null;
 }
 
 export type SuggestionKind =
