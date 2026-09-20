@@ -40,8 +40,13 @@ class ListingPriceHelpersTest(unittest.TestCase):
 
     def test_whole_dollar_percent_cut(self):
         self.assertEqual(whole_dollars(29.7), 30)
-        self.assertEqual(price_after_percent(48, 15), 41)
+        # A cut rounds down, so the price never moves less than the label says:
+        # 48 - 15% is 40.80, and $41 would only be a 14.6% cut.
+        self.assertEqual(price_after_percent(48, 15), 40)
         self.assertEqual(price_after_percent(10, 20), 8)
+        # The case that exposed it: a dollar is already 7% of a $14 listing.
+        self.assertEqual(price_after_percent(14, 10), 12)
+        self.assertEqual(price_after_percent(1, 10), 1)
 
 
 class FieldsFromListingTest(unittest.TestCase):
