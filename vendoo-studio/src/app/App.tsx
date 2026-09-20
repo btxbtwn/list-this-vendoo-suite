@@ -17,7 +17,9 @@ import {
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { PhotoDropOverlay } from "../components/PhotoDropOverlay";
 import { ToastHost } from "../components/ToastHost";
-import { PanelResizeHandle, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
+import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
+import { WorkspaceTopbar } from "../components/WorkspaceTopbar";
+import { workspaceCrumbs } from "../components/workspaceCrumbs";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
 import { addToast } from "../ui/toast";
@@ -74,6 +76,8 @@ export function App() {
   const mainPanelRef = useRef<HTMLElement>(null);
   const [sidebarWidth, setSidebarWidth] = usePanelWidth("sidebar");
   const [detailWidth, setDetailWidth] = usePanelWidth("detail");
+  const [sidebarCollapsed, setSidebarCollapsed] = usePanelCollapsed("sidebar");
+  const [detailCollapsed, setDetailCollapsed] = usePanelCollapsed("detail");
   const panelWidthStyle = {
     ...(sidebarWidth ? { "--sidebar-width": `${sidebarWidth}px` } : {}),
     ...(detailWidth ? { "--detail-width": `${detailWidth}px` } : {}),
@@ -144,6 +148,15 @@ export function App() {
   const workspaceTitle = activeView === "settings"
     ? SETTINGS_SECTION_LABELS[settingsSection]
     : String(selectedListing?.title || "Vendoo Studio");
+  const crumbs = workspaceCrumbs(
+    activeView,
+    SETTINGS_SECTION_LABELS[settingsSection],
+    activeView === "settings" ? null : selectedListing,
+  );
+  // The sidebar overlays the workspace on mobile and the editor is its own pane
+  // there, so the desktop collapse states only apply to the desktop layout.
+  const sidebarHidden = !isMobile && sidebarCollapsed;
+  const detailHidden = !isMobile && detailCollapsed;
 
   const closeMobileSidebar = () => setMobileSidebarOpen(false);
 
@@ -353,34 +366,41 @@ export function App() {
 
   return (
     <div className="app-shell" style={panelWidthStyle}>
-      <div className={`app-content mobile-pane-${mobilePane}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}`}>
-        <ListingSidebar
-          conversations={conversations}
-          selectedConvId={selectedConvId}
-          activeView={activeView}
-          settingsSection={settingsSection}
-          creating={createConv.isPending}
-          canCreate={true}
-          mobileOpen={!isMobile || mobileSidebarOpen}
-          listingQuery={listingQuery}
-          onSearchQueryChange={handleListingSearch}
-          onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
-          onCreate={createListing}
-          onDelete={(id) => deleteConv.mutate(id)}
-          onOpenSettings={openSettings}
-          onCloseSettings={closeSettings}
-          onSettingsSectionChange={handleSettingsSectionChange}
-          onSettingsSearchResult={handleSettingsSearchResult}
-        />
-        <PanelResizeHandle
-          label="Resize listings sidebar"
-          panel="before"
-          width={sidebarWidth}
-          onResize={setSidebarWidth}
-          absorberRef={mainPanelRef}
-          absorberMin={MAIN_PANEL_MIN_WIDTH}
-          {...SIDEBAR_WIDTH}
-        />
+      <div
+        className={`app-content mobile-pane-${mobilePane}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}${sidebarHidden ? " sidebar-collapsed" : ""}`}
+      >
+        {sidebarHidden ? null : (
+          <ListingSidebar
+            conversations={conversations}
+            selectedConvId={selectedConvId}
+            activeView={activeView}
+            settingsSection={settingsSection}
+            creating={createConv.isPending}
+            canCreate={true}
+            mobileOpen={!isMobile || mobileSidebarOpen}
+            listingQuery={listingQuery}
+            onSearchQueryChange={handleListingSearch}
+            onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
+            onCreate={createListing}
+            onDelete={(id) => deleteConv.mutate(id)}
+            onOpenSettings={openSettings}
+            onCloseSettings={closeSettings}
+            onSettingsSectionChange={handleSettingsSectionChange}
+            onSettingsSearchResult={handleSettingsSearchResult}
+            onCollapse={() => setSidebarCollapsed(true)}
+          />
+        )}
+        {sidebarHidden ? null : (
+          <PanelResizeHandle
+            label="Resize listings sidebar"
+            panel="before"
+            width={sidebarWidth}
+            onResize={setSidebarWidth}
+            absorberRef={mainPanelRef}
+            absorberMin={MAIN_PANEL_MIN_WIDTH}
+            {...SIDEBAR_WIDTH}
+          />
+        )}
 
         <div className="workspace-frame">
           <header className="mobile-workspace-bar">
@@ -454,116 +474,124 @@ export function App() {
               </>
             ) : null}
           </header>
-          <main className="panel main-panel" ref={mainPanelRef}>
-            <div className="workspace-drag-region pywebview-drag-region" aria-hidden="true" />
-            {activeView === "settings" ? (
-              <Suspense fallback={null}>
-                <SettingsPage
-                  section={settingsSection}
-                  targetId={settingsTargetId}
-                  onTargetHandled={() => setSettingsTargetId(null)}
-                  onOpenSetupGuide={() => setSetupGuideOpen(true)}
-                />
-              </Suspense>
-            ) : selectedConvId ? (
-              <div className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
-                {browserPaneOpen && (
-                  <BrowserPreview
-                    jobId={listingJob?.id ?? null}
-                    step={listingJob?.current_step}
-                    status={listingJob?.status}
-                    vendooItemId={listingJob?.vendoo_item_id}
-                    vendooUrl={listingJob?.vendoo_url}
-                    cancelling={cancelJob.isPending}
-                    onCancel={listingJob?.id ? () => cancelJob.mutate(listingJob.id) : undefined}
-                    interactive={browserOpen}
-                    automationRunning={previewOpen}
-                    onClose={closeBrowser}
-                    expanded={browserExpanded}
-                    onToggleExpanded={isMobile ? undefined : () => setBrowserExpanded((value) => !value)}
-                    selected={browserFields}
-                    onSelectedChange={setBrowserFields}
-                    onGoToChat={isMobile ? () => setMobilePane("workspace") : undefined}
-                  />
-                )}
-                <div className="listing-workspace-main" key={`${selectedConvId}:${workspaceNonce}`}>
-                  <div className="chat-column">
-                    <ChatPanel
-                      convId={selectedConvId}
-                      queuedMessage={queuedChatMessage}
-                      onQueuedMessageConsumed={() => setQueuedChatMessage(null)}
-                      browser={browserOpen && browserJobId ? { jobId: browserJobId, fields: browserFields } : null}
-                      onBrowserFieldsChange={setBrowserFields}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : needsSetup ? (
-              <SetupChecklist
-                providerConfigured={providerConfigured}
-                chromeAvailable={status?.chrome_available !== false}
-                extensionConnected={Boolean(status?.extension_connected)}
-                creating={createConv.isPending}
-                onOpenSettings={openSettings}
-                onStartGuide={() => setSetupGuideOpen(true)}
-                onCreate={createListing}
-              />
-            ) : (
-              <div className="empty-state">
-                <div className="empty-state-headline">Turn product photos<br />into marketplace-ready drafts.</div>
-                <div className="empty-state-rule" />
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  style={{ marginTop: 8 }}
-                  disabled={createConv.isPending}
-                  title={createListingTitle}
-                  onClick={createListing}
-                >
-                  Create a listing
-                </button>
-              </div>
-            )}
-          </main>
-
-          {activeView !== "settings" && (
-            <PanelResizeHandle
-              label="Resize listing editor"
-              panel="after"
-              width={detailWidth}
-              onResize={setDetailWidth}
-              absorberRef={mainPanelRef}
-              absorberMin={MAIN_PANEL_MIN_WIDTH}
-              {...DETAIL_WIDTH}
-            />
-          )}
-          {activeView !== "settings" && (
-            <aside className="panel detail-panel">
-              {selectedConvId ? (
+          <WorkspaceTopbar
+            crumbs={crumbs}
+            sidebarCollapsed={sidebarHidden}
+            onShowSidebar={() => setSidebarCollapsed(false)}
+            detailOpen={activeView === "settings" ? null : !detailHidden}
+            onToggleDetail={() => setDetailCollapsed(!detailCollapsed)}
+          />
+          <div className="workspace-body">
+            <main className="panel main-panel" ref={mainPanelRef}>
+              {activeView === "settings" ? (
                 <Suspense fallback={null}>
-                  <ListingEditor
-                    key={`${selectedConvId}:${workspaceNonce}`}
-                    convId={selectedConvId}
-                    onJobStarted={() => setMobilePane("browser")}
-                    onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
-                    browserOpen={browserOpen}
-                    onAskChat={(text) => {
-                      setQueuedChatMessage(text);
-                      setMobilePane("workspace");
-                    }}
-                    onCleared={() => {
-                      setQueuedChatMessage(null);
-                      setWorkspaceNonce((value) => value + 1);
-                    }}
+                  <SettingsPage
+                    section={settingsSection}
+                    targetId={settingsTargetId}
+                    onTargetHandled={() => setSettingsTargetId(null)}
+                    onOpenSetupGuide={() => setSetupGuideOpen(true)}
                   />
                 </Suspense>
+              ) : selectedConvId ? (
+                <div className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
+                  {browserPaneOpen && (
+                    <BrowserPreview
+                      jobId={listingJob?.id ?? null}
+                      step={listingJob?.current_step}
+                      status={listingJob?.status}
+                      vendooItemId={listingJob?.vendoo_item_id}
+                      vendooUrl={listingJob?.vendoo_url}
+                      cancelling={cancelJob.isPending}
+                      onCancel={listingJob?.id ? () => cancelJob.mutate(listingJob.id) : undefined}
+                      interactive={browserOpen}
+                      automationRunning={previewOpen}
+                      onClose={closeBrowser}
+                      expanded={browserExpanded}
+                      onToggleExpanded={isMobile ? undefined : () => setBrowserExpanded((value) => !value)}
+                      selected={browserFields}
+                      onSelectedChange={setBrowserFields}
+                      onGoToChat={isMobile ? () => setMobilePane("workspace") : undefined}
+                    />
+                  )}
+                  <div className="listing-workspace-main" key={`${selectedConvId}:${workspaceNonce}`}>
+                    <div className="chat-column">
+                      <ChatPanel
+                        convId={selectedConvId}
+                        queuedMessage={queuedChatMessage}
+                        onQueuedMessageConsumed={() => setQueuedChatMessage(null)}
+                        browser={browserOpen && browserJobId ? { jobId: browserJobId, fields: browserFields } : null}
+                        onBrowserFieldsChange={setBrowserFields}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : needsSetup ? (
+                <SetupChecklist
+                  providerConfigured={providerConfigured}
+                  chromeAvailable={status?.chrome_available !== false}
+                  extensionConnected={Boolean(status?.extension_connected)}
+                  creating={createConv.isPending}
+                  onOpenSettings={openSettings}
+                  onStartGuide={() => setSetupGuideOpen(true)}
+                  onCreate={createListing}
+                />
               ) : (
                 <div className="empty-state">
-                  <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
+                  <div className="empty-state-headline">Turn product photos<br />into marketplace-ready drafts.</div>
+                  <div className="empty-state-rule" />
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{ marginTop: 8 }}
+                    disabled={createConv.isPending}
+                    title={createListingTitle}
+                    onClick={createListing}
+                  >
+                    Create a listing
+                  </button>
                 </div>
               )}
-            </aside>
-          )}
+            </main>
+
+            {activeView !== "settings" && !detailHidden && (
+              <PanelResizeHandle
+                label="Resize listing editor"
+                panel="after"
+                width={detailWidth}
+                onResize={setDetailWidth}
+                absorberRef={mainPanelRef}
+                absorberMin={MAIN_PANEL_MIN_WIDTH}
+                {...DETAIL_WIDTH}
+              />
+            )}
+            {activeView !== "settings" && !detailHidden && (
+              <aside id="listing-inspector" className="panel detail-panel">
+                {selectedConvId ? (
+                  <Suspense fallback={null}>
+                    <ListingEditor
+                      key={`${selectedConvId}:${workspaceNonce}`}
+                      convId={selectedConvId}
+                      onJobStarted={() => setMobilePane("browser")}
+                      onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
+                      browserOpen={browserOpen}
+                      onAskChat={(text) => {
+                        setQueuedChatMessage(text);
+                        setMobilePane("workspace");
+                      }}
+                      onCleared={() => {
+                        setQueuedChatMessage(null);
+                        setWorkspaceNonce((value) => value + 1);
+                      }}
+                    />
+                  </Suspense>
+                ) : (
+                  <div className="empty-state">
+                    <p className="text-xs text-muted font-mono">Select a listing to inspect</p>
+                  </div>
+                )}
+              </aside>
+            )}
+          </div>
         </div>
       </div>
 

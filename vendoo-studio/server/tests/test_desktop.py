@@ -124,22 +124,6 @@ class StudioWindowChromeTest(unittest.TestCase):
 
     def test_titlebar_matches_t3_code(self):
         self.assertEqual(desktop.TITLEBAR_HEIGHT_PX, 52)
-        self.assertEqual(desktop.TRAFFIC_LIGHT_SIZE_PX, 14.0)
-        self.assertEqual(desktop.TRAFFIC_LIGHT_GAP_PX, 6.0)
-        self.assertEqual(desktop.TRAFFIC_LIGHT_X_PX, 16.0)
-
-    def test_traffic_light_rect_matches_electron_hidden_inset(self):
-        """x=16 and a 19pt top inset: T3 Code's trafficLightPosition on a 52pt bar."""
-        close = desktop.traffic_light_rect(0, 52)
-        miniaturize = desktop.traffic_light_rect(1, 52)
-        zoom = desktop.traffic_light_rect(2, 52)
-        self.assertEqual(close, (16.0, 19.0, 14.0, 14.0))
-        self.assertEqual(miniaturize, (36.0, 19.0, 14.0, 14.0))
-        self.assertEqual(zoom, (56.0, 19.0, 14.0, 14.0))
-
-    def test_traffic_light_rect_stays_in_t3_band_when_os_titlebar_is_taller(self):
-        close = desktop.traffic_light_rect(0, 64)
-        self.assertEqual(close, (16.0, 31.0, 14.0, 14.0))
 
     def test_create_studio_window_applies_chrome_before_show(self):
         class Event:
@@ -186,9 +170,11 @@ class StudioWindowChromeTest(unittest.TestCase):
         container = MagicMock()
         container.frame.return_value.size.height = 52.0
         close.superview.return_value = container
+        toolbar = MagicMock()
         native = MagicMock()
         native.styleMask.return_value = 0
         native.collectionBehavior.return_value = 0
+        native.toolbar.return_value = None
         native.contentView.return_value.superview.return_value.subviews.return_value = [titlebar]
         native.standardWindowButton_.side_effect = lambda button: {
             0: close,
@@ -210,7 +196,10 @@ class StudioWindowChromeTest(unittest.TestCase):
             NSWindowCollectionBehaviorFullScreenNone=1 << 9,
             NSWindowCollectionBehaviorFullScreenPrimary=1 << 7,
             NSAppearanceNameDarkAqua="dark",
-            NSMakeRect=lambda x, y, w, h: (x, y, w, h),
+            NSWindowToolbarStyleUnified=1,
+            NSToolbar=SimpleNamespace(
+                alloc=lambda: SimpleNamespace(initWithIdentifier_=lambda identifier: toolbar)
+            ),
             NSColor=SimpleNamespace(
                 colorWithSRGBRed_green_blue_alpha_=MagicMock(return_value="black"),
                 clearColor=MagicMock(return_value="clear"),
@@ -232,14 +221,18 @@ class StudioWindowChromeTest(unittest.TestCase):
         close.setHidden_.assert_called_once_with(False)
         miniaturize.setHidden_.assert_called_once_with(False)
         zoom.setHidden_.assert_called_once_with(False)
-        # T3 Code leaves the buttons at their regular AppKit size.
-        close.setControlSize_.assert_not_called()
         close.setEnabled_.assert_called_once_with(True)
         miniaturize.setEnabled_.assert_called_once_with(True)
         zoom.setEnabled_.assert_called_once_with(True)
-        close.setFrame_.assert_called_once_with((16.0, 19.0, 14.0, 14.0))
-        miniaturize.setFrame_.assert_called_once_with((36.0, 19.0, 14.0, 14.0))
-        zoom.setFrame_.assert_called_once_with((56.0, 19.0, 14.0, 14.0))
+        # AppKit owns the buttons' size and position: the empty unified toolbar
+        # is what insets them into T3 Code's 52pt band.
+        close.setControlSize_.assert_not_called()
+        close.setFrame_.assert_not_called()
+        miniaturize.setFrame_.assert_not_called()
+        zoom.setFrame_.assert_not_called()
+        native.setToolbar_.assert_called_once_with(toolbar)
+        toolbar.setShowsBaselineSeparator_.assert_called_once_with(False)
+        native.setToolbarStyle_.assert_called_once_with(1)
         # Close, minimize, and zoom only respond when the mask carries their bits.
         native.setStyleMask_.assert_called_once_with(
             (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 15)

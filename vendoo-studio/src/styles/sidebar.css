@@ -3,7 +3,7 @@
 .sidebar-header {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   height: var(--workspace-topbar-height);
   flex-shrink: 0;
   padding: 0 12px;
@@ -16,10 +16,6 @@
 .mobile-workspace-bar,
 .mobile-sidebar-backdrop,
 .mobile-mail-toolbar {
-  display: none;
-}
-
-.workspace-drag-region {
   display: none;
 }
 
@@ -49,10 +45,13 @@ html.desktop-app .editor-header {
   height: var(--titlebar-height);
 }
 
-html.desktop-app .workspace-drag-region {
-  display: block;
-  height: var(--titlebar-height);
-  flex-shrink: 0;
+/* Collapsed sidebar: the topbar carries the window's traffic lights instead. */
+html.desktop-app .app-content.sidebar-collapsed .workspace-topbar {
+  padding-left: calc(var(--traffic-light-inset) - var(--space-2));
+}
+
+.sidebar-collapse {
+  color: var(--color-ink-muted);
 }
 
 .sidebar-brand {
