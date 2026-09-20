@@ -883,25 +883,13 @@ def _enable_native_fullscreen(native, AppKit) -> None:
         pass
 
 
-def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
-    """Paint the window like T3 Code: no grey title bar, traffic lights on the UI."""
-    if sys.platform != "darwin":
-        return
-    _set_macos_app_icon()
-    native = getattr(window, "native", None)
-    if native is None:
-        return
-    try:
-        import AppKit
-    except ImportError:
-        return
+def _paint_transparent_titlebar(native, AppKit) -> None:
+    """Keep AppKit's titlebar clear so the HTML chrome shows through.
 
-    if _is_native_fullscreen(native, AppKit):
-        return
-
-    _enable_native_fullscreen(native, AppKit)
-    _enable_window_buttons(native, AppKit)
-
+    Spaces fullscreen resets the titlebar to an opaque dark band (~52pt) that
+    covers the window-wide topbar. Re-clear it on every chrome pass, including
+    after enter/exit fullscreen.
+    """
     title_hidden = getattr(AppKit, "NSWindowTitleHidden", 1)
     try:
         native.setTitlebarAppearsTransparent_(True)
@@ -920,7 +908,29 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
     except Exception:
         pass
 
-    _install_titlebar_toolbar(native, AppKit)
+
+def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
+    """Paint the window like T3 Code: no grey title bar, traffic lights on the UI."""
+    if sys.platform != "darwin":
+        return
+    _set_macos_app_icon()
+    native = getattr(window, "native", None)
+    if native is None:
+        return
+    try:
+        import AppKit
+    except ImportError:
+        return
+
+    fullscreen = _is_native_fullscreen(native, AppKit)
+    if not fullscreen:
+        # Avoid flipping collection behavior / style bits mid-transition; AppKit
+        # owns those while the Space is fullscreen.
+        _enable_native_fullscreen(native, AppKit)
+        _enable_window_buttons(native, AppKit)
+        _install_titlebar_toolbar(native, AppKit)
+
+    _paint_transparent_titlebar(native, AppKit)
     _restore_traffic_lights(native, AppKit)
 
 
@@ -934,6 +944,9 @@ def create_studio_window(webview_module):
     events = window.events
     if hasattr(events, "shown"):
         events.shown += apply_unified_macos_chrome
+    # pywebview maps macOS Spaces fullscreen to maximized / restored.
+    if hasattr(events, "maximized"):
+        events.maximized += apply_unified_macos_chrome
     if hasattr(events, "restored"):
         events.restored += apply_unified_macos_chrome
     return window
