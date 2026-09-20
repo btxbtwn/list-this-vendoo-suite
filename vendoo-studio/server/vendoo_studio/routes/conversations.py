@@ -56,6 +56,10 @@ class ConversationResponse(BaseModel):
     vendoo_sold_at: str | None = None
     vendoo_listed_dates: dict[str, str] = {}
     vendoo_sold_dates: dict[str, str] = {}
+    # When Studio last wrote this listing onto its Vendoo item. A marketplace
+    # whose listing date is older than this is still showing the copy from
+    # before that write, and only a delist + relist in Vendoo replaces it.
+    vendoo_form_updated_at: str | None = None
 
 
 class MessageResponse(BaseModel):
@@ -582,6 +586,7 @@ def _vendoo_dates(notes: dict) -> dict:
         return {str(market): str(stamp) for market, stamp in raw.items() if stamp}
 
     return {
+        "vendoo_form_updated_at": str(notes.get("vendooFormUpdatedAt") or "") or None,
         "vendoo_created_at": text("created"),
         "vendoo_modified_at": text("modified"),
         "vendoo_listed_at": text("listed"),

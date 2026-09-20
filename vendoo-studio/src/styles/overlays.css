@@ -232,6 +232,10 @@
   border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border));
 }
 
+.toast-warning {
+  border-color: color-mix(in srgb, var(--color-draft) 45%, var(--color-border));
+}
+
 .toast-copy {
   min-width: 0;
   flex: 1;

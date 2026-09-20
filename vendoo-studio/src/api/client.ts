@@ -158,7 +158,7 @@ export const api = {
         diff: unknown[];
       }>(`/conversations/${convId}/vendoo-api/create`, { method: "POST" }),
     save: (convId: string) =>
-      request<{ ok: boolean; item_id: string; updated: string[] }>(
+      request<{ ok: boolean; item_id: string; updated: string[]; relist_needed: string[] }>(
         `/conversations/${convId}/vendoo-api/save`, { method: "POST" },
       ),
     sync: (convId: string) =>

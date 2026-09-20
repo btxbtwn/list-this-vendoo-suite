@@ -11,6 +11,7 @@ export const SETUP_GUIDE_STEPS = [
   { id: "brave", label: "Brave Search" },
   { id: "chrome", label: "Connect Chrome" },
   { id: "tour", label: "How Studio works" },
+  { id: "updates", label: "Updating live listings" },
   { id: "ready", label: "Create a listing" },
 ] as const;
 
@@ -200,6 +201,7 @@ export function FirstRunGuide({
     if (id === "brave") return braveConfigured || stepIndex > SETUP_GUIDE_STEPS.findIndex((item) => item.id === "brave");
     if (id === "chrome") return chromeReady;
     if (id === "tour") return stepIndex > SETUP_GUIDE_STEPS.findIndex((item) => item.id === "tour");
+    if (id === "updates") return stepIndex > SETUP_GUIDE_STEPS.findIndex((item) => item.id === "updates");
     return false;
   };
 
@@ -473,10 +475,35 @@ export function FirstRunGuide({
                     <strong>Listing panel</strong> — the draft fields for Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy. Review here before send.
                   </li>
                   <li>
-                    <strong>Send to Vendoo</strong> — creates or updates a draft over Vendoo's API. Publish stays a human click on Vendoo.
+                    <strong>Send to Vendoo</strong> — creates or updates the Vendoo form over Vendoo's API. Listing and relisting stay human clicks in Vendoo.
                   </li>
                   <li>
                     <strong>Footer</strong> — extension and listing-AI status. If either is off, fix it in Settings before generating.
+                  </li>
+                </ul>
+              </>
+            ) : null}
+
+            {step === "updates" ? (
+              <>
+                <h2 id="setup-guide-title" className="setup-guide-title">Editing something already listed</h2>
+                <p className="setup-guide-copy">
+                  Studio writes the Vendoo <em>form</em>. Vendoo only carries a form change onto a
+                  live marketplace listing when you delist and list it again — so a regenerated
+                  listing is live on its old copy until you do that, in Vendoo.
+                </p>
+                <ul className="setup-guide-points">
+                  <li>
+                    <strong>1. Regenerate and Update Vendoo here.</strong> The Vendoo form now matches Studio. Nothing on eBay, Poshmark, Depop or Mercari has changed yet.
+                  </li>
+                  <li>
+                    <strong>2. Open the item in Vendoo.</strong> The ⋮ menu beside Vendoo Form → Delist Item takes it down everywhere.
+                  </li>
+                  <li>
+                    <strong>3. List it again from Vendoo.</strong> The new listing carries the updated copy, and its listing date resets.
+                  </li>
+                  <li>
+                    <strong>Studio tracks the gap for you.</strong> Between steps 1 and 3 the listing wears an amber <em>relist</em> badge in the sidebar, and Filters → Needs relist collects every one of them. It clears itself once Vendoo reports the new listing date.
                   </li>
                 </ul>
               </>

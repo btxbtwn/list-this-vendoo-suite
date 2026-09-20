@@ -242,6 +242,34 @@
   border-radius: var(--radius-sm);
 }
 
+/* A live listing still showing the copy from before Studio's last write.
+   Amber rather than red: nothing failed, there is simply a step left, and it
+   happens in Vendoo rather than here. */
+.pr-notice.is-relist {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+  background: var(--color-draft-tint);
+  border: 1px solid color-mix(in srgb, var(--color-draft) 40%, var(--color-border));
+}
+
+.pr-notice.is-relist strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.pr-notice-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.pr-notice-action {
+  flex: none;
+}
+
 .pr-mode-banner {
   margin: 0;
   padding: 8px 10px;

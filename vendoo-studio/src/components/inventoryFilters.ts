@@ -1,5 +1,7 @@
 /** Vendoo Inventory's filters and sorts, over Studio's own listing rows. */
 
+import { needsRelist } from "./relistStatus";
+
 export type ListingSortId =
   | "recent"
   | "created_desc"
@@ -54,6 +56,9 @@ export type FilterableListing = {
   vendoo_marketplaces?: string[];
   vendoo_listed_at?: string | null;
   vendoo_sold_at?: string | null;
+  vendoo_listed_dates?: Record<string, string>;
+  vendoo_sold_dates?: Record<string, string>;
+  vendoo_form_updated_at?: string | null;
 };
 
 export interface ListingFilters {
@@ -61,6 +66,8 @@ export interface ListingFilters {
   marketplaces: string[];
   labels: string[];
   notListed: boolean;
+  /** Keep only listings whose live marketplaces are behind the last Vendoo write. */
+  needsRelist: boolean;
   /** Keep only listings that went live at least this many days ago; 0 is off. */
   staleDays: number;
   sort: ListingSortId;
@@ -71,6 +78,7 @@ export const DEFAULT_LISTING_FILTERS: ListingFilters = {
   marketplaces: [],
   labels: [],
   notListed: false,
+  needsRelist: false,
   staleDays: 0,
   sort: "recent",
 };
@@ -122,6 +130,7 @@ export function matchesFilters(
     const own = new Set((listing.vendoo_labels || []).map(lower));
     if (!filters.labels.some((label) => own.has(lower(label)))) return false;
   }
+  if (filters.needsRelist && !needsRelist(listing)) return false;
   if (!isStale(listing, filters.staleDays, now)) return false;
   return true;
 }
@@ -240,6 +249,7 @@ export function activeFilterCount(filters: ListingFilters): number {
     filters.marketplaces.length +
     filters.labels.length +
     (filters.notListed ? 1 : 0) +
+    (filters.needsRelist ? 1 : 0) +
     (filters.staleDays ? 1 : 0)
   );
 }
@@ -290,6 +300,11 @@ export function staleCounts(
     counts[days] = listings.filter((listing) => isStale(listing, days, now)).length;
   }
   return counts;
+}
+
+/** Listings whose live marketplaces still carry the copy from before the last write. */
+export function needsRelistCount(listings: FilterableListing[]): number {
+  return listings.filter((listing) => needsRelist(listing)).length;
 }
 
 /** Listings no marketplace carries — what Vendoo's "View Not Listed" asks for. */

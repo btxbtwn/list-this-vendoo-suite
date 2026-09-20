@@ -14,6 +14,8 @@ import { statusFromListingStatus } from "./fillLogForms";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ListingFilters } from "./ListingFilters";
 import { SuggestionsPanel } from "./SuggestionsPanel";
+import { marketplacesNeedingRelist } from "./relistStatus";
+import { marketplaceName } from "./marketplaceNames";
 import { stopTitlebarDrag } from "./WorkspaceTopbar";
 import {
   DEFAULT_LISTING_FILTERS,
@@ -24,6 +26,7 @@ import {
   marketplaceCounts,
   marketplaceOptions,
   notListedCount,
+  needsRelistCount,
   staleCounts,
   sortListings,
   statusCounts,
@@ -59,21 +62,6 @@ const MARKETPLACE_STATUS_ORDER = [
   "vestiaire",
   "sellwild",
 ];
-const MARKETPLACE_STATUS_LABELS: Record<string, string> = {
-  general: "Vendoo",
-  ebay: "eBay",
-  etsy: "Etsy",
-  poshmark: "Poshmark",
-  mercari: "Mercari",
-  depop: "Depop",
-  facebook: "Facebook",
-  shopify: "Shopify",
-  vinted: "Vinted",
-  whatnot: "Whatnot",
-  sellwild: "Sellwild",
-  grailed: "Grailed",
-  vestiaire: "Vestiaire Collective",
-};
 // Vendoo keys Vestiaire's API integration separately; Settings treats it as one marketplace.
 const MARKETPLACE_ID_ALIASES: Record<string, string> = { vestiaireApi: "vestiaire" };
 const LISTED_LIVE_STATUSES = new Set(["LISTED", "SOLD"]);
@@ -95,7 +83,9 @@ type Listing = {
   vendoo_listed_at?: string | null;
   vendoo_sold_at?: string | null;
   vendoo_marketplaces?: string[];
+  vendoo_listed_dates?: Record<string, string>;
   vendoo_sold_dates?: Record<string, string>;
+  vendoo_form_updated_at?: string | null;
 };
 
 interface Props {
@@ -390,6 +380,7 @@ export function ListingSidebar({
   const filterLabelCounts = useMemo(() => labelCounts(facetSource), [facetSource]);
   const filterNotListedCount = useMemo(() => notListedCount(facetSource), [facetSource]);
   const filterStaleCounts = useMemo(() => staleCounts(facetSource), [facetSource]);
+  const filterRelistCount = useMemo(() => needsRelistCount(facetSource), [facetSource]);
   const labels = useMemo(() => labelOptions(conversations || []), [conversations]);
   const filterMarketplaces = useMemo(
     () => marketplaceOptions(conversations || [], marketplaceSettings?.selected || []),
@@ -682,6 +673,7 @@ export function ListingSidebar({
             marketplaces={filterMarketplaces}
             marketplaceCounts={filterMarketplaceCounts}
             notListedCount={filterNotListedCount}
+            needsRelistCount={filterRelistCount}
             staleCounts={filterStaleCounts}
             onChange={handleFiltersChange}
           />
@@ -793,7 +785,7 @@ export function ListingSidebar({
 
 
 function marketplaceLabel(id: string): string {
-  return MARKETPLACE_STATUS_LABELS[id] || id.charAt(0).toUpperCase() + id.slice(1);
+  return marketplaceName(id);
 }
 
 function normalizeLiveStatus(raw: unknown): string | undefined {
@@ -999,6 +991,9 @@ function ListingRow({
     ? draftRows.filter((row) => LISTED_LIVE_STATUSES.has(row.status))
     : importedRows;
   const popupStatuses = marketplaceStatuses.length ? marketplaceStatuses : importedRows;
+  // "active" alone would read as done. These listings are live on copy older
+  // than Studio's last write, and only a delist + relist in Vendoo fixes that.
+  const relistMarketplaces = useMemo(() => marketplacesNeedingRelist(listing), [listing]);
   const loadingStatus = Boolean(
     hoverOpen && jobId && !draft && peekQuery.isFetching,
   );
@@ -1154,6 +1149,15 @@ function ListingRow({
             <span className={`nav-status nav-status-${statusClass}`} title={statusHint(status)}>
               {status.replace(/_/g, " ")}
             </span>
+            {relistMarketplaces.length ? (
+              <span
+                className="nav-status nav-status-relist"
+                title={`Updated in Studio after ${relistMarketplaces.map(marketplaceName).join(", ")} went live.`
+                  + " Delist and relist in Vendoo to publish the new version."}
+              >
+                relist
+              </span>
+            ) : null}
             {settledAt ? <span className="nav-time">{settledAt}</span> : null}
           </div>
           {listedMarketplaces.length ? (

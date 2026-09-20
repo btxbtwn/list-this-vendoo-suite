@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC, datetime
 
 from types import SimpleNamespace
 
@@ -380,6 +381,10 @@ class SaveResponse(BaseModel):
     ok: bool
     item_id: str
     updated: list[str] = []
+    # Marketplaces still carrying the listing Vendoo posted before this write.
+    # They keep the old copy until the seller delists and relists in Vendoo, so
+    # the app says so rather than letting a saved form read as published.
+    relist_needed: list[str] = []
 
 
 @router.post("/api/conversations/{conv_id}/vendoo-api/save", response_model=SaveResponse)
@@ -391,13 +396,23 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     differ. After Regenerate, marketplace condition, Mercari Ground Advantage,
     and form saved stamps land the same way a brand-new draft does. This edits
     a draft; it does not list.
+
+    A write onto an item that is already live leaves the marketplace listings
+    themselves untouched — Vendoo only carries new copy across by delisting and
+    relisting. So the write is stamped in notes (``vendooFormUpdatedAt``) and
+    the live marketplaces come back as ``relist_needed``, which is what the
+    "Relist in Vendoo" badge reads.
     """
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.listing_generate import latest_photo_analysis
     from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
     from vendoo_studio.services.vendoo_api import apply_update_all, build_vendoo_item, changed_fields
     from vendoo_studio.services.vendoo_create import prepare_listing_for_vendoo, run_ops
-    from vendoo_studio.services.vendoo_import import vendoo_binding
+    from vendoo_studio.services.vendoo_import import (
+        merge_notes,
+        vendoo_binding,
+        vendoo_relistable_marketplaces,
+    )
 
     conv_repo = ConversationRepo(db)
     conv = conv_repo.get(conv_id)
@@ -441,7 +456,18 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
             await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": updates}])
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
         raise _http_error(exc) from exc
-    return SaveResponse(ok=True, item_id=item_id, updated=sorted(updates))
+
+    relist_needed: list[str] = []
+    if updates:
+        # Stamped from the write, not from Vendoo's own dateLastModified: the
+        # badge clears when a marketplace's listing date passes this stamp,
+        # which only a delist-and-relist in Vendoo can do.
+        relist_needed = vendoo_relistable_marketplaces(current)
+        conv.notes = merge_notes(conv.notes, {"vendooFormUpdatedAt": datetime.now(UTC).isoformat()})
+        db.commit()
+    return SaveResponse(
+        ok=True, item_id=item_id, updated=sorted(updates), relist_needed=relist_needed,
+    )
 
 
 @router.post("/api/conversations/{conv_id}/vendoo-api/pull")

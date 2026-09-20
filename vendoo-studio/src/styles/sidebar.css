@@ -543,6 +543,14 @@ html.desktop-app .editor-header {
 .nav-status-sold { color: var(--color-cobalt); }
 .nav-status-failed { color: var(--color-tomato); }
 
+/* Sits beside "active": live, but on copy older than the last Vendoo write. */
+.nav-status-relist {
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: var(--color-draft);
+  background: var(--color-draft-tint);
+}
+
 .nav-actions {
   position: absolute;
   top: 6px;
@@ -959,6 +967,10 @@ html.desktop-app .editor-header {
   margin: 0 3px;
   border-radius: 999px;
   background: var(--color-text-muted);
+}
+
+.listing-filter-row-dot.is-relist {
+  background: var(--color-draft);
 }
 
 .listing-filter-row-text {

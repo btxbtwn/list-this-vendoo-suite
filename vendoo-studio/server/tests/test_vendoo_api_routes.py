@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -297,6 +298,83 @@ class ProbeRouteTest(_RouteTest):
             self.client.post("/api/vendoo-api/probe", json={"item_ids": ["a", "b"]})
         self.assertEqual(probe.call_args.args[1], ["a", "b"])
         self.assertEqual(self.client.post("/api/vendoo-api/probe", json={}).status_code, 400)
+
+
+class SaveRouteTest(_RouteTest):
+    """Update Vendoo writes the form; the live listings stay as they were."""
+
+    def bind(self):
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1"})
+        self.db.commit()
+
+    def save(self, item):
+        async def fake_run_ops(job, ops):
+            if ops[0]["op"] == "get_item":
+                return {"ok": True, "results": [{"op": "get_item", "item": item}]}
+            return {"ok": True, "results": [{"op": "update_item", "ok": True}]}
+
+        async def fake_prepare(job, listing, **kwargs):
+            return listing, {}, None, [], []
+
+        with (
+            patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops),
+            patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", fake_prepare),
+            patch(
+                "vendoo_studio.services.vendoo_api.build_vendoo_item",
+                lambda *a, **k: ({"generalDetails": {"title": "Levi's 501"}}, []),
+            ),
+        ):
+            return self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
+
+    def test_names_the_live_marketplaces_to_relist(self):
+        self.bind()
+        res = self.save({
+            "itemID": "itm1",
+            "generalDetails": {"title": "Old title"},
+            "listings": {
+                "ebay": {"status": {"listed": True}},
+                "poshmark": {"status": {"listed": True}},
+                "mercari": {"status": {"listed": False}},
+            },
+        })
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertTrue(body["updated"])
+        self.assertEqual(body["relist_needed"], ["ebay", "poshmark"])
+        # The stamp is what dates the badge: a marketplace listed before it is
+        # still carrying the copy from before this write.
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        self.assertTrue(json.loads(conv.notes)["vendooFormUpdatedAt"])
+
+    def test_a_sold_listing_is_not_asked_to_relist(self):
+        self.bind()
+        res = self.save({
+            "itemID": "itm1",
+            "generalDetails": {"title": "Old title"},
+            "listings": {
+                "ebay": {"status": {"listed": True, "sold": True}},
+                "depop": {"status": {"listed": True}},
+            },
+        })
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["relist_needed"], ["depop"])
+
+    def test_nothing_to_write_leaves_the_stamp_alone(self):
+        """No write means no new copy waiting on a relist."""
+        self.bind()
+        res = self.save({
+            "itemID": "itm1",
+            "generalDetails": {"title": "Levi's 501"},
+            "listings": {
+                "ebay": {"status": {"listed": True}, "overrides": {"title": "Levi's 501"}},
+            },
+        })
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["updated"], [])
+        self.assertEqual(res.json()["relist_needed"], [])
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        self.assertNotIn("vendooFormUpdatedAt", json.loads(conv.notes or "{}"))
 
 
 if __name__ == "__main__":
