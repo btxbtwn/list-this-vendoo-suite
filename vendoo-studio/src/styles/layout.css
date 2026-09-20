@@ -370,7 +370,10 @@
   color: var(--color-text);
 }
 
-.titlebar-control[aria-pressed="true"] {
+.titlebar-control[aria-pressed="true"],
+/* A menu button is not a toggle, so it says `expanded` rather than `pressed`;
+   the panel toggles are also expandable and must not pick this up. */
+.titlebar-control[aria-haspopup="menu"][aria-expanded="true"] {
   background: var(--color-ink-raised);
   color: var(--color-text);
 }
