@@ -272,6 +272,8 @@ async def build_preview(
     *,
     analysis_text: str | None = None,
     run_comps: bool = True,
+    sold_outcomes: list[Any] | None = None,
+    age_days: int | None = None,
 ) -> dict[str, Any]:
     current = listing_price(listing)
     if current is None:
@@ -300,6 +302,26 @@ async def build_preview(
     percent_price = price_after_percent(current, suggested_percent)
     suggested_price = percent_price
     suggested_mode = "percent"
+    # The seller's own closed sales outrank a round percentage: they know what
+    # this category actually sells for and how long it takes.
+    cohort = None
+    if sold_outcomes:
+        from vendoo_studio.services.sell_through import history_suggestion, pick_cohort
+
+        cohort = pick_cohort(
+            sold_outcomes,
+            category=listing.get("category_path") or "",
+            brand=str(listing.get("brand") or ""),
+        )
+        grounded = history_suggestion(
+            cohort,
+            current_price=current,
+            first_price=first_listed_price(revisions) or current,
+            age_days=age_days,
+        )
+        if grounded:
+            suggested_price, reason = grounded
+            suggested_mode = "sell_through"
     # Prefer comps when they ask for a deeper cut than the history-aware %.
     if comps_target is not None and comps_target < current and comps_target <= percent_price:
         suggested_price = comps_target
@@ -311,9 +333,22 @@ async def build_preview(
 
     first_price = first_listed_price(revisions) or current
     offered = tuple(dict.fromkeys((*PERCENT_OPTIONS, suggested_percent)))
+    sell_through = (
+        {
+            "scope": cohort.scope,
+            "label": cohort.label,
+            "count": cohort.count,
+            "median_discount_percent": round(cohort.median_discount * 100, 1),
+            "median_days": round(cohort.median_days) if cohort.median_days is not None else None,
+        }
+        if cohort is not None
+        else None
+    )
     return {
         "current_price": current,
         "drop_options": drop_options(current, offered),
+        "sell_through": sell_through,
+        "age_days": age_days,
         "suggested_effective_percent": effective_percent(current, suggested_price),
         "first_price": first_price,
         "suggested_percent": suggested_percent,

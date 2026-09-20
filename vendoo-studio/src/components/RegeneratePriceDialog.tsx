@@ -214,7 +214,10 @@ export function RegeneratePriceDialog({
               </div>
 
               <div className="price-drop-section">
-                <div className="price-drop-section-title">Suggested</div>
+                <div className="price-drop-section-title">
+                  Suggested
+                  {preview.suggested_mode === "sell_through" ? " · from your sales" : ""}
+                </div>
                 <button
                   type="button"
                   className={`price-drop-chip price-drop-chip-wide${selection?.kind === "suggested" ? " is-active" : ""}`}
@@ -227,6 +230,23 @@ export function RegeneratePriceDialog({
                   <span className="price-drop-chip-note">{preview.suggested_reason}</span>
                 </button>
               </div>
+
+              {/* The suggested chip already tells this story when it is the source. */}
+              {preview.sell_through && preview.suggested_mode !== "sell_through" ? (
+                <p className="price-drop-reason">
+                  {preview.sell_through.scope === "category"
+                    ? `Your ${preview.sell_through.label}`
+                    : preview.sell_through.scope === "brand"
+                      ? `Your ${preview.sell_through.label} items`
+                      : "Your sold items"}
+                  : {preview.sell_through.count} sold at a median{" "}
+                  {percentLabel(preview.sell_through.median_discount_percent)}% off
+                  {preview.sell_through.median_days != null
+                    ? `, typically in ${preview.sell_through.median_days} days`
+                    : ""}
+                  {preview.age_days != null ? ` · this one: ${preview.age_days} days listed` : ""}
+                </p>
+              ) : null}
 
               {otherCuts.length ? (
                 <div className="price-drop-section">

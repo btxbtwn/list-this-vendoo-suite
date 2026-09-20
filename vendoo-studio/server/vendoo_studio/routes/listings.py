@@ -245,10 +245,20 @@ async def preview_price_drop(conv_id: str, db: Session = Depends(get_db)):
     """Live comps + history-aware suggestion. Does not change the listing."""
     from vendoo_studio.services.listing_generate import latest_photo_analysis
 
+    from vendoo_studio.services.sell_through import collect_outcomes, listing_age_days
+
     listing, revisions = _current_listing(conv_id, db)
-    analysis = latest_photo_analysis(ConversationRepo(db).get_messages(conv_id))
+    conv_repo = ConversationRepo(db)
+    analysis = latest_photo_analysis(conv_repo.get_messages(conv_id))
+    conv = conv_repo.get(conv_id)
     try:
-        return await build_preview(listing, revisions, analysis_text=analysis)
+        return await build_preview(
+            listing,
+            revisions,
+            analysis_text=analysis,
+            sold_outcomes=collect_outcomes(db),
+            age_days=listing_age_days(conv.notes if conv else None),
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 

@@ -141,14 +141,25 @@ export interface PriceDropOption {
   effective_percent: number;
 }
 
+export interface PriceDropSellThrough {
+  /** "category" | "brand" | "all" — how the cohort was picked. */
+  scope: string;
+  label: string;
+  count: number;
+  median_discount_percent: number;
+  median_days: number | null;
+}
+
 export interface PriceDropPreview {
   current_price: number;
+  sell_through: PriceDropSellThrough | null;
+  age_days: number | null;
   first_price: number;
   drop_options: PriceDropOption[];
   suggested_percent: number;
   suggested_effective_percent: number;
   suggested_price: number;
-  suggested_mode: "percent" | "comps" | string;
+  suggested_mode: "percent" | "comps" | "sell_through" | string;
   suggested_reason: string;
   percent_options: number[];
   prices_by_percent: Record<string, number>;
