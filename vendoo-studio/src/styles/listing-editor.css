@@ -248,7 +248,6 @@
 }
 
 .editor-ready {
-  font-family: var(--font-mono);
   font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   color: var(--color-success);

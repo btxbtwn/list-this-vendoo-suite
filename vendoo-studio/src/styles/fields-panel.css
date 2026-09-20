@@ -112,7 +112,6 @@
 }
 
 .job-card-label {
-  font-family: var(--font-mono);
   font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   color: var(--color-text-muted);
@@ -122,7 +121,6 @@
 }
 
 .job-card-status {
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--color-text);
@@ -140,7 +138,6 @@
 }
 
 .fill-log-chip {
-  font-family: var(--font-mono);
   font-size: var(--text-2xs);
   padding: 2px 6px;
   border-radius: var(--radius-xs);
@@ -175,7 +172,6 @@
 
 .fill-log-empty {
   margin-top: 6px;
-  font-family: var(--font-mono);
   font-size: var(--text-2xs);
   color: var(--color-text-muted);
 }
@@ -184,7 +180,6 @@
   border: 0;
   background: transparent;
   color: var(--color-cobalt);
-  font-family: var(--font-mono);
   font-size: var(--text-2xs);
   padding: 0;
   cursor: pointer;
@@ -1039,14 +1034,12 @@
 .send-progress-label {
   flex: 1;
   min-width: 0;
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-text);
 }
 
 .send-progress-percent {
   flex-shrink: 0;
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
