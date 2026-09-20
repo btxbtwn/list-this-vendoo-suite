@@ -128,6 +128,11 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         self.assertIn('Measurements (top): Pit to pit: 16.5"; Length: 26.5"; Sleeve: 8"', details)
         self.assertNotIn("Inseam", details)
 
+    def test_seller_item_details_states_the_carried_price(self):
+        details = seller_item_details(json.dumps({"askingPrice": "34.00"}))
+        self.assertIn("List price: $34 (the seller set this — use it exactly)", details)
+        self.assertNotIn("List price", seller_item_details(json.dumps({"askingPrice": "0"})))
+
     def test_seller_item_details_uses_pants_for_bottoms(self):
         measurements = {"pants": {"waist": "16", "rise": "11", "inseam": "30", "legOpening": "8"}}
         pants = seller_item_details(json.dumps({"garment": "pants", "measurements": measurements}))
@@ -325,6 +330,14 @@ class PersistListingTest(unittest.TestCase):
         })
         self.assertEqual(parsed["category_path"], "Clothing > Women's Tops")
         self.assertEqual(parsed["marketplace_categories"], {"ebay": "Fashion > Shirts"})
+
+    def test_carried_price_wins_over_a_reinvented_one(self):
+        """Regenerate rewrites the copy, not the price the seller confirmed."""
+        ConversationRepo(self.db).write_notes(self.conv.id, json.dumps({"askingPrice": "34.00"}))
+        parsed = persist_generated_listing(
+            self.db, self.conv.id, "", parsed={**LISTING_JSON, "price": 99},
+        )
+        self.assertEqual(parsed["price"], 34.0)
 
     def test_persist_with_repair_saves_repaired_listing(self):
         broken = 'Here is the listing:\n```json\n{"title": "Broken Tee", "price": 12,\n```'

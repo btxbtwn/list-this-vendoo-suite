@@ -90,6 +90,16 @@ class CarryoverUpdatesTest(unittest.TestCase):
         self.assertNotIn("sellerNotes", updates)
         self.assertIn("knownFlaws", updates)
 
+    def test_price_carries_over_and_refreshes(self):
+        """Regenerate rewrites at the price the seller just confirmed."""
+        self.assertEqual(carryover_updates({"price": 42}, {})["askingPrice"], "42.00")
+        # Unlike SKU or COG, a newer listing price wins over the carried one.
+        self.assertEqual(
+            carryover_updates({"price": 34}, {"askingPrice": "42.00"})["askingPrice"],
+            "34.00",
+        )
+        self.assertNotIn("askingPrice", carryover_updates({"price": 0}, {}))
+
     def test_placeholder_blocks_carry_nothing(self):
         listing = {
             "description": (

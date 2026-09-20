@@ -169,7 +169,7 @@ export function RegenerateListingButton({
         convId={convId}
         open={priceDialogOpen}
         onClose={() => setPriceDialogOpen(false)}
-        onFullRegenerate={() => {
+        onRewrite={() => {
           regenerate.mutate();
         }}
       />

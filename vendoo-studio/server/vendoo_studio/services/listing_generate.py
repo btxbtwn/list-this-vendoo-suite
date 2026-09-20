@@ -588,6 +588,15 @@ def _seller_measurements(parsed: dict) -> str:
     return f"- Measurements ({label.lower()}): " + "; ".join(parts)
 
 
+def _asking_price(notes: dict) -> float:
+    """The price the seller confirmed, carried into Item Details by Regenerate."""
+    try:
+        amount = float(str(notes.get("askingPrice") or "").strip() or 0)
+    except ValueError:
+        return 0.0
+    return amount if amount > 0 else 0.0
+
+
 def seller_item_details(notes: str | None) -> str:
     if not notes:
         return ""
@@ -615,6 +624,9 @@ def seller_item_details(notes: str | None) -> str:
         lines.append(f"- Labels: {labels}")
     if parsed.get("cog"):
         lines.append(f"- Cost of goods: ${parsed['cog']}")
+    asking = _asking_price(parsed)
+    if asking:
+        lines.append(f"- List price: ${asking:g} (the seller set this — use it exactly)")
     if parsed.get("packageDimensions"):
         lines.append(f"- Package dimensions: {parsed['packageDimensions']}")
     measurements = _seller_measurements(parsed)
@@ -728,8 +740,8 @@ def persist_generated_listing(
         if selected.get("marketplace_categories"):
             listing["category_path"] = selected["category_path"]
             listing["marketplace_categories"] = dict(selected["marketplace_categories"])
-    # Regenerate carries seller SKU / package size into notes; keep them on the
-    # new listing even if the model invents different values.
+    # Regenerate carries the seller's SKU, package size and confirmed price into
+    # notes; keep them on the new listing even if the model invents others.
     conv = repo.get(conv_id)
     if conv:
         from vendoo_studio.services.vendoo_import import parse_notes
@@ -741,6 +753,9 @@ def persist_generated_listing(
         package = str(seller.get("packageDimensions") or "").strip()
         if package:
             listing["package_dimensions_in"] = package
+        asking = _asking_price(seller)
+        if asking:
+            listing["price"] = asking
         posh_raw = str(seller.get("poshmarkOriginalPrice") or "").strip()
         try:
             posh = float(posh_raw) if posh_raw else 0.0

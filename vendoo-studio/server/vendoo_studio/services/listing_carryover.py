@@ -4,9 +4,9 @@ Regenerate throws away the listing and generates a new one from the photos and
 Item Details. Anything the seller typed into Item Details survives that on its
 own, but the facts that only ever lived on the listing — SKU, package size,
 Poshmark original price, Vendoo's cost of goods, labels and internal notes on
-an imported item, and the measurements and flaws written into the description —
-would be lost. Carrying them into Item Details first puts them back in front of
-the generator as seller-provided facts.
+an imported item, the asking price, and the measurements and flaws written into
+the description — would be lost. Carrying them into Item Details first puts them
+back in front of the generator as seller-provided facts.
 """
 
 from __future__ import annotations
@@ -113,6 +113,12 @@ def carryover_updates(listing: dict | None, notes: dict) -> dict[str, str]:
         internal = str(listing.get("internal_notes") or "").strip()
         if internal:
             updates["sellerNotes"] = internal
+
+    # The price the seller just confirmed, refreshed each time like the
+    # description blocks below: a rewrite must not re-invent it.
+    price = _money(listing.get("price"))
+    if price:
+        updates["askingPrice"] = price
 
     description = listing.get("description")
     measurements = _measurements_from_description(description)
