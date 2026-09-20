@@ -32,6 +32,7 @@
   }
 
   .sidebar-header {
+    display: flex;
     height: 56px;
     padding: 8px 16px 0;
   }
