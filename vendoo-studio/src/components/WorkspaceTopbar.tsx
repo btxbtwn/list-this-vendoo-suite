@@ -1,4 +1,5 @@
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
+import { ListingReviewTabs, type ListingReviewTab } from "./ListingReviewTabs";
 import type { WorkspaceCrumbs } from "./workspaceCrumbs";
 
 /** A titlebar click must not start a window drag on the desktop build. */
@@ -49,6 +50,13 @@ interface Props {
   /** `null` when the view has no inspector to toggle. */
   detailOpen: boolean | null;
   onToggleDetail: () => void;
+  /** Listing inspector tab; omit when no listing is open. */
+  reviewTab?: ListingReviewTab | null;
+  onReviewTabChange?: (tab: ListingReviewTab) => void;
+  /** Open listing / Regenerate / Clear — omit when no listing is open. */
+  listingActions?: ReactNode;
+  /** The browser toggle, which sits with the panel toggles rather than the actions. */
+  browserAction?: ReactNode;
 }
 
 /** One window-wide titlebar like T3 Code: crumbs left, panel toggles right. */
@@ -58,6 +66,10 @@ export function WorkspaceTopbar({
   onToggleSidebar,
   detailOpen,
   onToggleDetail,
+  reviewTab = null,
+  onReviewTabChange,
+  listingActions = null,
+  browserAction = null,
 }: Props) {
   return (
     <header className="workspace-topbar">
@@ -84,6 +96,15 @@ export function WorkspaceTopbar({
         ) : null}
       </div>
       <div className="workspace-topbar-actions">
+        {listingActions}
+        {reviewTab && onReviewTabChange ? (
+          <ListingReviewTabs
+            value={reviewTab}
+            onChange={onReviewTabChange}
+            onMouseDown={stopTitlebarDrag}
+          />
+        ) : null}
+        {browserAction}
         {detailOpen === null ? null : (
           <button
             type="button"

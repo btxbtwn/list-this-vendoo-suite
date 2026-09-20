@@ -18,9 +18,11 @@ import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { PhotoDropOverlay } from "../components/PhotoDropOverlay";
 import { ToastHost } from "../components/ToastHost";
 import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
-import { WorkspaceTopbar } from "../components/WorkspaceTopbar";
+import { WorkspaceTopbar, stopTitlebarDrag } from "../components/WorkspaceTopbar";
 import { workspaceCrumbs } from "../components/workspaceCrumbs";
 import { SuggestionsPanel } from "../components/SuggestionsPanel";
+import { ListingBrowserButton, ListingReviewActions } from "../components/ListingReviewActions";
+import type { ListingReviewTab } from "../components/ListingReviewTabs";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
 import { addToast } from "../ui/toast";
@@ -70,6 +72,7 @@ export function App() {
   const [queuedChatMessage, setQueuedChatMessage] = useState<string | null>(null);
   const [setupGuideOpen, setSetupGuideOpen] = useState(setupGuideAutoOpen === true);
   const [workspaceNonce, setWorkspaceNonce] = useState(0);
+  const [reviewTab, setReviewTab] = useState<ListingReviewTab>("input");
   const [browserJobId, setBrowserJobId] = useState<string | null>(null);
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const [browserExpanded, setBrowserExpanded] = useState(false);
@@ -284,6 +287,10 @@ export function App() {
   }, [selectedConvId]);
 
   useEffect(() => {
+    setReviewTab("input");
+  }, [selectedConvId, workspaceNonce]);
+
+  useEffect(() => {
     if (!isMobile) setMobileSidebarOpen(false);
   }, [isMobile]);
 
@@ -398,6 +405,34 @@ export function App() {
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         detailOpen={activeView === "settings" ? null : !detailHidden}
         onToggleDetail={() => setDetailCollapsed(!detailCollapsed)}
+        reviewTab={
+          activeView === "listings" && selectedConvId && !detailHidden
+            ? reviewTab
+            : null
+        }
+        onReviewTabChange={setReviewTab}
+        listingActions={
+          activeView === "listings" && selectedConvId && !detailHidden ? (
+            <ListingReviewActions
+              convId={selectedConvId}
+              onCleared={() => {
+                setQueuedChatMessage(null);
+                setWorkspaceNonce((value) => value + 1);
+              }}
+              onMouseDown={stopTitlebarDrag}
+            />
+          ) : null
+        }
+        browserAction={
+          activeView === "listings" && selectedConvId ? (
+            <ListingBrowserButton
+              convId={selectedConvId}
+              browserOpen={browserOpen}
+              onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
+              onMouseDown={stopTitlebarDrag}
+            />
+          ) : null
+        }
       />
       <div
         className={`app-content mobile-pane-${mobilePane}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}${sidebarHidden ? " sidebar-collapsed" : ""}`}
@@ -601,6 +636,8 @@ export function App() {
                     <ListingEditor
                       key={`${selectedConvId}:${workspaceNonce}`}
                       convId={selectedConvId}
+                      reviewTab={reviewTab}
+                      onReviewTabChange={setReviewTab}
                       onJobStarted={() => setMobilePane("browser")}
                       onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
                       browserOpen={browserOpen}

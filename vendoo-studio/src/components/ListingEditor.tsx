@@ -8,7 +8,6 @@ import { PhotoTray } from "./PhotoTray";
 import { ItemDetails } from "./ItemDetails";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { SendProgress, useSendStep } from "./SendProgress";
-import { OpenListingButton } from "./OpenListingButton";
 import { VendooSyncStatus } from "./VendooSyncStatus";
 import {
   DEPOP_CATEGORY_OPTIONALS,
@@ -17,7 +16,6 @@ import {
 } from "../marketplaceFields";
 import { withDropdownOptions } from "../dropdownOptions";
 import { addToast } from "../ui/toast";
-import { ClearListingButton, RegenerateListingButton } from "./ClearListingButton";
 import { useChatBusy } from "./ChatPanel";
 import { fetchVendooItemLive } from "../api/vendooItemQuery";
 import {
@@ -30,6 +28,8 @@ import {
   fieldsNeedingListingValues,
   sourceFormsForJob,
 } from "./fillLogForms";
+import { ListingBrowserButton, ListingReviewActions } from "./ListingReviewActions";
+import { ListingReviewTabs, type ListingReviewTab } from "./ListingReviewTabs";
 
 interface Props {
   convId: string;
@@ -38,6 +38,8 @@ interface Props {
   onCleared?: () => void;
   onOpenBrowser?: (jobId: string) => void;
   browserOpen?: boolean;
+  reviewTab: ListingReviewTab;
+  onReviewTabChange: (tab: ListingReviewTab) => void;
 }
 
 interface EditorField {
@@ -49,9 +51,17 @@ interface EditorField {
   options?: string[];
 }
 
-export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOpenBrowser, browserOpen }: Props) {
+export function ListingEditor({
+  convId,
+  onJobStarted,
+  onAskChat,
+  onCleared,
+  onOpenBrowser,
+  browserOpen,
+  reviewTab,
+  onReviewTabChange,
+}: Props) {
   const queryClient = useQueryClient();
-  const [reviewTab, setReviewTab] = React.useState<"input" | "forms" | "fields">("input");
   const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
 
@@ -193,9 +203,9 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
 
   React.useEffect(() => {
     if (importedItemId && listingJob?.status === "imported") {
-      setReviewTab("fields");
+      onReviewTabChange("fields");
     }
-  }, [importedItemId, listingJob?.status, listingJob?.id]);
+  }, [importedItemId, listingJob?.status, listingJob?.id, onReviewTabChange]);
 
   const ensureAttemptKey = React.useRef<string | null>(null);
   React.useEffect(() => {
@@ -218,30 +228,18 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
         <div className="pr-review-title-row">
           <h2 className="pr-review-title pywebview-drag-region" title={listingTitle}>{listingTitle}</h2>
           {data?.can_send && <span className="editor-ready">Ready</span>}
-          <div className="pr-review-actions">
-            {listingJob && (
-              <OpenListingButton
-                jobId={listingJob.id}
-                vendooItemId={listingJob.vendoo_item_id || importedItemId}
-                vendooUrl={listingJob.vendoo_url || importedUrl}
-                className="pr-review-open"
-              />
-            )}
-            {listingJob && onOpenBrowser && (listingJob.vendoo_item_id || listingJob.vendoo_url) && (
-              <button
-                type="button"
-                className="pr-review-open"
-                disabled={browserOpen}
-                title="Work in the Vendoo draft here: click, type, and point Studio at fields to fill"
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={() => onOpenBrowser(listingJob.id)}
-              >
-                Browser
-              </button>
-            )}
-            <RegenerateListingButton convId={convId} className="pr-review-open" onRegenerated={onCleared} />
-            <ClearListingButton convId={convId} className="pr-review-clear" onCleared={onCleared} />
-          </div>
+          {/* Desktop: actions live in the window topbar. Mobile keeps them here. */}
+          <ListingReviewActions
+            className="pr-review-chrome-mobile"
+            convId={convId}
+            onCleared={onCleared}
+          >
+            <ListingBrowserButton
+              convId={convId}
+              browserOpen={browserOpen}
+              onOpenBrowser={onOpenBrowser}
+            />
+          </ListingReviewActions>
         </div>
         <div className="pr-review-meta">
           <VendooLinkControl
@@ -262,20 +260,11 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
             bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
           />
         </div>
-        <div className="pr-pills" role="tablist" aria-label="Listing review">
-          {(["input", "forms", "fields"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={reviewTab === tab}
-              className={`pr-pill${reviewTab === tab ? " is-active" : ""}`}
-              onClick={() => setReviewTab(tab)}
-            >
-              {tab === "input" ? "Input" : tab === "forms" ? "Forms" : "Fields"}
-            </button>
-          ))}
-        </div>
+        <ListingReviewTabs
+          className="pr-review-chrome-mobile"
+          value={reviewTab}
+          onChange={onReviewTabChange}
+        />
       </div>
 
       {schemaProbeActive && (

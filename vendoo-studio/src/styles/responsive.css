@@ -306,6 +306,14 @@
     display: none;
   }
 
+  .pr-review-chrome-mobile {
+    display: flex;
+  }
+
+  .pr-review-chrome-mobile.listing-review-tabs {
+    display: inline-flex;
+  }
+
   .app-content.mobile-pane-workspace .main-panel {
     display: flex;
     flex-direction: column;
