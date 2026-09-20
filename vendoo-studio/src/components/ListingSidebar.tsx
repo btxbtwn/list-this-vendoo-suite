@@ -93,6 +93,7 @@ type Listing = {
   vendoo_listed_at?: string | null;
   vendoo_sold_at?: string | null;
   vendoo_marketplaces?: string[];
+  vendoo_sold_dates?: Record<string, string>;
 };
 
 interface Props {
@@ -853,6 +854,44 @@ function marketplaceStatusesFromDraft(
   return rows;
 }
 
+/** Where the import says the listing is live, for rows whose cached draft holds
+ *  no per-marketplace status.
+ *
+ * `vendoo_marketplaces` is written from the same Vendoo payload the draft comes
+ * from (`vendoo_listed_marketplaces`), counting sold as live, so an imported
+ * listing can badge without anyone hovering it or pulling it again.
+ */
+export function listedFromImport(
+  listing: {
+    vendoo_marketplaces?: string[];
+    vendoo_sold_dates?: Record<string, string>;
+  },
+  visible?: Set<string>,
+): { id: string; label: string; status: string }[] {
+  const sold = listing.vendoo_sold_dates || {};
+  const rows: { id: string; label: string; status: string }[] = [];
+  const seen = new Set<string>();
+  for (const rawId of listing.vendoo_marketplaces || []) {
+    const id = MARKETPLACE_ID_ALIASES[rawId] || rawId;
+    if (id === "general" || seen.has(id)) continue;
+    if (visible && !visible.has(id)) continue;
+    seen.add(id);
+    rows.push({
+      id,
+      label: marketplaceLabel(id),
+      status: sold[rawId] || sold[id] ? "SOLD" : "LISTED",
+    });
+  }
+  // The sidebar's own order, so a badged row reads the same whichever source
+  // filled it.
+  return rows.sort((left, right) => statusOrderIndex(left.id) - statusOrderIndex(right.id));
+}
+
+function statusOrderIndex(id: string): number {
+  const index = MARKETPLACE_STATUS_ORDER.indexOf(id);
+  return index === -1 ? MARKETPLACE_STATUS_ORDER.length : index;
+}
+
 function ListingRow({
   listing,
   selected,
@@ -938,9 +977,18 @@ function ListingRow({
     () => marketplaceStatusesFromDraft(draft, visibleMarketplaces),
     [draft, visibleMarketplaces],
   );
-  const listedMarketplaces = marketplaceStatuses.filter(
-    (row) => row.id !== "general" && LISTED_LIVE_STATUSES.has(row.status),
+  // A cached draft that names any marketplace is the live word and wins, even
+  // when it says the listing is live nowhere. Only a draft with nothing to say
+  // hands over to what the import recorded.
+  const importedRows = useMemo(
+    () => listedFromImport(listing, visibleMarketplaces),
+    [listing, visibleMarketplaces],
   );
+  const draftRows = marketplaceStatuses.filter((row) => row.id !== "general");
+  const listedMarketplaces = draftRows.length
+    ? draftRows.filter((row) => LISTED_LIVE_STATUSES.has(row.status))
+    : importedRows;
+  const popupStatuses = marketplaceStatuses.length ? marketplaceStatuses : importedRows;
   const loadingStatus = Boolean(
     hoverOpen && jobId && !draft && peekQuery.isFetching,
   );
@@ -1191,9 +1239,9 @@ function ListingRow({
           <div className="nav-vendoo-status-title">Vendoo status</div>
           {loadingStatus ? (
             <div className="nav-vendoo-status-empty">Reading…</div>
-          ) : marketplaceStatuses.length ? (
+          ) : popupStatuses.length ? (
             <ul className="nav-vendoo-status-list">
-              {marketplaceStatuses.map((row) => (
+              {popupStatuses.map((row) => (
                 <li key={row.id} className="nav-vendoo-status-row">
                   <MarketplaceLogo id={row.id} label={row.label} size={16} />
                   <span className="nav-vendoo-status-market">{row.label}</span>
