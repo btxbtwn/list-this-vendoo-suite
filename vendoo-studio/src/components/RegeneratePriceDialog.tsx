@@ -23,22 +23,15 @@ function formatDropWhen(iso: string): string {
 }
 
 type Selection =
+  | { kind: "suggested"; price: number }
   | { kind: "percent"; percent: number; price: number }
   | { kind: "comps"; price: number }
-  | { kind: "custom"; price: number }
-  | { kind: "rewrite" };
+  | { kind: "custom"; price: number };
 
-type PriceSelection = Exclude<Selection, { kind: "rewrite" }>;
-
-function defaultSelection(preview: PriceDropPreview): PriceSelection {
-  if (preview.suggested_mode === "comps" && preview.comps.target_price != null) {
-    return { kind: "comps", price: preview.comps.target_price };
-  }
-  return {
-    kind: "percent",
-    percent: preview.suggested_percent,
-    price: preview.prices_by_percent[String(preview.suggested_percent)] ?? preview.suggested_price,
-  };
+/** The server weighs prior drops, their recency, and live sold comps; that
+ *  answer is the default rather than a fixed percentage off. */
+function defaultSelection(preview: PriceDropPreview): Selection {
+  return { kind: "suggested", price: preview.suggested_price };
 }
 
 /** Price-drop chooser shown when Regenerate is clicked on a priced listing. */
@@ -46,13 +39,13 @@ export function RegeneratePriceDialog({
   convId,
   open,
   onClose,
-  onFullRegenerate,
+  onRewrite,
   onDropped,
 }: {
   convId: string;
   open: boolean;
   onClose: () => void;
-  onFullRegenerate: () => void;
+  onRewrite: () => void;
   onDropped?: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -91,10 +84,8 @@ export function RegeneratePriceDialog({
     setCustomText(String(next.price));
   }, [open, previewQuery.data]);
 
-  const rewriting = selection?.kind === "rewrite";
-
   const selectedPrice = useMemo(() => {
-    if (!selection || selection.kind === "rewrite") return null;
+    if (!selection) return null;
     if (selection.kind === "custom") {
       const parsed = Number(customText);
       return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
@@ -105,16 +96,25 @@ export function RegeneratePriceDialog({
   const apply = useMutation({
     mutationFn: async () => {
       if (selectedPrice == null || !previewQuery.data) {
-        throw new Error("Choose a lower price first.");
+        throw new Error("Choose a price first.");
       }
-      if (selectedPrice >= previewQuery.data.current_price) {
-        throw new Error("New price must be lower than the current price.");
-      }
+      // Typing the current price back in is a rewrite at today's price, not an
+      // error: there is nothing to record, so skip straight to the rewrite.
+      if (selectedPrice >= previewQuery.data.current_price) return null;
       const percent =
         selection?.kind === "percent"
           ? selection.percent
           : Math.round((1 - selectedPrice / previewQuery.data.current_price) * 1000) / 10;
-      const mode = selection?.kind === "comps" ? "comps" : selection?.kind === "percent" ? "percent" : "custom";
+      const mode =
+        selection?.kind === "comps"
+          ? "comps"
+          : selection?.kind === "percent"
+            ? "percent"
+            : selection?.kind === "suggested" && previewQuery.data.suggested_mode === "comps"
+              ? "comps"
+              : selection?.kind === "suggested"
+                ? "percent"
+                : "custom";
       return api.listings.applyPriceDrop(convId, { price: selectedPrice, percent, mode });
     },
     onSuccess: (result) => {
@@ -123,11 +123,15 @@ export function RegeneratePriceDialog({
       void queryClient.invalidateQueries({ queryKey: ["conversations"] });
       void queryClient.invalidateQueries({ queryKey: ["price-drop-preview", convId] });
       onDropped?.();
-      addToast({
-        type: "success",
-        title: "Price dropped",
-        description: `${money(result.previous_price)} → ${money(result.price)}. Send to Vendoo when you want the live draft updated.`,
-      });
+      if (result) {
+        addToast({
+          type: "success",
+          title: "Price dropped",
+          description: `${money(result.previous_price)} → ${money(result.price)}. Rewriting the listing at the new price.`,
+        });
+      }
+      // The rewrite reads the price off the listing the drop just saved.
+      onRewrite();
     },
     onError: (err: Error) => {
       addToast({
@@ -166,7 +170,8 @@ export function RegeneratePriceDialog({
             Regenerate
           </h2>
           <p className="confirm-dialog-description">
-            Drop the price and keep the title and description, or rewrite the listing from scratch.
+            Confirm drops the price and rewrites the listing from scratch at the new price. Chat and
+            generated fields are discarded; measurements, flaws, COG, labels and notes are kept.
             Nothing changes on Vendoo until you Send.
           </p>
         </div>
@@ -191,11 +196,24 @@ export function RegeneratePriceDialog({
                 </div>
                 <div>
                   <span className="price-drop-label">Selected</span>
-                  <strong>{rewriting ? "Rewrite" : money(selectedPrice)}</strong>
+                  <strong>{money(selectedPrice)}</strong>
                 </div>
               </div>
 
-              <p className="price-drop-reason">{preview.suggested_reason}</p>
+              <div className="price-drop-section">
+                <div className="price-drop-section-title">Suggested</div>
+                <button
+                  type="button"
+                  className={`price-drop-chip price-drop-chip-wide${selection?.kind === "suggested" ? " is-active" : ""}`}
+                  onClick={() => {
+                    setSelection({ kind: "suggested", price: preview.suggested_price });
+                    setCustomText(String(preview.suggested_price));
+                  }}
+                >
+                  {money(preview.suggested_price)}
+                  <span className="price-drop-chip-note">{preview.suggested_reason}</span>
+                </button>
+              </div>
 
               <div className="price-drop-section">
                 <div className="price-drop-section-title">Percent</div>
@@ -278,21 +296,6 @@ export function RegeneratePriceDialog({
                 ) : null}
               </div>
 
-              <div className="price-drop-section">
-                <div className="price-drop-section-title">Start over</div>
-                <button
-                  type="button"
-                  className={`price-drop-chip price-drop-chip-wide${rewriting ? " is-active" : ""}`}
-                  onClick={() => setSelection({ kind: "rewrite" })}
-                >
-                  Rewrite from scratch
-                  <span className="price-drop-chip-note">
-                    Discards chat and generated fields, then writes the listing again from your
-                    photos. Measurements, flaws, COG, labels and notes are kept.
-                  </span>
-                </button>
-              </div>
-
               {preview.history.length ? (
                 <div className="price-drop-section">
                   <div className="price-drop-section-title">Prior drops</div>
@@ -318,21 +321,9 @@ export function RegeneratePriceDialog({
           </button>
           <button
             type="button"
-            className={rewriting ? "btn btn-danger" : "btn btn-primary"}
-            disabled={
-              apply.isPending ||
-              previewQuery.isLoading ||
-              !preview ||
-              (!rewriting && (selectedPrice == null || selectedPrice >= preview.current_price))
-            }
-            onClick={() => {
-              if (rewriting) {
-                onClose();
-                onFullRegenerate();
-                return;
-              }
-              apply.mutate();
-            }}
+            className="btn btn-danger"
+            disabled={apply.isPending || previewQuery.isLoading || !preview || selectedPrice == null}
+            onClick={() => apply.mutate()}
           >
             {apply.isPending ? "Saving…" : "Confirm"}
           </button>

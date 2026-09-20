@@ -305,7 +305,11 @@ class ConversationResetTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["title"], "New Listing")
         self.assertEqual(body["status"], "draft")
-        self.assertEqual(body["notes"], notes)
+        # Item Details survive, plus the listing's price so the rewrite reuses it.
+        self.assertEqual(
+            json.loads(body["notes"]),
+            {**json.loads(notes), "askingPrice": "20.00"},
+        )
 
         self.db.expire_all()
         self.assertEqual(len(ConversationRepo(self.db).get_photos(self.conv.id)), 1)
