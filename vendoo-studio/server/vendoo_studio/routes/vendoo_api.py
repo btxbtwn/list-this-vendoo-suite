@@ -8,6 +8,7 @@ instead of picking it up.
 from __future__ import annotations
 
 import logging
+import re
 
 from types import SimpleNamespace
 
@@ -153,6 +154,61 @@ async def category_search(body: CategorySearchRequest):
     return {"ok": True, "leaf": hit.get("leaf"), "matches": hit.get("matches", [])}
 
 
+def _fold_field_name(text: str) -> str:
+    """"attribute_body-fit", "Body Fit" and "bodyFit" all name one control."""
+    folded = re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+    return folded[9:] if folded.startswith("attribute") else folded
+
+
+def _humanize_field_key(key: str) -> str:
+    """"parcelSize" -> "Parcel Size". Keys already written as labels pass through."""
+    text = re.sub(r"[_-]+", " ", str(key or "")).strip()
+    if " " in text:
+        return text[:1].upper() + text[1:]
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text)
+    return spaced[:1].upper() + spaced[1:]
+
+
+def _scraped_only_fields(
+    listing: dict,
+    marketplace: str,
+    static: dict[str, list[str]],
+    fields: list[dict],
+) -> list[dict]:
+    """Form controls the category schema never mentions.
+
+    Vendoo's ``category/specifics`` answers with a leaf's attributes alone, so a
+    marketplace's own item-level controls — Depop material, style, age — are
+    missing from a category that does not happen to list them, and the seller
+    cannot see or clear a value validation is rejecting. The skill's form scrape
+    has those controls with their options, so they are shown too.
+    """
+    from vendoo_studio.services.fill_log import listing_value_for_field
+
+    seen = {_fold_field_name(row["key"]) for row in fields}
+    seen |= {_fold_field_name(row["label"]) for row in fields}
+    extra: list[dict] = []
+    for key, options in (static or {}).items():
+        folded = _fold_field_name(key)
+        if not folded or folded in seen or not options:
+            continue
+        seen.add(folded)
+        label = _humanize_field_key(key)
+        extra.append({
+            "key": key,
+            "label": label,
+            "value": (
+                listing_value_for_field(listing, marketplace, key)
+                or listing_value_for_field(listing, marketplace, label)
+            ),
+            "required": False,
+            "multi": False,
+            "selection_only": False,
+            "options": list(options),
+        })
+    return extra
+
+
 @router.get("/api/conversations/{conv_id}/vendoo-api/fields")
 async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
     """Every field each marketplace form renders for *this* listing's categories.
@@ -208,6 +264,7 @@ async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
                 "selection_only": spec.selection_only,
                 "options": options,
             })
+        fields.extend(_scraped_only_fields(listing, marketplace, static, fields))
         fields.sort(key=lambda row: (not row["required"], row["label"]))
         out.append({
             "marketplace": marketplace, "category_id": category_id,

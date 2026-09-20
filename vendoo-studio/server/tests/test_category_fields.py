@@ -294,11 +294,18 @@ class ListingFieldsRouteTest(unittest.TestCase):
         form = body["forms"][0]
         self.assertEqual(form["marketplace"], "ebay")
         self.assertTrue(form["known"])
+        labels = [f["label"] for f in form["fields"]]
         # Required first, so what blocks a listing reads at the top.
-        self.assertEqual([f["label"] for f in form["fields"]], ["Department", "Season"])
+        self.assertEqual(labels[0], "Department")
         self.assertEqual(form["fields"][0]["value"], "Girls")
-        self.assertEqual(form["fields"][1]["options"], ["Spring"])
-        self.assertTrue(form["fields"][1]["multi"])
+        season = next(f for f in form["fields"] if f["label"] == "Season")
+        self.assertEqual(season["options"], ["Spring"])
+        self.assertTrue(season["multi"])
+        # Controls the category schema omits still show, from the form scrape.
+        material = next(f for f in form["fields"] if f["label"] == "Material")
+        self.assertFalse(material["required"])
+        self.assertIn("Acrylic", material["options"])
+        self.assertEqual(labels, sorted(set(labels), key=labels.index))
 
     def test_a_category_with_no_cached_schema_is_marked_unknown(self):
         from vendoo_studio.services import category_fields as cf
