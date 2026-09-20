@@ -271,5 +271,56 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("$20 · eBay", preview["comps"]["text"])
 
 
+class PreviewSellThroughTest(unittest.IsolatedAsyncioTestCase):
+    """The seller's own closed sales outrank the round percentage."""
+
+    def _outcomes(self, count=8, first=100.0, sold=70.0, days=30):
+        from vendoo_studio.services.sell_through import SoldOutcome
+
+        return [
+            SoldOutcome(
+                category="jeans",
+                brand="levi's",
+                first_price=first,
+                sold_price=sold,
+                days_listed=days,
+            )
+            for _ in range(count)
+        ]
+
+    async def test_suggestion_comes_from_the_sellers_sales(self):
+        listing = {"price": 48, "brand": "Levi's", "category_path": "Women > Jeans"}
+        revisions = [_rev(48, "generation", rev_id="r1")]
+        with (
+            patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
+            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()),
+        ):
+            preview = await build_preview(
+                listing, revisions, sold_outcomes=self._outcomes(), age_days=30,
+            )
+        # Those jeans sold 30% off after 30 days, and this one is 30 days in.
+        self.assertEqual(preview["suggested_mode"], "sell_through")
+        self.assertEqual(preview["suggested_price"], 33)
+        self.assertIn("Your jeans sell at 30% off", preview["suggested_reason"])
+        self.assertEqual(preview["sell_through"]["count"], 8)
+        self.assertEqual(preview["sell_through"]["scope"], "category")
+        self.assertEqual(preview["sell_through"]["median_days"], 30)
+        self.assertEqual(preview["age_days"], 30)
+
+    async def test_too_few_sales_falls_back_to_the_percentage(self):
+        listing = {"price": 48, "brand": "Levi's", "category_path": "Women > Jeans"}
+        revisions = [_rev(48, "generation", rev_id="r1")]
+        with (
+            patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
+            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()),
+        ):
+            preview = await build_preview(
+                listing, revisions, sold_outcomes=self._outcomes(count=2), age_days=30,
+            )
+        self.assertEqual(preview["suggested_mode"], "percent")
+        self.assertEqual(preview["suggested_price"], 43)
+        self.assertIsNone(preview["sell_through"])
+
+
 if __name__ == "__main__":
     unittest.main()

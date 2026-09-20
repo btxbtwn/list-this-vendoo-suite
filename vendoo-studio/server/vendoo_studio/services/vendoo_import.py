@@ -600,6 +600,53 @@ def vendoo_dates(item: dict | None, form: dict | None = None) -> dict[str, Any]:
     }
 
 
+def _sale_price(entry: Any) -> float:
+    """``price_sold`` off a sale record or a listing's sale, as a number."""
+    if not isinstance(entry, dict):
+        return 0.0
+    for key in ("price_sold", "priceSold", "salePrice"):
+        try:
+            amount = float(entry.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if amount > 0:
+            return amount
+    return 0.0
+
+
+def vendoo_sale(item: dict | None, form: dict | None = None) -> dict[str, Any]:
+    """What the item sold for, and where, or {} when it has not sold.
+
+    Vendoo records the sale price on the item's sale record and again on the
+    marketplace listing that closed it. Studio keeps it because the seller's
+    own closed sales are what a price-drop suggestion should be reasoning
+    from — the listing's last asking price is only a stand-in for it.
+    """
+    merged = _merge_payloads(form, item)
+    sale_record = merged.get("saleRecord") if isinstance(merged.get("saleRecord"), dict) else {}
+    price = _sale_price(sale_record)
+    marketplace = str(sale_record.get("marketplace") or "").strip()
+    if not price:
+        for name, listing in _listing_entries(merged):
+            sales = listing.get("sales")
+            if not isinstance(sales, list):
+                continue
+            for sale in sales:
+                price = _sale_price(sale)
+                if price:
+                    marketplace = marketplace or name
+                    break
+            if price:
+                break
+    if not price:
+        return {}
+    return {
+        "price": price,
+        "marketplace": VENDOO_MARKETPLACE_ALIASES.get(marketplace, marketplace),
+        "soldAt": str(vendoo_dates(item, form).get("sold") or ""),
+    }
+
+
 def vendoo_listed_at(item: dict | None, form: dict | None = None) -> str:
     """When the item last went live -- what says how stale a listing has gone."""
     return str(vendoo_dates(item, form).get("listed") or "")
@@ -661,6 +708,7 @@ async def import_vendoo_item(
         "vendooStatus": status,
         "vendooMarketplaces": marketplaces,
         "vendooDates": vendoo_dates(item, form),
+        "vendooSale": vendoo_sale(item, form),
         # Vendoo's own image stands in for the sidebar thumbnail when a photo
         # download did not make it.
         "vendooCoverUrl": urls[0] if urls else "",

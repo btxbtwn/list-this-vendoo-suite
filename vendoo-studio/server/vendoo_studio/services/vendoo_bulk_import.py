@@ -106,6 +106,7 @@ async def _run() -> None:
         vendoo_dates,
         vendoo_item_status,
         vendoo_listed_marketplaces,
+        vendoo_sale,
         vendoo_updated_at,
     )
 
@@ -124,16 +125,19 @@ async def _run() -> None:
         status = vendoo_item_status(item, None)
         marketplaces = vendoo_listed_marketplaces(item, None)
         dates = vendoo_dates(item, None)
+        sale = vendoo_sale(item, None)
         if (
             notes.get("vendooStatus") == status
             and notes.get("vendooMarketplaces") == marketplaces
             and notes.get("vendooDates") == dates
+            and (notes.get("vendooSale") or {}) == sale
         ):
             return False
         conv.notes = merge_notes(conv.notes, {
             "vendooStatus": status,
             "vendooMarketplaces": marketplaces,
             "vendooDates": dates,
+            "vendooSale": sale,
         })
         conv_repo.update_status(conv.id, status)
         db.commit()
