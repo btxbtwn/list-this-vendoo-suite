@@ -3,7 +3,13 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { api } from "../api/client";
 import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
-import { queueChatGenerate, resetChatLive, useChatBusy } from "./ChatPanel";
+import {
+  isChatResetting,
+  markChatResetting,
+  queueChatGenerate,
+  resetChatLive,
+  useChatBusy,
+} from "./ChatPanel";
 import { RegeneratePriceDialog } from "./RegeneratePriceDialog";
 
 const CLEAR_WARNING = [
@@ -101,16 +107,23 @@ export function RegenerateListingButton({
   const regenerate = useMutation({
     mutationFn: async () => {
       resetChatLive(convId);
+      // The wipe can take a moment on a Vendoo-linked listing; show it as a
+      // phase in the chat instead of leaving an empty panel.
+      markChatResetting(convId, true);
       await api.conversations.reset(convId, { keepInputs: true });
       // Chat must see the empty listing before it starts, or it reads the old
       // listing JSON as "generation already finished".
       await refreshAfterReset(queryClient, convId);
     },
     onSuccess: () => {
+      // Stop during the wipe clears the phase; honour it instead of generating.
+      if (!isChatResetting(convId)) return;
+      // queueChatGenerate resets the live stream, which clears the wipe phase.
       queueChatGenerate(convId);
       onRegenerated?.();
     },
     onError: (err: Error) => {
+      markChatResetting(convId, false);
       addToast({
         type: "error",
         title: "Could not regenerate listing",
