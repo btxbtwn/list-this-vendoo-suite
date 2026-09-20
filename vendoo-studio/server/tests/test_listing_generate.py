@@ -137,6 +137,25 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         notes = json.dumps({"garment": "shorts", "measurements": {"shorts": {"waist": "15", "inseam": "5"}}})
         self.assertIn('Measurements (pants): Waist: 15"; Inseam: 5"', seller_item_details(notes))
 
+    def test_seller_item_details_includes_carried_flaws_and_measurements(self):
+        notes = json.dumps({
+            "knownFlaws": "small stain near the hem",
+            "descriptionMeasurements": 'Pit to pit 20"; Length 27"',
+        })
+        details = seller_item_details(notes)
+        self.assertIn("Known flaws: small stain near the hem", details)
+        self.assertIn('Measurements: Pit to pit 20"; Length 27"', details)
+
+    def test_seller_measurement_fields_win_over_carried_text(self):
+        notes = json.dumps({
+            "garment": "top",
+            "measurements": {"top": {"pitToPit": "16.5"}},
+            "descriptionMeasurements": 'Pit to pit 20"',
+        })
+        details = seller_item_details(notes)
+        self.assertIn('Measurements (top): Pit to pit: 16.5"', details)
+        self.assertNotIn('20"', details)
+
     def test_latest_photo_analysis(self):
         class Msg:
             def __init__(self, role, text):

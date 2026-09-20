@@ -409,7 +409,8 @@ async def reset_conversation(
     from vendoo_studio.services.streaming import stop_generation
     from vendoo_studio.routes.extension import extension_manager
     from vendoo_studio.services.hidden_fields import clear_listing_hidden_fields
-    from vendoo_studio.services.vendoo_import import merge_notes, vendoo_binding
+    from vendoo_studio.services.listing_carryover import carryover_updates
+    from vendoo_studio.services.vendoo_import import merge_notes, parse_notes, vendoo_binding
 
     from vendoo_studio.services import activity
 
@@ -420,6 +421,16 @@ async def reset_conversation(
     # Keep the Vendoo draft link across Clear; wipe only Studio form contents.
     binding = vendoo_binding(conv.notes)
     notes = conv.notes
+
+    if keep_inputs:
+        # Regenerate starts from Item Details, so the facts that only lived on
+        # the listing — cost of goods, labels, internal notes, and the
+        # measurements and flaws in the description — move there first.
+        revisions = ListingRepo(db).get_revisions(conv_id)
+        latest = revisions[0].listing_json if revisions else None
+        carried = carryover_updates(latest, parse_notes(notes))
+        if carried:
+            notes = merge_notes(notes, carried)
 
     active_jobs = db.query(Job).filter(
         Job.conversation_id == conv_id,

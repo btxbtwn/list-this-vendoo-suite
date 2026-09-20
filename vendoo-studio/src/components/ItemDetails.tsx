@@ -44,6 +44,8 @@ type Measurements = Record<Garment, Record<string, string>>;
 
 interface ItemDetailsData {
   sellerNotes: string;
+  knownFlaws: string;
+  descriptionMeasurements: string;
   cog: string;
   packageDimensions: string;
   vendooLabels: string;
@@ -101,6 +103,8 @@ function labelsFromNotes(notes: string | null | undefined): string[] {
 
 const DEFAULTS: ItemDetailsData = {
   sellerNotes: "",
+  knownFlaws: "",
+  descriptionMeasurements: "",
   cog: "",
   packageDimensions: "13x10x3",
   vendooLabels: "",
@@ -130,6 +134,8 @@ function parseNotes(notes: string | null): ItemDetailsData {
     const parsed = JSON.parse(notes);
     return {
       sellerNotes: parsed.sellerNotes || "",
+      knownFlaws: parsed.knownFlaws || "",
+      descriptionMeasurements: parsed.descriptionMeasurements || "",
       cog: parsed.cog || "",
       packageDimensions: parsed.packageDimensions || "13x10x3",
       vendooLabels: parsed.vendooLabels ?? DEFAULTS.vendooLabels,
@@ -264,6 +270,8 @@ export function ItemDetails({ convId }: Props) {
           // Clear obsolete seller-entered condition; categoryOverride stays agent-managed.
           condition: "",
           sellerNotes: updated.sellerNotes,
+          knownFlaws: updated.knownFlaws,
+          descriptionMeasurements: updated.descriptionMeasurements,
           cog: updated.cog,
           packageDimensions: updated.packageDimensions,
           vendooLabels: updated.vendooLabels,
@@ -372,6 +380,16 @@ export function ItemDetails({ convId }: Props) {
             placeholder="Flaws, provenance, sizing quirks, or other seller notes"
             rows={3}
             onChange={(e) => scheduleSave({ ...details, sellerNotes: e.target.value })}
+          />
+        </div>
+        <div className="item-field item-field-notes">
+          <label className="label">Flaws</label>
+          <textarea
+            className="input"
+            value={details.knownFlaws}
+            placeholder="Flaws to keep in the description, e.g. small stain near hem"
+            rows={2}
+            onChange={(e) => scheduleSave({ ...details, knownFlaws: e.target.value })}
           />
         </div>
         <div className="item-field">
@@ -549,6 +567,13 @@ export function ItemDetails({ convId }: Props) {
               />
             </div>
           ))}
+        </div>
+        <div className="item-field">
+          <label className="label">Other measurements</label>
+          <input
+            {...f("descriptionMeasurements")}
+            placeholder={'Anything the fields above miss, e.g. Hem 21"'}
+          />
         </div>
       </section>
 
