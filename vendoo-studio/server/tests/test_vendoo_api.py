@@ -556,6 +556,23 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(item["listings"]["mercari"]["overrides"]["condition"], "4")
         self.assertEqual([u["field"] for u in unresolved if u["field"].startswith("condition:")], [])
 
+    def test_poshmark_condition_fallback_without_learned_schema(self):
+        """No probe yet — still write a Poshmark code so Relist is not v_preowned."""
+        item, unresolved = build_vendoo_item(
+            {
+                "title": "Top",
+                "condition": "Pre-Owned - Good",
+                "marketplace_categories": {"poshmark": "Women > Tops > Blouses"},
+                "marketplace_category_ids": {"poshmark": "posh1"},
+            },
+            None,
+            specifics={
+                "poshmark": normalize_specifics({"Brand": _spec("Brand", free_text=True)}),
+            },
+        )
+        self.assertEqual(item["listings"]["poshmark"]["overrides"]["condition"], "good")
+        self.assertEqual([u["field"] for u in unresolved if u["field"].startswith("condition:")], [])
+
     def test_multi_select_aspects_are_stored_as_lists(self):
         learned = observe_item_schema([{
             "listings": {"ebay": {
@@ -1070,8 +1087,11 @@ class ApplyUpdateAllTest(unittest.TestCase):
         self.assertEqual(out["listings.poshmark.overrides.price"], "15")
 
     def test_ebay_resets_stale_condition_when_unmapped(self):
-        """Without a learned code, clear the old marketplace condition rather than
-        writing the Vendoo general label (which crashes eBay) or leaving it stale.
+        """eBay stays blank without a learned code; Poshmark uses the fallback map.
+
+        Writing the Vendoo general label crashes eBay. Clearing Poshmark and
+        leaving Relist to inherit ``v_preowned`` from generalDetails is what
+        produces ``Invalid condition v_preowned``.
         """
         current = {
             "generalDetails": {"condition": "v_preowned"},
@@ -1097,11 +1117,40 @@ class ApplyUpdateAllTest(unittest.TestCase):
         apply_update_all(current, desired)
         self.assertEqual(desired["listings"]["ebay"]["overrides"]["condition"], "")
         self.assertEqual(desired["listings"]["ebay"]["categorySpecifics"]["53159_condition"], "")
-        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "good")
         out = changed_fields(current, desired)
         self.assertEqual(out["listings.ebay.overrides.condition"], "")
         self.assertEqual(out["listings.ebay.categorySpecifics.53159_condition"], "")
-        self.assertEqual(out["listings.poshmark.overrides.condition"], "")
+        self.assertEqual(out["listings.poshmark.overrides.condition"], "good")
+
+    def test_poshmark_rewrites_stuck_vendoo_general_condition(self):
+        """A prior Update All left ``v_preowned`` on Poshmark — rewrite it."""
+        current = {
+            "generalDetails": {
+                "condition": {"value": "v_preowned", "displayName": "Pre-Owned - Good"},
+            },
+            "listings": {
+                "poshmark": {
+                    "marketplaceID": "poshmark",
+                    "overrides": {"condition": "v_preowned"},
+                },
+            },
+        }
+        desired = {
+            "generalDetails": {
+                "condition": {"value": "v_preowned", "displayName": "Pre-Owned - Good"},
+            },
+            "listings": {
+                "poshmark": {
+                    "marketplaceID": "poshmark",
+                    "overrides": {"condition": "v_preowned"},
+                },
+            },
+        }
+        apply_update_all(current, desired)
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "good")
+        out = changed_fields(current, desired)
+        self.assertEqual(out["listings.poshmark.overrides.condition"], "good")
 
     def test_condition_remaps_from_learned_schema_on_update_all(self):
         """Regenerate + API save remaps each marketplace through the learned table."""
