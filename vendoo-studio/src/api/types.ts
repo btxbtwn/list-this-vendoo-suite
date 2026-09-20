@@ -134,10 +134,19 @@ export interface PriceDropComps {
   query: string;
 }
 
+export interface PriceDropOption {
+  price: number;
+  /** The target that produced this price; the label uses effective_percent. */
+  percent: number;
+  effective_percent: number;
+}
+
 export interface PriceDropPreview {
   current_price: number;
   first_price: number;
+  drop_options: PriceDropOption[];
   suggested_percent: number;
+  suggested_effective_percent: number;
   suggested_price: number;
   suggested_mode: "percent" | "comps" | string;
   suggested_reason: string;
