@@ -37,66 +37,43 @@ class ConversationStatusTest(unittest.TestCase):
         app.dependency_overrides.clear()
         self.db.close()
 
-    def test_set_sold_status(self):
-        response = self.client.patch(
-            f"/api/conversations/{self.conv.id}",
-            json={"status": "sold"},
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["status"], "sold")
-        self.assertIsNotNone(body["settled_at"])
+    def test_status_cannot_be_set_through_the_api(self):
+        """The label belongs to the bound Vendoo item, so nothing else may set it."""
+        for attempt in ("sold", "active", "draft", "failed", "listing", "ready"):
+            response = self.client.patch(
+                f"/api/conversations/{self.conv.id}",
+                json={"status": attempt},
+            )
+            self.assertEqual(response.status_code, 422, f"{attempt}: {response.text}")
 
         self.db.expire_all()
-        refreshed = ConversationRepo(self.db).get(self.conv.id)
-        self.assertEqual(refreshed.status, "sold")
-        self.assertIsNotNone(refreshed.settled_at)
+        self.assertEqual(ConversationRepo(self.db).get(self.conv.id).status, "draft")
 
-    def test_set_active_status(self):
+    def test_title_and_notes_are_still_editable(self):
         response = self.client.patch(
             f"/api/conversations/{self.conv.id}",
-            json={"status": "active"},
+            json={"title": "Nike tee, large"},
         )
         self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["status"], "active")
-        self.assertIsNone(body["settled_at"])
+        self.assertEqual(response.json()["title"], "Nike tee, large")
+        self.assertEqual(response.json()["status"], "draft")
 
-    def test_set_draft_status(self):
-        ConversationRepo(self.db).update_status(self.conv.id, "sold")
-        response = self.client.patch(
-            f"/api/conversations/{self.conv.id}",
-            json={"status": "draft"},
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["status"], "draft")
+    def test_status_follows_the_bound_vendoo_item(self):
+        repo = ConversationRepo(self.db)
+        conv = repo.create(title="Sold tee", notes='{"vendooItemId": "i1", "vendooStatus": "sold"}')
+        self.db.add(Job(
+            conversation_id=conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot={"title": "Sold tee"},
+            status="imported",
+            vendoo_item_id="i1",
+        ))
+        self.db.commit()
 
-    def test_set_failed_status(self):
-        response = self.client.patch(
-            f"/api/conversations/{self.conv.id}",
-            json={"status": "failed"},
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["status"], "failed")
-
-    def test_rejects_process_status(self):
-        response = self.client.patch(
-            f"/api/conversations/{self.conv.id}",
-            json={"status": "listing"},
-        )
-        self.assertEqual(response.status_code, 400, response.text)
-
-        self.db.expire_all()
-        refreshed = ConversationRepo(self.db).get(self.conv.id)
-        self.assertEqual(refreshed.status, "draft")
-
-    def test_rejects_unknown_status(self):
-        response = self.client.patch(
-            f"/api/conversations/{self.conv.id}",
-            json={"status": "ready"},
-        )
-        self.assertEqual(response.status_code, 400, response.text)
+        listed = self.client.get("/api/conversations").json()
+        row = next(item for item in listed if item["id"] == conv.id)
+        self.assertEqual(row["status"], "sold")
+        self.assertEqual(row["vendoo_status"], "sold")
 
 
 if __name__ == "__main__":
