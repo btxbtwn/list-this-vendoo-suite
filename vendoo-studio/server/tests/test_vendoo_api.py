@@ -1234,6 +1234,40 @@ class ApplyUpdateAllTest(unittest.TestCase):
         out = changed_fields(current, desired)
         self.assertEqual(out["listings.poshmark.overrides.condition"], "ug")
 
+    def test_poshmark_rewrites_invented_good_condition_code(self):
+        """Poshmark Relist rejects ``good``; Vendoo Reset can leave it there.
+
+        Valid Poshmark codes are ``nwt`` / ``uln`` / ``ug`` / ``uf``. The
+        label ``Good`` must land as ``ug``, not the invented short code
+        ``good`` that produces ``Invalid condition good``.
+        """
+        current = {
+            "generalDetails": {
+                "condition": {"value": "v_preowned", "displayName": "Pre-Owned - Good"},
+            },
+            "listings": {
+                "poshmark": {
+                    "marketplaceID": "poshmark",
+                    "overrides": {"condition": "good"},
+                },
+            },
+        }
+        desired = {
+            "generalDetails": {
+                "condition": {"value": "v_preowned", "displayName": "Pre-Owned - Good"},
+            },
+            "listings": {
+                "poshmark": {
+                    "marketplaceID": "poshmark",
+                    "overrides": {"condition": "good"},
+                },
+            },
+        }
+        apply_update_all(current, desired)
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "ug")
+        out = changed_fields(current, desired)
+        self.assertEqual(out["listings.poshmark.overrides.condition"], "ug")
+
     def test_condition_remaps_from_learned_schema_on_update_all(self):
         """Regenerate + API save remaps each marketplace through the learned table."""
         schema = {

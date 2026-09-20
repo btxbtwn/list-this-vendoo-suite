@@ -555,9 +555,11 @@ def marketplace_condition(schema: dict[str, Any] | None, marketplace: str, gener
 def _is_general_condition_value(value: Any) -> bool:
     """True when ``value`` belongs on generalDetails, not a marketplace form.
 
-    Marketplace overrides store short codes (``good``, ``3000``, ``4``). A
-    Vendoo ``v_preowned`` object or label left there is what Poshmark rejects
-    on Relist as ``Invalid condition v_preowned``.
+    Marketplace overrides store short codes (Poshmark ``ug``/``nwt``, Mercari
+    ``3``/``4``, eBay category ids). A Vendoo ``v_preowned`` object or label
+    left there is what Poshmark rejects on Relist as
+    ``Invalid condition v_preowned``. The invented code ``good`` is also
+    invalid on Poshmark — see ``_learned_condition_is_usable``.
     """
     if isinstance(value, dict):
         return True
@@ -1607,7 +1609,15 @@ def _apply_condition(
     marketplace = str(want_section.get("marketplaceID") or "")
 
     condition = want_over.get("condition")
-    if condition in (None, "", []) or _is_general_condition_value(condition):
+    # Remap empty values, Vendoo general labels/codes, and invented marketplace
+    # codes Poshmark rejects (``good`` → ``ug``). A usable short code already
+    # on the form is left alone.
+    needs_remap = (
+        condition in (None, "", [])
+        or _is_general_condition_value(condition)
+        or not _learned_condition_is_usable(marketplace, condition)
+    )
+    if needs_remap:
         mapped = None
         for candidate in (general.get("condition"), condition):
             if candidate in (None, ""):
