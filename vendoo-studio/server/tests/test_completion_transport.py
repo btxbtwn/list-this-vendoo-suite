@@ -5,7 +5,7 @@ import os
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -66,6 +66,7 @@ class CompletionTransportTest(unittest.TestCase):
                  patch.object(manager, "verify_token", return_value=True), \
                  patch("vendoo_studio.routes.extension._websocket_allowed", return_value=True), \
                  patch("vendoo_studio.routes.extension.handshake_extension", side_effect=handshake), \
+                 patch("vendoo_studio.routes.extension._warm_label_catalog", new=AsyncMock()), \
                  patch("vendoo_studio.services.listing_completion.get_listing_provider", return_value=Assistant()):
                 client = TestClient(app)
                 with client.websocket_connect("/api/extension/ws") as ws:

@@ -95,10 +95,18 @@ async def _run() -> None:
 
     from vendoo_studio.database import SessionLocal
     from vendoo_studio.repositories.queries import ConversationRepo
+    from vendoo_studio.services.vendoo_create import LOOKUP_TIMEOUT_SEC, label_display_map
     from vendoo_studio.services.vendoo_import import parse_notes
     from vendoo_studio.services.vendoo_watch import cache_pulled_item, refresh_inventory_label
 
     try:
+        # Warm the id→name cache once per pass so Item Details can rename opaque
+        # chips even when a later Regenerate cannot reach list_labels in time.
+        try:
+            await label_display_map(None, timeout=LOOKUP_TIMEOUT_SEC)
+        except Exception:  # noqa: BLE001 - inventory pass still useful without names
+            log.warning("Vendoo label catalog refresh skipped", exc_info=True)
+
         page_token = ""
         with SessionLocal() as db:
             conv_repo = ConversationRepo(db)
