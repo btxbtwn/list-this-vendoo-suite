@@ -20,7 +20,8 @@ from vendoo_studio.models.fill_log import FillLogEntry
 
 BUSY_LISTING_STATUSES = ("in_progress", "listing")
 # Vendoo's own inventory labels, plus the one state Vendoo has no name for.
-MANUAL_LISTING_STATUSES = ("draft", "active", "sold", "failed")
+# Studio reports these; nothing outside it sets one.
+LISTING_STATUSES = ("draft", "active", "sold", "failed")
 # Statuses a Vendoo item can report for itself.
 VENDOO_LISTING_STATUSES = ("draft", "active", "sold")
 
@@ -239,7 +240,7 @@ class ConversationRepo:
                     if conv.status != next_status:
                         conv.status = next_status
                         changed = True
-            if conv.status not in MANUAL_LISTING_STATUSES + BUSY_LISTING_STATUSES:
+            if conv.status not in LISTING_STATUSES + BUSY_LISTING_STATUSES:
                 conv.status = vendoo_status
                 changed = True
             if _sync_settlement(conv, conv.status, backfill=True):

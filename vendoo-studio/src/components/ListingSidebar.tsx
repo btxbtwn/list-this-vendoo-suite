@@ -28,8 +28,15 @@ const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 const BUSY_STATUSES = new Set(["in_progress", "listing"]);
-// Vendoo's Inventory labels, plus the one state Vendoo has no name for.
-const MANUAL_STATUSES = ["draft", "active", "sold", "failed"] as const;
+// Vendoo's Inventory labels, plus the states that are Studio's own doing.
+const STATUS_HINTS: Record<string, string> = {
+  draft: "Draft in Vendoo",
+  active: "Listed on a marketplace, per Vendoo",
+  sold: "Sold, per Vendoo",
+  failed: "The last send to Vendoo failed",
+  in_progress: "Studio is working on this listing",
+  listing: "Studio is sending this listing to Vendoo",
+};
 const HOVER_STATUS_DELAY_MS = 280;
 const MARKETPLACE_STATUS_ORDER = [
   "general",
@@ -165,6 +172,13 @@ function clearLegacySettledExpanded() {
   } catch {
     /* ignore quota / private-mode failures */
   }
+}
+
+/** Why a listing reads the way it does. Status follows Vendoo; it is never set here. */
+export function statusHint(status: string): string {
+  const hint = STATUS_HINTS[status];
+  if (hint) return hint;
+  return `${status.replace(/_/g, " ")} · follows Vendoo`;
 }
 
 function timestampMs(value?: string | null): number {
@@ -870,18 +884,6 @@ function ListingRow({
     },
   });
 
-  const updateStatus = useMutation({
-    mutationFn: (nextStatus: string) => api.conversations.update(listing.id, { status: nextStatus }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    },
-  });
-
-  const statusOptions = useMemo(() => {
-    if ((MANUAL_STATUSES as readonly string[]).includes(status)) return [...MANUAL_STATUSES];
-    return [status, ...MANUAL_STATUSES];
-  }, [status]);
-
   // Observe Fields-panel cache without fetching.
   const cachedDraftQuery = useQuery({
     queryKey: ["vendoo-item", jobId || ""],
@@ -1071,27 +1073,9 @@ function ListingRow({
             </button>
           )}
           <div className="nav-link-meta">
-            <select
-              className={`nav-status-select nav-status-${statusClass}`}
-              value={status}
-              aria-label={`Status for ${title}`}
-              disabled={updateStatus.isPending}
-              title="Change listing status"
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onChange={(e) => {
-                e.stopPropagation();
-                const next = e.target.value;
-                if (next === status) return;
-                updateStatus.mutate(next);
-              }}
-            >
-              {statusOptions.map((option) => (
-                <option key={option} value={option} disabled={BUSY_STATUSES.has(option)}>
-                  {option.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
+            <span className={`nav-status nav-status-${statusClass}`} title={statusHint(status)}>
+              {status.replace(/_/g, " ")}
+            </span>
             {settledAt ? <span className="nav-time">{settledAt}</span> : null}
           </div>
           {listedMarketplaces.length ? (

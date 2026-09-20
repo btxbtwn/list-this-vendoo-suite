@@ -192,7 +192,8 @@ export const api = {
     get: (id: string) => request<Conversation>(`/conversations/${id}`),
     create: (body?: { title?: string; notes?: string }) =>
       request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(body || {}) }),
-    update: (id: string, body: { title?: string; notes?: string; status?: string }) =>
+    // Status is not here on purpose: it follows the bound Vendoo item.
+    update: (id: string, body: { title?: string; notes?: string }) =>
       request<Conversation>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     settle: (id: string) =>
       request<Conversation>(`/conversations/${id}/settle`, { method: "POST" }),
