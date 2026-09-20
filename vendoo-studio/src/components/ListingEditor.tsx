@@ -11,7 +11,12 @@ import { SendProgress, useSendStep } from "./SendProgress";
 import { VendooSyncStatus } from "./VendooSyncStatus";
 import { OpenListingButton } from "./OpenListingButton";
 import { marketplaceName } from "./marketplaceNames";
-import { joinMarketplaces, marketplacesNeedingRelist, relistCallout } from "./relistStatus";
+import {
+  describeMarketplaces,
+  joinMarketplaces,
+  marketplacesNeedingRelist,
+  relistCallout,
+} from "./relistStatus";
 import {
   DEPOP_CATEGORY_OPTIONALS,
   EBAY_CATEGORY_OPTIONALS,
@@ -288,11 +293,17 @@ export function ListingEditor({
       </div>
 
       {relistMarketplaces.length > 0 && (
-        <div className="pr-notice is-relist" role="status">
+        <div
+          className="pr-notice is-relist"
+          role="status"
+          // The sentence says how many; the tooltip says which.
+          title={`Still on the old copy: ${relistMarketplaces.join(", ")}`}
+        >
           <div className="pr-notice-body">
             <strong>Relist in Vendoo to publish this edit.</strong>{" "}
             {relistCallout(relistMarketplaces)}{" "}
-            In Vendoo, the ⋮ menu beside Vendoo Form has Delist Item; list it again after that.
+            In Vendoo, the ⋮ menu beside Vendoo Form has Delist Item — it takes the item off
+            every marketplace at once. List it again after that.
           </div>
           {listingJob ? (
             <OpenListingButton
@@ -894,7 +905,7 @@ function SendToVendooButton({
           description: !res.updated.length
             ? "Vendoo already matches this listing."
             : relist.length
-              ? `${written} Delist and relist on ${joinMarketplaces(relist)} in Vendoo so buyers see it.`
+              ? `${written} Delist and relist on ${describeMarketplaces(relist)} in Vendoo so buyers see it.`
               : written,
         });
       }
@@ -953,9 +964,11 @@ function SendToVendooButton({
   const sendHint = !bound
     ? "Creates a Vendoo draft and links it. Nothing is published."
     : live.length
-      ? `Writes changed fields onto the Vendoo form. The live ${joinMarketplaces(live)}`
-        + ` ${live.length === 1 ? "listing keeps" : "listings keep"} the old version`
-        + " until you delist and relist in Vendoo."
+      ? "Writes changed fields onto the Vendoo form. "
+        + (live.length > 2
+          ? `The live listings on all ${live.length} marketplaces keep`
+          : `The live ${joinMarketplaces(live)} ${live.length === 1 ? "listing keeps" : "listings keep"}`)
+        + " the old version until you delist and relist in Vendoo."
       : "Writes changed fields onto the linked Vendoo draft. Nothing is published.";
 
   const startSend = () => {

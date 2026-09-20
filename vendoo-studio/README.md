@@ -77,8 +77,8 @@ Then:
 Studio writes the Vendoo **form**. Vendoo carries a form change onto a live
 marketplace listing only when the listing is taken down and posted again, so
 after **Update Vendoo** the buyer still sees the old copy until you delist and
-relist in Vendoo (the ⋮ menu beside Vendoo Form → **Delist Item**, then list it
-again).
+relist in Vendoo (the ⋮ menu beside Vendoo Form → **Delist Item**, which takes
+the item off every marketplace at once, then list it again).
 
 Studio labels that gap rather than leaving it to memory: the listing wears a
 **relist** badge in the sidebar, the editor shows which marketplaces are behind,

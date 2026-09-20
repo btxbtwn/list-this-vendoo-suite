@@ -58,9 +58,27 @@ export function joinMarketplaces(names: string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
+/**
+ * The marketplaces as the copy names them: the short lists in full, the long
+ * ones by count.
+ *
+ * An item can be live on a dozen marketplaces, and spelling all of them out
+ * turns a one-line warning into a paragraph nobody reads. Past two, what
+ * matters is that this is every marketplace the item is on — which is also what
+ * Vendoo's own Delist Item covers. The full list stays in the tooltip.
+ */
+export function describeMarketplaces(names: string[]): string {
+  if (names.length > 2) return `all ${names.length} marketplaces`;
+  return joinMarketplaces(names);
+}
+
 /** The one sentence that says what Update Vendoo did and did not do. */
 export function relistCallout(names: string[]): string {
-  const where = joinMarketplaces(names);
+  if (names.length > 2) {
+    return `The Vendoo form is updated, but the live listings on all ${names.length}`
+      + " marketplaces still show the old version.";
+  }
   const [listing, show] = names.length === 1 ? ["listing", "shows"] : ["listings", "show"];
-  return `The Vendoo form is updated, but the live ${where} ${listing} ${show} the old version.`;
+  return `The Vendoo form is updated, but the live ${joinMarketplaces(names)}`
+    + ` ${listing} ${show} the old version.`;
 }

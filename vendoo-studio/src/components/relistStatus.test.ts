@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  describeMarketplaces,
   joinMarketplaces,
   marketplacesNeedingRelist,
   needsRelist,
@@ -68,6 +69,19 @@ describe("copy", () => {
     expect(joinMarketplaces(["eBay"])).toBe("eBay");
     expect(joinMarketplaces(["eBay", "Poshmark"])).toBe("eBay and Poshmark");
     expect(joinMarketplaces(["eBay", "Poshmark", "Depop"])).toBe("eBay, Poshmark and Depop");
+  });
+
+  it("counts the marketplaces once the list gets long", () => {
+    expect(describeMarketplaces(["eBay"])).toBe("eBay");
+    expect(describeMarketplaces(["eBay", "Poshmark"])).toBe("eBay and Poshmark");
+    expect(describeMarketplaces(["eBay", "Poshmark", "Depop"])).toBe("all 3 marketplaces");
+  });
+
+  it("says the same of a long list without naming every one", () => {
+    expect(relistCallout(["eBay", "Poshmark", "Depop", "Mercari"])).toBe(
+      "The Vendoo form is updated, but the live listings on all 4 marketplaces"
+      + " still show the old version.",
+    );
   });
 
   it("says what is stale, agreeing with one marketplace or several", () => {

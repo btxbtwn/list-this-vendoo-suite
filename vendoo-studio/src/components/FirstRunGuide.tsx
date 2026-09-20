@@ -494,10 +494,10 @@ export function FirstRunGuide({
                 </p>
                 <ul className="setup-guide-points">
                   <li>
-                    <strong>1. Regenerate and Update Vendoo here.</strong> The Vendoo form now matches Studio. Nothing on eBay, Poshmark, Depop or Mercari has changed yet.
+                    <strong>1. Regenerate and Update Vendoo here.</strong> The Vendoo form now matches Studio. None of the live marketplace listings have changed yet.
                   </li>
                   <li>
-                    <strong>2. Open the item in Vendoo.</strong> The ⋮ menu beside Vendoo Form → Delist Item takes it down everywhere.
+                    <strong>2. Open the item in Vendoo.</strong> The ⋮ menu beside Vendoo Form → Delist Item takes it off every marketplace at once.
                   </li>
                   <li>
                     <strong>3. List it again from Vendoo.</strong> The new listing carries the updated copy, and its listing date resets.
