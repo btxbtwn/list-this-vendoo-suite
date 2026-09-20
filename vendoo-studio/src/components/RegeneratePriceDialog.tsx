@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { PriceDropPreview } from "../api/types";
@@ -140,7 +141,8 @@ export function RegeneratePriceDialog({
     selectedPrice != null &&
     selectedPrice < preview.comps.target_price;
 
-  return (
+  // Inspector overflow clips position:fixed; mount on body so the card is visible.
+  return createPortal(
     <div className="confirm-dialog price-drop-dialog" role="presentation">
       <button
         type="button"
@@ -324,6 +326,7 @@ export function RegeneratePriceDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
