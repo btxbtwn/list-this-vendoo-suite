@@ -98,10 +98,16 @@ async def _run() -> None:
     from vendoo_studio.database import SessionLocal
     from vendoo_studio.repositories.queries import ConversationRepo
     from vendoo_studio.services.vendoo_import import (
+        attach_vendoo_photos,
+        image_urls_from_vendoo,
         import_vendoo_item,
         parse_notes,
         vendoo_updated_at,
     )
+
+    def photos_missing(conv_id: str, item: dict) -> bool:
+        """True when the item has photos and none of them are here."""
+        return bool(image_urls_from_vendoo(item, None)) and not conv_repo.get_photos(conv_id)
 
     try:
         _progress.total = await _count_items()
@@ -120,7 +126,14 @@ async def _run() -> None:
                         existing = conv_repo.find_by_vendoo_item_id(item_id)
                         seen_at = parse_notes(existing.notes).get("vendooUpdatedAt") if existing else None
                         if existing is not None and seen_at and seen_at == vendoo_updated_at(item):
-                            _progress.skipped += 1
+                            # Vendoo has not touched the item, so the fields are
+                            # current; only missing photos are worth a fetch.
+                            if not photos_missing(existing.id, item):
+                                _progress.skipped += 1
+                                continue
+                            added = await attach_vendoo_photos(db, existing.id, item)
+                            _progress.photos += added
+                            _progress.updated += 1
                             continue
                         result = await import_vendoo_item(
                             db,
