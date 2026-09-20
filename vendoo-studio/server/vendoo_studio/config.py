@@ -76,6 +76,7 @@ PHOTOS_DIR = str(user_data_root() / "photos")
 FILL_LOGS_DIR = str(user_data_root() / "fill-logs")
 LOGS_DIR = str(user_data_root() / "logs")
 DATABASE_PATH = str(user_data_root() / "vendoo_studio.db")
+BACKUPS_DIR = str(user_data_root() / "backups")
 PAIRING_FILE = str(user_data_root() / "pairing_token.txt")
 
 
@@ -84,6 +85,7 @@ def ensure_user_data_dirs() -> None:
     Path(PHOTOS_DIR).mkdir(parents=True, exist_ok=True)
     Path(FILL_LOGS_DIR).mkdir(parents=True, exist_ok=True)
     Path(LOGS_DIR).mkdir(parents=True, exist_ok=True)
+    Path(BACKUPS_DIR).mkdir(parents=True, exist_ok=True)
 
 
 ensure_user_data_dirs()

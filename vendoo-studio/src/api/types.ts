@@ -14,6 +14,12 @@ export interface Conversation {
   cover_photo_url?: string | null;
   vendoo_status?: string | null;
   vendoo_cover_url?: string | null;
+  /** What the sidebar filters on: the listing's SKU and price, its Vendoo
+   * labels, and the marketplaces it is live on. */
+  sku?: string | null;
+  price?: number | null;
+  vendoo_labels?: string[];
+  vendoo_marketplaces?: string[];
 }
 
 export interface Message {
@@ -219,4 +225,18 @@ export interface VendooBulkImport {
   cancelled: boolean;
   error: string;
   failures: { item_id: string; title: string; error: string }[];
+}
+
+export interface BackupSnapshot {
+  path: string;
+  name: string;
+  taken_at: string;
+  reason: string;
+  size_bytes: number;
+}
+
+export interface BackupsStatus {
+  snapshots: BackupSnapshot[];
+  folder: string | null;
+  latest: BackupSnapshot | null;
 }

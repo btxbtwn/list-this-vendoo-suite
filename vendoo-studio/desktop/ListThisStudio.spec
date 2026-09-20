@@ -46,6 +46,9 @@ def tree(src: Path, dest_root: str) -> list[tuple[str, str]]:
 
 datas = [
     *tree(STUDIO / "dist", "dist"),
+    # Revision scripts are read from disk at startup, so they have to be in
+    # the bundle beside the package rather than only inside the archive.
+    *tree(STUDIO / "server" / "vendoo_studio" / "migrations", "vendoo_studio/migrations"),
     *tree(REPO / "skills" / "list-this", "skills/list-this"),
     *tree(REPO / "vendoo-extension", "vendoo-extension"),
     *collect_data_files("webview"),

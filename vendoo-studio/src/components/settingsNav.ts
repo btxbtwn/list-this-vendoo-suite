@@ -63,6 +63,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["tutorial", "onboarding", "first run", "chatgpt", "mimo", "cursor", "brave"],
   },
   {
+    id: "backups",
+    title: "Backups",
+    section: "general",
+    targetId: "backups",
+    searchTerms: ["backup", "snapshot", "restore", "lose data", "external drive", "copy", "sqlite"],
+  },
+  {
     id: "data-folder",
     title: "Data folder",
     section: "general",

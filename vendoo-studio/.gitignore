@@ -10,6 +10,7 @@ __pycache__/
 data/vendoo_studio.db
 data/vendoo_studio.db-shm
 data/vendoo_studio.db-wal
+data/backups/
 data/pairing_token.txt
 data/photos/*
 !data/photos/.gitkeep

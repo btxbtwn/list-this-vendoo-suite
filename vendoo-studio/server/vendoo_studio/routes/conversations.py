@@ -41,6 +41,12 @@ class ConversationResponse(BaseModel):
     # Vendoo's own label for a bound item, and its image as a thumbnail fallback.
     vendoo_status: str | None = None
     vendoo_cover_url: str | None = None
+    # What the sidebar filters on: the listing's own SKU and price, the Vendoo
+    # labels it wears, and the marketplaces it is live on.
+    sku: str | None = None
+    price: float | None = None
+    vendoo_labels: list[str] = []
+    vendoo_marketplaces: list[str] = []
 
 
 class MessageResponse(BaseModel):
@@ -82,7 +88,11 @@ def list_conversations(db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
     repo.reconcile_job_statuses()
     covers = repo.cover_photo_ids()
-    return [_conv_response(c, _cover_photo_url(covers.get(c.id))) for c in repo.list_all()]
+    facets = repo.listing_facets()
+    return [
+        _conv_response(c, _extras(_cover_photo_url(covers.get(c.id)), facets.get(c.id)))
+        for c in repo.list_all()
+    ]
 
 
 @router.get("/{conv_id}", response_model=ConversationResponse)
@@ -91,7 +101,7 @@ def get_conversation(conv_id: str, db: Session = Depends(get_db)):
     conv = repo.get(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
-    return _conv_response(conv, _cover_url_for(db, conv_id))
+    return _conv_response(conv, _extras_for(db, conv_id))
 
 
 class ConversationUpdate(BaseModel):
@@ -117,7 +127,7 @@ def settle_conversation(conv_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Conversation not found")
     if conv.status in BUSY_LISTING_STATUSES:
         raise HTTPException(409, "Cannot settle a listing that is still in progress")
-    return _conv_response(repo.settle(conv_id), _cover_url_for(db, conv_id))
+    return _conv_response(repo.settle(conv_id), _extras_for(db, conv_id))
 
 
 @router.post("/{conv_id}/unsettle", response_model=ConversationResponse)
@@ -126,7 +136,7 @@ def unsettle_conversation(conv_id: str, db: Session = Depends(get_db)):
     conv = repo.get(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
-    return _conv_response(repo.unsettle(conv_id), _cover_url_for(db, conv_id))
+    return _conv_response(repo.unsettle(conv_id), _extras_for(db, conv_id))
 
 
 class VendooLinkRequest(BaseModel):
@@ -182,7 +192,7 @@ def link_vendoo_draft(conv_id: str, body: VendooLinkRequest, db: Session = Depen
     db.refresh(conv)
     linked = vendoo_binding(conv.notes)
     return VendooLinkResponse(
-        conversation=_conv_response(conv, _cover_url_for(db, conv_id)),
+        conversation=_conv_response(conv, _extras_for(db, conv_id)),
         vendoo_item_id=linked.get("vendooItemId") or item_id,
         vendoo_url=linked.get("vendooUrl") or item_url,
     )
@@ -214,7 +224,7 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
     if changed:
         db.commit()
         db.refresh(conv)
-    return _conv_response(conv, _cover_url_for(db, conv_id))
+    return _conv_response(conv, _extras_for(db, conv_id))
 
 
 @router.get("/{conv_id}/messages")
@@ -435,7 +445,7 @@ async def reset_conversation(
     db.commit()
     db.refresh(conv)
     clear_listing_hidden_fields(conv_id)
-    return _conv_response(conv, _cover_url_for(db, conv_id))
+    return _conv_response(conv, _extras_for(db, conv_id))
 
 
 @router.delete("/{conv_id}", response_model=DeleteConversationResponse)
@@ -484,14 +494,26 @@ def _cover_photo_url(photo_id: str | None) -> str | None:
     return f"/api/photos/{photo_id}/thumb?size={COVER_THUMB_SIZE}" if photo_id else None
 
 
-def _cover_url_for(db: Session, conv_id: str) -> str | None:
-    return _cover_photo_url(ConversationRepo(db).cover_photo_id(conv_id))
+def _extras(cover_photo_url: str | None, facet: dict | None) -> dict:
+    """The per-row fields the sidebar needs alongside the conversation itself."""
+    return {
+        "cover_photo_url": cover_photo_url,
+        "sku": (facet or {}).get("sku"),
+        "price": (facet or {}).get("price"),
+    }
 
 
-def _conv_response(conv, cover_photo_url: str | None = None) -> ConversationResponse:
-    from vendoo_studio.services.vendoo_import import parse_notes
+def _extras_for(db: Session, conv_id: str) -> dict:
+    repo = ConversationRepo(db)
+    return _extras(_cover_photo_url(repo.cover_photo_id(conv_id)), repo.listing_facet(conv_id))
+
+
+def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
+    from vendoo_studio.services.vendoo_import import parse_notes, split_vendoo_labels
 
     notes = parse_notes(conv.notes)
+    row = extras or {}
+    marketplaces = notes.get("vendooMarketplaces")
     return ConversationResponse(
         id=conv.id,
         title=conv.title,
@@ -501,9 +523,13 @@ def _conv_response(conv, cover_photo_url: str | None = None) -> ConversationResp
         unsettled_at=_iso(conv.unsettled_at),
         created_at=conv.created_at.isoformat() if conv.created_at else "",
         updated_at=conv.updated_at.isoformat() if conv.updated_at else "",
-        cover_photo_url=cover_photo_url,
+        cover_photo_url=row.get("cover_photo_url"),
         vendoo_status=str(notes.get("vendooStatus") or "") or None,
         vendoo_cover_url=str(notes.get("vendooCoverUrl") or "") or None,
+        sku=row.get("sku"),
+        price=row.get("price"),
+        vendoo_labels=split_vendoo_labels(notes.get("vendooLabels")),
+        vendoo_marketplaces=[str(m) for m in marketplaces] if isinstance(marketplaces, list) else [],
     )
 
 

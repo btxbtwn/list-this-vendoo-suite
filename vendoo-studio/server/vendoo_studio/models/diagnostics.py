@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Integer,UniqueConstraint
+from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Integer
 
 from vendoo_studio.database import Base
 from vendoo_studio.models.conversation import new_id, utcnow
@@ -10,6 +10,9 @@ class DiagnosticRun(Base):
     __tablename__ = "diagnostic_runs"
 
     id = Column(String, primary_key=True, default=new_id)
+    # Declared once, here. SQLite reports unique constraints without their
+    # names, so a second named copy in __table_args__ only made the schema and
+    # the models look permanently out of step.
     observation_id = Column(String, nullable=False, unique=True)
     job_id = Column(String, ForeignKey("jobs.id"), nullable=False, index=True)
     step = Column(String, nullable=False)
@@ -26,10 +29,6 @@ class DiagnosticRun(Base):
     expanded_sections = Column(JSON, nullable=True)
     headings = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow)
-
-    __table_args__ = (
-        UniqueConstraint("observation_id", name="uq_diagnostic_observation_id"),
-    )
 
 
 class FieldObservation(Base):

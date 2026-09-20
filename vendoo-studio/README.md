@@ -129,7 +129,43 @@ SQLite at `data/vendoo_studio.db` in development, or `~/Library/Application Supp
 - `job_events` — per-job event log
 - `category_trees` / `category_tree_nodes` — full General/eBay/Poshmark/Mercari/Depop/Etsy category trees
 
-The same data folder also holds `photos/`, `fill-logs/`, `settings.json` (marketplaces, hidden fields, UI prefs), `pairing_token.txt`, `catalog-index/`, `vendoo-extension/`, and `logs/`.
+The same data folder also holds `photos/`, `fill-logs/`, `settings.json` (marketplaces, hidden fields, UI prefs), `pairing_token.txt`, `catalog-index/`, `vendoo-extension/`, `backups/`, and `logs/`.
+
+### Backups
+
+Studio snapshots the database to `backups/` on startup, every six hours, and before any update or schema migration. Snapshots are written with `VACUUM INTO`, so they are consistent while Studio keeps running, and each one is checked with `PRAGMA integrity_check` before it is kept. Recent snapshots are kept for a day, then one per day for a month, and the newest three are never discarded.
+
+**Copy them off this machine.** Snapshots in `backups/` die with the disk they sit on. Set a backup folder in **Settings → Backups** — an external drive, a synced folder, or a network share — and every snapshot goes there too, along with your photos. Photos are copied incrementally and are never deleted from the backup folder when they are deleted in Studio, because that is the copy you want when the deletion was a mistake. The same thing over the API:
+
+```bash
+curl -X PUT http://127.0.0.1:4318/api/backups/folder \
+  -H 'Content-Type: application/json' \
+  -d '{"folder": "/Volumes/Backup/List This Studio"}'
+```
+
+Do not point that at the live database, and do not put `data/` itself inside Dropbox or iCloud: a sync daemon copying an open SQLite file mid-write produces snapshots that will not open.
+
+| | |
+|---|---|
+| List snapshots | `GET /api/backups` |
+| Snapshot now | `POST /api/backups` |
+| Check a database | `./scripts/check-db-schema.sh [db]` |
+| Restore one | `./scripts/restore-db.sh <snapshot.db>` |
+
+Restoring quits nothing for you — close Studio first. The current database is snapshotted before it is replaced, so restoring the wrong copy is itself undoable.
+
+### Schema changes
+
+The schema is owned by Alembic; revisions live in `server/vendoo_studio/migrations/versions/`. On startup Studio migrates to the newest revision, snapshotting first, and refuses to open a database stamped with a revision it does not recognise — that is what stops an older build from writing into a database a newer one created.
+
+A database from before migrations existed is brought up to the current schema, checked for anything still missing, and only then recorded as current.
+
+`test_the_models_match_the_migrations` compares what the migrations build against what the models declare, so a model change without a revision fails in CI rather than on someone else's machine. Adding a column to a model requires a revision:
+
+```bash
+.venv/bin/alembic revision --autogenerate -m "add whatever"
+```
+
 
 Category leaves, observed schemas, skill dropdown options, listing-rule chunks, and extension fill helpers are materialized under `catalog-index/` in the same data directory and searched with Semble (`GET /api/catalog/search`). First launch may download the local embedding model once.
 

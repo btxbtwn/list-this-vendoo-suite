@@ -12,6 +12,17 @@ import {
 } from "./settingsNav";
 import { statusFromListingStatus } from "./fillLogForms";
 import { MarketplaceLogo } from "./MarketplaceLogo";
+import { ListingFilters } from "./ListingFilters";
+import {
+  DEFAULT_LISTING_FILTERS,
+  filterListings,
+  labelOptions,
+  matchesSearch,
+  marketplaceOptions,
+  sortListings,
+  statusCounts,
+  type ListingFilters as Filters,
+} from "./inventoryFilters";
 
 const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
@@ -72,6 +83,10 @@ type Listing = {
   updated_at?: string;
   cover_photo_url?: string | null;
   vendoo_cover_url?: string | null;
+  sku?: string | null;
+  price?: number | null;
+  vendoo_labels?: string[];
+  vendoo_marketplaces?: string[];
 };
 
 interface Props {
@@ -198,13 +213,6 @@ function compactRelativeTime(iso?: string | null, now = Date.now()): string {
   return `${Math.round(day / 365)}y`;
 }
 
-function matchesQuery(listing: Listing, needle: string): boolean {
-  if (!needle) return true;
-  const title = String(listing.title || "Untitled").toLowerCase();
-  const status = String(listing.status || "draft").replace(/_/g, " ").toLowerCase();
-  return title.includes(needle) || status.includes(needle);
-}
-
 function SettingsSectionIcon({ section }: { section: SettingsSectionId }) {
   if (section === "general") {
     return (
@@ -266,6 +274,7 @@ export function ListingSidebar({
   const [settledExpanded, setSettledExpanded] = useState(legacySettled ?? true);
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
   const [settingsQuery, setSettingsQuery] = useState("");
+  const [filters, setFilters] = useState<Filters>(DEFAULT_LISTING_FILTERS);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const settingsSearchRef = useRef<HTMLInputElement>(null);
   const migratedSettledRef = useRef(false);
@@ -325,11 +334,15 @@ export function ListingSidebar({
 
   const needle = listingQuery.trim().toLowerCase();
   const { activeListings, settledListings } = useMemo(() => {
-    const visible = (conversations || []).filter((listing) => matchesQuery(listing, needle));
+    const visible = filterListings(conversations || [], needle, filters);
     const active = visible.filter((listing) => !listing.settled_at).sort((left, right) => activeAnchorMs(right) - activeAnchorMs(left));
     const settled = visible.filter((listing) => listing.settled_at).sort((left, right) => settledAnchorMs(right) - settledAnchorMs(left) || left.id.localeCompare(right.id));
-    return { activeListings: active, settledListings: settled };
-  }, [conversations, needle]);
+    // Every sort but "recent" replaces each shelf's own recency order.
+    return {
+      activeListings: sortListings(active, filters.sort),
+      settledListings: sortListings(settled, filters.sort),
+    };
+  }, [conversations, filters, needle]);
 
   const visibleSettled = useMemo(() => {
     const visible = settledListings.slice(0, settledVisibleCount);
@@ -350,6 +363,18 @@ export function ListingSidebar({
   const visibleMarketplaces = useMemo(
     () => (marketplaceSettings ? new Set(marketplaceSettings.selected) : undefined),
     [marketplaceSettings],
+  );
+  // The filter bar offers what the inventory actually holds: the statuses it
+  // wears, the marketplaces it sits on, and the Vendoo labels it carries.
+  const searched = useMemo(
+    () => (conversations || []).filter((listing) => matchesSearch(listing, needle)),
+    [conversations, needle],
+  );
+  const counts = useMemo(() => statusCounts(searched), [searched]);
+  const labels = useMemo(() => labelOptions(conversations || []), [conversations]);
+  const filterMarketplaces = useMemo(
+    () => marketplaceOptions(conversations || [], marketplaceSettings?.selected || []),
+    [conversations, marketplaceSettings],
   );
   // Cached Vendoo statuses for every rendered thread, so rows can badge where
   // they're listed without hovering. Reads the server cache only.
@@ -425,6 +450,11 @@ export function ListingSidebar({
 
   const handleSearchChange = (value: string) => {
     onSearchQueryChange(value);
+    setSettledVisibleCount(SETTLED_TAIL_INITIAL_COUNT);
+  };
+
+  const handleFiltersChange = (next: Filters) => {
+    setFilters(next);
     setSettledVisibleCount(SETTLED_TAIL_INITIAL_COUNT);
   };
 
@@ -602,8 +632,8 @@ export function ListingSidebar({
                 type="search"
                 value={listingQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Search"
-                aria-label="Search listings"
+                placeholder="Search by title or SKU"
+                aria-label="Search listings by title or SKU"
               />
             </label>
             <button
@@ -616,6 +646,14 @@ export function ListingSidebar({
               <ComposeIcon />
             </button>
           </div>
+
+          <ListingFilters
+            filters={filters}
+            counts={counts}
+            labels={labels}
+            marketplaces={filterMarketplaces}
+            onChange={handleFiltersChange}
+          />
 
           <div className="sidebar-list">
             {activeListings.map((listing) => (

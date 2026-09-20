@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id, utcnow
@@ -52,6 +53,15 @@ def _sync_settlement(conv: Conversation, status: str, *, backfill: bool = False)
     return False
 
 
+def _facet(sku: Any, price: Any) -> dict[str, Any]:
+    text = str(sku or "").strip()
+    try:
+        amount = float(price) if price is not None and str(price) != "" else None
+    except (TypeError, ValueError):
+        amount = None
+    return {"sku": text or None, "price": amount}
+
+
 class ConversationRepo:
     def __init__(self, db: Session):
         self.db = db
@@ -84,6 +94,36 @@ class ConversationRepo:
 
     def list_all(self) -> list[Conversation]:
         return self.db.query(Conversation).order_by(Conversation.updated_at.desc()).all()
+
+    def listing_facets(self) -> dict[str, dict[str, Any]]:
+        """SKU and price for every listing, read inside SQLite.
+
+        The sidebar filters and sorts on both. Loading whole revisions to reach
+        two fields would mean hauling the entire inventory's listing JSON into
+        Python on every sidebar read, so SQLite extracts them instead.
+        """
+        rows = (
+            self.db.query(
+                Listing.conversation_id,
+                func.json_extract(ListingRevision.listing_json, "$.sku"),
+                func.json_extract(ListingRevision.listing_json, "$.price"),
+            )
+            .join(ListingRevision, ListingRevision.id == Listing.current_revision_id)
+            .all()
+        )
+        return {conv_id: _facet(sku, price) for conv_id, sku, price in rows}
+
+    def listing_facet(self, conv_id: str) -> dict[str, Any]:
+        row = (
+            self.db.query(
+                func.json_extract(ListingRevision.listing_json, "$.sku"),
+                func.json_extract(ListingRevision.listing_json, "$.price"),
+            )
+            .join(Listing, ListingRevision.id == Listing.current_revision_id)
+            .filter(Listing.conversation_id == conv_id)
+            .first()
+        )
+        return _facet(*row) if row else _facet(None, None)
 
     def cover_photo_ids(self) -> dict[str, str]:
         """Map each conversation to its first photo, for sidebar thumbnails."""
