@@ -334,11 +334,7 @@ export function RegeneratePriceDialog({
               apply.mutate();
             }}
           >
-            {rewriting
-              ? "Rewrite listing"
-              : apply.isPending
-                ? "Saving…"
-                : `Drop to ${money(selectedPrice)}`}
+            {apply.isPending ? "Saving…" : "Confirm"}
           </button>
         </div>
       </div>
