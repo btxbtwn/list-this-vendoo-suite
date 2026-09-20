@@ -416,6 +416,7 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         apply_update_all,
         build_vendoo_item,
         changed_fields,
+        force_condition_updates,
     )
     from vendoo_studio.services.vendoo_create import prepare_listing_for_vendoo, run_ops
     from vendoo_studio.services.vendoo_import import (
@@ -463,7 +464,7 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
             specifics=specifics,
         )
         apply_update_all(current, desired, schema=schema)
-        updates = changed_fields(current, desired)
+        updates = force_condition_updates(desired, changed_fields(current, desired))
         # The general form is saved on its own first, the way Vendoo's own save
         # runs it: anything that save copies down onto the marketplace forms
         # lands before Studio writes those forms, so Studio's values are the

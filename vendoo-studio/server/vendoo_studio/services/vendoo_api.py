@@ -1512,6 +1512,8 @@ _UPDATE_ALL_OVERRIDE_KEYS = ("title", "description", "sku", "quantity", "tags")
 _PACKAGE_OVERRIDE_KEYS = ("weight", "dimensions")
 _PACKAGE_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari"})
 _PRICE_OVERRIDE_MARKETPLACES = frozenset({"etsy", "poshmark", "mercari", "depop"})
+# Forms whose condition is re-sent on every save — see ``force_condition_updates``.
+_ALWAYS_WRITE_CONDITION_MARKETPLACES = ("poshmark", "mercari")
 _TAGS_SPECIFICS_MARKETPLACES = frozenset({"etsy", "mercari"})
 
 
@@ -1577,6 +1579,26 @@ def _apply_condition(
     # included) so a category change does not leave a stale ``{id}_condition``.
     for key in {*_condition_keys(have_specs), *_condition_keys(want_specs)}:
         want_specs[key] = deepcopy(condition)
+
+
+def force_condition_updates(desired: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    """Always write Poshmark's and Mercari's condition, changed or not.
+
+    Both list from whatever their form holds, and a save that writes nothing
+    there leaves Vendoo free to fall back to the general ``v_`` code — which
+    Poshmark rejects outright. Re-sending the code Studio computed costs one
+    field and takes the form off that fallback every time.
+    """
+    for marketplace in _ALWAYS_WRITE_CONDITION_MARKETPLACES:
+        section = (desired.get(LISTINGS_KEY) or {}).get(marketplace)
+        overrides = section.get("overrides") if isinstance(section, dict) else None
+        if not isinstance(overrides, dict):
+            continue
+        condition = overrides.get("condition")
+        if condition in (None, "", []):
+            continue
+        updates[f"{LISTINGS_KEY}.{marketplace}.overrides.condition"] = deepcopy(condition)
+    return updates
 
 
 def apply_update_all(

@@ -6,6 +6,7 @@ from vendoo_studio.services.vendoo_specifics import normalize_specifics
 from vendoo_studio.services.vendoo_api import (
     apply_update_all,
     changed_fields,
+    force_condition_updates,
     pick_mapped_category,
     ALL_MARKETPLACES,
     CURRENT_ITEM_VERSION,
@@ -1363,6 +1364,34 @@ class ApplyUpdateAllTest(unittest.TestCase):
         self.assertEqual(mercari["overrides"]["weight"], {"pounds": "0", "ounces": "8"})
         self.assertEqual(mercari["marketplaceSpecifics"]["shipping"]["carrierId"], "2508")
         self.assertIn("Ground Advantage", mercari["marketplaceSpecifics"]["shippingLabel"])
+
+    def test_poshmark_and_mercari_condition_is_written_even_when_unchanged(self):
+        """Both list from their own form: never leave Vendoo on its v_ fallback."""
+        current = {
+            "generalDetails": {"condition": {"value": "v_good", "displayName": "Pre-Owned - Good"}},
+            "listings": {
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {"condition": "good"}},
+                "mercari": {"marketplaceID": "mercari", "overrides": {"condition": "4"}},
+                "ebay": {"marketplaceID": "ebay", "overrides": {"condition": "3000"}},
+            },
+        }
+        desired = {
+            "generalDetails": {"condition": {"value": "v_good", "displayName": "Pre-Owned - Good"}},
+            "listings": {
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {}},
+                "mercari": {"marketplaceID": "mercari", "overrides": {}},
+                "ebay": {"marketplaceID": "ebay", "overrides": {}},
+            },
+        }
+        schema = {"marketplaces": {"ebay": {"condition": {"v good": "3000"}}}}
+        apply_update_all(current, desired, schema=schema)
+        updates = changed_fields(current, desired)
+        self.assertNotIn("listings.poshmark.overrides.condition", updates)
+        force_condition_updates(desired, updates)
+        self.assertEqual(updates["listings.poshmark.overrides.condition"], "good")
+        self.assertEqual(updates["listings.mercari.overrides.condition"], "4")
+        # eBay's code is category-specific; it is written only when it changes.
+        self.assertNotIn("listings.ebay.overrides.condition", updates)
 
     def test_marketplaces_absent_from_the_item_are_left_alone(self):
         current = {"generalDetails": {"title": "Old"}, "listings": {}}
