@@ -1,3 +1,5 @@
+import { optionsForField, type DropdownForms } from "../dropdownOptions";
+
 type Blocker = { field?: string; message?: string };
 
 export type BlockerField = {
@@ -27,7 +29,10 @@ function listingLabel(listingTitle?: string): string {
   return String(listingTitle || "").trim() || "this listing";
 }
 
-function compactBlockerFields(fields?: BlockerField[] | null): BlockerField[] {
+function compactBlockerFields(
+  fields?: BlockerField[] | null,
+  forms?: DropdownForms,
+): BlockerField[] {
   if (!Array.isArray(fields)) return [];
   const seen = new Set<string>();
   const rows: BlockerField[] = [];
@@ -44,7 +49,11 @@ function compactBlockerFields(fields?: BlockerField[] | null): BlockerField[] {
       expected: item.expected,
       observed: item.observed,
       error: item.error,
-      options: Array.isArray(item.options) ? item.options.slice(0, 20) : undefined,
+      // The whole dropdown list, not a sample: a truncated list just invites
+      // the model to answer with the invalid value again.
+      options: Array.isArray(item.options) && item.options.length
+        ? item.options.slice(0, 120)
+        : optionsForField(forms, marketplace, field)?.slice(0, 120),
     });
     if (rows.length >= 40) break;
   }
@@ -78,6 +87,13 @@ function missingFieldsJsonExamples(fields: BlockerField[]): string {
   return examples.join(",") || '{"marketplace":"ebay","field":"Brand","value":"..."}';
 }
 
+/** Every fix prompt says this: a listed dropdown is the whole menu. */
+const OPTIONS_RULE =
+  "When a field lists options, every value you send for it must be copied from that list verbatim "
+  + "(same spelling, spacing and capitalization). Anything outside the list — \"Other\", \"Mixed\", "
+  + "\"Unknown\" — fails validation again. If nothing in the list fits, leave that field out of your "
+  + "reply and say why in prose.";
+
 function fieldLines(fields: BlockerField[]): string {
   return fields
     .map((item) => {
@@ -85,7 +101,9 @@ function fieldLines(fields: BlockerField[]): string {
       if (item.expected != null && String(item.expected).trim()) bits.push(`  expected: ${String(item.expected)}`);
       if (item.observed != null && String(item.observed).trim()) bits.push(`  observed: ${String(item.observed)}`);
       if (item.error != null && String(item.error).trim()) bits.push(`  error: ${String(item.error)}`);
-      if (item.options?.length) bits.push(`  options: ${item.options.join(" | ")}`);
+      if (item.options?.length) {
+        bits.push(`  options (use only these, verbatim): ${item.options.join(" | ")}`);
+      }
       return bits.join("\n");
     })
     .join("\n");
@@ -98,11 +116,15 @@ function replyShape(fields: BlockerField[]): string {
 {"missing_fields":[${missingFieldsJsonExamples(fields)}]}
 \`\`\`
 
-Use marketplace ids and field names exactly as listed. Studio saves the listing JSON from this reply; filling the live Vendoo draft is a separate step. Do not publish.
+Use marketplace ids and field names exactly as listed. ${OPTIONS_RULE} Studio saves the listing JSON from this reply; filling the live Vendoo draft is a separate step. Do not publish.
 `;
 }
 
-export function validationErrorsPrompt(blockers: Blocker[], listingTitle?: string): string {
+export function validationErrorsPrompt(
+  blockers: Blocker[],
+  listingTitle?: string,
+  forms?: DropdownForms,
+): string {
   const title = listingLabel(listingTitle);
   const lines = blockers
     .filter((item) => item.message)
@@ -118,6 +140,7 @@ export function validationErrorsPrompt(blockers: Blocker[], listingTitle?: strin
       .map((item) => fieldPathToTarget(item.field))
       .filter((target): target is { marketplace: string; field: string } => Boolean(target))
       .map((target) => ({ marketplace: target.marketplace, field: target.field })),
+    forms,
   );
   const examples = fields
     .slice(0, 3)
@@ -128,6 +151,7 @@ export function validationErrorsPrompt(blockers: Blocker[], listingTitle?: strin
 Update EVERY field listed below so the errors clear. Use photo analysis and seller notes. Do not invent unsupported facts.
 For eBay Season intelligently choose exactly one of Spring, Summer, Fall, or Winter from the item (title, fabric, type, photos). Never leave it blank and never use Does Not Apply.
 For every marketplace field shown after Show Optional Fields (eBay, Etsy, Depop, and others): fill a real value when it pertains to the item. Use Does Not Apply only when it literally does not apply.
+${OPTIONS_RULE}
 
 Validation errors:
 ${lines.join("\n") || "- (no details)"}
@@ -146,12 +170,15 @@ export function jobErrorPrompt(
   errorText: string,
   listingTitle?: string,
   blockerFields?: BlockerField[] | null,
+  forms?: DropdownForms,
 ): string {
   const title = listingLabel(listingTitle);
   const detail = String(errorText || "").trim() || "(no details)";
   const fields = (() => {
-    const fromPayload = compactBlockerFields(blockerFields);
-    return fromPayload.length ? fromPayload : parseFieldsFromErrorText(detail);
+    const fromPayload = compactBlockerFields(blockerFields, forms);
+    return fromPayload.length
+      ? fromPayload
+      : compactBlockerFields(parseFieldsFromErrorText(detail), forms);
   })();
   if (fields.length) {
     return `Fix this Studio job / verification error for "${title}".
@@ -160,6 +187,7 @@ Job error:
 ${detail}
 
 Generate values for EVERY field listed below from photos and seller notes — both the fields named in the error and any other missed fields included here. Do not rewrite unrelated fields.
+${OPTIONS_RULE}
 
 Fields:
 ${fieldLines(fields)}
@@ -187,12 +215,15 @@ export function completionBlockerPrompt(
   errorText: string,
   listingTitle?: string,
   blockerFields?: BlockerField[] | null,
+  forms?: DropdownForms,
 ): string {
   const title = listingLabel(listingTitle);
   const detail = String(errorText || "").trim() || "(no details)";
   const fields = (() => {
-    const fromPayload = compactBlockerFields(blockerFields);
-    return fromPayload.length ? fromPayload : parseFieldsFromErrorText(detail);
+    const fromPayload = compactBlockerFields(blockerFields, forms);
+    return fromPayload.length
+      ? fromPayload
+      : compactBlockerFields(parseFieldsFromErrorText(detail), forms);
   })();
   const lower = detail.toLowerCase();
 

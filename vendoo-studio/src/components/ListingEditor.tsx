@@ -787,6 +787,14 @@ function SendToVendooButton({
     [emptyFieldsCount, sourceForms, fromVendooDraft, listing],
   );
 
+  // Vendoo's dropdown lists ride along in the fix prompts, so chat repairs a
+  // rejected option (Depop material "Other") with one the dropdown really has.
+  const { data: dropdownOptions } = useQuery({
+    queryKey: ["catalog-dropdown-options"],
+    queryFn: api.catalog.dropdownOptions,
+    staleTime: Infinity,
+  });
+
   const { data: extStatus } = useQuery({
     queryKey: ["extension-status"],
     queryFn: api.extension.status,
@@ -947,7 +955,7 @@ function SendToVendooButton({
           <CopyableLlmError
             className="job-card-detail"
             text={existingJob.last_error}
-            prompt={jobErrorPrompt(existingJob.last_error, listingTitle)}
+            prompt={jobErrorPrompt(existingJob.last_error, listingTitle, null, dropdownOptions?.forms)}
             onAskChat={onAskChat}
             emptyFieldsCount={emptyFieldsCount}
             emptyFieldsPrompt={fillEmptyPrompt}
@@ -957,7 +965,7 @@ function SendToVendooButton({
           <CopyableLlmError
             className="job-card-detail"
             text={error}
-            prompt={jobErrorPrompt(error, listingTitle)}
+            prompt={jobErrorPrompt(error, listingTitle, null, dropdownOptions?.forms)}
             onAskChat={onAskChat}
             emptyFieldsCount={emptyFieldsCount}
             emptyFieldsPrompt={fillEmptyPrompt}
@@ -991,13 +999,16 @@ function SendToVendooButton({
   const blockerPrompt = validationErrorsPrompt(
     uniqueBlockers.length ? uniqueBlockers : [{ message: displayError }],
     listingTitle,
+    dropdownOptions?.forms,
   );
   // Rendered even without an error so the fill button stays while fields are empty.
   const errorCard = (
     <CopyableLlmError
       className="mt-8"
       text={displayError}
-      prompt={uniqueBlockers.length ? blockerPrompt : jobErrorPrompt(displayError, listingTitle)}
+      prompt={uniqueBlockers.length
+        ? blockerPrompt
+        : jobErrorPrompt(displayError, listingTitle, null, dropdownOptions?.forms)}
       onAskChat={onAskChat}
       emptyFieldsCount={emptyFieldsCount}
       emptyFieldsPrompt={fillEmptyPrompt}

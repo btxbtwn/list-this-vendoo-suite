@@ -9,6 +9,20 @@ const GENERAL_FIELD_ALIASES: Record<string, string> = {
   size: "usSize",
 };
 
+/** Validation field names that do not match the scraped dropdown key. */
+const FIELD_ALIASES: Record<string, string> = {
+  whatis: "whatIsIt",
+  whatisit: "whatIsIt",
+  whomade: "whoMade",
+  whenmade: "whenMade",
+  parcelsize: "parcelSize",
+  shippinglabel: "shippingLabel",
+};
+
+function optionKey(text: string): string {
+  return String(text || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function leafKey(fieldKey: string): string {
   const parts = fieldKey.split(".");
   return parts[parts.length - 1] || fieldKey;
@@ -22,11 +36,33 @@ function optionsFor(
   const bucket = forms?.[marketplace];
   if (!bucket) return undefined;
   if (bucket[fieldLeaf]?.length) return bucket[fieldLeaf];
-  const folded = fieldLeaf.toLowerCase();
+  const folded = optionKey(FIELD_ALIASES[optionKey(fieldLeaf)] || fieldLeaf);
   for (const [key, values] of Object.entries(bucket)) {
-    if (key.toLowerCase() === folded && values.length) return values;
+    if (optionKey(key) === folded && values.length) return values;
   }
   return undefined;
+}
+
+/**
+ * Dropdown list for one validation field path ("depop_specifics.material").
+ *
+ * Fix-errors prompts paste these into chat so the model repairs a rejected
+ * value with one the Depop/Etsy dropdown really offers instead of "Other".
+ */
+export function optionsForField(
+  forms: DropdownForms | undefined,
+  marketplace: string,
+  field: string,
+): string[] | undefined {
+  if (!forms) return undefined;
+  const leaf = leafKey(String(field || ""));
+  if (!leaf) return undefined;
+  const market = String(marketplace || "").toLowerCase();
+  if (market === "general" || market === "vendoo") {
+    const alias = GENERAL_FIELD_ALIASES[leaf.toLowerCase()];
+    return optionsFor(forms, "vendoo", alias || leaf) || optionsFor(forms, "vendoo", leaf);
+  }
+  return optionsFor(forms, market, leaf);
 }
 
 /** Attach static dropdown options to editor fields that do not already have any. */
