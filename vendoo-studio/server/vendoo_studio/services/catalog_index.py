@@ -112,6 +112,7 @@ def _extension_script_files() -> list[Path]:
     paths = []
     for rel in (
         "content-scripts/vendoo.js",
+        "content-scripts/update-all-buttons.js",
         "content-scripts/ebay.js",
         "content-scripts/poshmark.js",
         "content-scripts/mercari.js",

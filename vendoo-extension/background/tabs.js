@@ -114,7 +114,7 @@ async function pingContentScript(tabId) {
 async function injectVendooContentScript(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ['content-script-version.js', 'content-scripts/vendoo.js'],
+    files: ['content-script-version.js', 'content-scripts/update-all-buttons.js', 'content-scripts/vendoo.js'],
   });
 }
 

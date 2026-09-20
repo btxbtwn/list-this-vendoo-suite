@@ -50,6 +50,7 @@
       ],
       "js": [
         "content-script-version.js",
+        "content-scripts/update-all-buttons.js",
         "content-scripts/vendoo.js"
       ]
     },

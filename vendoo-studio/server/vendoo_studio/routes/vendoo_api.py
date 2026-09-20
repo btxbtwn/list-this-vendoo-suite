@@ -231,7 +231,7 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     left alone. This edits a draft; it does not list.
     """
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
-    from vendoo_studio.services.vendoo_api import build_vendoo_item, changed_fields
+    from vendoo_studio.services.vendoo_api import apply_update_all, build_vendoo_item, changed_fields
     from vendoo_studio.services.vendoo_create import (
         fetch_listing_specifics,
         load_schema,
@@ -264,6 +264,7 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
             snapshot, load_schema(), images=[], user_id=str(current.get("userID") or ""),
             item_id=item_id, specifics=specifics,
         )
+        apply_update_all(current, desired)
         updates = changed_fields(current, desired)
         if updates:
             await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": updates}])
