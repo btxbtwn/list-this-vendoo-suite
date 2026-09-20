@@ -16,6 +16,7 @@ from vendoo_studio.services.vendoo_api import (
     default_listing_section,
     diff_roundtrip,
     encode_field,
+    marketplace_condition,
     observe_item_schema,
     pick_category_hit,
 )
@@ -581,9 +582,9 @@ class BuildItemTest(unittest.TestCase):
     def test_poshmark_condition_uses_learned_marketplace_code(self):
         """Leaf schemas without a condition field still get a marketplace code."""
         learned = observe_item_schema([{
-            "generalDetails": {"condition": {"value": "v_pre_owned_good", "displayName": "Pre-Owned - Good"}},
+            "generalDetails": {"condition": {"value": "v_preowned", "displayName": "Pre-Owned - Good"}},
             "listings": {
-                "poshmark": {"overrides": {"condition": "good", "categoryV2": {"id": "posh1"}}},
+                "poshmark": {"overrides": {"condition": "uf", "categoryV2": {"id": "posh1"}}},
                 "mercari": {"overrides": {"condition": "4", "categoryV2": {"id": "merc1"}}},
             },
         }])
@@ -603,7 +604,7 @@ class BuildItemTest(unittest.TestCase):
                 "mercari": normalize_specifics({"Size": _spec("Size", free_text=True)}),
             },
         )
-        self.assertEqual(item["listings"]["poshmark"]["overrides"]["condition"], "good")
+        self.assertEqual(item["listings"]["poshmark"]["overrides"]["condition"], "uf")
         self.assertEqual(item["listings"]["mercari"]["overrides"]["condition"], "4")
         self.assertEqual([u["field"] for u in unresolved if u["field"].startswith("condition:")], [])
 
@@ -621,8 +622,38 @@ class BuildItemTest(unittest.TestCase):
                 "poshmark": normalize_specifics({"Brand": _spec("Brand", free_text=True)}),
             },
         )
-        self.assertEqual(item["listings"]["poshmark"]["overrides"]["condition"], "good")
+        self.assertEqual(item["listings"]["poshmark"]["overrides"]["condition"], "ug")
         self.assertEqual([u["field"] for u in unresolved if u["field"].startswith("condition:")], [])
+
+    def test_camel_cased_vendoo_condition_codes_still_map(self):
+        """Vendoo's codes are camel case; squashing them lost the wording.
+
+        ``v_newWithTagsBox`` normalised to ``v newwithtagsbox`` and matched
+        nothing, so Poshmark and Mercari were sent a blank condition.
+        """
+        for code, poshmark, mercari in (
+            ("v_newWithTagsBox", "nwt", "1"),
+            ("v_newWithOutTags", "uln", "2"),
+            ("v_newWithDefects", "ug", "3"),
+            ("v_preowned_excellent", "uln", "3"),
+            ("v_preowned", "ug", "3"),
+            ("v_preowned_fair", "uf", "4"),
+            ("v_poor", "uf", "5"),
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(marketplace_condition(None, "poshmark", code), poshmark)
+                self.assertEqual(marketplace_condition(None, "mercari", code), mercari)
+
+    def test_a_learned_code_the_marketplace_does_not_own_is_ignored(self):
+        """Studio's own bad write must not teach itself back.
+
+        Items Studio saved with an invented Poshmark code come back as
+        learnings; holding them to Vendoo's vocabulary drops them.
+        """
+        schema = {"marketplaces": {"poshmark": {"condition": {"v preowned": "good"}}}}
+        self.assertEqual(marketplace_condition(schema, "poshmark", "v_preowned"), "ug")
+        real = {"marketplaces": {"poshmark": {"condition": {"v preowned": "uf"}}}}
+        self.assertEqual(marketplace_condition(real, "poshmark", "v_preowned"), "uf")
 
     def test_multi_select_aspects_are_stored_as_lists(self):
         learned = observe_item_schema([{
@@ -1100,14 +1131,14 @@ class ApplyUpdateAllTest(unittest.TestCase):
             "generalDetails": {
                 "title": "New",
                 "tags": ["denim", "vintage"],
-                "condition": "v_good",
+                "condition": "v_preowned",
                 "price": "15",
             },
             "listings": {
                 "ebay": {"marketplaceID": "ebay", "overrides": {"condition": "4000"}},
                 "etsy": {"marketplaceID": "etsy", "overrides": {"condition": "used_good"}},
-                "poshmark": {"marketplaceID": "poshmark", "overrides": {"condition": "good"}},
-                "mercari": {"marketplaceID": "mercari", "overrides": {"condition": "4"}},
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {"condition": "ug"}},
+                "mercari": {"marketplaceID": "mercari", "overrides": {"condition": "3"}},
                 "depop": {"marketplaceID": "depop", "overrides": {"condition": "used_good"}},
             },
         }
@@ -1125,9 +1156,9 @@ class ApplyUpdateAllTest(unittest.TestCase):
         self.assertEqual(etsy["overrides"]["condition"], "used_good")
         self.assertEqual(etsy["marketplaceSpecifics"]["tags"], ["denim", "vintage"])
         self.assertEqual(etsy["overrides"]["price"], "15")
-        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "good")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "ug")
         self.assertEqual(desired["listings"]["poshmark"]["overrides"]["price"], "15")
-        self.assertEqual(desired["listings"]["mercari"]["overrides"]["condition"], "4")
+        self.assertEqual(desired["listings"]["mercari"]["overrides"]["condition"], "3")
         self.assertEqual(desired["listings"]["mercari"]["marketplaceSpecifics"]["tags"], ["denim", "vintage"])
         self.assertEqual(desired["listings"]["depop"]["overrides"]["condition"], "used_good")
         self.assertEqual(desired["listings"]["depop"]["overrides"]["price"], "15")
@@ -1168,11 +1199,11 @@ class ApplyUpdateAllTest(unittest.TestCase):
         apply_update_all(current, desired)
         self.assertEqual(desired["listings"]["ebay"]["overrides"]["condition"], "")
         self.assertEqual(desired["listings"]["ebay"]["categorySpecifics"]["53159_condition"], "")
-        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "good")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "ug")
         out = changed_fields(current, desired)
         self.assertEqual(out["listings.ebay.overrides.condition"], "")
         self.assertEqual(out["listings.ebay.categorySpecifics.53159_condition"], "")
-        self.assertEqual(out["listings.poshmark.overrides.condition"], "good")
+        self.assertEqual(out["listings.poshmark.overrides.condition"], "ug")
 
     def test_poshmark_rewrites_stuck_vendoo_general_condition(self):
         """A prior Update All left ``v_preowned`` on Poshmark — rewrite it."""
@@ -1199,26 +1230,26 @@ class ApplyUpdateAllTest(unittest.TestCase):
             },
         }
         apply_update_all(current, desired)
-        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "good")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "ug")
         out = changed_fields(current, desired)
-        self.assertEqual(out["listings.poshmark.overrides.condition"], "good")
+        self.assertEqual(out["listings.poshmark.overrides.condition"], "ug")
 
     def test_condition_remaps_from_learned_schema_on_update_all(self):
         """Regenerate + API save remaps each marketplace through the learned table."""
         schema = {
             "marketplaces": {
-                "ebay": {"condition": {"v preowned": "3000", "v good": "4000", "pre owned good": "3000"}},
-                "poshmark": {"condition": {"v preowned": "nwt", "v good": "good", "pre owned good": "good"}},
-                "mercari": {"condition": {"v good": "4", "pre owned good": "4"}},
-                "depop": {"condition": {"v good": "used_good", "pre owned good": "used_good"}},
+                "ebay": {"condition": {"v preowned excellent": "2990", "v preowned": "3000", "pre owned good": "3000"}},
+                "poshmark": {"condition": {"v preowned excellent": "nwt", "v preowned": "uf", "pre owned good": "uf"}},
+                "mercari": {"condition": {"v preowned": "4", "pre owned good": "4"}},
+                "depop": {"condition": {"v preowned": "used_good", "pre owned good": "used_good"}},
             },
         }
         current = {
-            "generalDetails": {"condition": {"value": "v_preowned", "displayName": "Pre-Owned - Excellent"}},
+            "generalDetails": {"condition": {"value": "v_preowned_excellent", "displayName": "Pre-Owned - Excellent"}},
             "listings": {
                 "ebay": {
                     "marketplaceID": "ebay",
-                    "overrides": {"condition": "3000"},
+                    "overrides": {"condition": "2990"},
                     "categorySpecifics": {"53159_condition": "3000"},
                 },
                 "poshmark": {"marketplaceID": "poshmark", "overrides": {"condition": "nwt"}},
@@ -1227,7 +1258,7 @@ class ApplyUpdateAllTest(unittest.TestCase):
             },
         }
         desired = {
-            "generalDetails": {"condition": {"value": "v_good", "displayName": "Pre-Owned - Good"}},
+            "generalDetails": {"condition": {"value": "v_preowned", "displayName": "Pre-Owned - Good"}},
             "listings": {
                 "ebay": {"marketplaceID": "ebay", "overrides": {}},
                 "poshmark": {"marketplaceID": "poshmark", "overrides": {}},
@@ -1236,14 +1267,14 @@ class ApplyUpdateAllTest(unittest.TestCase):
             },
         }
         apply_update_all(current, desired, schema=schema)
-        self.assertEqual(desired["listings"]["ebay"]["overrides"]["condition"], "4000")
-        self.assertEqual(desired["listings"]["ebay"]["categorySpecifics"]["53159_condition"], "4000")
-        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "good")
+        self.assertEqual(desired["listings"]["ebay"]["overrides"]["condition"], "3000")
+        self.assertEqual(desired["listings"]["ebay"]["categorySpecifics"]["53159_condition"], "3000")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "uf")
         self.assertEqual(desired["listings"]["mercari"]["overrides"]["condition"], "4")
         self.assertEqual(desired["listings"]["depop"]["overrides"]["condition"], "used_good")
         out = changed_fields(current, desired)
-        self.assertEqual(out["listings.ebay.overrides.condition"], "4000")
-        self.assertEqual(out["listings.poshmark.overrides.condition"], "good")
+        self.assertEqual(out["listings.ebay.overrides.condition"], "3000")
+        self.assertEqual(out["listings.poshmark.overrides.condition"], "uf")
 
     def test_mercari_shipping_forced_to_ground_advantage_on_update_all(self):
         """Regenerate + API save replaces a stale Mercari carrier with GA."""
@@ -1372,28 +1403,28 @@ class ApplyUpdateAllTest(unittest.TestCase):
     def test_poshmark_and_mercari_condition_is_written_even_when_unchanged(self):
         """Both list from their own form: never leave Vendoo on its v_ fallback."""
         current = {
-            "generalDetails": {"condition": {"value": "v_good", "displayName": "Pre-Owned - Good"}},
+            "generalDetails": {"condition": {"value": "v_preowned", "displayName": "Pre-Owned - Good"}},
             "listings": {
-                "poshmark": {"marketplaceID": "poshmark", "overrides": {"condition": "good"}},
-                "mercari": {"marketplaceID": "mercari", "overrides": {"condition": "4"}},
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {"condition": "ug"}},
+                "mercari": {"marketplaceID": "mercari", "overrides": {"condition": "3"}},
                 "ebay": {"marketplaceID": "ebay", "overrides": {"condition": "3000"}},
             },
         }
         desired = {
-            "generalDetails": {"condition": {"value": "v_good", "displayName": "Pre-Owned - Good"}},
+            "generalDetails": {"condition": {"value": "v_preowned", "displayName": "Pre-Owned - Good"}},
             "listings": {
                 "poshmark": {"marketplaceID": "poshmark", "overrides": {}},
                 "mercari": {"marketplaceID": "mercari", "overrides": {}},
                 "ebay": {"marketplaceID": "ebay", "overrides": {}},
             },
         }
-        schema = {"marketplaces": {"ebay": {"condition": {"v good": "3000"}}}}
+        schema = {"marketplaces": {"ebay": {"condition": {"v preowned": "3000"}}}}
         apply_update_all(current, desired, schema=schema)
         updates = changed_fields(current, desired)
         self.assertNotIn("listings.poshmark.overrides.condition", updates)
         force_condition_updates(desired, updates)
-        self.assertEqual(updates["listings.poshmark.overrides.condition"], "good")
-        self.assertEqual(updates["listings.mercari.overrides.condition"], "4")
+        self.assertEqual(updates["listings.poshmark.overrides.condition"], "ug")
+        self.assertEqual(updates["listings.mercari.overrides.condition"], "3")
         # eBay's code is category-specific; it is written only when it changes.
         self.assertNotIn("listings.ebay.overrides.condition", updates)
 
