@@ -12,6 +12,8 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   cover_photo_url?: string | null;
+  vendoo_status?: string | null;
+  vendoo_cover_url?: string | null;
 }
 
 export interface Message {
@@ -198,4 +200,23 @@ export interface MarketplaceForm {
   category_id: string;
   known: boolean;
   fields: MarketplaceFormField[];
+}
+
+
+/** Progress of a whole-inventory Vendoo import. */
+export interface VendooBulkImport {
+  running: boolean;
+  total: number;
+  processed: number;
+  imported: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  photos: number;
+  current_title: string;
+  started_at: string;
+  finished_at: string;
+  cancelled: boolean;
+  error: string;
+  failures: { item_id: string; title: string; error: string }[];
 }

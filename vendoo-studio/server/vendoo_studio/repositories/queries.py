@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id, utcnow
@@ -16,8 +18,10 @@ from vendoo_studio.models.registry import FieldRegistry
 from vendoo_studio.models.fill_log import FillLogEntry
 
 BUSY_LISTING_STATUSES = ("in_progress", "listing")
-# Statuses operators can set manually from the sidebar.
-MANUAL_LISTING_STATUSES = ("draft", "completed", "failed")
+# Vendoo's own inventory labels, plus the one state Vendoo has no name for.
+MANUAL_LISTING_STATUSES = ("draft", "active", "sold", "failed")
+# Statuses a Vendoo item can report for itself.
+VENDOO_LISTING_STATUSES = ("draft", "active", "sold")
 
 
 def _settle(conv: Conversation, when, *, backfill: bool = False, force: bool = False) -> bool:
@@ -42,7 +46,7 @@ def _sync_settlement(conv: Conversation, status: str, *, backfill: bool = False)
     now = utcnow()
     if status in BUSY_LISTING_STATUSES:
         return _unsettle(conv, now)
-    if status == "completed":
+    if status == "sold":
         return _settle(conv, now, backfill=backfill, force=not backfill)
     return False
 
@@ -137,36 +141,67 @@ class ConversationRepo:
         self.db.refresh(conv)
         return conv
 
+    def _latest_jobs(self) -> dict[str, tuple[str, Any]]:
+        """Newest job status per conversation, as ``{conv_id: (status, updated_at)}``.
+
+        The sidebar reconciles every row on each refresh, so this reads the two
+        columns it needs rather than whole jobs with their listing snapshots.
+        """
+        latest: dict[str, tuple[str, Any]] = {}
+        rows = (
+            self.db.query(Job.conversation_id, Job.status, Job.updated_at)
+            .order_by(Job.conversation_id, Job.created_at.desc())
+            .all()
+        )
+        for conv_id, status, updated_at in rows:
+            latest.setdefault(conv_id, (status, updated_at))
+        return latest
+
     def reconcile_job_statuses(self) -> None:
-        status_map = {
+        """Keep each listing's label in step with its job and its Vendoo item.
+
+        A listing bound to Vendoo wears Vendoo's own label (draft / active /
+        sold); a send in flight reads ``listing`` and a send that broke reads
+        ``failed``.
+        """
+        from vendoo_studio.services.vendoo_import import parse_notes
+
+        busy_map = {
             "queued": "listing",
             "awaiting_extension": "listing",
             "dispatched": "listing",
-            "imported": "draft",
-            "completed": "completed",
-            "failed": "failed",
-            "cancelled": "draft",
         }
+        latest_jobs = self._latest_jobs()
         changed = False
         for conv in self.db.query(Conversation).all():
             if conv.status == "in_progress":
                 if _sync_settlement(conv, conv.status):
                     changed = True
                 continue
-            latest_job = self.db.query(Job).filter(
-                Job.conversation_id == conv.id
-            ).order_by(Job.created_at.desc()).first()
-            if latest_job and latest_job.status in status_map:
+            vendoo_status = str(parse_notes(conv.notes).get("vendooStatus") or "")
+            if vendoo_status not in VENDOO_LISTING_STATUSES:
+                vendoo_status = "draft"
+            latest_job = latest_jobs.get(conv.id)
+            if latest_job:
+                job_status, job_updated_at = latest_job
                 skip_job = (
                     conv.updated_at
-                    and latest_job.updated_at
-                    and latest_job.updated_at < conv.updated_at
+                    and job_updated_at
+                    and job_updated_at < conv.updated_at
                 )
                 if not skip_job:
-                    next_status = status_map[latest_job.status]
+                    if job_status in busy_map:
+                        next_status = busy_map[job_status]
+                    elif job_status == "failed":
+                        next_status = "failed"
+                    else:
+                        next_status = vendoo_status
                     if conv.status != next_status:
                         conv.status = next_status
                         changed = True
+            if conv.status not in MANUAL_LISTING_STATUSES + BUSY_LISTING_STATUSES:
+                conv.status = vendoo_status
+                changed = True
             if _sync_settlement(conv, conv.status, backfill=True):
                 changed = True
         if changed:
@@ -401,6 +436,30 @@ class JobRepo:
             .order_by(JobEvent.sequence.desc())
             .first()
         )
+
+    def latest_vendoo_drafts(self, job_ids: list[str]) -> dict[str, dict]:
+        """Newest cached draft for many jobs at once.
+
+        The sidebar badges every rendered row, so a whole inventory would
+        otherwise mean one query per listing on each refresh.
+        """
+        if not job_ids:
+            return {}
+        rows = (
+            self.db.query(JobEvent)
+            .filter(JobEvent.job_id.in_(job_ids), JobEvent.event_type == "vendoo_draft")
+            .order_by(JobEvent.job_id, JobEvent.sequence.desc())
+            .all()
+        )
+        drafts: dict[str, dict] = {}
+        for event in rows:
+            if event.job_id in drafts or not isinstance(event.payload, dict):
+                continue
+            payload = event.payload
+            if not payload.get("item") and not payload.get("form"):
+                continue
+            drafts[event.job_id] = payload
+        return drafts
 
     def save_vendoo_draft(
         self,

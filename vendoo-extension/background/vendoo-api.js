@@ -504,6 +504,52 @@ function firestoreValue(value) {
   return { stringValue: String(value) };
 }
 
+// The inverse of ``firestoreValue``: Vendoo's inventory lives in Firestore, so
+// one paged listing of users/{uid}/items returns every item document whole and
+// there is no need for an /api/item call per listing.
+function firestorePlain(value) {
+  if (!value || typeof value !== 'object') return null;
+  if ('nullValue' in value) return null;
+  if ('booleanValue' in value) return Boolean(value.booleanValue);
+  if ('integerValue' in value) return Number(value.integerValue);
+  if ('doubleValue' in value) return Number(value.doubleValue);
+  if ('timestampValue' in value) return String(value.timestampValue);
+  if ('stringValue' in value) return String(value.stringValue);
+  if ('bytesValue' in value) return String(value.bytesValue);
+  if ('referenceValue' in value) return String(value.referenceValue);
+  if ('geoPointValue' in value) return value.geoPointValue;
+  if ('arrayValue' in value) return (value.arrayValue?.values || []).map(firestorePlain);
+  if ('mapValue' in value) return firestoreFields(value.mapValue?.fields);
+  return null;
+}
+
+function firestoreFields(fields) {
+  const out = {};
+  for (const [key, value] of Object.entries(fields || {})) out[key] = firestorePlain(value);
+  return out;
+}
+
+function firestoreItem(doc) {
+  const id = String(doc?.name || '').split('/').pop();
+  if (!id) return null;
+  return { ...firestoreFields(doc?.fields), id, itemID: id };
+}
+
+// One page of the seller's inventory. Studio drives the paging so it can import
+// each page as it arrives instead of holding the whole inventory in one message;
+// ``ids_only`` masks the documents down to their ids for a cheap first count.
+async function listVendooItems(session, call) {
+  const pageSize = Math.min(Math.max(Number(call.page_size) || 50, 1), 300);
+  const params = new URLSearchParams({ pageSize: String(pageSize) });
+  if (call.page_token) params.set('pageToken', String(call.page_token));
+  if (call.ids_only) params.append('mask.fieldPaths', 'id');
+  const url = `${VENDOO_FIRESTORE_BASE}/users/${encodeURIComponent(session.uid)}/items?${params}`;
+  const res = await vendooFetch(url, { token: session.access_token, timeoutMs: 60000 });
+  if (!res.ok) throw new Error(vendooError('list items', res));
+  const items = (res.data?.documents || []).map(firestoreItem).filter(Boolean);
+  return { items, next_page_token: res.data?.nextPageToken || '' };
+}
+
 // A field path segment is quoted unless it is a plain identifier — category
 // aspect keys like ``53159_Size Type`` carry spaces and start with a digit.
 function firestorePathSegment(segment) {
@@ -666,6 +712,9 @@ async function runVendooApiOps(ops) {
           break;
         case 'create_item':
           results.push({ op: 'create_item', ok: true, result: await createVendooItem(session, op.item, op.subscription_version ?? null) });
+          break;
+        case 'list_items':
+          results.push({ op: 'list_items', ok: true, ...(await listVendooItems(session, op)) });
           break;
         case 'get_item':
           results.push({ op: 'get_item', ok: true, item_id: op.item_id, item: await getVendooItem(session, op.item_id) });
