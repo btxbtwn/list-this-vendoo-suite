@@ -15,6 +15,8 @@ import type {
   OkResponse,
   Photo,
   PhotoUploadResult,
+  PriceDropApplyResult,
+  PriceDropPreview,
   ProviderStatus,
   ProviderTestResult,
   ChatGPTPendingLogin,
@@ -261,6 +263,16 @@ export const api = {
     revisions: (convId: string) => request<ListingRevision[]>(`/conversations/${convId}/revisions`),
     restore: (convId: string, revisionId: string) =>
       request<RevisionRestoreResult>(`/conversations/${convId}/revisions/${revisionId}/restore`, { method: "POST" }),
+    priceDropPreview: (convId: string) =>
+      request<PriceDropPreview>(`/conversations/${convId}/price-drop/preview`, { method: "POST" }),
+    applyPriceDrop: (
+      convId: string,
+      body: { price: number; percent?: number | null; mode: "percent" | "comps" | "custom" },
+    ) =>
+      request<PriceDropApplyResult>(`/conversations/${convId}/price-drop`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
 
   jobs: {
