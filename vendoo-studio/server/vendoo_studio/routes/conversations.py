@@ -11,7 +11,6 @@ from vendoo_studio.database import get_db
 from vendoo_studio.repositories.queries import (
     BUSY_LISTING_STATUSES,
     ConversationRepo,
-    MANUAL_LISTING_STATUSES,
 )
 from vendoo_studio.models.conversation import Photo as PhotoModel, utcnow
 from vendoo_studio.services.photos import delete_thumbnails
@@ -96,9 +95,12 @@ def get_conversation(conv_id: str, db: Session = Depends(get_db)):
 
 
 class ConversationUpdate(BaseModel):
+    """Title and notes only: a listing's status is Vendoo's to report."""
+
+    model_config = ConfigDict(extra="forbid")
+
     title: str | None = None
     notes: str | None = None
-    status: str | None = None
 
 
 class DeleteConversationResponse(BaseModel):
@@ -209,21 +211,6 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
         else:
             conv.notes = body.notes
         changed = True
-    if body.status is not None:
-        status = body.status.strip().lower().replace(" ", "_").replace("-", "_")
-        if status not in MANUAL_LISTING_STATUSES:
-            raise HTTPException(
-                400,
-                f"Status must be one of: {', '.join(MANUAL_LISTING_STATUSES)}",
-            )
-        if status != conv.status:
-            # Commit title/notes first so update_status's own commit stays consistent.
-            if changed:
-                db.commit()
-                db.refresh(conv)
-                changed = False
-            conv = repo.update_status(conv_id, status, touch_updated_at=True)
-            return _conv_response(conv, _cover_url_for(db, conv_id))
     if changed:
         db.commit()
         db.refresh(conv)
