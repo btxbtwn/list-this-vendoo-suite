@@ -7,6 +7,7 @@ and prior ``price_drop`` revisions, then applies a confirmed whole-dollar price.
 from __future__ import annotations
 
 import copy
+import math
 import re
 import statistics
 from dataclasses import dataclass
@@ -67,8 +68,19 @@ def whole_dollars(amount: float) -> int:
     return max(1, int(round(amount)))
 
 
+def floor_dollars(amount: float) -> int:
+    """Whole dollars, rounded down."""
+    return max(1, int(math.floor(amount)))
+
+
 def price_after_percent(current: float, percent: float) -> int:
-    return whole_dollars(current * (1.0 - percent / 100.0))
+    """The price a stated cut lands on, rounded down.
+
+    Rounding to the nearest dollar can deliver less than the label promises —
+    10% off $14 is $12.60, and $13 is only a 7% cut. Rounding down keeps a
+    stated percent honest: the buyer-facing price never moves less than asked.
+    """
+    return floor_dollars(current * (1.0 - percent / 100.0))
 
 
 def fields_from_listing(listing: dict | None) -> dict[str, str]:
