@@ -103,6 +103,9 @@ EBAY_CATEGORY_OPTIONAL_KEYS = (
     "vintage",
     "upc",
 )
+# eBay's Condition Description is the same line on every listing this seller
+# makes — the photos carry the condition, so it never varies per item.
+EBAY_CONDITION_DESCRIPTION = "SEE PHOTOS FOR CONDITION AND MEASUREMENTS"
 EBAY_OPTIONAL_ALWAYS_DEFAULTS = {
     "handmade": "No",
     "personalize": "No",
@@ -510,6 +513,20 @@ def ensure_ebay_category_optionals(listing: dict) -> bool:
 
     for key, default in EBAY_OPTIONAL_ALWAYS_DEFAULTS.items():
         set_key(key, default)
+
+    # Condition Description is fixed, not a default: whatever a model wrote or
+    # an import carried over is replaced.
+    if ebay.get("conditionDescription") != EBAY_CONDITION_DESCRIPTION:
+        ebay["conditionDescription"] = EBAY_CONDITION_DESCRIPTION
+        changed = True
+    nested = ebay.get("category_specifics")
+    if isinstance(nested, dict) and nested.get("conditionDescription") not in (
+        None, EBAY_CONDITION_DESCRIPTION,
+    ):
+        nested = dict(nested)
+        nested["conditionDescription"] = EBAY_CONDITION_DESCRIPTION
+        ebay["category_specifics"] = nested
+        changed = True
 
     care_unknown = evidence_unknown(
         text_value((listing or {}).get("description")),

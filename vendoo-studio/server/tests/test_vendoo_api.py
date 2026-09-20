@@ -443,7 +443,7 @@ class BuildItemTest(unittest.TestCase):
                     "season": "Spring",
                     "occasion": "Casual",
                     "upc": "Does Not Apply",
-                    "conditionDescription": "Good condition.",
+                    "conditionDescription": "Good condition.",  # replaced by the fixed line
                 },
             },
             specifics={"ebay": specs},
@@ -465,7 +465,11 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(ebay["overrides"]["condition"], "3000")
         self.assertEqual(stored["53159_condition"], "3000")
         self.assertNotIn("department", stored)
-        self.assertEqual(ebay["marketplaceSpecifics"]["conditionDescription"], "Good condition.")
+        # Condition Description is fixed for every listing, whatever the item said.
+        self.assertEqual(
+            ebay["marketplaceSpecifics"]["conditionDescription"],
+            "SEE PHOTOS FOR CONDITION AND MEASUREMENTS",
+        )
         # Nothing about the eBay leaf is left unresolved; generalDetails still
         # reports its own condition because no learned schema was passed.
         self.assertEqual([row for row in unresolved if "ebay" in row["field"]], [])
