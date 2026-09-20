@@ -218,6 +218,26 @@ class SyncConversationTest(unittest.TestCase):
         )
         self.assertTrue(sync_status(self.db, self.conv.id)["conflict"])
 
+    def test_stuck_listing_badge_clears_when_no_send_is_running(self):
+        """Listed on Vendoo with a finished job must not stay on Listing."""
+        from vendoo_studio.services.vendoo_import import parse_notes
+
+        ConversationRepo(self.db).update_status(self.conv.id, "listing")
+        JobRepo(self.db).create(
+            self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
+        )
+        listed = {
+            "itemID": "itm1",
+            "dateLastModified": 2000,
+            "generalDetails": {"title": "Tee"},
+            "listings": {"ebay": {"status": {"listed": True}}},
+        }
+        result = self.sync(item=listed)
+        self.assertEqual(result["vendoo_status"], "active")
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        self.assertEqual(conv.status, "active")
+        self.assertEqual(parse_notes(conv.notes)["vendooStatus"], "active")
+
     def test_chrome_away_records_nothing(self):
         result = self.sync(error=BrowserBridgeError("Connect Chrome"))
         self.assertEqual(result["action"], "unavailable")

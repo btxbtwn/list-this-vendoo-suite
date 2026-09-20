@@ -283,8 +283,11 @@ class ConversationRepo:
             latest_job = latest_jobs.get(conv.id)
             if latest_job:
                 job_status, job_updated_at = latest_job
+                # A newer conversation stamp must not freeze a finished send on
+                # ``listing``: that busy label is only valid while a job is open.
                 skip_job = (
-                    conv.updated_at
+                    conv.status not in BUSY_LISTING_STATUSES
+                    and conv.updated_at
                     and job_updated_at
                     and job_updated_at < conv.updated_at
                 )
@@ -298,6 +301,10 @@ class ConversationRepo:
                     if conv.status != next_status:
                         conv.status = next_status
                         changed = True
+            elif conv.status == "listing":
+                # No job left to own the busy label — wear Vendoo's inventory tab.
+                conv.status = vendoo_status
+                changed = True
             if conv.status not in LISTING_STATUSES + BUSY_LISTING_STATUSES:
                 conv.status = vendoo_status
                 changed = True

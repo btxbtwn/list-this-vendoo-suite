@@ -265,8 +265,21 @@ async def persist_chat_result(
             model="",
         )
 
-    from vendoo_studio.repositories.queries import JobRepo
+    from vendoo_studio.repositories.queries import (
+        VENDOO_LISTING_STATUSES,
+        JobRepo,
+    )
+    from vendoo_studio.services.vendoo_import import parse_notes
 
     active = any(job.conversation_id == conv_id for job in JobRepo(db).get_active())
-    stream_repo.update_status(conv_id, "listing" if active else "draft")
+    if active:
+        stream_repo.update_status(conv_id, "listing")
+    else:
+        # Prefer Vendoo's inventory label so an already-listed item does not
+        # drop to draft after a chat fill that never started a send.
+        conv = stream_repo.get(conv_id)
+        vendoo_status = str(parse_notes(conv.notes if conv else None).get("vendooStatus") or "")
+        if vendoo_status not in VENDOO_LISTING_STATUSES:
+            vendoo_status = "draft"
+        stream_repo.update_status(conv_id, vendoo_status)
     return operations, saved
