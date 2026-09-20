@@ -470,6 +470,7 @@ export interface BackupSnapshot {
   taken_at: string;
   reason: string;
   size_bytes: number;
+  compressed: boolean;
 }
 
 export interface BackupsStatus {
