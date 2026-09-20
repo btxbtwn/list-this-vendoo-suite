@@ -12,6 +12,7 @@ export function importSummary(run: VendooBulkImport): string {
     run.imported ? `${run.imported} new` : "",
     run.updated ? `${run.updated} updated` : "",
     run.skipped ? `${run.skipped} unchanged` : "",
+    run.deleted ? `${run.deleted} removed` : "",
     run.failed ? `${run.failed} failed` : "",
   ].filter(Boolean);
   if (!parts.length) return "Nothing to import";
@@ -90,7 +91,8 @@ export function VendooImportButton() {
         "",
         "Studio reads your whole Vendoo inventory and creates a listing for each item,",
         "photos and all. Expect it to run for a while and to use real disk space.",
-        "Items already imported are only refreshed when they changed in Vendoo.",
+        "Items already imported are only refreshed when they changed in Vendoo,",
+        "and a listing whose Vendoo item you deleted is deleted here too.",
       ].join("\n"),
       { confirmLabel: "Import" },
     );

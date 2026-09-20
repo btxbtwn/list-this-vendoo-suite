@@ -12,7 +12,8 @@ from vendoo_studio.repositories.queries import (
     BUSY_LISTING_STATUSES,
     ConversationRepo,
 )
-from vendoo_studio.models.conversation import Photo as PhotoModel, utcnow
+from vendoo_studio.models.conversation import utcnow
+from vendoo_studio.services.listing_delete import ListingBusy, delete_listing, wipe_contents
 from vendoo_studio.services.photos import delete_thumbnails
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -341,46 +342,6 @@ def get_photos(conv_id: str, db: Session = Depends(get_db)):
 
 
 
-def _wipe_conversation_contents(
-    db: Session, conv_id: str, *, keep_photos: bool = False
-) -> tuple[int, int]:
-    import os as _os
-
-    repo = ConversationRepo(db)
-    photos = [] if keep_photos else repo.get_photos(conv_id)
-    deleted_photos = len(photos)
-    for photo in photos:
-        filepath = Path(PHOTOS_DIR) / photo.stored_filename
-        if filepath.exists():
-            _os.remove(filepath)
-        delete_thumbnails(photo.stored_filename)
-
-    from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
-    from vendoo_studio.models.fill_log import FillLogEntry
-    from vendoo_studio.models.job import Job, JobEvent
-    from vendoo_studio.models.listing import Listing, ListingRevision
-    from vendoo_studio.models.conversation import Message
-
-    job_ids = [row[0] for row in db.query(Job.id).filter(Job.conversation_id == conv_id).all()]
-    if job_ids:
-        db.query(FieldObservation).filter(
-            FieldObservation.diagnostic_run_id.in_(
-                db.query(DiagnosticRun.id).filter(DiagnosticRun.job_id.in_(job_ids))
-            )
-        ).delete(synchronize_session=False)
-        db.query(DiagnosticRun).filter(DiagnosticRun.job_id.in_(job_ids)).delete(synchronize_session=False)
-        db.query(FillLogEntry).filter(FillLogEntry.job_id.in_(job_ids)).delete(synchronize_session=False)
-        db.query(JobEvent).filter(JobEvent.job_id.in_(job_ids)).delete(synchronize_session=False)
-        db.query(Job).filter(Job.conversation_id == conv_id).delete(synchronize_session=False)
-
-    db.query(ListingRevision).filter(ListingRevision.conversation_id == conv_id).delete(synchronize_session=False)
-    db.query(Listing).filter(Listing.conversation_id == conv_id).delete(synchronize_session=False)
-    db.query(Message).filter(Message.conversation_id == conv_id).delete(synchronize_session=False)
-    if not keep_photos:
-        db.query(PhotoModel).filter(PhotoModel.conversation_id == conv_id).delete(synchronize_session=False)
-    return len(job_ids), deleted_photos
-
-
 @router.delete("/{conv_id}/photos/{photo_id}")
 def delete_photo(conv_id: str, photo_id: str, db: Session = Depends(get_db)):
     import os
@@ -479,7 +440,7 @@ async def reset_conversation(
     # Stop Chrome fill/repair before the wipe deletes the job rows.
     await cancel_conversation_jobs(db, conv_id)
 
-    _wipe_conversation_contents(db, conv_id, keep_photos=keep_inputs)
+    wipe_contents(db, conv_id, keep_photos=keep_inputs)
     db.expire_all()
     conv = repo.get(conv_id)
     if not conv:
@@ -523,27 +484,12 @@ async def reset_conversation(
 
 @router.delete("/{conv_id}", response_model=DeleteConversationResponse)
 def delete_conversation(conv_id: str, db: Session = Depends(get_db)):
-    repo = ConversationRepo(db)
-    conv = repo.get(conv_id)
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
-
-    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
-
-    active_jobs = db.query(Job).filter(
-        Job.conversation_id == conv_id,
-        Job.status.in_(ACTIVE_JOB_STATUSES),
-    ).all()
-    if active_jobs:
-        raise HTTPException(400, "Cannot delete a listing with an active automation job")
-
-    deleted_jobs, deleted_photos = _wipe_conversation_contents(db, conv_id)
-    db.expire_all()
-    conv = repo.get(conv_id)
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
-    db.delete(conv)
-    db.commit()
+    try:
+        deleted_jobs, deleted_photos = delete_listing(db, conv_id)
+    except ListingBusy as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
     return DeleteConversationResponse(ok=True, deleted_jobs=deleted_jobs, deleted_photos=deleted_photos)
 
 

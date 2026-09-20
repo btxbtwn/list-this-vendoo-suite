@@ -92,6 +92,16 @@ class ConversationRepo:
                 return conv
         return None
 
+    def vendoo_bound_item_ids(self) -> dict[str, str]:
+        """``{conversation id: Vendoo item id}`` for every listing bound to one."""
+        from vendoo_studio.services.vendoo_import import vendoo_binding
+        bound: dict[str, str] = {}
+        for conv_id, notes in self.db.query(Conversation.id, Conversation.notes).all():
+            item_id = vendoo_binding(notes).get("vendooItemId")
+            if item_id:
+                bound[conv_id] = item_id
+        return bound
+
     def list_all(self) -> list[Conversation]:
         return self.db.query(Conversation).order_by(Conversation.updated_at.desc()).all()
 

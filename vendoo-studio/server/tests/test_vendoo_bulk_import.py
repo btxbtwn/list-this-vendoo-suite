@@ -285,6 +285,80 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
         progress = await self._run(pages)
         self.assertEqual(progress["skipped"], 1)
 
+    async def test_an_item_deleted_in_vendoo_is_deleted_here(self):
+        await self._run([[vendoo_item("a", title="Tee A"), vendoo_item("b", title="Tee B")]])
+        self.assertEqual(len(ConversationRepo(self.db).list_all()), 2)
+
+        progress = await self._run([[vendoo_item("a", title="Tee A")]])
+
+        self.assertEqual(progress["deleted"], 1)
+        titles = [conv.title for conv in ConversationRepo(self.db).list_all()]
+        self.assertEqual(titles, ["Tee A"])
+
+    async def test_a_listing_never_bound_to_vendoo_survives_the_sweep(self):
+        await self._run([[vendoo_item("a", title="Tee A")]])
+        local = ConversationRepo(self.db).create(title="Written here")
+        self.db.commit()
+
+        progress = await self._run([[vendoo_item("a", title="Tee A")]])
+
+        self.assertEqual(progress["deleted"], 0)
+        self.assertIsNotNone(ConversationRepo(self.db).get(local.id))
+
+    async def test_an_inventory_that_reads_as_empty_deletes_nothing(self):
+        """A quiet Vendoo session must not be read as an emptied account."""
+        await self._run([[vendoo_item("a", title="Tee A")]])
+
+        progress = await self._run([[]])
+
+        self.assertEqual(progress["deleted"], 0)
+        self.assertEqual(len(ConversationRepo(self.db).list_all()), 1)
+
+    async def test_a_cancelled_run_deletes_nothing(self):
+        await self._run([[vendoo_item("a", title="Tee A")]])
+
+        async def cancel_after_first_page(page_token: str, *, ids_only: bool = False):
+            if ids_only:
+                return [], ""
+            raise asyncio.CancelledError
+
+        db = self.db
+
+        class SessionCtx:
+            def __enter__(self):
+                return db
+
+            def __exit__(self, *args):
+                return False
+
+        vendoo_bulk_import._progress = vendoo_bulk_import.BulkImportProgress(running=True)
+        with (
+            patch.object(vendoo_bulk_import, "_list_page", side_effect=cancel_after_first_page),
+            patch("vendoo_studio.database.SessionLocal", SessionCtx),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await vendoo_bulk_import._run()
+
+        self.assertEqual(vendoo_bulk_import.status()["deleted"], 0)
+        self.assertEqual(len(ConversationRepo(self.db).list_all()), 1)
+
+    async def test_a_busy_listing_is_kept_even_when_vendoo_lost_the_item(self):
+        await self._run([[vendoo_item("a", title="Tee A")]])
+        conv = ConversationRepo(self.db).list_all()[0]
+        revision = ListingRepo(self.db).save_revision(conv.id, {}, source="test")
+        JobRepo(self.db).create(
+            conv_id=conv.id,
+            approved_revision_id=revision.id,
+            listing_snapshot={},
+            status="queued",
+        )
+        self.db.commit()
+
+        progress = await self._run([[vendoo_item("b", title="Tee B")]])
+
+        self.assertEqual(progress["deleted"], 0)
+        self.assertIsNotNone(ConversationRepo(self.db).get(conv.id))
+
     async def test_one_bad_item_does_not_end_the_run(self):
         pages = [[vendoo_item("a", title="Tee A"), vendoo_item("b", title="Tee B")]]
 

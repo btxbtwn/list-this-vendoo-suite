@@ -297,6 +297,7 @@ export interface VendooBulkImport {
   updated: number;
   skipped: number;
   failed: number;
+  deleted: number;
   photos: number;
   current_title: string;
   started_at: string;
