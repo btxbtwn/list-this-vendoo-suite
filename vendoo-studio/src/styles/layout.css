@@ -657,9 +657,10 @@
 }
 
 /* Same paper as the chat column — no left hairline — so the inspector reads as
-   part of the workspace instead of a bolted-on black strip. */
+   part of the workspace instead of a bolted-on black strip. Default 460px fits
+   the titlebar listing chrome (Open listing / Regenerate / Input·Forms·Fields). */
 .detail-panel {
-  width: clamp(300px, var(--detail-width, 380px), 45vw);
+  width: clamp(420px, var(--detail-width, 460px), 45vw);
   flex-shrink: 0;
   min-width: 0;
   background: var(--color-inspector);

@@ -40,7 +40,8 @@ const FirstRunGuide = lazy(() =>
 const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
 const SIDEBAR_WIDTH: PanelWidthLimits = { min: 200, max: 420, maxVw: 30 };
-const DETAIL_WIDTH: PanelWidthLimits = { min: 300, max: 640, maxVw: 45 };
+/* Min 420 so the inspector can't shrink under the titlebar listing chrome. */
+const DETAIL_WIDTH: PanelWidthLimits = { min: 420, max: 640, maxVw: 45 };
 const MAIN_PANEL_MIN_WIDTH = 360;
 let setupGuideAutoOpen: boolean | null = null;
 
