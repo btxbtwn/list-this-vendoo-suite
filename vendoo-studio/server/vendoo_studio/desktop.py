@@ -46,9 +46,12 @@ WINDOW_WIDTH = 1440
 WINDOW_HEIGHT = 900
 MIN_WINDOW_SIZE = (1024, 700)
 WINDOW_BACKGROUND = "#090909"
-TITLEBAR_HEIGHT_PX = 38
-TRAFFIC_LIGHT_SIZE_PX = 12.0
-TRAFFIC_LIGHT_GAP_PX = 8.0
+# T3 Code's macOS chrome: a 52pt topbar with Electron `hiddenInset` traffic
+# lights parked at x=16, vertically centred on that band. The buttons keep their
+# standard AppKit size — 14pt circles on a 20pt pitch — so ours must too.
+TITLEBAR_HEIGHT_PX = 52
+TRAFFIC_LIGHT_SIZE_PX = 14.0
+TRAFFIC_LIGHT_GAP_PX = 6.0
 TRAFFIC_LIGHT_X_PX = 16.0
 HEALTH_URL = f"http://{HOST}:{PORT}/api/health"
 APP_URL = f"http://{HOST}:{PORT}"
@@ -640,7 +643,7 @@ def _hex_to_srgb(color: str) -> tuple[float, float, float]:
 
 
 def traffic_light_rect(index: int, container_height: float) -> tuple[float, float, float, float]:
-    """Electron hiddenInset geometry used by T3 Code: 12pt buttons, 8pt gap."""
+    """Electron hiddenInset geometry used by T3 Code: 14pt buttons, 6pt gap."""
     size = TRAFFIC_LIGHT_SIZE_PX
     x = TRAFFIC_LIGHT_X_PX + index * (size + TRAFFIC_LIGHT_GAP_PX)
     y = max(0.0, float(container_height) - (TITLEBAR_HEIGHT_PX + size) / 2.0)
@@ -663,7 +666,6 @@ def _layout_t3_traffic_lights(native, AppKit) -> None:
     except Exception:
         pass
 
-    small = getattr(AppKit, "NSControlSizeSmall", 1)
     make_rect = getattr(AppKit, "NSMakeRect", None)
     for index, button in enumerate(buttons):
         try:
@@ -671,10 +673,9 @@ def _layout_t3_traffic_lights(native, AppKit) -> None:
             if control is None:
                 continue
             control.setHidden_(False)
-            try:
-                control.setControlSize_(small)
-            except Exception:
-                pass
+            # No setControlSize_ here: T3 Code leaves the buttons at their
+            # regular AppKit size, and the small size shrinks the glyphs.
+            control.setEnabled_(True)
             x, y, width, height = traffic_light_rect(index, container_height)
             if make_rect is not None:
                 control.setFrame_(make_rect(x, y, width, height))
@@ -687,6 +688,32 @@ def _layout_t3_traffic_lights(native, AppKit) -> None:
                 control.setFrame_(frame)
         except Exception:
             pass
+
+
+def _enable_window_buttons(native, AppKit) -> None:
+    """Close, miniaturize, and zoom only act when the mask carries their bits.
+
+    pywebview's frameless window drops them, which leaves T3 Code's traffic
+    lights drawn but dead. Titled + full-size content view keeps the frameless
+    look while AppKit wires the buttons back up.
+    """
+    wanted = 0
+    for name, fallback in (
+        ("NSWindowStyleMaskTitled", 1 << 0),
+        ("NSWindowStyleMaskClosable", 1 << 1),
+        ("NSWindowStyleMaskMiniaturizable", 1 << 2),
+        ("NSWindowStyleMaskResizable", 1 << 3),
+        ("NSWindowStyleMaskFullSizeContentView", 1 << 15),
+    ):
+        wanted |= _macos_flag(AppKit, name, fallback)
+    try:
+        current = int(native.styleMask())
+    except Exception:
+        current = 0
+    try:
+        native.setStyleMask_(current | wanted)
+    except Exception:
+        pass
 
 
 def _macos_flag(AppKit, name: str, fallback: int) -> int:
@@ -732,6 +759,7 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
         return
 
     _disable_native_fullscreen(native, AppKit)
+    _enable_window_buttons(native, AppKit)
 
     title_hidden = getattr(AppKit, "NSWindowTitleHidden", 1)
     try:

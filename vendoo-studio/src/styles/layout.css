@@ -215,8 +215,51 @@
 .browser-preview-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   margin-left: auto;
+}
+
+/* Window controls, sized like T3 Code's titlebar toggles: a 28px square ghost
+   button (its `sm` toggle) holding a 16px icon, with the pressed state reading
+   as a filled chip. */
+.titlebar-control {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  outline: none;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-control svg {
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.titlebar-control:hover:not(:disabled) {
+  background: var(--color-ink-hover);
+  color: var(--color-text);
+}
+
+.titlebar-control[aria-pressed="true"] {
+  background: var(--color-ink-raised);
+  color: var(--color-text);
+}
+
+.titlebar-control:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.titlebar-control:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-cobalt);
 }
 
 .browser-preview-open,

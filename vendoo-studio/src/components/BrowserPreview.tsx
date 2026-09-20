@@ -51,6 +51,32 @@ interface Props {
   onGoToChat?: () => void;
 }
 
+/* Lucide `maximize-2`, `minimize-2`, and `x` at 16px — the same glyphs T3 Code's
+   titlebar controls use. */
+function MaximizeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MinimizeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 const TOOLS: { id: Tool; label: string; title: string }[] = [
   { id: "interact", label: "Use", title: "Click, scroll, and type in the Vendoo draft" },
   { id: "pick", label: "Pick", title: "Click a field to point Studio at it" },
@@ -553,17 +579,24 @@ export function BrowserPreview({
           {onToggleExpanded && (
             <button
               type="button"
-              className="browser-preview-cancel"
+              className="titlebar-control"
               onClick={onToggleExpanded}
               aria-pressed={expanded}
-              title={expanded ? "Share the workspace with chat again" : "Give the browser the whole workspace"}
+              aria-label={expanded ? "Restore panel size" : "Maximize panel"}
+              title={expanded ? "Restore panel size" : "Maximize panel"}
             >
-              {expanded ? "Shrink" : "Expand"}
+              {expanded ? <MinimizeIcon /> : <MaximizeIcon />}
             </button>
           )}
           {interactive && onClose && (
-            <button type="button" className="browser-preview-cancel" onClick={onClose}>
-              Close
+            <button
+              type="button"
+              className="titlebar-control"
+              onClick={onClose}
+              aria-label="Close browser panel"
+              title="Close browser panel"
+            >
+              <CloseIcon />
             </button>
           )}
         </div>
