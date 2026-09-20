@@ -372,9 +372,6 @@ export function App() {
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         detailOpen={activeView === "settings" ? null : !detailHidden}
         onToggleDetail={() => setDetailCollapsed(!detailCollapsed)}
-        settingsOpen={activeView === "settings"}
-        onOpenSettings={openSettings}
-        onCloseSettings={closeSettings}
       />
       <div
         className={`app-content mobile-pane-${mobilePane}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}${sidebarHidden ? " sidebar-collapsed" : ""}`}

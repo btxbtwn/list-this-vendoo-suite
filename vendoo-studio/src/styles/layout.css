@@ -116,9 +116,10 @@
 
 /* ── Workspace topbar ── */
 
-/* T3 Code's one window-wide titlebar: breadcrumb on the left, settings and
-   panel toggles on the right. Sits above sidebar + workspace, not beside them.
-   Items share one vertical center line with the traffic lights. */
+/* T3 Code's one window-wide titlebar: breadcrumb on the left, panel toggles
+   on the right. Settings stays in the sidebar footer. Sits above sidebar +
+   workspace, not beside them. Items share one vertical center line with the
+   traffic lights. No hairline under the band — same flush chrome as T3 Code. */
 .workspace-topbar {
   position: relative;
   display: flex;
@@ -129,7 +130,7 @@
   height: var(--workspace-topbar-height);
   padding: 0 10px 0 12px;
   background: var(--color-ink);
-  border-bottom: 1px solid var(--color-ink-border);
+  border-bottom: none;
   z-index: 2;
   box-sizing: border-box;
 }
@@ -606,12 +607,14 @@
   margin-top: 8px;
 }
 
+/* Same paper as the chat column — no left hairline — so the inspector reads as
+   part of the workspace instead of a bolted-on black strip. */
 .detail-panel {
   width: clamp(300px, var(--detail-width, 380px), 45vw);
   flex-shrink: 0;
   min-width: 0;
-  background: var(--color-ink);
-  border-left: 1px solid var(--color-ink-border);
+  background: var(--color-inspector);
+  border-left: none;
 }
 
 .detail-panel > * {

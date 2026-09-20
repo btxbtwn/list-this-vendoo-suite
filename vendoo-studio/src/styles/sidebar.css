@@ -1,7 +1,8 @@
 /* ── Sidebar ── */
 
-/* Desktop: the window titlebar owns collapse/settings. Mobile keeps this brand
-   band because the desktop topbar is hidden below 900px. */
+/* Desktop: the window titlebar owns panel collapse. Settings stays in the
+   sidebar footer. Mobile keeps this brand band because the desktop topbar is
+   hidden below 900px. */
 .sidebar-header {
   display: none;
   align-items: center;
