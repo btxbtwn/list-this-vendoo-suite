@@ -199,7 +199,9 @@ def suggest_percent(history: list[PriceDropEvent], *, now: datetime | None = Non
             return REPEAT_PERCENT, "Several prior drops — suggesting a small step."
         if len(history) >= 2:
             return REPEAT_PERCENT, "Already dropped twice — suggesting a smaller cut."
-    return DEFAULT_PERCENT, f"Default {DEFAULT_PERCENT}% markdown."
+    # No percentage in the reason: whole dollars rarely land on the target, so
+    # a stated percent would contradict the effective one shown beside it.
+    return DEFAULT_PERCENT, "Standard markdown."
 
 
 def market_midpoint(report: SoldCompsReport | None) -> float | None:
@@ -299,8 +301,7 @@ async def build_preview(
         comps_text = await research_sold_comps(analysis_text, evidence)
         market, comps_target, report = comps_formula_price(comps_text)
 
-    percent_price = price_after_percent(current, suggested_percent)
-    suggested_price = percent_price
+    suggested_price = price_after_percent(current, suggested_percent)
     suggested_mode = "percent"
     # The seller's own closed sales outrank a round percentage: they know what
     # this category actually sells for and how long it takes.
@@ -322,14 +323,28 @@ async def build_preview(
         if grounded:
             suggested_price, reason = grounded
             suggested_mode = "sell_through"
-    # Prefer comps when they ask for a deeper cut than the history-aware %.
-    if comps_target is not None and comps_target < current and comps_target <= percent_price:
+    # Prefer comps only when they ask for a deeper cut than the suggestion in
+    # hand — comparing against the percentage alone let a comps target *raise*
+    # a lower price the seller's own sales had already argued for.
+    if comps_target is not None and comps_target < current and comps_target <= suggested_price:
         suggested_price = comps_target
         suggested_mode = "comps"
-        reason = (
-            f"{reason} Live comps target ${comps_target} (market × 1.35) — "
-            "using that as the suggestion."
+        # The default-percent reason described a price comps just replaced, so
+        # only a history-derived reason is worth keeping in front of this one.
+        prefix = f"{reason} " if history else ""
+        comps_reason = (
+            f"Live comps target ${comps_target} (market × 1.35) — using that as the suggestion."
         )
+        reason = f"{prefix}{comps_reason}"
+    # The standard step is what is left when nothing else spoke: say which
+    # source went quiet, since "standard" alone reads as an unexplained number.
+    if suggested_mode == "percent" and not history:
+        why = (
+            "Not enough of your sales to price from"
+            if cohort is None
+            else "Your sales do not ask for a cut yet"
+        )
+        reason = f"{why} — {reason[0].lower()}{reason[1:]}"
 
     first_price = first_listed_price(revisions) or current
     offered = tuple(dict.fromkeys((*PERCENT_OPTIONS, suggested_percent)))
@@ -338,7 +353,12 @@ async def build_preview(
             "scope": cohort.scope,
             "label": cohort.label,
             "count": cohort.count,
-            "median_discount_percent": round(cohort.median_discount * 100, 1),
+            "median_discount_percent": (
+                round(cohort.median_discount * 100, 1)
+                if cohort.median_discount is not None
+                else None
+            ),
+            "discount_count": cohort.discount_count,
             "median_days": round(cohort.median_days) if cohort.median_days is not None else None,
         }
         if cohort is not None

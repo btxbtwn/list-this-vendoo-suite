@@ -153,7 +153,10 @@ export interface PriceDropSellThrough {
   scope: string;
   label: string;
   count: number;
-  median_discount_percent: number;
+  /** null when too few of those sales show what the price moved off. */
+  median_discount_percent: number | null;
+  /** How many of the cohort's sales carried a usable discount. */
+  discount_count: number;
   median_days: number | null;
 }
 
