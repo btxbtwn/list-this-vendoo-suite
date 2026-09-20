@@ -597,7 +597,7 @@ export function ItemDetails({ convId }: Props) {
       {saveError && (
         <span className="item-saving text-error">
           {saveError}{" "}
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => void save(details)}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void save(details)}>
             Retry
           </button>
         </span>

@@ -883,9 +883,10 @@ function SendToVendooButton({
   }, [sendBlockers]);
   const blockerText = uniqueBlockers.map((err) => err.message).join(" · ");
   const sendLabel = bound ? "Update Vendoo" : "Send to Vendoo";
+  // The buttons underneath name themselves; the hint says what Send does.
   const sendHint = bound
-    ? "Linked. Use Fix errors or Ask chat for fields to fill the rest, then Update Vendoo."
-    : "Sends the starting fields and links a Vendoo draft. Then use Fix errors or Ask chat for fields to fill the rest.";
+    ? "Writes changed fields onto the linked Vendoo draft. Nothing is published."
+    : "Creates a Vendoo draft and links it. Nothing is published.";
 
   const startSend = () => {
     if (!canSend) {
