@@ -464,13 +464,17 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
             specifics=specifics,
         )
         apply_update_all(current, desired, schema=schema)
-        updates = force_condition_updates(desired, changed_fields(current, desired))
+        updates = changed_fields(current, desired)
         # The general form is saved on its own first, the way Vendoo's own save
         # runs it: anything that save copies down onto the marketplace forms
         # lands before Studio writes those forms, so Studio's values are the
-        # ones left standing.
+        # ones left standing. Poshmark's and Mercari's condition rides along
+        # with the forms whether or not it changed — it is not an edit of the
+        # item, so it stays out of ``updates`` and the relist reminder.
         general_updates = {k: v for k, v in updates.items() if not k.startswith(f"{LISTINGS_KEY}.")}
-        form_updates = {k: v for k, v in updates.items() if k.startswith(f"{LISTINGS_KEY}.")}
+        form_updates = force_condition_updates(
+            desired, {k: v for k, v in updates.items() if k.startswith(f"{LISTINGS_KEY}.")}
+        )
         for batch in (general_updates, form_updates):
             if batch:
                 await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": batch}])
