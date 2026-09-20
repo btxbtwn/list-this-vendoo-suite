@@ -501,7 +501,9 @@ function schemaFieldsForTab(
   tab: string,
 ): EditorField[] | null {
   const form = forms?.find((entry) => entry.marketplace === tab);
-  if (!form?.known || !form.fields.length) return null;
+  // An unknown leaf still answers with the marketplace's own controls and the
+  // values this listing holds, so render whatever rows came back.
+  if (!form?.fields.length) return null;
   return form.fields.map((field) => ({
     // Schema keys are Vendoo labels ("Sleeve Length"); listing JSON uses camelCase.
     // getListingEditorValue / setListingEditorValue bridge the two.
