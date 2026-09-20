@@ -82,15 +82,13 @@ def prepare_listing_snapshot(
 ) -> dict:
     from vendoo_studio.services.marketplaces import selected_fillable_platforms
     from vendoo_studio.services.registry import RegistryService, align_listing_gender
-    from vendoo_studio.services.vendoo_import import parse_notes
+    from vendoo_studio.services.vendoo_import import parse_notes, split_vendoo_labels
 
     listing_snapshot = dict(listing_json or {})
     conv_notes = parse_notes(getattr(conv, "notes", None))
-    raw_labels = str(conv_notes.get("vendooLabels") or "")
-    if raw_labels.strip():
-        listing_snapshot["labels"] = [
-            label.strip() for label in raw_labels.split(",") if label.strip()
-        ]
+    labels = split_vendoo_labels(conv_notes.get("vendooLabels"))
+    if labels:
+        listing_snapshot["labels"] = labels
     # Item Details COG and Notes are Vendoo's Cost of Goods and Internal Notes.
     cog_raw = str(conv_notes.get("cog") or "").strip()
     try:
