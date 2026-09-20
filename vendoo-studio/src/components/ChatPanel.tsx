@@ -1219,16 +1219,16 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
 
         {!isLoading && !hasMessages && !busy && !streamFailed && (
           <div className="empty-state" style={{ padding: "32px 16px" }}>
-            <h3 style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 20, marginBottom: 4, lineHeight: 1.2 }}>Generate a Listing</h3>
+            <h3 style={{ fontStyle: "italic", fontSize: 20, marginBottom: 4, lineHeight: 1.2 }}>Generate a Listing</h3>
             {hasPhotos ? (
               <>
-                <p className="text-xs font-mono text-muted">{photos?.length ?? 0} photo{photos?.length !== 1 ? "s" : ""} uploaded</p>
+                <p className="text-xs text-muted">{photos?.length ?? 0} photo{photos?.length !== 1 ? "s" : ""} uploaded</p>
                 <button type="button" className="btn btn-primary" onClick={handleGenerate} disabled={generating || streaming} style={{ marginTop: 12, padding: "9px 22px" }}>
                   Generate Listing
                 </button>
               </>
             ) : (
-              <p className="text-xs font-mono text-muted">Upload photos to begin</p>
+              <p className="text-xs text-muted">Upload photos to begin</p>
             )}
           </div>
         )}
@@ -1245,7 +1245,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           <div className="thinking-block">
             <div className="thinking-header">
               <div className="thinking-dot" />
-              <span className="text-xs font-mono text-muted">
+              <span className="text-xs text-muted">
                 {generating && !streamThinking
                   ? streamStatus && streamStatus !== "thinking"
                     ? streamStatus
@@ -1269,7 +1269,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-cobalt)", flexShrink: 0 }} />
-              <span className="text-xs font-mono text-muted">UPDATING LISTING…</span>
+              <span className="text-xs text-muted">UPDATING LISTING…</span>
             </div>
           )
         )}
