@@ -101,13 +101,36 @@ async def _run() -> None:
         attach_vendoo_photos,
         image_urls_from_vendoo,
         import_vendoo_item,
+        merge_notes,
         parse_notes,
+        vendoo_item_status,
+        vendoo_listed_marketplaces,
         vendoo_updated_at,
     )
 
     def photos_missing(conv_id: str, item: dict) -> bool:
         """True when the item has photos and none of them are here."""
         return bool(image_urls_from_vendoo(item, None)) and not conv_repo.get_photos(conv_id)
+
+    def refresh_status(conv, item: dict) -> bool:
+        """Re-read Vendoo's label for an unchanged item, and say if it moved.
+
+        A pass that skips an item still costs nothing to relabel, so a listing
+        Studio read as a draft before it learned to see a sale record is put
+        right on the next run instead of waiting for Vendoo to touch it.
+        """
+        notes = parse_notes(conv.notes)
+        status = vendoo_item_status(item, None)
+        marketplaces = vendoo_listed_marketplaces(item, None)
+        if notes.get("vendooStatus") == status and notes.get("vendooMarketplaces") == marketplaces:
+            return False
+        conv.notes = merge_notes(conv.notes, {
+            "vendooStatus": status,
+            "vendooMarketplaces": marketplaces,
+        })
+        conv_repo.update_status(conv.id, status)
+        db.commit()
+        return True
 
     try:
         _progress.total = await _count_items()
@@ -127,9 +150,14 @@ async def _run() -> None:
                         seen_at = parse_notes(existing.notes).get("vendooUpdatedAt") if existing else None
                         if existing is not None and seen_at and seen_at == vendoo_updated_at(item):
                             # Vendoo has not touched the item, so the fields are
-                            # current; only missing photos are worth a fetch.
+                            # current; only its label and missing photos are
+                            # worth a look.
+                            relabelled = refresh_status(existing, item)
                             if not photos_missing(existing.id, item):
-                                _progress.skipped += 1
+                                if relabelled:
+                                    _progress.updated += 1
+                                else:
+                                    _progress.skipped += 1
                                 continue
                             added = await attach_vendoo_photos(db, existing.id, item)
                             _progress.photos += added
