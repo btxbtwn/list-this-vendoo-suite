@@ -294,6 +294,14 @@ export function ListingEditor({
             convId={convId}
             bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
           />
+          {conversation?.unsent_edits ? (
+            <span
+              className="editor-unsent"
+              title="This listing has changed since Vendoo last had it. Update Vendoo writes it onto the Vendoo form."
+            >
+              Unsent edits
+            </span>
+          ) : null}
           {data?.can_send && <span className="editor-ready">Ready</span>}
         </div>
         <ListingReviewTabs

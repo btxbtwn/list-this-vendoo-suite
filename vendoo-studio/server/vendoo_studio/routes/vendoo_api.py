@@ -402,6 +402,11 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     relisting. So the write is stamped in notes (``vendooFormUpdatedAt``) and
     the live marketplaces come back as ``relist_needed``, which is what the
     "Relist in Vendoo" badge reads.
+
+    Either way the conversation is marked level with Vendoo afterwards. Without
+    that the next sync reads our own write as Vendoo moving, pairs it with the
+    seller's edit, and calls it a conflict — and the "unsent edits" badge would
+    never clear.
     """
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.listing_generate import latest_photo_analysis
@@ -414,6 +419,7 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         vendoo_binding,
         vendoo_relistable_marketplaces,
     )
+    from vendoo_studio.services.vendoo_watch import mark_synced
 
     conv_repo = ConversationRepo(db)
     conv = conv_repo.get(conv_id)
@@ -475,6 +481,14 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
             "vendooRelistPending": sorted({*map(str, pending), *relist_needed}),
         })
         db.commit()
+    # Level with Vendoo on the revision that was just written. The stamp the
+    # item was *read* with is deliberately dropped: it predates this write, and
+    # keeping it would leave the next sync thinking Vendoo had moved on alone.
+    # Without one of its own, mark_synced stamps the moment of the write.
+    synced_item = {key: value for key, value in current.items() if key != "dateLastModified"}
+    if desired.get("dateLastModified"):
+        synced_item["dateLastModified"] = desired["dateLastModified"]
+    mark_synced(db, conv_id, synced_item, revisions[0].id)
     return SaveResponse(
         ok=True, item_id=item_id, updated=sorted(updates), relist_needed=relist_needed,
     )
@@ -830,6 +844,12 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
     })
     if out.get("stored"):
         job_repo.save_vendoo_draft(job.id, item=out["stored"], item_id=out["item_id"], url=out["url"], source="api")
+        # The draft was built from this revision, so the two start out level —
+        # otherwise a brand-new item reads as edited-but-unsent straight away.
+        from vendoo_studio.services.vendoo_watch import mark_synced
+
+        revision = ListingRepo(db).get_revisions(conv_id)
+        mark_synced(db, conv_id, out["stored"], revision[0].id if revision else None)
     return CreateResponse(
         ok=True,
         job_id=job.id,

@@ -80,9 +80,11 @@ after **Update Vendoo** the buyer still sees the old copy until you delist and
 relist in Vendoo (the ⋮ menu beside Vendoo Form → **Delist Item**, which takes
 the item off every marketplace at once, then list it again).
 
-Studio labels that gap rather than leaving it to memory: the listing wears a
+Studio labels every step of that rather than leaving it to memory. A blue
+**unsent** chip says the edit has not reached the Vendoo form yet — press
+**Update Vendoo** and it clears. After that the listing wears an amber
 **relist** badge in the sidebar, the editor shows which marketplaces are behind,
-and **Filters → Needs relist** collects all of them. The badge survives the
+and **Filters → Unsent edits / Needs relist** collect each set. The badge survives the
 delist itself — in that middle window Vendoo reports the item as a draft, because
 it is live nowhere, and the banner switches to "list it again to finish". It
 clears itself once Vendoo reports a listing date newer than Studio's last write,

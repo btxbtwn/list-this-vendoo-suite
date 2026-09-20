@@ -60,6 +60,7 @@ export type FilterableListing = {
   vendoo_sold_dates?: Record<string, string>;
   vendoo_form_updated_at?: string | null;
   vendoo_relist_pending?: string[];
+  unsent_edits?: boolean;
 };
 
 export interface ListingFilters {
@@ -69,6 +70,8 @@ export interface ListingFilters {
   notListed: boolean;
   /** Keep only listings whose live marketplaces are behind the last Vendoo write. */
   needsRelist: boolean;
+  /** Keep only listings edited here since Vendoo last had them. */
+  unsent: boolean;
   /** Keep only listings that went live at least this many days ago; 0 is off. */
   staleDays: number;
   sort: ListingSortId;
@@ -80,6 +83,7 @@ export const DEFAULT_LISTING_FILTERS: ListingFilters = {
   labels: [],
   notListed: false,
   needsRelist: false,
+  unsent: false,
   staleDays: 0,
   sort: "recent",
 };
@@ -132,6 +136,7 @@ export function matchesFilters(
     if (!filters.labels.some((label) => own.has(lower(label)))) return false;
   }
   if (filters.needsRelist && !needsRelist(listing)) return false;
+  if (filters.unsent && !listing.unsent_edits) return false;
   if (!isStale(listing, filters.staleDays, now)) return false;
   return true;
 }
@@ -251,6 +256,7 @@ export function activeFilterCount(filters: ListingFilters): number {
     filters.labels.length +
     (filters.notListed ? 1 : 0) +
     (filters.needsRelist ? 1 : 0) +
+    (filters.unsent ? 1 : 0) +
     (filters.staleDays ? 1 : 0)
   );
 }
@@ -306,6 +312,11 @@ export function staleCounts(
 /** Listings whose live marketplaces still carry the copy from before the last write. */
 export function needsRelistCount(listings: FilterableListing[]): number {
   return listings.filter((listing) => needsRelist(listing)).length;
+}
+
+/** Listings whose Vendoo form is behind the copy sitting in Studio. */
+export function unsentCount(listings: FilterableListing[]): number {
+  return listings.filter((listing) => Boolean(listing.unsent_edits)).length;
 }
 
 /** Listings no marketplace carries — what Vendoo's "View Not Listed" asks for. */

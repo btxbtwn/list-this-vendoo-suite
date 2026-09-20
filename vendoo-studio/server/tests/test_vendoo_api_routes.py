@@ -386,6 +386,26 @@ class SaveRouteTest(_RouteTest):
         notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
         self.assertEqual(notes["vendooRelistPending"], ["ebay", "poshmark"])
 
+    def test_the_write_leaves_studio_level_with_vendoo(self):
+        """Otherwise the next sync reads our own write as Vendoo moving.
+
+        That pairs with the seller's edit and reports a conflict, and the
+        "unsent edits" chip never clears.
+        """
+        self.bind()
+        revision_id = ListingRepo(self.db).get_revisions(self.conv.id)[0].id
+        res = self.save({
+            "itemID": "itm1",
+            "dateLastModified": 1000,
+            "generalDetails": {"title": "Old title"},
+            "listings": {"ebay": {"status": {"listed": True}}},
+        })
+        self.assertEqual(res.status_code, 200, res.text)
+        notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
+        self.assertEqual(notes["vendooSyncedRevision"], revision_id)
+        # Stamped from the write, not from the item as it was read.
+        self.assertNotEqual(notes["vendooSyncedAt"], "1000")
+
     def test_relist_done_drops_the_reminder(self):
         conv = ConversationRepo(self.db).get(self.conv.id)
         conv.notes = merge_notes(conv.notes, {

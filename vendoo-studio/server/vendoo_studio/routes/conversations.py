@@ -60,6 +60,9 @@ class ConversationResponse(BaseModel):
     # whose listing date is older than this is still showing the copy from
     # before that write, and only a delist + relist in Vendoo replaces it.
     vendoo_form_updated_at: str | None = None
+    # Edited here since Studio and Vendoo were last level: the Vendoo form does
+    # not have this version yet, so Update Vendoo is the step that is owed.
+    unsent_edits: bool = False
     # The marketplaces that write left on old copy. Kept rather than re-derived
     # so the reminder survives the delist, when the item is live nowhere.
     vendoo_relist_pending: list[str] = []
@@ -105,8 +108,11 @@ def list_conversations(db: Session = Depends(get_db)):
     repo.reconcile_job_statuses()
     covers = repo.cover_photo_ids()
     facets = repo.listing_facets()
+    revisions = repo.current_revision_ids()
     return [
-        _conv_response(c, _extras(_cover_photo_url(covers.get(c.id)), facets.get(c.id)))
+        _conv_response(c, _extras(
+            _cover_photo_url(covers.get(c.id)), facets.get(c.id), revisions.get(c.id),
+        ))
         for c in repo.list_all()
     ]
 
@@ -561,18 +567,41 @@ def _cover_photo_url(photo_id: str | None) -> str | None:
     return f"/api/photos/{photo_id}/thumb?size={COVER_THUMB_SIZE}" if photo_id else None
 
 
-def _extras(cover_photo_url: str | None, facet: dict | None) -> dict:
+def _extras(
+    cover_photo_url: str | None,
+    facet: dict | None,
+    revision_id: str | None = None,
+) -> dict:
     """The per-row fields the sidebar needs alongside the conversation itself."""
     return {
         "cover_photo_url": cover_photo_url,
         "sku": (facet or {}).get("sku"),
         "price": (facet or {}).get("price"),
+        "current_revision_id": revision_id,
     }
 
 
 def _extras_for(db: Session, conv_id: str) -> dict:
     repo = ConversationRepo(db)
-    return _extras(_cover_photo_url(repo.cover_photo_id(conv_id)), repo.listing_facet(conv_id))
+    return _extras(
+        _cover_photo_url(repo.cover_photo_id(conv_id)),
+        repo.listing_facet(conv_id),
+        repo.current_revision_id(conv_id),
+    )
+
+
+def _unsent_edits(notes: dict, revision_id: str | None) -> bool:
+    """True when the listing moved on after Studio and Vendoo were last level.
+
+    Read from the sync machinery's own marker rather than from revision
+    timestamps: a pull writes a revision too, and dating the comparison would
+    call Vendoo's own copy an unsent edit the moment it arrived. An unbound
+    listing has nothing to be ahead of.
+    """
+    synced = str(notes.get("vendooSyncedRevision") or "")
+    if not revision_id or not synced:
+        return False
+    return revision_id != synced
 
 
 def _relist_pending(notes: dict) -> list[str]:
@@ -642,6 +671,7 @@ def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
         price=row.get("price"),
         vendoo_labels=raw_labels,
         vendoo_marketplaces=[str(m) for m in marketplaces] if isinstance(marketplaces, list) else [],
+        unsent_edits=_unsent_edits(notes, row.get("current_revision_id")),
         **_vendoo_dates(notes),
     )
 
