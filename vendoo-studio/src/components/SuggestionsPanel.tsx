@@ -11,8 +11,6 @@ export const SUGGESTION_KIND_LABELS: Record<SuggestionKind, string> = {
   ready_to_review: "Review and send",
 };
 
-const SIDEBAR_PAGE = 5;
-
 export function suggestionKindLabel(kind: string): string {
   return SUGGESTION_KIND_LABELS[kind as SuggestionKind] || kind.replace(/_/g, " ");
 }
@@ -48,16 +46,9 @@ export function SuggestionsPanel({
   });
   const suggestions = data?.suggestions || [];
   const [expanded, setExpanded] = useState(true);
-  const [visibleCount, setVisibleCount] = useState(SIDEBAR_PAGE);
-  const visible = variant === "workspace"
-    ? suggestions
-    : expanded
-      ? suggestions.slice(0, visibleCount)
-      : [];
 
   if (variant === "sidebar") {
     if (!suggestions.length) return null;
-    const hidden = Math.max(0, suggestions.length - visible.length);
     return (
       <section className="suggestions-shelf" aria-label="Suggestions">
         <button
@@ -74,24 +65,19 @@ export function SuggestionsPanel({
             <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        {visible.map((item) => (
-          <SuggestionRow
-            key={item.conversation_id}
-            suggestion={item}
-            selected={selectedConvId === item.conversation_id}
-            compact
-            onSelect={onSelect}
-          />
-        ))}
-        {expanded && hidden > 0 && (
-          <button
-            type="button"
-            className="sidebar-show-more"
-            onClick={() => setVisibleCount((count) => count + SIDEBAR_PAGE)}
-          >
-            Show {Math.min(hidden, SIDEBAR_PAGE)} more
-          </button>
-        )}
+        {expanded ? (
+          <div className="suggestions-shelf-body">
+            {suggestions.map((item) => (
+              <SuggestionRow
+                key={item.conversation_id}
+                suggestion={item}
+                selected={selectedConvId === item.conversation_id}
+                compact
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -101,7 +87,7 @@ export function SuggestionsPanel({
       {isFetched && suggestions.length === 0 ? (
         <p className="empty-suggestions-empty">No suggestions right now</p>
       ) : (
-        visible.map((item) => (
+        suggestions.map((item) => (
           <SuggestionRow
             key={item.conversation_id}
             suggestion={item}
