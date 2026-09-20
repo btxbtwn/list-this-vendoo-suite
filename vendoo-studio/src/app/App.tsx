@@ -15,6 +15,7 @@ import {
   type SettingsSectionId,
 } from "../components/settingsNav";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
+import { PhotoDropOverlay } from "../components/PhotoDropOverlay";
 import { ToastHost } from "../components/ToastHost";
 import { PanelResizeHandle, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
@@ -297,6 +298,38 @@ export function App() {
     return true;
   };
 
+  // Photos dropped anywhere in the window land on the open listing; with no
+  // listing open the drop starts one, the same as "New listing" then Add Photos.
+  const dropPhotos = useMutation({
+    mutationFn: async (files: File[]) => {
+      const openConvId = selectedConvId;
+      const convId = openConvId || (await api.conversations.create({ title: "New Listing" })).id;
+      const result = await api.conversations.uploadPhotos(convId, files);
+      return { convId, created: !openConvId, count: result.count, errors: result.errors || [] };
+    },
+    onSuccess: ({ convId, created, count, errors }) => {
+      queryClient.invalidateQueries({ queryKey: ["photos", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      if (created) {
+        setSelectedConvId(convId);
+        setMobileSidebarOpen(false);
+      }
+      if (created || activeView === "settings") {
+        setActiveView("listings");
+        setMobilePane("workspace");
+      }
+      const title = `Added ${count} photo${count === 1 ? "" : "s"}`;
+      if (errors.length) {
+        addToast({ type: "error", title, description: errors.join("; ") });
+        return;
+      }
+      addToast({ type: "success", title, description: created ? "Started a new listing for them." : undefined });
+    },
+    onError: (err: Error) => {
+      addToast({ type: "error", title: "Could not add photos", description: err.message });
+    },
+  });
+
   const cancelJob = useMutation({
     mutationFn: (jobId: string) => api.jobs.cancel(jobId),
     onSuccess: () => {
@@ -577,6 +610,13 @@ export function App() {
           <div>V {status?.version || "…"}</div>
         </div>
       </footer>
+      <PhotoDropOverlay
+        title={selectedConvId ? `Drop photos into ${String(selectedListing?.title || "this listing")}` : "Drop photos to start a new listing"}
+        hint="JPG, PNG, WEBP or HEIC · up to 20 per listing"
+        busy={dropPhotos.isPending}
+        busyLabel="Adding photos…"
+        onFiles={(files) => dropPhotos.mutate(files)}
+      />
       <ToastHost />
       <ConfirmDialogHost />
       {setupGuideOpen ? (

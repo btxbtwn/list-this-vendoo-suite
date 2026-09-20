@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { dragHasFiles } from "../photoDrop";
 import type { Photo } from "../api/types";
 
 const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
@@ -153,6 +154,9 @@ export function PhotoTray({ convId }: Props) {
   };
 
   const onThumbDrop = (event: React.DragEvent<HTMLDivElement>, photoId: string) => {
+    // Files dropped on a thumbnail are an upload, not a reorder — let the
+    // window-level drop handler take them.
+    if (dragHasFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     const sourceId = dragIdRef.current || event.dataTransfer.getData(PHOTO_DRAG_TYPE) || event.dataTransfer.getData("text/plain");
@@ -192,14 +196,14 @@ export function PhotoTray({ convId }: Props) {
   };
 
   return (
-    <div className="photo-tray" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files); }}>
+    <div className="photo-tray">
       <div className="photo-tray-controls">
         <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           {uploading ? "Uploading..." : "Add Photos"}
         </button>
         <input ref={fileInputRef} type="file" multiple accept="image/*" style={{ display: "none" }} onChange={(e) => { if (e.target.files) doUpload(e.target.files); }} />
         <span className="photo-tray-meta">
-          {photos?.length || 0} photos{canReorder ? " · drag to reorder" : ""}
+          {photos?.length || 0} photos{canReorder ? " · drag to reorder" : " · or drop them anywhere"}
         </span>
         {uploadError && <span className="text-2xs text-error font-mono">{uploadError}</span>}
       </div>
