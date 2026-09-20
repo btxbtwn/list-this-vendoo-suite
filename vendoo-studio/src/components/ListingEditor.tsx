@@ -225,10 +225,11 @@ export function ListingEditor({
   return (
     <div className="listing-editor">
       <div className="pr-review-header">
-        <div className="pr-review-title-row">
+        {/* Desktop: the titlebar breadcrumb already names the listing in full and
+            the actions sit beside it, so repeating a truncated copy here only
+            costs a row. Mobile has no titlebar and keeps both. */}
+        <div className="pr-review-title-row pr-review-chrome-mobile">
           <h2 className="pr-review-title pywebview-drag-region" title={listingTitle}>{listingTitle}</h2>
-          {data?.can_send && <span className="editor-ready">Ready</span>}
-          {/* Desktop: actions live in the window topbar. Mobile keeps them here. */}
           <ListingReviewActions
             className="pr-review-chrome-mobile"
             convId={convId}
@@ -259,6 +260,7 @@ export function ListingEditor({
             convId={convId}
             bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
           />
+          {data?.can_send && <span className="editor-ready">Ready</span>}
         </div>
         <ListingReviewTabs
           className="pr-review-chrome-mobile"

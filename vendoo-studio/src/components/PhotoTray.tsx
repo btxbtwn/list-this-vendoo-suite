@@ -197,16 +197,18 @@ export function PhotoTray({ convId }: Props) {
 
   return (
     <div className="photo-tray">
-      <div className="photo-tray-controls">
+      {/* Same caps heading as the Notes / Pricing / Measurements sections below. */}
+      <div className="item-section-header">
+        <h3 className="item-section-title">Photos</h3>
+        <span className="photo-tray-meta">
+          {photos?.length || 0} photos{canReorder ? " · drag to reorder" : " · or drop them anywhere"}
+        </span>
         <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           {uploading ? "Uploading..." : "Add Photos"}
         </button>
         <input ref={fileInputRef} type="file" multiple accept="image/*" style={{ display: "none" }} onChange={(e) => { if (e.target.files) doUpload(e.target.files); }} />
-        <span className="photo-tray-meta">
-          {photos?.length || 0} photos{canReorder ? " · drag to reorder" : " · or drop them anywhere"}
-        </span>
-        {uploadError && <span className="text-2xs text-error font-mono">{uploadError}</span>}
       </div>
+      {uploadError && <div className="photo-tray-error text-2xs text-error font-mono">{uploadError}</div>}
       {photos && photos.length > 0 && (
         <div className="photo-strip">
           {photos.map((p, i) => (

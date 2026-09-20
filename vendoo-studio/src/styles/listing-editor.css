@@ -193,7 +193,8 @@
   -webkit-app-region: no-drag;
 }
 
-/* Desktop: actions + Input/Forms/Fields live in the window topbar. */
+/* Desktop: the listing title, its actions, and Input/Forms/Fields all live in
+   the window topbar, so the inspector starts at its sync line instead. */
 .pr-review-chrome-mobile {
   display: none;
 }
