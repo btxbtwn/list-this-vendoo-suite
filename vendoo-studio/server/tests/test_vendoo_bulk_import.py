@@ -15,7 +15,7 @@ from vendoo_studio.services.browser_bridge import BrowserBridgeError
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
-from vendoo_studio.repositories.queries import ConversationRepo, JobRepo
+from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services import vendoo_bulk_import
 from vendoo_studio.services.vendoo_import import (
     import_vendoo_item,
@@ -46,7 +46,8 @@ def vendoo_item(item_id: str, *, title: str, status: dict | None = None, modifie
             "title": title,
             "description": "A tee",
             "price": "24.00",
-            "images": [{"url": f"https://cdn.example/{item_id}-1.jpg"}],
+            # What Vendoo actually stores: a record naming its image server path.
+            "images": [{"version": 3, "id": f"images/u1/{item_id}-1.jpg", "originalMaxDimension": 1600}],
         },
         "listings": {"ebay": {"status": status or {"notListed": True}}},
     }
@@ -151,7 +152,10 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(convs["Tee C"].settled_at)
         # The photos came down with the item, so nothing is left to fetch.
         photos = repo.get_photos(convs["Tee A"].id)
-        self.assertEqual([photo.checksum for photo in photos], ["https://cdn.example/a-1.jpg"])
+        self.assertEqual(
+            [photo.checksum for photo in photos],
+            ["https://images.vendoo.co/images/u1/a-1.jpg"],
+        )
         self.assertTrue(JobRepo(self.db).list_by_conversation(convs["Tee A"].id))
 
     async def test_rerun_skips_items_vendoo_has_not_touched(self):
@@ -189,6 +193,28 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progress["updated"], 1)
         conv = ConversationRepo(self.db).list_all()[0]
         self.assertEqual(len(ConversationRepo(self.db).get_photos(conv.id)), 1)
+
+    async def test_a_listing_missing_its_photos_gets_just_its_photos(self):
+        """Fields can land while the photos do not; the next run fetches those."""
+        pages = [[vendoo_item("a", title="Tee A", modified=5)]]
+
+        progress = await self._run(pages, download=lambda urls: [])
+        self.assertEqual(progress["imported"], 1)
+        self.assertEqual(progress["photos"], 0)
+        conv = ConversationRepo(self.db).list_all()[0]
+        revisions = len(ListingRepo(self.db).get_revisions(conv.id))
+
+        progress = await self._run(pages)
+        self.assertEqual(progress["skipped"], 0)
+        self.assertEqual(progress["updated"], 1)
+        self.assertEqual(progress["photos"], 1)
+        self.assertEqual(len(ConversationRepo(self.db).get_photos(conv.id)), 1)
+        # Repairing photos must not write the listing over again.
+        self.assertEqual(len(ListingRepo(self.db).get_revisions(conv.id)), revisions)
+
+        # With everything local, a third run has nothing to do.
+        progress = await self._run(pages)
+        self.assertEqual(progress["skipped"], 1)
 
     async def test_one_bad_item_does_not_end_the_run(self):
         pages = [[vendoo_item("a", title="Tee A"), vendoo_item("b", title="Tee B")]]
