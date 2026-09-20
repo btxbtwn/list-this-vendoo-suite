@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
 import type { ConversationActivity, Job, Message } from "../api/types";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { SendProgress } from "./SendProgress";
 import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
 
@@ -429,6 +430,8 @@ type LiveStream = {
   restoreInputOnAbort: boolean;
   /** Set by queueChatGenerate: the next attach starts a run instead of resuming one. */
   startQueued: boolean;
+  /** Regenerate's wipe is in flight; the chat is empty and nothing streams yet. */
+  resetting: boolean;
   listeners: Set<() => void>;
 };
 
@@ -448,6 +451,7 @@ function emptyLive(): Omit<LiveStream, "listeners"> {
     userCancelled: false,
     restoreInputOnAbort: false,
     startQueued: false,
+    resetting: false,
   };
 }
 
@@ -470,6 +474,17 @@ export function resetChatLive(convId: string) {
   emitLive(convId);
 }
 
+/** Show the wipe as a phase of its own, so Regenerate is not a blank chat.
+ *  Cleared by queueChatGenerate, which hands the chat over to the stream. */
+export function markChatResetting(convId: string, resetting: boolean) {
+  patchLive(convId, { resetting });
+}
+
+/** False once Stop has dropped the wipe phase, so the caller skips the generate. */
+export function isChatResetting(convId: string): boolean {
+  return getLive(convId).resetting;
+}
+
 /** Start a generate for this listing; a mounted ChatPanel picks it up and streams it. */
 export function queueChatGenerate(convId: string) {
   resetChatLive(convId);
@@ -486,7 +501,7 @@ export function useChatBusy(convId: string): boolean {
     },
     () => {
       const live = getLive(convId);
-      return live.streaming || live.generating;
+      return live.streaming || live.generating || live.resetting;
     },
   );
 }
@@ -526,6 +541,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const [streamText, setStreamText] = useState(live.streamText);
   const [streamThinking, setStreamThinking] = useState(live.streamThinking);
   const [streamStatus, setStreamStatus] = useState(live.streamStatus);
+  const [resetting, setResetting] = useState(live.resetting);
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(live.failedAction);
   const [lastSendText, setLastSendText] = useState(live.lastSendText);
   const [stopping, setStopping] = useState(false);
@@ -557,7 +573,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     refetchInterval: (query) => (getLive(convId).streaming || getLive(convId).generating || query.state.data?.busy ? 1000 : 2000),
   });
   const serverBusy = Boolean(activity?.busy);
-  const busy = streaming || generating || serverBusy;
+  const busy = streaming || generating || serverBusy || resetting;
 
   const { data: messages, isLoading } = useQuery({
     queryKey: ["messages", convId],
@@ -612,6 +628,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       setStreamText(next.streamText);
       setStreamThinking(next.streamThinking);
       setStreamStatus(next.streamStatus);
+      setResetting(next.resetting);
       setFailedAction(next.failedAction);
       setLastSendText(next.lastSendText);
     };
@@ -992,6 +1009,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     } else {
       patchLive(convId, { generating: false, streaming: false });
     }
+    // A wipe already in flight finishes server-side, but Stop still means the
+    // regenerate it was clearing for does not start.
+    patchLive(convId, { resetting: false });
     // One stop for everything: generation, chat saves, field fills, Chrome/Vendoo jobs.
     await api.conversations.stop(convId).catch(() => undefined);
     await Promise.all([
@@ -1084,11 +1104,13 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         });
       })(),
   );
-  const localLabel = streaming || generating
-    ? streamStatus && streamStatus !== "thinking"
-      ? streamStatus
-      : generating ? "Analyzing photos…" : "Answering…"
-    : "";
+  const localLabel = resetting
+    ? "Clearing chat and generated fields…"
+    : streaming || generating
+      ? streamStatus && streamStatus !== "thinking"
+        ? streamStatus
+        : generating ? "Analyzing photos…" : "Answering…"
+      : "";
   const activityItems = [
     ...(localLabel ? [localLabel] : []),
     ...(activity?.items || []).filter((item) => item !== localLabel),
@@ -1212,6 +1234,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         )}
 
         {messages?.map(renderMessage)}
+
+        {resetting && (
+          <div className="thinking-block">
+            <SendProgress label="Clearing chat and generated fields…" ceiling={70} />
+          </div>
+        )}
 
         {(streaming || generating) && !streamFailed && (streamThinking || !streamText) && (
           <div className="thinking-block">
