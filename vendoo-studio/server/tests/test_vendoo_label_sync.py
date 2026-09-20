@@ -79,6 +79,36 @@ class LabelSyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progress["checked"], 1)
         self.assertFalse(progress["running"])
 
+    async def test_sweeping_an_unchanged_listing_leaves_its_recency_alone(self):
+        # The sidebar's "Recent activity" order is updated_at, so a sweep that
+        # restamped every item it paged over would reshuffle the list under the
+        # reader once per page.
+        conv = self.bind_draft("itm1")
+        await self._run({"": ([listed_item("itm1")], "")})
+        before = ConversationRepo(self.db).get(conv.id).updated_at
+
+        # A second pass over the same inventory has nothing new to say.
+        progress = await self._run({"": ([listed_item("itm1")], "")})
+
+        conv = ConversationRepo(self.db).get(conv.id)
+        self.assertEqual(progress["checked"], 1)
+        self.assertEqual(progress["updated"], 0)
+        # The label pass still recorded what Vendoo reported.
+        notes = parse_notes(conv.notes)
+        self.assertEqual(notes["vendooStatus"], "active")
+        self.assertEqual(notes["vendooMarketplaces"], ["ebay"])
+        self.assertEqual(conv.updated_at, before)
+
+    async def test_a_real_label_change_still_counts_as_activity(self):
+        conv = self.bind_draft("itm1")
+        before = ConversationRepo(self.db).get(conv.id).updated_at
+
+        await self._run({"": ([listed_item("itm1")], "")})
+
+        conv = ConversationRepo(self.db).get(conv.id)
+        self.assertEqual(conv.status, "active")
+        self.assertGreater(conv.updated_at, before)
+
     async def test_unbound_vendoo_items_are_ignored(self):
         self.bind_draft("mine")
         progress = await self._run({"": ([listed_item("other")], "")})

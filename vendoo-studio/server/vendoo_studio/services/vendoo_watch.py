@@ -200,13 +200,16 @@ def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> 
     status = vendoo_item_status(item, None)
     if status not in VENDOO_LISTING_STATUSES:
         status = "draft"
-    conv.notes = merge_notes(conv.notes, {
+    # A label read is Vendoo's bookkeeping, not the seller's activity: the
+    # sweep passes over the whole inventory, and restamping updated_at on each
+    # item would rotate the sidebar's "Recent activity" order page by page. A
+    # real label change still surfaces, through the status write below.
+    repo.write_notes(conv_id, merge_notes(conv.notes, {
         "vendooStatus": status,
         "vendooMarketplaces": vendoo_listed_marketplaces(item, None),
         "vendooDates": vendoo_dates(item, None),
         "vendooUpdatedAt": vendoo_updated_at(item, None),
-    })
-    db.commit()
+    }), bump_updated_at=False)
     # A send in flight owns the row; leave its label alone until it settles.
     if conv.status not in BUSY_LISTING_STATUSES and conv.status != status:
         repo.update_status(conv_id, status)

@@ -146,6 +146,36 @@ class ConversationRepo:
         )
         return row[0] if row else None
 
+    def write_notes(
+        self,
+        conv_id: str,
+        notes: str,
+        *,
+        bump_updated_at: bool = True,
+    ) -> Conversation | None:
+        """Store notes, optionally leaving ``updated_at`` where it was.
+
+        Vendoo bookkeeping — the inventory label sweep — writes notes for
+        listings the seller never touched. Restamping those would make every
+        swept item look like recent activity and reshuffle the sidebar under
+        the reader, so the quiet path keeps the stamp the listing already had.
+        """
+        conv = self.get(conv_id)
+        if not conv:
+            return None
+        if conv.notes == notes:
+            return conv
+        values: dict[str, Any] = {"notes": notes}
+        # Naming updated_at in the UPDATE suppresses the column's own onupdate.
+        if not bump_updated_at:
+            values["updated_at"] = conv.updated_at
+        self.db.query(Conversation).filter(Conversation.id == conv_id).update(
+            values, synchronize_session=False
+        )
+        self.db.commit()
+        self.db.refresh(conv)
+        return conv
+
     def update_status(
         self,
         conv_id: str,
