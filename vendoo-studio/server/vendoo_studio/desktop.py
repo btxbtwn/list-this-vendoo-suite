@@ -47,12 +47,11 @@ WINDOW_HEIGHT = 900
 MIN_WINDOW_SIZE = (1024, 700)
 WINDOW_BACKGROUND = "#090909"
 # T3 Code's macOS chrome: a 52pt topbar with Electron `hiddenInset` traffic
-# lights parked at x=16, vertically centred on that band. The buttons keep their
-# standard AppKit size — 14pt circles on a 20pt pitch — so ours must too.
+# lights. Electron gets that inset from an empty NSToolbar in the unified
+# titlebar, which is also how the buttons keep their full AppKit size and
+# spacing; moving or resizing them by hand only fights AppKit's own layout.
 TITLEBAR_HEIGHT_PX = 52
-TRAFFIC_LIGHT_SIZE_PX = 14.0
-TRAFFIC_LIGHT_GAP_PX = 6.0
-TRAFFIC_LIGHT_X_PX = 16.0
+TITLEBAR_TOOLBAR_ID = "VendooStudioTitlebar"
 HEALTH_URL = f"http://{HOST}:{PORT}/api/health"
 APP_URL = f"http://{HOST}:{PORT}"
 LOG_PATH = Path.home() / "Library" / "Application Support" / CHANNEL["app_name"] / "logs" / CHANNEL["log"]
@@ -642,50 +641,53 @@ def _hex_to_srgb(color: str) -> tuple[float, float, float]:
     )
 
 
-def traffic_light_rect(index: int, container_height: float) -> tuple[float, float, float, float]:
-    """Electron hiddenInset geometry used by T3 Code: 14pt buttons, 6pt gap."""
-    size = TRAFFIC_LIGHT_SIZE_PX
-    x = TRAFFIC_LIGHT_X_PX + index * (size + TRAFFIC_LIGHT_GAP_PX)
-    y = max(0.0, float(container_height) - (TITLEBAR_HEIGHT_PX + size) / 2.0)
-    return (x, y, size, size)
+def _install_titlebar_toolbar(native, AppKit) -> None:
+    """Give the window the empty unified toolbar Electron's `hiddenInset` uses.
 
-
-def _layout_t3_traffic_lights(native, AppKit) -> None:
-    buttons = (
-        AppKit.NSWindowCloseButton,
-        AppKit.NSWindowMiniaturizeButton,
-        AppKit.NSWindowZoomButton,
-    )
-    container_height = float(TITLEBAR_HEIGHT_PX)
+    AppKit then grows the titlebar to T3 Code's 52pt band and insets the traffic
+    lights into it itself, at their native size, spacing, and hover behaviour.
+    """
     try:
-        close = native.standardWindowButton_(buttons[0])
-        if close is not None:
-            superview = close.superview()
-            if superview is not None:
-                container_height = float(superview.frame().size.height)
+        if native.toolbar() is not None:
+            return
+    except Exception:
+        pass
+    try:
+        toolbar = AppKit.NSToolbar.alloc().initWithIdentifier_(TITLEBAR_TOOLBAR_ID)
+    except Exception:
+        return
+    for setter, value in (
+        ("setShowsBaselineSeparator_", False),
+        ("setAllowsUserCustomization_", False),
+        ("setVisible_", True),
+    ):
+        try:
+            getattr(toolbar, setter)(value)
+        except Exception:
+            pass
+    try:
+        native.setToolbar_(toolbar)
+    except Exception:
+        return
+    try:
+        native.setToolbarStyle_(_macos_flag(AppKit, "NSWindowToolbarStyleUnified", 1))
     except Exception:
         pass
 
-    make_rect = getattr(AppKit, "NSMakeRect", None)
-    for index, button in enumerate(buttons):
+
+def _restore_traffic_lights(native, AppKit) -> None:
+    """pywebview's frameless window leaves the buttons hidden and inert."""
+    for button in (
+        AppKit.NSWindowCloseButton,
+        AppKit.NSWindowMiniaturizeButton,
+        AppKit.NSWindowZoomButton,
+    ):
         try:
             control = native.standardWindowButton_(button)
             if control is None:
                 continue
             control.setHidden_(False)
-            # No setControlSize_ here: T3 Code leaves the buttons at their
-            # regular AppKit size, and the small size shrinks the glyphs.
             control.setEnabled_(True)
-            x, y, width, height = traffic_light_rect(index, container_height)
-            if make_rect is not None:
-                control.setFrame_(make_rect(x, y, width, height))
-            else:
-                frame = control.frame()
-                frame.origin.x = x
-                frame.origin.y = y
-                frame.size.width = width
-                frame.size.height = height
-                control.setFrame_(frame)
         except Exception:
             pass
 
@@ -743,7 +745,7 @@ def _disable_native_fullscreen(native, AppKit) -> None:
 
 
 def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
-    """Paint the window like T3 Code: no grey title bar, 12pt traffic lights on the UI."""
+    """Paint the window like T3 Code: no grey title bar, traffic lights on the UI."""
     if sys.platform != "darwin":
         return
     _set_macos_app_icon()
@@ -779,7 +781,8 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
     except Exception:
         pass
 
-    _layout_t3_traffic_lights(native, AppKit)
+    _install_titlebar_toolbar(native, AppKit)
+    _restore_traffic_lights(native, AppKit)
 
 
 def create_studio_window(webview_module):

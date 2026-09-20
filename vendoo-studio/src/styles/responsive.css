@@ -278,6 +278,11 @@
     padding-left: 8px;
   }
 
+  /* The sidebar is an overlay on mobile: there is nothing to collapse it into. */
+  .sidebar-collapse {
+    display: none;
+  }
+
   html.desktop-app .sidebar-header {
     padding-left: 8px;
   }
@@ -293,6 +298,11 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
+  }
+
+  /* The mobile bar replaces the desktop titlebar band. */
+  .workspace-topbar {
+    display: none;
   }
 
   .app-content.mobile-pane-workspace .main-panel {

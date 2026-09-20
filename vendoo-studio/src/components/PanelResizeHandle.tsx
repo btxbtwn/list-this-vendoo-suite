@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 
 const STORAGE_PREFIX = "vendoo-studio.panel-width.";
+const COLLAPSE_PREFIX = "vendoo-studio.panel-collapsed.";
 const KEY_STEP = 16;
 
 export type PanelWidthLimits = {
@@ -40,6 +41,30 @@ export function usePanelWidth(key: string): [number | null, (width: number | nul
     [key],
   );
   return [width, setWidth];
+}
+
+/** Whether the seller has a panel collapsed, remembered across launches. */
+export function usePanelCollapsed(key: string): [boolean, (collapsed: boolean) => void] {
+  const [collapsed, setCollapsedState] = useState(() => {
+    try {
+      return localStorage.getItem(COLLAPSE_PREFIX + key) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setCollapsed = useCallback(
+    (next: boolean) => {
+      setCollapsedState(next);
+      try {
+        if (next) localStorage.setItem(COLLAPSE_PREFIX + key, "1");
+        else localStorage.removeItem(COLLAPSE_PREFIX + key);
+      } catch {
+        /* ignore quota / private-mode failures */
+      }
+    },
+    [key],
+  );
+  return [collapsed, setCollapsed];
 }
 
 type PanelResizeHandleProps = PanelWidthLimits & {
