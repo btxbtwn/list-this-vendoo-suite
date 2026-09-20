@@ -208,7 +208,7 @@ export function PhotoTray({ convId }: Props) {
         </button>
         <input ref={fileInputRef} type="file" multiple accept="image/*" style={{ display: "none" }} onChange={(e) => { if (e.target.files) doUpload(e.target.files); }} />
       </div>
-      {uploadError && <div className="photo-tray-error text-2xs text-error font-mono">{uploadError}</div>}
+      {uploadError && <div className="photo-tray-error text-2xs text-error">{uploadError}</div>}
       {photos && photos.length > 0 && (
         <div className="photo-strip">
           {photos.map((p, i) => (

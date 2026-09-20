@@ -254,7 +254,6 @@
   right: 16px;
   bottom: 2px;
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
   font-size: 8px;
   letter-spacing: 0.04em;
 }

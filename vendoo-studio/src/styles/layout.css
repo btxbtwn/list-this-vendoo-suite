@@ -306,7 +306,6 @@
   min-height: 34px;
   padding: 0 12px;
   border-bottom: 1px solid var(--color-border);
-  font-family: var(--font-mono);
   font-size: var(--text-2xs);
   letter-spacing: 0.03em;
   text-transform: uppercase;
