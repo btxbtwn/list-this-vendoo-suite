@@ -11,7 +11,7 @@ const CLEAR_WARNING = [
 
 const REGENERATE_WARNING = [
   "Regenerate this listing from scratch?",
-  "Chat and every generated field are discarded, and a new listing is generated from your photos and item details as if it were new. If it was imported from Vendoo, that connection is kept. Anything already saved on Vendoo is not changed until you send again.",
+  "Chat and every generated field are discarded, and a new listing is generated from your photos and item details as if it were new. Measurements, flaws, COG, labels and internal notes move into Item Details first, so the new listing keeps them. If it was imported from Vendoo, that connection is kept. Anything already saved on Vendoo is not changed until you send again.",
 ].join("\n");
 
 async function refreshAfterReset(queryClient: QueryClient, convId: string) {

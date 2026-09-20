@@ -234,6 +234,8 @@ LISTING_INSTRUCTIONS = (
     "blocks after a short trendy keyword sentence. Do not write freeform marketing copy that breaks those formulas.\n\n"
     "If seller-provided measurements (Pit to pit, Length, Sleeve) are given, use them exactly as-is in the description.\n"
     "Do not modify, estimate, or replace seller-provided measurements.\n"
+    "If the seller lists known flaws, repeat every one of them in the Flaws: block, "
+    "in the seller's own words. Never drop a flaw or soften it to \"none noted\".\n"
     "Use the discovered category fields below. Fill every applicable field with a real value or Does Not Apply. "
     "Only leave a field empty when you must ask the seller a precise question in prose — and never claim the listing is complete while any applicable discovered field is still empty. "
     "Estimate packaged shipping weight (weight_lb/weight_oz) and package_dimensions_in from the item type — "

@@ -188,6 +188,56 @@ class ConversationResetTest(unittest.TestCase):
         revisions = ListingRepo(self.db).get_revisions(self.conv.id)
         self.assertEqual([r.listing_json for r in revisions], [{}])
 
+    def test_reset_keep_inputs_carries_listing_facts_into_item_details(self):
+        self.conv.notes = json.dumps({"condition": "Good"})
+        ListingRepo(self.db).save_revision(
+            self.conv.id,
+            {
+                "title": "Nike tee",
+                "description": (
+                    "Cozy oversized grunge tee.\n\n"
+                    "Flaws: small stain near the hem.\n\n"
+                    'Measurements: Pit to pit 20"; Length 27"'
+                ),
+                "cost": 1.5,
+                "labels": ["Bin 4"],
+                "internal_notes": "Bought at the bins",
+            },
+            "generate",
+        )
+        self.db.commit()
+
+        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name):
+            response = self.client.post(
+                f"/api/conversations/{self.conv.id}/reset",
+                json={"keep_inputs": True},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        notes = json.loads(response.json()["notes"])
+        self.assertEqual(notes["cog"], "1.50")
+        self.assertEqual(notes["vendooLabels"], "Bin 4")
+        self.assertEqual(notes["sellerNotes"], "Bought at the bins")
+        self.assertEqual(notes["knownFlaws"], "small stain near the hem")
+        self.assertEqual(notes["descriptionMeasurements"], 'Pit to pit 20"; Length 27"')
+
+        self.db.expire_all()
+        self.assertEqual(ListingRepo(self.db).get_revisions(self.conv.id), [])
+
+    def test_reset_without_keep_inputs_carries_nothing(self):
+        ListingRepo(self.db).save_revision(
+            self.conv.id,
+            {"title": "Nike tee", "description": "Flaws: small stain near the hem.", "cost": 1.5},
+            "generate",
+        )
+        self.db.commit()
+
+        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name):
+            response = self.client.post(f"/api/conversations/{self.conv.id}/reset")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(response.json()["notes"])
+
     def test_reset_missing_conversation_is_404(self):
         response = self.client.post("/api/conversations/missing/reset")
         self.assertEqual(response.status_code, 404)

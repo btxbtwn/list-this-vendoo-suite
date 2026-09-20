@@ -617,6 +617,14 @@ def seller_item_details(notes: str | None) -> str:
     measurements = _seller_measurements(parsed)
     if measurements:
         lines.append(measurements)
+    else:
+        # Carried off an earlier description by Regenerate: still seller facts.
+        carried = str(parsed.get("descriptionMeasurements") or "").strip()
+        if carried:
+            lines.append(f"- Measurements: {carried}")
+    flaws = str(parsed.get("knownFlaws") or "").strip()
+    if flaws:
+        lines.append(f"- Known flaws: {flaws}")
     if not lines:
         return ""
     return "Known item details from the seller:\n" + "\n".join(lines)
