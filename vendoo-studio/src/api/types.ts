@@ -276,6 +276,27 @@ export interface VendooBulkImport {
   failures: { item_id: string; title: string; error: string }[];
 }
 
+export interface Suggestion {
+  conversation_id: string;
+  kind: SuggestionKind;
+  title: string;
+  reason: string;
+  action: "open" | string;
+  score: number;
+  cover_photo_url?: string | null;
+}
+
+export type SuggestionKind =
+  | "failed"
+  | "ready_to_generate"
+  | "fix_validation"
+  | "stale_active"
+  | "ready_to_review";
+
+export interface SuggestionsResponse {
+  suggestions: Suggestion[];
+}
+
 export interface BackupSnapshot {
   path: string;
   name: string;

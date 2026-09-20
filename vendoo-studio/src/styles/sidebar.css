@@ -171,6 +171,11 @@ html.desktop-app .editor-header {
   padding: 0 var(--sidebar-content-inset) 8px;
 }
 
+.suggestions-shelf {
+  flex-shrink: 0;
+  padding: 0 var(--sidebar-content-inset) 4px;
+}
+
 .sidebar-empty {
   padding: 24px 10px;
   text-align: center;
