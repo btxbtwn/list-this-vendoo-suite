@@ -422,10 +422,9 @@ def validate_listing(
         ("description", "Description is required"),
         ("price", "Price is required"),
         ("brand", "Brand is required"),
-        ("sku", "SKU is required"),
     ]
     if not digital_listing:
-        required_fields.insert(4, ("size", "Size is required"))
+        required_fields.append(("size", "Size is required"))
     for field, message in required_fields:
         if field in {err["field"] for err in schema_errors}:
             continue
