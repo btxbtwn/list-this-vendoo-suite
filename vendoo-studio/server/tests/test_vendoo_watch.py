@@ -155,12 +155,16 @@ class SyncConversationTest(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def sync(self, *, stamp=2000, error=None):
+    def sync(self, *, stamp=2000, error=None, item=None):
         async def fake_run_ops(job, ops):
             if error:
                 raise error
-            item = {"itemID": "itm1", "dateLastModified": stamp, "generalDetails": {"title": "From Vendoo"}}
-            return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": item}]}
+            payload = item or {
+                "itemID": "itm1",
+                "dateLastModified": stamp,
+                "generalDetails": {"title": "From Vendoo"},
+            }
+            return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": payload}]}
 
         with mock.patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
             return asyncio.run(sync_conversation(self.db, self.conv.id))
@@ -184,6 +188,34 @@ class SyncConversationTest(unittest.TestCase):
         result = self.sync()
         self.assertEqual(result["action"], "conflict")
         self.assertEqual(ListingRepo(self.db).get_revisions(self.conv.id)[0].id, edited.id)
+        self.assertTrue(sync_status(self.db, self.conv.id)["conflict"])
+
+    def test_conflict_still_flips_draft_to_active_after_relist(self):
+        """Regenerate leaves Studio draft; a Vendoo relist must retab without a pull."""
+        from vendoo_studio.services.vendoo_import import parse_notes
+
+        ConversationRepo(self.db).update_status(self.conv.id, "draft")
+        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Regenerated"}, source="user")
+        JobRepo(self.db).create(
+            self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
+        )
+        listed = {
+            "itemID": "itm1",
+            "dateLastModified": 2000,
+            "generalDetails": {"title": "From Vendoo"},
+            "listings": {"ebay": {"status": {"listed": True}}},
+        }
+        result = self.sync(item=listed)
+        self.assertEqual(result["action"], "conflict")
+        self.assertEqual(result["vendoo_status"], "active")
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        self.assertEqual(conv.status, "active")
+        self.assertEqual(parse_notes(conv.notes)["vendooStatus"], "active")
+        # Form text stayed Studio's regenerate; only the inventory label moved.
+        self.assertEqual(
+            ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json["title"],
+            "Regenerated",
+        )
         self.assertTrue(sync_status(self.db, self.conv.id)["conflict"])
 
     def test_chrome_away_records_nothing(self):

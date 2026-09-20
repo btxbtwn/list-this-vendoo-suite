@@ -21,9 +21,11 @@ export function checkedAgo(checkedAt: string, now: number): string {
  *
  * Vendoo's edits come in on their own: when the seller saves in Vendoo (the
  * extension tells Studio), when the listing opens, and when Studio regains
- * focus — never on a timer against Vendoo. Nothing pops up; this line says when
- * Studio last checked. The one thing left to the seller is a conflict, where
- * both sides changed and taking Vendoo's version would drop Studio's edits.
+ * focus — never on a timer against Vendoo. Inventory labels (draft / active /
+ * sold) always follow Vendoo, even when listing fields conflict. Nothing pops
+ * up; this line says when Studio last checked. The one thing left to the
+ * seller is a content conflict, where both sides changed and taking Vendoo's
+ * version would drop Studio's edits.
  */
 export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boolean }) {
   const queryClient = useQueryClient();
@@ -41,6 +43,8 @@ export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boo
   const refreshListing = React.useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["listing", convId] });
     queryClient.invalidateQueries({ queryKey: ["listing-fields", convId] });
+    queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+    queryClient.invalidateQueries({ queryKey: ["conversations"] });
     queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
     queryClient.invalidateQueries({ queryKey: ["vendoo-item-peek"] });
     queryClient.invalidateQueries({ queryKey: ["vendoo-sync", convId] });
@@ -58,6 +62,9 @@ export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boo
 
   const sync = useMutation({
     mutationFn: () => api.vendooApi.sync(convId),
+    // Label (draft/active/sold) can move without a new revision — e.g. conflict
+    // after a regenerate-then-relist — so refresh the sidebar on every check.
+    onSuccess: refreshListing,
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["vendoo-sync", convId] }),
   });
   const takeVendoo = useMutation({

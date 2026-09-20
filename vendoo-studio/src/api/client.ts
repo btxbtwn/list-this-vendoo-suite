@@ -23,6 +23,7 @@ import type {
   RevisionRestoreResult,
   ValidationResult,
   VendooBulkImport,
+  VendooLabelSync,
   VendooItemResult,
   MarketplaceForm,
   SuggestionsResponse,
@@ -167,6 +168,7 @@ export const api = {
         reason: string;
         item_id?: string;
         revision_id?: string;
+        vendoo_status?: string;
       }>(
         `/conversations/${convId}/vendoo-api/sync`, { method: "POST" },
       ),
@@ -253,6 +255,8 @@ export const api = {
     startBulk: () => request<VendooBulkImport>("/imports/vendoo/bulk", { method: "POST" }),
     cancelBulk: () =>
       request<VendooBulkImport>("/imports/vendoo/bulk/cancel", { method: "POST" }),
+    syncLabels: () => request<VendooLabelSync>("/imports/vendoo/labels", { method: "POST" }),
+    labelSyncStatus: () => request<VendooLabelSync>("/imports/vendoo/labels"),
   },
 
   listings: {

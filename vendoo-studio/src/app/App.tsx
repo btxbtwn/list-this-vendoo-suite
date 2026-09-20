@@ -99,6 +99,31 @@ export function App() {
     queryFn: api.status,
     refetchInterval: 4000,
   });
+
+  // Bound listings can change tab in Vendoo while the sidebar is open. A quiet
+  // inventory pass refreshes draft/active/sold without importing photos — on
+  // focus and whenever Chrome reconnects. Server debounce stops focus spam.
+  const extensionConnected = Boolean(status?.extension_connected);
+  useEffect(() => {
+    if (!extensionConnected) return undefined;
+    const kick = () => {
+      void api.imports.syncLabels().catch(() => {
+        /* Chrome may still be pairing; next focus retries. */
+      });
+    };
+    kick();
+    const onFocus = () => kick();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") kick();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [extensionConnected]);
+
   const providerConfigured = Boolean(status?.provider_configured);
   const needsSetup = !status || !status.provider_configured || !status.extension_connected;
   const createListingTitle = "New listing";
