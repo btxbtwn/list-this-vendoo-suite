@@ -239,8 +239,10 @@ export function RegeneratePriceDialog({
                     : preview.sell_through.scope === "brand"
                       ? `Your ${preview.sell_through.label} items`
                       : "Your sold items"}
-                  : {preview.sell_through.count} sold at a median{" "}
-                  {percentLabel(preview.sell_through.median_discount_percent)}% off
+                  : {preview.sell_through.count} sold
+                  {preview.sell_through.median_discount_percent != null
+                    ? ` at a median ${percentLabel(preview.sell_through.median_discount_percent)}% off`
+                    : ""}
                   {preview.sell_through.median_days != null
                     ? `, typically in ${preview.sell_through.median_days} days`
                     : ""}
