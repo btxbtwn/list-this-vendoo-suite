@@ -133,7 +133,13 @@ The same data folder also holds `photos/`, `fill-logs/`, `settings.json` (market
 
 ### Backups
 
-Studio snapshots the database to `backups/` on startup, every six hours, and before any update or schema migration. Snapshots are written with `VACUUM INTO`, so they are consistent while Studio keeps running, and each one is checked with `PRAGMA integrity_check` before it is kept. Recent snapshots are kept for a day, then one per day for a month, and the newest three are never discarded.
+Studio snapshots the database to `backups/` on startup, every six hours, and before any update or schema migration. Snapshots are written with `VACUUM INTO`, so they are consistent while Studio keeps running, checked with `PRAGMA integrity_check` before they are kept, and then gzipped — the database is mostly JSON text and compresses around six-fold, which matters when a month of copies is kept and every one is also sent to the backup folder. Recent snapshots are kept for a day, then one per day for a month, and the newest three are never discarded.
+
+`restore-db.sh` unpacks a snapshot for you. To look inside one by hand:
+
+```bash
+gunzip -c backups/vendoo_studio-20260920-031932-timer.db.gz > /tmp/look.db
+```
 
 **Copy them off this machine.** Snapshots in `backups/` die with the disk they sit on. Set a backup folder in **Settings → Backups** — an external drive, a synced folder, or a network share — and every snapshot goes there too, along with your photos. Photos are copied incrementally and are never deleted from the backup folder when they are deleted in Studio, because that is the copy you want when the deletion was a mistake. The same thing over the API:
 
