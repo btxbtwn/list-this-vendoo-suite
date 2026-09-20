@@ -401,7 +401,68 @@ def marketplace_condition(schema: dict[str, Any] | None, marketplace: str, gener
     if general_condition in (None, ""):
         return None
     table = (((schema or {}).get("marketplaces") or {}).get(marketplace) or {}).get("condition") or {}
-    return table.get(_norm(general_condition))
+    if not table:
+        return None
+    # generalDetails stores ``{value, displayName}``; learnings are keyed by
+    # either the ``v_`` code or the human label, so try both. A bare label
+    # such as "Pre-Owned - Good" resolves through the general field table
+    # first, then into the marketplace map.
+    field_labels = (((schema or {}).get("fields") or {}).get("condition") or {}).get("labels") or {}
+    candidates = (
+        _code_of(general_condition),
+        _label_of(general_condition),
+        general_condition if not isinstance(general_condition, dict) else None,
+    )
+    for candidate in candidates:
+        if candidate in (None, ""):
+            continue
+        key = _norm(candidate)
+        code = table.get(key)
+        if code not in (None, ""):
+            return code
+        via_general = field_labels.get(key)
+        if via_general not in (None, ""):
+            code = table.get(_norm(via_general))
+            if code not in (None, ""):
+                return code
+    return None
+
+
+def _is_condition_path(path: str) -> bool:
+    """Firestore paths that hold a marketplace condition value."""
+    lower = path.lower()
+    return lower.endswith(".condition") or lower.endswith("_condition")
+
+
+def _condition_keys(bucket: dict[str, Any] | None) -> list[str]:
+    if not isinstance(bucket, dict):
+        return []
+    return [
+        key for key in bucket
+        if str(key).lower() == "condition" or str(key).lower().endswith("_condition")
+    ]
+
+
+def _set_learned_condition(
+    section: dict[str, Any],
+    schema: dict[str, Any] | None,
+    marketplace: str,
+    leaf_id: str,
+    candidates: list[Any],
+    reports: list[dict[str, str]],
+) -> None:
+    """Encode condition from the seller's learned marketplace vocabulary."""
+    for candidate in candidates:
+        code = marketplace_condition(schema, marketplace, candidate)
+        if code not in (None, ""):
+            section["overrides"]["condition"] = code
+            if marketplace == "ebay" and leaf_id:
+                section["categorySpecifics"][f"{leaf_id}_condition"] = code
+            return
+    if candidates:
+        field = f"condition:{marketplace}"
+        if not any(row.get("field") == field for row in reports):
+            reports.append({"field": field, "value": str(candidates[0])})
 
 
 def aspect_is_multi(schema: dict[str, Any] | None, marketplace: str, suffix: str) -> bool:
@@ -596,29 +657,25 @@ def _apply_poshmark_smart_sell(known: dict[str, Any]) -> None:
 
 def _apply_mercari_shipping(
     known: dict[str, Any],
-    listing: dict[str, Any],
     weight: dict[str, Any] | None = None,
 ) -> None:
-    """Always select the prepaid Ground Advantage label for this weight.
+    """Always select the prepaid USPS Ground Advantage label for this weight.
 
     The form lists only the tiers that carry the package, so the id has to
     match the listing's weight — a fixed one sits outside the list and shows
-    as an empty Shipping Label.
+    as an empty Shipping Label. Non-GA labels from a previous draft are
+    overwritten: after Regenerate + API save the seller expects Ground
+    Advantage every time.
     """
-    raw = listing.get("mercari_specifics")
-    raw = raw if isinstance(raw, dict) else {}
     ounces = package_ounces((weight or {}).get("pounds"), (weight or {}).get("ounces"))
     carrier_id, tier_label = ground_advantage(ounces)
-    label = _clean(raw.get("shippingLabel") or raw.get("shipping_label")) or ""
-    if not label or "ground advantage" in _norm(label):
-        label = tier_label
-    known["shippingLabel"] = label
+    known["shippingLabel"] = tier_label
     shipping = known.get("shipping")
     if not isinstance(shipping, dict):
         shipping = {}
         known["shipping"] = shipping
-    shipping.setdefault("deliveryMethod", "mercari_shipping")
-    shipping.setdefault("payerId", 1)
+    shipping["deliveryMethod"] = "mercari_shipping"
+    shipping["payerId"] = 1
     shipping["carrierId"] = carrier_id
 
 
@@ -1165,7 +1222,6 @@ def _listing_section(
             value for value in (listing.get("condition"), general.get("condition"))
             if value not in (None, "")
         ]
-        raw_condition = candidate_conditions[0] if candidate_conditions else None
         if specs:
             section["categorySpecifics"] = _category_specifics(
                 leaf_id, specs, aspects, listing, reports, marketplace
@@ -1184,18 +1240,18 @@ def _listing_section(
                         "field": f"condition:{marketplace}",
                         "value": str(candidate_conditions[0]),
                     })
+            elif candidate_conditions:
+                # Leaf schema has no condition field (Poshmark/Mercari/Depop).
+                _set_learned_condition(section, schema, marketplace, leaf_id, candidate_conditions, reports)
             for field in missing_required(specs, section["categorySpecifics"], leaf_id):
                 reports.append({"field": f"{marketplace}:{field}", "value": ""})
-        elif marketplace == "ebay":
-            section["categorySpecifics"] = _learned_category_specifics(
-                leaf_id, aspects, listing, schema
-            )
-            code = marketplace_condition(schema, marketplace, raw_condition)
-            if code not in (None, ""):
-                section["overrides"]["condition"] = code
-                section["categorySpecifics"][f"{leaf_id}_condition"] = code
-            elif raw_condition not in (None, ""):
-                reports.append({"field": f"condition:{marketplace}", "value": str(raw_condition)})
+        else:
+            if marketplace == "ebay":
+                section["categorySpecifics"] = _learned_category_specifics(
+                    leaf_id, aspects, listing, schema
+                )
+            if candidate_conditions:
+                _set_learned_condition(section, schema, marketplace, leaf_id, candidate_conditions, reports)
 
     for key, value in specifics.items():
         if value in (None, "", []):
@@ -1221,7 +1277,7 @@ def _listing_section(
     elif marketplace == "poshmark":
         _apply_poshmark_smart_sell(known)
     elif marketplace == "mercari":
-        _apply_mercari_shipping(known, listing, section["overrides"].get("weight"))
+        _apply_mercari_shipping(known, section["overrides"].get("weight"))
     elif marketplace == "depop":
         _apply_depop_option_codes(known, unresolved)
 
@@ -1338,33 +1394,54 @@ def _set_ebay_bin_price(section: dict[str, Any], price: Any) -> None:
     fixed["buyItNowPrice"] = deepcopy(price)
 
 
-def _copy_condition(have_section: dict[str, Any], want_section: dict[str, Any], general: dict[str, Any]) -> None:
-    """Push the encoded marketplace condition, never a raw Vendoo label onto eBay."""
+def _apply_condition(
+    have_section: dict[str, Any],
+    want_section: dict[str, Any],
+    general: dict[str, Any],
+    schema: dict[str, Any] | None = None,
+) -> None:
+    """Write each marketplace's own condition code, or clear a stale one.
+
+    After Regenerate, marketplace forms still hold the previous listing's
+    codes. A Vendoo general label must never land on eBay (numeric ids only).
+    When nothing learned maps the new condition, blank the old value so the
+    form does not keep showing the wrong tier.
+    """
     want_over = _bucket(want_section, "overrides")
     have_over = have_section.get("overrides") if isinstance(have_section.get("overrides"), dict) else {}
-    condition = want_over.get("condition")
-    if condition in (None, "", []):
-        condition = general.get("condition")
-        marketplace = str(want_section.get("marketplaceID") or "")
-        # eBay's form stores a numeric id. The general Vendoo label crashes it.
-        if marketplace == "ebay" or str(have_over.get("condition") or "").isdigit():
-            return
-    if condition in (None, "", []):
-        return
-    want_over["condition"] = deepcopy(condition)
     have_specs = have_section.get("categorySpecifics") if isinstance(have_section.get("categorySpecifics"), dict) else {}
     want_specs = _bucket(want_section, "categorySpecifics")
-    for key in have_specs:
-        if str(key).lower().endswith("_condition") or str(key).lower() == "condition":
-            want_specs[key] = deepcopy(condition)
+    marketplace = str(want_section.get("marketplaceID") or "")
+
+    condition = want_over.get("condition")
+    if condition in (None, "", []):
+        mapped = marketplace_condition(schema, marketplace, general.get("condition"))
+        if mapped not in (None, ""):
+            condition = mapped
+        elif have_over.get("condition") not in (None, "") or _condition_keys(have_specs):
+            condition = ""
+        else:
+            return
+
+    want_over["condition"] = deepcopy(condition)
+    # Refresh every condition key the draft already carries (old leaf ids
+    # included) so a category change does not leave a stale ``{id}_condition``.
+    for key in {*_condition_keys(have_specs), *_condition_keys(want_specs)}:
+        want_specs[key] = deepcopy(condition)
 
 
-def apply_update_all(current: dict[str, Any], desired: dict[str, Any]) -> dict[str, Any]:
+def apply_update_all(
+    current: dict[str, Any],
+    desired: dict[str, Any],
+    schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Copy general-form values onto marketplace listings, like Vendoo's Update All.
 
     Send writes Firestore; it does not click the form. Marketplace forms that
     already have their own title, description, tags, condition, or price keep
-    those copies under ``listings.<mp>`` unless we write them too.
+    those copies under ``listings.<mp>`` unless we write them too. Condition is
+    remapped through the learned marketplace vocabulary (or cleared) so a
+    regenerated listing does not leave the previous tier on eBay/Poshmark/….
     """
     general = desired.get(GENERAL_KEY) if isinstance(desired.get(GENERAL_KEY), dict) else {}
     listings_want = desired.get(LISTINGS_KEY)
@@ -1398,7 +1475,24 @@ def apply_update_all(current: dict[str, Any], desired: dict[str, Any]) -> dict[s
                 copied = copied[:ETSY_TAG_LIMIT]
             if copied:
                 specifics["tags"] = copied
-        _copy_condition(have_section, want_section, general)
+        _apply_condition(have_section, want_section, general, schema)
+        if marketplace == "mercari":
+            # Force USPS Ground Advantage onto the Mercari form on every save,
+            # matching create — a regenerated draft may still hold another
+            # carrier from the previous listing.
+            have_over = have_section.get("overrides") if isinstance(have_section.get("overrides"), dict) else {}
+            weight = want_over.get("weight") or have_over.get("weight") or general.get("weight")
+            if isinstance(weight, dict):
+                want_over["weight"] = deepcopy(weight)
+            _apply_mercari_shipping(
+                _bucket(want_section, "marketplaceSpecifics"),
+                weight if isinstance(weight, dict) else None,
+            )
+        _clear_stale_category_specifics(have_section, want_section)
+        # Keep the original form-created stamp; refresh only last-modified so
+        # Vendoo marks the form saved the way first Send does.
+        if have_section.get("dateCreated") not in (None, "", {}):
+            want_section["dateCreated"] = deepcopy(have_section["dateCreated"])
         if price not in (None, ""):
             if marketplace == "ebay":
                 _set_ebay_bin_price(want_section, price)
@@ -1409,15 +1503,38 @@ def apply_update_all(current: dict[str, Any], desired: dict[str, Any]) -> dict[s
     return desired
 
 
+def _clear_stale_category_specifics(have_section: dict[str, Any], want_section: dict[str, Any]) -> None:
+    """Blank old-leaf aspect keys when the marketplace category changed.
+
+    Firestore updates only touch paths we send. After Regenerate picks a new
+    leaf, keys like ``53159_Department`` would otherwise linger beside the new
+    leaf's fields and leave the form half-stale.
+    """
+    have_over = have_section.get("overrides") if isinstance(have_section.get("overrides"), dict) else {}
+    want_over = want_section.get("overrides") if isinstance(want_section.get("overrides"), dict) else {}
+    have_leaf = have_over.get("categoryV2") if isinstance(have_over.get("categoryV2"), dict) else {}
+    want_leaf = want_over.get("categoryV2") if isinstance(want_over.get("categoryV2"), dict) else {}
+    have_id = str(have_leaf.get("id") or "").strip()
+    want_id = str(want_leaf.get("id") or "").strip()
+    if not want_id or not have_id or have_id == want_id:
+        return
+    have_specs = have_section.get("categorySpecifics") if isinstance(have_section.get("categorySpecifics"), dict) else {}
+    want_specs = _bucket(want_section, "categorySpecifics")
+    for key in have_specs:
+        if key not in want_specs:
+            want_specs[key] = ""
+
+
 def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str, str | Any]:
     """Dotted Firestore paths where ``desired`` differs from what Vendoo holds.
 
     Vendoo's own edit writes just the touched paths rather than the whole
     document, so an unrelated field a seller changed in Vendoo survives a save
     from Studio. Empty values in ``desired`` are skipped: Studio not knowing
-    something is not the same as the seller clearing it — the exception being a
-    "Does Not Apply" on the draft, which is cleared because the marketplace
-    form shows the phrase as the item specific's value.
+    something is not the same as the seller clearing it — the exceptions being
+    a "Does Not Apply" on the draft (cleared because the form shows the phrase
+    as the item specific's value), an intentional marketplace condition reset
+    after Regenerate, and stale category-aspect keys after a leaf change.
     """
     out: dict[str, Any] = {}
 
@@ -1427,9 +1544,13 @@ def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str
                 walk(f"{prefix}.{key}" if prefix else key, value, (have or {}).get(key) if isinstance(have, dict) else None)
             return
         if want in (None, "", []):
-            # One empty is worth pushing: a "Does Not Apply" already sitting on
-            # the draft, which the form renders verbatim as an item specific.
-            if is_not_applicable(have):
+            # Push empties that clear a real value: "Does Not Apply" leftovers,
+            # marketplace condition resets, and stale leaf aspect keys.
+            if is_not_applicable(have) or (
+                have not in (None, "", []) and (
+                    _is_condition_path(prefix) or ".categorySpecifics." in prefix
+                )
+            ):
                 out[prefix] = want
             return
         # Brand labels are case-sensitive on the form (``Unbranded`` ≠ ``unbranded``),
@@ -1461,6 +1582,16 @@ def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str
         if not isinstance(section, dict):
             continue
         have_section = listings_have.get(marketplace) or {}
+        # Stamp forms the way first Send does so Vendoo marks them saved, not
+        # untouched — without rewriting ids/status Vendoo owns at the item root.
+        for stamp in ("dateCreated", "dateLastModified"):
+            value = section.get(stamp)
+            if value not in (None, "", {}):
+                walk(
+                    f"{LISTINGS_KEY}.{marketplace}.{stamp}",
+                    value,
+                    have_section.get(stamp),
+                )
         for bucket in _OWNED_LISTING_BUCKETS:
             if not isinstance(section.get(bucket), dict):
                 continue
