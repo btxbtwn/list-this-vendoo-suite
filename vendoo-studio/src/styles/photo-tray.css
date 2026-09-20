@@ -7,17 +7,23 @@
   border-bottom: 1px solid var(--color-border-light);
 }
 
-.photo-tray-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
 .photo-tray-meta {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   color: var(--color-text-muted);
+}
+
+/* Keep the count next to the heading; only Add Photos goes to the right edge. */
+.photo-tray .photo-tray-meta {
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-tray-error {
+  margin-bottom: 8px;
 }
 
 .photo-tray-clear {

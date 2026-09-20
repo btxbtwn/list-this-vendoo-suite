@@ -614,7 +614,7 @@ export function FillLogPanel({
             <div className="pr-action">
               <button
                 type="button"
-                className="btn btn-sm"
+                className="btn btn-secondary btn-sm"
                 disabled={askChatTargets === 0}
                 title="Send empty listing fields to chat. Does not change Vendoo yet."
                 onClick={() => onAskChat(askChatGapsPrompt(

@@ -225,10 +225,11 @@ export function ListingEditor({
   return (
     <div className="listing-editor">
       <div className="pr-review-header">
-        <div className="pr-review-title-row">
+        {/* Desktop: the titlebar breadcrumb already names the listing in full and
+            the actions sit beside it, so repeating a truncated copy here only
+            costs a row. Mobile has no titlebar and keeps both. */}
+        <div className="pr-review-title-row pr-review-chrome-mobile">
           <h2 className="pr-review-title pywebview-drag-region" title={listingTitle}>{listingTitle}</h2>
-          {data?.can_send && <span className="editor-ready">Ready</span>}
-          {/* Desktop: actions live in the window topbar. Mobile keeps them here. */}
           <ListingReviewActions
             className="pr-review-chrome-mobile"
             convId={convId}
@@ -259,6 +260,7 @@ export function ListingEditor({
             convId={convId}
             bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
           />
+          {data?.can_send && <span className="editor-ready">Ready</span>}
         </div>
         <ListingReviewTabs
           className="pr-review-chrome-mobile"
@@ -881,9 +883,10 @@ function SendToVendooButton({
   }, [sendBlockers]);
   const blockerText = uniqueBlockers.map((err) => err.message).join(" · ");
   const sendLabel = bound ? "Update Vendoo" : "Send to Vendoo";
+  // The buttons underneath name themselves; the hint says what Send does.
   const sendHint = bound
-    ? "Linked. Use Fix errors or Ask chat for fields to fill the rest, then Update Vendoo."
-    : "Sends the starting fields and links a Vendoo draft. Then use Fix errors or Ask chat for fields to fill the rest.";
+    ? "Writes changed fields onto the linked Vendoo draft. Nothing is published."
+    : "Creates a Vendoo draft and links it. Nothing is published.";
 
   const startSend = () => {
     if (!canSend) {
