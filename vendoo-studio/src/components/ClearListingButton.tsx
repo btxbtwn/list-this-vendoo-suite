@@ -32,15 +32,9 @@ async function refreshAfterReset(queryClient: QueryClient, convId: string) {
   ]);
 }
 
-export function ClearListingButton({
-  convId,
-  className,
-  onCleared,
-}: {
-  convId: string;
-  className?: string;
-  onCleared?: () => void;
-}) {
+/** Clear lives in the titlebar's overflow menu, so the confirm dialog and the
+    mutation must outlive the menu popup the click came from. */
+export function useClearListing(convId: string, onCleared?: () => void) {
   const queryClient = useQueryClient();
   const reset = useMutation({
     mutationFn: () => api.conversations.reset(convId),
@@ -59,25 +53,17 @@ export function ClearListingButton({
     },
   });
 
-  return (
-    <button
-      type="button"
-      className={className || "btn btn-ghost btn-sm"}
-      disabled={reset.isPending}
-      title="Clear this listing and start over"
-      aria-label="Clear listing"
-      onClick={async () => {
-        const confirmed = await confirmDialog(CLEAR_WARNING, {
-          variant: "destructive",
-          confirmLabel: "Clear listing",
-        });
-        if (!confirmed) return;
-        reset.mutate();
-      }}
-    >
-      {reset.isPending ? "Clearing..." : "Clear"}
-    </button>
-  );
+  return {
+    isPending: reset.isPending,
+    async clear() {
+      const confirmed = await confirmDialog(CLEAR_WARNING, {
+        variant: "destructive",
+        confirmLabel: "Clear listing",
+      });
+      if (!confirmed) return;
+      reset.mutate();
+    },
+  };
 }
 
 function listingHasPrice(listing: Record<string, unknown> | undefined): boolean {

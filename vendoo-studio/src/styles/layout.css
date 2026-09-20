@@ -148,6 +148,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
   min-width: 0;
   height: 28px;
   font-size: var(--text-sm);
@@ -175,11 +176,50 @@
   font-weight: var(--weight-medium);
 }
 
+/* Three zones, tightest first: the listing's own actions, then what the window
+   is showing. 4px is the gap T3 Code keeps between neighbouring icon toggles. */
 .workspace-topbar-actions {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-left: auto;
+  min-width: 0;
+}
+
+.workspace-topbar .pr-review-actions + * {
+  margin-left: 10px;
+}
+
+.workspace-topbar .listing-review-tabs + .titlebar-control {
+  margin-left: 4px;
+}
+
+/* Inventory status tabs grow to fill the sidebar; in the titlebar they stay
+   content-sized and share the same vertical center as the panel toggles. */
+.workspace-topbar .listing-review-tabs {
+  flex: 0 0 auto;
+  container-type: normal;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-topbar .listing-review-tabs .listing-filter-tab {
+  flex: 0 0 auto;
+  padding: 0 10px;
+}
+
+/* In the titlebar the listing actions read as one T3-style control row: ghost
+   buttons the same 28px tall as the panel toggles and the tab chip beside them,
+   muted until hovered. */
+.workspace-topbar .pr-review-actions {
+  flex-wrap: nowrap;
+  max-width: none;
+  gap: 2px;
+}
+
+.workspace-topbar .pr-review-actions .pr-review-open {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
 }
 
 .panel.main-panel {
@@ -338,6 +378,12 @@
 .titlebar-control:disabled {
   color: var(--color-text-muted);
   cursor: not-allowed;
+}
+
+/* A pressed control that is disabled is one whose surface is already open: it
+   keeps the filled chip so the titlebar still says where you are. */
+.titlebar-control[aria-pressed="true"]:disabled {
+  color: var(--color-text-secondary);
 }
 
 .titlebar-control:focus-visible {

@@ -363,6 +363,16 @@
   overflow: auto;
 }
 
+/* A menu of one short item should not carry the 168px width the field menus
+   need: it sizes to its widest row instead. */
+.pr-menu-fit {
+  min-width: 0;
+}
+
+.pr-menu-fit .pr-menu-item {
+  white-space: nowrap;
+}
+
 .pr-menu-end {
   right: 0;
 }
@@ -385,6 +395,17 @@
 .pr-menu-item:hover:not(:disabled),
 .pr-menu-item.is-active {
   background: var(--color-ink-hover);
+}
+
+/* T3 Code's only red text is a menu item's: `data-[variant=destructive]` in
+   ui/menu.tsx. Nothing destructive wears red out on a toolbar. */
+.pr-menu-item-destructive {
+  color: var(--color-tomato);
+}
+
+.pr-menu-item-destructive:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-tomato) 12%, transparent);
+  color: var(--color-tomato-hover);
 }
 
 .pr-menu-item:disabled {
