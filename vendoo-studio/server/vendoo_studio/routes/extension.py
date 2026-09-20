@@ -28,6 +28,20 @@ VENDOO_GET_TIMEOUT_SEC = 120
 ROUTE_ITEM_IDS = frozenset({"new", "edit", "create"})
 
 
+async def _warm_label_catalog() -> None:
+    """Refresh the on-disk id→name map once Chrome pairs.
+
+    Failures are logged and ignored: handshake already succeeded, and Regenerate
+    can still fall back to whatever the cache already holds.
+    """
+    try:
+        from vendoo_studio.services.vendoo_create import LOOKUP_TIMEOUT_SEC, label_display_map
+
+        await label_display_map(None, timeout=LOOKUP_TIMEOUT_SEC)
+    except Exception:  # noqa: BLE001 - best-effort decoration
+        log.warning("Vendoo label catalog warm skipped", exc_info=True)
+
+
 def durable_vendoo_item_id(value: object) -> str | None:
     text = str(value or "").strip()
     if not text or text.lower() in ROUTE_ITEM_IDS:
@@ -637,6 +651,9 @@ async def extension_websocket(ws: WebSocket):
                     from vendoo_studio.repositories.queries import JobRepo
                     JobRepo(db).requeue_interrupted()
                     await dispatch_queued_jobs()
+                    # Warm label names in the background so Item Details can rename
+                    # opaque chips without blocking the handshake.
+                    asyncio.create_task(_warm_label_catalog())
                 continue
 
             if extension_manager.connection is not ws or not extension_manager.paired:

@@ -216,6 +216,9 @@ class CreateTest(_NoExtraMapping):
         self.assertEqual(ops_for(fake, "create_item")[0]["item"]["labels"], ["lblToList"])
 
     def test_resolve_label_display_names_maps_ids_to_catalog_names(self):
+        from vendoo_studio.services import vendoo_label_catalog
+
+        vendoo_label_catalog.clear_for_tests()
         fake = FakeBridge([{
             "ok": True,
             "results": [{
@@ -234,6 +237,28 @@ class CreateTest(_NoExtraMapping):
             ))
         self.assertEqual(names, ["Women", "Already A Name", "To List"])
         self.assertEqual(ops_for(fake, "list_labels"), [{"op": "list_labels"}])
+        self.assertEqual(
+            vendoo_label_catalog.load()["g8MHWF7KiscANFLZRGyM"],
+            "Women",
+        )
+
+    def test_resolve_label_display_names_uses_cache_when_chrome_is_silent(self):
+        from vendoo_studio.services import vendoo_label_catalog
+        from vendoo_studio.services.browser_bridge import BrowserBridgeError
+
+        vendoo_label_catalog.clear_for_tests()
+        vendoo_label_catalog.remember({"g8MHWF7KiscANFLZRGyM": "Women"})
+
+        async def boom(*_a, **_k):
+            raise BrowserBridgeError("Chrome did not answer in time.")
+
+        with mock.patch.object(vendoo_create.browser_bridge, "request", boom):
+            names = run(resolve_label_display_names(
+                JOB,
+                ["g8MHWF7KiscANFLZRGyM", "Bin 4"],
+                timeout=0.2,
+            ))
+        self.assertEqual(names, ["Women", "Bin 4"])
 
     def test_reports_unresolved_and_diff(self):
         replies = self._replies()

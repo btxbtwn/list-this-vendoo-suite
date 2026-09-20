@@ -965,6 +965,8 @@ def _labels_from_vendoo(merged: dict[str, Any], general: dict[str, Any]) -> list
     ``labelDetails`` / ``labelNames`` so Item Details shows "Women" instead of
     ``g8MHWF7K…``. Ids that never resolve stay as-is for a later catalog lookup.
     """
+    from vendoo_studio.services import vendoo_label_catalog
+
     labels: list[str] = []
     seen: set[str] = set()
     id_to_name: dict[str, str] = {}
@@ -986,10 +988,14 @@ def _labels_from_vendoo(merged: dict[str, Any], general: dict[str, Any]) -> list
                     id_to_name.setdefault(text, text)
 
     remember_named(merged.get("labelDetails") or general.get("labelDetails"))
+    if id_to_name:
+        # Keep seller-facing names for Regenerate even when list_labels is quiet.
+        vendoo_label_catalog.remember(id_to_name)
+    cached = vendoo_label_catalog.load()
 
     def add(value: Any) -> None:
         for item in _string_list(value):
-            display = id_to_name.get(item, item)
+            display = id_to_name.get(item) or cached.get(item, item)
             key = display.lower()
             if key in seen:
                 continue

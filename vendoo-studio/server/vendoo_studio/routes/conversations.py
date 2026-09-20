@@ -445,11 +445,10 @@ async def reset_conversation(
         )
         # One bounded catalog read for both label lists: Regenerate must not sit
         # on a silent Chrome, and label names are a nicety, not the reset.
+        # Cache fills the map when Chrome is quiet; a missing job still applies it.
         latest_labels = latest.get("labels") if isinstance(latest, dict) else None
         label_names: dict[str, str] = {}
-        if label_job and (
-            latest_labels or split_vendoo_labels(parse_notes(notes).get("vendooLabels"))
-        ):
+        if latest_labels or split_vendoo_labels(parse_notes(notes).get("vendooLabels")):
             label_names = await label_display_map(label_job, timeout=LOOKUP_TIMEOUT_SEC)
         if label_names and isinstance(latest, dict) and latest.get("labels"):
             latest["labels"] = apply_label_display_names(latest["labels"], label_names)
@@ -593,15 +592,27 @@ def _vendoo_dates(notes: dict) -> dict:
 
 
 def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
-    from vendoo_studio.services.vendoo_import import parse_notes, split_vendoo_labels
+    from vendoo_studio.services import vendoo_label_catalog
+    from vendoo_studio.services.vendoo_import import merge_notes, parse_notes, split_vendoo_labels
 
     notes = parse_notes(conv.notes)
+    notes_json = conv.notes
+    # Opaque Firestore ids left when list_labels timed out: rename from cache so
+    # Item Details and the sidebar show "Women" without another Regenerate.
+    raw_labels = split_vendoo_labels(notes.get("vendooLabels"))
+    if vendoo_label_catalog.has_opaque_ids(raw_labels):
+        named = vendoo_label_catalog.apply(raw_labels)
+        if named != raw_labels:
+            notes_json = merge_notes(conv.notes, {"vendooLabels": ", ".join(named)})
+            notes = parse_notes(notes_json)
+            raw_labels = named
+
     row = extras or {}
     marketplaces = notes.get("vendooMarketplaces")
     return ConversationResponse(
         id=conv.id,
         title=conv.title,
-        notes=conv.notes,
+        notes=notes_json,
         status=conv.status,
         settled_at=_iso(conv.settled_at),
         unsettled_at=_iso(conv.unsettled_at),
@@ -612,7 +623,7 @@ def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
         vendoo_cover_url=str(notes.get("vendooCoverUrl") or "") or None,
         sku=row.get("sku"),
         price=row.get("price"),
-        vendoo_labels=split_vendoo_labels(notes.get("vendooLabels")),
+        vendoo_labels=raw_labels,
         vendoo_marketplaces=[str(m) for m in marketplaces] if isinstance(marketplaces, list) else [],
         **_vendoo_dates(notes),
     )

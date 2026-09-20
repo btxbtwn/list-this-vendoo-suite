@@ -564,6 +564,8 @@ async def resolve_listing_labels(job, listing: dict[str, Any]) -> tuple[dict[str
     Vendoo's label box renders only ids it finds in the seller's label list, so
     a name sent as-is is saved but never shown. Missing labels are created.
     """
+    from vendoo_studio.services import vendoo_label_catalog
+
     names = [str(n).strip() for n in (listing.get("labels") or []) if str(n).strip()]
     if not names:
         return listing, []
@@ -575,23 +577,43 @@ async def resolve_listing_labels(job, listing: dict[str, Any]) -> tuple[dict[str
         ids = None
     if not isinstance(ids, list):
         return {**listing, "labels": []}, [{"field": "labels", "value": ", ".join(names)}]
-    return {**listing, "labels": [str(i) for i in ids if i]}, []
+    resolved = [str(i) for i in ids if i]
+    # When every input was a display name (not an id) and none were duplicates,
+    # ids come back in the same order — learn the map for later Regenerate.
+    unique_names: list[str] = []
+    seen_names: set[str] = set()
+    for name in names:
+        if not name or vendoo_label_catalog.looks_like_label_id(name):
+            continue
+        key = name.casefold()
+        if key in seen_names:
+            continue
+        seen_names.add(key)
+        unique_names.append(name)
+    if unique_names and len(unique_names) == len(resolved):
+        vendoo_label_catalog.remember(dict(zip(resolved, unique_names, strict=True)))
+    return {**listing, "labels": resolved}, []
 
 
-async def label_display_map(job, *, timeout: float = REQUEST_TIMEOUT_SEC) -> dict[str, str]:
-    """Vendoo label id to seller-facing name, empty when the catalog is unreachable.
+async def label_display_map(job=None, *, timeout: float = REQUEST_TIMEOUT_SEC) -> dict[str, str]:
+    """Vendoo label id to seller-facing name.
 
-    Callers that only decorate a result should pass ``LOOKUP_TIMEOUT_SEC`` so a
-    silent Chrome cannot hold them for the full form-fill budget.
+    Always starts from the on-disk cache so Regenerate can still name chips when
+    Chrome is quiet. A live ``list_labels`` (when reachable) refreshes the cache.
+    Callers that only decorate a result should pass ``LOOKUP_TIMEOUT_SEC``.
     """
-    if job is None:
-        return {}
+    from types import SimpleNamespace
+
+    from vendoo_studio.services import vendoo_label_catalog
+
+    cached = vendoo_label_catalog.load()
+    bridge_job = job if job is not None else SimpleNamespace(id=None)
     try:
-        reply = await run_ops(job, [{"op": "list_labels"}], timeout=timeout)
+        reply = await run_ops(bridge_job, [{"op": "list_labels"}], timeout=timeout)
         catalog = _result(reply, "list_labels").get("labels") or []
     except (VendooCreateError, BrowserBridgeError) as exc:
         log.warning("Vendoo label catalog not loaded: %s", exc)
-        return {}
+        return cached
     by_id: dict[str, str] = {}
     if isinstance(catalog, list):
         for row in catalog:
@@ -601,13 +623,16 @@ async def label_display_map(job, *, timeout: float = REQUEST_TIMEOUT_SEC) -> dic
             name = str(row.get("name") or "").strip()
             if label_id and name:
                 by_id[label_id] = name
-    return by_id
+    if by_id:
+        return vendoo_label_catalog.remember(by_id)
+    return cached
 
 
 def apply_label_display_names(labels: list[Any], names: dict[str, str]) -> list[str]:
     """Map ids to names where the catalog knows them; names pass through."""
-    cleaned = [str(label).strip() for label in (labels or []) if str(label).strip()]
-    return [names.get(label, label) for label in cleaned]
+    from vendoo_studio.services import vendoo_label_catalog
+
+    return vendoo_label_catalog.apply(labels, names)
 
 
 async def resolve_label_display_names(
@@ -616,10 +641,11 @@ async def resolve_label_display_names(
     """Replace Vendoo label ids with the seller-facing names from their catalog.
 
     Import and Regenerate carryover otherwise leave opaque Firestore ids in Item
-    Details. Names that are already names pass through unchanged.
+    Details. Names that are already names pass through unchanged. A missing job
+    still applies the on-disk cache.
     """
     cleaned = [str(label).strip() for label in (labels or []) if str(label).strip()]
-    if not cleaned or job is None:
+    if not cleaned:
         return cleaned
     return apply_label_display_names(cleaned, await label_display_map(job, timeout=timeout))
 

@@ -199,6 +199,9 @@ class ConversationResetTest(unittest.TestCase):
         The label catalog only prettifies carried-over labels, so it gets the
         short lookup budget rather than the 4-minute form-fill one.
         """
+        from vendoo_studio.services import vendoo_label_catalog
+
+        vendoo_label_catalog.clear_for_tests()
         self.conv.notes = json.dumps({
             "vendooItemId": "QVzIZuKs",
             "vendooLabels": "0GbMUqtBqPkGDcEyNqYQ",
@@ -240,6 +243,44 @@ class ConversationResetTest(unittest.TestCase):
             json.loads(response.json()["notes"])["vendooLabels"],
             "0GbMUqtBqPkGDcEyNqYQ",
         )
+
+    def test_reset_renames_opaque_labels_from_cached_catalog_when_chrome_is_silent(self):
+        """Cached id→name mappings still paint chips when list_labels never answers."""
+        from vendoo_studio.services import vendoo_label_catalog
+
+        vendoo_label_catalog.clear_for_tests()
+        vendoo_label_catalog.remember({"0GbMUqtBqPkGDcEyNqYQ": "Women"})
+        self.conv.notes = json.dumps({
+            "vendooItemId": "QVzIZuKs",
+            "vendooLabels": "0GbMUqtBqPkGDcEyNqYQ",
+        })
+        self.db.commit()
+
+        class SilentChrome:
+            connected = True
+
+            def register_wait(self, request_id: str, job_id: str | None = None):
+                return asyncio.get_running_loop().create_future()
+
+            async def send_message(self, _message) -> bool:
+                return True
+
+            def cancel_wait(self, _request_id: str) -> None:
+                return None
+
+        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name), \
+             patch(
+                 "vendoo_studio.services.browser_bridge._manager",
+                 return_value=SilentChrome(),
+             ), \
+             patch("vendoo_studio.services.vendoo_create.LOOKUP_TIMEOUT_SEC", 0.2):
+            response = self.client.post(
+                f"/api/conversations/{self.conv.id}/reset",
+                json={"keep_inputs": True},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(json.loads(response.json()["notes"])["vendooLabels"], "Women")
 
     def test_reset_keep_inputs_keeps_photos_and_notes(self):
         notes = json.dumps({
