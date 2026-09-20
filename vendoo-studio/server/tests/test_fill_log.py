@@ -55,6 +55,13 @@ class FillLogHelpersTest(unittest.TestCase):
         )
         self.assertEqual(fields, [{"marketplace": "general", "field": "SKU", "value": "ABC-1"}])
 
+    def test_extract_missing_fields_keeps_an_explicit_blank(self):
+        """A blank is chat clearing a rejected value, not a row to drop."""
+        fields = extract_missing_fields(
+            '```json\n{"missing_fields":[{"marketplace":"depop","field":"material","value":""}]}\n```'
+        )
+        self.assertEqual(fields, [{"marketplace": "depop", "field": "material", "value": ""}])
+
     def test_extract_missing_fields_ignores_json_patch(self):
         self.assertIsNone(extract_missing_fields('[{"op":"replace","path":"/sku","value":"ABC-1"}]'))
 
@@ -322,6 +329,17 @@ class FillLogServiceTest(unittest.TestCase):
         self.assertNotIn("Occasion", listing["ebay_specifics"])
         self.assertNotIn("Season", listing["ebay_specifics"])
         self.assertNotIn("ebaySeason", listing["ebay_specifics"])
+
+    def test_write_values_into_listing_clears_blank_values(self):
+        listing = write_values_into_listing(
+            {"brand": "Taylor", "depop_specifics": {"material": "Chiffon"}},
+            [
+                {"marketplace": "depop", "field": "material", "value": ""},
+                {"marketplace": "general", "field": "Brand", "value": ""},
+            ],
+        )
+        self.assertNotIn("material", listing["depop_specifics"])
+        self.assertNotIn("brand", listing)
 
     def test_write_values_into_listing_canonicalizes_department(self):
         listing = write_values_into_listing(

@@ -373,8 +373,13 @@ def extract_missing_fields(text: str) -> list[dict] | None:
                 break
             field = str(item.get("field") or "").strip()
             value = item.get("value")
-            if not field or value is None or str(value).strip() == "":
+            if not field or value is None:
                 continue
+            # An explicit blank clears the field. Chat needs that when the only
+            # value it has — Depop material "Chiffon" — is not on the dropdown,
+            # because leaving the row out would keep the rejected value forever.
+            if str(value).strip() == "":
+                value = ""
             cleaned.append({
                 "marketplace": str(item.get("marketplace") or "general").strip().lower() or "general",
                 "field": field,
@@ -459,7 +464,7 @@ def summarize_missing_fields(patches: list[dict]) -> str:
         else:
             text = str(value).strip()
         if not text:
-            continue
+            text = "(cleared)"
         if len(text) > MAX_PREVIEW:
             text = text[: MAX_PREVIEW - 1] + "…"
         market = str(patch.get("marketplace") or "general").strip().lower() or "general"
@@ -471,6 +476,13 @@ def summarize_missing_fields(patches: list[dict]) -> str:
         return f"Saved to the listing JSON — {lines[0]}. Fill on Vendoo when ready."
     bullet = "\n".join(f"- {line}" for line in lines[:MAX_PATCH_FIELDS])
     return f"Saved to the listing JSON:\n{bullet}"
+
+
+def _is_clear(value: Any) -> bool:
+    """A blank patch value means "empty this field", not "skip it"."""
+    if isinstance(value, list):
+        return not [part for part in value if str(part).strip()]
+    return str(value).strip() == ""
 
 
 def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
@@ -502,7 +514,10 @@ def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
             )
             if not mapped:
                 continue
-            updated[mapped] = _coerce_listing_value(mapped, value)
+            if _is_clear(value):
+                updated.pop(mapped, None)
+            else:
+                updated[mapped] = _coerce_listing_value(mapped, value)
             continue
         specifics_key = f"{marketplace}_specifics"
         specifics = dict(updated.get(specifics_key) or {})
@@ -518,7 +533,10 @@ def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
                 or squash_field_key(str(alias)) == squashed
             ):
                 specifics.pop(alias, None)
-        specifics[canonical] = value
+        if _is_clear(value):
+            specifics.pop(canonical, None)
+        else:
+            specifics[canonical] = value
         updated[specifics_key] = specifics
         if marketplace == "ebay" and lookup == "department":
             updated["department"] = value

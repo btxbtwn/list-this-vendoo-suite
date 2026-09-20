@@ -782,10 +782,6 @@ function SendToVendooButton({
     [sourceForms, listing],
   );
   const emptyFieldsCount = emptyFields.length;
-  const fillEmptyPrompt = React.useMemo(
-    () => (emptyFieldsCount ? emptyFieldsPrompt(sourceForms, fromVendooDraft, listing) : undefined),
-    [emptyFieldsCount, sourceForms, fromVendooDraft, listing],
-  );
 
   // Vendoo's dropdown lists ride along in the fix prompts, so chat repairs a
   // rejected option (Depop material "Other") with one the dropdown really has.
@@ -794,6 +790,13 @@ function SendToVendooButton({
     queryFn: api.catalog.dropdownOptions,
     staleTime: Infinity,
   });
+
+  const fillEmptyPrompt = React.useMemo(
+    () => (emptyFieldsCount
+      ? emptyFieldsPrompt(sourceForms, fromVendooDraft, listing, dropdownOptions?.forms)
+      : undefined),
+    [emptyFieldsCount, sourceForms, fromVendooDraft, listing, dropdownOptions?.forms],
+  );
 
   const { data: extStatus } = useQuery({
     queryKey: ["extension-status"],

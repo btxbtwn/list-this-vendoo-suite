@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { FillLogEntry, FillLogReport } from "../api/types";
 import {
+  askChatGapsPrompt,
+  emptyFieldsPrompt,
   hiddenKeySet,
   leftoverEntries,
   liveStatusClass,
@@ -102,5 +104,39 @@ describe("labels", () => {
       listing: [{ marketplace: "depop", field: "style", label: "Style" }],
     });
     expect([...keys]).toEqual(["ebay:brand", "depop:style"]);
+  });
+});
+
+const DROPDOWNS = {
+  depop: { material: ["Cotton", "Silk", "Viscose"] },
+};
+
+function depopForm() {
+  return [{
+    id: "depop",
+    label: "Depop",
+    fields: [{ key: "material", label: "Material", value: "", missing: true }],
+    filled: 0,
+    missing: 1,
+    notApplicable: 0,
+  }];
+}
+
+describe("ask-chat prompts", () => {
+  it("lists the field's dropdown values so chat cannot invent one", () => {
+    const prompt = emptyFieldsPrompt(depopForm(), false, { title: "Dress" }, DROPDOWNS);
+    expect(prompt).toContain("Options (use only these, verbatim): Cotton | Silk | Viscose");
+    expect(prompt).toContain("copied from that list verbatim");
+  });
+
+  it("tells chat to clear a field when nothing on the list fits", () => {
+    const prompt = askChatGapsPrompt(depopForm(), false, { title: "Dress" }, [], DROPDOWNS);
+    expect(prompt).toContain("Options (use only these, verbatim): Cotton | Silk | Viscose");
+    expect(prompt).toContain('send that field with an empty value');
+  });
+
+  it("leaves fields with no known dropdown unannotated", () => {
+    const prompt = emptyFieldsPrompt(depopForm(), false, { title: "Dress" }, { depop: {} });
+    expect(prompt).not.toContain("Options (use only these");
   });
 });
