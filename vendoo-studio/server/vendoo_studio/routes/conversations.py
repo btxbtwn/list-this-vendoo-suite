@@ -39,6 +39,9 @@ class ConversationResponse(BaseModel):
     created_at: str
     updated_at: str
     cover_photo_url: str | None = None
+    # Vendoo's own label for a bound item, and its image as a thumbnail fallback.
+    vendoo_status: str | None = None
+    vendoo_cover_url: str | None = None
 
 
 class MessageResponse(BaseModel):
@@ -318,6 +321,7 @@ def get_photos(conv_id: str, db: Session = Depends(get_db)):
     return [_photo_response(p) for p in repo.get_photos(conv_id)]
 
 
+
 def _wipe_conversation_contents(
     db: Session, conv_id: str, *, keep_photos: bool = False
 ) -> tuple[int, int]:
@@ -498,6 +502,9 @@ def _cover_url_for(db: Session, conv_id: str) -> str | None:
 
 
 def _conv_response(conv, cover_photo_url: str | None = None) -> ConversationResponse:
+    from vendoo_studio.services.vendoo_import import parse_notes
+
+    notes = parse_notes(conv.notes)
     return ConversationResponse(
         id=conv.id,
         title=conv.title,
@@ -508,6 +515,8 @@ def _conv_response(conv, cover_photo_url: str | None = None) -> ConversationResp
         created_at=conv.created_at.isoformat() if conv.created_at else "",
         updated_at=conv.updated_at.isoformat() if conv.updated_at else "",
         cover_photo_url=cover_photo_url,
+        vendoo_status=str(notes.get("vendooStatus") or "") or None,
+        vendoo_cover_url=str(notes.get("vendooCoverUrl") or "") or None,
     )
 
 

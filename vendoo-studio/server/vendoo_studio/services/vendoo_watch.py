@@ -168,7 +168,11 @@ def apply_pull(
 
 def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: str | None) -> None:
     """Record the Vendoo stamp and revision this conversation is level with."""
-    from vendoo_studio.services.vendoo_import import merge_notes
+    from vendoo_studio.services.vendoo_import import (
+        merge_notes,
+        vendoo_item_status,
+        vendoo_updated_at,
+    )
 
     repo = ConversationRepo(db)
     conv = repo.get(conv_id)
@@ -182,6 +186,9 @@ def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: st
         SYNCED_REVISION: str(revision_id or ""),
         CHECKED_AT: datetime.now(UTC).isoformat(),
         SYNC_CONFLICT: "",
+        # The listing wears Vendoo's label, so every sync refreshes it.
+        "vendooStatus": vendoo_item_status(item, None),
+        "vendooUpdatedAt": vendoo_updated_at(item, None),
     })
     db.commit()
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
 import unittest
@@ -20,6 +21,7 @@ from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo, Jo
 from vendoo_studio.services.vendoo_import import (
     _download_public_image,
     image_urls_from_vendoo,
+    import_vendoo_item,
     listing_from_vendoo,
     parse_notes,
     vendoo_binding,
@@ -351,6 +353,18 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertTrue(body.get("item") or body.get("form"))
         self.assertEqual(body.get("item_id"), "abc123")
+
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
+    def test_import_records_vendoos_label_and_cover(self, download):
+        """An imported item wears Vendoo's own label and keeps its image as a fallback."""
+        download.return_value = []
+        asyncio.run(import_vendoo_item(self.db, item_id="abc123", item=VENDOO_ITEM))
+        download.assert_awaited_once()
+
+        listed = self.client.get("/api/conversations").json()
+        self.assertEqual(listed[0]["vendoo_status"], "draft")
+        self.assertEqual(listed[0]["vendoo_cover_url"], "https://cdn.example/a.jpg")
+        self.assertEqual(listed[0]["status"], "draft")
 
 
 if __name__ == "__main__":

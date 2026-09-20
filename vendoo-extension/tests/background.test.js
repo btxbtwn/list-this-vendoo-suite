@@ -133,3 +133,73 @@ test('Vendoo label names resolve to ids, creating missing labels', async () => {
   assert.equal(created.json.fields.name.stringValue, 'Bin 4');
   assert.equal(created.json.fields.id.stringValue, out.ids[1]);
 });
+
+test('Firestore documents decode back to plain Vendoo items', () => {
+  const doc = {
+    name: 'projects/p/databases/(default)/documents/users/u1/items/itm123',
+    fields: {
+      dateLastModified: { integerValue: '1750000000000' },
+      generalDetails: {
+        mapValue: {
+          fields: {
+            title: { stringValue: 'Nike Air Tee' },
+            price: { doubleValue: 24.5 },
+            tags: { arrayValue: { values: [{ stringValue: 'nike' }, { stringValue: 'tee' }] } },
+            notes: { nullValue: null },
+          },
+        },
+      },
+      listings: {
+        mapValue: {
+          fields: {
+            ebay: { mapValue: { fields: { status: { mapValue: { fields: { sold: { booleanValue: true } } } } } } },
+          },
+        },
+      },
+    },
+  };
+
+  assert.deepEqual(call(worker, 'firestoreItem', doc), {
+    dateLastModified: 1750000000000,
+    generalDetails: { title: 'Nike Air Tee', price: 24.5, tags: ['nike', 'tee'], notes: null },
+    listings: { ebay: { status: { sold: true } } },
+    id: 'itm123',
+    itemID: 'itm123',
+  });
+  assert.equal(call(worker, 'firestoreItem', { fields: {} }), null);
+});
+
+test('the inventory listing pages through Firestore and can ask for ids only', async () => {
+  const vm = require('node:vm');
+  const requests = [];
+  worker.__fetch = async (url) => {
+    requests.push(url);
+    return {
+      ok: true,
+      data: {
+        documents: [{ name: 'users/u1/items/itm1', fields: { id: { stringValue: 'itm1' } } }],
+        nextPageToken: 'tok2',
+      },
+    };
+  };
+  vm.runInContext('vendooFetch = (...a) => __fetch(...a)', worker);
+
+  const page = JSON.parse(JSON.stringify(await vm.runInContext(
+    'listVendooItems({ uid: "u1", access_token: "t" }, { page_size: 50, page_token: "tok1" })',
+    worker,
+  )));
+  assert.deepEqual(page.items, [{ id: 'itm1', itemID: 'itm1' }]);
+  assert.equal(page.next_page_token, 'tok2');
+  assert.match(requests[0], /\/users\/u1\/items\?/);
+  assert.match(requests[0], /pageSize=50/);
+  assert.match(requests[0], /pageToken=tok1/);
+  assert.doesNotMatch(requests[0], /mask/);
+
+  await vm.runInContext(
+    'listVendooItems({ uid: "u1", access_token: "t" }, { page_size: 5000, ids_only: true })',
+    worker,
+  );
+  assert.match(requests[1], /pageSize=300/);
+  assert.match(requests[1], /mask.fieldPaths=id/);
+  assert.doesNotMatch(requests[1], /pageToken/);
+});

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -345,35 +346,176 @@ async def import_vendoo_draft(
     }
 
 
+def vendoo_item_status(item: dict | None, form: dict | None = None) -> str:
+    """Vendoo's own inventory label for an item: ``draft``, ``active`` or ``sold``.
+
+    Vendoo derives the Inventory tabs from each marketplace listing's status
+    flags, so the label follows the item rather than anything Studio did.
+    """
+    merged = _merge_payloads(form, item)
+    listings = merged.get("listings") if isinstance(merged.get("listings"), dict) else {}
+    sold = False
+    listed = False
+    for name, listing in listings.items():
+        if name == "validate" or not isinstance(listing, dict):
+            continue
+        status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
+        if status.get("sold") is True or status.get("shipped") is True:
+            sold = True
+        if status.get("listed") is True:
+            listed = True
+    if sold:
+        return "sold"
+    return "active" if listed else "draft"
+
+
+def vendoo_updated_at(item: dict | None, form: dict | None = None) -> str:
+    """The item's last Vendoo write, as a comparable string.
+
+    Vendoo stamps items with ``dateLastModified``; ``/api/item`` answers
+    Firestore timestamps as ``{_seconds, _nanoseconds}`` where a document read
+    straight from Firestore carries an ISO string.
+    """
+    merged = _merge_payloads(form, item)
+    raw = (
+        merged.get("dateLastModified")
+        or merged.get("updatedAt")
+        or merged.get("savedAt")
+        or merged.get("createdAt")
+    )
+    if isinstance(raw, dict):
+        seconds = raw.get("_seconds") or raw.get("seconds")
+        nanos = raw.get("_nanoseconds") or raw.get("nanoseconds") or 0
+        return f"{seconds}.{nanos}" if seconds is not None else ""
+    return str(raw or "").strip()
+
+
+async def import_vendoo_item(
+    db: Any,
+    *,
+    item_id: str,
+    item: dict | None = None,
+    form: dict | None = None,
+    url: str | None = None,
+    source: str | None = None,
+    image_urls: list[str] | None = None,
+) -> dict[str, Any]:
+    """Bind one Vendoo item to a Studio listing, with its fields and its photos.
+
+    Re-importing the same item reuses its conversation, so a bulk run is safe to
+    repeat.
+    """
+    from vendoo_studio.repositories.queries import ConversationRepo, JobRepo
+
+    listing = listing_from_vendoo(item, form)
+    status = vendoo_item_status(item, form)
+    item_url = (url or "").strip() or f"https://web.vendoo.co/app/item/{item_id}"
+    urls = image_urls_from_vendoo(item, form, image_urls)
+
+    conv_repo = ConversationRepo(db)
+    conv = conv_repo.find_by_vendoo_item_id(item_id)
+    reused = conv is not None
+    if conv is None:
+        conv = conv_repo.create(title=listing.get("title") or "Imported from Vendoo")
+
+    conv.notes = merge_notes(conv.notes, {
+        "vendooItemId": item_id,
+        "vendooUrl": item_url,
+        "vendooStatus": status,
+        # Vendoo's own image stands in for the sidebar thumbnail when a photo
+        # download did not make it.
+        "vendooCoverUrl": urls[0] if urls else "",
+    })
+    db.commit()
+    db.refresh(conv)
+
+    result = await import_vendoo_draft(db, conv.id, item, form, image_urls)
+    conv_repo.add_message(
+        conv.id,
+        "system",
+        f"{'Re-imported' if reused else 'Imported'} from Vendoo item {item_id}.",
+    )
+
+    job_repo = JobRepo(db)
+    job = job_repo.create(
+        conv_id=conv.id,
+        approved_revision_id=result["revision"].id,
+        listing_snapshot=listing,
+        vendoo_item_id=item_id,
+        vendoo_url=item_url,
+        status="imported",
+        current_step="imported",
+    )
+    job_repo.add_event(job.id, "imported", "imported")
+    job_repo.save_vendoo_draft(
+        job.id,
+        item=item,
+        form=form,
+        item_id=item_id,
+        url=item_url,
+        source=(source or "import"),
+        step="imported",
+    )
+    conv_repo.update_status(conv.id, status)
+
+    # Last: an item is only "seen at this stamp" once its photos and job are
+    # stored, so a run cut short part-way through one is redone, not skipped.
+    conv.notes = merge_notes(conv.notes, {"vendooUpdatedAt": vendoo_updated_at(item, form)})
+    db.commit()
+
+    return {
+        "conversation": conv,
+        "job": job,
+        "listing": listing,
+        "status": status,
+        "reused": reused,
+        "photo_count": result["photo_count"],
+        "photo_warnings": result["photo_warnings"],
+    }
+
+
+# A listing's photos come down together: a whole-inventory import is thousands
+# of images, and one at a time would take hours of waiting on the network.
+PHOTO_DOWNLOAD_CONCURRENCY = 6
+
+
 async def download_vendoo_photos(urls: list[str]) -> list[dict[str, Any]]:
     from vendoo_studio.services.safe_fetch import (
         DOWNLOAD_TIMEOUT_SEC,
     )
 
-    photos: list[dict[str, Any]] = []
     headers = {
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         "Referer": "https://web.vendoo.co/",
         "User-Agent": "Mozilla/5.0",
     }
+    wanted = urls[:MAX_PHOTO_COUNT]
     async with httpx.AsyncClient(
         follow_redirects=False,
         timeout=DOWNLOAD_TIMEOUT_SEC,
         headers=headers,
         trust_env=False,
     ) as client:
-        for index, raw_url in enumerate(urls[:MAX_PHOTO_COUNT]):
-            try:
-                content, content_type, final_url = await _download_public_image(client, raw_url)
-            except Exception as exc:
-                log.warning("Vendoo photo download failed for %s: %s", raw_url, exc)
-                continue
+        limit = asyncio.Semaphore(PHOTO_DOWNLOAD_CONCURRENCY)
+
+        async def fetch(index: int, raw_url: str) -> dict[str, Any] | None:
+            async with limit:
+                try:
+                    content, content_type, final_url = await _download_public_image(client, raw_url)
+                except Exception as exc:
+                    log.warning("Vendoo photo download failed for %s: %s", raw_url, exc)
+                    return None
             filename = _filename_from_url(final_url, index)
             try:
-                photos.append(process_bytes(content, filename, content_type))
+                # Writing and decoding the file is blocking work; keep it off the loop.
+                return await asyncio.to_thread(process_bytes, content, filename, content_type)
             except Exception as exc:
                 log.warning("Vendoo photo rejected for %s: %s", final_url, exc)
-    return photos
+                return None
+
+        results = await asyncio.gather(*(fetch(i, url) for i, url in enumerate(wanted)))
+    # Keep Vendoo's order: it is the listing's photo order.
+    return [photo for photo in results if photo]
 
 
 async def _download_public_image(client: httpx.AsyncClient, url: str) -> tuple[bytes, str | None, str]:

@@ -43,10 +43,10 @@ class ConversationSettlementTest(unittest.TestCase):
         self.assertIsNone(active.settled_at)
         self.assertIsNotNone(active.unsettled_at)
 
-    def test_completed_status_auto_settles(self):
+    def test_sold_status_auto_settles(self):
         conv = self.repo.create(title="Nike tee")
-        updated = self.repo.update_status(conv.id, "completed")
-        self.assertEqual(updated.status, "completed")
+        updated = self.repo.update_status(conv.id, "sold")
+        self.assertEqual(updated.status, "sold")
         self.assertIsNotNone(updated.settled_at)
 
     def test_in_progress_status_auto_unsettles(self):
@@ -63,8 +63,8 @@ class ConversationSettlementTest(unittest.TestCase):
         self.assertIsNone(updated.settled_at)
         self.assertIsNotNone(updated.unsettled_at)
 
-    def test_reconcile_backfills_completed_listings(self):
-        conv = Conversation(title="Old tee", status="completed")
+    def test_reconcile_backfills_sold_listings(self):
+        conv = Conversation(title="Old tee", status="sold")
         self.db.add(conv)
         self.db.commit()
         self.assertIsNone(conv.settled_at)
@@ -74,7 +74,7 @@ class ConversationSettlementTest(unittest.TestCase):
 
     def test_reconcile_does_not_resettle_after_explicit_unsettle(self):
         conv = self.repo.create(title="Nike tee")
-        self.repo.update_status(conv.id, "completed")
+        self.repo.update_status(conv.id, "sold")
         self.repo.unsettle(conv.id)
         self.repo.reconcile_job_statuses()
         self.db.refresh(conv)
@@ -83,14 +83,15 @@ class ConversationSettlementTest(unittest.TestCase):
 
     def test_explicit_settle_overrides_keep_active(self):
         conv = self.repo.create(title="Nike tee")
-        self.repo.update_status(conv.id, "completed")
+        self.repo.update_status(conv.id, "sold")
         self.repo.unsettle(conv.id)
         settled = self.repo.settle(conv.id)
         self.assertIsNotNone(settled.settled_at)
         self.assertIsNone(settled.unsettled_at)
 
-    def test_reconcile_settles_from_completed_job(self):
-        conv = self.repo.create(title="Nike tee")
+    def test_reconcile_wears_the_vendoo_label_of_a_finished_job(self):
+        """A finished send leaves the listing wearing Vendoo's own label."""
+        conv = self.repo.create(title="Nike tee", notes='{"vendooStatus": "sold"}')
         older = datetime.now(UTC) - timedelta(hours=1)
         conv.updated_at = older
         job = Job(
@@ -103,8 +104,23 @@ class ConversationSettlementTest(unittest.TestCase):
         self.db.commit()
         self.repo.reconcile_job_statuses()
         self.db.refresh(conv)
-        self.assertEqual(conv.status, "completed")
+        self.assertEqual(conv.status, "sold")
         self.assertIsNotNone(conv.settled_at)
+
+    def test_reconcile_leaves_an_unlisted_item_a_draft(self):
+        conv = self.repo.create(title="Nike tee", notes='{"vendooStatus": "draft"}')
+        conv.updated_at = datetime.now(UTC) - timedelta(hours=1)
+        self.db.add(Job(
+            conversation_id=conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot={"title": "Nike tee"},
+            status="completed",
+        ))
+        self.db.commit()
+        self.repo.reconcile_job_statuses()
+        self.db.refresh(conv)
+        self.assertEqual(conv.status, "draft")
+        self.assertIsNone(conv.settled_at)
 
 
 if __name__ == "__main__":

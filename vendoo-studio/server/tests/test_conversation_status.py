@@ -37,23 +37,33 @@ class ConversationStatusTest(unittest.TestCase):
         app.dependency_overrides.clear()
         self.db.close()
 
-    def test_set_completed_status(self):
+    def test_set_sold_status(self):
         response = self.client.patch(
             f"/api/conversations/{self.conv.id}",
-            json={"status": "completed"},
+            json={"status": "sold"},
         )
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
-        self.assertEqual(body["status"], "completed")
+        self.assertEqual(body["status"], "sold")
         self.assertIsNotNone(body["settled_at"])
 
         self.db.expire_all()
         refreshed = ConversationRepo(self.db).get(self.conv.id)
-        self.assertEqual(refreshed.status, "completed")
+        self.assertEqual(refreshed.status, "sold")
         self.assertIsNotNone(refreshed.settled_at)
 
+    def test_set_active_status(self):
+        response = self.client.patch(
+            f"/api/conversations/{self.conv.id}",
+            json={"status": "active"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["status"], "active")
+        self.assertIsNone(body["settled_at"])
+
     def test_set_draft_status(self):
-        ConversationRepo(self.db).update_status(self.conv.id, "completed")
+        ConversationRepo(self.db).update_status(self.conv.id, "sold")
         response = self.client.patch(
             f"/api/conversations/{self.conv.id}",
             json={"status": "draft"},

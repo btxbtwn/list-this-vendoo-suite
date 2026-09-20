@@ -122,8 +122,10 @@ def get_marketplace_statuses(job_ids: str = Query(""), db: Session = Depends(get
     """
     repo = JobRepo(db)
     result: dict[str, dict] = {}
-    for job_id in dict.fromkeys(item.strip() for item in job_ids.split(",") if item.strip()):
-        cached = repo.get_vendoo_draft(job_id)
+    wanted = list(dict.fromkeys(item.strip() for item in job_ids.split(",") if item.strip()))
+    drafts = repo.latest_vendoo_drafts(wanted)
+    for job_id in wanted:
+        cached = drafts.get(job_id)
         if not cached:
             continue
         item = cached.get("item") if isinstance(cached.get("item"), dict) else {}

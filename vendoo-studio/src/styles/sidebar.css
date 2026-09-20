@@ -549,7 +549,8 @@ html.desktop-app .workspace-drag-region {
 .nav-status-draft { color: var(--color-draft); }
 .nav-status-in-progress { color: #51a2ff; }
 .nav-status-listing { color: #c49aff; }
-.nav-status-completed { color: var(--color-success); }
+.nav-status-active { color: var(--color-success); }
+.nav-status-sold { color: var(--color-cobalt); }
 .nav-status-failed { color: var(--color-tomato); }
 
 .nav-actions {
@@ -651,4 +652,61 @@ html.desktop-app .workspace-drag-region {
   .sidebar-update-glyph.is-spinning {
     animation: none;
   }
+}
+
+/* Whole-inventory Vendoo import, in the sidebar footer beside the updater. */
+.vendoo-import.is-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 0 4px;
+}
+
+.vendoo-import-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vendoo-import-label {
+  font-size: var(--text-2xs);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vendoo-import-bar {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.vendoo-import-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-cobalt);
+  transition: width 240ms ease;
+}
+
+.vendoo-import-cancel {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.vendoo-import-cancel:hover {
+  color: var(--color-text);
+  text-decoration: underline;
 }

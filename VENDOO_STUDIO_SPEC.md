@@ -193,8 +193,10 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 
 - Create a new listing.
 - Search by title, brand, SKU, or job ID.
-- Filter by draft, ready, sending, completed, and failed status.
-- Sidebar status follows the live lifecycle: `In progress` during MiMo generation or refinement, `Listing` during queued/running Vendoo automation, and `Completed` after all draft automation steps finish.
+- Filter by draft, active, sold, and failed status.
+- Listings wear Vendoo's own Inventory labels — `Draft`, `Active`, `Sold` — taken from the bound item, plus `Failed` for a send that broke. `In progress` shows during MiMo generation or refinement and `Listing` during queued/running Vendoo automation.
+- Sold listings settle onto the collapsed shelf, so the working list holds what is still sellable.
+- Import the whole Vendoo inventory in one run (sidebar footer), photos included. Items already imported are refreshed only when Vendoo's copy changed, so the run doubles as a sync.
 - Show last-updated time and completed Vendoo draft link.
 
 ### Workspace
@@ -204,7 +206,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Reorder and remove photos before approval.
 - Image preview.
 - Notes, cost, SKU, labels, measurements, and package-dimensions inputs.
-- Item details are grouped into titled sections: **Notes & Labels** (full-width notes textarea and labels), **Pricing & Shipping** (cost, Poshmark original price, package dimensions), and **Measurements** with a Top / Pants toggle. Tops take pit to pit, length and sleeve; pants take waist, rise, inseam and leg opening, and cover shorts too since they measure the same. Each garment's values are saved separately and only the selected garment's measurements reach generation. Grids wrap to the editor panel's width, and narrow screens reduce them to two columns (then one). Condition and category are inferred from photos and notes, not seller inputs.
+- Item details use a full-width notes textarea, then bordered field cells: labels and package dimensions on one row; cost, Poshmark original price, and garment measurements (pit to pit, length, sleeve) on the next. Narrow screens reduce the grids to two columns (then one). Condition and category are inferred from photos and notes, not seller inputs.
 - Poshmark and Mercari inspector tabs expose every field their automation steps fill, including shared listing values and marketplace-specific defaults.
 - Marketplace tab strips include additional space below the active underline before the first field row.
 

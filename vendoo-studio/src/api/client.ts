@@ -18,6 +18,7 @@ import type {
   ChatGPTPendingLogin,
   RevisionRestoreResult,
   ValidationResult,
+  VendooBulkImport,
   VendooItemResult,
   MarketplaceForm,
 } from "./types";
@@ -226,6 +227,13 @@ export const api = {
         }
       );
     },
+  },
+
+  imports: {
+    bulkStatus: () => request<VendooBulkImport>("/imports/vendoo/bulk"),
+    startBulk: () => request<VendooBulkImport>("/imports/vendoo/bulk", { method: "POST" }),
+    cancelBulk: () =>
+      request<VendooBulkImport>("/imports/vendoo/bulk/cancel", { method: "POST" }),
   },
 
   listings: {

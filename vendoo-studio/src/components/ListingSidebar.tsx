@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { UpdateButton } from "./UpdateButton";
+import { VendooImportButton } from "./VendooImportButton";
 import {
   SETTINGS_NAV_ITEMS,
   SETTINGS_SECTION_LABELS,
@@ -16,7 +17,8 @@ const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 const BUSY_STATUSES = new Set(["in_progress", "listing"]);
-const MANUAL_STATUSES = ["draft", "completed", "failed"] as const;
+// Vendoo's Inventory labels, plus the one state Vendoo has no name for.
+const MANUAL_STATUSES = ["draft", "active", "sold", "failed"] as const;
 const HOVER_STATUS_DELAY_MS = 280;
 const MARKETPLACE_STATUS_ORDER = [
   "general",
@@ -62,6 +64,7 @@ type Listing = {
   created_at?: string;
   updated_at?: string;
   cover_photo_url?: string | null;
+  vendoo_cover_url?: string | null;
 };
 
 interface Props {
@@ -697,6 +700,7 @@ export function ListingSidebar({
               <SettingsIcon />
             </button>
           )}
+          {settingsMode ? null : <VendooImportButton />}
           <UpdateButton />
         </div>
       </div>
@@ -805,7 +809,8 @@ function ListingRow({
   onUnsettle?: (id: string) => void;
 }) {
   const title = listing.title || "Untitled";
-  const coverUrl = listing.cover_photo_url || null;
+  // A bulk-imported listing has no local photos yet; Vendoo's own image stands in.
+  const coverUrl = listing.cover_photo_url || listing.vendoo_cover_url || null;
   const status = String(listing.status || "draft");
   const statusClass = status.replace(/_/g, "-");
   const settledAt = settled ? compactRelativeTime(listing.settled_at || listing.updated_at) : "";

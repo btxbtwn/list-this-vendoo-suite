@@ -5,13 +5,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from vendoo_studio.database import get_db
-from vendoo_studio.repositories.queries import ConversationRepo
-from vendoo_studio.services.vendoo_import import (
-    import_vendoo_draft,
-    listing_from_vendoo,
-    merge_notes,
-    vendoo_binding,
-)
+from vendoo_studio.services import vendoo_bulk_import
+from vendoo_studio.services.vendoo_import import import_vendoo_item, vendoo_binding
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
 
@@ -43,62 +38,42 @@ async def import_vendoo_listing(body: VendooImportRequest, db: Session = Depends
     if not body.item and not body.form:
         raise HTTPException(400, "No Vendoo listing data was provided.")
 
-    listing = listing_from_vendoo(body.item, body.form)
-    url = (body.url or "").strip() or f"https://web.vendoo.co/app/item/{item_id}"
-    conv_repo = ConversationRepo(db)
-
-    conv = conv_repo.find_by_vendoo_item_id(item_id)
-    reused = conv is not None
-    if conv is None:
-        conv = conv_repo.create(title=listing.get("title") or "Imported from Vendoo")
-
-    conv.notes = merge_notes(conv.notes, {
-        "vendooItemId": item_id,
-        "vendooUrl": url,
-    })
-    db.commit()
-    db.refresh(conv)
-
-    result = await import_vendoo_draft(db, conv.id, body.item, body.form, body.image_urls)
-    revision = result["revision"]
-    photo_count = result["photo_count"]
-    photo_warnings = result["photo_warnings"]
-    conv_repo.add_message(
-        conv.id,
-        "system",
-        f"{'Re-imported' if reused else 'Imported'} from Vendoo item {item_id}.",
-    )
-
-    from vendoo_studio.repositories.queries import JobRepo
-    job_repo = JobRepo(db)
-    job = job_repo.create(
-        conv_id=conv.id,
-        approved_revision_id=revision.id,
-        listing_snapshot=listing,
-        vendoo_item_id=item_id,
-        vendoo_url=url,
-        status="imported",
-        current_step="imported",
-    )
-    job_repo.add_event(job.id, "imported", "imported")
-    job_repo.save_vendoo_draft(
-        job.id,
+    result = await import_vendoo_item(
+        db,
+        item_id=item_id,
         item=body.item,
         form=body.form,
-        item_id=item_id,
-        url=url,
-        source=(body.source or "import"),
-        step="imported",
+        url=body.url,
+        source=body.source,
+        image_urls=body.image_urls,
     )
-    conv_repo.update_status(conv.id, "draft")
-
+    conv = result["conversation"]
     binding = vendoo_binding(conv.notes)
     return VendooImportResponse(
         ok=True,
         conversation_id=conv.id,
-        job_id=job.id,
-        reused=reused,
-        photo_count=photo_count,
-        photo_warnings=photo_warnings,
-        listing_title=str(listing.get("title") or binding.get("vendooItemId") or "Imported listing"),
+        job_id=result["job"].id,
+        reused=result["reused"],
+        photo_count=result["photo_count"],
+        photo_warnings=result["photo_warnings"],
+        listing_title=str(result["listing"].get("title") or binding.get("vendooItemId") or "Imported listing"),
     )
+
+
+@router.post("/vendoo/bulk")
+async def start_bulk_import():
+    """Import every item in the seller's Vendoo inventory, photos on demand."""
+    try:
+        return vendoo_bulk_import.start()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/vendoo/bulk")
+def bulk_import_status():
+    return vendoo_bulk_import.status()
+
+
+@router.post("/vendoo/bulk/cancel")
+def cancel_bulk_import():
+    return {"ok": vendoo_bulk_import.cancel(), **vendoo_bulk_import.status()}
