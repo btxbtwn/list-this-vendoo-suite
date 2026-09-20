@@ -20,6 +20,7 @@ import { ToastHost } from "../components/ToastHost";
 import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
 import { WorkspaceTopbar } from "../components/WorkspaceTopbar";
 import { workspaceCrumbs } from "../components/workspaceCrumbs";
+import { SuggestionsPanel } from "../components/SuggestionsPanel";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
 import { addToast } from "../ui/toast";
@@ -538,6 +539,11 @@ export function App() {
                 <div className="empty-state">
                   <div className="empty-state-headline">Turn product photos<br />into marketplace-ready drafts.</div>
                   <div className="empty-state-rule" />
+                  <SuggestionsPanel
+                    variant="workspace"
+                    selectedConvId={selectedConvId}
+                    onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
+                  />
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"

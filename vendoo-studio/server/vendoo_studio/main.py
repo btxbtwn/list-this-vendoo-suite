@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, frontend_dist_dir
 from vendoo_studio.database import init_db
 from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop, imports
-from vendoo_studio.routes import backups, browser, catalog, vendoo_api
+from vendoo_studio.routes import backups, browser, catalog, vendoo_api, suggestions
 from vendoo_studio.version import app_version
 
 
@@ -84,6 +84,7 @@ app.include_router(settings.router)
 app.include_router(extension.router)
 app.include_router(chat.router)
 app.include_router(catalog.router)
+app.include_router(suggestions.router)
 app.include_router(browser.router)
 app.include_router(vendoo_api.router)
 app.include_router(backups.router)

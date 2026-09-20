@@ -13,6 +13,7 @@ import {
 import { statusFromListingStatus } from "./fillLogForms";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ListingFilters } from "./ListingFilters";
+import { SuggestionsPanel } from "./SuggestionsPanel";
 import { stopTitlebarDrag } from "./WorkspaceTopbar";
 import {
   DEFAULT_LISTING_FILTERS,
@@ -666,6 +667,12 @@ export function ListingSidebar({
               <ComposeIcon />
             </button>
           </div>
+
+          <SuggestionsPanel
+            variant="sidebar"
+            selectedConvId={selectedConvId}
+            onSelect={onSelect}
+          />
 
           <ListingFilters
             filters={filters}

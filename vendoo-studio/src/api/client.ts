@@ -25,6 +25,7 @@ import type {
   VendooBulkImport,
   VendooItemResult,
   MarketplaceForm,
+  SuggestionsResponse,
 } from "./types";
 
 const BASE = "/api";
@@ -136,6 +137,9 @@ export const api = {
     sync: () => request<{started: boolean}>("/catalog/sync", {method: "POST"}),
     dropdownOptions: () =>
       request<{ forms: Record<string, Record<string, string[]>> }>("/catalog/dropdown-options"),
+  },
+  suggestions: {
+    list: () => request<SuggestionsResponse>("/suggestions"),
   },
   vendooApi: {
     listingFields: (convId: string) =>
