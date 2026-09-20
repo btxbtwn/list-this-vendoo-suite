@@ -43,6 +43,9 @@ from vendoo_studio.services.vendoo_api import (
 log = logging.getLogger("vendoo_studio.vendoo_create")
 
 REQUEST_TIMEOUT_SEC = 240.0
+# Reads that only decorate the result must not hold up the caller for as long as
+# a form fill may legitimately take.
+LOOKUP_TIMEOUT_SEC = 10.0
 SCHEMA_FILE = "vendoo-item-schema.json"
 # Marketplaces whose category tree unlocks the rest of that form's fields.
 CATEGORY_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
@@ -61,9 +64,11 @@ class VendooCreateError(RuntimeError):
 # --------------------------------------------------------------------------
 
 
-async def run_ops(job, ops: list[dict[str, Any]]) -> dict[str, Any]:
+async def run_ops(
+    job, ops: list[dict[str, Any]], *, timeout: float = REQUEST_TIMEOUT_SEC
+) -> dict[str, Any]:
     """Send one ``job.vendoo_api`` message and return its reply."""
-    reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=REQUEST_TIMEOUT_SEC)
+    reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=timeout)
     results = reply.get("results") if isinstance(reply.get("results"), list) else []
     if not reply.get("ok"):
         failed = next((r for r in results if not r.get("ok")), None)
@@ -573,21 +578,20 @@ async def resolve_listing_labels(job, listing: dict[str, Any]) -> tuple[dict[str
     return {**listing, "labels": [str(i) for i in ids if i]}, []
 
 
-async def resolve_label_display_names(job, labels: list[Any]) -> list[str]:
-    """Replace Vendoo label ids with the seller-facing names from their catalog.
+async def label_display_map(job, *, timeout: float = REQUEST_TIMEOUT_SEC) -> dict[str, str]:
+    """Vendoo label id to seller-facing name, empty when the catalog is unreachable.
 
-    Import and Regenerate carryover otherwise leave opaque Firestore ids in Item
-    Details. Names that are already names pass through unchanged.
+    Callers that only decorate a result should pass ``LOOKUP_TIMEOUT_SEC`` so a
+    silent Chrome cannot hold them for the full form-fill budget.
     """
-    cleaned = [str(label).strip() for label in (labels or []) if str(label).strip()]
-    if not cleaned or job is None:
-        return cleaned
+    if job is None:
+        return {}
     try:
-        reply = await run_ops(job, [{"op": "list_labels"}])
+        reply = await run_ops(job, [{"op": "list_labels"}], timeout=timeout)
         catalog = _result(reply, "list_labels").get("labels") or []
     except (VendooCreateError, BrowserBridgeError) as exc:
         log.warning("Vendoo label catalog not loaded: %s", exc)
-        return cleaned
+        return {}
     by_id: dict[str, str] = {}
     if isinstance(catalog, list):
         for row in catalog:
@@ -597,9 +601,27 @@ async def resolve_label_display_names(job, labels: list[Any]) -> list[str]:
             name = str(row.get("name") or "").strip()
             if label_id and name:
                 by_id[label_id] = name
-    if not by_id:
+    return by_id
+
+
+def apply_label_display_names(labels: list[Any], names: dict[str, str]) -> list[str]:
+    """Map ids to names where the catalog knows them; names pass through."""
+    cleaned = [str(label).strip() for label in (labels or []) if str(label).strip()]
+    return [names.get(label, label) for label in cleaned]
+
+
+async def resolve_label_display_names(
+    job, labels: list[Any], *, timeout: float = REQUEST_TIMEOUT_SEC
+) -> list[str]:
+    """Replace Vendoo label ids with the seller-facing names from their catalog.
+
+    Import and Regenerate carryover otherwise leave opaque Firestore ids in Item
+    Details. Names that are already names pass through unchanged.
+    """
+    cleaned = [str(label).strip() for label in (labels or []) if str(label).strip()]
+    if not cleaned or job is None:
         return cleaned
-    return [by_id.get(label, label) for label in cleaned]
+    return apply_label_display_names(cleaned, await label_display_map(job, timeout=timeout))
 
 
 async def create_item(

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -190,6 +192,54 @@ class ConversationResetTest(unittest.TestCase):
         ensure = self.client.post("/api/jobs/ensure-draft", json={"conversation_id": self.conv.id})
         self.assertEqual(ensure.status_code, 200, ensure.text)
         self.assertEqual(ensure.json()["id"], job.id)
+
+    def test_reset_does_not_wait_out_a_silent_chrome_for_label_names(self):
+        """A Chrome that never answers list_labels must not stall Regenerate.
+
+        The label catalog only prettifies carried-over labels, so it gets the
+        short lookup budget rather than the 4-minute form-fill one.
+        """
+        self.conv.notes = json.dumps({
+            "vendooItemId": "QVzIZuKs",
+            "vendooLabels": "0GbMUqtBqPkGDcEyNqYQ",
+        })
+        self.db.commit()
+
+        class SilentChrome:
+            """Connected, accepts the message, never sends a result back."""
+
+            connected = True
+
+            def register_wait(self, request_id: str, job_id: str | None = None):
+                return asyncio.get_running_loop().create_future()
+
+            async def send_message(self, _message) -> bool:
+                return True
+
+            def cancel_wait(self, _request_id: str) -> None:
+                return None
+
+        with patch("vendoo_studio.routes.conversations.PHOTOS_DIR", self.photos_tmp.name), \
+             patch(
+                 "vendoo_studio.services.browser_bridge._manager",
+                 return_value=SilentChrome(),
+             ), \
+             patch("vendoo_studio.services.vendoo_create.LOOKUP_TIMEOUT_SEC", 0.2):
+            started = time.monotonic()
+            response = self.client.post(
+                f"/api/conversations/{self.conv.id}/reset",
+                json={"keep_inputs": True},
+            )
+            elapsed = time.monotonic() - started
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertLess(elapsed, 10.0, "reset waited out the label catalog read")
+        self.assertEqual(response.json()["title"], "New Listing")
+        # The label id survives unresolved rather than blocking the reset.
+        self.assertEqual(
+            json.loads(response.json()["notes"])["vendooLabels"],
+            "0GbMUqtBqPkGDcEyNqYQ",
+        )
 
     def test_reset_keep_inputs_keeps_photos_and_notes(self):
         notes = json.dumps({
