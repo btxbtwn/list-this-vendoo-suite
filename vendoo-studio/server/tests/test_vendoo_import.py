@@ -25,6 +25,7 @@ from vendoo_studio.services.vendoo_import import (
     listing_from_vendoo,
     parse_notes,
     vendoo_binding,
+    vendoo_image_url,
 )
 
 
@@ -237,6 +238,45 @@ class SafePhotoDownloadTest(unittest.IsolatedAsyncioTestCase):
                     await _download_public_image(client, "https://cdn.example/photo.jpg")
 
         self.assertEqual(len(requested), 1)
+
+
+class VendooImageUrlTest(unittest.TestCase):
+    """Vendoo stores image records, not links; these are the shapes it keeps."""
+
+    def test_image_server_record_becomes_a_full_size_url(self):
+        self.assertEqual(
+            vendoo_image_url({"version": 3, "id": "images/u1/abc.jpg", "originalMaxDimension": 1600}),
+            "https://images.vendoo.co/images/u1/abc.jpg",
+        )
+        self.assertEqual(
+            vendoo_image_url({"version": 2, "id": "eu/images/u1/abc.png"}),
+            "https://images.vendoo.co/eu/images/u1/abc.png",
+        )
+
+    def test_legacy_cloudinary_records_keep_their_own_url(self):
+        record = {"id": "abc", "url": "https://res.cloudinary.com/vendoo/image/upload/abc.jpg"}
+        self.assertEqual(vendoo_image_url(record), record["url"])
+
+    def test_records_carrying_their_own_link_are_left_to_the_url_walk(self):
+        self.assertEqual(vendoo_image_url({"url": "https://cdn.example/a.jpg"}), "")
+        self.assertEqual(vendoo_image_url({}), "")
+        # The walk still finds them, preferring an original over a thumbnail.
+        item = {"images": [{"original": {"location": "https://cdn.example/full.jpg"},
+                            "url": "https://cdn.example/thumb.jpg"}]}
+        self.assertEqual(
+            image_urls_from_vendoo(item, None),
+            ["https://cdn.example/full.jpg", "https://cdn.example/thumb.jpg"],
+        )
+
+    def test_item_images_are_collected_in_order(self):
+        item = {"generalDetails": {"images": [
+            {"version": 3, "id": "images/u1/one.jpg"},
+            {"version": 3, "id": "images/u1/two.jpg"},
+        ]}}
+        self.assertEqual(
+            image_urls_from_vendoo(item, None),
+            ["https://images.vendoo.co/images/u1/one.jpg", "https://images.vendoo.co/images/u1/two.jpg"],
+        )
 
 
 class VendooImportRouteTest(unittest.TestCase):

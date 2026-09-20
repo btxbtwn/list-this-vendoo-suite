@@ -245,6 +245,40 @@ def listing_from_vendoo(item: dict | None, form: dict | None) -> dict[str, Any]:
     return listing
 
 
+# Vendoo does not store photo URLs: an item's images are records that name a
+# path on its image server, which its own web app turns into a URL this way.
+VENDOO_IMAGE_HOST = "https://images.vendoo.co"
+
+
+def vendoo_image_url(record: Any) -> str:
+    """The full-size URL for an image Vendoo hosts, or "" for any other record.
+
+    Records that carry their own links — a marketplace import, a legacy upload —
+    are left to the URL walk below, which knows to prefer an original over a
+    thumbnail.
+    """
+    if not isinstance(record, dict):
+        return ""
+    url = str(record.get("url") or "").strip()
+    image_id = str(record.get("id") or "").strip()
+    # Images from before Vendoo's own image server still carry their URL.
+    if url and "cloudinary" in url and image_id:
+        return url
+    if image_id and record.get("version") in (2, 3, "2", "3"):
+        return f"{VENDOO_IMAGE_HOST}/{image_id.replace(chr(92), '/')}"
+    return ""
+
+
+def vendoo_image_records(item: dict | None, form: dict | None) -> list[Any]:
+    """The item's photo records, in the order Vendoo keeps them."""
+    merged = _merge_payloads(form, item)
+    general = merged.get("generalDetails") if isinstance(merged.get("generalDetails"), dict) else {}
+    for source in (general.get("images"), merged.get("images")):
+        if isinstance(source, list) and source:
+            return source
+    return []
+
+
 def image_urls_from_vendoo(
     item: dict | None,
     form: dict | None,
@@ -286,6 +320,9 @@ def image_urls_from_vendoo(
             walk(nested, hinted, depth + 1)
 
     walk(extra or [], False)
+    # The item's own image records first, so its photos keep Vendoo's order.
+    for record in vendoo_image_records(item, form):
+        add(vendoo_image_url(record), require_image_hint=False)
     walk(item, True)
     walk(form, True)
     return urls
@@ -472,6 +509,42 @@ async def import_vendoo_item(
         "photo_count": result["photo_count"],
         "photo_warnings": result["photo_warnings"],
     }
+
+
+async def attach_vendoo_photos(db: Any, conv_id: str, item: dict | None, form: dict | None = None) -> int:
+    """Fetch an item's photos for a listing that has none.
+
+    A listing whose fields arrived without its photos — an import that ran
+    before the image records could be resolved, a spell of failed downloads —
+    is repaired by fetching the photos alone, rather than by importing the whole
+    item again over the top of it.
+    """
+    from vendoo_studio.repositories.queries import ConversationRepo
+
+    conv_repo = ConversationRepo(db)
+    if conv_repo.get_photos(conv_id):
+        return 0
+    urls = image_urls_from_vendoo(item, form)
+    if not urls:
+        return 0
+
+    imported = await download_vendoo_photos(urls)
+    for meta in imported:
+        conv_repo.add_photo(
+            conv_id=conv_id,
+            original_filename=meta["original_filename"],
+            stored_filename=meta["stored_filename"],
+            mime_type=meta["mime_type"],
+            size_bytes=meta["size_bytes"],
+            checksum=meta.get("checksum"),
+            width=meta.get("width"),
+            height=meta.get("height"),
+        )
+    conv = conv_repo.get(conv_id)
+    if conv is not None and urls:
+        conv.notes = merge_notes(conv.notes, {"vendooCoverUrl": urls[0]})
+    db.commit()
+    return len(imported)
 
 
 # A listing's photos come down together: a whole-inventory import is thousands
