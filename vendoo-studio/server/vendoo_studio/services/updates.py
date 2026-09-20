@@ -244,6 +244,14 @@ def check_for_updates_at(root: Path) -> dict:
 
 
 def apply_update() -> dict:
+    # Snapshot before the code changes underneath the database. The git path
+    # copies data/ wholesale into a fresh clone while the server is still
+    # writing, and a packaged update swaps the app out from under it; either
+    # way this is the last moment the old state is definitely intact.
+    from vendoo_studio.services.backups import snapshot_quietly
+
+    snapshot_quietly("pre-update")
+
     if is_packaged():
         from vendoo_studio.services.packaged_updates import PackagedUpdateError, apply_packaged_update
 

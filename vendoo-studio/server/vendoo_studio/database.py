@@ -32,7 +32,8 @@ def get_db():
         db.close()
 
 
-def init_db():
+def load_models() -> None:
+    """Import every model so ``Base.metadata`` describes the whole schema."""
     from vendoo_studio.models.conversation import Conversation  # noqa: F401
     from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
     from vendoo_studio.models.job import Job, JobEvent  # noqa: F401
@@ -47,29 +48,53 @@ def init_db():
         CategoryTreeNode,
     )
 
-    Base.metadata.create_all(bind=engine)
-    _ensure_sqlite_columns()
+
+def init_db():
+    """Bring the database to the schema this build expects.
+
+    Delegates to the migration runner, which snapshots before it changes
+    anything and refuses a database written by a newer build.
+    """
+    from vendoo_studio.services.schema_migrations import ensure_schema
+
+    load_models()
+    ensure_schema(engine)
 
 
-def _ensure_sqlite_columns() -> None:
-    inspector = inspect(engine)
+# Columns added to tables that had already shipped. ``create_all`` only creates
+# whole tables, so a column added to an existing one never reaches a database
+# built before it landed unless it is named here. Adding a column to a model
+# without adding it here leaves older databases short of it, and the mismatch
+# only shows up later as a query error.
+BACKFILLED_COLUMNS: dict[str, dict[str, str]] = {
+    "conversations": {
+        "settled_at": "DATETIME",
+        "unsettled_at": "DATETIME",
+    },
+    "field_registry": {
+        "options_source": "VARCHAR",
+    },
+}
+
+
+def _ensure_sqlite_columns(bind=None) -> None:
+    target = bind if bind is not None else engine
+    inspector = inspect(target)
     tables = set(inspector.get_table_names())
     statements = []
 
-    if "conversations" in tables:
-        existing = {column["name"] for column in inspector.get_columns("conversations")}
-        if "settled_at" not in existing:
-            statements.append("ALTER TABLE conversations ADD COLUMN settled_at DATETIME")
-        if "unsettled_at" not in existing:
-            statements.append("ALTER TABLE conversations ADD COLUMN unsettled_at DATETIME")
-
-    if "field_registry" in tables:
-        existing = {column["name"] for column in inspector.get_columns("field_registry")}
-        if "options_source" not in existing:
-            statements.append("ALTER TABLE field_registry ADD COLUMN options_source VARCHAR")
+    for table, columns in BACKFILLED_COLUMNS.items():
+        if table not in tables:
+            continue
+        existing = {column["name"] for column in inspector.get_columns(table)}
+        statements += [
+            f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"
+            for column, sql_type in columns.items()
+            if column not in existing
+        ]
 
     if not statements:
         return
-    with engine.begin() as connection:
+    with target.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))

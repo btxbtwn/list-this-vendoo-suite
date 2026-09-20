@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, frontend_dist_dir
 from vendoo_studio.database import init_db
 from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop, imports
-from vendoo_studio.routes import browser, catalog, vendoo_api
+from vendoo_studio.routes import backups, browser, catalog, vendoo_api
 from vendoo_studio.version import app_version
 
 
@@ -47,7 +47,17 @@ async def lifespan(app: FastAPI):
         install_bundled_extension()
     except Exception:
         pass
+    try:
+        from vendoo_studio.services.backups import start_snapshot_timer
+        start_snapshot_timer()
+    except Exception:
+        pass
     yield
+    try:
+        from vendoo_studio.services.backups import stop_snapshot_timer
+        stop_snapshot_timer()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -76,6 +86,7 @@ app.include_router(chat.router)
 app.include_router(catalog.router)
 app.include_router(browser.router)
 app.include_router(vendoo_api.router)
+app.include_router(backups.router)
 app.include_router(updates.router)
 app.include_router(desktop.router)
 

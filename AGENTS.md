@@ -36,7 +36,7 @@ Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TO
 ## Engineering Principles
 
 - Study how established products solve the problem before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
-- Do not preserve backward compatibility. Remove obsolete paths instead of adding compatibility layers, fallbacks, or migrations.
+- Do not preserve backward compatibility in code. Remove obsolete paths instead of adding compatibility layers or fallbacks. This does not extend to the database: Studio runs on more than one machine, and a schema change has to reach a database nobody can afford to delete. Schema changes go through an Alembic revision (see **Database schema** below).
 - Choose the simplest implementation that fully meets the current requirements. Avoid speculative abstractions, configuration, and indirection.
 - Grow the system in layers. Start from the smallest version that works end to end, and add each new capability on top of a product that already works. Never trade a working product for unfinished complexity.
 - Keep components modular and concerns clearly separated.
@@ -55,6 +55,9 @@ Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TO
 - **Studio setup:** `./setup.sh` (from the repo root) or `cd vendoo-studio && ./scripts/setup.sh`
 - **Studio start:** `./start.sh` or `cd vendoo-studio && ./scripts/dev.sh`
 - **Studio doctor:** `cd vendoo-studio && ./scripts/doctor.sh`
+- **Studio schema check:** `cd vendoo-studio && ./scripts/check-db-schema.sh [db]`
+- **Studio restore:** `cd vendoo-studio && ./scripts/restore-db.sh <snapshot.db>` (quit Studio first)
+- **Studio new migration:** `cd vendoo-studio && .venv/bin/alembic revision --autogenerate -m "..."`
 - **Studio frontend build:** `cd vendoo-studio && npm run build`
 - **Studio frontend lint and tests:** `cd vendoo-studio && npm run lint && npm test`
 - **Studio backend lint and tests:** `cd vendoo-studio && ruff check server && python -m pytest -q -n auto` (install with `pip install -e ".[dev]"`)
@@ -67,6 +70,15 @@ Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TO
 - Keep skill instructions in canonical `SKILL.md` files; keep browser-specific logic in the corresponding extension content script.
 - Keep frontend API calls under `vendoo-studio/src/api/`; keep backend routes thin and place domain behavior in services and repositories.
 - Maintain the JSON listing contract across skills, Studio, and the extension. The extension expects the structure documented in `README.md`.
+
+## Database schema
+
+- Studio's SQLite schema is owned by Alembic. Revisions live in `vendoo-studio/server/vendoo_studio/migrations/versions/` and ship inside the Mac app.
+- **Every model change needs a revision.** Editing a model without one leaves every existing database short of the change, and the mismatch only surfaces later as a query error. Generate one with `alembic revision --autogenerate` and read what it produced before committing it.
+- Revisions are forward-only in practice. Test a new one against a copy of a database made by the previous release, not only against a fresh one.
+- `init_db` migrates on startup, snapshots first, and refuses to open a database stamped with a revision this build does not know, which is what stops an older build from writing into a newer database.
+- `BACKFILLED_COLUMNS` in `database.py` exists only to carry databases from before migrations were introduced. Do not add to it; write a revision instead.
+- Snapshots are written by `services/backups.py` to `<data>/backups/`, before updates and migrations and on a timer. Never copy `vendoo_studio.db` as a file to back it up: use `VACUUM INTO`, or the `-wal` beside it makes the copy inconsistent.
 
 ## Verification
 
