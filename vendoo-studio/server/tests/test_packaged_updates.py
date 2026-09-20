@@ -53,77 +53,104 @@ class PackagedUpdateTest(unittest.TestCase):
         info = packaged_updates.local_build_info()
         self.assertEqual(info["sha"], "aaa1111")
 
-    @patch.object(packaged_updates, "fetch_pr_title", return_value=None)
-    @patch.object(packaged_updates, "remote_build_info", return_value={"sha": "bbb2222", "short_sha": "bbb2222", "version": "0.1.0", "ref": "main"})
+    def test_release_asset_url_uses_download_cdn(self):
+        url = packaged_updates.release_asset_url("build_info.json")
+        self.assertEqual(
+            url,
+            "https://github.com/btxbtwn/list-this-vendoo-suite/releases/download/studio-macos/build_info.json",
+        )
+
+    def test_api_headers_include_optional_token(self):
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "secret-token"}, clear=False):
+            headers = packaged_updates._headers(api=True)
+        self.assertEqual(headers["Authorization"], "Bearer secret-token")
+        self.assertEqual(headers["Accept"], "application/vnd.github+json")
+        download_headers = packaged_updates._headers()
+        self.assertNotIn("Authorization", download_headers)
+
     @patch.object(
         packaged_updates,
-        "fetch_release",
+        "fetch_remote_build_info",
         return_value={
-            "name": "List This Studio (macOS)",
-            "body": "sha: bbb2222",
-            "html_url": "https://github.com/btxbtwn/list-this-vendoo-suite/releases/tag/studio-macos",
-            "assets": [{
-                "name": "List-This-Studio-macos.zip",
-                "browser_download_url": "https://example.com/List-This-Studio-macos.zip",
-            }],
+            "sha": "bbb2222",
+            "short_sha": "bbb2222",
+            "version": "0.1.0",
+            "ref": "main",
+            "zip_sha256": "ab" * 32,
+            "title": "",
         },
     )
-    def test_newer_github_sha_is_available(self, _fetch, _remote, _pr):
+    def test_newer_github_sha_is_available(self, _remote):
         status = packaged_updates.check_for_packaged_update()
         self.assertTrue(status["available"])
         self.assertTrue(status["packaged"])
         self.assertEqual(status["remote_sha"], "bbb2222")
-        self.assertEqual(status["download_url"], "https://example.com/List-This-Studio-macos.zip")
+        self.assertEqual(
+            status["download_url"],
+            "https://github.com/btxbtwn/list-this-vendoo-suite/releases/download/studio-macos/List-This-Studio-macos.zip",
+        )
+        self.assertEqual(status["sha256"], "ab" * 32)
         self.assertEqual(status["summary"], "")
 
-    @patch.object(packaged_updates, "fetch_pr_title", return_value="Prompt to pull when Vendoo is saved")
-    @patch.object(packaged_updates, "remote_build_info", return_value={"sha": "bbb2222", "short_sha": "bbb2222", "version": "0.1.0", "ref": "main"})
     @patch.object(
         packaged_updates,
-        "fetch_release",
+        "fetch_remote_build_info",
         return_value={
-            "name": "List This Studio (macOS)",
-            "body": "sha: bbb2222\nref: main\n\nInstall\n1. Unzip",
-            "html_url": "https://github.com/btxbtwn/list-this-vendoo-suite/releases/tag/studio-macos",
-            "assets": [{
-                "name": "List-This-Studio-macos.zip",
-                "browser_download_url": "https://example.com/List-This-Studio-macos.zip",
-            }],
+            "sha": "bbb2222",
+            "short_sha": "bbb2222",
+            "version": "0.1.0",
+            "ref": "main",
+            "zip_sha256": "ab" * 32,
+            "title": "Prompt to pull when Vendoo is saved",
         },
     )
-    def test_summary_prefers_associated_pr_title(self, _fetch, _remote, _pr):
+    def test_summary_prefers_published_title(self, _remote):
         status = packaged_updates.check_for_packaged_update()
         self.assertTrue(status["available"])
         self.assertEqual(status["summary"], "Prompt to pull when Vendoo is saved")
         self.assertEqual(status["commits"], ["Prompt to pull when Vendoo is saved"])
 
-    def test_release_update_summary_skips_generic_name_and_sha_body(self):
-        with patch.object(packaged_updates, "fetch_pr_title", return_value=None):
-            summary = packaged_updates.release_update_summary(
-                {"name": "List This Studio (macOS)", "body": "sha: abc\nref: main\nFix the save prompt"},
-                "abc",
-            )
-        self.assertEqual(summary, "Fix the save prompt")
-
-    @patch.object(packaged_updates, "fetch_pr_title", return_value=None)
-    @patch.object(packaged_updates, "remote_build_info", return_value={"sha": "aaa1111", "short_sha": "aaa1111", "version": "0.1.0", "ref": "main"})
     @patch.object(
         packaged_updates,
-        "fetch_release",
+        "fetch_remote_build_info",
         return_value={
-            "name": "List This Studio (macOS)",
-            "body": "sha: aaa1111",
-            "assets": [{
-                "name": "List-This-Studio-macos.zip",
-                "browser_download_url": "https://example.com/List-This-Studio-macos.zip",
-            }],
+            "sha": "aaa1111",
+            "short_sha": "aaa1111",
+            "version": "0.1.0",
+            "ref": "main",
+            "zip_sha256": "ab" * 32,
+            "title": "Same build",
         },
     )
-    def test_same_sha_is_current(self, _fetch, _remote, _pr):
+    def test_same_sha_is_current(self, _remote):
         status = packaged_updates.check_for_packaged_update()
         self.assertFalse(status["available"])
         self.assertEqual(status["local_sha"], "aaa1111")
         self.assertEqual(status["summary"], "")
+        self.assertIsNone(status["error"])
+
+    def test_check_surfaces_cdn_errors(self):
+        with patch.object(
+            packaged_updates,
+            "fetch_remote_build_info",
+            side_effect=packaged_updates.PackagedUpdateError("Could not reach GitHub releases: boom"),
+        ):
+            status = packaged_updates.check_for_packaged_update()
+        self.assertFalse(status["available"])
+        self.assertIn("Could not reach GitHub releases", status["error"])
+
+    def test_rate_limit_message_from_api_response(self):
+        response = type(
+            "Response",
+            (),
+            {
+                "status_code": 403,
+                "text": "API rate limit exceeded for 1.2.3.4",
+            },
+        )()
+        message = packaged_updates._rate_limit_message(response)
+        self.assertIsNotNone(message)
+        self.assertIn("rate limit", message.lower())
 
     def test_extract_app_finds_keepparent_bundle(self):
         archive = Path(self.tmp.name) / "List-This-Studio-macos.zip"
@@ -249,15 +276,6 @@ class PackagedUpdateTest(unittest.TestCase):
                 packaged_updates._verify_app_signature(app)
 
     def test_force_reinstall_downloads_even_when_current(self):
-        release = {
-            "name": "List This Studio (macOS)",
-            "body": "sha: aaa1111",
-            "assets": [{
-                "name": "List-This-Studio-macos.zip",
-                "browser_download_url": "https://example.com/List-This-Studio-macos.zip",
-                "digest": "sha256:" + ("ab" * 32),
-            }],
-        }
         archive = Path(self.tmp.name) / "payload.zip"
         archive.write_bytes(b"zip-bytes")
         app = Path(self.tmp.name) / "installed" / "List This Studio.app"
@@ -272,13 +290,16 @@ class PackagedUpdateTest(unittest.TestCase):
         def fake_download(_client, _url, destination: Path) -> None:
             destination.write_bytes(archive.read_bytes())
 
+        remote = {
+            "sha": "aaa1111",
+            "short_sha": "aaa1111",
+            "version": "0.1.0",
+            "ref": "main",
+            "zip_sha256": "ab" * 32,
+            "title": "Current",
+        }
         with (
-            patch.object(packaged_updates, "fetch_release", return_value=release),
-            patch.object(
-                packaged_updates,
-                "remote_build_info",
-                return_value={"sha": "aaa1111", "short_sha": "aaa1111", "version": "0.1.0", "ref": "main"},
-            ),
+            patch.object(packaged_updates, "fetch_remote_build_info", return_value=remote),
             patch.object(packaged_updates, "_download", side_effect=fake_download),
             patch.object(packaged_updates, "_sha256_file", return_value="ab" * 32),
             patch.object(packaged_updates, "_extract_app", return_value=new_app),
