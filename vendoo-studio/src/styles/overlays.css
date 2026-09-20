@@ -73,19 +73,6 @@
   flex: 0 0 auto;
 }
 
-.price-drop-footer {
-  justify-content: space-between;
-  flex-wrap: wrap;
-}
-
-.price-drop-footer-end {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
 /* ── Drop price dialog ── */
 
 .price-drop-popup {
@@ -178,6 +165,15 @@
 .price-drop-chip-wide {
   width: 100%;
   text-align: left;
+}
+
+.price-drop-chip-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .price-drop-custom {

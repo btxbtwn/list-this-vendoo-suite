@@ -25,9 +25,12 @@ function formatDropWhen(iso: string): string {
 type Selection =
   | { kind: "percent"; percent: number; price: number }
   | { kind: "comps"; price: number }
-  | { kind: "custom"; price: number };
+  | { kind: "custom"; price: number }
+  | { kind: "rewrite" };
 
-function defaultSelection(preview: PriceDropPreview): Selection {
+type PriceSelection = Exclude<Selection, { kind: "rewrite" }>;
+
+function defaultSelection(preview: PriceDropPreview): PriceSelection {
   if (preview.suggested_mode === "comps" && preview.comps.target_price != null) {
     return { kind: "comps", price: preview.comps.target_price };
   }
@@ -88,8 +91,10 @@ export function RegeneratePriceDialog({
     setCustomText(String(next.price));
   }, [open, previewQuery.data]);
 
+  const rewriting = selection?.kind === "rewrite";
+
   const selectedPrice = useMemo(() => {
-    if (!selection) return null;
+    if (!selection || selection.kind === "rewrite") return null;
     if (selection.kind === "custom") {
       const parsed = Number(customText);
       return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
@@ -161,9 +166,8 @@ export function RegeneratePriceDialog({
             Regenerate
           </h2>
           <p className="confirm-dialog-description">
-            Choose a percent cut or the live comps target. Title and description stay; only the price
-            changes. Or wipe the listing and generate from scratch. Nothing changes on Vendoo until you
-            Send.
+            Drop the price and keep the title and description, or rewrite the listing from scratch.
+            Nothing changes on Vendoo until you Send.
           </p>
         </div>
 
@@ -187,7 +191,7 @@ export function RegeneratePriceDialog({
                 </div>
                 <div>
                   <span className="price-drop-label">Selected</span>
-                  <strong>{money(selectedPrice)}</strong>
+                  <strong>{rewriting ? "Rewrite" : money(selectedPrice)}</strong>
                 </div>
               </div>
 
@@ -274,6 +278,21 @@ export function RegeneratePriceDialog({
                 ) : null}
               </div>
 
+              <div className="price-drop-section">
+                <div className="price-drop-section-title">Start over</div>
+                <button
+                  type="button"
+                  className={`price-drop-chip price-drop-chip-wide${rewriting ? " is-active" : ""}`}
+                  onClick={() => setSelection({ kind: "rewrite" })}
+                >
+                  Rewrite from scratch
+                  <span className="price-drop-chip-note">
+                    Discards chat and generated fields, then writes the listing again from your
+                    photos. Measurements, flaws, COG, labels and notes are kept.
+                  </span>
+                </button>
+              </div>
+
               {preview.history.length ? (
                 <div className="price-drop-section">
                   <div className="price-drop-section-title">Prior drops</div>
@@ -293,37 +312,34 @@ export function RegeneratePriceDialog({
           ) : null}
         </div>
 
-        <div className="confirm-dialog-footer price-drop-footer">
+        <div className="confirm-dialog-footer">
+          <button type="button" className="btn btn-outline" onClick={onClose}>
+            Cancel
+          </button>
           <button
             type="button"
-            className="btn btn-outline"
-            disabled={apply.isPending}
+            className={rewriting ? "btn btn-danger" : "btn btn-primary"}
+            disabled={
+              apply.isPending ||
+              previewQuery.isLoading ||
+              !preview ||
+              (!rewriting && (selectedPrice == null || selectedPrice >= preview.current_price))
+            }
             onClick={() => {
-              onClose();
-              onFullRegenerate();
+              if (rewriting) {
+                onClose();
+                onFullRegenerate();
+                return;
+              }
+              apply.mutate();
             }}
           >
-            Full regenerate
+            {rewriting
+              ? "Rewrite listing"
+              : apply.isPending
+                ? "Saving…"
+                : `Drop to ${money(selectedPrice)}`}
           </button>
-          <div className="price-drop-footer-end">
-            <button type="button" className="btn btn-outline" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={
-                apply.isPending ||
-                previewQuery.isLoading ||
-                selectedPrice == null ||
-                !preview ||
-                selectedPrice >= preview.current_price
-              }
-              onClick={() => apply.mutate()}
-            >
-              {apply.isPending ? "Saving…" : `Drop to ${money(selectedPrice)}`}
-            </button>
-          </div>
         </div>
       </div>
     </div>,

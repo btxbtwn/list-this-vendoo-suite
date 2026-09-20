@@ -12,8 +12,8 @@ const CLEAR_WARNING = [
 ].join("\n");
 
 const REGENERATE_WARNING = [
-  "Regenerate this listing from scratch?",
-  "Chat and every generated field are discarded, and a new listing is generated from your photos and item details as if it were new. Measurements, flaws, COG, labels and internal notes move into Item Details first, so the new listing keeps them. If it was imported from Vendoo, that connection is kept. Anything already saved on Vendoo is not changed until you send again.",
+  "Rewrite this listing from scratch?",
+  "Chat and every generated field are discarded, then the listing is written again from your photos and item details. Measurements, flaws, COG, labels and notes are kept. Vendoo is unchanged until you send again.",
 ].join("\n");
 
 async function refreshAfterReset(queryClient: QueryClient, convId: string) {
@@ -73,8 +73,8 @@ function listingHasPrice(listing: Record<string, unknown> | undefined): boolean 
   return Number.isFinite(amount) && amount > 0;
 }
 
-/** When the listing has a price, opens the comps/percent drop chooser.
- *  Otherwise (or via Full regenerate) wipes chat and generates again. */
+/** When the listing has a price, opens the comps/percent drop chooser, which
+ *  offers the rewrite itself. Otherwise a single confirm precedes the rewrite. */
 export function RegenerateListingButton({
   convId,
   className,
@@ -122,7 +122,7 @@ export function RegenerateListingButton({
   async function confirmFullRegenerate() {
     const confirmed = await confirmDialog(REGENERATE_WARNING, {
       variant: "destructive",
-      confirmLabel: "Regenerate",
+      confirmLabel: "Rewrite",
     });
     if (!confirmed) return;
     regenerate.mutate();
@@ -139,8 +139,8 @@ export function RegenerateListingButton({
           : busy
             ? "Wait for the current generation to finish"
             : hasPrice
-              ? "Drop the price with live comps, or regenerate the listing from scratch"
-              : "Discard chat and generated fields, then generate again from the same photos and item details"}
+              ? "Drop the price, or rewrite the listing from scratch"
+              : "Discard chat and generated fields, then write the listing again"}
         onClick={() => {
           if (hasPrice) {
             setPriceDialogOpen(true);
@@ -157,7 +157,7 @@ export function RegenerateListingButton({
         open={priceDialogOpen}
         onClose={() => setPriceDialogOpen(false)}
         onFullRegenerate={() => {
-          void confirmFullRegenerate();
+          regenerate.mutate();
         }}
       />
     </>
