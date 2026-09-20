@@ -244,6 +244,18 @@ export function activeFilterCount(filters: ListingFilters): number {
   );
 }
 
+/**
+ * A count short enough to sit in a status tab. Four tabs and their counts share
+ * a sidebar that narrows to 200px, where "1121" is what pushes the labels into
+ * each other.
+ */
+export function compactCount(value: number): string {
+  if (!Number.isFinite(value) || value < 1000) return String(Math.max(0, Math.trunc(value || 0)));
+  const thousands = value / 1000;
+  if (thousands >= 100) return `${Math.round(thousands)}k`;
+  return `${thousands.toFixed(1).replace(/\.0$/, "")}k`;
+}
+
 export function toggleValue(values: string[], value: string): string[] {
   return values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value];
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LISTING_FILTERS,
+  compactCount,
   activeFilterCount,
   filterListings,
   labelOptions,
@@ -194,6 +195,16 @@ describe("filter options", () => {
       60: 0,
       90: 0,
     });
+  });
+
+  it("shortens a count that would push the status tabs into each other", () => {
+    expect(compactCount(0)).toBe("0");
+    expect(compactCount(629)).toBe("629");
+    expect(compactCount(999)).toBe("999");
+    expect(compactCount(1121)).toBe("1.1k");
+    expect(compactCount(2000)).toBe("2k");
+    expect(compactCount(12345)).toBe("12.3k");
+    expect(compactCount(120000)).toBe("120k");
   });
 
   it("toggles a value in and out", () => {

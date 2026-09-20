@@ -696,6 +696,10 @@ html.desktop-app .workspace-drag-region {
 
 .listing-filter-tabs {
   display: flex;
+  /* The tabs answer to the sidebar's own width, which the reader drags between
+     200px and 30vw, so what they drop is decided here rather than by the viewport. */
+  container-type: inline-size;
+  container-name: listing-filter-tabs;
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-sm);
@@ -704,6 +708,7 @@ html.desktop-app .workspace-drag-region {
 
 .listing-filter-tab {
   display: flex;
+  overflow: hidden;
   /* The label and its count share a baseline, but the pair is centred in the
      pill — baseline-aligning the pill's own content rides up against its top. */
   align-items: center;
@@ -711,7 +716,7 @@ html.desktop-app .workspace-drag-region {
   flex: 1;
   min-width: 0;
   height: 24px;
-  padding: 0 4px;
+  padding: 0 3px;
   border: none;
   border-radius: var(--radius-xs);
   background: transparent;
@@ -737,9 +742,36 @@ html.desktop-app .workspace-drag-region {
   min-width: 0;
 }
 
+/* Four labels and four counts do not fit a 200px sidebar. The counts go first,
+   the selected tab's last, since a tab nobody is reading is the one whose count
+   matters least -- every tab keeps its whole label and its whole number, and
+   the button's tooltip still names the count. */
+@container listing-filter-tabs (max-width: 268px) {
+  .listing-filter-tab:not(.selected) .listing-filter-tab-count {
+    display: none;
+  }
+}
+
+@container listing-filter-tabs (max-width: 212px) {
+  .listing-filter-tab-count {
+    display: none;
+  }
+}
+
+/* Only ever reached by a label longer than its own tab. */
+.listing-filter-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .listing-filter-tab-count {
-  font-size: var(--text-2xs);
+  flex-shrink: 0;
   color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .listing-filter-controls {
@@ -793,6 +825,9 @@ html.desktop-app .workspace-drag-region {
 .listing-filter-sort {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   height: 26px;
   padding: 0 16px 0 6px;
   border: none;
