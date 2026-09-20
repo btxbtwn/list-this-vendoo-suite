@@ -10,7 +10,7 @@ import {
   statusCounts,
   toggleValue,
   type FilterableListing,
-} from "./listingFilters";
+} from "./inventoryFilters";
 
 const tee: FilterableListing = {
   title: "Nike Tee Black M",

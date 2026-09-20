@@ -22,7 +22,7 @@ import {
   sortListings,
   statusCounts,
   type ListingFilters as Filters,
-} from "./listingFilters";
+} from "./inventoryFilters";
 
 const SETTLED_SHELF_KEY = "vendoo-studio.settled-expanded";
 const SETTLED_TAIL_INITIAL_COUNT = 10;
