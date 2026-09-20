@@ -52,6 +52,12 @@ WINDOW_BACKGROUND = "#090909"
 # spacing; moving or resizing them by hand only fights AppKit's own layout.
 TITLEBAR_HEIGHT_PX = 52
 TITLEBAR_TOOLBAR_ID = "VendooStudioTitlebar"
+# macOS hands its current window chrome — the larger traffic lights T3 Code
+# shows, and their spacing — only to binaries linked against the macOS 26 SDK.
+# Studio's interpreter is linked far older, so the window keeps the legacy
+# buttons until we run on a copy stamped with that SDK.
+MODERN_MACOS_SDK = 26
+MODERN_CHROME_ENV = "VENDOO_STUDIO_MODERN_CHROME"
 HEALTH_URL = f"http://{HOST}:{PORT}/api/health"
 APP_URL = f"http://{HOST}:{PORT}"
 LOG_PATH = Path.home() / "Library" / "Application Support" / CHANNEL["app_name"] / "logs" / CHANNEL["log"]
@@ -83,7 +89,8 @@ def venv_python() -> Path:
 
 
 def running_in_venv() -> bool:
-    return Path(sys.executable).resolve() == venv_python().resolve()
+    """The prefix, not the executable: Studio re-execs through a stamped copy."""
+    return Path(sys.prefix).resolve() == (BASE_DIR / ".venv").resolve()
 
 
 def python_is_supported(executable: str) -> bool:
@@ -413,10 +420,142 @@ def ensure_venv() -> Path:
     return python
 
 
+def macos_major() -> int:
+    try:
+        import platform
+
+        return int(platform.mac_ver()[0].split(".", 1)[0] or 0)
+    except ValueError:
+        return 0
+
+
+def _macos_build_version(binary: Path) -> tuple[str, str] | None:
+    """The `minos` and `sdk` a Mach-O binary was linked with, per `vtool`."""
+    try:
+        probe = subprocess.run(
+            ["vtool", "-show-build", str(binary)], capture_output=True, text=True
+        )
+    except OSError:
+        return None
+    if probe.returncode != 0:
+        return None
+    found: dict[str, str] = {}
+    for line in probe.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] in ("minos", "sdk"):
+            found.setdefault(parts[0], parts[1])
+    if "minos" not in found or "sdk" not in found:
+        return None
+    return found["minos"], found["sdk"]
+
+
+def _linked_sdk_major(binary: Path) -> int | None:
+    build = _macos_build_version(binary)
+    if build is None:
+        return None
+    try:
+        return int(build[1].split(".", 1)[0])
+    except ValueError:
+        return None
+
+
+def _stamp_macos_sdk(source: Path, stamped: Path) -> bool:
+    """Copy `source` next to itself and claim the modern SDK on the copy.
+
+    The copy stays beside the original so `@executable_path` rpaths still
+    resolve, and stays unsigned-by-Apple ad-hoc so macOS will run it.
+    """
+    try:
+        if stamped.is_file() and stamped.stat().st_mtime >= source.stat().st_mtime:
+            linked = _linked_sdk_major(stamped)
+            return linked is not None and linked >= MODERN_MACOS_SDK
+    except OSError:
+        return False
+    build = _macos_build_version(source)
+    if build is None:
+        return False
+    minos, _sdk = build
+    try:
+        shutil.copy2(source, stamped)
+        subprocess.run(
+            [
+                "vtool",
+                "-set-build-version",
+                "macos",
+                minos,
+                f"{MODERN_MACOS_SDK}.0",
+                "-replace",
+                "-output",
+                str(stamped),
+                str(stamped),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["codesign", "-f", "-s", "-", str(stamped)], check=True, capture_output=True)
+    except (OSError, subprocess.CalledProcessError):
+        stamped.unlink(missing_ok=True)
+        return False
+    return True
+
+
+def stamp_modern_chrome_binary(binary: Path) -> Path | None:
+    """Same-directory SDK-stamped twin of `binary`, or None if already modern/unavailable.
+
+    macOS only draws T3 Code's larger traffic lights for binaries linked against
+    the macOS 26 SDK. Dev interpreters and the PyInstaller bootloader ship with
+    much older SDKs, so Studio re-execs through a stamped twin.
+    """
+    if sys.platform != "darwin" or macos_major() < MODERN_MACOS_SDK:
+        return None
+    real = Path(os.path.realpath(binary))
+    linked = _linked_sdk_major(real)
+    if linked is None or linked >= MODERN_MACOS_SDK:
+        return None
+    stamped = real.with_name(f"{real.name}-macos{MODERN_MACOS_SDK}")
+    if not _stamp_macos_sdk(real, stamped):
+        return None
+    return stamped
+
+
+def modern_chrome_python(python: Path) -> Path | None:
+    """A venv interpreter macOS dresses in its current window chrome, or None.
+
+    Returns a symlink inside the venv — so the interpreter keeps the venv's
+    prefix — pointing at an SDK-stamped copy of the real interpreter.
+    """
+    stamped = stamp_modern_chrome_binary(python)
+    if stamped is None:
+        return None
+    alias = python.with_name(f"{python.name}-macos{MODERN_MACOS_SDK}")
+    try:
+        if alias.is_symlink() or alias.exists():
+            alias.unlink()
+        alias.symlink_to(stamped)
+    except OSError:
+        return None
+    return alias
+
+
+def reexec_with_modern_chrome_if_needed() -> None:
+    """Re-exec the frozen app through an SDK-stamped twin for modern chrome."""
+    if os.environ.get(MODERN_CHROME_ENV) == "1":
+        return
+    modern = stamp_modern_chrome_binary(Path(sys.executable))
+    if modern is None:
+        return
+    os.environ[MODERN_CHROME_ENV] = "1"
+    os.execv(str(modern), [str(modern), *sys.argv[1:]])
+
+
 def reexec_in_venv_if_needed() -> None:
     python = ensure_venv()
-    if running_in_venv():
+    modern = modern_chrome_python(python)
+    if running_in_venv() and (modern is None or os.environ.get(MODERN_CHROME_ENV) == "1"):
         return
+    if modern is not None:
+        os.environ[MODERN_CHROME_ENV] = "1"
+        python = modern
     os.execv(str(python), [str(python), "-m", "vendoo_studio.desktop", *sys.argv[1:]])
 
 
@@ -730,8 +869,8 @@ def _is_native_fullscreen(native, AppKit) -> bool:
     return bool(mask & _macos_flag(AppKit, "NSFullScreenWindowMask", 1 << 14))
 
 
-def _disable_native_fullscreen(native, AppKit) -> None:
-    """Keep zoom-to-fill, but block Spaces fullscreen. Frameless WKWebView crashes there."""
+def _enable_native_fullscreen(native, AppKit) -> None:
+    """Offer Spaces fullscreen from the green traffic light, like T3 Code."""
     none = _macos_flag(AppKit, "NSWindowCollectionBehaviorFullScreenNone", 1 << 9)
     primary = _macos_flag(AppKit, "NSWindowCollectionBehaviorFullScreenPrimary", 1 << 7)
     try:
@@ -739,7 +878,7 @@ def _disable_native_fullscreen(native, AppKit) -> None:
     except Exception:
         current = 0
     try:
-        native.setCollectionBehavior_((current & ~primary) | none)
+        native.setCollectionBehavior_((current & ~none) | primary)
     except Exception:
         pass
 
@@ -760,7 +899,7 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
     if _is_native_fullscreen(native, AppKit):
         return
 
-    _disable_native_fullscreen(native, AppKit)
+    _enable_native_fullscreen(native, AppKit)
     _enable_window_buttons(native, AppKit)
 
     title_hidden = getattr(AppKit, "NSWindowTitleHidden", 1)
@@ -930,6 +1069,9 @@ def main(argv: list[str] | None = None) -> int:
     if is_frozen():
         os.environ.setdefault("VENDOO_STUDIO_PACKAGED", "1")
         setup_logging()
+        # Packaged builds ship a PyInstaller bootloader linked against an old
+        # SDK; stamp a twin and re-exec so macOS draws modern traffic lights.
+        reexec_with_modern_chrome_if_needed()
         print(f"starting {APP_NAME}", flush=True)
         run_window()
         return 0

@@ -63,6 +63,17 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
+# macOS only draws the current (larger) traffic lights for binaries linked
+# against the macOS 26 SDK. PyInstaller's bootloader reports a much older SDK;
+# stamp the executable before deep-signing so the shipped app matches T3 Code.
+EXE="$APP/Contents/MacOS/List This Studio"
+if command -v vtool >/dev/null 2>&1 && [[ -f "$EXE" ]]; then
+  MINOS="$(vtool -show-build "$EXE" 2>/dev/null | awk '/minos/{print $2; exit}')"
+  MINOS="${MINOS:-13.0}"
+  echo "Stamping $EXE with macOS SDK 26.0 (minos $MINOS)"
+  vtool -set-build-version macos "$MINOS" 26.0 -replace -output "$EXE" "$EXE"
+fi
+
 # Keep PyInstaller framework symlinks. Flattening them breaks the .app layout.
 # Nested Python.framework is often still signed with a different Team ID than the
 # app executable; dyld then refuses to load it ("different Team IDs"). Deep-sign

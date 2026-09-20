@@ -125,6 +125,21 @@ class StudioWindowChromeTest(unittest.TestCase):
     def test_titlebar_matches_t3_code(self):
         self.assertEqual(desktop.TITLEBAR_HEIGHT_PX, 52)
 
+    def test_stamp_modern_chrome_skips_when_already_modern(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "python"
+            binary.write_bytes(b"\x00")
+            with (
+                patch.object(desktop.sys, "platform", "darwin"),
+                patch.object(desktop, "macos_major", return_value=26),
+                patch.object(desktop, "_linked_sdk_major", return_value=26),
+            ):
+                self.assertIsNone(desktop.stamp_modern_chrome_binary(binary))
+
+    def test_stamp_modern_chrome_skips_off_macos(self):
+        with patch.object(desktop.sys, "platform", "linux"):
+            self.assertIsNone(desktop.stamp_modern_chrome_binary(Path("/usr/bin/python")))
+
     def test_create_studio_window_applies_chrome_before_show(self):
         class Event:
             def __init__(self) -> None:
@@ -217,7 +232,7 @@ class StudioWindowChromeTest(unittest.TestCase):
         native.setTitlebarAppearsTransparent_.assert_called_once_with(True)
         native.setTitleVisibility_.assert_called_once_with(1)
         native.setAppearance_.assert_called_once_with("appearance")
-        native.setCollectionBehavior_.assert_called_once_with(1 << 9)
+        native.setCollectionBehavior_.assert_called_once_with(1 << 7)
         close.setHidden_.assert_called_once_with(False)
         miniaturize.setHidden_.assert_called_once_with(False)
         zoom.setHidden_.assert_called_once_with(False)

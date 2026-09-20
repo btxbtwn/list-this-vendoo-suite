@@ -36,7 +36,7 @@
   flex-direction: column;
   overflow: hidden;
   border-right: 1px solid var(--color-ink-border);
-  padding: var(--space-2) 0 var(--space-2) var(--space-2);
+  padding: 0;
 }
 
 /* Vertical splitter sitting on the border between two panels. It takes no
@@ -89,6 +89,7 @@
   user-select: none;
 }
 
+/* Flush under the window titlebar — same edge-to-edge columns T3 Code uses. */
 .workspace-frame {
   display: flex;
   flex-direction: column;
@@ -96,13 +97,13 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  margin: var(--space-2) var(--space-2) var(--space-2) 0;
-  border-radius: var(--radius-lg);
+  margin: 0;
+  border-radius: 0;
   background: var(--color-paper);
 }
 
 .app-content.sidebar-collapsed .workspace-frame {
-  margin-left: var(--space-2);
+  margin-left: 0;
 }
 
 .workspace-body {
@@ -115,16 +116,22 @@
 
 /* ── Workspace topbar ── */
 
-/* T3 Code's titlebar band: the breadcrumb for what is open, panel toggles on
-   the right, and the rest of the band draggable on the desktop build. */
+/* T3 Code's one window-wide titlebar: breadcrumb on the left, settings and
+   panel toggles on the right. Sits above sidebar + workspace, not beside them.
+   Items share one vertical center line with the traffic lights. */
 .workspace-topbar {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  width: 100%;
   height: var(--workspace-topbar-height);
-  padding: 0 10px 0 20px;
+  padding: 0 10px 0 12px;
+  background: var(--color-ink);
+  border-bottom: 1px solid var(--color-ink-border);
+  z-index: 2;
+  box-sizing: border-box;
 }
 
 .workspace-topbar-drag {
@@ -141,8 +148,10 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  height: 28px;
   font-size: var(--text-sm);
   letter-spacing: -0.01em;
+  line-height: 1;
 }
 
 .workspace-crumb-context {
