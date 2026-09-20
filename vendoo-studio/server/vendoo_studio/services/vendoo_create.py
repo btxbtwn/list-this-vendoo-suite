@@ -35,6 +35,7 @@ from vendoo_studio.services.vendoo_api import (
     changed_fields,
     pick_mapped_category,
     diff_roundtrip,
+    hit_display_path,
     observe_item_schema,
     path_parts,
     pick_category_hit,
@@ -210,6 +211,13 @@ def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
             ):
                 targets.append((marketplace, marketplace, ""))
             continue
+        if marketplace == "poshmark":
+            # Poshmark's tree does not hold every wording the generator uses
+            # ("Tops", "Button-Down Shirts"); map it onto a selectable leaf
+            # before anything resolves against it.
+            from vendoo_studio.services.registry import map_poshmark_category_path
+
+            path = map_poshmark_category_path(path, listing) or path
         targets.append((marketplace, marketplace, path))
     return targets
 
@@ -317,6 +325,24 @@ async def _hits_by_search(
     return hits
 
 
+def _agrees_with_path(hit: dict[str, Any], path: str) -> bool:
+    """True when a mapped hit lands on the leaf the breadcrumb named.
+
+    Leaf wording only: Vendoo's tree and the breadcrumb often disagree about
+    the ancestors ("Women > Tops" vs "Women's Clothing > Tops") while naming
+    the same leaf, and it is the leaf that decides the form.
+    """
+    wanted = path_parts(path)
+    parts = [str(part) for part in hit_display_path(hit)]
+    if not wanted or not parts:
+        return True
+    return _leaf_key(parts[-1]) == _leaf_key(wanted[-1])
+
+
+def _leaf_key(leaf: str) -> str:
+    return "".join(ch for ch in str(leaf).lower() if ch.isalnum())
+
+
 async def _hits_by_mapping(
     job,
     general: dict[str, Any],
@@ -346,13 +372,21 @@ async def _hits_by_mapping(
     except BrowserBridgeError as exc:
         log.info("category mapper unavailable: %s", exc)
         return {}
+    wanted = {key: path for key, _marketplace_id, path in targets}
     hits: dict[str, dict[str, Any]] = {}
     for row in reply.get("results") or []:
         if row.get("op") != "category_map" or not row.get("ok"):
             continue
         # Its single match is sometimes the wrong branch; the alternates it
-        # returns alongside are worth reading before taking it.
-        best = pick_mapped_category(general, row.get("match"), row.get("recommendations"))
+        # returns alongside are worth reading before taking it — against this
+        # marketplace's own breadcrumb when the listing named one.
+        key = str(row.get("marketplace_id"))
+        best = pick_mapped_category(
+            general,
+            row.get("match"),
+            row.get("recommendations"),
+            want_path=wanted.get(key, ""),
+        )
         if isinstance(best, dict) and best.get("id"):
             hits[str(row.get("marketplace_id"))] = best
     return hits
@@ -388,13 +422,30 @@ async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict
         elif listing.get("category_id"):
             general_v2 = category_v2(listing.get("category_id"), listing.get("category_path"))
 
+    disagreed: list[tuple[str, str, str]] = []
     if general_v2 and market_targets:
         mapped = await _hits_by_mapping(job, general_v2, market_targets)
         resolved_hits.update(mapped)
+        # A mapped leaf that contradicts the breadcrumb this listing named is
+        # the mapper guessing a subtype the seller did not ask for. Search for
+        # the breadcrumb itself; the mapped leaf stays as the fallback.
+        disagreed = [
+            row for row in market_targets
+            if row[0] in mapped and row[2] and not _agrees_with_path(mapped[row[0]], row[2])
+        ]
         market_targets = [row for row in market_targets if row[0] not in mapped]
 
     if market_targets:
         resolved_hits.update(await _hits_by_search(job, market_targets, unresolved))
+    if disagreed:
+        # Failures here are not worth reporting: the mapped leaf still stands,
+        # and so it does unless the search landed on the leaf that was asked
+        # for — a near miss is no better than the mapper's own guess.
+        searched = await _hits_by_search(job, disagreed, [])
+        for key, _marketplace_id, path in disagreed:
+            hit = searched.get(key)
+            if hit and _agrees_with_path(hit, path):
+                resolved_hits[key] = hit
 
     ids = dict(listing.get("marketplace_category_ids") or {}) if isinstance(listing.get("marketplace_category_ids"), dict) else {}
     raw = listing.get("marketplace_category_objects")

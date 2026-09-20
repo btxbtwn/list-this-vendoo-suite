@@ -66,12 +66,14 @@ class FakeBridge:
     the fallback. Pass ``specifics`` to script a real one.
     """
 
-    def __init__(self, replies, specifics=None, mapped=None):
+    def __init__(self, replies, specifics=None, mapped=None, recommended=None):
         self.replies = list(replies)
         self.specifics = specifics
         # {marketplace: match}. Unset means Vendoo maps nothing, so the caller
         # falls back to searching each marketplace.
         self.mapped = mapped
+        # {marketplace: [alternate, …]} the mapper returns beside its match.
+        self.recommended = recommended
         self.sent = []
 
     async def request(self, job, message_type, payload=None, *, timeout=0):
@@ -84,7 +86,7 @@ class FakeBridge:
                 "op": "category_map", "ok": True,
                 "marketplace_id": op["marketplace_id"],
                 "match": (self.mapped or {}).get(op["marketplace_id"]),
-                "recommendations": [],
+                "recommendations": (self.recommended or {}).get(op["marketplace_id"], []),
             } for op in ops]}
         # Post-create brand/style repair: answer without consuming scripted replies.
         if ops and ops[0].get("op") == "update_item":
@@ -572,6 +574,92 @@ class ResolveCategoriesTest(_NoExtraMapping):
         self.assertEqual(fake.sent, [])
         fetch.assert_awaited_once_with("12")
         self.assertEqual(sorted(specs["mercari"]), ["Size"])
+
+    def _blouse_listing(self):
+        """A women's button-down: general says "Tops", Poshmark says "Blouses"."""
+        return {
+            "category_id": "gen_tops",
+            "category_path": "Clothing > Women > Tops",
+            "marketplace_categories": {"poshmark": "Women > Tops > Blouses"},
+        }
+
+    def test_the_marketplace_breadcrumb_decides_between_the_mapper_answers(self):
+        """The general category says "Tops"; only the breadcrumb says which top.
+
+        Scoring the mapper's answers against the general category alone lets it
+        settle on whichever subtype it guessed first — a button-down filed under
+        Tees — while the leaf the listing asked for sits in the alternates.
+        """
+        fake = FakeBridge(
+            [],
+            mapped={"poshmark": {"id": "posh_tee", "is_leaf": True,
+                                 "all_category_label": ["Women", "Tops", "Tees - Short Sleeve"]}},
+            recommended={"poshmark": [{"id": "posh_blouse", "is_leaf": True,
+                                       "all_category_label": ["Women", "Tops", "Blouses"]}]},
+        )
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out, unresolved = run(resolve_listing_categories(JOB, self._blouse_listing()))
+
+        self.assertEqual(out["marketplace_category_ids"]["poshmark"], "posh_blouse")
+        self.assertEqual(out["poshmark_specifics"]["categoryPath"], ["Women", "Tops", "Blouses"])
+        self.assertEqual(unresolved, [])
+        # The mapper answered, so nothing had to be searched for.
+        self.assertEqual(every_op(fake, "category_search"), [])
+
+    def test_a_mapped_leaf_that_contradicts_the_breadcrumb_is_searched_for(self):
+        """With no alternate to pick, the breadcrumb is still worth a search."""
+        fake = FakeBridge(
+            [{"ok": True, "results": [
+                {"op": "category_search", "ok": True,
+                 "leaf": {"id": "posh_blouse", "is_leaf": True, "path": "Women > Tops > Blouses"},
+                 "matches": []},
+            ]}],
+            mapped={"poshmark": {"id": "posh_tee", "is_leaf": True,
+                                 "all_category_label": ["Women", "Tops", "Tees - Short Sleeve"]}},
+        )
+        with mock.patch.object(vendoo_create, "tree_leaf", return_value=None), \
+                mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out, unresolved = run(resolve_listing_categories(JOB, self._blouse_listing()))
+
+        self.assertEqual([op["text"] for op in every_op(fake, "category_search")],
+                         ["Women > Tops > Blouses"])
+        self.assertEqual(out["marketplace_category_ids"]["poshmark"], "posh_blouse")
+        self.assertEqual(unresolved, [])
+
+    def test_the_mapped_leaf_stands_when_the_breadcrumb_finds_nothing(self):
+        """A category Vendoo cannot find beats no category: the form locks without one."""
+        fake = FakeBridge(
+            [{"ok": True, "results": [{"op": "category_search", "ok": False, "error": "404"}]}],
+            mapped={"poshmark": {"id": "posh_tee", "is_leaf": True,
+                                 "all_category_label": ["Women", "Tops", "Tees - Short Sleeve"]}},
+        )
+        with mock.patch.object(vendoo_create, "tree_leaf", return_value=None), \
+                mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out, unresolved = run(resolve_listing_categories(JOB, self._blouse_listing()))
+
+        self.assertEqual(out["marketplace_category_ids"]["poshmark"], "posh_tee")
+        self.assertEqual(unresolved, [])
+
+    def test_a_poshmark_breadcrumb_is_mapped_onto_a_real_leaf_first(self):
+        """Poshmark has no "Women's Clothing > Tops"; resolving that finds nothing."""
+        listing = {
+            "category_id": "gen_tops",
+            "category_path": "Clothing > Women > Tops",
+            "title": "REAL Comfort XL Minimalist Button-Down Brown Oversized",
+            "marketplace_categories": {"poshmark": "Women's Clothing > Tops"},
+        }
+        fake = FakeBridge(
+            [],
+            mapped={"poshmark": {"id": "posh_blouse", "is_leaf": True,
+                                 "all_category_label": ["Women", "Tops", "Blouses"]}},
+        )
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out, _unresolved = run(resolve_listing_categories(JOB, listing))
+
+        # Mapped to Blouses before anything resolved, so the mapper's own
+        # Blouses answer agrees with it and no search is needed.
+        self.assertEqual(out["marketplace_category_ids"]["poshmark"], "posh_blouse")
+        self.assertEqual(every_op(fake, "category_search"), [])
 
     def test_skips_when_already_resolved(self):
         listing = {"category_path": "A > B", "category_id": "already"}
