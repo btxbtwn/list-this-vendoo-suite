@@ -3360,6 +3360,89 @@
   }
 
   // ============================================
+  // UPDATE ALL — copy general fields onto marketplace forms
+  // ============================================
+  // On an existing item, Vendoo shows an "Update All" button next to a general
+  // field when a marketplace form has a unique value. Regenerating and sending
+  // has to click those so title, description, price, and the rest actually
+  // land on eBay/Poshmark/Mercari/Depop/Etsy instead of staying Vendoo-only.
+
+  let updateAllChain = Promise.resolve();
+
+  function listUpdateAllButtons(root) {
+    const api = globalThis.vendooUpdateAllButtons;
+    if (!api || typeof api.selectUpdateAllButtons !== 'function') return [];
+    const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+    let nodes;
+    try {
+      nodes = scope.querySelectorAll('button, [role="button"], a, [data-testid]');
+    } catch (_) {
+      return [];
+    }
+    return api.selectUpdateAllButtons(nodes).filter((el) => isVisibleElement(el));
+  }
+
+  async function clickUpdateAllButtonsBody({ root, timeoutMs = 1200 } = {}) {
+    if (!globalThis.vendooUpdateAllButtons) {
+      warn('Update All helper is not loaded');
+      return 0;
+    }
+    const appearMs = Math.min(400, Math.max(0, timeoutMs));
+    const appearDeadline = Date.now() + appearMs;
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    let clicked = 0;
+    let seenAny = false;
+    const clickedEls = new Set();
+    while (Date.now() <= deadline) {
+      const buttons = listUpdateAllButtons(root).filter((btn) => !clickedEls.has(btn));
+      if (buttons.length) {
+        seenAny = true;
+        for (const btn of buttons) {
+          clickedEls.add(btn);
+          try {
+            btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+          } catch (_) { /* detached */ }
+          try {
+            btn.click();
+          } catch (err) {
+            warn(`Update All click failed: ${err.message}`);
+            continue;
+          }
+          clicked += 1;
+          log(`Clicked Update All (${clicked})`);
+          await sleep(CONFIG.SLEEP_SHORT);
+        }
+        continue;
+      }
+      if (seenAny) break;
+      if (Date.now() > appearDeadline) break;
+      await sleep(POLL_MS);
+    }
+    if (clicked) {
+      log(`Pushed ${clicked} general-form field(s) to marketplace forms via Update All`);
+    }
+    return clicked;
+  }
+
+  function clickUpdateAllButtons(opts) {
+    const run = updateAllChain.then(() => clickUpdateAllButtonsBody(opts));
+    updateAllChain = run.catch(() => 0);
+    return run;
+  }
+
+  async function pushGeneralUpdatesToMarketplaces(timeoutMs = 1200) {
+    const generalInputs = document.querySelectorAll('[id^="generalDetails."]');
+    for (const el of generalInputs) {
+      try { el.dispatchEvent(new Event('blur', { bubbles: true })); } catch (_) { /* ignore */ }
+    }
+    try {
+      document.activeElement?.blur?.();
+    } catch (_) { /* ignore */ }
+    await sleep(CONFIG.SLEEP_SHORT);
+    return clickUpdateAllButtons({ timeoutMs });
+  }
+
+  // ============================================
   // MAIN VENDOO FORM FILLER - OPTIMIZED
   // ============================================
 
@@ -3487,6 +3570,7 @@
       }
       
       await fillTextField(VENDOO_SELECTORS.notes, data.internal_notes, 'Notes');
+      await pushGeneralUpdatesToMarketplaces(1500);
       log('=== Main form filled ===');
       return { ok: true, fill_log: finishFillLog() };
       } catch (err) {
@@ -4991,6 +5075,7 @@
 
   async function saveGeneralFormBody() {
       log('Saving form...');
+      await pushGeneralUpdatesToMarketplaces(800);
       // Always wait for the SPA save control — tab "complete" fires before React mounts it.
       const saveBtn = await waitForSaveButton(20000, { requireEnabled: true });
       if (!saveBtn) {
@@ -6734,6 +6819,9 @@
 
               if (!pending.length) {
                   currentPatchEntryId = '';
+                  if (marketplace === 'general' || marketplace === 'unknown' || !marketplace) {
+                      await pushGeneralUpdatesToMarketplaces(1200);
+                  }
                   const log = finishFillLog({ skipUnmapped: true });
                   allEntries.push(...log.entries);
                   continue;
@@ -6824,6 +6912,9 @@
                   }
               }
               currentPatchEntryId = '';
+              if (marketplace === 'general' || marketplace === 'unknown' || !marketplace) {
+                  await pushGeneralUpdatesToMarketplaces(1200);
+              }
               if (!skipReverify) {
                   reverifyPatchedFields(pending);
               }

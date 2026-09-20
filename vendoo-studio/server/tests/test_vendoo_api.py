@@ -4,6 +4,7 @@ import unittest
 
 from vendoo_studio.services.vendoo_specifics import normalize_specifics
 from vendoo_studio.services.vendoo_api import (
+    apply_update_all,
     changed_fields,
     pick_mapped_category,
     ALL_MARKETPLACES,
@@ -855,6 +856,140 @@ class ChangedFieldsTest(unittest.TestCase):
         self.assertEqual(out[prefix + "source"], ["preloved"])
         self.assertEqual(out[prefix + "style"], ["casual", "avant_garde"])
         self.assertEqual(changed_fields(desired, desired), {})
+
+
+class ApplyUpdateAllTest(unittest.TestCase):
+    """A save pushes general-form edits onto marketplace copies, like Update All."""
+
+    def test_title_description_and_price_copy_onto_marketplace_overrides(self):
+        current = {
+            "generalDetails": {"title": "Old", "description": "Old desc", "price": "20"},
+            "listings": {
+                "ebay": {"overrides": {"title": "Old eBay title"}},
+                "poshmark": {"overrides": {"title": "Old Posh title", "price": "20"}},
+            },
+        }
+        desired = {
+            "generalDetails": {"title": "New", "description": "New desc", "price": "15"},
+            "listings": {
+                "ebay": {"overrides": {"quantity": "1"}},
+                "poshmark": {"overrides": {"quantity": "1"}},
+            },
+        }
+        apply_update_all(current, desired)
+        self.assertEqual(desired["listings"]["ebay"]["overrides"]["title"], "New")
+        self.assertEqual(desired["listings"]["ebay"]["overrides"]["description"], "New desc")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["title"], "New")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["description"], "New desc")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["price"], "15")
+        self.assertEqual(
+            desired["listings"]["ebay"]["marketplaceSpecifics"]["pricingFormatDetails"]["fixedPrice"]["buyItNowPrice"],
+            "15",
+        )
+        out = changed_fields(current, desired)
+        self.assertEqual(out["listings.ebay.overrides.title"], "New")
+        self.assertEqual(out["listings.poshmark.overrides.price"], "15")
+        self.assertEqual(
+            out["listings.ebay.marketplaceSpecifics.pricingFormatDetails.fixedPrice.buyItNowPrice"],
+            "15",
+        )
+
+    def test_tags_and_condition_copy_onto_each_marketplace(self):
+        current = {
+            "generalDetails": {
+                "title": "Old",
+                "tags": ["old"],
+                "condition": "v_preowned",
+                "price": "20",
+            },
+            "listings": {
+                "ebay": {
+                    "marketplaceID": "ebay",
+                    "overrides": {"condition": "3000"},
+                    "categorySpecifics": {"53159_condition": "3000"},
+                    "marketplaceSpecifics": {},
+                },
+                "etsy": {
+                    "marketplaceID": "etsy",
+                    "overrides": {"condition": "used_excellent"},
+                    "marketplaceSpecifics": {"tags": ["old"]},
+                },
+                "poshmark": {
+                    "marketplaceID": "poshmark",
+                    "overrides": {"condition": "nwt", "price": "20"},
+                },
+                "mercari": {
+                    "marketplaceID": "mercari",
+                    "overrides": {"condition": "3"},
+                    "marketplaceSpecifics": {"tags": ["old"]},
+                },
+                "depop": {
+                    "marketplaceID": "depop",
+                    "overrides": {"condition": "used_excellent", "price": "20"},
+                },
+            },
+        }
+        desired = {
+            "generalDetails": {
+                "title": "New",
+                "tags": ["denim", "vintage"],
+                "condition": "v_good",
+                "price": "15",
+            },
+            "listings": {
+                "ebay": {"marketplaceID": "ebay", "overrides": {"condition": "4000"}},
+                "etsy": {"marketplaceID": "etsy", "overrides": {"condition": "used_good"}},
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {"condition": "good"}},
+                "mercari": {"marketplaceID": "mercari", "overrides": {"condition": "4"}},
+                "depop": {"marketplaceID": "depop", "overrides": {"condition": "used_good"}},
+            },
+        }
+        apply_update_all(current, desired)
+        ebay = desired["listings"]["ebay"]
+        self.assertEqual(ebay["overrides"]["tags"], ["denim", "vintage"])
+        self.assertEqual(ebay["overrides"]["condition"], "4000")
+        self.assertEqual(ebay["categorySpecifics"]["53159_condition"], "4000")
+        self.assertEqual(
+            ebay["marketplaceSpecifics"]["pricingFormatDetails"]["fixedPrice"]["buyItNowPrice"],
+            "15",
+        )
+        etsy = desired["listings"]["etsy"]
+        self.assertEqual(etsy["overrides"]["tags"], ["denim", "vintage"])
+        self.assertEqual(etsy["overrides"]["condition"], "used_good")
+        self.assertEqual(etsy["marketplaceSpecifics"]["tags"], ["denim", "vintage"])
+        self.assertEqual(etsy["overrides"]["price"], "15")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["condition"], "good")
+        self.assertEqual(desired["listings"]["poshmark"]["overrides"]["price"], "15")
+        self.assertEqual(desired["listings"]["mercari"]["overrides"]["condition"], "4")
+        self.assertEqual(desired["listings"]["mercari"]["marketplaceSpecifics"]["tags"], ["denim", "vintage"])
+        self.assertEqual(desired["listings"]["depop"]["overrides"]["condition"], "used_good")
+        self.assertEqual(desired["listings"]["depop"]["overrides"]["price"], "15")
+        out = changed_fields(current, desired)
+        self.assertEqual(out["listings.ebay.overrides.condition"], "4000")
+        self.assertEqual(out["listings.ebay.categorySpecifics.53159_condition"], "4000")
+        self.assertEqual(out["listings.etsy.marketplaceSpecifics.tags"], ["denim", "vintage"])
+        self.assertEqual(out["listings.poshmark.overrides.price"], "15")
+
+    def test_ebay_does_not_receive_the_general_vendoo_condition_label(self):
+        current = {
+            "generalDetails": {"condition": "v_preowned"},
+            "listings": {"ebay": {"marketplaceID": "ebay", "overrides": {"condition": "3000"}}},
+        }
+        desired = {
+            "generalDetails": {"condition": "Pre-Owned - Good"},
+            "listings": {"ebay": {"marketplaceID": "ebay", "overrides": {}}},
+        }
+        apply_update_all(current, desired)
+        self.assertEqual(desired["listings"]["ebay"]["overrides"].get("condition"), None)
+
+    def test_marketplaces_absent_from_the_item_are_left_alone(self):
+        current = {"generalDetails": {"title": "Old"}, "listings": {}}
+        desired = {
+            "generalDetails": {"title": "New"},
+            "listings": {"ebay": {"overrides": {"quantity": "1"}}},
+        }
+        apply_update_all(current, desired)
+        self.assertNotIn("title", desired["listings"]["ebay"]["overrides"])
 
 
 if __name__ == "__main__":

@@ -500,7 +500,7 @@ def _apply_ebay_pricing(
         fixed = {}
         details["fixedPrice"] = fixed
     price = _num_str(listing.get("price") or general.get("price"))
-    if price and not _clean(fixed.get("buyItNowPrice")):
+    if price:
         fixed["buyItNowPrice"] = price
     fixed["duration"] = _clean(fixed.get("duration")) or "GTC"
     fixed["allowBestOffer"] = True
@@ -1311,6 +1311,102 @@ _OWNED_LISTING_BUCKETS = ("overrides", "categorySpecifics", "marketplaceSpecific
 _EXACT_DEPOP_PATHS = frozenset(
     f"{LISTINGS_KEY}.depop.marketplaceSpecifics.{field}" for field in DEPOP_OPTION_CODES
 )
+# General-form fields Vendoo's Update All copies onto marketplace forms.
+_UPDATE_ALL_OVERRIDE_KEYS = ("title", "description", "sku", "quantity", "tags")
+_PRICE_OVERRIDE_MARKETPLACES = frozenset({"etsy", "poshmark", "mercari", "depop"})
+_TAGS_SPECIFICS_MARKETPLACES = frozenset({"etsy", "mercari"})
+
+
+def _bucket(section: dict[str, Any], name: str) -> dict[str, Any]:
+    bucket = section.get(name)
+    if not isinstance(bucket, dict):
+        bucket = {}
+        section[name] = bucket
+    return bucket
+
+
+def _set_ebay_bin_price(section: dict[str, Any], price: Any) -> None:
+    specs = _bucket(section, "marketplaceSpecifics")
+    details = specs.get("pricingFormatDetails")
+    if not isinstance(details, dict):
+        details = {}
+        specs["pricingFormatDetails"] = details
+    fixed = details.get("fixedPrice")
+    if not isinstance(fixed, dict):
+        fixed = {}
+        details["fixedPrice"] = fixed
+    fixed["buyItNowPrice"] = deepcopy(price)
+
+
+def _copy_condition(have_section: dict[str, Any], want_section: dict[str, Any], general: dict[str, Any]) -> None:
+    """Push the encoded marketplace condition, never a raw Vendoo label onto eBay."""
+    want_over = _bucket(want_section, "overrides")
+    have_over = have_section.get("overrides") if isinstance(have_section.get("overrides"), dict) else {}
+    condition = want_over.get("condition")
+    if condition in (None, "", []):
+        condition = general.get("condition")
+        marketplace = str(want_section.get("marketplaceID") or "")
+        # eBay's form stores a numeric id. The general Vendoo label crashes it.
+        if marketplace == "ebay" or str(have_over.get("condition") or "").isdigit():
+            return
+    if condition in (None, "", []):
+        return
+    want_over["condition"] = deepcopy(condition)
+    have_specs = have_section.get("categorySpecifics") if isinstance(have_section.get("categorySpecifics"), dict) else {}
+    want_specs = _bucket(want_section, "categorySpecifics")
+    for key in have_specs:
+        if str(key).lower().endswith("_condition") or str(key).lower() == "condition":
+            want_specs[key] = deepcopy(condition)
+
+
+def apply_update_all(current: dict[str, Any], desired: dict[str, Any]) -> dict[str, Any]:
+    """Copy general-form values onto marketplace listings, like Vendoo's Update All.
+
+    Send writes Firestore; it does not click the form. Marketplace forms that
+    already have their own title, description, tags, condition, or price keep
+    those copies under ``listings.<mp>`` unless we write them too.
+    """
+    general = desired.get(GENERAL_KEY) if isinstance(desired.get(GENERAL_KEY), dict) else {}
+    listings_want = desired.get(LISTINGS_KEY)
+    if not isinstance(listings_want, dict):
+        listings_want = {}
+        desired[LISTINGS_KEY] = listings_want
+    listings_have = current.get(LISTINGS_KEY) if isinstance(current.get(LISTINGS_KEY), dict) else {}
+    tags = _string_list(general.get("tags"))
+    price = general.get("price")
+    for marketplace, have_section in listings_have.items():
+        if not isinstance(have_section, dict):
+            continue
+        want_section = listings_want.get(marketplace)
+        if not isinstance(want_section, dict):
+            want_section = {"marketplaceID": marketplace}
+            listings_want[marketplace] = want_section
+        want_section.setdefault("marketplaceID", marketplace)
+        want_over = _bucket(want_section, "overrides")
+        for key in _UPDATE_ALL_OVERRIDE_KEYS:
+            value = tags if key == "tags" else general.get(key)
+            if value in (None, "", []):
+                continue
+            want_over[key] = deepcopy(value)
+        if tags and (
+            marketplace in _TAGS_SPECIFICS_MARKETPLACES
+            or isinstance((have_section.get("marketplaceSpecifics") or {}).get("tags"), list)
+        ):
+            specifics = _bucket(want_section, "marketplaceSpecifics")
+            copied = [tag for tag in tags if len(tag) <= ETSY_TAG_MAX_LENGTH] if marketplace == "etsy" else list(tags)
+            if marketplace == "etsy":
+                copied = copied[:ETSY_TAG_LIMIT]
+            if copied:
+                specifics["tags"] = copied
+        _copy_condition(have_section, want_section, general)
+        if price not in (None, ""):
+            if marketplace == "ebay":
+                _set_ebay_bin_price(want_section, price)
+            if marketplace in _PRICE_OVERRIDE_MARKETPLACES or "price" in (
+                have_section.get("overrides") if isinstance(have_section.get("overrides"), dict) else {}
+            ):
+                want_over["price"] = deepcopy(price)
+    return desired
 
 
 def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str, str | Any]:

@@ -23,7 +23,10 @@ class ExtensionContentScriptVersionTest(unittest.TestCase):
         self.assertNotRegex(background, r"\bCONTENT_SCRIPT_VERSION\s*=")
         self.assertNotIn("Content script is stale", background)
         self.assertIn("Reloading Vendoo tab", background)
-        self.assertIn("'content-script-version.js', 'content-scripts/vendoo.js'", background)
+        self.assertIn(
+            "'content-script-version.js', 'content-scripts/update-all-buttons.js', 'content-scripts/vendoo.js'",
+            background,
+        )
 
         content = (EXTENSION_DIR / "content-scripts" / "vendoo.js").read_text(encoding="utf-8")
         self.assertIn("globalThis.CONTENT_SCRIPT_VERSION", content)
@@ -35,5 +38,11 @@ class ExtensionContentScriptVersionTest(unittest.TestCase):
             for entry in manifest["content_scripts"]
             if "content-scripts/vendoo.js" in entry["js"]
         )
-        self.assertEqual(vendoo_scripts[0], "content-script-version.js")
-        self.assertIn("content-scripts/vendoo.js", vendoo_scripts)
+        self.assertEqual(
+            vendoo_scripts[:3],
+            [
+                "content-script-version.js",
+                "content-scripts/update-all-buttons.js",
+                "content-scripts/vendoo.js",
+            ],
+        )
