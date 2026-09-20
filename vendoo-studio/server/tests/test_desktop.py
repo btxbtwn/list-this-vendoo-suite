@@ -123,22 +123,23 @@ class StudioWindowChromeTest(unittest.TestCase):
                 self.assertEqual(name, "AppIcon.png")
 
     def test_titlebar_matches_t3_code(self):
-        self.assertEqual(desktop.TITLEBAR_HEIGHT_PX, 38)
-        self.assertEqual(desktop.TRAFFIC_LIGHT_SIZE_PX, 12.0)
-        self.assertEqual(desktop.TRAFFIC_LIGHT_GAP_PX, 8.0)
+        self.assertEqual(desktop.TITLEBAR_HEIGHT_PX, 52)
+        self.assertEqual(desktop.TRAFFIC_LIGHT_SIZE_PX, 14.0)
+        self.assertEqual(desktop.TRAFFIC_LIGHT_GAP_PX, 6.0)
         self.assertEqual(desktop.TRAFFIC_LIGHT_X_PX, 16.0)
 
     def test_traffic_light_rect_matches_electron_hidden_inset(self):
-        close = desktop.traffic_light_rect(0, 38)
-        miniaturize = desktop.traffic_light_rect(1, 38)
-        zoom = desktop.traffic_light_rect(2, 38)
-        self.assertEqual(close, (16.0, 13.0, 12.0, 12.0))
-        self.assertEqual(miniaturize, (36.0, 13.0, 12.0, 12.0))
-        self.assertEqual(zoom, (56.0, 13.0, 12.0, 12.0))
+        """x=16 and a 19pt top inset: T3 Code's trafficLightPosition on a 52pt bar."""
+        close = desktop.traffic_light_rect(0, 52)
+        miniaturize = desktop.traffic_light_rect(1, 52)
+        zoom = desktop.traffic_light_rect(2, 52)
+        self.assertEqual(close, (16.0, 19.0, 14.0, 14.0))
+        self.assertEqual(miniaturize, (36.0, 19.0, 14.0, 14.0))
+        self.assertEqual(zoom, (56.0, 19.0, 14.0, 14.0))
 
     def test_traffic_light_rect_stays_in_t3_band_when_os_titlebar_is_taller(self):
-        close = desktop.traffic_light_rect(0, 52)
-        self.assertEqual(close, (16.0, 27.0, 12.0, 12.0))
+        close = desktop.traffic_light_rect(0, 64)
+        self.assertEqual(close, (16.0, 31.0, 14.0, 14.0))
 
     def test_create_studio_window_applies_chrome_before_show(self):
         class Event:
@@ -183,7 +184,7 @@ class StudioWindowChromeTest(unittest.TestCase):
         zoom = MagicMock()
         titlebar = MagicMock()
         container = MagicMock()
-        container.frame.return_value.size.height = 38.0
+        container.frame.return_value.size.height = 52.0
         close.superview.return_value = container
         native = MagicMock()
         native.styleMask.return_value = 0
@@ -200,7 +201,11 @@ class StudioWindowChromeTest(unittest.TestCase):
             NSWindowCloseButton=0,
             NSWindowMiniaturizeButton=1,
             NSWindowZoomButton=2,
-            NSControlSizeSmall=1,
+            NSWindowStyleMaskTitled=1 << 0,
+            NSWindowStyleMaskClosable=1 << 1,
+            NSWindowStyleMaskMiniaturizable=1 << 2,
+            NSWindowStyleMaskResizable=1 << 3,
+            NSWindowStyleMaskFullSizeContentView=1 << 15,
             NSFullScreenWindowMask=1 << 14,
             NSWindowCollectionBehaviorFullScreenNone=1 << 9,
             NSWindowCollectionBehaviorFullScreenPrimary=1 << 7,
@@ -227,10 +232,18 @@ class StudioWindowChromeTest(unittest.TestCase):
         close.setHidden_.assert_called_once_with(False)
         miniaturize.setHidden_.assert_called_once_with(False)
         zoom.setHidden_.assert_called_once_with(False)
-        close.setControlSize_.assert_called_once_with(1)
-        close.setFrame_.assert_called_once_with((16.0, 13.0, 12.0, 12.0))
-        miniaturize.setFrame_.assert_called_once_with((36.0, 13.0, 12.0, 12.0))
-        zoom.setFrame_.assert_called_once_with((56.0, 13.0, 12.0, 12.0))
+        # T3 Code leaves the buttons at their regular AppKit size.
+        close.setControlSize_.assert_not_called()
+        close.setEnabled_.assert_called_once_with(True)
+        miniaturize.setEnabled_.assert_called_once_with(True)
+        zoom.setEnabled_.assert_called_once_with(True)
+        close.setFrame_.assert_called_once_with((16.0, 19.0, 14.0, 14.0))
+        miniaturize.setFrame_.assert_called_once_with((36.0, 19.0, 14.0, 14.0))
+        zoom.setFrame_.assert_called_once_with((56.0, 19.0, 14.0, 14.0))
+        # Close, minimize, and zoom only respond when the mask carries their bits.
+        native.setStyleMask_.assert_called_once_with(
+            (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 15)
+        )
         titlebar.setBackgroundColor_.assert_called_once_with("clear")
 
     def test_apply_chrome_skips_layout_in_fullscreen(self):
