@@ -344,13 +344,18 @@ async def import_vendoo_draft(
 ) -> dict[str, Any]:
     """Save a Vendoo draft as the listing's current revision and pull its photos."""
     from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
-    from vendoo_studio.services.vendoo_create import resolve_label_display_names
+    from vendoo_studio.services.vendoo_create import (
+        LOOKUP_TIMEOUT_SEC,
+        resolve_label_display_names,
+    )
 
     conv_repo = ConversationRepo(db)
     listing_repo = ListingRepo(db)
     listing = listing_from_vendoo(item, form)
     if job is not None and listing.get("labels"):
-        listing["labels"] = await resolve_label_display_names(job, listing["labels"])
+        listing["labels"] = await resolve_label_display_names(
+            job, listing["labels"], timeout=LOOKUP_TIMEOUT_SEC
+        )
     current = listing_repo.get_current(conv_id)
     revision = listing_repo.save_revision(
         conv_id=conv_id,
@@ -684,10 +689,15 @@ async def import_vendoo_item(
     # Resolve opaque label ids now that a job can reach the seller's catalog.
     listing = result["listing"]
     if listing.get("labels"):
-        from vendoo_studio.services.vendoo_create import resolve_label_display_names
+        from vendoo_studio.services.vendoo_create import (
+            LOOKUP_TIMEOUT_SEC,
+            resolve_label_display_names,
+        )
         from vendoo_studio.repositories.queries import ListingRepo
 
-        named = await resolve_label_display_names(job, listing["labels"])
+        named = await resolve_label_display_names(
+            job, listing["labels"], timeout=LOOKUP_TIMEOUT_SEC
+        )
         if named != list(listing["labels"]):
             listing = {**listing, "labels": named}
             ListingRepo(db).save_revision(
