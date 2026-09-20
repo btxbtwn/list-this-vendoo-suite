@@ -19,8 +19,10 @@ from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, Listin
 from vendoo_studio.services import vendoo_bulk_import
 from vendoo_studio.services.vendoo_import import (
     import_vendoo_item,
+    merge_notes,
     parse_notes,
     vendoo_item_status,
+    vendoo_listed_marketplaces,
     vendoo_updated_at,
 )
 
@@ -74,6 +76,39 @@ class VendooItemStatusTest(unittest.TestCase):
         item = vendoo_item("a", title="Tee")
         item["listings"]["validate"] = {"status": {"listed": True}}
         self.assertEqual(vendoo_item_status(item), "draft")
+
+    def test_sale_record_counts_as_sold_after_vendoo_delists(self):
+        # Vendoo delists a sold item, leaving the listing flagged delisted; its
+        # own Inventory still reads the sale record and calls the item sold.
+        item = vendoo_item("a", title="Tee", status={"delisted": True})
+        item["saleRecord"] = {"marketplace": "poshmark", "price_sold": 24}
+        self.assertEqual(vendoo_item_status(item), "sold")
+
+    def test_sold_on_an_external_listing_counts(self):
+        item = vendoo_item("a", title="Tee")
+        item["externalListings"] = {"grailed": {"status": {"sold": True}}}
+        self.assertEqual(vendoo_item_status(item), "sold")
+
+    def test_listing_sales_count_as_sold(self):
+        item = vendoo_item("a", title="Tee", status={"listed": True})
+        item["listings"]["ebay"]["sales"] = [{"price_sold": 24}]
+        self.assertEqual(vendoo_item_status(item), "sold")
+
+    def test_empty_sale_record_is_not_a_sale(self):
+        item = vendoo_item("a", title="Tee")
+        item["saleRecord"] = {}
+        item["listings"]["ebay"]["sales"] = []
+        self.assertEqual(vendoo_item_status(item), "draft")
+
+    def test_external_listing_alone_does_not_make_an_item_active(self):
+        item = vendoo_item("a", title="Tee")
+        item["externalListings"] = {"grailed": {"status": {"listed": True}}}
+        self.assertEqual(vendoo_item_status(item), "draft")
+
+    def test_sale_record_marketplace_stands_in_for_the_cleared_flag(self):
+        item = vendoo_item("a", title="Tee", status={"delisted": True})
+        item["saleRecord"] = {"marketplace": "poshmark"}
+        self.assertEqual(vendoo_listed_marketplaces(item), ["poshmark"])
 
     def test_update_stamp_prefers_vendoos_own(self):
         item = vendoo_item("a", title="Tee", modified=1750000000000)
@@ -168,6 +203,28 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progress["imported"], 0)
         self.assertEqual(progress["updated"], 0)
         self.assertEqual(len(ConversationRepo(self.db).list_all()), 1)
+
+    async def test_rerun_relabels_an_item_studio_read_wrong_before(self):
+        # An item Studio labelled a draft under the old sold rule is put right
+        # on the next pass, even though Vendoo has not touched it since.
+        item = vendoo_item("a", title="Tee A", modified=5, status={"delisted": True})
+        item["saleRecord"] = {"marketplace": "poshmark", "price_sold": 24}
+        await self._run([[item]])
+
+        repo = ConversationRepo(self.db)
+        conv = repo.list_all()[0]
+        conv.notes = merge_notes(conv.notes, {"vendooStatus": "draft", "vendooMarketplaces": []})
+        repo.update_status(conv.id, "draft")
+        self.db.commit()
+
+        progress = await self._run([[item]])
+
+        self.assertEqual(progress["updated"], 1)
+        self.assertEqual(progress["skipped"], 0)
+        conv = ConversationRepo(self.db).list_all()[0]
+        self.assertEqual(conv.status, "sold")
+        self.assertEqual(parse_notes(conv.notes)["vendooStatus"], "sold")
+        self.assertEqual(parse_notes(conv.notes)["vendooMarketplaces"], ["poshmark"])
 
     async def test_rerun_updates_an_item_that_changed_in_vendoo(self):
         await self._run([[vendoo_item("a", title="Tee A", modified=5)]])

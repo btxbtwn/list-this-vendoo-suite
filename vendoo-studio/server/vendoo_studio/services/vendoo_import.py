@@ -388,27 +388,63 @@ async def import_vendoo_draft(
     }
 
 
+def _listing_entries(merged: dict[str, Any], *, external: bool = True) -> list[tuple[str, dict]]:
+    """The item's marketplace listings, Vendoo's ``validate`` pseudo-entry aside.
+
+    Vendoo keeps listings it posted under ``listings`` and ones the seller
+    recorded elsewhere under ``externalListings``; its own selectors read both
+    when deciding whether an item sold.
+    """
+    entries: list[tuple[str, dict]] = []
+    keys = ["listings", "externalListings"] if external else ["listings"]
+    for key in keys:
+        group = merged.get(key) if isinstance(merged.get(key), dict) else {}
+        for name, listing in group.items():
+            if name == "validate" or not isinstance(listing, dict):
+                continue
+            entries.append((name, listing))
+    return entries
+
+
+def vendoo_item_sold(item: dict | None, form: dict | None = None) -> bool:
+    """True when Vendoo counts the item as sold.
+
+    Vendoo's Inventory tab does not read a single flag: an item is sold when it
+    carries a sale record, when any listing carries sales, or when a listing --
+    posted by Vendoo or recorded externally -- is flagged sold or shipped. A
+    sale that Vendoo delisted afterwards keeps only the sale record, which is
+    why the listing flags alone read as a draft.
+    """
+    merged = _merge_payloads(form, item)
+    sale_record = merged.get("saleRecord")
+    if isinstance(sale_record, dict) and sale_record:
+        return True
+    for _name, listing in _listing_entries(merged):
+        status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
+        if status.get("sold") is True or status.get("shipped") is True:
+            return True
+        sales = listing.get("sales")
+        if isinstance(sales, list) and any(sale for sale in sales):
+            return True
+    return False
+
+
 def vendoo_item_status(item: dict | None, form: dict | None = None) -> str:
     """Vendoo's own inventory label for an item: ``draft``, ``active`` or ``sold``.
 
-    Vendoo derives the Inventory tabs from each marketplace listing's status
-    flags, so the label follows the item rather than anything Studio did.
+    Vendoo derives the Inventory tabs from the item's sale history and each
+    marketplace listing's status flags, so the label follows the item rather
+    than anything Studio did. Sold wins over listed, as Vendoo shows an item
+    that sold on one marketplace while live on another under both tabs.
     """
     merged = _merge_payloads(form, item)
-    listings = merged.get("listings") if isinstance(merged.get("listings"), dict) else {}
-    sold = False
-    listed = False
-    for name, listing in listings.items():
-        if name == "validate" or not isinstance(listing, dict):
-            continue
-        status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
-        if status.get("sold") is True or status.get("shipped") is True:
-            sold = True
-        if status.get("listed") is True:
-            listed = True
-    if sold:
+    if vendoo_item_sold(item, form):
         return "sold"
-    return "active" if listed else "draft"
+    for _name, listing in _listing_entries(merged, external=False):
+        status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
+        if status.get("listed") is True:
+            return "active"
+    return "draft"
 
 
 # Vendoo keys Vestiaire's API integration separately; Studio treats it as one marketplace.
@@ -419,17 +455,20 @@ def vendoo_listed_marketplaces(item: dict | None, form: dict | None = None) -> l
     """Marketplaces the item is live on, by Vendoo's own listing flags.
 
     Sold counts as listed: Vendoo keeps a sold listing on the marketplace it
-    sold from, and the Inventory filters still match it there.
+    sold from, and the Inventory filters still match it there. An item Vendoo
+    delisted after the sale keeps only its sale record, so that record's
+    marketplace stands in for the listing flag it cleared.
     """
     merged = _merge_payloads(form, item)
-    listings = merged.get("listings") if isinstance(merged.get("listings"), dict) else {}
     live: set[str] = set()
-    for name, listing in listings.items():
-        if name == "validate" or not isinstance(listing, dict):
-            continue
+    for name, listing in _listing_entries(merged, external=False):
         status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
         if status.get("listed") is True or status.get("sold") is True or status.get("shipped") is True:
             live.add(VENDOO_MARKETPLACE_ALIASES.get(name, name))
+    sale_record = merged.get("saleRecord") if isinstance(merged.get("saleRecord"), dict) else {}
+    sold_on = str(sale_record.get("marketplace") or "").strip()
+    if sold_on:
+        live.add(VENDOO_MARKETPLACE_ALIASES.get(sold_on, sold_on))
     return sorted(live)
 
 
