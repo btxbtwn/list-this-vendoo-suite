@@ -18,6 +18,9 @@ export interface SoldCompsReport {
 
 const INSTRUCTION =
   "Use these live results to set market price, then listing price = market × 1.35 (whole dollars).";
+const THIN_INSTRUCTION_RE = /^Only \d+ sold listings? found — too thin to price from\./;
+// Matches MIN_CONFIDENT_COMPS in server/vendoo_studio/services/sold_comps.py.
+const MIN_CONFIDENT_COMPS = 3;
 
 const RANGE_RE =
   /\$\s*(\d{1,4}(?:\.\d{1,2})?)\s*(?:[-–—]|to)\s*\$?\s*(\d{1,4}(?:\.\d{1,2})?)/i;
@@ -60,6 +63,7 @@ function isMetaLine(stripped: string): boolean {
   return (
     stripped === "Sold comps:" ||
     stripped === INSTRUCTION ||
+    THIN_INSTRUCTION_RE.test(stripped) ||
     stripped.startsWith("Query:") ||
     stripped.startsWith("Source:") ||
     stripped.startsWith("Market:")
@@ -166,9 +170,12 @@ function fallbackNote(text: string): string {
 export function SoldCompsCard({ text }: { text: string }) {
   const report = parseSoldComps(text);
   const note = report ? report.note : fallbackNote(text);
+  const count = report?.comps.length ?? 0;
+  const thin = count > 0 && count < MIN_CONFIDENT_COMPS;
   const meta = [
     report?.market ? `${report.market} market` : "",
     sourceLabel(report?.source || ""),
+    thin ? `only ${count} sold — too thin to price from` : "",
   ]
     .filter(Boolean)
     .join(" · ");

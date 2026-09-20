@@ -521,6 +521,9 @@ class ChatGPTCodexProvider:
                 "content": (
                     "You are researching sold prices for a secondhand marketplace listing. "
                     "Search the live web for recently sold comps on eBay, Poshmark, Mercari, Depop, and Etsy. "
+                    "Find as many as you can — aim for at least six across two or more of those "
+                    "marketplaces, up to fifteen. Run several searches with different wording rather "
+                    "than stopping at the first page of results. "
                     "Keep only specific sold items with a real sold price. Ignore how-to articles, "
                     "search pages, Terapeak marketing, and pricing guides. "
                     "Return JSON only in this shape: "

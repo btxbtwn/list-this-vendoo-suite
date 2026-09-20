@@ -9,6 +9,7 @@ from vendoo_studio.services.comp_research import (
     COMPS_TIMEOUT_NOTE,
     comps_search_available,
     comps_setup_note,
+    comps_confident,
     comps_usable,
     format_chatgpt_comps,
     research_sold_comps,
@@ -25,6 +26,10 @@ CHATGPT_COMPS = (
     "\n"
     "- $22 · eBay · Good · Levi's 511 Slim Shorts\n"
     "  https://www.ebay.com/itm/1\n"
+    "- $19 · Poshmark · Good · Levi's Slim Shorts\n"
+    "  https://poshmark.com/listing/2\n"
+    "- $25 · Mercari · Levi's 511 Shorts\n"
+    "  https://www.mercari.com/item/3\n"
     "\n"
     "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
 )
@@ -36,8 +41,24 @@ BRAVE_COMPS = (
     "\n"
     "- $22 · eBay · Levi's 511 Slim Shorts - Sold\n"
     "  https://www.ebay.com/itm/123\n"
+    "- $21 · Poshmark · Levi's Slim Shorts - Sold\n"
+    "  https://poshmark.com/listing/124\n"
+    "- $24 · Depop · Levi's 511 Shorts\n"
+    "  https://www.depop.com/products/125\n"
     "\n"
     "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
+)
+THIN_BRAVE_COMPS = (
+    "Sold comps:\n"
+    "Query: Levi's Slim shorts sold\n"
+    "Source: Brave Search\n"
+    "Market: $22\n"
+    "\n"
+    "- $22 · eBay · Levi's 511 Slim Shorts - Sold\n"
+    "  https://www.ebay.com/itm/123\n"
+    "\n"
+    "Only 1 sold listing found — too thin to price from. Treat it as a weak signal, "
+    "lean on an estimated baseline, and note pricing uncertainty in the description."
 )
 EMPTY_COMPS = format_sold_comps(
     SoldCompsReport(query="Levi's Slim shorts sold comps", source="ChatGPT web search")
@@ -51,6 +72,12 @@ class CompUsableTest(unittest.TestCase):
         self.assertFalse(comps_usable("Sold comps:\nSearch failed (timeout)."))
         self.assertFalse(comps_usable("Typical sold price $20"))
         self.assertTrue(comps_usable(CHATGPT_COMPS))
+
+    def test_confident_needs_three_sold_listings(self):
+        self.assertTrue(comps_usable(THIN_BRAVE_COMPS))
+        self.assertFalse(comps_confident(THIN_BRAVE_COMPS))
+        self.assertFalse(comps_confident(EMPTY_COMPS))
+        self.assertTrue(comps_confident(CHATGPT_COMPS))
 
 
 class CompAvailabilityTest(unittest.TestCase):
@@ -123,7 +150,9 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
         ):
             text = await research_sold_comps(ANALYSIS)
         brave.assert_awaited_once()
-        self.assertIn("site:ebay.com", brave.await_args.args[0])
+        queries = brave.await_args.args[0]
+        self.assertIn("site:ebay.com", queries[0])
+        self.assertTrue(any(query.endswith("site:poshmark.com") for query in queries))
         self.assertIn("Source: Brave Search", text)
 
     async def test_thin_chatgpt_result_uses_brave(self):
@@ -218,6 +247,38 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
             text = await research_sold_comps(ANALYSIS)
         self.assertIn("Source: ChatGPT web search", text)
         self.assertTrue(comps_usable(text))
+
+    async def test_one_comp_brave_waits_for_confident_chatgpt(self):
+        """A single Brave listing must not start the grace window."""
+        import asyncio
+
+        async def slow_chatgpt(_query: str) -> str:
+            await asyncio.sleep(0.2)
+            return CHATGPT_COMPS
+
+        with (
+            patch("vendoo_studio.services.comp_research.CHATGPT_GRACE_SEC", 0.05),
+            patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=slow_chatgpt),
+            patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=THIN_BRAVE_COMPS)),
+            patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
+        ):
+            text = await research_sold_comps(ANALYSIS)
+        self.assertIn("Source: ChatGPT web search", text)
+        self.assertTrue(comps_confident(text))
+
+    async def test_thin_comps_beat_an_empty_report(self):
+        """Nothing hits three, so keep the one real sold listing rather than a guess."""
+        with (
+            patch("vendoo_studio.services.comp_research.chatgpt_signed_in", return_value=True),
+            patch("vendoo_studio.services.comp_research.research_chatgpt_comps", new=AsyncMock(return_value=EMPTY_COMPS)),
+            patch("vendoo_studio.services.comp_research.research_brave_comps", new=AsyncMock(return_value=THIN_BRAVE_COMPS)),
+            patch("vendoo_studio.services.comp_research.get_brave_api_key", return_value="BSA-test"),
+        ):
+            text = await research_sold_comps(ANALYSIS)
+        self.assertIn("Source: Brave Search", text)
+        self.assertTrue(comps_usable(text))
+        self.assertFalse(comps_confident(text))
 
     async def test_skips_when_no_search_provider(self):
         with (

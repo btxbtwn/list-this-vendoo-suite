@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from vendoo_studio.services.brave_search import (
-    brave_sold_query,
+    brave_sold_queries,
     item_fields,
     research_brave_comps,
     sold_comps_query,
@@ -13,6 +13,7 @@ from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
 from vendoo_studio.services.keychain import get_brave_api_key
 from vendoo_studio.services.sold_comps import (
     SoldCompsReport,
+    comps_confident,
     comps_from_chatgpt,
     comps_usable,
     format_sold_comps,
@@ -23,7 +24,7 @@ log = logging.getLogger("vendoo_studio.comp_research")
 
 # Mobile generate SSE drops when comps stall for many minutes on the prior status.
 SOLD_COMPS_TIMEOUT_SEC = 90
-# How long a usable Brave result waits for ChatGPT comps before winning.
+# How long a confident Brave result waits for ChatGPT comps before winning.
 CHATGPT_GRACE_SEC = 15
 
 COMPS_SETUP_NOTE = (
@@ -82,7 +83,7 @@ async def research_chatgpt_comps(query: str) -> str:
 
 
 async def _research_sold_comps(analysis_text: str | None, evidence: dict | None = None) -> str:
-    """Search ChatGPT and Brave at once; prefer usable ChatGPT comps, else the first usable result."""
+    """Search ChatGPT and Brave at once; prefer confident ChatGPT comps, else the best result."""
     fields = item_fields(analysis_text, evidence)
     query = sold_comps_query(fields)
     if not query:
@@ -92,7 +93,7 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
     if chatgpt_signed_in():
         tasks["chatgpt"] = asyncio.create_task(research_chatgpt_comps(query))
     if get_brave_api_key():
-        tasks["brave"] = asyncio.create_task(research_brave_comps(brave_sold_query(fields) or query))
+        tasks["brave"] = asyncio.create_task(research_brave_comps(brave_sold_queries(fields) or [query]))
     if not tasks:
         return comps_setup_note()
 
@@ -115,18 +116,25 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
                 except Exception as exc:
                     log.warning("%s sold-comps search failed: %s", name, exc)
                     results[name] = ""
-            if comps_usable(results.get("chatgpt")):
+            if comps_confident(results.get("chatgpt")):
                 return results["chatgpt"]
-            # Only usable Brave listings start the grace window. A thin Brave
+            # Only a confident Brave result starts the grace window. A thin Brave
             # answer finishes in seconds while ChatGPT web search takes far
             # longer than the grace, so cutting ChatGPT off there turned every
-            # generation into "No sold listings found".
-            if comps_usable(results.get("brave")) and tasks.get("chatgpt") in pending:
+            # generation into "No sold listings found" — and one or two listings
+            # is not enough to price from anyway.
+            if comps_confident(results.get("brave")) and tasks.get("chatgpt") in pending:
                 chatgpt_deadline = chatgpt_deadline or loop.time() + CHATGPT_GRACE_SEC
     finally:
         for task in pending:
             task.cancel()
 
+    if comps_confident(results.get("brave")):
+        return results["brave"]
+    if comps_confident(results.get("chatgpt")):
+        return results["chatgpt"]
+    # Nothing reached the confident bar. One or two real sold listings still beat
+    # a pure guess, so keep them — format_sold_comps marks them as thin.
     if comps_usable(results.get("brave")):
         return results["brave"]
     if comps_usable(results.get("chatgpt")):
