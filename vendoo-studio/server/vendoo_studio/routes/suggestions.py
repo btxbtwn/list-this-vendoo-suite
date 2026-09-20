@@ -18,6 +18,7 @@ class SuggestionCard(BaseModel):
     action: str
     score: int
     cover_photo_url: str | None = None
+    age_days: int | None = None
 
 
 class SuggestionsResponse(BaseModel):

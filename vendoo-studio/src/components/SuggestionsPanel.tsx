@@ -17,6 +17,21 @@ export function suggestionKindLabel(kind: string): string {
   return SUGGESTION_KIND_LABELS[kind as SuggestionKind] || kind.replace(/_/g, " ");
 }
 
+export function staleAgeLabel(days: number): string {
+  return days === 1 ? "1 day" : `${days} days`;
+}
+
+export function suggestionCaption(
+  suggestion: Pick<Suggestion, "kind" | "age_days">,
+  compact: boolean,
+): string {
+  const label = suggestionKindLabel(suggestion.kind);
+  if (!compact || suggestion.kind !== "stale_active" || suggestion.age_days == null) {
+    return label;
+  }
+  return `${staleAgeLabel(suggestion.age_days)} · ${label}`;
+}
+
 export function SuggestionsPanel({
   variant,
   selectedConvId,
@@ -111,12 +126,12 @@ function SuggestionRow({
   compact: boolean;
   onSelect: (conversationId: string) => void;
 }) {
-  const label = suggestionKindLabel(suggestion.kind);
+  const label = suggestionCaption(suggestion, compact);
   return (
     <button
       type="button"
       className={`suggestion-row${compact ? " is-compact" : ""}${selected ? " selected" : ""}`}
-      title={`${label}. ${suggestion.reason}`}
+      title={`${suggestionKindLabel(suggestion.kind)}. ${suggestion.reason}`}
       onClick={() => onSelect(suggestion.conversation_id)}
     >
       <div className="nav-thumb" aria-hidden="true">
