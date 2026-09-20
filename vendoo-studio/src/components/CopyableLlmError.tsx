@@ -306,7 +306,7 @@ export function CopyableLlmError({
             )}
             <button
               type="button"
-              className="btn btn-sm"
+              className="btn btn-sm btn-secondary"
               disabled={!canFillEmpty}
               title={canFillEmpty
                 ? "Send empty listing fields to chat. Does not change Vendoo yet."
