@@ -114,6 +114,11 @@ def parse_notes(raw: str | None) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def split_vendoo_labels(raw: str | None) -> list[str]:
+    """Vendoo labels are stored on the conversation as one comma-separated string."""
+    return [label.strip() for label in str(raw or "").split(",") if label.strip()]
+
+
 def vendoo_binding(notes: str | None) -> dict[str, str]:
     data = parse_notes(notes)
     item_id = str(data.get("vendooItemId") or "").strip()
@@ -369,6 +374,28 @@ def vendoo_item_status(item: dict | None, form: dict | None = None) -> str:
     return "active" if listed else "draft"
 
 
+# Vendoo keys Vestiaire's API integration separately; Studio treats it as one marketplace.
+VENDOO_MARKETPLACE_ALIASES = {"vestiaireApi": "vestiaire"}
+
+
+def vendoo_listed_marketplaces(item: dict | None, form: dict | None = None) -> list[str]:
+    """Marketplaces the item is live on, by Vendoo's own listing flags.
+
+    Sold counts as listed: Vendoo keeps a sold listing on the marketplace it
+    sold from, and the Inventory filters still match it there.
+    """
+    merged = _merge_payloads(form, item)
+    listings = merged.get("listings") if isinstance(merged.get("listings"), dict) else {}
+    live: set[str] = set()
+    for name, listing in listings.items():
+        if name == "validate" or not isinstance(listing, dict):
+            continue
+        status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
+        if status.get("listed") is True or status.get("sold") is True or status.get("shipped") is True:
+            live.add(VENDOO_MARKETPLACE_ALIASES.get(name, name))
+    return sorted(live)
+
+
 def vendoo_updated_at(item: dict | None, form: dict | None = None) -> str:
     """The item's last Vendoo write, as a comparable string.
 
@@ -409,6 +436,7 @@ async def import_vendoo_item(
 
     listing = listing_from_vendoo(item, form)
     status = vendoo_item_status(item, form)
+    marketplaces = vendoo_listed_marketplaces(item, form)
     item_url = (url or "").strip() or f"https://web.vendoo.co/app/item/{item_id}"
     urls = image_urls_from_vendoo(item, form, image_urls)
 
@@ -422,6 +450,7 @@ async def import_vendoo_item(
         "vendooItemId": item_id,
         "vendooUrl": item_url,
         "vendooStatus": status,
+        "vendooMarketplaces": marketplaces,
         # Vendoo's own image stands in for the sidebar thumbnail when a photo
         # download did not make it.
         "vendooCoverUrl": urls[0] if urls else "",

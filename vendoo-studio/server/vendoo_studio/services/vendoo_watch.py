@@ -171,6 +171,7 @@ def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: st
     from vendoo_studio.services.vendoo_import import (
         merge_notes,
         vendoo_item_status,
+        vendoo_listed_marketplaces,
         vendoo_updated_at,
     )
 
@@ -188,6 +189,7 @@ def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: st
         SYNC_CONFLICT: "",
         # The listing wears Vendoo's label, so every sync refreshes it.
         "vendooStatus": vendoo_item_status(item, None),
+        "vendooMarketplaces": vendoo_listed_marketplaces(item, None),
         "vendooUpdatedAt": vendoo_updated_at(item, None),
     })
     db.commit()
