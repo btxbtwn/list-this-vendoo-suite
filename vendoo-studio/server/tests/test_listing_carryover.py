@@ -35,27 +35,57 @@ class CarryoverUpdatesTest(unittest.TestCase):
         listing = {
             "description": DESCRIPTION,
             "cost": 1.5,
+            "sku": "SAG-HARBOR-L",
+            "package_dimensions_in": "14x11x4",
+            "poshmark_specifics": {"originalPrice": 48},
             "labels": ["Bin 4", "Thrift"],
             "internal_notes": "Bought at the Goodwill bins",
         }
         self.assertEqual(carryover_updates(listing, {}), {
+            "sku": "SAG-HARBOR-L",
             "cog": "1.50",
+            "packageDimensions": "14x11x4",
+            "poshmarkOriginalPrice": "48",
             "vendooLabels": "Bin 4, Thrift",
             "sellerNotes": "Bought at the Goodwill bins",
             "knownFlaws": "small stain near the hem and a loose button",
             "descriptionMeasurements": 'Pit to pit 20"; Length 27"',
         })
 
+    def test_default_package_and_zero_posh_do_not_block_listing_values(self):
+        listing = {
+            "package_dimensions_in": "12x10x2",
+            "poshmark_specifics": {"originalPrice": 60},
+        }
+        notes = {"packageDimensions": "13x10x3", "poshmarkOriginalPrice": "0"}
+        self.assertEqual(carryover_updates(listing, notes), {
+            "packageDimensions": "12x10x2",
+            "poshmarkOriginalPrice": "60",
+        })
+
     def test_seller_entered_details_win(self):
         listing = {
             "description": DESCRIPTION,
             "cost": 1.5,
+            "sku": "FROM-LISTING",
+            "package_dimensions_in": "14x11x4",
+            "poshmark_specifics": {"originalPrice": 48},
             "labels": ["Bin 4"],
             "internal_notes": "From the bins",
         }
-        notes = {"cog": "3.00", "vendooLabels": "Rack B", "sellerNotes": "Mine"}
+        notes = {
+            "sku": "MINE-SKU",
+            "cog": "3.00",
+            "packageDimensions": "15x12x5",
+            "poshmarkOriginalPrice": "99",
+            "vendooLabels": "Rack B",
+            "sellerNotes": "Mine",
+        }
         updates = carryover_updates(listing, notes)
+        self.assertNotIn("sku", updates)
         self.assertNotIn("cog", updates)
+        self.assertNotIn("packageDimensions", updates)
+        self.assertNotIn("poshmarkOriginalPrice", updates)
         self.assertNotIn("vendooLabels", updates)
         self.assertNotIn("sellerNotes", updates)
         self.assertIn("knownFlaws", updates)

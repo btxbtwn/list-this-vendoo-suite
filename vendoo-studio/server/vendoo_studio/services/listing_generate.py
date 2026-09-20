@@ -607,6 +607,9 @@ def seller_item_details(notes: str | None) -> str:
     category = str(parsed.get("categoryOverride") or "").strip()
     if category:
         lines.append(f"- Category: {category}")
+    sku = str(parsed.get("sku") or "").strip()
+    if sku:
+        lines.append(f"- SKU: {sku} (keep this exact SKU)")
     labels = str(parsed.get("vendooLabels") or "").strip()
     if labels:
         lines.append(f"- Labels: {labels}")
@@ -725,6 +728,30 @@ def persist_generated_listing(
         if selected.get("marketplace_categories"):
             listing["category_path"] = selected["category_path"]
             listing["marketplace_categories"] = dict(selected["marketplace_categories"])
+    # Regenerate carries seller SKU / package size into notes; keep them on the
+    # new listing even if the model invents different values.
+    conv = repo.get(conv_id)
+    if conv:
+        from vendoo_studio.services.vendoo_import import parse_notes
+
+        seller = parse_notes(conv.notes)
+        seller_sku = str(seller.get("sku") or "").strip()
+        if seller_sku:
+            listing["sku"] = seller_sku
+        package = str(seller.get("packageDimensions") or "").strip()
+        if package:
+            listing["package_dimensions_in"] = package
+        posh_raw = str(seller.get("poshmarkOriginalPrice") or "").strip()
+        try:
+            posh = float(posh_raw) if posh_raw else 0.0
+        except ValueError:
+            posh = 0.0
+        if posh > 0:
+            specifics = listing.get("poshmark_specifics")
+            if not isinstance(specifics, dict):
+                specifics = {}
+            specifics["originalPrice"] = posh
+            listing["poshmark_specifics"] = specifics
     ListingRepo(db).save_revision(conv_id, listing, source=source)
 
     if announce:

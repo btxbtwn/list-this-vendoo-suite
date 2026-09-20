@@ -208,11 +208,13 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         notes = json.dumps({
             "condition": "Good",
             "categoryOverride": "Clothing > Women > Tops",
+            "sku": "SAG-HARBOR-L",
             "vendooLabels": "A19, DomStaleInventory",
             "cog": "1.72",
         })
         details = seller_item_details(notes)
         self.assertIn("Category: Clothing > Women > Tops", details)
+        self.assertIn("SKU: SAG-HARBOR-L", details)
         self.assertIn("Labels: A19, DomStaleInventory", details)
 
     def test_listing_formula_rules_come_from_skill(self):

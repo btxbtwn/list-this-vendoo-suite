@@ -1032,7 +1032,7 @@ class JobSafetyRouteTest(unittest.TestCase):
 
 
 class ImportIntegrityTest(unittest.TestCase):
-    def test_keeps_root_label_ids_and_names(self):
+    def test_resolves_root_label_ids_to_names(self):
         item = {
             "itemID": "abc123",
             "labels": ["UOYZA8oYMxY5fwBzyP2Q"],
@@ -1046,7 +1046,8 @@ class ImportIntegrityTest(unittest.TestCase):
             },
         }
         listing = listing_from_vendoo(item, None)
-        self.assertIn("UOYZA8oYMxY5fwBzyP2Q", listing["labels"])
+        # Opaque Firestore ids become display names when labelDetails is present.
+        self.assertNotIn("UOYZA8oYMxY5fwBzyP2Q", listing["labels"])
         self.assertIn("To List", listing["labels"])
         self.assertIn("A19", listing["labels"])
         self.assertEqual(listing["primaryColor"], "Multi")

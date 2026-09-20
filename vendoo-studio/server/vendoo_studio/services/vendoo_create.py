@@ -573,6 +573,35 @@ async def resolve_listing_labels(job, listing: dict[str, Any]) -> tuple[dict[str
     return {**listing, "labels": [str(i) for i in ids if i]}, []
 
 
+async def resolve_label_display_names(job, labels: list[Any]) -> list[str]:
+    """Replace Vendoo label ids with the seller-facing names from their catalog.
+
+    Import and Regenerate carryover otherwise leave opaque Firestore ids in Item
+    Details. Names that are already names pass through unchanged.
+    """
+    cleaned = [str(label).strip() for label in (labels or []) if str(label).strip()]
+    if not cleaned or job is None:
+        return cleaned
+    try:
+        reply = await run_ops(job, [{"op": "list_labels"}])
+        catalog = _result(reply, "list_labels").get("labels") or []
+    except (VendooCreateError, BrowserBridgeError) as exc:
+        log.warning("Vendoo label catalog not loaded: %s", exc)
+        return cleaned
+    by_id: dict[str, str] = {}
+    if isinstance(catalog, list):
+        for row in catalog:
+            if not isinstance(row, dict):
+                continue
+            label_id = str(row.get("id") or "").strip()
+            name = str(row.get("name") or "").strip()
+            if label_id and name:
+                by_id[label_id] = name
+    if not by_id:
+        return cleaned
+    return [by_id.get(label, label) for label in cleaned]
+
+
 async def create_item(
     job,
     listing: dict[str, Any],

@@ -2,10 +2,11 @@
 
 Regenerate throws away the listing and generates a new one from the photos and
 Item Details. Anything the seller typed into Item Details survives that on its
-own, but the facts that only ever lived on the listing — Vendoo's cost of goods,
-labels and internal notes on an imported item, and the measurements and flaws
-written into the description — would be lost. Carrying them into Item Details
-first puts them back in front of the generator as seller-provided facts.
+own, but the facts that only ever lived on the listing — SKU, package size,
+Poshmark original price, Vendoo's cost of goods, labels and internal notes on
+an imported item, and the measurements and flaws written into the description —
+would be lost. Carrying them into Item Details first puts them back in front of
+the generator as seller-provided facts.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from typing import Any
 _BLOCK_TEMPLATE = r"(?is)\b{marker}\s*:\s*(.+?)(?=\n\s*\n|\n\s*[A-Za-z][A-Za-z /]{{1,20}}\s*:|\Z)"
 _NO_FLAWS_RE = re.compile(r"(?i)^(?:none|no known|no visible|nothing)\b")
 _DIGIT_RE = re.compile(r"\d")
+
+DEFAULT_PACKAGE_DIMENSIONS = "13x10x3"
 
 
 def description_block(description: Any, marker: str) -> str:
@@ -53,6 +56,19 @@ def _money(value: Any) -> str:
     return f"{amount:.2f}" if amount > 0 else ""
 
 
+def _poshmark_original(listing: dict) -> str:
+    specifics = listing.get("poshmark_specifics")
+    if not isinstance(specifics, dict):
+        return ""
+    try:
+        amount = float(specifics.get("originalPrice"))
+    except (TypeError, ValueError):
+        return ""
+    if amount <= 0:
+        return ""
+    return str(int(amount)) if amount == int(amount) else f"{amount:.2f}"
+
+
 def carryover_updates(listing: dict | None, notes: dict) -> dict[str, str]:
     """Item Details updates that keep ``listing``'s seller facts alive.
 
@@ -64,10 +80,27 @@ def carryover_updates(listing: dict | None, notes: dict) -> dict[str, str]:
         return {}
     updates: dict[str, str] = {}
 
+    if not str(notes.get("sku") or "").strip():
+        sku = str(listing.get("sku") or "").strip()
+        if sku:
+            updates["sku"] = sku
+
     if not str(notes.get("cog") or "").strip():
         cost = _money(listing.get("cost"))
         if cost:
             updates["cog"] = cost
+
+    notes_pkg = str(notes.get("packageDimensions") or "").strip()
+    if not notes_pkg or notes_pkg == DEFAULT_PACKAGE_DIMENSIONS:
+        listing_pkg = str(listing.get("package_dimensions_in") or "").strip()
+        if listing_pkg and listing_pkg != DEFAULT_PACKAGE_DIMENSIONS:
+            updates["packageDimensions"] = listing_pkg
+
+    notes_posh = str(notes.get("poshmarkOriginalPrice") or "").strip()
+    if not notes_posh or notes_posh == "0":
+        posh = _poshmark_original(listing)
+        if posh:
+            updates["poshmarkOriginalPrice"] = posh
 
     if not str(notes.get("vendooLabels") or "").strip():
         labels = listing.get("labels")

@@ -89,6 +89,12 @@ def prepare_listing_snapshot(
     labels = split_vendoo_labels(conv_notes.get("vendooLabels"))
     if labels:
         listing_snapshot["labels"] = labels
+    seller_sku = str(conv_notes.get("sku") or "").strip()
+    if seller_sku:
+        listing_snapshot["sku"] = seller_sku
+    package = str(conv_notes.get("packageDimensions") or "").strip()
+    if package:
+        listing_snapshot["package_dimensions_in"] = package
     # Item Details COG and Notes are Vendoo's Cost of Goods and Internal Notes.
     cog_raw = str(conv_notes.get("cog") or "").strip()
     try:

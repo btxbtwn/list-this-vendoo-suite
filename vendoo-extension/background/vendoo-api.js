@@ -722,6 +722,9 @@ async function runVendooApiOps(ops) {
         case 'category_search':
           results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
           break;
+        case 'list_labels':
+          results.push({ op: 'list_labels', ok: true, labels: await listVendooLabels(session) });
+          break;
         case 'resolve_labels':
           results.push({ op: 'resolve_labels', ok: true, ...(await resolveVendooLabels(session, op)) });
           break;
