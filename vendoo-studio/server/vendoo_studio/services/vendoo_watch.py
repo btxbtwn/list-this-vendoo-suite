@@ -7,6 +7,12 @@ Studio, so a pull only happens when Studio has nothing of its own outstanding.
 When both sides moved, neither wins automatically — the conversation is
 recorded as conflicted and left to the seller.
 
+The inventory *label* (draft / active / sold) is different: it is Vendoo's
+own tab for the item, not Studio's listing copy. Every successful ``get_item``
+refreshes that label and the sidebar status, even when content is conflicted —
+so a regenerate-then-relist in Vendoo flips Studio back to active without a
+button.
+
 Syncs run when the seller saves in Vendoo (the extension says so), when a
 listing is opened, and when Studio regains focus — never on a timer. Each one
 stamps the conversation so the editor can show when it last checked.
@@ -21,7 +27,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
+from vendoo_studio.repositories.queries import (
+    BUSY_LISTING_STATUSES,
+    ConversationRepo,
+    JobRepo,
+    ListingRepo,
+    VENDOO_LISTING_STATUSES,
+)
 
 log = logging.getLogger("vendoo_studio.vendoo_watch")
 
@@ -37,6 +49,7 @@ __all__ = [
     "apply_pull",
     "studio_has_unpushed_edits",
     "cache_pulled_item",
+    "refresh_inventory_label",
     "SYNCED_AT",
     "SYNCED_REVISION",
     "CHECKED_AT",
@@ -166,15 +179,43 @@ def apply_pull(
     return revision.id
 
 
-def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: str | None) -> None:
-    """Record the Vendoo stamp and revision this conversation is level with."""
+def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> str:
+    """Adopt Vendoo's draft / active / sold label without touching listing fields.
+
+    Safe during a content conflict: the sidebar tab is Vendoo's inventory state,
+    not Studio's form copy. Returns the label applied.
+    """
     from vendoo_studio.services.vendoo_import import (
         merge_notes,
+        vendoo_dates,
         vendoo_item_status,
         vendoo_listed_marketplaces,
-        vendoo_dates,
         vendoo_updated_at,
     )
+
+    repo = ConversationRepo(db)
+    conv = repo.get(conv_id)
+    if not conv:
+        return "draft"
+    status = vendoo_item_status(item, None)
+    if status not in VENDOO_LISTING_STATUSES:
+        status = "draft"
+    conv.notes = merge_notes(conv.notes, {
+        "vendooStatus": status,
+        "vendooMarketplaces": vendoo_listed_marketplaces(item, None),
+        "vendooDates": vendoo_dates(item, None),
+        "vendooUpdatedAt": vendoo_updated_at(item, None),
+    })
+    db.commit()
+    # A send in flight owns the row; leave its label alone until it settles.
+    if conv.status not in BUSY_LISTING_STATUSES and conv.status != status:
+        repo.update_status(conv_id, status)
+    return status
+
+
+def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: str | None) -> None:
+    """Record the Vendoo stamp and revision this conversation is level with."""
+    from vendoo_studio.services.vendoo_import import merge_notes
 
     repo = ConversationRepo(db)
     conv = repo.get(conv_id)
@@ -183,24 +224,25 @@ def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: st
     stamp = _stamp((item or {}).get("dateLastModified")) or int(
         datetime.now(UTC).timestamp() * 1000
     )
+    refresh_inventory_label(db, conv_id, item)
+    db.refresh(conv)
     conv.notes = merge_notes(conv.notes, {
         SYNCED_AT: str(stamp),
         SYNCED_REVISION: str(revision_id or ""),
         CHECKED_AT: datetime.now(UTC).isoformat(),
         SYNC_CONFLICT: "",
-        # The listing wears Vendoo's label, so every sync refreshes it.
-        "vendooStatus": vendoo_item_status(item, None),
-        "vendooMarketplaces": vendoo_listed_marketplaces(item, None),
-        "vendooDates": vendoo_dates(item, None),
-        "vendooUpdatedAt": vendoo_updated_at(item, None),
     })
     db.commit()
 
 
-def _mark_conflict(db: Session, conv_id: str) -> None:
-    """Both sides moved: record the check without taking either version."""
+def _mark_conflict(db: Session, conv_id: str, item: dict[str, Any]) -> None:
+    """Both sides moved: keep Studio's fields, still take Vendoo's inventory label."""
     from vendoo_studio.services.vendoo_import import merge_notes
 
+    refresh_inventory_label(db, conv_id, item)
+    # Marketplace chips read the job draft cache; refresh them without saving
+    # a listing revision so the form stays Studio's.
+    cache_pulled_item(db, conv_id, item, source="vendoo_label")
     conv = ConversationRepo(db).get(conv_id)
     if not conv:
         return
@@ -215,12 +257,13 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
     """Read the bound Vendoo item and pull it when that is safe.
 
     ``action`` is ``pull`` (Studio took Vendoo's version), ``conflict`` (both
-    sides moved; nothing was overwritten), ``none``, or ``unavailable`` (Chrome
-    or Vendoo could not be reached; nothing was recorded).
+    sides moved; listing fields were not overwritten), ``none``, or
+    ``unavailable`` (Chrome or Vendoo could not be reached; nothing was
+    recorded). Inventory labels refresh on every successful read.
     """
     from vendoo_studio.services.browser_bridge import BrowserBridgeError
     from vendoo_studio.services.vendoo_create import VendooCreateError, run_ops
-    from vendoo_studio.services.vendoo_import import vendoo_binding
+    from vendoo_studio.services.vendoo_import import parse_notes, vendoo_binding
 
     lock = _locks.setdefault(conv_id, asyncio.Lock())
     async with lock:
@@ -243,9 +286,12 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
         if state["action"] == "pull":
             result["revision_id"] = apply_pull(db, conv_id, item)
         elif state["action"] == "conflict":
-            _mark_conflict(db, conv_id)
+            _mark_conflict(db, conv_id, item)
         else:
             mark_synced(db, conv_id, item, state.get("revision"))
+        db.expire_all()
+        conv = ConversationRepo(db).get(conv_id)
+        result["vendoo_status"] = str(parse_notes(conv.notes if conv else None).get("vendooStatus") or "draft")
         return result
 
 

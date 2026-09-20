@@ -276,6 +276,18 @@ export interface VendooBulkImport {
   failures: { item_id: string; title: string; error: string }[];
 }
 
+/** Quiet pass that only refreshes draft / active / sold for bound listings. */
+export interface VendooLabelSync {
+  running: boolean;
+  checked: number;
+  updated: number;
+  skipped: boolean;
+  reason: string;
+  started_at: string;
+  finished_at: string;
+  error: string;
+}
+
 export interface Suggestion {
   conversation_id: string;
   kind: SuggestionKind;

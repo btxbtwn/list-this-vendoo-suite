@@ -77,3 +77,18 @@ def bulk_import_status():
 @router.post("/vendoo/bulk/cancel")
 def cancel_bulk_import():
     return {"ok": vendoo_bulk_import.cancel(), **vendoo_bulk_import.status()}
+
+
+@router.post("/vendoo/labels")
+async def start_label_sync():
+    """Re-read draft / active / sold for every bound listing from Vendoo's inventory."""
+    from vendoo_studio.services import vendoo_label_sync
+
+    return vendoo_label_sync.start()
+
+
+@router.get("/vendoo/labels")
+def label_sync_status():
+    from vendoo_studio.services import vendoo_label_sync
+
+    return vendoo_label_sync.status()
