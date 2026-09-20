@@ -116,6 +116,46 @@ export interface RevisionRestoreResult extends OkResponse {
   revision_id: string;
 }
 
+export interface PriceDropHistoryEvent {
+  from_price: number;
+  to_price: number;
+  percent: number;
+  created_at: string;
+  revision_id: string;
+}
+
+export interface PriceDropComps {
+  available: boolean;
+  text: string;
+  market: string;
+  market_midpoint: number | null;
+  target_price: number | null;
+  source: string;
+  query: string;
+}
+
+export interface PriceDropPreview {
+  current_price: number;
+  first_price: number;
+  suggested_percent: number;
+  suggested_price: number;
+  suggested_mode: "percent" | "comps" | string;
+  suggested_reason: string;
+  percent_options: number[];
+  prices_by_percent: Record<string, number>;
+  comps: PriceDropComps;
+  history: PriceDropHistoryEvent[];
+}
+
+export interface PriceDropApplyResult extends OkResponse {
+  revision_id: string;
+  price: number;
+  previous_price: number | null;
+  percent: number | null;
+  mode: string;
+  validation: ValidationResult;
+}
+
 export interface Job {
   id: string;
   conversation_id: string;

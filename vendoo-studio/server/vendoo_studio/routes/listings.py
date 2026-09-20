@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import copy
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from vendoo_studio.database import get_db
 from vendoo_studio.models.validation import normalize_listing_dropdowns, validate_listing
 from vendoo_studio.repositories.queries import ListingRepo, ConversationRepo
+from vendoo_studio.services.price_drop import (
+    PRICE_DROP_SOURCE,
+    apply_price_to_listing,
+    build_preview,
+    listing_price,
+    whole_dollars,
+)
 
 router = APIRouter(tags=["listings"])
 
@@ -210,3 +218,94 @@ def restore_revision(conv_id: str, revision_id: str, db: Session = Depends(get_d
         parent_revision_id=current.current_revision_id if current else None,
     )
     return {"ok": True, "revision_id": new_revision.id}
+
+
+class PriceDropApply(BaseModel):
+    price: float = Field(..., gt=0)
+    percent: float | None = None
+    mode: Literal["percent", "comps", "custom"] = "custom"
+
+
+def _current_listing(conv_id: str, db: Session) -> tuple[dict, list]:
+    conv_repo = ConversationRepo(db)
+    if not conv_repo.get(conv_id):
+        raise HTTPException(404, "Conversation not found")
+    listing_repo = ListingRepo(db)
+    revisions = listing_repo.get_revisions(conv_id)
+    if not revisions or not isinstance(revisions[0].listing_json, dict):
+        raise HTTPException(400, "Listing has no price to drop")
+    listing = copy.deepcopy(revisions[0].listing_json)
+    if listing_price(listing) is None:
+        raise HTTPException(400, "Listing has no price to drop")
+    return listing, revisions
+
+
+@router.post("/api/conversations/{conv_id}/price-drop/preview")
+async def preview_price_drop(conv_id: str, db: Session = Depends(get_db)):
+    """Live comps + history-aware suggestion. Does not change the listing."""
+    from vendoo_studio.services.listing_generate import latest_photo_analysis
+
+    listing, revisions = _current_listing(conv_id, db)
+    analysis = latest_photo_analysis(ConversationRepo(db).get_messages(conv_id))
+    try:
+        return await build_preview(listing, revisions, analysis_text=analysis)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/api/conversations/{conv_id}/price-drop")
+def apply_price_drop(conv_id: str, body: PriceDropApply, db: Session = Depends(get_db)):
+    """Apply a confirmed whole-dollar price; records a ``price_drop`` revision."""
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.repositories.queries import JobRepo
+    from vendoo_studio.services.listing_generate import (
+        propagate_general_size,
+        sanitize_listing_sizes,
+    )
+    from vendoo_studio.services.schema_probe import is_schema_probe_job
+
+    listing, _revisions = _current_listing(conv_id, db)
+    current = listing_price(listing)
+    target = whole_dollars(body.price)
+    if current is not None and target >= current:
+        raise HTTPException(400, "New price must be lower than the current price")
+
+    listing_repo = ListingRepo(db)
+    current_row = listing_repo.get_current(conv_id)
+    updated = apply_price_to_listing(listing, target)
+    sanitize_listing_sizes(updated)
+    propagate_general_size(updated)
+    normalize_listing_dropdowns(updated)
+
+    photo_count = len(ConversationRepo(db).get_photos(conv_id))
+    validation = validate_listing(updated, photo_count, require_photos=True)
+    revision = listing_repo.save_revision(
+        conv_id=conv_id,
+        listing_json=updated,
+        source=PRICE_DROP_SOURCE,
+        parent_revision_id=current_row.current_revision_id if current_row else None,
+    )
+    if current_row:
+        current_row.validation_status = "valid" if validation.valid else "error"
+        current_row.validation_errors = validation.errors + validation.warnings
+
+    refresh_statuses = set(ACTIVE_JOB_STATUSES) | {"failed"}
+    for job in JobRepo(db).list_by_conversation(conv_id):
+        if job.status not in refresh_statuses or is_schema_probe_job(job):
+            continue
+        platforms = (job.listing_snapshot or {}).get("platforms") if isinstance(job.listing_snapshot, dict) else None
+        snapshot = dict(updated)
+        if isinstance(platforms, list):
+            snapshot["platforms"] = platforms
+        job.listing_snapshot = snapshot
+
+    db.commit()
+    return {
+        "ok": True,
+        "revision_id": revision.id,
+        "price": target,
+        "previous_price": current,
+        "percent": body.percent,
+        "mode": body.mode,
+        "validation": validation.model_dump(),
+    }

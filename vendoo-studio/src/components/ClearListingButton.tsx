@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
 import { queueChatGenerate, resetChatLive, useChatBusy } from "./ChatPanel";
+import { RegeneratePriceDialog } from "./RegeneratePriceDialog";
 
 const CLEAR_WARNING = [
   "Clear this listing and start over?",
@@ -78,7 +80,15 @@ export function ClearListingButton({
   );
 }
 
-/** Throw away chat and generated fields, then generate again from the same photos and notes. */
+function listingHasPrice(listing: Record<string, unknown> | undefined): boolean {
+  if (!listing) return false;
+  const raw = listing.price;
+  const amount = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(amount) && amount > 0;
+}
+
+/** When the listing has a price, opens the comps/percent drop chooser.
+ *  Otherwise (or via Full regenerate) wipes chat and generates again. */
 export function RegenerateListingButton({
   convId,
   className,
@@ -90,11 +100,18 @@ export function RegenerateListingButton({
 }) {
   const queryClient = useQueryClient();
   const busy = useChatBusy(convId);
+  const [priceDialogOpen, setPriceDialogOpen] = useState(false);
   const { data: photos } = useQuery({
     queryKey: ["photos", convId],
     queryFn: () => api.conversations.photos(convId),
   });
+  const { data: listingData } = useQuery({
+    queryKey: ["listing", convId],
+    queryFn: () => api.listings.get(convId),
+  });
   const hasPhotos = Boolean(photos?.length);
+  const hasPrice = listingHasPrice(listingData?.listing);
+
   const regenerate = useMutation({
     mutationFn: async () => {
       resetChatLive(convId);
@@ -116,26 +133,47 @@ export function RegenerateListingButton({
     },
   });
 
+  async function confirmFullRegenerate() {
+    const confirmed = await confirmDialog(REGENERATE_WARNING, {
+      variant: "destructive",
+      confirmLabel: "Regenerate",
+    });
+    if (!confirmed) return;
+    regenerate.mutate();
+  }
+
   return (
-    <button
-      type="button"
-      className={className || "btn btn-ghost btn-sm"}
-      disabled={regenerate.isPending || busy || !hasPhotos}
-      title={!hasPhotos
-        ? "Add photos to generate a listing"
-        : busy
-          ? "Wait for the current generation to finish"
-          : "Discard chat and generated fields, then generate again from the same photos and item details"}
-      onClick={async () => {
-        const confirmed = await confirmDialog(REGENERATE_WARNING, {
-          variant: "destructive",
-          confirmLabel: "Regenerate",
-        });
-        if (!confirmed) return;
-        regenerate.mutate();
-      }}
-    >
-      {regenerate.isPending ? "Resetting..." : "Regenerate"}
-    </button>
+    <>
+      <button
+        type="button"
+        className={className || "btn btn-ghost btn-sm"}
+        disabled={regenerate.isPending || busy || !hasPhotos}
+        title={!hasPhotos
+          ? "Add photos to generate a listing"
+          : busy
+            ? "Wait for the current generation to finish"
+            : hasPrice
+              ? "Drop the price with live comps, or regenerate the listing from scratch"
+              : "Discard chat and generated fields, then generate again from the same photos and item details"}
+        onClick={() => {
+          if (hasPrice) {
+            setPriceDialogOpen(true);
+            return;
+          }
+          void confirmFullRegenerate();
+        }}
+      >
+        {regenerate.isPending ? "Resetting..." : "Regenerate"}
+      </button>
+
+      <RegeneratePriceDialog
+        convId={convId}
+        open={priceDialogOpen}
+        onClose={() => setPriceDialogOpen(false)}
+        onFullRegenerate={() => {
+          void confirmFullRegenerate();
+        }}
+      />
+    </>
   );
 }

@@ -72,6 +72,135 @@
   flex: 0 0 auto;
 }
 
+.price-drop-footer {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.price-drop-footer-end {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ── Drop price dialog ── */
+
+.price-drop-popup {
+  max-width: 36rem;
+}
+
+.price-drop-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 24px 20px;
+  overflow: auto;
+  max-height: min(60vh, 28rem);
+}
+
+.price-drop-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.price-drop-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.price-drop-label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.price-drop-summary strong {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.price-drop-reason,
+.price-drop-status {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.price-drop-status.is-error {
+  color: var(--color-danger, #c44);
+}
+
+.price-drop-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.price-drop-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.price-drop-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.price-drop-chip {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-paper);
+  color: var(--color-text);
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.price-drop-chip:hover {
+  background: var(--color-ink-hover);
+}
+
+.price-drop-chip.is-active {
+  border-color: var(--color-accent, #346bf1);
+  background: color-mix(in srgb, var(--color-accent, #346bf1) 16%, transparent);
+}
+
+.price-drop-chip-wide {
+  width: 100%;
+  text-align: left;
+}
+
+.price-drop-custom {
+  width: 8rem;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-paper);
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.price-drop-history {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.price-drop-body .sold-comps-card {
+  margin-top: 4px;
+}
+
 /* ── Toasts (T3 stacked toasts) ── */
 
 .toast-viewport {
