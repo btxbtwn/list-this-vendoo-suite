@@ -9,6 +9,15 @@ import { ItemDetails } from "./ItemDetails";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { SendProgress, useSendStep } from "./SendProgress";
 import { VendooSyncStatus } from "./VendooSyncStatus";
+import { OpenListingButton } from "./OpenListingButton";
+import { marketplaceName } from "./marketplaceNames";
+import {
+  describeMarketplaces,
+  joinMarketplaces,
+  marketplacesNeedingRelist,
+  relistCallout,
+  relistStage,
+} from "./relistStatus";
 import {
   DEPOP_CATEGORY_OPTIONALS,
   EBAY_CATEGORY_OPTIONALS,
@@ -201,6 +210,31 @@ export function ListingEditor({
   const importedItemId = listingJob?.vendoo_item_id || notesVendooItemId(conversation?.notes);
   const importedUrl = listingJob?.vendoo_url || notesVendooUrl(conversation?.notes);
 
+  // Studio writes the Vendoo *form*. Vendoo carries a form change onto a live
+  // marketplace listing only when the seller delists and relists it there, so
+  // the app says which listings are still on the old copy instead of leaving a
+  // regenerated item reading as though it were published.
+  const relistMarketplaces = React.useMemo(
+    () => marketplacesNeedingRelist(conversation).map(marketplaceName),
+    [conversation],
+  );
+  // Which half is left. After Delist Item the item is live nowhere, which the
+  // banner has to say plainly — that is the state most easily walked away from.
+  const stage = React.useMemo(() => relistStage(conversation), [conversation]);
+  const relistDone = useMutation({
+    mutationFn: () => api.vendooApi.relistDone(convId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+  const liveMarketplaces = React.useMemo(() => {
+    const sold = conversation?.vendoo_sold_dates || {};
+    return (conversation?.vendoo_marketplaces || [])
+      .filter((id) => !sold[id])
+      .map(marketplaceName);
+  }, [conversation]);
+
   React.useEffect(() => {
     if (importedItemId && listingJob?.status === "imported") {
       onReviewTabChange("fields");
@@ -268,6 +302,45 @@ export function ListingEditor({
           onChange={onReviewTabChange}
         />
       </div>
+
+      {relistMarketplaces.length > 0 && (
+        <div
+          className="pr-notice is-relist"
+          role="status"
+          // The sentence says how many; the tooltip says which.
+          title={`Waiting on a relist: ${relistMarketplaces.join(", ")}`}
+        >
+          <div className="pr-notice-body">
+            <strong>
+              {stage === "list" ? "List it again to finish." : "Relist in Vendoo to publish this edit."}
+            </strong>{" "}
+            {relistCallout(relistMarketplaces, stage)}{" "}
+            {stage === "list"
+              ? "In Vendoo, list the item again and this clears itself."
+              : "In Vendoo, the ⋮ menu beside Vendoo Form has Delist Item — it takes the item off"
+                + " every marketplace at once. List it again after that."}
+          </div>
+          <div className="pr-notice-actions">
+            {listingJob ? (
+              <OpenListingButton
+                className="btn btn-secondary btn-sm pr-notice-action"
+                jobId={listingJob.id}
+                vendooItemId={importedItemId}
+                vendooUrl={importedUrl}
+              />
+            ) : null}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm pr-notice-action"
+              disabled={relistDone.isPending}
+              title="Stop reminding me — the listing is handled"
+              onClick={() => relistDone.mutate()}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
 
       {schemaProbeActive && (
         <div className="pr-notice" role="status">
@@ -365,6 +438,7 @@ export function ListingEditor({
           listing={listing}
           listingTitle={listingTitle}
           selectedMarketplaces={marketplaceSettings?.selected}
+          liveMarketplaces={liveMarketplaces}
           vendooItemId={importedItemId}
           onJobStarted={onJobStarted}
           onAskChat={askChat}
@@ -758,6 +832,7 @@ function SendToVendooButton({
   listing,
   listingTitle,
   selectedMarketplaces,
+  liveMarketplaces,
   vendooItemId,
   onJobStarted,
   onAskChat,
@@ -768,6 +843,8 @@ function SendToVendooButton({
   listing?: Record<string, unknown>;
   listingTitle?: string;
   selectedMarketplaces?: string[];
+  /** Marketplaces already carrying this item, named for the copy under Send. */
+  liveMarketplaces?: string[];
   vendooItemId?: string | null;
   onJobStarted?: () => void;
   onAskChat?: (text: string) => void;
@@ -839,12 +916,23 @@ function SendToVendooButton({
             : "Draft created with marketplace fields filled.",
         });
       } else {
+        // A write onto a live item is only half the job, and the half that is
+        // left happens in Vendoo — so the toast names it rather than reporting
+        // plain success and letting the listing sit on its old copy.
+        const relist = (res.relist_needed || []).map(marketplaceName);
+        const written = `${res.updated.length} field${res.updated.length === 1 ? "" : "s"} written.`;
         addToast({
-          type: "success",
-          title: res.updated.length ? "Sent to Vendoo" : "Nothing to send",
-          description: res.updated.length
-            ? `${res.updated.length} field${res.updated.length === 1 ? "" : "s"} written.`
-            : "Vendoo already matches this listing.",
+          type: relist.length ? "warning" : "success",
+          title: !res.updated.length
+            ? "Nothing to send"
+            : relist.length
+              ? "Vendoo form updated — relist to publish"
+              : "Sent to Vendoo",
+          description: !res.updated.length
+            ? "Vendoo already matches this listing."
+            : relist.length
+              ? `${written} Delist and relist on ${describeMarketplaces(relist)} in Vendoo so buyers see it.`
+              : written,
         });
       }
       onJobStarted?.();
@@ -896,10 +984,18 @@ function SendToVendooButton({
   }, [sendBlockers]);
   const blockerText = uniqueBlockers.map((err) => err.message).join(" · ");
   const sendLabel = bound ? "Update Vendoo" : "Send to Vendoo";
-  // The buttons underneath name themselves; the hint says what Send does.
-  const sendHint = bound
-    ? "Writes changed fields onto the linked Vendoo draft. Nothing is published."
-    : "Creates a Vendoo draft and links it. Nothing is published.";
+  const live = liveMarketplaces || [];
+  // The buttons underneath name themselves; the hint says what Send does — and,
+  // for an item that is already live, what it deliberately does not do.
+  const sendHint = !bound
+    ? "Creates a Vendoo draft and links it. Nothing is published."
+    : live.length
+      ? "Writes changed fields onto the Vendoo form. "
+        + (live.length > 2
+          ? `The live listings on all ${live.length} marketplaces keep`
+          : `The live ${joinMarketplaces(live)} ${live.length === 1 ? "listing keeps" : "listings keep"}`)
+        + " the old version until you delist and relist in Vendoo."
+      : "Writes changed fields onto the linked Vendoo draft. Nothing is published.";
 
   const startSend = () => {
     if (!canSend) {

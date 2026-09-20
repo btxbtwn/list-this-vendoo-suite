@@ -1,4 +1,5 @@
-export type ToastType = "success" | "error";
+/** ``warning`` is for work that succeeded but left the seller a step to take. */
+export type ToastType = "success" | "error" | "warning";
 
 export type ToastData = {
   id: string;
@@ -41,7 +42,7 @@ export function addToast(toast: Omit<ToastData, "id">) {
   const id = String(nextId++);
   toasts = [...toasts, { ...toast, id }];
   emit();
-  const timeoutMs = toast.type === "error" ? 8000 : 5000;
+  const timeoutMs = toast.type === "success" ? 5000 : 8000;
   timers.set(id, window.setTimeout(() => closeToast(id), timeoutMs));
   return id;
 }

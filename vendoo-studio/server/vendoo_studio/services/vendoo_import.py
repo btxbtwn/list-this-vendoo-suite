@@ -499,6 +499,27 @@ def vendoo_listed_marketplaces(item: dict | None, form: dict | None = None) -> l
     return sorted(live)
 
 
+def vendoo_relistable_marketplaces(item: dict | None, form: dict | None = None) -> list[str]:
+    """Live marketplaces whose listing a relist would actually replace.
+
+    ``vendoo_listed_marketplaces`` counts a sold listing as listed, because the
+    Inventory filters do. A sold listing is finished, though: editing the form
+    behind it changes nothing a buyer will ever see, so it is not something to
+    ask the seller to delist and relist.
+    """
+    merged = _merge_payloads(form, item)
+    live: set[str] = set()
+    for name, listing in _listing_entries(merged, external=False):
+        if name in VENDOO_UNLISTABLE_MARKETPLACES:
+            continue
+        status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
+        if status.get("sold") is True or status.get("shipped") is True:
+            continue
+        if status.get("listed") is True:
+            live.add(VENDOO_MARKETPLACE_ALIASES.get(name, name))
+    return sorted(live)
+
+
 def _as_iso(raw: Any) -> str:
     """One Vendoo date as an ISO 8601 string, whatever shape it arrived in.
 
