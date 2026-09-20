@@ -155,7 +155,6 @@ function ListingActionsMenu({ convId, onCleared }: { convId: string; onCleared?:
         aria-label="More listing actions"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-pressed={open}
         title="More listing actions"
         onClick={() => setOpen((value) => !value)}
       >
