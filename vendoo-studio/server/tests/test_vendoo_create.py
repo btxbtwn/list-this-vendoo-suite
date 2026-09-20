@@ -15,6 +15,7 @@ from vendoo_studio.services.vendoo_create import (
     create_item,
     load_schema,
     probe_schema,
+    resolve_label_display_names,
     resolve_listing_categories,
     resolve_listing_labels,
 )
@@ -213,6 +214,26 @@ class CreateTest(_NoExtraMapping):
 
         self.assertEqual(ops_for(fake, "resolve_labels"), [{"op": "resolve_labels", "names": ["To List"]}])
         self.assertEqual(ops_for(fake, "create_item")[0]["item"]["labels"], ["lblToList"])
+
+    def test_resolve_label_display_names_maps_ids_to_catalog_names(self):
+        fake = FakeBridge([{
+            "ok": True,
+            "results": [{
+                "op": "list_labels",
+                "ok": True,
+                "labels": [
+                    {"id": "g8MHWF7KiscANFLZRGyM", "name": "Women"},
+                    {"id": "0kGVwda9cRk55wmfd3Bq", "name": "To List"},
+                ],
+            }],
+        }])
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            names = run(resolve_label_display_names(
+                JOB,
+                ["g8MHWF7KiscANFLZRGyM", "Already A Name", "0kGVwda9cRk55wmfd3Bq"],
+            ))
+        self.assertEqual(names, ["Women", "Already A Name", "To List"])
+        self.assertEqual(ops_for(fake, "list_labels"), [{"op": "list_labels"}])
 
     def test_reports_unresolved_and_diff(self):
         replies = self._replies()

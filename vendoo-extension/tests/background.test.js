@@ -134,6 +134,28 @@ test('Vendoo label names resolve to ids, creating missing labels', async () => {
   assert.equal(created.json.fields.id.stringValue, out.ids[1]);
 });
 
+test('list_labels returns id and name for each seller label', async () => {
+  const vm = require('node:vm');
+  worker.__fetch = async () => ({
+    ok: true,
+    data: {
+      documents: [
+        { name: 'projects/p/databases/(default)/documents/users/u1/labels/g8MHWF7KiscANFLZRGyM', fields: { name: { stringValue: 'Women' } } },
+        { name: 'projects/p/databases/(default)/documents/users/u1/labels/0kGVwda9cRk55wmfd3Bq', fields: { name: { stringValue: 'To List' } } },
+      ],
+    },
+  });
+  vm.runInContext('vendooFetch = (...a) => __fetch(...a)', worker);
+  const labels = JSON.parse(JSON.stringify(await vm.runInContext(
+    'listVendooLabels({ uid: "u1", access_token: "t" })',
+    worker,
+  )));
+  assert.deepEqual(labels, [
+    { id: 'g8MHWF7KiscANFLZRGyM', name: 'Women' },
+    { id: '0kGVwda9cRk55wmfd3Bq', name: 'To List' },
+  ]);
+});
+
 test('Firestore documents decode back to plain Vendoo items', () => {
   const doc = {
     name: 'projects/p/databases/(default)/documents/users/u1/items/itm123',

@@ -495,7 +495,7 @@ async def import_draft(job_id: str, db: Session = Depends(get_db)):
     if not cached:
         raise HTTPException(400, "Read the Vendoo draft before importing it.")
 
-    result = await import_vendoo_draft(db, job.conversation_id, cached.get("item"), cached.get("form"))
+    result = await import_vendoo_draft(db, job.conversation_id, cached.get("item"), cached.get("form"), job=job)
     job.approved_revision_id = result["revision"].id
     job.listing_snapshot = result["listing"]
     db.commit()

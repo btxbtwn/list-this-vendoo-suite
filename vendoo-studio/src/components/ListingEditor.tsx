@@ -60,6 +60,10 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
     queryFn: () => api.jobs.list(convId),
     refetchInterval: 2000,
   });
+  const { data: photos, isLoading: photosLoading } = useQuery({
+    queryKey: ["photos", convId],
+    queryFn: () => api.conversations.photos(convId),
+  });
   const listingJob = jobs?.find((j) => j.conversation_id === convId && j.status !== "cancelled");
   const schemaProbeActive = Boolean(
     listingJob?.mode === "schema_probe"
@@ -107,6 +111,9 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
       }
     },
     onError: (err: Error) => {
+      // Remount on Regenerate/Clear aborts an in-flight refresh; that is not a failure.
+      const name = err?.name || "";
+      if (name === "AbortError" || name === "CancelledError") return;
       setEnsureError(err.message || "Could not load the Vendoo draft fields.");
       addToast({
         type: "error",
@@ -192,16 +199,18 @@ export function ListingEditor({ convId, onJobStarted, onAskChat, onCleared, onOp
 
   const ensureAttemptKey = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (jobsLoading || listingJob || !importedItemId) return;
+    if (jobsLoading || photosLoading || listingJob || !importedItemId) return;
     const key = `${convId}:${importedItemId}`;
     if (ensureAttemptKey.current === key) return;
     ensureAttemptKey.current = key;
-    // First time seeing this binding with no job yet is the same as a fresh Link:
-    // adopt the draft's fields into Forms, not just the live Fields scrape.
-    ensureDraftMutation.mutate({ importDraft: true });
+    // Blank linked listing (Clear, or first open with no local photos): import the
+    // Vendoo draft. Photos still present means Regenerate/remount — only reattach
+    // Fields. importDraft opens Chrome and walks every marketplace tab.
+    const hasLocalPhotos = Boolean(photos?.length);
+    ensureDraftMutation.mutate({ importDraft: !hasLocalPhotos });
     // Refresh fields clears ensureAttemptKey before calling mutate again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobsLoading, listingJob?.id, importedItemId, convId]);
+  }, [jobsLoading, photosLoading, listingJob?.id, importedItemId, convId, photos?.length]);
 
   return (
     <div className="listing-editor">

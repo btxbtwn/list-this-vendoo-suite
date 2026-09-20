@@ -517,6 +517,7 @@ class PrepareListingSnapshotRetryTest(unittest.TestCase):
 
         self.conv.notes = json.dumps({
             "vendooLabels": "A19, To List",
+            "sku": "KEEP-ME-SKU",
             "cog": "3.50",
             "sellerNotes": "Bin 4, small hole on hem",
         })
@@ -524,15 +525,17 @@ class PrepareListingSnapshotRetryTest(unittest.TestCase):
         snapshot = prepare_listing_snapshot(
             self.db,
             self.conv,
-            {"title": "Tee", "cost": 9, "internal_notes": "stale"},
+            {"title": "Tee", "sku": "NEW-SLUG", "cost": 9, "internal_notes": "stale"},
         )
         self.assertEqual(snapshot["labels"], ["A19", "To List"])
+        self.assertEqual(snapshot["sku"], "KEEP-ME-SKU")
         self.assertEqual(snapshot["cost"], 3.5)
         self.assertEqual(snapshot["internal_notes"], "Bin 4, small hole on hem")
 
         item, _ = build_vendoo_item(snapshot, None, images=[], user_id="u", item_id="i")
         general = item["generalDetails"]
         self.assertEqual(item["labels"], ["A19", "To List"])
+        self.assertEqual(general["sku"], "KEEP-ME-SKU")
         self.assertEqual(general["cost"], "3.5")
         self.assertEqual(general["notes"], "Bin 4, small hole on hem")
 

@@ -118,6 +118,19 @@ class VendooImportMapperTest(unittest.TestCase):
         self.assertEqual(listing["depop_specifics"]["source"], "Preloved")
         self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
         self.assertEqual(listing["etsy_specifics"]["category_specifics"]["sleeveLength"], "Short Sleeve")
+        self.assertEqual(listing["labels"], ["To List"])
+
+    def test_label_details_replace_opaque_ids_with_names(self):
+        item = {
+            "labels": ["g8MHWF7KiscANFLZRGyM", "0kGVwda9cRk55wmfd3Bq"],
+            "labelDetails": [
+                {"id": "g8MHWF7KiscANFLZRGyM", "name": "Women"},
+                {"id": "0kGVwda9cRk55wmfd3Bq", "displayName": "To List"},
+            ],
+            "generalDetails": {"title": "Blouse", "price": 12},
+        }
+        listing = listing_from_vendoo(item, None)
+        self.assertEqual(listing["labels"], ["Women", "To List"])
 
     def test_extracts_nested_and_marketplace_image_urls(self):
         item = {

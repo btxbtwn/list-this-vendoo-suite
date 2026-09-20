@@ -339,13 +339,18 @@ async def import_vendoo_draft(
     item: dict | None,
     form: dict | None,
     image_urls: list[str] | None = None,
+    *,
+    job: Any | None = None,
 ) -> dict[str, Any]:
     """Save a Vendoo draft as the listing's current revision and pull its photos."""
     from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+    from vendoo_studio.services.vendoo_create import resolve_label_display_names
 
     conv_repo = ConversationRepo(db)
     listing_repo = ListingRepo(db)
     listing = listing_from_vendoo(item, form)
+    if job is not None and listing.get("labels"):
+        listing["labels"] = await resolve_label_display_names(job, listing["labels"])
     current = listing_repo.get_current(conv_id)
     revision = listing_repo.save_revision(
         conv_id=conv_id,
@@ -353,6 +358,15 @@ async def import_vendoo_draft(
         source="vendoo_import",
         parent_revision_id=current.current_revision_id if current else None,
     )
+
+    conv = conv_repo.get(conv_id)
+    if conv and listing.get("labels"):
+        # Item Details reads labels from notes; keep names there when empty.
+        if not str(parse_notes(conv.notes).get("vendooLabels") or "").strip():
+            conv.notes = merge_notes(conv.notes, {
+                "vendooLabels": ", ".join(str(label) for label in listing["labels"] if str(label).strip()),
+            })
+            db.commit()
 
     photo_warnings: list[str] = []
     existing_photos = conv_repo.get_photos(conv_id)
@@ -660,13 +674,34 @@ async def import_vendoo_item(
     job = job_repo.create(
         conv_id=conv.id,
         approved_revision_id=result["revision"].id,
-        listing_snapshot=listing,
+        listing_snapshot=result["listing"],
         vendoo_item_id=item_id,
         vendoo_url=item_url,
         status="imported",
         current_step="imported",
     )
     job_repo.add_event(job.id, "imported", "imported")
+    # Resolve opaque label ids now that a job can reach the seller's catalog.
+    listing = result["listing"]
+    if listing.get("labels"):
+        from vendoo_studio.services.vendoo_create import resolve_label_display_names
+        from vendoo_studio.repositories.queries import ListingRepo
+
+        named = await resolve_label_display_names(job, listing["labels"])
+        if named != list(listing["labels"]):
+            listing = {**listing, "labels": named}
+            ListingRepo(db).save_revision(
+                conv.id,
+                listing,
+                source="vendoo_import",
+                parent_revision_id=result["revision"].id,
+            )
+            job.listing_snapshot = listing
+            result["listing"] = listing
+            conv.notes = merge_notes(conv.notes, {"vendooLabels": ", ".join(named)})
+            db.commit()
+            db.refresh(conv)
+            db.refresh(job)
     job_repo.save_vendoo_draft(
         job.id,
         item=item,
@@ -686,7 +721,7 @@ async def import_vendoo_item(
     return {
         "conversation": conv,
         "job": job,
-        "listing": listing,
+        "listing": result["listing"],
         "status": status,
         "reused": reused,
         "photo_count": result["photo_count"],
@@ -914,28 +949,50 @@ def _string_list(value: Any) -> list[str]:
 
 
 def _labels_from_vendoo(merged: dict[str, Any], general: dict[str, Any]) -> list[str]:
+    """Vendoo inventory labels as display names when the payload has them.
+
+    An item's ``labels`` array is ids into the seller's label catalog. Prefer
+    ``labelDetails`` / ``labelNames`` so Item Details shows "Women" instead of
+    ``g8MHWF7K…``. Ids that never resolve stay as-is for a later catalog lookup.
+    """
     labels: list[str] = []
     seen: set[str] = set()
+    id_to_name: dict[str, str] = {}
+
+    def remember_named(value: Any) -> None:
+        if not isinstance(value, list):
+            return
+        for item in value:
+            if isinstance(item, dict):
+                label_id = _text(item.get("id"))
+                name = _text(
+                    item.get("displayName") or item.get("name") or item.get("label")
+                )
+                if label_id and name:
+                    id_to_name[label_id] = name
+            else:
+                text = _text(item)
+                if text:
+                    id_to_name.setdefault(text, text)
+
+    remember_named(merged.get("labelDetails") or general.get("labelDetails"))
 
     def add(value: Any) -> None:
         for item in _string_list(value):
-            key = item.lower()
+            display = id_to_name.get(item, item)
+            key = display.lower()
             if key in seen:
                 continue
             seen.add(key)
-            labels.append(item)
+            labels.append(display)
 
-    add(general.get("labels"))
-    add(merged.get("labels"))
     add(merged.get("labelNames"))
     add(merged.get("label_names"))
-    named = merged.get("labelDetails") or general.get("labelDetails")
-    if isinstance(named, list):
-        for item in named:
-            if isinstance(item, dict):
-                add(item.get("displayName") or item.get("name") or item.get("label") or item.get("id"))
-            else:
-                add(item)
+    add(general.get("labelNames"))
+    for item in id_to_name.values():
+        add(item)
+    add(general.get("labels"))
+    add(merged.get("labels"))
     return labels
 
 

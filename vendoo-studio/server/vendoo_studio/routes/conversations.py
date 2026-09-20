@@ -403,14 +403,17 @@ async def reset_conversation(
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
-    from vendoo_studio.models.protocol import ProtocolMessage
-    from vendoo_studio.repositories.queries import ListingRepo
+    from vendoo_studio.repositories.queries import JobRepo, ListingRepo
     from vendoo_studio.services.streaming import stop_generation
-    from vendoo_studio.routes.extension import extension_manager
     from vendoo_studio.services.hidden_fields import clear_listing_hidden_fields
     from vendoo_studio.services.listing_carryover import carryover_updates
-    from vendoo_studio.services.vendoo_import import merge_notes, parse_notes, vendoo_binding
+    from vendoo_studio.services.vendoo_create import resolve_label_display_names
+    from vendoo_studio.services.vendoo_import import (
+        merge_notes,
+        parse_notes,
+        split_vendoo_labels,
+        vendoo_binding,
+    )
 
     from vendoo_studio.services import activity
 
@@ -427,23 +430,30 @@ async def reset_conversation(
         # the listing — cost of goods, labels, internal notes, and the
         # measurements and flaws in the description — move there first.
         revisions = ListingRepo(db).get_revisions(conv_id)
-        latest = revisions[0].listing_json if revisions else None
+        latest = dict(revisions[0].listing_json) if revisions else None
+        label_job = next(
+            (
+                job
+                for job in JobRepo(db).list_by_conversation(conv_id)
+                if job.status != "cancelled"
+            ),
+            None,
+        )
+        if label_job and isinstance(latest, dict) and latest.get("labels"):
+            latest["labels"] = await resolve_label_display_names(label_job, latest["labels"])
         carried = carryover_updates(latest, parse_notes(notes))
         if carried:
             notes = merge_notes(notes, carried)
+        # Fix opaque label ids already sitting in Item Details from an earlier import.
+        if label_job:
+            existing = split_vendoo_labels(parse_notes(notes).get("vendooLabels"))
+            if existing:
+                named = await resolve_label_display_names(label_job, existing)
+                if named != existing:
+                    notes = merge_notes(notes, {"vendooLabels": ", ".join(named)})
 
-    active_jobs = db.query(Job).filter(
-        Job.conversation_id == conv_id,
-        Job.status.in_(ACTIVE_JOB_STATUSES),
-    ).all()
-    for job in active_jobs:
-        job.status = "cancelled"
-        job.current_step = None
-        await extension_manager.send_message(ProtocolMessage(
-            type="job.cancel",
-            job_id=job.id,
-            payload={"job_id": job.id},
-        ).model_dump(mode="json"))
+    # Stop Chrome fill/repair before the wipe deletes the job rows.
+    await cancel_conversation_jobs(db, conv_id)
 
     _wipe_conversation_contents(db, conv_id, keep_photos=keep_inputs)
     db.expire_all()
@@ -461,7 +471,26 @@ async def reset_conversation(
     conv.updated_at = utcnow()
     if binding:
         # Blank revision so Fields / ensure-draft can reattach to the same Vendoo item.
-        ListingRepo(db).save_revision(conv_id, {}, source="reset")
+        revision = ListingRepo(db).save_revision(conv_id, {}, source="reset")
+        if keep_inputs:
+            # Regenerate remounts the editor with photos still present. Without a
+            # job row it looks like a fresh Link and auto-imports the draft —
+            # that opens Chrome and walks every marketplace tab. Reattach Fields
+            # here so remount never starts that scrape.
+            item_id = str(binding.get("vendooItemId") or "").strip()
+            item_url = str(binding.get("vendooUrl") or "").strip()
+            if item_id and item_id.lower() not in {"new", "edit", "create"}:
+                if not item_url:
+                    item_url = f"https://web.vendoo.co/app/item/{item_id}"
+                JobRepo(db).create(
+                    conv_id=conv_id,
+                    approved_revision_id=revision.id,
+                    listing_snapshot={},
+                    vendoo_item_id=item_id,
+                    vendoo_url=item_url,
+                    status="completed",
+                    current_step="fields_applied",
+                )
     db.commit()
     db.refresh(conv)
     clear_listing_hidden_fields(conv_id)
