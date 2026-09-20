@@ -18,19 +18,13 @@ from vendoo_studio.config import APP_NAME, is_frozen, resource_root, user_data_r
 from vendoo_studio.version import app_version
 
 GITHUB_API = os.environ.get("VENDOO_STUDIO_GITHUB_API", "https://api.github.com")
+GITHUB_DOWNLOAD = os.environ.get("VENDOO_STUDIO_GITHUB_DOWNLOAD", "https://github.com")
 GITHUB_REPO = os.environ.get("VENDOO_STUDIO_GITHUB_REPO", "btxbtwn/list-this-vendoo-suite")
 RELEASE_TAG = os.environ.get("VENDOO_STUDIO_RELEASE_TAG", "studio-macos")
 ZIP_NAME = "List-This-Studio-macos.zip"
 INFO_NAME = "build_info.json"
 APP_BUNDLE_NAME = f"{APP_NAME}.app"
 USER_AGENT = f"ListThisStudio/{app_version()}"
-GENERIC_RELEASE_NAMES = frozenset(
-    {
-        "list this studio (macos)",
-        "list this studio",
-        "studio-macos",
-    }
-)
 
 
 class PackagedUpdateError(RuntimeError):
@@ -71,15 +65,87 @@ def installed_app_path() -> Path:
     return Path.home() / "Applications" / APP_BUNDLE_NAME
 
 
-def _headers() -> dict[str, str]:
-    return {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/vnd.github+json",
-    }
+def release_asset_url(name: str) -> str:
+    """Stable public download URL that does not consume the GitHub REST rate limit."""
+    return f"{GITHUB_DOWNLOAD.rstrip('/')}/{GITHUB_REPO}/releases/download/{RELEASE_TAG}/{name}"
+
+
+def release_page_url() -> str:
+    return f"{GITHUB_DOWNLOAD.rstrip('/')}/{GITHUB_REPO}/releases/tag/{RELEASE_TAG}"
+
+
+def _github_token() -> str:
+    for key in ("VENDOO_STUDIO_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
+        token = (os.environ.get(key) or "").strip()
+        if token:
+            return token
+    return ""
+
+
+def _headers(*, api: bool = False) -> dict[str, str]:
+    headers = {"User-Agent": USER_AGENT}
+    if api:
+        headers["Accept"] = "application/vnd.github+json"
+        token = _github_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+    else:
+        headers["Accept"] = "application/octet-stream"
+    return headers
+
+
+def _rate_limit_message(response: httpx.Response) -> str | None:
+    if response.status_code != 403:
+        return None
+    body = (response.text or "").lower()
+    if "rate limit" not in body and "api rate limit" not in body:
+        return None
+    return (
+        "GitHub API rate limit exceeded. Update checks use release downloads and "
+        "should not need the API; retry later or set GITHUB_TOKEN for API fallbacks."
+    )
 
 
 def fetch_release(client: httpx.Client | None = None) -> dict:
+    """API fallback for older releases that lack zip_sha256 in build_info.json."""
     url = f"{GITHUB_API.rstrip('/')}/repos/{GITHUB_REPO}/releases/tags/{RELEASE_TAG}"
+    own_client = client is None
+    http = client or httpx.Client(timeout=30.0, headers=_headers(api=True), follow_redirects=True)
+    try:
+        response = http.get(url)
+        if response.status_code == 404:
+            raise PackagedUpdateError("No macOS release has been published yet.")
+        limited = _rate_limit_message(response)
+        if limited:
+            raise PackagedUpdateError(limited)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as exc:
+        raise PackagedUpdateError(f"Could not reach GitHub releases: {exc}") from exc
+    finally:
+        if own_client:
+            http.close()
+
+
+def _normalize_build_info(payload: dict) -> dict:
+    sha = payload.get("sha")
+    zip_sha = str(payload.get("zip_sha256") or payload.get("sha256") or "").strip().lower()
+    if zip_sha.startswith("sha256:"):
+        zip_sha = zip_sha.split(":", 1)[1].strip().lower()
+    title = str(payload.get("title") or payload.get("summary") or "").strip()
+    return {
+        "version": payload.get("version") or app_version(),
+        "sha": sha,
+        "short_sha": payload.get("short_sha") or (sha[:7] if isinstance(sha, str) and sha else None),
+        "ref": payload.get("ref"),
+        "zip_sha256": zip_sha or None,
+        "title": title,
+    }
+
+
+def fetch_remote_build_info(client: httpx.Client | None = None) -> dict:
+    """Load the published build stamp from the release asset CDN (no REST quota)."""
+    url = release_asset_url(INFO_NAME)
     own_client = client is None
     http = client or httpx.Client(timeout=30.0, headers=_headers(), follow_redirects=True)
     try:
@@ -87,9 +153,14 @@ def fetch_release(client: httpx.Client | None = None) -> dict:
         if response.status_code == 404:
             raise PackagedUpdateError("No macOS release has been published yet.")
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise PackagedUpdateError("Published build_info.json is invalid.")
+        return _normalize_build_info(payload)
     except httpx.HTTPError as exc:
         raise PackagedUpdateError(f"Could not reach GitHub releases: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise PackagedUpdateError("Published build_info.json is invalid.") from exc
     finally:
         if own_client:
             http.close()
@@ -194,101 +265,19 @@ def _download(client: httpx.Client, url: str, destination: Path) -> None:
                 handle.write(chunk)
 
 
-def _is_generic_release_name(name: str | None) -> bool:
-    return (name or "").strip().lower() in GENERIC_RELEASE_NAMES
-
-
-def _body_summary_line(body: str | None) -> str:
-    """First human-readable notes line, skipping sha/ref/install boilerplate."""
-    for raw in (body or "").splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        lower = line.lower()
-        if lower.startswith(("sha:", "ref:", "install", "1.", "2.", "3.", "4.", "5.")):
-            continue
-        if lower.startswith("needs macos"):
-            continue
-        return line
-    return ""
-
-
-def fetch_pr_title(sha: str, client: httpx.Client | None = None) -> str | None:
-    """Return the title of the pull request that introduced ``sha``, if any."""
-    commit = (sha or "").strip()
-    if not commit:
-        return None
-    url = f"{GITHUB_API.rstrip('/')}/repos/{GITHUB_REPO}/commits/{commit}/pulls"
-    own_client = client is None
-    http = client or httpx.Client(timeout=15.0, headers=_headers(), follow_redirects=True)
-    try:
-        response = http.get(url, headers={**_headers(), "Accept": "application/vnd.github+json"})
-        if response.status_code in {404, 422}:
-            return None
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, list):
-            return None
-        for entry in payload:
-            if not isinstance(entry, dict):
-                continue
-            title = str(entry.get("title") or "").strip()
-            if title:
-                return title
-        return None
-    except httpx.HTTPError:
-        return None
-    finally:
-        if own_client:
-            http.close()
-
-
-def release_update_summary(release: dict, remote_sha: str | None, client: httpx.Client | None = None) -> str:
-    """Prefer the merged PR title so the in-app update dialog is meaningful."""
-    pr_title = fetch_pr_title(str(remote_sha or ""), client=client)
-    if pr_title:
-        return pr_title
-    name = (release.get("name") or "").strip()
-    if name and not _is_generic_release_name(name):
-        return name
-    body_line = _body_summary_line(release.get("body"))
-    if body_line:
-        return body_line
-    return ""
-
-
-def remote_build_info(release: dict, client: httpx.Client | None = None) -> dict:
-    assets = _asset_map(release)
-    info_asset = assets.get(INFO_NAME)
-    if info_asset and info_asset.get("browser_download_url"):
-        own_client = client is None
-        http = client or httpx.Client(timeout=30.0, headers=_headers(), follow_redirects=True)
-        try:
-            response = http.get(info_asset["browser_download_url"])
-            response.raise_for_status()
-            payload = response.json()
-            sha = payload.get("sha")
-            return {
-                "version": payload.get("version") or app_version(),
-                "sha": sha,
-                "short_sha": payload.get("short_sha") or (sha[:7] if sha else None),
-                "ref": payload.get("ref"),
-            }
-        finally:
-            if own_client:
-                http.close()
-    sha = release.get("target_commitish")
-    if sha and len(str(sha)) >= 7 and all(ch in "0123456789abcdef" for ch in str(sha).lower()[:7]):
-        sha = str(sha)
-        return {"version": app_version(), "sha": sha, "short_sha": sha[:7], "ref": "main"}
-    return {"version": app_version(), "sha": None, "short_sha": None, "ref": None}
+def _resolve_zip_digest(remote: dict, client: httpx.Client | None = None) -> str | None:
+    digest = remote.get("zip_sha256")
+    if digest:
+        return str(digest)
+    # Older releases only expose the digest on the GitHub API asset record.
+    release = fetch_release(client=client)
+    return _asset_digest(_asset_map(release).get(ZIP_NAME))
 
 
 def check_for_packaged_update() -> dict:
     local = local_build_info()
     try:
-        release = fetch_release()
-        remote = remote_build_info(release)
+        remote = fetch_remote_build_info()
     except PackagedUpdateError as exc:
         return {
             "available": False,
@@ -296,12 +285,10 @@ def check_for_packaged_update() -> dict:
             "local_sha": local.get("sha"),
             "error": str(exc),
         }
-    assets = _asset_map(release)
-    zip_asset = assets.get(ZIP_NAME)
     remote_sha = remote.get("sha")
     local_sha = local.get("sha")
-    available = bool(zip_asset) and bool(remote_sha) and remote_sha != local_sha
-    summary = release_update_summary(release, remote_sha) if available else ""
+    available = bool(remote_sha) and remote_sha != local_sha
+    summary = str(remote.get("title") or "").strip()
     return {
         "available": available,
         "packaged": True,
@@ -311,14 +298,14 @@ def check_for_packaged_update() -> dict:
         "local_sha": local_sha,
         "remote_sha": remote_sha,
         "remote_ref": f"github:{GITHUB_REPO}:{RELEASE_TAG}",
-        "summary": summary,
+        "summary": summary if available else "",
         "commits": [summary] if summary and available else [],
         "dirty": [],
-        "error": None if zip_asset else f"Release {RELEASE_TAG} has no {ZIP_NAME}.",
+        "error": None,
         "short_sha": remote.get("short_sha"),
-        "download_url": (zip_asset or {}).get("browser_download_url"),
-        "sha256": _asset_digest(zip_asset),
-        "release_url": release.get("html_url"),
+        "download_url": release_asset_url(ZIP_NAME),
+        "sha256": remote.get("zip_sha256"),
+        "release_url": release_page_url(),
     }
 
 
@@ -408,11 +395,14 @@ def apply_packaged_update(*, force: bool = False) -> dict:
     if not app_path.exists():
         raise PackagedUpdateError(f"Cannot replace {app_path} because that app is missing.")
 
+    expected_digest = status.get("sha256")
     staging = Path(tempfile.mkdtemp(prefix="list-this-studio-update-"))
     archive = staging / ZIP_NAME
+    if not expected_digest:
+        expected_digest = _resolve_zip_digest({"zip_sha256": None})
     with httpx.Client(timeout=120.0, headers=_headers(), follow_redirects=True) as client:
         _download(client, download_url, archive)
-    _verify_archive_digest(archive, status.get("sha256"))
+    _verify_archive_digest(archive, expected_digest)
     new_app = _extract_app(archive, staging / "unpacked")
     _verify_app_signature(new_app)
     _prepare_app_bundle(new_app, clear_quarantine=True)

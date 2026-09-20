@@ -144,6 +144,23 @@ except PackagedUpdateError as exc:
 print("Update zip symlinks are safe in-bundle relative links")
 PY
 cp "$ROOT/desktop/build_info.json" "$RELEASE/build_info.json"
+"$PYTHON" - "$ZIP" "$RELEASE/build_info.json" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+archive = Path(sys.argv[1])
+info_path = Path(sys.argv[2])
+digest = hashlib.sha256()
+with archive.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+payload = json.loads(info_path.read_text(encoding="utf-8"))
+payload["zip_sha256"] = digest.hexdigest()
+info_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+print(f"Release build_info zip_sha256={payload['zip_sha256']}")
+PY
 echo "Built $APP"
 echo "Share $ZIP"
 echo "Publish with: $ROOT/scripts/publish-macos-release.sh"

@@ -35,6 +35,17 @@ if [[ -z "$TITLE" ]]; then
 fi
 TITLE="${TITLE:-$DEFAULT_TITLE}"
 
+python3 - "$INFO" "$TITLE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+payload["title"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+
 NOTES=$(printf 'sha: %s\nref: %s\n\nInstall\n1. Unzip List-This-Studio-macos.zip\n2. Move List This Studio.app into Applications\n3. Control-click the app and choose Open (first launch only)\n4. In Settings, sign in with ChatGPT or add a MiMo API key\n5. Click Connect Chrome, load the listing extension once, and sign in to Vendoo\n\nNeeds macOS 13+ and Google Chrome. Listing data stays on this Mac.\n' "$SHA" "$REF")
 
 if gh release view "$TAG" --repo "$GITHUB_REPO" >/dev/null 2>&1; then
