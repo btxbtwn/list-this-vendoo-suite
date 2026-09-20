@@ -883,6 +883,29 @@ def _enable_native_fullscreen(native, AppKit) -> None:
         pass
 
 
+def _set_toolbar_visible(native, visible: bool) -> None:
+    """Show the unified toolbar only outside fullscreen.
+
+    Entering a fullscreen Space moves the titlebar container out of this window
+    and into AppKit's own NSToolbarFullScreenWindow, which paints an opaque
+    #1c1c1c band over the top of the web view. Nothing done to *this* window's
+    titlebar reaches that band, so the toolbar has to go while fullscreen. It
+    exists only to inset the traffic lights, and macOS hides those in fullscreen
+    anyway; with no toolbar the fullscreen titlebar stays auto-hidden and the
+    HTML topbar owns the top of the screen.
+    """
+    try:
+        toolbar = native.toolbar()
+    except Exception:
+        return
+    if toolbar is None:
+        return
+    try:
+        toolbar.setVisible_(visible)
+    except Exception:
+        pass
+
+
 def _paint_transparent_titlebar(native, AppKit) -> None:
     """Keep AppKit's titlebar clear so the HTML chrome shows through.
 
@@ -929,6 +952,7 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
         _enable_native_fullscreen(native, AppKit)
         _enable_window_buttons(native, AppKit)
         _install_titlebar_toolbar(native, AppKit)
+    _set_toolbar_visible(native, not fullscreen)
 
     _paint_transparent_titlebar(native, AppKit)
     _restore_traffic_lights(native, AppKit)

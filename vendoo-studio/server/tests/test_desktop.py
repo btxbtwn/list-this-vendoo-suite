@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from vendoo_studio import desktop
 from vendoo_studio.routes import desktop as desktop_routes
@@ -255,6 +255,8 @@ class StudioWindowChromeTest(unittest.TestCase):
         zoom.setFrame_.assert_not_called()
         native.setToolbar_.assert_called_once_with(toolbar)
         toolbar.setShowsBaselineSeparator_.assert_called_once_with(False)
+        # Visible again once the window leaves fullscreen.
+        self.assertEqual(toolbar.setVisible_.call_args_list[-1], call(True))
         native.setToolbarStyle_.assert_called_once_with(1)
         # Close, minimize, and zoom only respond when the mask carries their bits.
         native.setStyleMask_.assert_called_once_with(
@@ -268,9 +270,10 @@ class StudioWindowChromeTest(unittest.TestCase):
         miniaturize = MagicMock()
         zoom = MagicMock()
         titlebar = MagicMock()
+        toolbar = MagicMock()
         native = MagicMock()
         native.styleMask.return_value = 1 << 14
-        native.toolbar.return_value = object()
+        native.toolbar.return_value = toolbar
         native.contentView.return_value.superview.return_value.subviews.return_value = [titlebar]
         native.standardWindowButton_.side_effect = lambda button: {
             0: close,
@@ -311,6 +314,9 @@ class StudioWindowChromeTest(unittest.TestCase):
         close.setHidden_.assert_called_once_with(False)
         close.setEnabled_.assert_called_once_with(True)
         close.setFrame_.assert_not_called()
+        # The toolbar band lives in AppKit's own fullscreen window, out of reach
+        # of the titlebar paint above, so it has to be hidden instead.
+        toolbar.setVisible_.assert_called_once_with(False)
 
 
 class ConnectChromeRouteTest(unittest.IsolatedAsyncioTestCase):
