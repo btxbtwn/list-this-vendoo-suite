@@ -2,12 +2,27 @@ from __future__ import annotations
 
 import json
 import re
+import statistics
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 PREFIX = "Sold comps:"
+# One sold listing is a single data point, not a market: its price becomes the
+# median and drives the whole listing price. Three is the smallest count where
+# the median ignores an outlier.
+MIN_CONFIDENT_COMPS = 3
+# Upper bound on the comps kept and printed. The model and the price-drop median
+# both read the printed block, so nothing is collected and then hidden.
+MAX_COMPS = 16
+# A comp more than this far from the median is a different item (a lot of 10, a
+# designer collab, a mislabeled listing), not a signal about this one.
+OUTLIER_FACTOR = 2.0
 INSTRUCTION = (
     "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
+)
+THIN_INSTRUCTION = (
+    "Only {count} sold listing{plural} found — too thin to price from. Treat it as a weak signal, "
+    "lean on an estimated baseline, and note pricing uncertainty in the description."
 )
 EMPTY_NOTE = (
     "No sold listings found. Use an estimated baseline and note pricing uncertainty in the description."
@@ -47,6 +62,10 @@ _MARKET_ALIASES = {
 }
 _MARKET_RE = re.compile(r"\b(eBay|Poshmark|Mercari|Depop|Etsy)\b", re.I)
 
+_THIN_INSTRUCTION_RE = re.compile(
+    re.escape(THIN_INSTRUCTION).replace(r"\{count\}", r"\d+").replace(r"\{plural\}", r"s?")
+)
+
 _LISTING_HOSTS = (
     ("ebay.", "/itm/", "eBay"),
     ("poshmark.com", "/listing/", "Poshmark"),
@@ -72,6 +91,28 @@ class SoldCompsReport:
     comps: list[SoldComp] = field(default_factory=list)
     market: str = ""
     note: str = ""
+
+
+def trim_outliers(prices: list[float]) -> list[float]:
+    """Drop prices more than OUTLIER_FACTOR off the median, keeping at least three."""
+    values = [price for price in prices if price > 0]
+    if len(values) < MIN_CONFIDENT_COMPS:
+        return values
+    middle = statistics.median(values)
+    if middle <= 0:
+        return values
+    kept = [
+        price
+        for price in values
+        if middle / OUTLIER_FACTOR <= price <= middle * OUTLIER_FACTOR
+    ]
+    return kept if len(kept) >= MIN_CONFIDENT_COMPS else values
+
+
+def comps_instruction(count: int) -> str:
+    if count >= MIN_CONFIDENT_COMPS:
+        return INSTRUCTION
+    return THIN_INSTRUCTION.format(count=count, plural="" if count == 1 else "s")
 
 
 def format_price(value: float) -> str:
@@ -210,7 +251,7 @@ def _dedupe(comps: list[SoldComp]) -> list[SoldComp]:
             continue
         seen.add(key)
         unique.append(comp)
-        if len(unique) == 8:
+        if len(unique) == MAX_COMPS:
             break
     return unique
 
@@ -350,7 +391,7 @@ def format_sold_comps(report: SoldCompsReport) -> str:
         lines.append(f"Market: {market}")
     if report.comps:
         lines.append("")
-        for comp in report.comps[:8]:
+        for comp in report.comps[:MAX_COMPS]:
             parts = [format_price(comp.price), comp.marketplace]
             if comp.condition:
                 parts.append(comp.condition)
@@ -359,7 +400,7 @@ def format_sold_comps(report: SoldCompsReport) -> str:
             if comp.url:
                 lines.append(f"  {comp.url}")
         lines.append("")
-        lines.append(INSTRUCTION)
+        lines.append(comps_instruction(len(report.comps)))
         return "\n".join(lines)
     lines.append(report.note or EMPTY_NOTE)
     return "\n".join(lines)
@@ -387,7 +428,7 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
         if stripped.startswith("Market:"):
             market = stripped[7:].strip()
             continue
-        if stripped == INSTRUCTION:
+        if stripped == INSTRUCTION or _THIN_INSTRUCTION_RE.match(stripped):
             continue
         if stripped.startswith("http://") or stripped.startswith("https://"):
             if pending and is_listing_url(stripped):
@@ -436,6 +477,16 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
     )
 
 
-def comps_usable(text: str | None) -> bool:
+def comps_count(text: str | None) -> int:
     report = parse_sold_comps(text)
-    return bool(report and report.comps)
+    return len(report.comps) if report else 0
+
+
+def comps_usable(text: str | None) -> bool:
+    """Any parsed sold listing — worth showing, not necessarily worth pricing from."""
+    return comps_count(text) > 0
+
+
+def comps_confident(text: str | None) -> bool:
+    """Enough sold listings to set a price from, and to stop searching for more."""
+    return comps_count(text) >= MIN_CONFIDENT_COMPS

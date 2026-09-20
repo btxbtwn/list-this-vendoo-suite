@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -11,6 +12,14 @@ log = logging.getLogger("vendoo_studio.brave_search")
 
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 ITEM_FIELDS = ("brand", "category", "style", "size", "color")
+MARKETPLACE_SITES = ("ebay.com", "poshmark.com", "mercari.com", "depop.com", "etsy.com")
+# Brave caps count at 20. One 8-result query across five sites usually came back
+# with one or two priced listing URLs; per-site queries spread the budget.
+BRAVE_RESULT_COUNT = 20
+# Brave's free tier allows roughly one request per second, so stagger the fan-out
+# rather than firing every query at once.
+BRAVE_QUERY_STAGGER_SEC = 0.6
+BRAVE_RETRY_SEC = 1.5
 _ANALYSIS_FIELD_RE = re.compile(
     r"^-\s*(brand|category|style|size|color):\s*(.+?)(?:\s+\(source:.*\))?$",
     re.I | re.M,
@@ -55,6 +64,16 @@ def _query_core(fields: dict[str, str]) -> list[str]:
     return [part for part in (brand, item) if part]
 
 
+def _query_alt(fields: dict[str, str]) -> str:
+    """Brand + style, when style says something the category leaf does not."""
+    brand = fields.get("brand", "").strip()
+    style = fields.get("style", "").strip()
+    leaf = (fields.get("category") or "").split(">")[-1].strip()
+    if not style or style.lower() == leaf.lower():
+        return ""
+    return " ".join(part for part in (brand, style) if part)
+
+
 def sold_comps_query(fields: dict[str, str]) -> str:
     parts = _query_core(fields)
     if not parts:
@@ -62,15 +81,29 @@ def sold_comps_query(fields: dict[str, str]) -> str:
     return " ".join([*parts, "sold comps"])[:400]
 
 
+def _site_filter() -> str:
+    return "(" + " OR ".join(f"site:{site}" for site in MARKETPLACE_SITES) + ")"
+
+
 def brave_sold_query(fields: dict[str, str]) -> str:
     parts = _query_core(fields)
     if not parts:
         return ""
-    core = " ".join(parts)
-    return (
-        f"{core} sold (site:ebay.com OR site:poshmark.com OR site:mercari.com "
-        "OR site:depop.com OR site:etsy.com)"
-    )[:400]
+    return f"{' '.join(parts)} sold {_site_filter()}"[:400]
+
+
+def brave_sold_queries(fields: dict[str, str]) -> list[str]:
+    """The broad query first, then one per marketplace so no single site wins the page."""
+    broad = brave_sold_query(fields)
+    if not broad:
+        return []
+    core = " ".join(_query_core(fields))
+    queries = [broad]
+    queries.extend(f"{core} sold listing site:{site}" for site in MARKETPLACE_SITES)
+    alt = _query_alt(fields)
+    if alt:
+        queries.append(f"{alt} sold price {_site_filter()}")
+    return [query[:400] for query in queries]
 
 
 def _brave_error(resp: httpx.Response) -> str:
@@ -140,12 +173,52 @@ async def test_brave_connection(api_key: str | None = None) -> tuple[bool, str |
     return True, None
 
 
-async def research_brave_comps(query: str) -> str:
+async def _search_one(query: str, api_key: str, *, delay: float) -> list[dict]:
+    """One staggered query; a 429 from the per-second cap gets a single retry."""
+    if delay:
+        await asyncio.sleep(delay)
+    try:
+        return await search_web(query, api_key, count=BRAVE_RESULT_COUNT)
+    except Exception as exc:
+        if "429" not in str(exc):
+            raise
+        await asyncio.sleep(BRAVE_RETRY_SEC)
+        return await search_web(query, api_key, count=BRAVE_RESULT_COUNT)
+
+
+async def search_all(queries: list[str], api_key: str) -> tuple[list[dict], list[str]]:
+    """Run every query, keep whatever came back, and report the failures."""
+    gathered = await asyncio.gather(
+        *(
+            _search_one(query, api_key, delay=index * BRAVE_QUERY_STAGGER_SEC)
+            for index, query in enumerate(queries)
+        ),
+        return_exceptions=True,
+    )
+    results: list[dict] = []
+    errors: list[str] = []
+    for query, outcome in zip(queries, gathered, strict=False):
+        if isinstance(outcome, BaseException):
+            log.info("Brave sold-comps query failed (%s): %s", query, outcome)
+            errors.append(str(outcome))
+            continue
+        results.extend(outcome)
+    return results, errors
+
+
+async def research_brave_comps(queries: str | list[str]) -> str:
     api_key = get_brave_api_key()
     if not api_key:
         return ""
+    query_list = [queries] if isinstance(queries, str) else list(queries)
+    query_list = [query for query in query_list if query]
+    if not query_list:
+        return ""
+    query = query_list[0]
     try:
-        results = await search_web(query, api_key)
+        results, errors = await search_all(query_list, api_key)
+        if not results and errors:
+            raise RuntimeError(errors[0])
         return format_comp_results(query, results)
     except Exception as exc:
         log.warning("Brave sold-comps search failed: %s", exc)

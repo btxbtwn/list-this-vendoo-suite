@@ -3,8 +3,11 @@ from __future__ import annotations
 import unittest
 
 from vendoo_studio.services.sold_comps import (
+    INSTRUCTION,
+    MAX_COMPS,
     SoldComp,
     SoldCompsReport,
+    comps_confident,
     comps_from_chatgpt,
     comps_from_web_results,
     comps_usable,
@@ -106,6 +109,50 @@ class FormatParseTest(unittest.TestCase):
         self.assertEqual(parsed.comps[0].url, report.comps[0].url)
         self.assertEqual(parsed.comps[1].marketplace, "Poshmark")
         self.assertTrue(comps_usable(text))
+
+    def test_keeps_and_prints_up_to_max_comps(self):
+        results = [
+            {
+                "url": f"https://www.ebay.com/itm/{index}",
+                "title": f"Levi's 511 Slim Shorts {index}",
+                "description": f"Sold for ${20 + index}.",
+            }
+            for index in range(MAX_COMPS + 6)
+        ]
+        comps = comps_from_web_results(results)
+        self.assertEqual(len(comps), MAX_COMPS)
+        text = format_sold_comps(SoldCompsReport(query="q", source="Brave Search", comps=comps))
+        parsed = parse_sold_comps(text)
+        self.assertEqual(len(parsed.comps), MAX_COMPS)
+
+    def test_thin_report_warns_instead_of_pricing_from_it(self):
+        report = SoldCompsReport(
+            query="Levi's slim shorts sold comps",
+            source="Brave Search",
+            comps=[SoldComp(22, "eBay", "Levi's 511 Slim Shorts", "https://www.ebay.com/itm/123")],
+        )
+        text = format_sold_comps(report)
+        self.assertIn("Only 1 sold listing found", text)
+        self.assertNotIn(INSTRUCTION, text)
+        self.assertTrue(comps_usable(text))
+        self.assertFalse(comps_confident(text))
+        parsed = parse_sold_comps(text)
+        self.assertEqual(len(parsed.comps), 1)
+        self.assertEqual(parsed.note, "")
+
+    def test_three_comps_keep_the_pricing_instruction(self):
+        report = SoldCompsReport(
+            query="Levi's slim shorts sold comps",
+            source="Brave Search",
+            comps=[
+                SoldComp(22, "eBay", "Levi's 511 Slim Shorts", "https://www.ebay.com/itm/1"),
+                SoldComp(18, "Poshmark", "Levi's shorts 33", "https://poshmark.com/listing/2"),
+                SoldComp(25, "Mercari", "Levi's 511 Shorts", "https://www.mercari.com/item/3"),
+            ],
+        )
+        text = format_sold_comps(report)
+        self.assertIn(INSTRUCTION, text)
+        self.assertTrue(comps_confident(text))
 
     def test_empty_report_is_not_usable(self):
         text = format_sold_comps(SoldCompsReport(query="Nike tee sold comps", source="Brave Search"))

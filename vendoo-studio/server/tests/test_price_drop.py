@@ -121,6 +121,10 @@ class CompsFormulaTest(unittest.TestCase):
             "\n"
             "- $20 · eBay · Nike Tee\n"
             "  https://www.ebay.com/itm/1\n"
+            "- $18 · Poshmark · Nike Tee\n"
+            "  https://poshmark.com/listing/2\n"
+            "- $22 · Mercari · Nike Tee\n"
+            "  https://www.mercari.com/item/3\n"
             "\n"
             "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
         )
@@ -128,6 +132,42 @@ class CompsFormulaTest(unittest.TestCase):
         self.assertEqual(market, 20.0)
         self.assertEqual(target, 27)
         self.assertIsNotNone(report)
+
+    def test_outlier_comp_does_not_move_the_market(self):
+        text = (
+            "Sold comps:\n"
+            "Query: Nike tee sold comps\n"
+            "Source: Brave Search\n"
+            "\n"
+            "- $20 · eBay · Nike Tee\n"
+            "  https://www.ebay.com/itm/1\n"
+            "- $18 · Poshmark · Nike Tee\n"
+            "  https://poshmark.com/listing/2\n"
+            "- $22 · Mercari · Nike Tee\n"
+            "  https://www.mercari.com/item/3\n"
+            "- $200 · eBay · Nike Tee lot of 10\n"
+            "  https://www.ebay.com/itm/4\n"
+        )
+        market, target, _ = comps_formula_price(text)
+        self.assertEqual(market, 20.0)
+        self.assertEqual(target, 27)
+
+    def test_two_comps_are_too_thin_to_price_from(self):
+        text = (
+            "Sold comps:\n"
+            "Query: Nike tee sold comps\n"
+            "Source: Brave Search\n"
+            "Market: $18–$22\n"
+            "\n"
+            "- $20 · eBay · Nike Tee\n"
+            "  https://www.ebay.com/itm/1\n"
+            "- $18 · Poshmark · Nike Tee\n"
+            "  https://poshmark.com/listing/2\n"
+        )
+        market, target, report = comps_formula_price(text)
+        self.assertIsNone(market)
+        self.assertIsNone(target)
+        self.assertEqual(len(report.comps), 2)
 
 
 class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
@@ -157,6 +197,10 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
             "\n"
             "- $20 · eBay · Nike Tee\n"
             "  https://www.ebay.com/itm/1\n"
+            "- $18 · Poshmark · Nike Tee\n"
+            "  https://poshmark.com/listing/2\n"
+            "- $22 · Mercari · Nike Tee\n"
+            "  https://www.mercari.com/item/3\n"
             "\n"
             "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
         )
@@ -168,6 +212,29 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(preview["comps"]["target_price"], 27)
         self.assertEqual(preview["suggested_mode"], "comps")
         self.assertEqual(preview["suggested_price"], 27)
+
+    async def test_preview_keeps_percent_when_comps_are_thin(self):
+        listing = {"price": 48, "brand": "Nike", "category_path": "Tops > T-Shirts"}
+        revisions = [_rev(48, "generation", rev_id="r1")]
+        comps = (
+            "Sold comps:\n"
+            "Query: Nike T-Shirts sold comps\n"
+            "Source: Brave Search\n"
+            "Market: $20\n"
+            "\n"
+            "- $20 · eBay · Nike Tee\n"
+            "  https://www.ebay.com/itm/1\n"
+        )
+        with (
+            patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True),
+            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock(return_value=comps)),
+        ):
+            preview = await build_preview(listing, revisions)
+        self.assertIsNone(preview["comps"]["target_price"])
+        self.assertIsNone(preview["comps"]["market_midpoint"])
+        self.assertEqual(preview["suggested_mode"], "percent")
+        self.assertEqual(preview["suggested_price"], 41)
+        self.assertIn("$20 · eBay", preview["comps"]["text"])
 
 
 if __name__ == "__main__":

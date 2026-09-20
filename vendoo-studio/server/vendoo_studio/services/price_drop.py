@@ -17,9 +17,11 @@ from vendoo_studio.models.listing import ListingRevision
 from vendoo_studio.services.brave_search import item_fields
 from vendoo_studio.services.comp_research import comps_search_available, research_sold_comps
 from vendoo_studio.services.sold_comps import (
+    MIN_CONFIDENT_COMPS,
     SoldCompsReport,
     extract_price,
     parse_sold_comps,
+    trim_outliers,
 )
 
 PRICE_DROP_SOURCE = "price_drop"
@@ -158,11 +160,19 @@ def suggest_percent(history: list[PriceDropEvent], *, now: datetime | None = Non
 
 
 def market_midpoint(report: SoldCompsReport | None) -> float | None:
+    """Median of the sold listings, or a stated range when the search itemized none.
+
+    Fewer than MIN_CONFIDENT_COMPS listings is one or two sales, not a market:
+    the median is that sale, so the drop falls back to the history-aware percent.
+    Wild prices are dropped first — see trim_outliers.
+    """
     if report is None:
         return None
     prices = [comp.price for comp in report.comps if comp.price > 0]
     if prices:
-        return float(statistics.median(prices))
+        if len(prices) < MIN_CONFIDENT_COMPS:
+            return None
+        return float(statistics.median(trim_outliers(prices)))
     match = _RANGE_RE.search(report.market or "")
     if not match:
         match = _RANGE_RE.search(report.note or "")
