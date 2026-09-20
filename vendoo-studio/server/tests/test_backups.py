@@ -1,4 +1,6 @@
+import gzip
 import os
+import shutil
 import sqlite3
 import tempfile
 import time
@@ -33,9 +35,13 @@ def source_db(tmp_path):
     connection.execute("CREATE TABLE listings (id TEXT PRIMARY KEY, title TEXT)")
     connection.execute("INSERT INTO listings VALUES ('a', 'vintage jacket')")
     connection.commit()
-    # Deliberately left open and un-checkpointed: this is the state the app is
-    # in while running, and the state a plain file copy gets wrong.
-    return path
+    # Held open on purpose, and closed only at teardown: this is the state the
+    # app is in while running, and the state a plain file copy gets wrong.
+    # Letting the connection fall out of scope instead would checkpoint the
+    # -wal whenever the collector got round to it, which is not a thing to
+    # hang a test on.
+    yield path
+    connection.close()
 
 
 @pytest.fixture
@@ -46,8 +52,16 @@ def backups_dir(tmp_path, monkeypatch):
     return directory
 
 
-def _rows(path):
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+def _rows(path, tmp_path=None):
+    """Read a snapshot, unpacking it first when it is compressed."""
+    source = Path(path)
+    if source.suffix == ".gz":
+        plain = source.with_suffix("")
+        if tmp_path is not None:
+            plain = Path(tmp_path) / f"unpacked-{source.name}.db"
+        backups.decompress_snapshot(source, plain)
+        source = plain
+    connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
     try:
         return connection.execute("SELECT id, title FROM listings").fetchall()
     finally:
@@ -65,7 +79,7 @@ def test_snapshot_records_its_reason_in_the_name(source_db, backups_dir):
     snapshot = take_snapshot("Pre Update", source=source_db)
 
     assert snapshot.reason == "pre-update"
-    assert snapshot.path.name.endswith("-pre-update.db")
+    assert snapshot.path.name.endswith("-pre-update.db.gz")
     assert snapshot.path.parent == backups_dir
 
 
@@ -146,7 +160,7 @@ def test_unreachable_backup_folder_keeps_the_local_snapshot(source_db, backups_d
 def _stub(directory, days_ago, reason="timer", now=None):
     taken = (now or datetime.now(UTC)) - timedelta(days=days_ago)
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"vendoo_studio-{taken.strftime('%Y%m%d-%H%M%S')}-{reason}.db"
+    path = directory / f"vendoo_studio-{taken.strftime('%Y%m%d-%H%M%S')}-{reason}.db.gz"
     path.write_text("")
     return Snapshot(path=path, taken_at=taken, reason=reason, size_bytes=0)
 
@@ -358,3 +372,81 @@ def test_an_unreachable_photo_destination_is_survivable(source_db, backups_dir, 
     blocker.write_text("")
 
     assert backups.mirror_photos(blocker / "studio") == 0
+
+
+def test_snapshots_are_compressed(source_db, backups_dir):
+    """The database is mostly JSON text, and a month of copies is kept."""
+    snapshot = take_snapshot("timer", source=source_db)
+
+    assert snapshot.compressed
+    assert snapshot.path.suffix == ".gz"
+    assert snapshot.size_bytes < source_db.stat().st_size
+    with gzip.open(snapshot.path, "rb") as unpacked:
+        assert unpacked.read(16).startswith(b"SQLite format 3")
+
+
+def test_a_compressed_snapshot_still_opens_as_a_database(source_db, backups_dir, tmp_path):
+    snapshot = take_snapshot("timer", source=source_db)
+
+    assert _rows(snapshot.path, tmp_path) == [("a", "vintage jacket")]
+
+
+def test_no_uncompressed_leftovers(source_db, backups_dir):
+    take_snapshot("timer", source=source_db)
+
+    assert [path.name for path in backups_dir.iterdir()] == [
+        snapshot.path.name for snapshot in list_snapshots(backups_dir)
+    ]
+
+
+def test_decompress_snapshot_handles_a_plain_file(tmp_path):
+    """Snapshots taken before compression landed still restore."""
+    plain = tmp_path / "old-style.db"
+    connection = sqlite3.connect(plain)
+    connection.execute("CREATE TABLE listings (id TEXT PRIMARY KEY, title TEXT)")
+    connection.execute("INSERT INTO listings VALUES ('a', 'vintage jacket')")
+    connection.commit()
+    connection.close()
+    destination = tmp_path / "out.db"
+
+    backups.decompress_snapshot(plain, destination)
+
+    assert _rows(destination) == [("a", "vintage jacket")]
+
+
+def test_a_file_copy_would_have_lost_the_newest_writes(source_db, backups_dir, tmp_path):
+    """Why VACUUM INTO, and not cp.
+
+    The fixture's row is committed but still only in the -wal. Copying the
+    .db on its own is a copy of a database that has never seen it.
+    """
+    naive = tmp_path / "naive-copy.db"
+    shutil.copy2(source_db, naive)
+
+    with pytest.raises(sqlite3.OperationalError):
+        _rows(naive)
+
+    snapshot = take_snapshot("timer", source=source_db)
+    assert _rows(snapshot.path, tmp_path) == [("a", "vintage jacket")]
+
+
+def test_older_uncompressed_snapshots_are_still_listed(backups_dir):
+    legacy = backups_dir / "vendoo_studio-20260101-120000-timer.db"
+    backups_dir.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("")
+
+    listed = list_snapshots(backups_dir)
+
+    assert [snapshot.path.name for snapshot in listed] == [legacy.name]
+    assert not listed[0].compressed
+
+
+def test_a_snapshot_that_fails_its_check_leaves_no_archive(source_db, backups_dir, monkeypatch):
+    monkeypatch.setattr(
+        backups, "_verify", lambda path: (_ for _ in ()).throw(BackupError("bad"))
+    )
+
+    with pytest.raises(BackupError):
+        take_snapshot("timer", source=source_db)
+
+    assert list(backups_dir.glob("*")) == []

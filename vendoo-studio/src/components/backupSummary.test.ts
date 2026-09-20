@@ -11,6 +11,7 @@ function snapshot(takenAt: string, sizeBytes = 16_000_000) {
     taken_at: takenAt,
     reason: "timer",
     size_bytes: sizeBytes,
+    compressed: true,
   };
 }
 

@@ -7,13 +7,16 @@ instants and the copy opens short of its most recent writes. Every snapshot is
 checked with ``PRAGMA integrity_check`` before it is kept, because a backup
 nobody has opened is a guess rather than a backup.
 
-Snapshots live beside the database in ``backups/``. When a backup folder is
-configured they are also copied there, which is the copy that survives losing
-the machine.
+Snapshots live beside the database in ``backups/`` and are gzipped: the
+database is mostly JSON text and compresses around six-fold, which matters
+because a month of them is kept and every one is copied to the backup folder
+as well. When a backup folder is configured they go there too, which is the
+copy that survives losing the machine.
 """
 
 from __future__ import annotations
 
+import gzip
 import logging
 import re
 import shutil
@@ -32,7 +35,7 @@ log = logging.getLogger("vendoo_studio.backups")
 BACKUP_FOLDER_KEY = "backup_folder"
 PREFIX = "vendoo_studio"
 STAMP_FORMAT = "%Y%m%d-%H%M%S"
-NAME_PATTERN = re.compile(rf"^{PREFIX}-(\d{{8}}-\d{{6}})-([a-z0-9-]+)\.db$")
+NAME_PATTERN = re.compile(rf"^{PREFIX}-(\d{{8}}-\d{{6}})-([a-z0-9-]+)\.db(\.gz)?$")
 
 # Keep every snapshot from the last day, one per day for a month, and never
 # drop the newest few whatever their age: an install that sat unused for a
@@ -55,6 +58,10 @@ class Snapshot:
     reason: str
     size_bytes: int
 
+    @property
+    def compressed(self) -> bool:
+        return self.path.suffix == ".gz"
+
     def as_dict(self) -> dict:
         return {
             "path": str(self.path),
@@ -62,6 +69,7 @@ class Snapshot:
             "taken_at": self.taken_at.isoformat(),
             "reason": self.reason,
             "size_bytes": self.size_bytes,
+            "compressed": self.compressed,
         }
 
 
@@ -138,7 +146,7 @@ def list_snapshots(directory: Path | None = None) -> list[Snapshot]:
     target = Path(directory) if directory else backups_dir()
     if not target.is_dir():
         return []
-    found = [snapshot for path in target.glob(f"{PREFIX}-*.db") if (snapshot := _parse(path))]
+    found = [snapshot for path in target.glob(f"{PREFIX}-*") if (snapshot := _parse(path))]
     return sorted(found, key=lambda snapshot: snapshot.taken_at, reverse=True)
 
 
@@ -240,6 +248,22 @@ def mirror_photos(folder: Path | None = None) -> int:
     return copied
 
 
+def decompress_snapshot(snapshot: Path, destination: Path) -> Path:
+    """Write a plain SQLite file from a snapshot, compressed or not.
+
+    Restores and schema checks need a real database file. Returns
+    ``destination``, which is overwritten.
+    """
+    source = Path(snapshot)
+    if source.suffix != ".gz":
+        shutil.copy2(source, destination)
+        return destination
+
+    with gzip.open(source, "rb") as compressed, open(destination, "wb") as plain:
+        shutil.copyfileobj(compressed, plain)
+    return destination
+
+
 def take_snapshot(reason: str, *, source: str | Path | None = None) -> Snapshot:
     """Write a verified copy of the database and return it.
 
@@ -253,7 +277,7 @@ def take_snapshot(reason: str, *, source: str | Path | None = None) -> Snapshot:
     with _lock:
         directory = backups_dir()
         stamp = datetime.now(UTC).strftime(STAMP_FORMAT)
-        final = directory / f"{PREFIX}-{stamp}-{_slug(reason)}.db"
+        final = directory / f"{PREFIX}-{stamp}-{_slug(reason)}.db.gz"
         staging = directory / f".{PREFIX}-{uuid.uuid4().hex}.tmp"
         staging.unlink(missing_ok=True)
 
@@ -268,12 +292,22 @@ def take_snapshot(reason: str, *, source: str | Path | None = None) -> Snapshot:
             connection.close()
 
         try:
+            # Checked before compressing: gzip would happily wrap a corrupt
+            # file, and the point is to know the copy opens.
             _verify(staging)
         except BackupError:
             staging.unlink(missing_ok=True)
             raise
 
-        staging.replace(final)
+        try:
+            with open(staging, "rb") as plain, gzip.open(final, "wb", compresslevel=6) as compressed:
+                shutil.copyfileobj(plain, compressed)
+        except OSError as exc:
+            final.unlink(missing_ok=True)
+            raise BackupError(f"Could not compress {staging.name}: {exc}") from exc
+        finally:
+            staging.unlink(missing_ok=True)
+
         snapshot = _parse(final)
         if snapshot is None:  # pragma: no cover - the name is built above
             raise BackupError(f"Wrote an unreadable snapshot name: {final.name}")

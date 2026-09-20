@@ -201,7 +201,7 @@ def test_a_new_revision_is_applied_and_snapshotted_first(engine, snapshots, scri
     assert [snapshot.reason for snapshot in backups.list_snapshots(snapshots)] == ["pre-migration"]
 
 
-def test_a_failing_revision_leaves_the_snapshot_behind(engine, snapshots, scripted_migrations):
+def test_a_failing_revision_leaves_the_snapshot_behind(engine, snapshots, scripted_migrations, tmp_path):
     """When a migration blows up, the copy taken beforehand is what saves you."""
     scripted_migrations(
         "0001",
@@ -218,7 +218,9 @@ def test_a_failing_revision_leaves_the_snapshot_behind(engine, snapshots, script
     snapshot = backups.latest_snapshot(snapshots)
     assert snapshot is not None
     assert snapshot.reason == "pre-migration"
-    restored = sqlite3.connect(f"file:{snapshot.path}?mode=ro", uri=True)
+
+    unpacked = backups.decompress_snapshot(snapshot.path, tmp_path / "rolled-back.db")
+    restored = sqlite3.connect(f"file:{unpacked}?mode=ro", uri=True)
     try:
         assert restored.execute(
             "SELECT version_num FROM alembic_version"
