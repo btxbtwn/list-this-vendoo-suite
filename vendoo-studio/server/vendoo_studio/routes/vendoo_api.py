@@ -209,6 +209,100 @@ def _scraped_only_fields(
     return extra
 
 
+async def _fetch_specs(listing: dict, marketplace: str, category_id: str):
+    """Vendoo's schema for one leaf, fetched now when nothing is cached.
+
+    The cache is only filled when a listing is created or sent, so a listing
+    whose category was picked elsewhere — or changed since — showed a form with
+    the handful of fields some earlier leaf happened to teach us. Asking Vendoo
+    for this listing's own leaf is one round trip, and the answer is stored, so
+    the form is the one that category really renders.
+    """
+    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.category_fields import save_fields
+    from vendoo_studio.services.vendoo_create import mercari_fields, run_ops
+    from vendoo_studio.services.vendoo_specifics import normalize_specifics
+
+    if marketplace == "general" or not category_id:
+        return None
+    if marketplace == "mercari":
+        # Mercari's schema is a public static file, not an API answer.
+        specs = await mercari_fields(category_id)
+        if specs:
+            save_fields(marketplace, category_id, specs)
+        return specs or None
+    if not extension_manager.connected:
+        return None
+    objects = listing.get("marketplace_category_objects")
+    resolved = (objects or {}).get(marketplace) if isinstance(objects, dict) else None
+    resolved = resolved if isinstance(resolved, dict) else {}
+    try:
+        reply = await run_ops(SimpleNamespace(id=None), [{
+            "op": "category_specifics",
+            "category_id": category_id,
+            "marketplace_id": marketplace,
+            "path": [str(part) for part in (resolved.get("path") or []) if str(part or "").strip()],
+            "extras": resolved.get("extras") if isinstance(resolved.get("extras"), dict) else {},
+        }])
+    except Exception as exc:  # noqa: BLE001 - a missing schema is not fatal
+        log.info("No live %s schema for category %s: %s", marketplace, category_id, exc)
+        return None
+    hit = next(
+        (r for r in (reply.get("results") or []) if r.get("op") == "category_specifics"), {}
+    )
+    if not hit.get("ok"):
+        log.info("No live %s schema for category %s: %s", marketplace, category_id,
+                 hit.get("error") or "empty reply")
+        return None
+    specs = normalize_specifics(hit.get("specifics"))
+    if specs:
+        save_fields(marketplace, category_id, specs)
+    return specs or None
+
+
+# Keys Studio keeps in <marketplace>_specifics that no form ever renders.
+_NON_FORM_SPECIFIC_KEYS = frozenset({
+    "categorypath", "categoryid", "categoryspecifics", "category",
+})
+
+
+def _listing_only_fields(
+    listing: dict,
+    marketplace: str,
+    fields: list[dict],
+) -> list[dict]:
+    """Values this listing holds that neither the schema nor the scrape names.
+
+    Without these a stray key — one an older run wrote, or one Vendoo renamed —
+    stays in the listing JSON, keeps failing validation, and has no row the
+    seller can clear it from.
+    """
+    raw = listing.get(f"{marketplace}_specifics")
+    if not isinstance(raw, dict):
+        return []
+    seen = {_fold_field_name(row["key"]) for row in fields}
+    seen |= {_fold_field_name(row["label"]) for row in fields}
+    extra: list[dict] = []
+    for key, value in raw.items():
+        folded = _fold_field_name(key)
+        if not folded or folded in seen or folded in _NON_FORM_SPECIFIC_KEYS:
+            continue
+        text = ", ".join(str(v).strip() for v in value if str(v).strip()) if isinstance(value, list) else str(value or "").strip()
+        if not text:
+            continue
+        seen.add(folded)
+        extra.append({
+            "key": str(key),
+            "label": _humanize_field_key(str(key)),
+            "value": text,
+            "required": False,
+            "multi": isinstance(value, list),
+            "selection_only": False,
+            "options": [],
+        })
+    return extra
+
+
 @router.get("/api/conversations/{conv_id}/vendoo-api/fields")
 async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
     """Every field each marketplace form renders for *this* listing's categories.
@@ -232,13 +326,21 @@ async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
     static_forms = marketplace_dropdown_forms()
     out: list[dict] = []
     for marketplace, category_id in sorted(listing_category_ids(listing).items()):
-        specs = load_fields(marketplace, category_id)
+        specs = load_fields(marketplace, category_id) or await _fetch_specs(
+            listing, marketplace, category_id
+        )
         static = static_forms.get(marketplace) or {}
         static_by_fold = {key.casefold(): values for key, values in static.items()}
         if not specs:
+            # No schema for this leaf, live or cached. Show the marketplace's
+            # own controls and whatever the listing holds, so the form is never
+            # blank and a rejected value is still reachable.
+            fallback = _scraped_only_fields(listing, marketplace, static, [])
+            fallback.extend(_listing_only_fields(listing, marketplace, fallback))
+            fallback.sort(key=lambda row: row["label"])
             out.append({
                 "marketplace": marketplace, "category_id": category_id,
-                "known": False, "fields": [],
+                "known": False, "fields": fallback,
             })
             continue
         fields = []
@@ -265,6 +367,7 @@ async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
                 "options": options,
             })
         fields.extend(_scraped_only_fields(listing, marketplace, static, fields))
+        fields.extend(_listing_only_fields(listing, marketplace, fields))
         fields.sort(key=lambda row: (not row["required"], row["label"]))
         out.append({
             "marketplace": marketplace, "category_id": category_id,

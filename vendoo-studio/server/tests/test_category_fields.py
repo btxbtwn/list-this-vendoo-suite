@@ -307,6 +307,62 @@ class ListingFieldsRouteTest(unittest.TestCase):
         self.assertIn("Acrylic", material["options"])
         self.assertEqual(labels, sorted(set(labels), key=labels.index))
 
+    def test_an_uncached_leaf_is_fetched_from_vendoo_and_stored(self):
+        """The cache only fills on create/send, so this listing's own leaf is asked for."""
+        from vendoo_studio.services import category_fields as cf
+        from vendoo_studio.services import vendoo_create
+
+        raw = {"material": {"id": "material", "display": "Material", "options": {
+            "0": {"id": "Silk", "display": "Silk"}},
+            "rules": {"fieldOptions": {"minValues": 0, "maxValues": 1, "selectionMode": "SelectionOnly"}}}}
+        saved: list[tuple] = []
+
+        async def fake_run_ops(job, ops):
+            saved.append(("op", ops[0]["marketplace_id"], ops[0]["category_id"]))
+            return {"results": [{"op": "category_specifics", "ok": True, "specifics": raw}]}
+
+        listing = {"depop_specifics": {"material": "Chiffon"}}
+        with mock.patch.object(cf, "listing_category_ids", return_value={"depop": "77"}), \
+                mock.patch.object(cf, "load_fields", return_value=None), \
+                mock.patch.object(vendoo_create, "run_ops", fake_run_ops), \
+                mock.patch("vendoo_studio.routes.extension.ExtensionManager.connected",
+                           new_callable=mock.PropertyMock, return_value=True), \
+                mock.patch("vendoo_studio.services.category_fields.save_fields",
+                           side_effect=lambda *a: saved.append(("saved", a[0], a[1]))), \
+                mock.patch("vendoo_studio.repositories.queries.ConversationRepo.get", return_value=object()), \
+                mock.patch("vendoo_studio.repositories.queries.ListingRepo.get_revisions",
+                           return_value=[type("R", (), {"listing_json": listing})()]):
+            body = TestClient(app).get("/api/conversations/c1/vendoo-api/fields").json()
+
+        form = body["forms"][0]
+        self.assertTrue(form["known"])
+        material = next(f for f in form["fields"] if f["label"] == "Material")
+        self.assertEqual(material["value"], "Chiffon")
+        self.assertEqual(material["options"], ["Silk"])
+        self.assertIn(("op", "depop", "77"), saved)
+        self.assertIn(("saved", "depop", "77"), saved)
+
+    def test_a_value_no_form_names_still_gets_a_row(self):
+        """Otherwise a rejected leftover key is invisible and cannot be cleared."""
+        from vendoo_studio.services import category_fields as cf
+
+        specs = normalize_specifics({"Season": {"id": "Season", "display": "Season", "options": {
+            "0": {"id": "Spring", "display": "Spring"}},
+            "rules": {"fieldOptions": {"minValues": 0, "maxValues": 1, "selectionMode": "SelectionOnly"}}}})
+        listing = {"ebay_specifics": {"Fabric Weight": "Lightweight", "categoryPath": "a/b"}}
+
+        with mock.patch.object(cf, "listing_category_ids", return_value={"ebay": "53159"}), \
+                mock.patch.object(cf, "load_fields", return_value=specs), \
+                mock.patch("vendoo_studio.repositories.queries.ConversationRepo.get", return_value=object()), \
+                mock.patch("vendoo_studio.repositories.queries.ListingRepo.get_revisions",
+                           return_value=[type("R", (), {"listing_json": listing})()]):
+            body = TestClient(app).get("/api/conversations/c1/vendoo-api/fields").json()
+
+        labels = {f["label"]: f for f in body["forms"][0]["fields"]}
+        self.assertEqual(labels["Fabric Weight"]["value"], "Lightweight")
+        # Studio's own bookkeeping keys are not form fields.
+        self.assertNotIn("Category Path", labels)
+
     def test_a_category_with_no_cached_schema_is_marked_unknown(self):
         from vendoo_studio.services import category_fields as cf
 
