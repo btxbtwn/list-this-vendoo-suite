@@ -60,6 +60,9 @@ class ConversationResponse(BaseModel):
     # whose listing date is older than this is still showing the copy from
     # before that write, and only a delist + relist in Vendoo replaces it.
     vendoo_form_updated_at: str | None = None
+    # The marketplaces that write left on old copy. Kept rather than re-derived
+    # so the reminder survives the delist, when the item is live nowhere.
+    vendoo_relist_pending: list[str] = []
 
 
 class MessageResponse(BaseModel):
@@ -572,6 +575,14 @@ def _extras_for(db: Session, conv_id: str) -> dict:
     return _extras(_cover_photo_url(repo.cover_photo_id(conv_id)), repo.listing_facet(conv_id))
 
 
+def _relist_pending(notes: dict) -> list[str]:
+    """Marketplaces still owed a relist after Studio's last write to Vendoo."""
+    raw = notes.get("vendooRelistPending")
+    if not isinstance(raw, list):
+        return []
+    return [str(market).strip() for market in raw if str(market).strip()]
+
+
 def _vendoo_dates(notes: dict) -> dict:
     """Vendoo's time tracking for the row, as the sidebar and details read it."""
     dates = notes.get("vendooDates") if isinstance(notes.get("vendooDates"), dict) else {}
@@ -587,6 +598,7 @@ def _vendoo_dates(notes: dict) -> dict:
 
     return {
         "vendoo_form_updated_at": str(notes.get("vendooFormUpdatedAt") or "") or None,
+        "vendoo_relist_pending": _relist_pending(notes),
         "vendoo_created_at": text("created"),
         "vendoo_modified_at": text("modified"),
         "vendoo_listed_at": text("listed"),

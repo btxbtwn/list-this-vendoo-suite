@@ -16,6 +16,7 @@ import {
   joinMarketplaces,
   marketplacesNeedingRelist,
   relistCallout,
+  relistStage,
 } from "./relistStatus";
 import {
   DEPOP_CATEGORY_OPTIONALS,
@@ -217,6 +218,16 @@ export function ListingEditor({
     () => marketplacesNeedingRelist(conversation).map(marketplaceName),
     [conversation],
   );
+  // Which half is left. After Delist Item the item is live nowhere, which the
+  // banner has to say plainly — that is the state most easily walked away from.
+  const stage = React.useMemo(() => relistStage(conversation), [conversation]);
+  const relistDone = useMutation({
+    mutationFn: () => api.vendooApi.relistDone(convId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
   const liveMarketplaces = React.useMemo(() => {
     const sold = conversation?.vendoo_sold_dates || {};
     return (conversation?.vendoo_marketplaces || [])
@@ -297,22 +308,37 @@ export function ListingEditor({
           className="pr-notice is-relist"
           role="status"
           // The sentence says how many; the tooltip says which.
-          title={`Still on the old copy: ${relistMarketplaces.join(", ")}`}
+          title={`Waiting on a relist: ${relistMarketplaces.join(", ")}`}
         >
           <div className="pr-notice-body">
-            <strong>Relist in Vendoo to publish this edit.</strong>{" "}
-            {relistCallout(relistMarketplaces)}{" "}
-            In Vendoo, the ⋮ menu beside Vendoo Form has Delist Item — it takes the item off
-            every marketplace at once. List it again after that.
+            <strong>
+              {stage === "list" ? "List it again to finish." : "Relist in Vendoo to publish this edit."}
+            </strong>{" "}
+            {relistCallout(relistMarketplaces, stage)}{" "}
+            {stage === "list"
+              ? "In Vendoo, list the item again and this clears itself."
+              : "In Vendoo, the ⋮ menu beside Vendoo Form has Delist Item — it takes the item off"
+                + " every marketplace at once. List it again after that."}
           </div>
-          {listingJob ? (
-            <OpenListingButton
-              className="btn btn-secondary btn-sm pr-notice-action"
-              jobId={listingJob.id}
-              vendooItemId={importedItemId}
-              vendooUrl={importedUrl}
-            />
-          ) : null}
+          <div className="pr-notice-actions">
+            {listingJob ? (
+              <OpenListingButton
+                className="btn btn-secondary btn-sm pr-notice-action"
+                jobId={listingJob.id}
+                vendooItemId={importedItemId}
+                vendooUrl={importedUrl}
+              />
+            ) : null}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm pr-notice-action"
+              disabled={relistDone.isPending}
+              title="Stop reminding me — the listing is handled"
+              onClick={() => relistDone.mutate()}
+            >
+              Done
+            </button>
+          </div>
         </div>
       )}
 

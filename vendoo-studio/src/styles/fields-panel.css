@@ -266,8 +266,16 @@
   flex: 1;
 }
 
+.pr-notice-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
 .pr-notice-action {
   flex: none;
+  white-space: nowrap;
 }
 
 .pr-mode-banner {

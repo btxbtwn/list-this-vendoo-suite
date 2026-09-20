@@ -360,6 +360,47 @@ class SaveRouteTest(_RouteTest):
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(res.json()["relist_needed"], ["depop"])
 
+    def test_remembers_the_marketplaces_across_the_delist(self):
+        """Delist Item clears the live flags; the reminder must outlive them."""
+        self.bind()
+        self.save({
+            "itemID": "itm1",
+            "generalDetails": {"title": "Old title"},
+            "listings": {"ebay": {"status": {"listed": True}}, "depop": {"status": {"listed": True}}},
+        })
+        notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
+        self.assertEqual(notes["vendooRelistPending"], ["depop", "ebay"])
+
+    def test_a_second_write_keeps_the_marketplaces_already_owed(self):
+        """Editing again mid-delist must not forget what is still down."""
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        conv.notes = merge_notes(conv.notes, {
+            "vendooItemId": "itm1", "vendooRelistPending": ["poshmark"],
+        })
+        self.db.commit()
+        self.save({
+            "itemID": "itm1",
+            "generalDetails": {"title": "Old title"},
+            "listings": {"ebay": {"status": {"listed": True}}},
+        })
+        notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
+        self.assertEqual(notes["vendooRelistPending"], ["ebay", "poshmark"])
+
+    def test_relist_done_drops_the_reminder(self):
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        conv.notes = merge_notes(conv.notes, {
+            "vendooItemId": "itm1",
+            "vendooFormUpdatedAt": "2026-09-18T00:00:00+00:00",
+            "vendooRelistPending": ["ebay"],
+        })
+        self.db.commit()
+        res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/relist-done")
+        self.assertEqual(res.status_code, 200, res.text)
+        notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
+        # Both stamps go, or the live listings alone would re-derive the badge.
+        self.assertEqual(notes["vendooRelistPending"], [])
+        self.assertEqual(notes["vendooFormUpdatedAt"], "")
+
     def test_nothing_to_write_leaves_the_stamp_alone(self):
         """No write means no new copy waiting on a relist."""
         self.bind()

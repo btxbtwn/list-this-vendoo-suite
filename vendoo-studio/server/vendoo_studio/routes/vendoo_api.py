@@ -410,6 +410,7 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     from vendoo_studio.services.vendoo_create import prepare_listing_for_vendoo, run_ops
     from vendoo_studio.services.vendoo_import import (
         merge_notes,
+        parse_notes,
         vendoo_binding,
         vendoo_relistable_marketplaces,
     )
@@ -463,11 +464,40 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         # badge clears when a marketplace's listing date passes this stamp,
         # which only a delist-and-relist in Vendoo can do.
         relist_needed = vendoo_relistable_marketplaces(current)
-        conv.notes = merge_notes(conv.notes, {"vendooFormUpdatedAt": datetime.now(UTC).isoformat()})
+        # Remembered, not re-derived, because the seller's next step deletes the
+        # evidence: once Delist Item runs in Vendoo the item is live nowhere, and
+        # a badge that reads the live listings alone would vanish in the middle
+        # of the job — exactly where it is needed to say "now list it again".
+        pending = parse_notes(conv.notes).get("vendooRelistPending")
+        pending = pending if isinstance(pending, list) else []
+        conv.notes = merge_notes(conv.notes, {
+            "vendooFormUpdatedAt": datetime.now(UTC).isoformat(),
+            "vendooRelistPending": sorted({*map(str, pending), *relist_needed}),
+        })
         db.commit()
     return SaveResponse(
         ok=True, item_id=item_id, updated=sorted(updates), relist_needed=relist_needed,
     )
+
+
+@router.post("/api/conversations/{conv_id}/vendoo-api/relist-done")
+async def clear_relist_reminder(conv_id: str, db: Session = Depends(get_db)):
+    """Drop the relist reminder because the seller says it is handled.
+
+    Normally the badge clears itself: Vendoo reports a listing date newer than
+    Studio's write and the item is current again. This is for the cases that
+    never produce one — the seller relisted on a marketplace Studio cannot see,
+    or decided the edit is not worth a relist. Both stamps go, so nothing
+    re-derives the reminder on the next read.
+    """
+    from vendoo_studio.services.vendoo_import import merge_notes
+
+    conv = ConversationRepo(db).get(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    conv.notes = merge_notes(conv.notes, {"vendooFormUpdatedAt": "", "vendooRelistPending": []})
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/api/conversations/{conv_id}/vendoo-api/pull")

@@ -7,6 +7,13 @@
  * sees the old title, price and photos, which is exactly the trap this module
  * exists to label: the listing date of a marketplace that was relisted moves
  * past the write, and one that was not stays behind it.
+ *
+ * The job has two halves, and the middle is the dangerous part. Delist Item in
+ * Vendoo leaves the item live nowhere, so reading the live listings alone would
+ * drop the warning exactly when the seller is one step from finishing. The
+ * marketplaces owed a relist are therefore remembered at write time
+ * (``vendoo_relist_pending``) and only let go once Vendoo reports each one
+ * listed again.
  */
 
 export type RelistableListing = {
@@ -16,7 +23,17 @@ export type RelistableListing = {
   vendoo_listed_dates?: Record<string, string>;
   vendoo_sold_dates?: Record<string, string>;
   vendoo_form_updated_at?: string | null;
+  vendoo_relist_pending?: string[];
 };
+
+/**
+ * Where the listing sits between a Studio edit and buyers seeing it.
+ *
+ * ``delist`` — still live on the old copy; the next step is Delist Item.
+ * ``list`` — taken down in Vendoo, not up again; the item is live nowhere.
+ * ``none`` — current, sold, or never written to.
+ */
+export type RelistStage = "delist" | "list" | "none";
 
 function timeMs(value?: string | null): number {
   if (!value) return 0;
@@ -27,9 +44,11 @@ function timeMs(value?: string | null): number {
 /**
  * Marketplaces to delist and relist in Vendoo before buyers see this edit.
  *
- * A sold listing is left out: its copy is history, not something to refresh.
- * A live marketplace with no listing date at all is left *in* — an unprovable
- * date is the case where a missed relist hurts, so it warns rather than hides.
+ * Counts both the ones still live on the old copy and the ones already taken
+ * down and not yet put back. A sold listing is left out: its copy is history,
+ * not something to refresh. A marketplace with no listing date at all is left
+ * *in* — an unprovable date is the case where a missed relist hurts, so it
+ * warns rather than hides.
  */
 export function marketplacesNeedingRelist(listing: RelistableListing | null | undefined): string[] {
   if (!listing) return [];
@@ -38,14 +57,27 @@ export function marketplacesNeedingRelist(listing: RelistableListing | null | un
   if (String(listing.status || "draft") === "sold") return [];
   const sold = listing.vendoo_sold_dates || {};
   const listedDates = listing.vendoo_listed_dates || {};
+  const live = listing.vendoo_marketplaces || [];
   const fallback = timeMs(listing.vendoo_listed_at);
-  return (listing.vendoo_marketplaces || [])
+  const candidates = new Set([...live, ...(listing.vendoo_relist_pending || [])]);
+  return [...candidates]
     .filter((id) => {
       if (sold[id]) return false;
-      const listedAt = timeMs(listedDates[id]) || fallback;
+      // The item-wide listing date only stands in for a marketplace that is
+      // still live; for one already taken down it would date the listing that
+      // no longer exists.
+      const listedAt = timeMs(listedDates[id]) || (live.includes(id) ? fallback : 0);
       return !listedAt || listedAt < updatedAt;
     })
     .sort();
+}
+
+/** Which half of the job is left: taking it down, or putting it back up. */
+export function relistStage(listing: RelistableListing | null | undefined): RelistStage {
+  const owed = marketplacesNeedingRelist(listing);
+  if (!owed.length) return "none";
+  const live = new Set(listing?.vendoo_marketplaces || []);
+  return owed.some((id) => live.has(id)) ? "delist" : "list";
 }
 
 export function needsRelist(listing: RelistableListing | null | undefined): boolean {
@@ -72,8 +104,17 @@ export function describeMarketplaces(names: string[]): string {
   return joinMarketplaces(names);
 }
 
-/** The one sentence that says what Update Vendoo did and did not do. */
-export function relistCallout(names: string[]): string {
+/**
+ * The one sentence that says where the listing stands.
+ *
+ * After the delist there is nothing live to describe, so it says the thing that
+ * actually matters then: the item is off every marketplace until it goes back up.
+ */
+export function relistCallout(names: string[], stage: RelistStage = "delist"): string {
+  if (stage === "list") {
+    return "The Vendoo form holds the new version and the item is delisted,"
+      + " so it is live nowhere until you list it again.";
+  }
   if (names.length > 2) {
     return `The Vendoo form is updated, but the live listings on all ${names.length}`
       + " marketplaces still show the old version.";

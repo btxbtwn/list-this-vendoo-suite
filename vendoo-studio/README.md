@@ -82,8 +82,11 @@ the item off every marketplace at once, then list it again).
 
 Studio labels that gap rather than leaving it to memory: the listing wears a
 **relist** badge in the sidebar, the editor shows which marketplaces are behind,
-and **Filters → Needs relist** collects all of them. The badge clears itself once
-Vendoo reports a listing date newer than Studio's last write.
+and **Filters → Needs relist** collects all of them. The badge survives the
+delist itself — in that middle window Vendoo reports the item as a draft, because
+it is live nowhere, and the banner switches to "list it again to finish". It
+clears itself once Vendoo reports a listing date newer than Studio's last write,
+or on **Done** in the banner for a relist Studio cannot see.
 
 ## Architecture
 

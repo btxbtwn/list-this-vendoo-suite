@@ -161,6 +161,10 @@ export const api = {
       request<{ ok: boolean; item_id: string; updated: string[]; relist_needed: string[] }>(
         `/conversations/${convId}/vendoo-api/save`, { method: "POST" },
       ),
+    relistDone: (convId: string) =>
+      request<{ ok: boolean }>(
+        `/conversations/${convId}/vendoo-api/relist-done`, { method: "POST" },
+      ),
     sync: (convId: string) =>
       request<{
         ok: boolean;

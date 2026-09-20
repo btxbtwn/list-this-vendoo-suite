@@ -14,7 +14,7 @@ import { statusFromListingStatus } from "./fillLogForms";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ListingFilters } from "./ListingFilters";
 import { SuggestionsPanel } from "./SuggestionsPanel";
-import { marketplacesNeedingRelist } from "./relistStatus";
+import { marketplacesNeedingRelist, relistStage } from "./relistStatus";
 import { marketplaceName } from "./marketplaceNames";
 import { stopTitlebarDrag } from "./WorkspaceTopbar";
 import {
@@ -86,6 +86,7 @@ type Listing = {
   vendoo_listed_dates?: Record<string, string>;
   vendoo_sold_dates?: Record<string, string>;
   vendoo_form_updated_at?: string | null;
+  vendoo_relist_pending?: string[];
 };
 
 interface Props {
@@ -994,6 +995,7 @@ function ListingRow({
   // "active" alone would read as done. These listings are live on copy older
   // than Studio's last write, and only a delist + relist in Vendoo fixes that.
   const relistMarketplaces = useMemo(() => marketplacesNeedingRelist(listing), [listing]);
+  const relistStageNow = useMemo(() => relistStage(listing), [listing]);
   const loadingStatus = Boolean(
     hoverOpen && jobId && !draft && peekQuery.isFetching,
   );
@@ -1152,8 +1154,11 @@ function ListingRow({
             {relistMarketplaces.length ? (
               <span
                 className="nav-status nav-status-relist"
-                title={`Updated in Studio after ${relistMarketplaces.map(marketplaceName).join(", ")} went live.`
-                  + " Delist and relist in Vendoo to publish the new version."}
+                title={relistStageNow === "list"
+                  ? "Delisted in Vendoo and not listed again yet, so it is live nowhere."
+                    + ` List it again to finish: ${relistMarketplaces.map(marketplaceName).join(", ")}.`
+                  : `Updated in Studio after ${relistMarketplaces.map(marketplaceName).join(", ")} went live.`
+                    + " Delist and relist in Vendoo to publish the new version."}
               >
                 relist
               </span>

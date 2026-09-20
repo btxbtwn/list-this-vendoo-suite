@@ -32,6 +32,8 @@ export interface Conversation {
   /** When Studio last wrote this listing onto its Vendoo item. A marketplace
    * listed before this still shows the copy from before that write. */
   vendoo_form_updated_at?: string | null;
+  /** Marketplaces owed a relist since then, kept across the delist itself. */
+  vendoo_relist_pending?: string[];
 }
 
 export interface Message {

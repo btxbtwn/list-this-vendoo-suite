@@ -503,7 +503,7 @@ export function FirstRunGuide({
                     <strong>3. List it again from Vendoo.</strong> The new listing carries the updated copy, and its listing date resets.
                   </li>
                   <li>
-                    <strong>Studio tracks the gap for you.</strong> Between steps 1 and 3 the listing wears an amber <em>relist</em> badge in the sidebar, and Filters → Needs relist collects every one of them. It clears itself once Vendoo reports the new listing date.
+                    <strong>Studio tracks the gap for you.</strong> From step 1 until step 3 the listing wears an amber <em>relist</em> badge in the sidebar, and Filters → Needs relist collects every one of them. The badge stays through the middle — after the delist the item reads as a draft, because it really is live nowhere — and clears itself once Vendoo reports the new listing date.
                   </li>
                 </ul>
               </>

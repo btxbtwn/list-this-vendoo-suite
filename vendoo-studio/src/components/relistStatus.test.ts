@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeMarketplaces,
   joinMarketplaces,
+  relistStage,
   marketplacesNeedingRelist,
   needsRelist,
   relistCallout,
@@ -64,11 +65,68 @@ describe("marketplacesNeedingRelist", () => {
   });
 });
 
+describe("the delisted middle", () => {
+  // Delist Item clears every live flag, so the live listings alone say nothing.
+  const delisted: RelistableListing = {
+    status: "draft",
+    vendoo_marketplaces: [],
+    vendoo_listed_dates: { ebay: "2026-09-01T00:00:00Z", poshmark: "2026-09-01T00:00:00Z" },
+    vendoo_relist_pending: ["ebay", "poshmark"],
+    vendoo_form_updated_at: "2026-09-18T00:00:00Z",
+  };
+
+  it("keeps asking after the delist, when nothing is live to read", () => {
+    expect(marketplacesNeedingRelist(delisted)).toEqual(["ebay", "poshmark"]);
+    expect(relistStage(delisted)).toBe("list");
+  });
+
+  it("lets go of each marketplace as it is listed again", () => {
+    const half = {
+      ...delisted,
+      vendoo_marketplaces: ["ebay"],
+      vendoo_listed_dates: { ebay: "2026-09-19T00:00:00Z", poshmark: "2026-09-01T00:00:00Z" },
+    };
+    expect(marketplacesNeedingRelist(half)).toEqual(["poshmark"]);
+    expect(relistStage(half)).toBe("list");
+    const done = {
+      ...half,
+      vendoo_marketplaces: ["ebay", "poshmark"],
+      vendoo_listed_dates: { ebay: "2026-09-19T00:00:00Z", poshmark: "2026-09-19T00:00:00Z" },
+    };
+    expect(marketplacesNeedingRelist(done)).toEqual([]);
+    expect(relistStage(done)).toBe("none");
+  });
+
+  it("calls it a delist while anything is still live on the old copy", () => {
+    expect(relistStage(live)).toBe("delist");
+  });
+
+  it("drops the reminder for an item that sold instead", () => {
+    expect(marketplacesNeedingRelist({ ...delisted, status: "sold" })).toEqual([]);
+  });
+
+  it("does not date a delisted marketplace by the item's old listing date", () => {
+    // vendoo_listed_at belongs to the listing that Delist Item just removed.
+    expect(marketplacesNeedingRelist({
+      ...delisted,
+      vendoo_listed_dates: {},
+      vendoo_listed_at: "2026-09-19T00:00:00Z",
+    })).toEqual(["ebay", "poshmark"]);
+  });
+});
+
 describe("copy", () => {
   it("joins names the way a sentence reads", () => {
     expect(joinMarketplaces(["eBay"])).toBe("eBay");
     expect(joinMarketplaces(["eBay", "Poshmark"])).toBe("eBay and Poshmark");
     expect(joinMarketplaces(["eBay", "Poshmark", "Depop"])).toBe("eBay, Poshmark and Depop");
+  });
+
+  it("says the item is live nowhere once it is delisted", () => {
+    expect(relistCallout(["eBay"], "list")).toBe(
+      "The Vendoo form holds the new version and the item is delisted,"
+      + " so it is live nowhere until you list it again.",
+    );
   });
 
   it("counts the marketplaces once the list gets long", () => {
