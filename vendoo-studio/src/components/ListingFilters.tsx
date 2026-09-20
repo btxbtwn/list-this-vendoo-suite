@@ -9,6 +9,7 @@ import {
   LISTING_STATUS_TABS,
   STALE_DAY_OPTIONS,
   activeFilterCount,
+  compactCount,
   toggleValue,
   type ListingFilters as Filters,
   type ListingSortId,
@@ -163,11 +164,13 @@ export function ListingFilters({
             role="tab"
             aria-selected={filters.status === status}
             className={`listing-filter-tab${filters.status === status ? " selected" : ""}`}
+            // A narrow sidebar drops the counts, so the tab itself carries one.
+            title={`${STATUS_LABELS[status]} · ${counts[status] || 0}`}
             onClick={() => onChange({ ...filters, status })}
           >
             <span className="listing-filter-tab-inner">
-              {STATUS_LABELS[status]}
-              <span className="listing-filter-tab-count">{counts[status] || 0}</span>
+              <span className="listing-filter-tab-label">{STATUS_LABELS[status]}</span>
+              <span className="listing-filter-tab-count">{compactCount(counts[status] || 0)}</span>
             </span>
           </button>
         ))}
