@@ -327,6 +327,39 @@ class SaveRouteTest(_RouteTest):
         ):
             return self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
 
+    def test_general_form_is_written_before_the_marketplace_forms(self):
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1"})
+        self.db.commit()
+        current = {
+            "itemID": "itm1",
+            "userID": "u1",
+            "generalDetails": {"title": "Old", "images": ["a.jpg"]},
+            "listings": {"ebay": {"marketplaceID": "ebay", "overrides": {"title": "Old"}}},
+        }
+        writes: list[list[str]] = []
+
+        async def fake_run_ops(job, ops):
+            for op in ops:
+                if op["op"] == "get_item":
+                    return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": current}]}
+                if op["op"] == "update_item":
+                    writes.append(sorted(op["updates"]))
+            return {"ok": True, "results": []}
+
+        async def fake_prepare(job, listing, *, provider=None, evidence=""):
+            return listing, {}, None, [], []
+
+        with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops), \
+             patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", fake_prepare):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(len(writes), 2)
+        self.assertTrue(all(path.startswith("generalDetails") or "." not in path for path in writes[0]))
+        self.assertTrue(all(path.startswith("listings.") for path in writes[1]))
+        self.assertIn("generalDetails.title", writes[0])
+        self.assertIn("listings.ebay.overrides.title", writes[1])
+
     def test_names_the_live_marketplaces_to_relist(self):
         self.bind()
         res = self.save({

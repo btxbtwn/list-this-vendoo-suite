@@ -25,6 +25,7 @@ from copy import deepcopy
 from typing import Any
 
 from vendoo_studio.models.mercari_shipping import (
+    DEFAULT_PACKAGE_OUNCES,
     DEFAULT_SHIPPING_LABEL,
     ground_advantage,
     package_ounces,
@@ -760,16 +761,23 @@ def _apply_poshmark_smart_sell(known: dict[str, Any]) -> None:
 def _apply_mercari_shipping(
     known: dict[str, Any],
     weight: dict[str, Any] | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> None:
     """Always select the prepaid USPS Ground Advantage label for this weight.
 
     The form lists only the tiers that carry the package, so the id has to
     match the listing's weight — a fixed one sits outside the list and shows
-    as an empty Shipping Label. Non-GA labels from a previous draft are
+    as an empty Shipping Label. A weightless listing is the same story: the
+    form offers no tier at all, so it is given the default half-pound package
+    the tier is picked from. Non-GA labels from a previous draft are
     overwritten: after Regenerate + API save the seller expects Ground
     Advantage every time.
     """
     ounces = package_ounces((weight or {}).get("pounds"), (weight or {}).get("ounces"))
+    if ounces <= 0:
+        ounces = DEFAULT_PACKAGE_OUNCES
+        if isinstance(overrides, dict):
+            overrides["weight"] = {"pounds": "0", "ounces": str(DEFAULT_PACKAGE_OUNCES)}
     carrier_id, tier_label = ground_advantage(ounces)
     known["shippingLabel"] = tier_label
     shipping = known.get("shipping")
@@ -1124,6 +1132,20 @@ def _spec_index(specs: dict[str, FieldSpec]) -> dict[str, FieldSpec]:
     return index
 
 
+def _force_numeric_fabric_weight(out: dict[str, Any], key: str) -> None:
+    """eBay's Fabric Weight is a number or nothing — never a word.
+
+    eBay refuses the listing with "Fabric weight must be greater than 0", and
+    Studio never guesses one, so anything that is not an evidenced number is
+    written as "": that clears whatever the form still shows, including a word
+    left there by the listing this draft carried before Regenerate.
+    """
+    from vendoo_studio.models.ebay_fields import normalize_ebay_fabric_weight
+
+    normalized, _ = normalize_ebay_fabric_weight(out.get(key))
+    out[key] = normalized
+
+
 def _category_specifics(
     category_id: str,
     specs: dict[str, FieldSpec],
@@ -1179,6 +1201,10 @@ def _category_specifics(
                 continue
             stored = [] if spec.multi else ""
         out[specifics_key(category_id, spec.key)] = stored
+    if marketplace == "ebay":
+        weight_spec = index.get("fabric weight")
+        if weight_spec is not None:
+            _force_numeric_fabric_weight(out, specifics_key(category_id, weight_spec.key))
     return out
 
 
@@ -1225,6 +1251,10 @@ def _learned_category_specifics(
         out[specifics_key(category_id, suffix)] = (
             parts if aspect_is_multi(schema, marketplace, suffix) else ", ".join(parts)
         )
+    if marketplace == "ebay":
+        weight_suffix = index.get("fabric weight")
+        if weight_suffix:
+            _force_numeric_fabric_weight(out, specifics_key(category_id, weight_suffix))
     return out
 
 
@@ -1385,7 +1415,7 @@ def _listing_section(
     elif marketplace == "poshmark":
         _apply_poshmark_smart_sell(known)
     elif marketplace == "mercari":
-        _apply_mercari_shipping(known, section["overrides"].get("weight"))
+        _apply_mercari_shipping(known, section["overrides"].get("weight"), section["overrides"])
     elif marketplace == "depop":
         _apply_depop_option_codes(known, unresolved)
 
@@ -1477,7 +1507,13 @@ _EXACT_DEPOP_PATHS = frozenset(
 )
 # General-form fields Vendoo's Update All copies onto marketplace forms.
 _UPDATE_ALL_OVERRIDE_KEYS = ("title", "description", "sku", "quantity", "tags")
+# Every form that keeps its own copy of the package. Depop has none — it prices
+# the parcel by tier, which ``ensure_depop_category_optionals`` rewrites.
+_PACKAGE_OVERRIDE_KEYS = ("weight", "dimensions")
+_PACKAGE_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari"})
 _PRICE_OVERRIDE_MARKETPLACES = frozenset({"etsy", "poshmark", "mercari", "depop"})
+# Forms whose condition is re-sent on every save — see ``force_condition_updates``.
+_ALWAYS_WRITE_CONDITION_MARKETPLACES = ("poshmark", "mercari")
 _TAGS_SPECIFICS_MARKETPLACES = frozenset({"etsy", "mercari"})
 
 
@@ -1545,6 +1581,26 @@ def _apply_condition(
         want_specs[key] = deepcopy(condition)
 
 
+def force_condition_updates(desired: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    """Always write Poshmark's and Mercari's condition, changed or not.
+
+    Both list from whatever their form holds, and a save that writes nothing
+    there leaves Vendoo free to fall back to the general ``v_`` code — which
+    Poshmark rejects outright. Re-sending the code Studio computed costs one
+    field and takes the form off that fallback every time.
+    """
+    for marketplace in _ALWAYS_WRITE_CONDITION_MARKETPLACES:
+        section = (desired.get(LISTINGS_KEY) or {}).get(marketplace)
+        overrides = section.get("overrides") if isinstance(section, dict) else None
+        if not isinstance(overrides, dict):
+            continue
+        condition = overrides.get("condition")
+        if condition in (None, "", []):
+            continue
+        updates[f"{LISTINGS_KEY}.{marketplace}.overrides.condition"] = deepcopy(condition)
+    return updates
+
+
 def apply_update_all(
     current: dict[str, Any],
     desired: dict[str, Any],
@@ -1575,11 +1631,20 @@ def apply_update_all(
             listings_want[marketplace] = want_section
         want_section.setdefault("marketplaceID", marketplace)
         want_over = _bucket(want_section, "overrides")
+        have_over = have_section.get("overrides") if isinstance(have_section.get("overrides"), dict) else {}
         for key in _UPDATE_ALL_OVERRIDE_KEYS:
             value = tags if key == "tags" else general.get(key)
             if value in (None, "", []):
                 continue
             want_over[key] = deepcopy(value)
+        # A regenerated listing weighs and measures whatever the new item does;
+        # without this the forms keep the previous package and ship on it.
+        for key in _PACKAGE_OVERRIDE_KEYS:
+            value = general.get(key)
+            if not isinstance(value, dict) or not value:
+                continue
+            if marketplace in _PACKAGE_OVERRIDE_MARKETPLACES or isinstance(have_over.get(key), dict):
+                want_over[key] = deepcopy(value)
         if tags and (
             marketplace in _TAGS_SPECIFICS_MARKETPLACES
             or isinstance((have_section.get("marketplaceSpecifics") or {}).get("tags"), list)
@@ -1595,13 +1660,13 @@ def apply_update_all(
             # Force USPS Ground Advantage onto the Mercari form on every save,
             # matching create — a regenerated draft may still hold another
             # carrier from the previous listing.
-            have_over = have_section.get("overrides") if isinstance(have_section.get("overrides"), dict) else {}
             weight = want_over.get("weight") or have_over.get("weight") or general.get("weight")
             if isinstance(weight, dict):
                 want_over["weight"] = deepcopy(weight)
             _apply_mercari_shipping(
                 _bucket(want_section, "marketplaceSpecifics"),
                 weight if isinstance(weight, dict) else None,
+                want_over,
             )
         _clear_stale_category_specifics(have_section, want_section)
         # Keep the original form-created stamp; refresh only last-modified so

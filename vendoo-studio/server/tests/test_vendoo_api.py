@@ -6,6 +6,7 @@ from vendoo_studio.services.vendoo_specifics import normalize_specifics
 from vendoo_studio.services.vendoo_api import (
     apply_update_all,
     changed_fields,
+    force_condition_updates,
     pick_mapped_category,
     ALL_MARKETPLACES,
     CURRENT_ITEM_VERSION,
@@ -468,6 +469,52 @@ class BuildItemTest(unittest.TestCase):
         # Nothing about the eBay leaf is left unresolved; generalDetails still
         # reports its own condition because no learned schema was passed.
         self.assertEqual([row for row in unresolved if "ebay" in row["field"]], [])
+
+    def test_ebay_fabric_weight_is_a_number_or_blank(self):
+        """eBay refuses a word here, so "Lightweight" clears the form field."""
+        specs = normalize_specifics({
+            "Fabric Weight": _spec("Fabric Weight", free_text=True),
+        })
+        item, _ = build_vendoo_item(
+            {
+                "title": "Top",
+                "marketplace_category_ids": {"ebay": "53159"},
+                "marketplace_categories": {"ebay": "Clothing > Tops"},
+                "ebay_specifics": {"fabricWeight": "Lightweight"},
+            },
+            specifics={"ebay": specs},
+        )
+        stored = item["listings"]["ebay"]["categorySpecifics"]
+        self.assertEqual(stored["53159_Fabric Weight"], "")
+
+        item, _ = build_vendoo_item(
+            {
+                "title": "Top",
+                "marketplace_category_ids": {"ebay": "53159"},
+                "marketplace_categories": {"ebay": "Clothing > Tops"},
+                "ebay_specifics": {"fabricWeight": "4.5"},
+            },
+            specifics={"ebay": specs},
+        )
+        self.assertEqual(item["listings"]["ebay"]["categorySpecifics"]["53159_Fabric Weight"], "4.5")
+
+    def test_a_fabric_weight_word_left_on_the_draft_is_cleared(self):
+        """Studio has no weight; the form must not keep the last listing's word."""
+        specs = normalize_specifics({
+            "Fabric Weight": _spec("Fabric Weight", free_text=True),
+        })
+        item, _ = build_vendoo_item(
+            {
+                "title": "Top",
+                "marketplace_category_ids": {"ebay": "53159"},
+                "marketplace_categories": {"ebay": "Clothing > Tops"},
+                "ebay_specifics": {},
+            },
+            specifics={"ebay": specs},
+        )
+        current = {"listings": {"ebay": {"categorySpecifics": {"53159_Fabric Weight": "Lightweight"}}}}
+        out = changed_fields(current, item)
+        self.assertEqual(out["listings.ebay.categorySpecifics.53159_Fabric Weight"], "")
 
     def test_selection_only_value_is_reported_not_stored(self):
         """A value the leaf has no option for must never reach Vendoo."""
@@ -1234,6 +1281,117 @@ class ApplyUpdateAllTest(unittest.TestCase):
         self.assertEqual(out["listings.mercari.marketplaceSpecifics.shipping.carrierId"], "2511")
         self.assertIn("Ground Advantage", out["listings.mercari.marketplaceSpecifics.shippingLabel"])
         self.assertEqual(out["listings.mercari.marketplaceSpecifics.shipping.deliveryMethod"], "mercari_shipping")
+
+    def test_regenerated_package_lands_on_every_marketplace_form(self):
+        """A new weight and box size must not leave the old ones on the forms."""
+        current = {
+            "generalDetails": {
+                "weight": {"pounds": "0", "ounces": "10"},
+                "dimensions": {"length": "13", "width": "10", "height": "3"},
+            },
+            "listings": {
+                "ebay": {"marketplaceID": "ebay", "overrides": {
+                    "weight": {"pounds": "0", "ounces": "4"},
+                    "dimensions": {"length": "10", "width": "8", "height": "1"},
+                }},
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {}},
+                "etsy": {"marketplaceID": "etsy", "overrides": {}},
+                "depop": {"marketplaceID": "depop", "overrides": {"quantity": "1"}},
+            },
+        }
+        desired = {
+            "generalDetails": {
+                "weight": {"pounds": "1", "ounces": "2"},
+                "dimensions": {"length": "14", "width": "11", "height": "4"},
+            },
+            "listings": {
+                "ebay": {"marketplaceID": "ebay", "overrides": {}},
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {}},
+                "etsy": {"marketplaceID": "etsy", "overrides": {}},
+                "depop": {"marketplaceID": "depop", "overrides": {"quantity": "1"}},
+            },
+        }
+        apply_update_all(current, desired)
+        for marketplace in ("ebay", "poshmark", "etsy"):
+            overrides = desired["listings"][marketplace]["overrides"]
+            self.assertEqual(overrides["weight"], {"pounds": "1", "ounces": "2"})
+            self.assertEqual(overrides["dimensions"], {"length": "14", "width": "11", "height": "4"})
+        # Depop has no package on its form — it ships by parcel tier.
+        self.assertNotIn("weight", desired["listings"]["depop"]["overrides"])
+        self.assertNotIn("dimensions", desired["listings"]["depop"]["overrides"])
+        out = changed_fields(current, desired)
+        self.assertEqual(out["listings.ebay.overrides.weight.ounces"], "2")
+        self.assertEqual(out["listings.ebay.overrides.dimensions.length"], "14")
+        self.assertEqual(out["listings.poshmark.overrides.weight.pounds"], "1")
+
+    def test_a_new_package_weight_retiers_the_mercari_label(self):
+        current = {
+            "generalDetails": {"weight": {"pounds": "0", "ounces": "4"}},
+            "listings": {"mercari": {
+                "marketplaceID": "mercari",
+                "overrides": {"weight": {"pounds": "0", "ounces": "4"}},
+                "marketplaceSpecifics": {"shipping": {"carrierId": "2507"}},
+            }},
+        }
+        desired = {
+            "generalDetails": {"weight": {"pounds": "1", "ounces": "8"}},
+            "listings": {"mercari": {"marketplaceID": "mercari", "overrides": {}}},
+        }
+        apply_update_all(current, desired)
+        overrides = desired["listings"]["mercari"]["overrides"]
+        self.assertEqual(overrides["weight"], {"pounds": "1", "ounces": "8"})
+        # 1 lb 8 oz → the 2 lb Ground Advantage tier, not the old 0.25 lb one.
+        self.assertEqual(
+            desired["listings"]["mercari"]["marketplaceSpecifics"]["shipping"]["carrierId"], "2511",
+        )
+
+    def test_a_weightless_listing_still_gets_a_ground_advantage_label(self):
+        """No weight offers no tier — the form is given the default package."""
+        current = {
+            "generalDetails": {},
+            "listings": {"mercari": {
+                "marketplaceID": "mercari",
+                "overrides": {"weight": {"pounds": "0", "ounces": "0"}},
+                "marketplaceSpecifics": {"shippingLabel": "", "shipping": {"carrierId": ""}},
+            }},
+        }
+        desired = {
+            "generalDetails": {},
+            "listings": {"mercari": {"marketplaceID": "mercari", "overrides": {}}},
+        }
+        apply_update_all(current, desired)
+        mercari = desired["listings"]["mercari"]
+        self.assertEqual(mercari["overrides"]["weight"], {"pounds": "0", "ounces": "8"})
+        self.assertEqual(mercari["marketplaceSpecifics"]["shipping"]["carrierId"], "2508")
+        self.assertIn("Ground Advantage", mercari["marketplaceSpecifics"]["shippingLabel"])
+
+    def test_poshmark_and_mercari_condition_is_written_even_when_unchanged(self):
+        """Both list from their own form: never leave Vendoo on its v_ fallback."""
+        current = {
+            "generalDetails": {"condition": {"value": "v_good", "displayName": "Pre-Owned - Good"}},
+            "listings": {
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {"condition": "good"}},
+                "mercari": {"marketplaceID": "mercari", "overrides": {"condition": "4"}},
+                "ebay": {"marketplaceID": "ebay", "overrides": {"condition": "3000"}},
+            },
+        }
+        desired = {
+            "generalDetails": {"condition": {"value": "v_good", "displayName": "Pre-Owned - Good"}},
+            "listings": {
+                "poshmark": {"marketplaceID": "poshmark", "overrides": {}},
+                "mercari": {"marketplaceID": "mercari", "overrides": {}},
+                "ebay": {"marketplaceID": "ebay", "overrides": {}},
+            },
+        }
+        schema = {"marketplaces": {"ebay": {"condition": {"v good": "3000"}}}}
+        apply_update_all(current, desired, schema=schema)
+        updates = changed_fields(current, desired)
+        self.assertNotIn("listings.poshmark.overrides.condition", updates)
+        force_condition_updates(desired, updates)
+        self.assertEqual(updates["listings.poshmark.overrides.condition"], "good")
+        self.assertEqual(updates["listings.mercari.overrides.condition"], "4")
+        # eBay's code is category-specific; it is written only when it changes.
+        self.assertNotIn("listings.ebay.overrides.condition", updates)
 
     def test_marketplaces_absent_from_the_item_are_left_alone(self):
         current = {"generalDetails": {"title": "Old"}, "listings": {}}
