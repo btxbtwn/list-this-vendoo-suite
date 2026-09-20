@@ -12,7 +12,7 @@ import {
   type ListingFilters as Filters,
   type ListingSortId,
   type ListingStatusFilter,
-} from "./listingFilters";
+} from "./inventoryFilters";
 
 const STATUS_LABELS: Record<string, string> = {
   all: "All",
