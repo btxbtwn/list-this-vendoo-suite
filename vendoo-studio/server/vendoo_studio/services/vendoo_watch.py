@@ -28,7 +28,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from vendoo_studio.repositories.queries import (
-    BUSY_LISTING_STATUSES,
     ConversationRepo,
     JobRepo,
     ListingRepo,
@@ -210,8 +209,15 @@ def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> 
         "vendooDates": vendoo_dates(item, None),
         "vendooUpdatedAt": vendoo_updated_at(item, None),
     }), bump_updated_at=False)
-    # A send in flight owns the row; leave its label alone until it settles.
-    if conv.status not in BUSY_LISTING_STATUSES and conv.status != status:
+    # Generation owns ``in_progress``. A send owns ``listing`` only while a job
+    # is still open — otherwise adopt Vendoo's label (fixes a stuck Listing badge
+    # after the marketplaces are already live).
+    send_in_flight = conv.status == "listing" and any(
+        job.conversation_id == conv_id for job in JobRepo(db).get_active()
+    )
+    if conv.status == "in_progress":
+        return status
+    if not send_in_flight and conv.status != status:
         repo.update_status(conv_id, status)
     return status
 

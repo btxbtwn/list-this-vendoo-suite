@@ -122,6 +122,51 @@ class ConversationSettlementTest(unittest.TestCase):
         self.assertEqual(conv.status, "draft")
         self.assertIsNone(conv.settled_at)
 
+    def test_reconcile_clears_stuck_listing_when_job_is_finished(self):
+        """A finished send must not leave Listing forever after chat bumps updated_at."""
+        conv = self.repo.create(title="Hurley polo", notes='{"vendooStatus": "active"}')
+        self.repo.update_status(conv.id, "listing")
+        older = datetime.now(UTC) - timedelta(hours=1)
+        job = Job(
+            conversation_id=conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot={"title": "Hurley polo"},
+            status="completed",
+            updated_at=older,
+        )
+        self.db.add(job)
+        self.db.commit()
+        # Chat / field fills stamp the conversation after the job settled.
+        conv.updated_at = datetime.now(UTC)
+        self.db.commit()
+        self.repo.reconcile_job_statuses()
+        self.db.refresh(conv)
+        self.assertEqual(conv.status, "active")
+
+    def test_reconcile_clears_listing_with_no_job(self):
+        conv = self.repo.create(title="Hurley polo", notes='{"vendooStatus": "active"}')
+        self.repo.update_status(conv.id, "listing")
+        self.repo.reconcile_job_statuses()
+        self.db.refresh(conv)
+        self.assertEqual(conv.status, "active")
+
+    def test_reconcile_keeps_listing_while_job_is_dispatched(self):
+        conv = self.repo.create(title="Hurley polo", notes='{"vendooStatus": "active"}')
+        self.repo.update_status(conv.id, "listing")
+        older = datetime.now(UTC) - timedelta(hours=1)
+        self.db.add(Job(
+            conversation_id=conv.id,
+            approved_revision_id="rev1",
+            listing_snapshot={"title": "Hurley polo"},
+            status="dispatched",
+            updated_at=older,
+        ))
+        conv.updated_at = datetime.now(UTC)
+        self.db.commit()
+        self.repo.reconcile_job_statuses()
+        self.db.refresh(conv)
+        self.assertEqual(conv.status, "listing")
+
 
 if __name__ == "__main__":
     unittest.main()
