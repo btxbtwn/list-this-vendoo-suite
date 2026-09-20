@@ -225,3 +225,31 @@ def test_a_failing_revision_leaves_the_snapshot_behind(engine, snapshots, script
         ).fetchone() == ("0001",)
     finally:
         restored.close()
+
+
+def test_the_models_match_the_migrations(engine, snapshots):
+    """A model change without a revision must fail here, not on someone's machine.
+
+    Everything the migrations build is compared against what the models
+    declare. A column added to a model and not to a revision shows up as a
+    difference, which is the failure earlier builds could not detect: startup
+    would create nothing, and the gap would surface later as a query error on
+    a database that had already been through an update.
+    """
+    from alembic.autogenerate import compare_metadata
+    from alembic.runtime.migration import MigrationContext
+
+    from vendoo_studio.database import Base, load_models
+
+    load_models()
+    ensure_schema(engine)
+
+    with engine.connect() as connection:
+        context = MigrationContext.configure(connection, opts={"compare_type": True})
+        differences = compare_metadata(context, Base.metadata)
+
+    assert differences == [], (
+        "The models and the migrations have drifted apart. Generate a revision:\n"
+        "  cd vendoo-studio && .venv/bin/alembic revision --autogenerate -m \"...\"\n"
+        f"Differences: {differences}"
+    )

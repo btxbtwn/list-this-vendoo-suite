@@ -293,3 +293,68 @@ class BackupRoutesTest(unittest.TestCase):
         response = self.client.post("/api/backups")
 
         self.assertEqual(response.status_code, 500)
+
+
+@pytest.fixture
+def photos(tmp_path, monkeypatch):
+    directory = tmp_path / "photos"
+    directory.mkdir()
+    monkeypatch.setattr(backups, "PHOTOS_DIR", str(directory))
+    return directory
+
+
+def test_photos_are_copied_to_the_backup_folder(source_db, backups_dir, photos, tmp_path):
+    (photos / "abc123.jpg").write_bytes(b"jacket-front")
+    (photos / "def456.jpg").write_bytes(b"jacket-back")
+    external = tmp_path / "external"
+    set_backup_folder(str(external))
+
+    take_snapshot("timer", source=source_db)
+
+    assert (external / "photos" / "abc123.jpg").read_bytes() == b"jacket-front"
+    assert (external / "photos" / "def456.jpg").read_bytes() == b"jacket-back"
+
+
+def test_photos_already_copied_are_not_copied_again(backups_dir, photos, tmp_path):
+    (photos / "abc123.jpg").write_bytes(b"jacket-front")
+    external = tmp_path / "external"
+
+    assert backups.mirror_photos(external) == 1
+    assert backups.mirror_photos(external) == 0
+
+
+def test_a_changed_photo_is_copied_again(backups_dir, photos, tmp_path):
+    (photos / "abc123.jpg").write_bytes(b"short")
+    external = tmp_path / "external"
+    backups.mirror_photos(external)
+
+    (photos / "abc123.jpg").write_bytes(b"a longer replacement")
+
+    assert backups.mirror_photos(external) == 1
+    assert (external / "photos" / "abc123.jpg").read_bytes() == b"a longer replacement"
+
+
+def test_photos_deleted_in_studio_stay_in_the_backup(backups_dir, photos, tmp_path):
+    """Deleting a listing must not reach back and delete the backup copy."""
+    (photos / "abc123.jpg").write_bytes(b"jacket-front")
+    external = tmp_path / "external"
+    backups.mirror_photos(external)
+
+    (photos / "abc123.jpg").unlink()
+    backups.mirror_photos(external)
+
+    assert (external / "photos" / "abc123.jpg").exists()
+
+
+def test_no_backup_folder_means_no_photo_copying(backups_dir, photos):
+    (photos / "abc123.jpg").write_bytes(b"jacket-front")
+
+    assert backups.mirror_photos() == 0
+
+
+def test_an_unreachable_photo_destination_is_survivable(source_db, backups_dir, photos, tmp_path):
+    (photos / "abc123.jpg").write_bytes(b"jacket-front")
+    blocker = tmp_path / "drive-file"
+    blocker.write_text("")
+
+    assert backups.mirror_photos(blocker / "studio") == 0

@@ -135,7 +135,7 @@ The same data folder also holds `photos/`, `fill-logs/`, `settings.json` (market
 
 Studio snapshots the database to `backups/` on startup, every six hours, and before any update or schema migration. Snapshots are written with `VACUUM INTO`, so they are consistent while Studio keeps running, and each one is checked with `PRAGMA integrity_check` before it is kept. Recent snapshots are kept for a day, then one per day for a month, and the newest three are never discarded.
 
-**Copy them off this machine.** Snapshots in `backups/` die with the disk they sit on. Set a backup folder on an external drive, a synced folder, or a network share, and every snapshot is copied there too:
+**Copy them off this machine.** Snapshots in `backups/` die with the disk they sit on. Set a backup folder in **Settings → Backups** — an external drive, a synced folder, or a network share — and every snapshot goes there too, along with your photos. Photos are copied incrementally and are never deleted from the backup folder when they are deleted in Studio, because that is the copy you want when the deletion was a mistake. The same thing over the API:
 
 ```bash
 curl -X PUT http://127.0.0.1:4318/api/backups/folder \
@@ -158,7 +158,9 @@ Restoring quits nothing for you — close Studio first. The current database is 
 
 The schema is owned by Alembic; revisions live in `server/vendoo_studio/migrations/versions/`. On startup Studio migrates to the newest revision, snapshotting first, and refuses to open a database stamped with a revision it does not recognise — that is what stops an older build from writing into a database a newer one created.
 
-A database from before migrations existed is brought up to the current schema, checked for anything still missing, and only then recorded as current. Adding a column to a model requires a revision:
+A database from before migrations existed is brought up to the current schema, checked for anything still missing, and only then recorded as current.
+
+`test_the_models_match_the_migrations` compares what the migrations build against what the models declare, so a model change without a revision fails in CI rather than on someone else's machine. Adding a column to a model requires a revision:
 
 ```bash
 .venv/bin/alembic revision --autogenerate -m "add whatever"

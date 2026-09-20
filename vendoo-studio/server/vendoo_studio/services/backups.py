@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
-from vendoo_studio.config import BACKUPS_DIR, DATABASE_PATH
+from vendoo_studio.config import BACKUPS_DIR, DATABASE_PATH, PHOTOS_DIR
 from vendoo_studio.services.user_settings import read_settings, update_settings
 
 log = logging.getLogger("vendoo_studio.backups")
@@ -201,6 +201,45 @@ def _mirror(snapshot: Snapshot) -> Path | None:
     return destination
 
 
+def mirror_photos(folder: Path | None = None) -> int:
+    """Copy photos that are not in the backup folder yet. Returns how many.
+
+    Photo files are written once under a uuid name and never modified, so
+    matching on name and size is enough to know a file is already there, and a
+    plain copy can never catch one half-written the way a database can.
+
+    Photos deleted in Studio are left in the backup folder on purpose: the
+    point of a backup is to still have the thing you did not mean to delete.
+    """
+    destination_root = folder if folder is not None else backup_folder()
+    if destination_root is None:
+        return 0
+
+    source_root = Path(PHOTOS_DIR)
+    if not source_root.is_dir():
+        return 0
+
+    destination = destination_root / "photos"
+    copied = 0
+    try:
+        destination.mkdir(parents=True, exist_ok=True)
+        existing = {path.name: path.stat().st_size for path in destination.iterdir() if path.is_file()}
+        for photo in sorted(source_root.iterdir()):
+            if not photo.is_file() or photo.name.startswith("."):
+                continue
+            if existing.get(photo.name) == photo.stat().st_size:
+                continue
+            shutil.copy2(photo, destination / photo.name)
+            copied += 1
+    except OSError as exc:
+        log.warning("Photos were not copied to %s: %s", destination, exc)
+        return copied
+
+    if copied:
+        log.info("Copied %d photo(s) to %s", copied, destination)
+    return copied
+
+
 def take_snapshot(reason: str, *, source: str | Path | None = None) -> Snapshot:
     """Write a verified copy of the database and return it.
 
@@ -241,6 +280,9 @@ def take_snapshot(reason: str, *, source: str | Path | None = None) -> Snapshot:
 
     prune_snapshots(directory)
     _mirror(snapshot)
+    # Photos are the part of the data that cannot be regenerated from anything
+    # else, and they live outside the database, so they need their own copy.
+    mirror_photos()
     log.info("Snapshot %s (%.1f MB)", snapshot.path.name, snapshot.size_bytes / 1_048_576)
     return snapshot
 

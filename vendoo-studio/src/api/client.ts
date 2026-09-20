@@ -1,4 +1,6 @@
 import type {
+  BackupSnapshot,
+  BackupsStatus,
   Conversation,
   DeleteConversationResult,
   FillLogReport,
@@ -116,6 +118,16 @@ export interface BrowserInputEvent {
 }
 
 export const api = {
+  backups: {
+    list: () => request<BackupsStatus>("/backups"),
+    create: () => request<{ ok: boolean; snapshot: BackupSnapshot }>("/backups", { method: "POST" }),
+    setFolder: (folder: string | null) =>
+      request<{ ok: boolean; folder: string | null }>("/backups/folder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder }),
+      }),
+  },
   catalog: {
     status: () => request<{running: boolean; complete: boolean; marketplaces: Record<string,
       {status: string; nodes: number; pending_branches: number; error: string | null}>}>("/catalog/sync"),

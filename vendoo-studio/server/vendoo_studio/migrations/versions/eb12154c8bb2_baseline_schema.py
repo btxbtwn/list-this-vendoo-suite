@@ -188,8 +188,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['job_id'], ['jobs.id'], ),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('observation_id'),
-    sa.UniqueConstraint('observation_id', name='uq_diagnostic_observation_id')
+    sa.UniqueConstraint('observation_id')
     )
     with op.batch_alter_table('diagnostic_runs', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_diagnostic_runs_job_id'), ['job_id'], unique=False)

@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { backupSummary } from "./backupSummary";
 import { api } from "../api/client";
 import type { ListingProviderId } from "../api/types";
 import { ConnectChromeButton } from "./ConnectChromeButton";
@@ -378,6 +379,103 @@ function AboutVersionRow({ version }: { version: string }) {
   );
 }
 
+function BackupsSection() {
+  const queryClient = useQueryClient();
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["backups"],
+    queryFn: api.backups.list,
+  });
+  const [folder, setFolder] = useState("");
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const [edited, setEdited] = useState(false);
+
+  const currentFolder = data?.folder || "";
+  const shownFolder = edited ? folder : currentFolder;
+
+  const snapshot = useMutation({
+    mutationFn: api.backups.create,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["backups"] }),
+  });
+
+  const saveFolder = useMutation({
+    mutationFn: (next: string | null) => api.backups.setFolder(next),
+    onSuccess: () => {
+      setFolderError(null);
+      setEdited(false);
+      void queryClient.invalidateQueries({ queryKey: ["backups"] });
+    },
+    onError: (err: Error) => setFolderError(err.message || "Could not use that folder"),
+  });
+
+  const latest = data?.latest;
+
+  return (
+    <SettingsSection id="backups" title="Backups">
+      <SettingsRow
+        id="backup-status"
+        title="Snapshots"
+        description="Studio copies the database when it starts, every six hours, and before any update or schema change. Each copy is checked before it is kept."
+        status={
+          isLoading ? (
+            "Checking…"
+          ) : error ? (
+            <span className="text-error">{(error as Error).message || "Could not read backups"}</span>
+          ) : latest ? (
+            backupSummary(data)
+          ) : (
+            <span className="text-error">No backups yet</span>
+          )
+        }
+        control={
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => snapshot.mutate()}
+            disabled={snapshot.isPending}
+          >
+            {snapshot.isPending ? "Backing up…" : "Back up now"}
+          </button>
+        }
+      />
+      <SettingsRow
+        id="backup-folder"
+        title="Backup folder"
+        description="Somewhere that is not this Mac: an external drive, a synced folder, or a network share. Every snapshot and every photo is copied there. Without one, the only copies are on this disk."
+        status={
+          folderError ? (
+            <span className="text-error">{folderError}</span>
+          ) : currentFolder ? (
+            <>Copying to {currentFolder}</>
+          ) : (
+            <span className="text-error">Not set — backups stay on this Mac</span>
+          )
+        }
+      >
+        <div className="extension-load-path-row">
+          <input
+            type="text"
+            className="input input-sm"
+            placeholder="/Volumes/Backup/List This Studio"
+            value={shownFolder}
+            onChange={(event) => {
+              setEdited(true);
+              setFolder(event.target.value);
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => saveFolder.mutate(shownFolder.trim() ? shownFolder.trim() : null)}
+            disabled={saveFolder.isPending}
+          >
+            {saveFolder.isPending ? "Checking…" : "Save"}
+          </button>
+        </div>
+      </SettingsRow>
+    </SettingsSection>
+  );
+}
+
 function DataFolderRow() {
   const { data, error, isLoading } = useQuery({
     queryKey: ["settings-data-folder"],
@@ -539,6 +637,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
           }
         />
       </SettingsSection>
+      <BackupsSection />
       <SettingsSection id="about" title="About">
         <DataFolderRow />
         <AboutVersionRow version={status?.version || "…"} />

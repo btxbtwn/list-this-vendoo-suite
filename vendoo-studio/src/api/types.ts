@@ -220,3 +220,17 @@ export interface VendooBulkImport {
   error: string;
   failures: { item_id: string; title: string; error: string }[];
 }
+
+export interface BackupSnapshot {
+  path: string;
+  name: string;
+  taken_at: string;
+  reason: string;
+  size_bytes: number;
+}
+
+export interface BackupsStatus {
+  snapshots: BackupSnapshot[];
+  folder: string | null;
+  latest: BackupSnapshot | null;
+}
