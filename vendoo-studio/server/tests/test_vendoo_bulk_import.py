@@ -77,6 +77,18 @@ class VendooItemStatusTest(unittest.TestCase):
         item["listings"]["validate"] = {"status": {"listed": True}}
         self.assertEqual(vendoo_item_status(item), "draft")
 
+    def test_a_retired_marketplace_does_not_make_an_item_active(self):
+        # Vendoo leaves sellhound, kidizen and tradesy out of the listings that
+        # count as Active, so an item live only there is still a draft.
+        item = vendoo_item("a", title="Tee")
+        item["listings"]["tradesy"] = {"status": {"listed": True}}
+        self.assertEqual(vendoo_item_status(item), "draft")
+
+    def test_a_retired_marketplace_still_sells(self):
+        item = vendoo_item("a", title="Tee")
+        item["listings"]["kidizen"] = {"status": {"sold": True}}
+        self.assertEqual(vendoo_item_status(item), "sold")
+
     def test_sale_record_counts_as_sold_after_vendoo_delists(self):
         # Vendoo delists a sold item, leaving the listing flagged delisted; its
         # own Inventory still reads the sale record and calls the item sold.

@@ -388,6 +388,12 @@ async def import_vendoo_draft(
     }
 
 
+# Marketplaces Vendoo retired: it keeps whatever listings an item still has on
+# them, but leaves them out of the count that makes an item Active, so an item
+# live on one of these alone is a draft.
+VENDOO_UNLISTABLE_MARKETPLACES = frozenset({"sellhound", "kidizen", "tradesy"})
+
+
 def _listing_entries(merged: dict[str, Any], *, external: bool = True) -> list[tuple[str, dict]]:
     """The item's marketplace listings, Vendoo's ``validate`` pseudo-entry aside.
 
@@ -440,7 +446,9 @@ def vendoo_item_status(item: dict | None, form: dict | None = None) -> str:
     merged = _merge_payloads(form, item)
     if vendoo_item_sold(item, form):
         return "sold"
-    for _name, listing in _listing_entries(merged, external=False):
+    for name, listing in _listing_entries(merged, external=False):
+        if name in VENDOO_UNLISTABLE_MARKETPLACES:
+            continue
         status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
         if status.get("listed") is True:
             return "active"
