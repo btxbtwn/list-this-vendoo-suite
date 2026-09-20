@@ -247,6 +247,15 @@
   color: var(--color-text-muted);
 }
 
+/* Sits beside the sync line: Studio holds a version Vendoo has not been given. */
+.editor-unsent {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-cobalt);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .editor-ready {
   font-size: var(--text-2xs);
   font-weight: var(--weight-medium);

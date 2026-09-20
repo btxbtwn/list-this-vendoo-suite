@@ -113,6 +113,24 @@ class ConversationRepo:
         )
         return {conv_id: _facet(sku, price) for conv_id, sku, price in rows}
 
+    def current_revision_ids(self) -> dict[str, str]:
+        """Each listing's current revision, for the sidebar in one query.
+
+        The row compares this against the revision Vendoo was last level with,
+        which is how "edited here, not sent yet" is told without loading a
+        single listing body.
+        """
+        rows = self.db.query(Listing.conversation_id, Listing.current_revision_id).all()
+        return {conv_id: revision_id for conv_id, revision_id in rows if revision_id}
+
+    def current_revision_id(self, conv_id: str) -> str | None:
+        row = (
+            self.db.query(Listing.current_revision_id)
+            .filter(Listing.conversation_id == conv_id)
+            .first()
+        )
+        return row[0] if row else None
+
     def listing_facet(self, conv_id: str) -> dict[str, Any]:
         row = (
             self.db.query(

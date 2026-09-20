@@ -27,6 +27,7 @@ import {
   marketplaceOptions,
   notListedCount,
   needsRelistCount,
+  unsentCount,
   staleCounts,
   sortListings,
   statusCounts,
@@ -87,6 +88,7 @@ type Listing = {
   vendoo_sold_dates?: Record<string, string>;
   vendoo_form_updated_at?: string | null;
   vendoo_relist_pending?: string[];
+  unsent_edits?: boolean;
 };
 
 interface Props {
@@ -382,6 +384,7 @@ export function ListingSidebar({
   const filterNotListedCount = useMemo(() => notListedCount(facetSource), [facetSource]);
   const filterStaleCounts = useMemo(() => staleCounts(facetSource), [facetSource]);
   const filterRelistCount = useMemo(() => needsRelistCount(facetSource), [facetSource]);
+  const filterUnsentCount = useMemo(() => unsentCount(facetSource), [facetSource]);
   const labels = useMemo(() => labelOptions(conversations || []), [conversations]);
   const filterMarketplaces = useMemo(
     () => marketplaceOptions(conversations || [], marketplaceSettings?.selected || []),
@@ -675,6 +678,7 @@ export function ListingSidebar({
             marketplaceCounts={filterMarketplaceCounts}
             notListedCount={filterNotListedCount}
             needsRelistCount={filterRelistCount}
+            unsentCount={filterUnsentCount}
             staleCounts={filterStaleCounts}
             onChange={handleFiltersChange}
           />
@@ -1151,6 +1155,14 @@ function ListingRow({
             <span className={`nav-status nav-status-${statusClass}`} title={statusHint(status)}>
               {status.replace(/_/g, " ")}
             </span>
+            {listing.unsent_edits ? (
+              <span
+                className="nav-status nav-status-unsent"
+                title="Edited in Studio since Vendoo last had this listing. Press Update Vendoo to write it onto the Vendoo form."
+              >
+                unsent
+              </span>
+            ) : null}
             {relistMarketplaces.length ? (
               <span
                 className="nav-status nav-status-relist"

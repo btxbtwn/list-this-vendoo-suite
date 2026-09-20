@@ -15,6 +15,7 @@ import {
   marketplaceCounts,
   notListedCount,
   staleCounts,
+  unsentCount,
   toggleValue,
   type FilterableListing,
 } from "./inventoryFilters";
@@ -210,5 +211,23 @@ describe("filter options", () => {
   it("toggles a value in and out", () => {
     expect(toggleValue(["ebay"], "etsy")).toEqual(["ebay", "etsy"]);
     expect(toggleValue(["ebay", "etsy"], "ebay")).toEqual(["etsy"]);
+  });
+});
+
+describe("unsent edits", () => {
+  const edited: FilterableListing = { ...tee, unsent_edits: true };
+  const sent: FilterableListing = { ...tee, unsent_edits: false };
+
+  it("keeps only the listings Vendoo has not been given yet", () => {
+    const rows = filterListings([edited, sent], "", { ...DEFAULT_LISTING_FILTERS, unsent: true });
+    expect(rows).toEqual([edited]);
+  });
+
+  it("counts them for the filter row", () => {
+    expect(unsentCount([edited, sent, edited])).toBe(2);
+  });
+
+  it("is off by default, so both still show", () => {
+    expect(filterListings([edited, sent], "", DEFAULT_LISTING_FILTERS)).toHaveLength(2);
   });
 });

@@ -34,6 +34,8 @@ export interface Conversation {
   vendoo_form_updated_at?: string | null;
   /** Marketplaces owed a relist since then, kept across the delist itself. */
   vendoo_relist_pending?: string[];
+  /** Edited here since Studio and Vendoo were last level: Update Vendoo is owed. */
+  unsent_edits?: boolean;
 }
 
 export interface Message {

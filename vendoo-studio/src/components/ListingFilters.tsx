@@ -79,6 +79,7 @@ export function ListingFilters({
   marketplaceCounts,
   notListedCount,
   needsRelistCount,
+  unsentCount,
   staleCounts,
   onChange,
 }: {
@@ -92,6 +93,8 @@ export function ListingFilters({
   notListedCount: number;
   /** How many live listings are behind the last write Studio made to Vendoo. */
   needsRelistCount: number;
+  /** How many listings hold edits the Vendoo form has not been given. */
+  unsentCount: number;
   /** How many listings each staleness cutoff would keep, keyed by its days. */
   staleCounts: Record<number, number>;
   onChange: (next: Filters) => void;
@@ -238,6 +241,14 @@ export function ListingFilters({
                 glyph={<span className="listing-filter-row-dot is-relist" aria-hidden="true" />}
                 label="Needs relist"
                 onSelect={() => onChange({ ...filters, needsRelist: !filters.needsRelist })}
+              />
+              <FilterRow
+                checked={filters.unsent}
+                count={unsentCount}
+                title="Edited in Studio since Vendoo last had this listing — press Update Vendoo"
+                glyph={<span className="listing-filter-row-dot is-unsent" aria-hidden="true" />}
+                label="Unsent edits"
+                onSelect={() => onChange({ ...filters, unsent: !filters.unsent })}
               />
 
               <span className="listing-filter-menu-sep" role="separator" />
