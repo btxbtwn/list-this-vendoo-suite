@@ -258,3 +258,50 @@
   font-size: 8px;
   letter-spacing: 0.04em;
 }
+
+/* Vendoo's time tracking for the item: one date per row, age first, since the
+   age is the thing being read and the date is the thing being checked. */
+.item-history {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.item-history-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: var(--text-xs);
+}
+
+.item-history-row dt {
+  color: var(--color-text-muted);
+}
+
+.item-history-row.is-nested dt {
+  padding-left: 10px;
+  opacity: 0.8;
+}
+
+.item-history-row dd {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.item-history-age {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.item-history-date {
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}

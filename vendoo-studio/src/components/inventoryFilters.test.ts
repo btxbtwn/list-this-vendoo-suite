@@ -8,6 +8,12 @@ import {
   matchesSearch,
   sortListings,
   statusCounts,
+  isStale,
+  labelCounts,
+  listedDaysAgo,
+  marketplaceCounts,
+  notListedCount,
+  staleCounts,
   toggleValue,
   type FilterableListing,
 } from "./inventoryFilters";
@@ -21,6 +27,7 @@ const tee: FilterableListing = {
   updated_at: "2026-09-18T00:00:00Z",
   vendoo_labels: ["A19", "To List"],
   vendoo_marketplaces: ["ebay", "poshmark"],
+  vendoo_listed_at: "2026-06-20T00:00:00Z",
 };
 const boots: FilterableListing = {
   title: "Doc Martens 1460",
@@ -31,6 +38,7 @@ const boots: FilterableListing = {
   updated_at: "2026-09-19T00:00:00Z",
   vendoo_labels: ["Vintage"],
   vendoo_marketplaces: ["depop"],
+  vendoo_listed_at: "2026-01-05T00:00:00Z",
 };
 const draft: FilterableListing = {
   title: "Untitled",
@@ -87,6 +95,46 @@ describe("filterListings", () => {
   });
 });
 
+describe("staleness", () => {
+  const now = Date.parse("2026-09-20T00:00:00Z");
+
+  it("measures the days since a listing went live", () => {
+    expect(listedDaysAgo(tee, now)).toBe(92);
+    expect(listedDaysAgo(draft, now)).toBeNull();
+  });
+
+  it("counts a listing stale once it has sat unsold past the cutoff", () => {
+    expect(isStale(tee, 90, now)).toBe(true);
+    expect(isStale(tee, 120, now)).toBe(false);
+    // Sold is a finished story, and a draft never went live, so neither is stale.
+    expect(isStale(boots, 30, now)).toBe(false);
+    expect(isStale(draft, 30, now)).toBe(false);
+    // No cutoff keeps everything, including the listings without a date.
+    expect(isStale(draft, 0, now)).toBe(true);
+  });
+
+  it("filters and sorts by the listing date", () => {
+    expect(filterListings(inventory, "", withFilters({ staleDays: 90 }), now)).toEqual([tee]);
+    expect(filterListings(inventory, "", withFilters({ staleDays: 365 }), now)).toEqual([]);
+    const fresh = { ...tee, title: "Fresh", vendoo_listed_at: "2026-09-18T00:00:00Z" };
+    // The draft has no listing date, so it sorts last whichever end is asked for.
+    expect(sortListings([draft, tee, fresh], "stalest").map((l) => l.title)).toEqual([
+      "Nike Tee Black M",
+      "Fresh",
+      "Untitled",
+    ]);
+    expect(sortListings([draft, tee, fresh], "freshest").map((l) => l.title)).toEqual([
+      "Fresh",
+      "Nike Tee Black M",
+      "Untitled",
+    ]);
+  });
+
+  it("counts the staleness cutoff as a filter", () => {
+    expect(activeFilterCount(withFilters({ staleDays: 60 }))).toBe(1);
+  });
+});
+
 describe("sortListings", () => {
   it("leaves the order alone for recent activity", () => {
     expect(sortListings(inventory, "recent")).toEqual(inventory);
@@ -128,6 +176,24 @@ describe("filter options", () => {
   it("counts what is filtering the list", () => {
     expect(activeFilterCount(DEFAULT_LISTING_FILTERS)).toBe(0);
     expect(activeFilterCount(withFilters({ status: "sold", labels: ["A19"], notListed: true }))).toBe(3);
+  });
+
+  it("counts what each marketplace and label row would keep", () => {
+    expect(marketplaceCounts(inventory)).toEqual({ ebay: 1, poshmark: 1, depop: 1 });
+    expect(labelCounts(inventory)).toEqual({ a19: 1, "to list": 1, vintage: 1 });
+    // The draft carries no marketplaces, so it is already one of the unlisted.
+    expect(notListedCount([...inventory, { title: "Nothing yet" }])).toBe(2);
+  });
+
+  it("counts what each staleness cutoff would keep", () => {
+    // 2026-09-20: the tee went live 92 days back, the sold boots 258.
+    const now = Date.parse("2026-09-20T00:00:00Z");
+    expect(staleCounts(inventory, now)).toEqual({ 30: 1, 60: 1, 90: 1 });
+    expect(staleCounts([{ ...tee, status: "active", vendoo_listed_at: "2026-09-01T00:00:00Z" }], now)).toEqual({
+      30: 0,
+      60: 0,
+      90: 0,
+    });
   });
 
   it("toggles a value in and out", () => {

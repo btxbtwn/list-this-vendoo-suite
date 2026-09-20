@@ -16,9 +16,13 @@ import { ListingFilters } from "./ListingFilters";
 import {
   DEFAULT_LISTING_FILTERS,
   filterListings,
+  labelCounts,
   labelOptions,
   matchesSearch,
+  marketplaceCounts,
   marketplaceOptions,
+  notListedCount,
+  staleCounts,
   sortListings,
   statusCounts,
   type ListingFilters as Filters,
@@ -86,6 +90,8 @@ type Listing = {
   sku?: string | null;
   price?: number | null;
   vendoo_labels?: string[];
+  vendoo_listed_at?: string | null;
+  vendoo_sold_at?: string | null;
   vendoo_marketplaces?: string[];
 };
 
@@ -371,6 +377,16 @@ export function ListingSidebar({
     [conversations, needle],
   );
   const counts = useMemo(() => statusCounts(searched), [searched]);
+  // Each filter row carries how many listings it would keep, counted over the
+  // status tab in front of the reader rather than the whole inventory.
+  const facetSource = useMemo(
+    () => searched.filter((listing) => filters.status === "all" || String(listing.status || "draft") === filters.status),
+    [searched, filters.status],
+  );
+  const filterMarketplaceCounts = useMemo(() => marketplaceCounts(facetSource), [facetSource]);
+  const filterLabelCounts = useMemo(() => labelCounts(facetSource), [facetSource]);
+  const filterNotListedCount = useMemo(() => notListedCount(facetSource), [facetSource]);
+  const filterStaleCounts = useMemo(() => staleCounts(facetSource), [facetSource]);
   const labels = useMemo(() => labelOptions(conversations || []), [conversations]);
   const filterMarketplaces = useMemo(
     () => marketplaceOptions(conversations || [], marketplaceSettings?.selected || []),
@@ -651,7 +667,11 @@ export function ListingSidebar({
             filters={filters}
             counts={counts}
             labels={labels}
+            labelCounts={filterLabelCounts}
             marketplaces={filterMarketplaces}
+            marketplaceCounts={filterMarketplaceCounts}
+            notListedCount={filterNotListedCount}
+            staleCounts={filterStaleCounts}
             onChange={handleFiltersChange}
           />
 
