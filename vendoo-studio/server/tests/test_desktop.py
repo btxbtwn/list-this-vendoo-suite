@@ -149,7 +149,13 @@ class StudioWindowChromeTest(unittest.TestCase):
                 self.handlers.append(handler)
                 return self
 
-        events = SimpleNamespace(before_show=Event(), shown=Event(), restored=Event(), resized=Event())
+        events = SimpleNamespace(
+            before_show=Event(),
+            shown=Event(),
+            maximized=Event(),
+            restored=Event(),
+            resized=Event(),
+        )
         window = SimpleNamespace(events=events)
         webview = SimpleNamespace(create_window=MagicMock(return_value=window))
 
@@ -163,6 +169,8 @@ class StudioWindowChromeTest(unittest.TestCase):
         self.assertEqual(kwargs["background_color"], desktop.WINDOW_BACKGROUND)
         self.assertEqual(events.before_show.handlers, [desktop.apply_unified_macos_chrome])
         self.assertEqual(events.shown.handlers, [desktop.apply_unified_macos_chrome])
+        # macOS Spaces fullscreen arrives as maximized; restore on exit.
+        self.assertEqual(events.maximized.handlers, [desktop.apply_unified_macos_chrome])
         self.assertEqual(events.restored.handlers, [desktop.apply_unified_macos_chrome])
         self.assertEqual(events.resized.handlers, [])
 
@@ -254,16 +262,35 @@ class StudioWindowChromeTest(unittest.TestCase):
         )
         titlebar.setBackgroundColor_.assert_called_once_with("clear")
 
-    def test_apply_chrome_skips_layout_in_fullscreen(self):
+    def test_apply_chrome_keeps_titlebar_clear_in_fullscreen(self):
+        """Fullscreen must not leave AppKit's opaque titlebar covering the HTML chrome."""
         close = MagicMock()
+        miniaturize = MagicMock()
+        zoom = MagicMock()
+        titlebar = MagicMock()
         native = MagicMock()
         native.styleMask.return_value = 1 << 14
-        native.standardWindowButton_.return_value = close
+        native.toolbar.return_value = object()
+        native.contentView.return_value.superview.return_value.subviews.return_value = [titlebar]
+        native.standardWindowButton_.side_effect = lambda button: {
+            0: close,
+            1: miniaturize,
+            2: zoom,
+        }[button]
         appkit = SimpleNamespace(
+            NSWindowTitleHidden=1,
             NSFullScreenWindowMask=1 << 14,
             NSWindowCollectionBehaviorFullScreenNone=1 << 9,
             NSWindowCollectionBehaviorFullScreenPrimary=1 << 7,
             NSWindowCloseButton=0,
+            NSWindowMiniaturizeButton=1,
+            NSWindowZoomButton=2,
+            NSAppearanceNameDarkAqua="dark",
+            NSColor=SimpleNamespace(
+                colorWithSRGBRed_green_blue_alpha_=MagicMock(return_value="black"),
+                clearColor=MagicMock(return_value="clear"),
+            ),
+            NSAppearance=SimpleNamespace(appearanceNamed_=MagicMock(return_value="appearance")),
         )
         window = SimpleNamespace(native=native)
 
@@ -273,8 +300,16 @@ class StudioWindowChromeTest(unittest.TestCase):
         ):
             desktop.apply_unified_macos_chrome(window)
 
+        # Do not flip collection behavior or style bits mid-fullscreen.
         native.setCollectionBehavior_.assert_not_called()
-        native.setTitlebarAppearsTransparent_.assert_not_called()
+        native.setStyleMask_.assert_not_called()
+        native.setToolbar_.assert_not_called()
+        # Do re-clear the titlebar so the HTML topbar is visible again.
+        native.setTitlebarAppearsTransparent_.assert_called_once_with(True)
+        native.setTitleVisibility_.assert_called_once_with(1)
+        titlebar.setBackgroundColor_.assert_called_once_with("clear")
+        close.setHidden_.assert_called_once_with(False)
+        close.setEnabled_.assert_called_once_with(True)
         close.setFrame_.assert_not_called()
 
 
