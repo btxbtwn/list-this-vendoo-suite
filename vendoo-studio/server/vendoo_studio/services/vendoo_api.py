@@ -932,6 +932,7 @@ def pick_mapped_category(
     general: dict[str, Any],
     match: dict[str, Any] | None,
     recommendations: list[dict[str, Any]] | None,
+    want_path: str = "",
 ) -> dict[str, Any] | None:
     """The best of Vendoo's mapping answers for a general category.
 
@@ -941,11 +942,16 @@ def pick_mapped_category(
     general category the seller chose: agreeing with its leaf counts most,
     then agreeing anywhere in the path. The match keeps ties, so this only
     overrides it when something genuinely fits better.
+
+    ``want_path`` is this marketplace's own breadcrumb when the listing named
+    one. The general category is a coarser thing than a Poshmark leaf — it
+    says "Tops", not "Blouses" — so scoring against it alone throws the
+    breadcrumb away and lets the mapper settle on whichever subtype it likes.
     """
     candidates = [c for c in [match, *(recommendations or [])] if isinstance(c, dict) and c.get("id")]
     if not candidates:
         return None
-    want_parts = [str(part) for part in (general.get("displayPath") or [])]
+    want_parts = path_parts(want_path) or [str(part) for part in (general.get("displayPath") or [])]
     if not want_parts:
         return candidates[0]
     want_all = _path_words(want_parts)
