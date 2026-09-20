@@ -480,6 +480,112 @@ def vendoo_listed_marketplaces(item: dict | None, form: dict | None = None) -> l
     return sorted(live)
 
 
+def _as_iso(raw: Any) -> str:
+    """One Vendoo date as an ISO 8601 string, whatever shape it arrived in.
+
+    ``/api/item`` answers Firestore timestamps as ``{_seconds, _nanoseconds}``,
+    a document read straight from Firestore carries an ISO string, and a few
+    fields arrive as epoch numbers.
+    """
+    from datetime import UTC, datetime
+
+    if isinstance(raw, dict):
+        seconds = raw.get("_seconds", raw.get("seconds"))
+        if seconds is None:
+            return ""
+        raw = float(seconds)
+    if isinstance(raw, (int, float)):
+        # Vendoo writes seconds in timestamps and milliseconds in plain numbers;
+        # anything past the year 3000 read as seconds is really milliseconds.
+        seconds = float(raw) / 1000 if float(raw) > 32503680000 else float(raw)
+        try:
+            return datetime.fromtimestamp(seconds, UTC).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return ""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return (parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)).isoformat()
+
+
+def _newest(*values: Any) -> str:
+    """The latest of these Vendoo dates, as an ISO string."""
+    stamps = []
+    for value in values:
+        if isinstance(value, list):
+            stamps.extend(_as_iso(entry) for entry in value)
+        else:
+            stamps.append(_as_iso(value))
+    return max((stamp for stamp in stamps if stamp), default="")
+
+
+def _listing_status_date(listing: dict, key: str) -> Any:
+    status_dates = listing.get("lastStatusDate")
+    return status_dates.get(key) if isinstance(status_dates, dict) else None
+
+
+def _listing_listed_at(listing: dict) -> str:
+    """When this marketplace listing last went live.
+
+    Vendoo's own selector takes the newest of the listing's relist history and
+    its last "listed" status stamp, so a relisted item reads as fresh.
+    """
+    return _newest(
+        listing.get("dateListed"),
+        listing.get("lastDateListed"),
+        _listing_status_date(listing, "listed"),
+    )
+
+
+def vendoo_dates(item: dict | None, form: dict | None = None) -> dict[str, Any]:
+    """Every time-tracking stamp Vendoo carries for an item, as ISO strings.
+
+    Vendoo keeps the item's own ``dateCreated``/``dateLastModified`` and then a
+    second set per marketplace listing: when it went live (and every relist
+    since), when it sold, and when it was last touched. Studio keeps the lot, so
+    a listing's whole history is answerable without going back to Vendoo.
+    """
+    merged = _merge_payloads(form, item)
+    sale_record = merged.get("saleRecord") if isinstance(merged.get("saleRecord"), dict) else {}
+    listed_by_marketplace: dict[str, str] = {}
+    sold_by_marketplace: dict[str, str] = {}
+    for name, listing in _listing_entries(merged):
+        market = VENDOO_MARKETPLACE_ALIASES.get(name, name)
+        listed = _listing_listed_at(listing)
+        if listed:
+            listed_by_marketplace[market] = listed
+        sold = _newest(listing.get("dateSold"), _listing_status_date(listing, "sold"))
+        if sold:
+            sold_by_marketplace[market] = sold
+    created = _as_iso(merged.get("dateCreated") or merged.get("createdAt"))
+    listed = _newest(*listed_by_marketplace.values(), sale_record.get("date_listed"))
+    return {
+        "created": created,
+        # An item Vendoo has never edited still carries its creation date.
+        "modified": _newest(
+            merged.get("dateLastModified"),
+            merged.get("updatedAt"),
+            merged.get("savedAt"),
+        )
+        or created,
+        # A listing that has never gone live falls back to its creation date, the
+        # way Vendoo's own "Listing Date" column does.
+        "listed": listed or created,
+        "sold": _newest(*sold_by_marketplace.values(), sale_record.get("date_sold"), merged.get("dateSold")),
+        "listedByMarketplace": listed_by_marketplace,
+        "soldByMarketplace": sold_by_marketplace,
+    }
+
+
+def vendoo_listed_at(item: dict | None, form: dict | None = None) -> str:
+    """When the item last went live -- what says how stale a listing has gone."""
+    return str(vendoo_dates(item, form).get("listed") or "")
+
+
 def vendoo_updated_at(item: dict | None, form: dict | None = None) -> str:
     """The item's last Vendoo write, as a comparable string.
 
@@ -535,6 +641,7 @@ async def import_vendoo_item(
         "vendooUrl": item_url,
         "vendooStatus": status,
         "vendooMarketplaces": marketplaces,
+        "vendooDates": vendoo_dates(item, form),
         # Vendoo's own image stands in for the sidebar thumbnail when a photo
         # download did not make it.
         "vendooCoverUrl": urls[0] if urls else "",

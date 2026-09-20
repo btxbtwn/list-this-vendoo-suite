@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { addLabel, removeLabel, splitLabels } from "./itemLabels";
+import { historyRows } from "./vendooHistory";
 
 interface Props {
   convId: string;
@@ -307,6 +308,8 @@ export function ItemDetails({ convId }: Props) {
     },
   });
 
+  // Vendoo's own dates for the item: when it went live, sold, and was touched.
+  const history = useMemo(() => historyRows(conv || {}), [conv]);
   const currentLabels = splitLabels(details.vendooLabels);
   const selectedKeys = new Set(currentLabels.map((label) => label.toLowerCase()));
   const token = labelDraft.trim().toLowerCase();
@@ -548,6 +551,23 @@ export function ItemDetails({ convId }: Props) {
           ))}
         </div>
       </section>
+
+      {history.length > 0 && (
+        <section className="item-section" aria-labelledby="item-section-history">
+          <h3 className="item-section-title" id="item-section-history">Vendoo History</h3>
+          <dl className="item-history">
+            {history.map((row) => (
+              <div className={`item-history-row${row.nested ? " is-nested" : ""}`} key={row.key}>
+                <dt>{row.label}</dt>
+                <dd title={row.iso}>
+                  <span className="item-history-age">{row.age}</span>
+                  <span className="item-history-date">{row.when}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
       {saving && <span className="item-saving">SAVING…</span>}
       {saveError && (
         <span className="item-saving text-error">

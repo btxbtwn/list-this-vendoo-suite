@@ -20,6 +20,15 @@ export interface Conversation {
   price?: number | null;
   vendoo_labels?: string[];
   vendoo_marketplaces?: string[];
+  /** Vendoo's own time tracking: when the item was created, last modified,
+   * last went live (a relist moves this) and sold, plus the listing and sale
+   * date per marketplace. */
+  vendoo_created_at?: string | null;
+  vendoo_modified_at?: string | null;
+  vendoo_listed_at?: string | null;
+  vendoo_sold_at?: string | null;
+  vendoo_listed_dates?: Record<string, string>;
+  vendoo_sold_dates?: Record<string, string>;
 }
 
 export interface Message {

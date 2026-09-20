@@ -47,6 +47,15 @@ class ConversationResponse(BaseModel):
     price: float | None = None
     vendoo_labels: list[str] = []
     vendoo_marketplaces: list[str] = []
+    # Vendoo's own time tracking for the item: when it was created, last
+    # modified, last went live (a relist moves this) and sold, plus the listing
+    # date per marketplace. "listed" drives the staleness filter and sort.
+    vendoo_created_at: str | None = None
+    vendoo_modified_at: str | None = None
+    vendoo_listed_at: str | None = None
+    vendoo_sold_at: str | None = None
+    vendoo_listed_dates: dict[str, str] = {}
+    vendoo_sold_dates: dict[str, str] = {}
 
 
 class MessageResponse(BaseModel):
@@ -508,6 +517,29 @@ def _extras_for(db: Session, conv_id: str) -> dict:
     return _extras(_cover_photo_url(repo.cover_photo_id(conv_id)), repo.listing_facet(conv_id))
 
 
+def _vendoo_dates(notes: dict) -> dict:
+    """Vendoo's time tracking for the row, as the sidebar and details read it."""
+    dates = notes.get("vendooDates") if isinstance(notes.get("vendooDates"), dict) else {}
+
+    def text(key: str) -> str | None:
+        return str(dates.get(key) or "") or None
+
+    def mapping(key: str) -> dict[str, str]:
+        raw = dates.get(key)
+        if not isinstance(raw, dict):
+            return {}
+        return {str(market): str(stamp) for market, stamp in raw.items() if stamp}
+
+    return {
+        "vendoo_created_at": text("created"),
+        "vendoo_modified_at": text("modified"),
+        "vendoo_listed_at": text("listed"),
+        "vendoo_sold_at": text("sold"),
+        "vendoo_listed_dates": mapping("listedByMarketplace"),
+        "vendoo_sold_dates": mapping("soldByMarketplace"),
+    }
+
+
 def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
     from vendoo_studio.services.vendoo_import import parse_notes, split_vendoo_labels
 
@@ -530,6 +562,7 @@ def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
         price=row.get("price"),
         vendoo_labels=split_vendoo_labels(notes.get("vendooLabels")),
         vendoo_marketplaces=[str(m) for m in marketplaces] if isinstance(marketplaces, list) else [],
+        **_vendoo_dates(notes),
     )
 
 

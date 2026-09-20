@@ -20,6 +20,7 @@ from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo, JobRepo
 from vendoo_studio.services.vendoo_import import (
     _download_public_image,
+    vendoo_dates,
     image_urls_from_vendoo,
     import_vendoo_item,
     listing_from_vendoo,
@@ -240,6 +241,51 @@ class SafePhotoDownloadTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(requested), 1)
 
 
+class VendooDatesTest(unittest.TestCase):
+    """Vendoo's time tracking, read off whatever shape the payload arrived in."""
+
+    ITEM = {
+        "dateCreated": {"_seconds": 1735689600, "_nanoseconds": 0},  # 2025-01-01
+        "dateLastModified": 1757000000000,  # epoch millis
+        "listings": {
+            "ebay": {
+                "dateListed": "2026-03-01T00:00:00Z",
+                # A relist moves the listing date forward.
+                "lastDateListed": ["2026-05-02T00:00:00Z"],
+                "lastStatusDate": {"listed": {"_seconds": 1752000000}},
+            },
+            "poshmark": {"dateListed": "2026-01-15T00:00:00Z", "dateSold": "2026-08-02T00:00:00Z"},
+            "validate": {"ignored": True},
+        },
+        "saleRecord": {"date_sold": "2026-08-02T00:00:00Z", "marketplace": "poshmark"},
+    }
+
+    def test_reads_every_stamp(self):
+        dates = vendoo_dates(self.ITEM)
+        self.assertEqual(dates["created"], "2025-01-01T00:00:00+00:00")
+        self.assertEqual(dates["modified"], "2025-09-04T15:33:20+00:00")
+        # The newest listing date across the marketplaces, relists included.
+        self.assertEqual(dates["listed"], "2026-05-02T00:00:00+00:00")
+        self.assertEqual(dates["sold"], "2026-08-02T00:00:00+00:00")
+        self.assertEqual(
+            dates["listedByMarketplace"],
+            {"ebay": "2026-05-02T00:00:00+00:00", "poshmark": "2026-01-15T00:00:00+00:00"},
+        )
+        self.assertEqual(dates["soldByMarketplace"], {"poshmark": "2026-08-02T00:00:00+00:00"})
+
+    def test_item_that_never_went_live_falls_back_to_its_creation(self):
+        dates = vendoo_dates({"dateCreated": "2026-09-01T00:00:00Z"})
+        self.assertEqual(dates["listed"], "2026-09-01T00:00:00+00:00")
+        self.assertEqual(dates["modified"], "2026-09-01T00:00:00+00:00")
+        self.assertEqual(dates["sold"], "")
+        self.assertEqual(dates["listedByMarketplace"], {})
+
+    def test_junk_dates_are_dropped_rather_than_guessed(self):
+        dates = vendoo_dates({"dateCreated": "not a date", "listings": {"ebay": {"dateListed": None}}})
+        self.assertEqual(dates["created"], "")
+        self.assertEqual(dates["listed"], "")
+
+
 class VendooImageUrlTest(unittest.TestCase):
     """Vendoo stores image records, not links; these are the shapes it keeps."""
 
@@ -405,6 +451,28 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertEqual(listed[0]["vendoo_status"], "draft")
         self.assertEqual(listed[0]["vendoo_cover_url"], "https://cdn.example/a.jpg")
         self.assertEqual(listed[0]["status"], "draft")
+        # This fixture carries no Vendoo dates, so the row says so rather than
+        # inventing one.
+        self.assertIsNone(listed[0]["vendoo_listed_at"])
+
+    @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
+    def test_import_records_vendoos_dates(self, download):
+        """Vendoo's time tracking rides along on the row the sidebar sorts on."""
+        download.return_value = []
+        dated = {
+            **VENDOO_ITEM,
+            "dateCreated": "2026-02-01T00:00:00Z",
+            "dateLastModified": "2026-08-30T00:00:00Z",
+            "listings": {"ebay": {"dateListed": "2026-03-04T00:00:00Z"}},
+        }
+        asyncio.run(import_vendoo_item(self.db, item_id="abc123", item=dated))
+
+        row = self.client.get("/api/conversations").json()[0]
+        self.assertEqual(row["vendoo_created_at"], "2026-02-01T00:00:00+00:00")
+        self.assertEqual(row["vendoo_modified_at"], "2026-08-30T00:00:00+00:00")
+        self.assertEqual(row["vendoo_listed_at"], "2026-03-04T00:00:00+00:00")
+        self.assertEqual(row["vendoo_listed_dates"], {"ebay": "2026-03-04T00:00:00+00:00"})
+        self.assertIsNone(row["vendoo_sold_at"])
 
 
 if __name__ == "__main__":
