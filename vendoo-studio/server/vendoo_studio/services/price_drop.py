@@ -83,6 +83,35 @@ def price_after_percent(current: float, percent: float) -> int:
     return floor_dollars(current * (1.0 - percent / 100.0))
 
 
+def effective_percent(current: float, price: float) -> float:
+    """The cut a whole-dollar price actually delivers, to one decimal."""
+    if current <= 0:
+        return 0.0
+    return round((1.0 - price / current) * 100.0, 1)
+
+
+def drop_options(current: float, percents: tuple[int, ...] = PERCENT_OPTIONS) -> list[dict[str, Any]]:
+    """Distinct prices to offer, each labelled with the cut it really makes.
+
+    Whole dollars cannot land on an exact percentage of a small price — 10% and
+    15% off $14 are $12.60 and $11.90, which floor to $12 and $11 — so the
+    target percent is a poor label and two targets can collide on one price.
+    Offering the prices themselves, each with its own effective percent, keeps
+    the chips honest and free of duplicates.
+    """
+    options: dict[int, dict[str, Any]] = {}
+    for percent in percents:
+        price = price_after_percent(current, percent)
+        if price >= current or price in options:
+            continue
+        options[price] = {
+            "price": price,
+            "percent": percent,
+            "effective_percent": effective_percent(current, price),
+        }
+    return sorted(options.values(), key=lambda option: -option["price"])
+
+
 def fields_from_listing(listing: dict | None) -> dict[str, str]:
     """Build a sold-comps search identity from the current listing JSON."""
     if not isinstance(listing, dict):
@@ -281,8 +310,11 @@ async def build_preview(
         )
 
     first_price = first_listed_price(revisions) or current
+    offered = tuple(dict.fromkeys((*PERCENT_OPTIONS, suggested_percent)))
     return {
         "current_price": current,
+        "drop_options": drop_options(current, offered),
+        "suggested_effective_percent": effective_percent(current, suggested_price),
         "first_price": first_price,
         "suggested_percent": suggested_percent,
         "suggested_price": suggested_price,

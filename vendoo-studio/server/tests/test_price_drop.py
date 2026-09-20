@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from vendoo_studio.services.price_drop import (
+    drop_options,
+    effective_percent,
     PRICE_DROP_SOURCE,
     apply_price_to_listing,
     build_preview,
@@ -47,6 +49,33 @@ class ListingPriceHelpersTest(unittest.TestCase):
         # The case that exposed it: a dollar is already 7% of a $14 listing.
         self.assertEqual(price_after_percent(14, 10), 12)
         self.assertEqual(price_after_percent(1, 10), 1)
+
+
+class DropOptionsTest(unittest.TestCase):
+    def test_options_state_the_cut_they_really_make(self):
+        """A 10% target off $48 lands on $43, which is 10.4% — say so."""
+        self.assertEqual(
+            drop_options(48.0, (10, 15, 20)),
+            [
+                {"price": 43, "percent": 10, "effective_percent": 10.4},
+                {"price": 40, "percent": 15, "effective_percent": 16.7},
+                {"price": 38, "percent": 20, "effective_percent": 20.8},
+            ],
+        )
+
+    def test_targets_that_collide_on_one_price_are_offered_once(self):
+        """15% and 20% off $14 both floor to $11; one chip, not two."""
+        self.assertEqual(
+            drop_options(14.0, (10, 15, 20)),
+            [
+                {"price": 12, "percent": 10, "effective_percent": 14.3},
+                {"price": 11, "percent": 15, "effective_percent": 21.4},
+            ],
+        )
+
+    def test_a_cut_that_cannot_move_the_price_is_dropped(self):
+        self.assertEqual(drop_options(1.0, (10, 15, 20)), [])
+        self.assertEqual(effective_percent(0, 0), 0.0)
 
 
 class FieldsFromListingTest(unittest.TestCase):

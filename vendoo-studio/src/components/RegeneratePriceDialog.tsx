@@ -6,6 +6,11 @@ import type { PriceDropPreview } from "../api/types";
 import { addToast } from "../ui/toast";
 import { SoldCompsCard } from "./SoldCompsCard";
 
+/** "14.3" but "21" — a trailing .0 is noise on a chip. */
+function percentLabel(percent: number): string {
+  return Number.isInteger(percent) ? String(percent) : percent.toFixed(1);
+}
+
 function money(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`;
@@ -83,6 +88,14 @@ export function RegeneratePriceDialog({
     setSelection(next);
     setCustomText(String(next.price));
   }, [open, previewQuery.data]);
+
+  const otherCuts = useMemo(
+    () =>
+      (previewQuery.data?.drop_options || []).filter(
+        (option) => option.price !== previewQuery.data?.suggested_price,
+      ),
+    [previewQuery.data],
+  );
 
   const selectedPrice = useMemo(() => {
     if (!selection) return null;
@@ -210,46 +223,39 @@ export function RegeneratePriceDialog({
                     setCustomText(String(preview.suggested_price));
                   }}
                 >
-                  {money(preview.suggested_price)}
+                  {money(preview.suggested_price)} · −{percentLabel(preview.suggested_effective_percent)}%
                   <span className="price-drop-chip-note">{preview.suggested_reason}</span>
                 </button>
               </div>
 
-              <div className="price-drop-section">
-                <div className="price-drop-section-title">Percent</div>
-                <div className="price-drop-chips" role="group" aria-label="Price drop percent">
-                  {preview.percent_options.map((percent) => {
-                    const price = preview.prices_by_percent[String(percent)];
-                    const active = selection?.kind === "percent" && selection.percent === percent;
-                    return (
-                      <button
-                        key={percent}
-                        type="button"
-                        className={`price-drop-chip${active ? " is-active" : ""}`}
-                        onClick={() => {
-                          setSelection({ kind: "percent", percent, price });
-                          setCustomText(String(price));
-                        }}
-                      >
-                        {percent}% · {money(price)}
-                      </button>
-                    );
-                  })}
-                  {preview.suggested_percent === 5 && !preview.percent_options.includes(5) ? (
-                    <button
-                      type="button"
-                      className={`price-drop-chip${selection?.kind === "percent" && selection.percent === 5 ? " is-active" : ""}`}
-                      onClick={() => {
-                        const price = preview.prices_by_percent["5"] ?? Math.round(preview.current_price * 0.95);
-                        setSelection({ kind: "percent", percent: 5, price });
-                        setCustomText(String(price));
-                      }}
-                    >
-                      5% · {money(preview.prices_by_percent["5"])}
-                    </button>
-                  ) : null}
+              {otherCuts.length ? (
+                <div className="price-drop-section">
+                  <div className="price-drop-section-title">Other cuts</div>
+                  <div className="price-drop-chips" role="group" aria-label="Price drop options">
+                    {otherCuts.map((option) => {
+                      const active =
+                        selection?.kind === "percent" && selection.price === option.price;
+                      return (
+                        <button
+                          key={option.price}
+                          type="button"
+                          className={`price-drop-chip${active ? " is-active" : ""}`}
+                          onClick={() => {
+                            setSelection({
+                              kind: "percent",
+                              percent: option.effective_percent,
+                              price: option.price,
+                            });
+                            setCustomText(String(option.price));
+                          }}
+                        >
+                          {money(option.price)} · −{percentLabel(option.effective_percent)}%
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               {preview.comps.target_price != null && preview.comps.target_price < preview.current_price ? (
                 <div className="price-drop-section">
@@ -263,8 +269,13 @@ export function RegeneratePriceDialog({
                       setCustomText(String(price));
                     }}
                   >
-                    Comps target {money(preview.comps.target_price)}
-                    {preview.comps.market ? ` · market ${preview.comps.market}` : ""}
+                    Comps target {money(preview.comps.target_price)} · −
+                    {percentLabel(
+                      Math.round(
+                        (1 - preview.comps.target_price / preview.current_price) * 1000,
+                      ) / 10,
+                    )}
+                    %{preview.comps.market ? ` · market ${preview.comps.market}` : ""}
                   </button>
                 </div>
               ) : !preview.comps.available ? (
