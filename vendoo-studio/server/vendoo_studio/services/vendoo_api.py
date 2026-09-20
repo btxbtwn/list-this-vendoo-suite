@@ -391,41 +391,143 @@ def observe_listing_encodings(
                 shapes[suffix] = "scalar"
 
 
+# Stable marketplace condition codes for when the seller has not probed a
+# schema yet. eBay is omitted — its ids are category-specific. Writing a
+# Vendoo general ``v_`` code here is what Poshmark rejects on Relist.
+_DEFAULT_MARKETPLACE_CONDITIONS: dict[str, dict[str, str]] = {
+    "poshmark": {
+        "new with tags box": "nwt",
+        "v new with tags": "nwt",
+        "v new": "nwt",
+        "new without tags box": "like_new",
+        "new with imperfections": "good",
+        "pre owned excellent": "like_new",
+        "pre owned good": "good",
+        "pre owned fair": "fair",
+        "poor major flaws": "fair",
+        "v preowned": "good",
+        "v pre owned": "good",
+        "v pre owned excellent": "like_new",
+        "v pre owned good": "good",
+        "v pre owned fair": "fair",
+        "v good": "good",
+        "excellent": "like_new",
+        "good": "good",
+        "fair": "fair",
+    },
+    "mercari": {
+        "new with tags box": "1",
+        "v new with tags": "1",
+        "v new": "1",
+        "new without tags box": "2",
+        "new with imperfections": "3",
+        "pre owned excellent": "2",
+        "pre owned good": "4",
+        "pre owned fair": "5",
+        "poor major flaws": "5",
+        "v preowned": "4",
+        "v pre owned": "4",
+        "v pre owned excellent": "2",
+        "v pre owned good": "4",
+        "v pre owned fair": "5",
+        "v good": "4",
+        "excellent": "2",
+        "good": "4",
+        "fair": "5",
+    },
+    "depop": {
+        "new with tags box": "brand_new",
+        "v new with tags": "brand_new",
+        "v new": "brand_new",
+        "new without tags box": "like_new",
+        "new with imperfections": "used_good",
+        "pre owned excellent": "used_excellent",
+        "pre owned good": "used_good",
+        "pre owned fair": "used_fair",
+        "poor major flaws": "used_fair",
+        "v preowned": "used_good",
+        "v pre owned": "used_good",
+        "v pre owned excellent": "used_excellent",
+        "v pre owned good": "used_good",
+        "v pre owned fair": "used_fair",
+        "v good": "used_good",
+        "excellent": "used_excellent",
+        "good": "used_good",
+        "fair": "used_fair",
+    },
+}
+
+
+def _condition_lookup_keys(general_condition: Any) -> list[str]:
+    """Normalised keys to try for a generalDetails condition value."""
+    keys: list[str] = []
+    for candidate in (
+        _code_of(general_condition),
+        _label_of(general_condition),
+        general_condition if not isinstance(general_condition, dict) else None,
+    ):
+        if candidate in (None, ""):
+            continue
+        key = _norm(candidate)
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
 def marketplace_condition(schema: dict[str, Any] | None, marketplace: str, general_condition: Any) -> Any:
     """The marketplace's own condition code for a Vendoo condition, or None.
 
-    None means nothing learned covers it. Writing a Vendoo label into
-    ``listings.<marketplace>.overrides.condition`` instead is what breaks
-    eBay's form once a category leaf is chosen.
+    Prefers codes learned from the seller's items. Falls back to a small
+    built-in table for Poshmark/Mercari/Depop so Relist never receives a
+    Vendoo ``v_`` general code. eBay stays learned-only (category-specific).
     """
     if general_condition in (None, ""):
         return None
     table = (((schema or {}).get("marketplaces") or {}).get(marketplace) or {}).get("condition") or {}
-    if not table:
-        return None
     # generalDetails stores ``{value, displayName}``; learnings are keyed by
     # either the ``v_`` code or the human label, so try both. A bare label
     # such as "Pre-Owned - Good" resolves through the general field table
     # first, then into the marketplace map.
     field_labels = (((schema or {}).get("fields") or {}).get("condition") or {}).get("labels") or {}
-    candidates = (
-        _code_of(general_condition),
-        _label_of(general_condition),
-        general_condition if not isinstance(general_condition, dict) else None,
-    )
-    for candidate in candidates:
-        if candidate in (None, ""):
-            continue
-        key = _norm(candidate)
-        code = table.get(key)
-        if code not in (None, ""):
-            return code
-        via_general = field_labels.get(key)
-        if via_general not in (None, ""):
-            code = table.get(_norm(via_general))
+    defaults = _DEFAULT_MARKETPLACE_CONDITIONS.get(marketplace) or {}
+    for key in _condition_lookup_keys(general_condition):
+        for source in (table, defaults):
+            code = source.get(key)
             if code not in (None, ""):
                 return code
+        via_general = field_labels.get(key)
+        if via_general not in (None, ""):
+            via_key = _norm(via_general)
+            for source in (table, defaults):
+                code = source.get(via_key)
+                if code not in (None, ""):
+                    return code
     return None
+
+
+def _is_general_condition_value(value: Any) -> bool:
+    """True when ``value`` belongs on generalDetails, not a marketplace form.
+
+    Marketplace overrides store short codes (``good``, ``3000``, ``4``). A
+    Vendoo ``v_preowned`` object or label left there is what Poshmark rejects
+    on Relist as ``Invalid condition v_preowned``.
+    """
+    if isinstance(value, dict):
+        return True
+    text = str(value or "").strip()
+    if not text:
+        return False
+    lower = text.lower()
+    if lower.startswith("v_") or lower.startswith("v "):
+        return True
+    key = _norm(text)
+    return (
+        key.startswith("pre owned")
+        or key.startswith("new with")
+        or key.startswith("new without")
+        or key.startswith("poor ")
+        or "imperfection" in key
+    )
 
 
 def _is_condition_path(path: str) -> bool:
@@ -1403,9 +1505,10 @@ def _apply_condition(
     """Write each marketplace's own condition code, or clear a stale one.
 
     After Regenerate, marketplace forms still hold the previous listing's
-    codes. A Vendoo general label must never land on eBay (numeric ids only).
-    When nothing learned maps the new condition, blank the old value so the
-    form does not keep showing the wrong tier.
+    codes. A Vendoo general label must never land on a marketplace form —
+    Poshmark Relist rejects ``v_preowned`` outright, and eBay crashes on
+    human labels. When nothing maps the new condition, blank the old value
+    so the form does not keep showing the wrong tier.
     """
     want_over = _bucket(want_section, "overrides")
     have_over = have_section.get("overrides") if isinstance(have_section.get("overrides"), dict) else {}
@@ -1414,8 +1517,14 @@ def _apply_condition(
     marketplace = str(want_section.get("marketplaceID") or "")
 
     condition = want_over.get("condition")
-    if condition in (None, "", []):
-        mapped = marketplace_condition(schema, marketplace, general.get("condition"))
+    if condition in (None, "", []) or _is_general_condition_value(condition):
+        mapped = None
+        for candidate in (general.get("condition"), condition):
+            if candidate in (None, ""):
+                continue
+            mapped = marketplace_condition(schema, marketplace, candidate)
+            if mapped not in (None, ""):
+                break
         if mapped not in (None, ""):
             condition = mapped
         elif have_over.get("condition") not in (None, "") or _condition_keys(have_specs):
