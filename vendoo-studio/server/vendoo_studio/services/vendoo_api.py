@@ -394,75 +394,89 @@ def observe_listing_encodings(
                 shapes[suffix] = "scalar"
 
 
-# Stable marketplace condition codes for when the seller has not probed a
-# schema yet. eBay is omitted — its ids are category-specific. Writing a
-# Vendoo general ``v_`` code here is what Poshmark rejects on Relist.
-_DEFAULT_MARKETPLACE_CONDITIONS: dict[str, dict[str, str]] = {
+# Vendoo's own condition vocabulary, lifted from its web bundle's
+# ``conditionMap``. Marketplace forms store these codes and nothing else:
+# Poshmark shows an empty Condition when handed a code it does not own
+# (``good``), and rejects a Vendoo ``v_`` general code on Relist. eBay is
+# omitted on purpose — its ids are category-specific and stay learned-only.
+_VENDOO_MARKETPLACE_CONDITIONS: dict[str, dict[str, str]] = {
     "poshmark": {
-        "new with tags box": "nwt",
-        "v new with tags": "nwt",
-        "v new": "nwt",
-        "new without tags box": "like_new",
-        "new with imperfections": "good",
-        "pre owned excellent": "like_new",
-        "pre owned good": "good",
-        "pre owned fair": "fair",
-        "poor major flaws": "fair",
-        "v preowned": "good",
-        "v pre owned": "good",
-        "v pre owned excellent": "like_new",
-        "v pre owned good": "good",
-        "v pre owned fair": "fair",
-        "v good": "good",
-        "excellent": "like_new",
-        "good": "good",
-        "fair": "fair",
+        "v_newWithTagsBox": "nwt",
+        "v_newWithOutTags": "uln",
+        "v_newWithDefects": "ug",
+        "v_preowned_excellent": "uln",
+        "v_preowned": "ug",
+        "v_preowned_fair": "uf",
+        "v_poor": "uf",
     },
     "mercari": {
-        "new with tags box": "1",
-        "v new with tags": "1",
-        "v new": "1",
-        "new without tags box": "2",
-        "new with imperfections": "3",
-        "pre owned excellent": "2",
-        "pre owned good": "4",
-        "pre owned fair": "5",
-        "poor major flaws": "5",
-        "v preowned": "4",
-        "v pre owned": "4",
-        "v pre owned excellent": "2",
-        "v pre owned good": "4",
-        "v pre owned fair": "5",
-        "v good": "4",
-        "excellent": "2",
-        "good": "4",
-        "fair": "5",
+        "v_newWithTagsBox": "1",
+        "v_newWithOutTags": "2",
+        "v_newWithDefects": "3",
+        "v_preowned_excellent": "3",
+        "v_preowned": "3",
+        "v_preowned_fair": "4",
+        "v_poor": "5",
     },
     "depop": {
-        "new with tags box": "brand_new",
-        "v new with tags": "brand_new",
-        "v new": "brand_new",
-        "new without tags box": "like_new",
-        "new with imperfections": "used_good",
-        "pre owned excellent": "used_excellent",
-        "pre owned good": "used_good",
-        "pre owned fair": "used_fair",
-        "poor major flaws": "used_fair",
-        "v preowned": "used_good",
-        "v pre owned": "used_good",
-        "v pre owned excellent": "used_excellent",
-        "v pre owned good": "used_good",
-        "v pre owned fair": "used_fair",
-        "v good": "used_good",
-        "excellent": "used_excellent",
-        "good": "used_good",
-        "fair": "used_fair",
+        "v_newWithTagsBox": "brand_new",
+        "v_newWithOutTags": "used_like_new",
+        "v_newWithDefects": "used_good",
+        "v_preowned_excellent": "used_excellent",
+        "v_preowned": "used_good",
+        "v_preowned_fair": "used_fair",
+        "v_poor": "used_fair",
     },
 }
 
+# Wordings that resolve to a Vendoo condition code. The codes themselves are
+# added below, both squashed (``v preowned excellent``) and split on camel
+# case (``v new with tags box``), because learnings key on the raw code while
+# Studio's own wording arrives as a label.
+_VENDOO_CONDITION_ALIASES: dict[str, str] = {
+    "new with tags box": "v_newWithTagsBox",
+    "new with tags": "v_newWithTagsBox",
+    "nwt": "v_newWithTagsBox",
+    "brand new": "v_newWithTagsBox",
+    "new": "v_newWithTagsBox",
+    "new without tags box": "v_newWithOutTags",
+    "new without tags": "v_newWithOutTags",
+    "nwot": "v_newWithOutTags",
+    "like new": "v_newWithOutTags",
+    "new with imperfections": "v_newWithDefects",
+    "new with defects": "v_newWithDefects",
+    "pre owned excellent": "v_preowned_excellent",
+    "excellent": "v_preowned_excellent",
+    "pre owned good": "v_preowned",
+    "pre owned": "v_preowned",
+    "preowned": "v_preowned",
+    "good": "v_preowned",
+    "used": "v_preowned",
+    "pre owned fair": "v_preowned_fair",
+    "fair": "v_preowned_fair",
+    "poor major flaws": "v_poor",
+    "major flaws": "v_poor",
+    "poor": "v_poor",
+    "damaged": "v_poor",
+}
+
+def _add_condition_code_aliases() -> None:
+    for codes in _VENDOO_MARKETPLACE_CONDITIONS.values():
+        for code in codes:
+            _VENDOO_CONDITION_ALIASES.setdefault(_norm(code), code)
+            _VENDOO_CONDITION_ALIASES.setdefault(_norm(_CAMEL_BOUNDARY.sub(" ", code)), code)
+
+
+_add_condition_code_aliases()
+
 
 def _condition_lookup_keys(general_condition: Any) -> list[str]:
-    """Normalised keys to try for a generalDetails condition value."""
+    """Normalised keys to try for a generalDetails condition value.
+
+    ``v_newWithTagsBox`` squashes to ``v newwithtagsbox`` and also splits to
+    ``v new with tags box``; both are tried so a camel-cased Vendoo code
+    still finds its wording.
+    """
     keys: list[str] = []
     for candidate in (
         _code_of(general_condition),
@@ -471,10 +485,35 @@ def _condition_lookup_keys(general_condition: Any) -> list[str]:
     ):
         if candidate in (None, ""):
             continue
-        key = _norm(candidate)
-        if key and key not in keys:
-            keys.append(key)
+        for key in (_norm(candidate), _norm(_CAMEL_BOUNDARY.sub(" ", str(candidate)))):
+            if key and key not in keys:
+                keys.append(key)
     return keys
+
+
+def _builtin_condition(marketplace: str, key: str) -> Any:
+    """Vendoo's shipped code for one marketplace, or None."""
+    code = _VENDOO_CONDITION_ALIASES.get(key)
+    if not code and key.startswith("v "):
+        # Codes Studio itself coined, such as ``v_pre_owned_good``, read as
+        # their wording once the ``v`` prefix is dropped.
+        code = _VENDOO_CONDITION_ALIASES.get(key[2:])
+    if not code:
+        return None
+    return (_VENDOO_MARKETPLACE_CONDITIONS.get(marketplace) or {}).get(code)
+
+
+def _learned_condition_is_usable(marketplace: str, code: Any) -> bool:
+    """Whether a learned code is one this marketplace actually accepts.
+
+    Learnings come back from items we ourselves wrote, so a code Studio got
+    wrong once would otherwise teach itself forever. Where Vendoo ships the
+    vocabulary, hold learnings to it.
+    """
+    known = _VENDOO_MARKETPLACE_CONDITIONS.get(marketplace)
+    if not known:
+        return True
+    return str(code) in {str(value) for value in known.values()}
 
 
 def marketplace_condition(schema: dict[str, Any] | None, marketplace: str, general_condition: Any) -> Any:
@@ -492,19 +531,24 @@ def marketplace_condition(schema: dict[str, Any] | None, marketplace: str, gener
     # such as "Pre-Owned - Good" resolves through the general field table
     # first, then into the marketplace map.
     field_labels = (((schema or {}).get("fields") or {}).get("condition") or {}).get("labels") or {}
-    defaults = _DEFAULT_MARKETPLACE_CONDITIONS.get(marketplace) or {}
-    for key in _condition_lookup_keys(general_condition):
-        for source in (table, defaults):
-            code = source.get(key)
-            if code not in (None, ""):
-                return code
+    keys = _condition_lookup_keys(general_condition)
+    # A label such as "Pre-Owned - Good" resolves through the general field
+    # table into the ``v_`` code the marketplace maps are keyed by.
+    for key in list(keys):
         via_general = field_labels.get(key)
-        if via_general not in (None, ""):
-            via_key = _norm(via_general)
-            for source in (table, defaults):
-                code = source.get(via_key)
-                if code not in (None, ""):
-                    return code
+        if via_general in (None, ""):
+            continue
+        for extra in _condition_lookup_keys(via_general):
+            if extra not in keys:
+                keys.append(extra)
+    for key in keys:
+        code = table.get(key)
+        if code not in (None, "") and _learned_condition_is_usable(marketplace, code):
+            return code
+    for key in keys:
+        code = _builtin_condition(marketplace, key)
+        if code not in (None, ""):
+            return code
     return None
 
 
