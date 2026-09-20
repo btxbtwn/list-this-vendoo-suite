@@ -371,6 +371,24 @@ def normalize_ebay_season_value(
     return packed, changed
 
 
+def ebay_key_fold(text: Any) -> str:
+    """"Fabric Weight", "fabric_weight" and "fabricWeight" all name one field."""
+    return re.sub(r"[^a-z0-9]", "", str(text or "").casefold())
+
+
+def ebay_optional_keys(block: Any, key: str) -> list[str]:
+    """Every spelling of ``key`` a specifics block holds, in its own order.
+
+    A value written from a form label lands under "Fabric Weight", one written
+    from the listing JSON under "fabricWeight". Both are the same eBay field
+    and both reach the form, so both have to be read and rewritten.
+    """
+    if not isinstance(block, dict):
+        return []
+    folded = ebay_key_fold(key)
+    return [name for name in block if ebay_key_fold(name) == folded]
+
+
 def ebay_optional_raw(ebay: dict, key: str) -> Any:
     """Read an optional from flat ebay_specifics or nested category_specifics."""
     if not isinstance(ebay, dict):
@@ -386,6 +404,10 @@ def ebay_optional_raw(ebay: dict, key: str) -> Any:
             return nested.get(key)
         if title in nested:
             return nested.get(title)
+    for name in ebay_optional_keys(ebay, key):
+        return ebay.get(name)
+    for name in ebay_optional_keys(nested, key):
+        return nested.get(name)
     return None
 
 
@@ -555,11 +577,14 @@ def ensure_ebay_category_optionals(listing: dict) -> bool:
     if not ebay_optional_blank(raw_weight):
         normalized_weight, weight_changed = normalize_ebay_fabric_weight(raw_weight)
         if weight_changed or text_value(normalized_weight) != text_value(raw_weight):
-            ebay["fabricWeight"] = normalized_weight
+            # Rewrite every spelling the listing holds — a word left under
+            # "Fabric Weight" reaches the form just as one under "fabricWeight".
+            for name in ebay_optional_keys(ebay, "fabricWeight") or ["fabricWeight"]:
+                ebay[name] = normalized_weight
             nested = ebay.get("category_specifics")
-            if isinstance(nested, dict) and "fabricWeight" in nested:
-                nested = dict(nested)
-                nested["fabricWeight"] = normalized_weight
+            nested_keys = ebay_optional_keys(nested, "fabricWeight")
+            if nested_keys:
+                nested = {**nested, **{name: normalized_weight for name in nested_keys}}
                 ebay["category_specifics"] = nested
             changed = True
 

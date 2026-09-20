@@ -488,6 +488,14 @@ class ValidationCasesTest(unittest.TestCase):
         ensure_ebay_category_optionals(listing)
         self.assertEqual(listing["ebay_specifics"].get("fabricWeight"), "4.5")
 
+        # The same field under the form's own label reaches the form too.
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "Fabric Weight": "Lightweight",
+        }
+        self.assertTrue(ensure_ebay_category_optionals(listing))
+        self.assertEqual(listing["ebay_specifics"].get("Fabric Weight"), "")
+
     def test_ebay_fabric_weight_blank_or_numeric_on_validate(self):
         listing = dict(VALID_LISTING)
         listing["ebay_specifics"] = {

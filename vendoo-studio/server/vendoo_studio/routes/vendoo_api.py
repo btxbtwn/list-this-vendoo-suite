@@ -411,7 +411,12 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.listing_generate import latest_photo_analysis
     from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
-    from vendoo_studio.services.vendoo_api import apply_update_all, build_vendoo_item, changed_fields
+    from vendoo_studio.services.vendoo_api import (
+        LISTINGS_KEY,
+        apply_update_all,
+        build_vendoo_item,
+        changed_fields,
+    )
     from vendoo_studio.services.vendoo_create import prepare_listing_for_vendoo, run_ops
     from vendoo_studio.services.vendoo_import import (
         merge_notes,
@@ -459,8 +464,15 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         )
         apply_update_all(current, desired, schema=schema)
         updates = changed_fields(current, desired)
-        if updates:
-            await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": updates}])
+        # The general form is saved on its own first, the way Vendoo's own save
+        # runs it: anything that save copies down onto the marketplace forms
+        # lands before Studio writes those forms, so Studio's values are the
+        # ones left standing.
+        general_updates = {k: v for k, v in updates.items() if not k.startswith(f"{LISTINGS_KEY}.")}
+        form_updates = {k: v for k, v in updates.items() if k.startswith(f"{LISTINGS_KEY}.")}
+        for batch in (general_updates, form_updates):
+            if batch:
+                await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": batch}])
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
         raise _http_error(exc) from exc
 
