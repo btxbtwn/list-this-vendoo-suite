@@ -1025,7 +1025,7 @@ function SendToVendooButton({
       </button>
       {!sendMutation.isPending && <div className="send-hint">{sendHint}</div>}
       {sendMutation.isPending && (
-        <SendProgress label={bound ? "Writing changed fields to Vendoo…" : "Starting the send…"} />
+        <SendProgress label={bound ? "Writing marketplace forms to Vendoo…" : "Starting the send…"} />
       )}
       {errorCard}
     </div>

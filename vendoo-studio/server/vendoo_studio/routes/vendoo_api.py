@@ -224,20 +224,19 @@ class SaveResponse(BaseModel):
 
 @router.post("/api/conversations/{conv_id}/vendoo-api/save", response_model=SaveResponse)
 async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
-    """Push this conversation's edits onto its Vendoo draft.
+    """Push this conversation's listing onto its Vendoo draft.
 
-    Writes only the fields that differ, the way Vendoo's own form save does, so
-    anything the seller changed in Vendoo and Studio does not know about is
-    left alone. This edits a draft; it does not list.
+    Uses the same prepare path as first Send — resolve categories, fill leaf
+    fields, build complete marketplace forms — then writes only the paths that
+    differ. After Regenerate, marketplace condition, Mercari Ground Advantage,
+    and form saved stamps land the same way a brand-new draft does. This edits
+    a draft; it does not list.
     """
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+    from vendoo_studio.services.listing_generate import latest_photo_analysis
+    from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
     from vendoo_studio.services.vendoo_api import apply_update_all, build_vendoo_item, changed_fields
-    from vendoo_studio.services.vendoo_create import (
-        fetch_listing_specifics,
-        load_schema,
-        resolve_listing_labels,
-        run_ops,
-    )
+    from vendoo_studio.services.vendoo_create import prepare_listing_for_vendoo, run_ops
     from vendoo_studio.services.vendoo_import import vendoo_binding
 
     conv_repo = ConversationRepo(db)
@@ -252,19 +251,31 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "No listing to save.")
 
     snapshot = prepare_listing_snapshot(db, conv, revisions[0].listing_json)
+    provider = get_listing_provider() if provider_is_configured() else None
+    evidence = latest_photo_analysis(conv_repo.get_messages(conv_id)) or str(conv.notes or "")
     job = SimpleNamespace(id=None)
     try:
         reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
         current = next(
             (r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None
         ) or {}
-        specifics = await fetch_listing_specifics(job, snapshot)
-        snapshot, _label_unresolved = await resolve_listing_labels(job, snapshot)
-        desired, _unresolved = build_vendoo_item(
-            snapshot, load_schema(), images=[], user_id=str(current.get("userID") or ""),
-            item_id=item_id, specifics=specifics,
+        snapshot, specifics, schema, _unresolved, _unfilled = await prepare_listing_for_vendoo(
+            job, snapshot, provider=provider, evidence=evidence,
         )
-        apply_update_all(current, desired)
+        # Keep the photos already on the draft — save never re-uploads them.
+        current_images = (
+            (current.get("generalDetails") or {}).get("images")
+            if isinstance(current.get("generalDetails"), dict) else None
+        )
+        desired, _build_unresolved = build_vendoo_item(
+            snapshot,
+            schema,
+            images=current_images if isinstance(current_images, list) else [],
+            user_id=str(current.get("userID") or ""),
+            item_id=item_id,
+            specifics=specifics,
+        )
+        apply_update_all(current, desired, schema=schema)
         updates = changed_fields(current, desired)
         if updates:
             await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": updates}])

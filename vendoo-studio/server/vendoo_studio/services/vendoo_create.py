@@ -650,6 +650,37 @@ async def resolve_label_display_names(
     return apply_label_display_names(cleaned, await label_display_map(job, timeout=timeout))
 
 
+async def prepare_listing_for_vendoo(
+    job,
+    listing: dict[str, Any],
+    *,
+    provider=None,
+    evidence: str = "",
+    mark=None,
+) -> tuple[dict[str, Any], dict[str, dict[str, FieldSpec]], dict[str, Any] | None, list[dict[str, str]], list[dict[str, Any]]]:
+    """Resolve categories, fill leaf fields, and load the encoding schema.
+
+    Shared by first Send (``create_item``) and Update Vendoo (save) so a
+    regenerated listing writes the same complete marketplace forms as a
+    brand-new draft.
+    """
+    schema = load_schema()
+    if mark:
+        mark("vendoo_api_categories")
+    listing, category_unresolved = await resolve_listing_categories(job, listing)
+    listing, label_unresolved = await resolve_listing_labels(job, listing)
+    unresolved = [*category_unresolved, *label_unresolved]
+    if mark:
+        mark("vendoo_api_specifics")
+    specifics = await fetch_listing_specifics(job, listing)
+    if mark:
+        mark("vendoo_api_fields")
+    listing, unfilled = await fill_listing_specifics(
+        listing, specifics, provider, evidence=evidence
+    )
+    return listing, specifics, schema, unresolved, unfilled
+
+
 async def create_item(
     job,
     listing: dict[str, Any],
@@ -691,17 +722,8 @@ async def create_item(
                 getattr(job, "last_error", None) or f"Send was {status}"
             )
 
-    schema = load_schema()
-    mark("vendoo_api_categories")
-    listing, category_unresolved = await resolve_listing_categories(job, listing)
-    listing, label_unresolved = await resolve_listing_labels(job, listing)
-    category_unresolved = [*category_unresolved, *label_unresolved]
-    mark("vendoo_api_specifics")
-    # Ask each resolved leaf what fields it has before anything is encoded.
-    specifics = await fetch_listing_specifics(job, listing)
-    mark("vendoo_api_fields")
-    listing, unfilled = await fill_listing_specifics(
-        listing, specifics, provider, evidence=evidence
+    listing, specifics, schema, category_unresolved, unfilled = await prepare_listing_for_vendoo(
+        job, listing, provider=provider, evidence=evidence, mark=mark,
     )
 
     # Photos and the id first: the item body references both.
