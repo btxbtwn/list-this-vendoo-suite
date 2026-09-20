@@ -80,7 +80,7 @@ class HistoryAndSuggestTest(unittest.TestCase):
         ]
         history = price_drop_history(revisions)
         percent, reason = suggest_percent(history)
-        self.assertEqual(percent, 10)
+        self.assertEqual(percent, 5)
         self.assertIn("Recent drop", reason)
 
         many = [
@@ -94,8 +94,8 @@ class HistoryAndSuggestTest(unittest.TestCase):
         self.assertIn("Several prior", reason)
 
         percent, reason = suggest_percent([])
-        self.assertEqual(percent, 15)
-        self.assertIn("Default", reason)
+        self.assertEqual(percent, 10)
+        self.assertEqual(reason, "Default 10% markdown.")
 
 
 class ApplyPriceTest(unittest.TestCase):
@@ -181,8 +181,8 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
             preview = await build_preview(listing, revisions)
         research.assert_not_called()
         self.assertEqual(preview["current_price"], 48)
-        self.assertEqual(preview["suggested_percent"], 15)
-        self.assertEqual(preview["suggested_price"], 41)
+        self.assertEqual(preview["suggested_percent"], 10)
+        self.assertEqual(preview["suggested_price"], 43)
         self.assertEqual(preview["prices_by_percent"]["10"], 43)
         self.assertFalse(preview["comps"]["available"])
 
@@ -233,7 +233,7 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(preview["comps"]["target_price"])
         self.assertIsNone(preview["comps"]["market_midpoint"])
         self.assertEqual(preview["suggested_mode"], "percent")
-        self.assertEqual(preview["suggested_price"], 41)
+        self.assertEqual(preview["suggested_price"], 43)
         self.assertIn("$20 · eBay", preview["comps"]["text"])
 
 

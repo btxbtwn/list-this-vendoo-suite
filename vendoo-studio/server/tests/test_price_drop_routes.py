@@ -42,7 +42,7 @@ class PriceDropRouteTest(unittest.TestCase):
         self.assertEqual(preview.status_code, 200, preview.text)
         body = preview.json()
         self.assertEqual(body["current_price"], 48)
-        self.assertEqual(body["suggested_price"], 41)
+        self.assertEqual(body["suggested_price"], 43)
 
         apply = self.client.post(
             f"/api/conversations/{self.conv.id}/price-drop",

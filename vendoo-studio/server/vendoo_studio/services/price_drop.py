@@ -25,7 +25,9 @@ from vendoo_studio.services.sold_comps import (
 )
 
 PRICE_DROP_SOURCE = "price_drop"
-DEFAULT_PERCENT = 15
+DEFAULT_PERCENT = 10
+# The step once this listing has already been cut: smaller than the default.
+REPEAT_PERCENT = 5
 RECENT_DROP_DAYS = 7
 PERCENT_OPTIONS = (10, 15, 20)
 _RANGE_RE = re.compile(
@@ -151,12 +153,12 @@ def suggest_percent(history: list[PriceDropEvent], *, now: datetime | None = Non
             if created.tzinfo is None:
                 created = created.replace(tzinfo=UTC)
             if clock - created <= timedelta(days=RECENT_DROP_DAYS):
-                return 10, "Recent drop within 7 days — suggesting a smaller cut."
+                return REPEAT_PERCENT, "Recent drop within 7 days — suggesting a smaller cut."
         if len(history) >= 3:
-            return 5, "Several prior drops — suggesting a small step."
+            return REPEAT_PERCENT, "Several prior drops — suggesting a small step."
         if len(history) >= 2:
-            return 10, "Already dropped twice — suggesting 10%."
-    return DEFAULT_PERCENT, "Default 15% markdown."
+            return REPEAT_PERCENT, "Already dropped twice — suggesting a smaller cut."
+    return DEFAULT_PERCENT, f"Default {DEFAULT_PERCENT}% markdown."
 
 
 def market_midpoint(report: SoldCompsReport | None) -> float | None:
