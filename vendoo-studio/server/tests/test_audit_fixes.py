@@ -432,6 +432,25 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertFalse(optional_errors, optional_errors)
         self.assertTrue(result.can_send, result.errors)
 
+    def test_ebay_condition_description_is_always_the_fixed_line(self):
+        from vendoo_studio.models.ebay_fields import (
+            EBAY_CONDITION_DESCRIPTION,
+            ensure_ebay_category_optionals,
+        )
+
+        listing = dict(VALID_LISTING)
+        listing["ebay_specifics"] = {
+            **VALID_LISTING["ebay_specifics"],
+            "conditionDescription": "Small stain on the hem.",
+            "category_specifics": {"conditionDescription": "Small stain on the hem."},
+        }
+        self.assertTrue(ensure_ebay_category_optionals(listing))
+        ebay = listing["ebay_specifics"]
+        self.assertEqual(ebay["conditionDescription"], EBAY_CONDITION_DESCRIPTION)
+        self.assertEqual(
+            ebay["category_specifics"]["conditionDescription"], EBAY_CONDITION_DESCRIPTION
+        )
+
     def test_ebay_vintage_follows_era_not_style_words(self):
         from vendoo_studio.models.ebay_fields import ensure_ebay_category_optionals
 

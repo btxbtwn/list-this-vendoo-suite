@@ -24,6 +24,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from vendoo_studio.models.ebay_fields import EBAY_CONDITION_DESCRIPTION
 from vendoo_studio.models.mercari_shipping import (
     DEFAULT_PACKAGE_OUNCES,
     DEFAULT_SHIPPING_LABEL,
@@ -193,7 +194,8 @@ def _marketplace_specific_defaults(marketplace: str) -> dict[str, Any]:
             "returnPayedBy": "", "returnWithin": "", "returnRefundMethod": "",
             "shippingService": "", "statusItem": "Active",
             "shipping": {"cost": "", "method": "Standard", "location": "", "handling": "", "type": ""},
-            "paymentMethod": "PayPal", "conditionDescription": "", "paypalEmail": "",
+            "paymentMethod": "PayPal", "conditionDescription": EBAY_CONDITION_DESCRIPTION,
+            "paypalEmail": "",
             "acceptReturns": "", "pricingFormat": "FixedPriceItem",
             "pricingFormatDetails": {
                 "auction": {"duration": "Days_7", "startingPrice": "", "buyItNowPrice": "",
@@ -1409,6 +1411,8 @@ def _listing_section(
     # Mercari / eBay / Etsy / Poshmark form defaults the seller expects every time.
     if marketplace == "ebay":
         _apply_ebay_pricing(known, general, listing)
+        # The seller's Condition Description never varies per item.
+        known["conditionDescription"] = EBAY_CONDITION_DESCRIPTION
     elif marketplace == "etsy":
         _apply_etsy_listing_codes(known, listing)
         _apply_etsy_tags(known, general)
