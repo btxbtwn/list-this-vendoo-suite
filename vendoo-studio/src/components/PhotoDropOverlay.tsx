@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { dragHasFiles, imageFilesFrom } from "../photoDrop";
+import { dragHasFiles, imageFilesFromTransfer } from "../photoDrop";
+import { addToast } from "../ui/toast";
 
 interface Props {
   title: string;
@@ -21,6 +22,7 @@ export function PhotoDropOverlay({ title, hint, busy, busyLabel, onFiles }: Prop
     // dragenter/dragleave fire per element, so count them to know when the
     // drag has really left the window.
     let depth = 0;
+    let dropSeq = 0;
 
     const onDragEnter = (event: DragEvent) => {
       if (!dragHasFiles(event.dataTransfer)) return;
@@ -47,8 +49,21 @@ export function PhotoDropOverlay({ title, hint, busy, busyLabel, onFiles }: Prop
       // A component that handles its own file drop already called this.
       if (event.defaultPrevented) return;
       event.preventDefault();
-      const files = imageFilesFrom(event.dataTransfer);
-      if (files.length) onFilesRef.current(files);
+      // dataTransfer is cleared after the handler returns; read entries now.
+      const transfer = event.dataTransfer;
+      const seq = ++dropSeq;
+      void imageFilesFromTransfer(transfer).then((files) => {
+        if (seq !== dropSeq) return;
+        if (files.length) {
+          onFilesRef.current(files);
+          return;
+        }
+        addToast({
+          type: "error",
+          title: "No photos in that drop",
+          description: "Drop image files, or folders that contain JPG, PNG, WEBP, or HEIC photos.",
+        });
+      });
     };
 
     window.addEventListener("dragenter", onDragEnter, true);
@@ -57,6 +72,7 @@ export function PhotoDropOverlay({ title, hint, busy, busyLabel, onFiles }: Prop
     window.addEventListener("drop", onDropCapture, true);
     window.addEventListener("drop", onDrop);
     return () => {
+      dropSeq += 1;
       window.removeEventListener("dragenter", onDragEnter, true);
       window.removeEventListener("dragleave", onDragLeave, true);
       window.removeEventListener("dragover", onDragOver, true);

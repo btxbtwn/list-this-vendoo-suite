@@ -81,3 +81,110 @@ export function groupImageFilesByFolder(files: File[]): PhotoFolderGroup[] {
       files: groupFiles,
     }));
 }
+
+type EntryLike = {
+  isFile: boolean;
+  isDirectory: boolean;
+  name: string;
+};
+
+type FileEntryLike = EntryLike & {
+  file: (success: (file: File) => void, error?: (err: DOMException) => void) => void;
+};
+
+type DirectoryReaderLike = {
+  readEntries: (
+    success: (entries: EntryLike[]) => void,
+    error?: (err: DOMException) => void,
+  ) => void;
+};
+
+type DirectoryEntryLike = EntryLike & {
+  createReader: () => DirectoryReaderLike;
+};
+
+function withRelativePath(file: File, relativePath: string): File {
+  // Entry.file() Files often lock webkitRelativePath to "". Clone so we can
+  // stamp the folder path the bulk-upload grouper reads.
+  const stamped = new File([file], file.name, {
+    type: file.type,
+    lastModified: file.lastModified,
+  });
+  Object.defineProperty(stamped, "webkitRelativePath", {
+    configurable: true,
+    enumerable: true,
+    value: relativePath,
+  });
+  return stamped;
+}
+
+/** Chrome returns directory entries in batches of ~100; keep reading until empty. */
+function readAllDirectoryEntries(dir: DirectoryEntryLike): Promise<EntryLike[]> {
+  const reader = dir.createReader();
+  const entries: EntryLike[] = [];
+  return new Promise((resolve, reject) => {
+    const readBatch = () => {
+      reader.readEntries((batch) => {
+        if (!batch.length) {
+          resolve(entries);
+          return;
+        }
+        entries.push(...batch);
+        readBatch();
+      }, reject);
+    };
+    readBatch();
+  });
+}
+
+async function imageFilesFromEntry(entry: EntryLike, pathPrefix: string): Promise<File[]> {
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) => {
+      (entry as FileEntryLike).file(resolve, reject);
+    });
+    if (!isImageFile(file)) return [];
+    if (!pathPrefix) return [file];
+    return [withRelativePath(file, `${pathPrefix}/${file.name}`)];
+  }
+  if (!entry.isDirectory) return [];
+
+  const children = await readAllDirectoryEntries(entry as DirectoryEntryLike);
+  const nextPrefix = pathPrefix ? `${pathPrefix}/${entry.name}` : entry.name;
+  const nested = await Promise.all(children.map((child) => imageFilesFromEntry(child, nextPrefix)));
+  return nested.flat();
+}
+
+/**
+ * Collect images from a drop, including folders.
+ *
+ * Folder drops often put only directory stubs in `files`. Walk
+ * `webkitGetAsEntry()` so each product folder's photos are recovered with a
+ * `webkitRelativePath` the bulk-upload grouper can split on. Fall back to the
+ * flat `files` list when the entry API is missing or empty.
+ */
+export async function imageFilesFromTransfer(transfer: DataTransfer | null): Promise<File[]> {
+  if (!transfer) return [];
+
+  const items = transfer.items ? Array.from(transfer.items) : [];
+  const fromEntries: File[] = [];
+  let sawEntry = false;
+
+  for (const item of items) {
+    if (item.kind !== "file") continue;
+    const getter = (item as DataTransferItem & {
+      webkitGetAsEntry?: () => EntryLike | null;
+    }).webkitGetAsEntry;
+    if (typeof getter !== "function") continue;
+    const entry = getter.call(item);
+    if (!entry) continue;
+    sawEntry = true;
+    try {
+      fromEntries.push(...(await imageFilesFromEntry(entry, "")));
+    } catch {
+      // Fall through to the files list below.
+    }
+  }
+
+  if (sawEntry && fromEntries.length) return fromEntries;
+  return imageFilesFrom(transfer);
+}
