@@ -857,6 +857,19 @@ class MappedCategoryTest(unittest.TestCase):
         recs = [self.hit("tee", ["Women", "Tops", "Tees - Short Sleeve"])]
         self.assertEqual(pick_mapped_category(general, match, recs)["id"], "tee")
 
+    def test_tunics_does_not_beat_tees_for_womens_tops(self):
+        """Vendoo often maps bare Women's Tops to Etsy Tunics; prefer a tee leaf."""
+        general = {"displayPath": [
+            "Clothing, Shoes & Accessories", "Women", "Women's Clothing", "Tops",
+        ]}
+        match = self.hit("tunic", [
+            "Clothing", "Women's Clothing", "Tops & Tees", "Tunics",
+        ])
+        recs = [self.hit("tee", [
+            "Clothing", "Women's Clothing", "Tops & Tees", "T-shirts",
+        ])]
+        self.assertEqual(pick_mapped_category(general, match, recs)["id"], "tee")
+
     def test_real_tank_match_stands_when_general_names_tank(self):
         general = {"displayPath": [
             "Clothing, Shoes & Accessories", "Women", "Women's Clothing", "Tops", "Tank Tops",

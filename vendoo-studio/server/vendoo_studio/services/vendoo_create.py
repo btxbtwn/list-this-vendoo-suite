@@ -218,6 +218,10 @@ def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
             from vendoo_studio.services.registry import map_poshmark_category_path
 
             path = map_poshmark_category_path(path, listing) or path
+        elif marketplace == "etsy":
+            from vendoo_studio.services.registry import map_etsy_category_path
+
+            path = map_etsy_category_path(path, listing) or path
         targets.append((marketplace, marketplace, path))
     return targets
 

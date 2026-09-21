@@ -299,7 +299,10 @@ _BLOUSE_RE = re.compile(r"\bblouses?\b", re.I)
 _BUTTON_UP_RE = re.compile(r"button[\s-]*(up|front|down)", re.I)
 _POSHMARK_ROOT_RE = re.compile(r"^(men|women|kids|pets|home|electronics)\s*>", re.I)
 _TANK_PATH_RE = re.compile(r"\btank\b", re.I)
+_TUNIC_PATH_RE = re.compile(r"\btunics?\b", re.I)
+_TUNIC_STYLE_RE = re.compile(r"\btunic\b", re.I)
 _SLEEVELESS_ITEM_RE = re.compile(r"\b(?:sleeveless|tank|cami|halter|strapless)\b", re.I)
+_ETSY_ROOT_RE = re.compile(r"^clothing\s*>", re.I)
 
 
 def _is_blouse_listing(haystack: str) -> bool:
@@ -335,6 +338,24 @@ def _stale_tank_path(path: str, listing: dict) -> bool:
     if _SHORT_SLEEVE_RE.search(garment) or _LONG_SLEEVE_RE.search(garment):
         return True
     return not _SLEEVELESS_ITEM_RE.search(garment)
+
+
+def _listing_style(listing: dict) -> str:
+    ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
+    return str((ebay or {}).get("style") or listing.get("style") or "")
+
+
+def _stale_etsy_tunic_path(path: str, listing: dict) -> bool:
+    """True when Vendoo mapped bare Women's Tops onto Etsy Tunics for a blouse."""
+    if not _TUNIC_PATH_RE.search(path or ""):
+        return False
+    if _TUNIC_STYLE_RE.search(_listing_style(listing)):
+        return False
+    garment = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
+    if _is_blouse_listing(garment):
+        return True
+    # Button-up / blouse type without a Tunic style is not an Etsy Tunics leaf.
+    return bool(_BUTTON_UP_RE.search(garment) or _BLOUSE_RE.search(garment))
 
 
 def map_poshmark_category_path(category: str, listing: dict | None = None) -> str:
@@ -411,6 +432,47 @@ def map_mercari_category_path(category: str, listing: dict | None = None) -> str
         return MERCARI_WOMEN_TEE
     if is_women and _TOP_ITEM_RE.search(haystack):
         return MERCARI_WOMEN_TEE
+    return raw
+
+
+def map_etsy_category_path(category: str, listing: dict | None = None) -> str:
+    """Map a Vendoo/listing category onto a selectable Etsy path."""
+    listing = listing if isinstance(listing, dict) else {}
+    raw = (category or "").strip() or str(listing.get("category_path") or "").strip()
+    specifics = listing.get("etsy_specifics")
+    if isinstance(specifics, dict):
+        explicit = specifics.get("category_path") or specifics.get("categoryPath")
+        explicit_path = ""
+        if isinstance(explicit, list):
+            explicit_path = " > ".join(str(part).strip() for part in explicit if str(part).strip())
+        elif isinstance(explicit, str):
+            explicit_path = explicit.strip()
+        if explicit_path and not _stale_etsy_tunic_path(explicit_path, listing):
+            return explicit_path
+
+    if _ETSY_ROOT_RE.search(raw) and not _stale_etsy_tunic_path(raw, listing):
+        return raw
+    if _NON_TOP_RE.search(_path_leaf(raw)):
+        return raw
+
+    # Score garment cues only — never the marketplace path. "Tops & Tees > Tunics"
+    # contains "Tees" and would otherwise block blouse / button-up detection.
+    haystack = (
+        f"{_listing_text(listing)} {listing.get('description') or ''} "
+        f"{_listing_style(listing)}"
+    )
+    gender = _listing_gender(listing, raw)
+    is_women = gender == "women"
+    if gender is None:
+        is_women = bool(_WOMEN_RE.search(f"{raw} {haystack}"))
+    is_tee = bool(_TEE_RE.search(haystack))
+    is_blouse = _is_blouse_listing(haystack)
+    if is_women and is_blouse:
+        return ETSY_WOMEN_BLOUSE
+    if is_women and is_tee:
+        return ETSY_WOMEN_TEE
+    if is_women and _TOP_ITEM_RE.search(haystack):
+        return ETSY_WOMEN_TEE
     return raw
 
 

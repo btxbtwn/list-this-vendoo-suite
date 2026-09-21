@@ -124,3 +124,20 @@ class CategoryRankingTest(unittest.TestCase):
             tank, apparel=True, women_tops=True,
             context="Women Faded Glory sleeveless tank",
         ))
+
+    def test_tunics_stay_out_unless_listing_says_tunic(self):
+        from vendoo_studio.services.category_selection import _usable_search_node
+
+        tunic = CategoryTreeNode(
+            marketplace="etsy", category_id="tunic", parent_id="",
+            path="Clothing > Women's Clothing > Tops & Tees > Tunics",
+            label="Tunics", is_leaf=True, has_children=False,
+        )
+        self.assertFalse(_usable_search_node(
+            tunic, apparel=True, women_tops=True,
+            context="Women notations floral button-up blouse short sleeve",
+        ))
+        self.assertTrue(_usable_search_node(
+            tunic, apparel=True, women_tops=True,
+            context="Women notations floral tunic top",
+        ))
