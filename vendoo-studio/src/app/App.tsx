@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
+import { BuildVersion } from "../components/BuildVersion";
 import { ExtensionStatus } from "../components/ExtensionStatus";
 import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
@@ -703,7 +704,7 @@ export function App() {
           <ProviderStatus />
         </div>
         <div className="status-right">
-          <div>V {status?.version || "…"}</div>
+          <BuildVersion backendVersion={status?.version} />
         </div>
       </footer>
       <PhotoDropOverlay

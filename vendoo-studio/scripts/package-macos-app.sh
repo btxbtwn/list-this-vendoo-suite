@@ -29,6 +29,26 @@ if [[ ! -f dist/index.html ]]; then
   echo "Frontend build did not produce dist/index.html." >&2
   exit 1
 fi
+# The bundle and the VERSION the backend reports have to be the same build, or
+# the shipped app shows a version number the UI does not correspond to.
+"$PYTHON" - "$ROOT" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+stamp_path = root / "dist" / "build-stamp.json"
+if not stamp_path.is_file():
+    raise SystemExit(f"Frontend build did not produce {stamp_path}.")
+stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
+version = (root / "VERSION").read_text(encoding="utf-8").strip()
+if stamp.get("version") != version:
+    raise SystemExit(
+        f"Bundle was built from {stamp.get('version')!r} but VERSION is {version!r}. "
+        "Re-run npm run build."
+    )
+print(f"Bundle stamp {version} ({stamp.get('short_sha') or 'no sha'})")
+PY
 
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 SHORT="$(git -C "$REPO" rev-parse --short HEAD)"
