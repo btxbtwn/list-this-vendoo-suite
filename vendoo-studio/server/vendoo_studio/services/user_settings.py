@@ -14,19 +14,23 @@ UI_PREFS_KEY = "ui"
 RECENT_LABELS_KEY = "recent_vendoo_labels"
 SETTLED_SHELF_KEY = "settled_shelf_expanded"
 HIDDEN_LABELS_KEY = "hidden_vendoo_labels"
+THEME_KEY = "theme"
 MAX_RECENT_LABELS = 12
 MAX_HIDDEN_LABELS = 200
 LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "mimo", "cursor"})
 LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "mimo", "cursor", "none"})
+THEME_CHOICES = frozenset({"dark", "light", "system"})
 DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "mimo", "cursor"] = "chatgpt"
 DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "mimo", "cursor", "none"] = "mimo"
 CURSOR_MODELS_KEY = "cursor_models"
 DEFAULT_CURSOR_MODEL = "composer-2.5"
 AUTO_CURSOR_MODEL = "auto"
 DEFAULT_SETTLED_SHELF_EXPANDED = True
+DEFAULT_THEME: Literal["dark", "light", "system"] = "dark"
 
 ListingProviderChoice = Literal["chatgpt", "mimo", "cursor"]
 ListingFallbackChoice = Literal["chatgpt", "mimo", "cursor", "none"]
+ThemeChoice = Literal["dark", "light", "system"]
 
 
 def settings_path() -> Path:
@@ -246,6 +250,14 @@ def _clean_hidden_labels(value: object) -> list[str]:
     return _clean_recent_labels(value, MAX_HIDDEN_LABELS)
 
 
+def normalize_theme(value: object) -> ThemeChoice:
+    if isinstance(value, str):
+        choice = value.strip().lower()
+        if choice in THEME_CHOICES:
+            return choice  # type: ignore[return-value]
+    return DEFAULT_THEME
+
+
 def get_ui_prefs() -> dict:
     ui = _ui_prefs()
     settled = ui.get(SETTLED_SHELF_KEY)
@@ -253,6 +265,7 @@ def get_ui_prefs() -> dict:
         RECENT_LABELS_KEY: _clean_recent_labels(ui.get(RECENT_LABELS_KEY)),
         SETTLED_SHELF_KEY: DEFAULT_SETTLED_SHELF_EXPANDED if not isinstance(settled, bool) else settled,
         HIDDEN_LABELS_KEY: _clean_hidden_labels(ui.get(HIDDEN_LABELS_KEY)),
+        THEME_KEY: normalize_theme(ui.get(THEME_KEY)),
     }
 
 
@@ -260,8 +273,9 @@ def set_ui_prefs(
     *,
     recent_vendoo_labels: object | None = None,
     settled_shelf_expanded: object | None = None,
+    theme: object | None = None,
 ) -> dict:
-    if recent_vendoo_labels is None and settled_shelf_expanded is None:
+    if recent_vendoo_labels is None and settled_shelf_expanded is None and theme is None:
         return get_ui_prefs()
 
     def mutator(payload: dict) -> None:
@@ -272,6 +286,10 @@ def set_ui_prefs(
             if not isinstance(settled_shelf_expanded, bool):
                 raise ValueError("settled_shelf_expanded must be a boolean")
             ui[SETTLED_SHELF_KEY] = settled_shelf_expanded
+        if theme is not None:
+            if not isinstance(theme, str) or theme.strip().lower() not in THEME_CHOICES:
+                raise ValueError("theme must be dark, light, or system")
+            ui[THEME_KEY] = theme.strip().lower()
         payload[UI_PREFS_KEY] = ui
 
     update_settings(mutator)

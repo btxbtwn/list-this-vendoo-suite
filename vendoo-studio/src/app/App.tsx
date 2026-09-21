@@ -31,6 +31,7 @@ import {
   groupImageFilesByFolder,
   listingTitleForFolder,
 } from "../photoDrop";
+import { ThemeSync } from "../components/ThemeSync";
 
 const ListingEditor = lazy(() =>
   import("../components/ListingEditor").then((module) => ({ default: module.ListingEditor })),
@@ -790,6 +791,7 @@ export function App() {
         busyLabel="Adding photos…"
         onFiles={(files) => dropPhotos.mutate(files)}
       />
+      <ThemeSync />
       <ToastHost />
       <ConfirmDialogHost />
       {setupGuideOpen ? (

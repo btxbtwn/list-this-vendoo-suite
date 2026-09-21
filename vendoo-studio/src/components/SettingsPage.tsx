@@ -11,6 +11,7 @@ import {
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionId,
 } from "./settingsNav";
+import { applyTheme, normalizeTheme, type ThemePreference } from "../theme";
 
 type ListingFallbackId = ListingProviderId | "none";
 
@@ -616,6 +617,44 @@ function ListingFormulasSection() {
   );
 }
 
+function AppearanceSection() {
+  const queryClient = useQueryClient();
+  const { data, isPending } = useQuery({
+    queryKey: ["settings-ui"],
+    queryFn: api.settings.ui,
+  });
+  const mutation = useMutation({
+    mutationFn: (theme: ThemePreference) => api.settings.setUi({ theme }),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["settings-ui"], payload);
+      applyTheme(normalizeTheme(payload.theme));
+    },
+  });
+  const theme = normalizeTheme(data?.theme);
+
+  return (
+    <SettingsSection id="appearance" title="Appearance">
+      <SettingsRow
+        title="Theme"
+        description="Dark matches the Studio workbench. Light inverts the same shell. System follows the OS."
+        control={
+          <select
+            className="input settings-model-select"
+            aria-label="Theme"
+            value={theme}
+            disabled={isPending || mutation.isPending}
+            onChange={(event) => mutation.mutate(event.target.value as ThemePreference)}
+          >
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">System</option>
+          </select>
+        }
+      />
+    </SettingsSection>
+  );
+}
+
 function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   const { data: status } = useQuery({
     queryKey: ["status"],
@@ -623,6 +662,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   });
   return (
     <>
+      <AppearanceSection />
       <MarketplacesSection />
       <HiddenFieldsSection />
       <ListingFormulasSection />

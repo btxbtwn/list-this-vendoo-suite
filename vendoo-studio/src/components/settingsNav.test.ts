@@ -16,6 +16,11 @@ describe("searchSettings", () => {
     expect(searchSettings("sign  chatgpt").map((item) => item.id)).toContain("chatgpt");
   });
 
+  it("finds appearance by light/dark synonyms", () => {
+    expect(searchSettings("light mode").map((item) => item.id)).toEqual(["appearance"]);
+    expect(searchSettings("color scheme").map((item) => item.id)).toEqual(["appearance"]);
+  });
+
   it("only points at real sections", () => {
     for (const item of SETTINGS_SEARCH_ITEMS) expect(isSettingsSectionId(item.section)).toBe(true);
     expect(SETTINGS_NAV_ITEMS.map((item) => item.id)).toEqual(["general", "providers", "integrations", "connections"]);

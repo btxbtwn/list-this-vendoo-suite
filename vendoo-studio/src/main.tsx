@@ -2,7 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./app/App";
+import { applyTheme } from "./theme";
 import "./styles/app.css";
+
+applyTheme();
 
 function markDesktopApp() {
   const root = document.documentElement;
