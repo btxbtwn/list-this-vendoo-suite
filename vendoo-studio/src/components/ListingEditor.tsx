@@ -302,7 +302,7 @@ export function ListingEditor({
               Unsent edits
             </span>
           ) : null}
-          {data?.can_send && <span className="editor-ready">Ready</span>}
+          {data?.can_send && !generating && <span className="editor-ready">Ready</span>}
         </div>
         <ListingReviewTabs
           className="pr-review-chrome-mobile"
@@ -442,6 +442,7 @@ export function ListingEditor({
         <SendToVendooButton
           convId={convId}
           canSend={data?.can_send ?? false}
+          generating={generating}
           sendBlockers={data?.errors || []}
           listing={listing}
           listingTitle={listingTitle}
@@ -833,9 +834,15 @@ function coerce(val: string): string | number | null {
   return val;
 }
 
+/** Send stays off while generation (or a refine) is still writing the listing. */
+export function sendToVendooEnabled(canSend: boolean, generating: boolean, pending = false): boolean {
+  return canSend && !generating && !pending;
+}
+
 function SendToVendooButton({
   convId,
   canSend,
+  generating,
   sendBlockers,
   listing,
   listingTitle,
@@ -847,6 +854,7 @@ function SendToVendooButton({
 }: {
   convId: string;
   canSend: boolean;
+  generating: boolean;
   sendBlockers: { field?: string; message?: string }[];
   listing?: Record<string, unknown>;
   listingTitle?: string;
@@ -993,19 +1001,26 @@ function SendToVendooButton({
   const blockerText = uniqueBlockers.map((err) => err.message).join(" · ");
   const sendLabel = bound ? "Update Vendoo" : "Send to Vendoo";
   const live = liveMarketplaces || [];
-  // The buttons underneath name themselves; the hint says what Send does — and,
-  // for an item that is already live, what it deliberately does not do.
-  const sendHint = !bound
-    ? "Creates a Vendoo draft and links it. Nothing is published."
-    : live.length
-      ? "Writes changed fields onto the Vendoo form. "
-        + (live.length > 2
-          ? `The live listings on all ${live.length} marketplaces keep`
-          : `The live ${joinMarketplaces(live)} ${live.length === 1 ? "listing keeps" : "listings keep"}`)
-        + " the old version until you delist and relist in Vendoo."
-      : "Writes changed fields onto the linked Vendoo draft. Nothing is published.";
+  // Mid-generation Send would ship a half-written listing; otherwise the hint
+  // says what Send does — and for a live item, what it deliberately does not.
+  const sendEnabled = sendToVendooEnabled(canSend, generating, sendMutation.isPending);
+  const sendHint = generating
+    ? "Wait for generation to finish before sending."
+    : !bound
+      ? "Creates a Vendoo draft and links it. Nothing is published."
+      : live.length
+        ? "Writes changed fields onto the Vendoo form. "
+          + (live.length > 2
+            ? `The live listings on all ${live.length} marketplaces keep`
+            : `The live ${joinMarketplaces(live)} ${live.length === 1 ? "listing keeps" : "listings keep"}`)
+          + " the old version until you delist and relist in Vendoo."
+        : "Writes changed fields onto the linked Vendoo draft. Nothing is published.";
 
   const startSend = () => {
+    if (generating) {
+      setError("Wait for generation to finish before sending.");
+      return;
+    }
     if (!canSend) {
       setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
       return;
@@ -1130,10 +1145,12 @@ function SendToVendooButton({
         type="button"
         className={bound ? "btn btn-primary" : "btn btn-success"}
         style={{ width: "100%" }}
-        disabled={sendMutation.isPending || !canSend}
-        title={bound
-          ? "Write this listing's changed fields onto the Vendoo draft"
-          : "Create a Vendoo draft with marketplace fields filled"}
+        disabled={!sendEnabled}
+        title={generating
+          ? "Wait for generation to finish before sending"
+          : bound
+            ? "Write this listing's changed fields onto the Vendoo draft"
+            : "Create a Vendoo draft with marketplace fields filled"}
         onClick={startSend}
       >
         {sendMutation.isPending ? (

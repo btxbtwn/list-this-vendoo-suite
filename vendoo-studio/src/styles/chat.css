@@ -45,6 +45,56 @@
   margin-top: 0.75em;
 }
 
+/* Follow-up held while a run is still writing — dashed so it reads as not sent yet. */
+.msg-queued {
+  background: transparent;
+  border: 1px dashed var(--color-border-bright);
+  color: var(--color-text-secondary);
+}
+
+.msg-queued .chat-markdown {
+  color: inherit;
+}
+
+.msg-queued-empty {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.msg-queued-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.msg-queued-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.msg-queued-remove {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.msg-queued-remove:hover {
+  color: var(--color-text);
+  background: var(--color-ink-hover);
+}
+
 .msg-assistant {
   align-self: flex-start;
   max-width: 100%;
