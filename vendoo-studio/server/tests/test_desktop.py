@@ -194,6 +194,7 @@ class StudioWindowChromeTest(unittest.TestCase):
         container.frame.return_value.size.height = 52.0
         close.superview.return_value = container
         toolbar = MagicMock()
+        notifications = MagicMock()
         native = MagicMock()
         native.styleMask.return_value = 0
         native.collectionBehavior.return_value = 0
@@ -223,6 +224,7 @@ class StudioWindowChromeTest(unittest.TestCase):
             NSToolbar=SimpleNamespace(
                 alloc=lambda: SimpleNamespace(initWithIdentifier_=lambda identifier: toolbar)
             ),
+            NSNotificationCenter=SimpleNamespace(defaultCenter=lambda: notifications),
             NSColor=SimpleNamespace(
                 colorWithSRGBRed_green_blue_alpha_=MagicMock(return_value="black"),
                 clearColor=MagicMock(return_value="clear"),
@@ -255,8 +257,14 @@ class StudioWindowChromeTest(unittest.TestCase):
         zoom.setFrame_.assert_not_called()
         native.setToolbar_.assert_called_once_with(toolbar)
         toolbar.setShowsBaselineSeparator_.assert_called_once_with(False)
-        # Visible again once the window leaves fullscreen.
         self.assertEqual(toolbar.setVisible_.call_args_list[-1], call(True))
+        # The toolbar has to come off *before* AppKit hands the titlebar to a
+        # fullscreen Space, so watch for the will-enter notification.
+        name, observed, _queue, _block = (
+            notifications.addObserverForName_object_queue_usingBlock_.call_args[0]
+        )
+        self.assertEqual(name, "NSWindowWillEnterFullScreenNotification")
+        self.assertIs(observed, native)
         native.setToolbarStyle_.assert_called_once_with(1)
         # Close, minimize, and zoom only respond when the mask carries their bits.
         native.setStyleMask_.assert_called_once_with(
@@ -314,9 +322,26 @@ class StudioWindowChromeTest(unittest.TestCase):
         close.setHidden_.assert_called_once_with(False)
         close.setEnabled_.assert_called_once_with(True)
         close.setFrame_.assert_not_called()
-        # The toolbar band lives in AppKit's own fullscreen window, out of reach
-        # of the titlebar paint above, so it has to be hidden instead.
-        toolbar.setVisible_.assert_called_once_with(False)
+        # Touching the toolbar mid-fullscreen aborts the app on the way out:
+        # -[_NSFullScreenMenuBarCompanionController _relinquishTitlebar] asserts.
+        toolbar.setVisible_.assert_not_called()
+
+    def test_will_enter_fullscreen_detaches_the_toolbar(self):
+        """The toolbar comes off the window, not out of the fullscreen one."""
+        native = MagicMock()
+        native.toolbar.return_value = MagicMock()
+
+        desktop._detach_toolbar(native)
+
+        native.setToolbar_.assert_called_once_with(None)
+
+    def test_detach_toolbar_is_a_no_op_without_one(self):
+        native = MagicMock()
+        native.toolbar.return_value = None
+
+        desktop._detach_toolbar(native)
+
+        native.setToolbar_.assert_not_called()
 
 
 class ConnectChromeRouteTest(unittest.IsolatedAsyncioTestCase):
