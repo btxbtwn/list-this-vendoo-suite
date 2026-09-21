@@ -656,15 +656,15 @@ class ResolveCategoriesTest(_NoExtraMapping):
         }
         fake = FakeBridge(
             [],
-            mapped={"poshmark": {"id": "posh_blouse", "is_leaf": True,
-                                 "all_category_label": ["Women", "Tops", "Blouses"]}},
+            mapped={"poshmark": {"id": "posh_button", "is_leaf": True,
+                                 "all_category_label": ["Women", "Tops", "Button Down Shirts"]}},
         )
         with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
             out, _unresolved = run(resolve_listing_categories(JOB, listing))
 
-        # Mapped to Blouses before anything resolved, so the mapper's own
-        # Blouses answer agrees with it and no search is needed.
-        self.assertEqual(out["marketplace_category_ids"]["poshmark"], "posh_blouse")
+        # Mapped to Button Down Shirts before anything resolved, so the mapper's
+        # own answer agrees with it and no search is needed.
+        self.assertEqual(out["marketplace_category_ids"]["poshmark"], "posh_button")
         self.assertEqual(every_op(fake, "category_search"), [])
 
     def test_a_tee_asks_each_marketplace_for_its_tshirts_leaf(self):

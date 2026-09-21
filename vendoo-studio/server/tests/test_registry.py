@@ -395,6 +395,101 @@ class MercariCategoryMappingTest(unittest.TestCase):
         self.assertEqual(mapped, path)
 
 
+class TopKindMappingTest(unittest.TestCase):
+    """Each kind of top lands on that marketplace's own leaf for it."""
+
+    CASES = {
+        "tank": (
+            {"title": "Old Navy M Ribbed Tank Top White",
+             "ebay_specifics": {"department": "Women", "type": "Tank Top"}},
+            {"poshmark": "Women > Tops > Tank Tops",
+             "mercari": "Women > Tops & blouses > Tank Tops",
+             "depop": "Women > Tops > Tank tops and camis",
+             "etsy": "Clothing > Women's Clothing > Tops & Tees > Tanks"},
+        ),
+        "sleeveless tee": (
+            {"title": "Hanes M Sleeveless Graphic Tank Top Tee",
+             "ebay_specifics": {"department": "Women", "type": "T-Shirt"}},
+            {"poshmark": "Women > Tops > Tank Tops",
+             "mercari": "Women > Tops & blouses > Tank Tops",
+             "depop": "Women > Tops > Tank tops and camis",
+             "etsy": "Clothing > Women's Clothing > Tops & Tees > Tanks"},
+        ),
+        "polo": (
+            {"title": "Izod M Navy Polo Shirt",
+             "ebay_specifics": {"department": "Women", "type": "Polo Shirt"}},
+            {"mercari": "Women > Tops & blouses > Polo shirt",
+             "depop": "Women > Tops > Polo shirts",
+             "etsy": "Clothing > Women's Clothing > Tops & Tees > Polos"},
+        ),
+        "crop": (
+            {"title": "Forever 21 S Graphic Crop Top T-Shirt",
+             "ebay_specifics": {"department": "Women", "type": "T-Shirt"}},
+            {"poshmark": "Women > Tops > Crop Tops",
+             "depop": "Women > Tops > Crop tops",
+             "etsy": "Clothing > Women's Clothing > Tops & Tees > Crop & Tube Tops > Crop Tops",
+             # Mercari has no crop leaf, so a crop tee is still a tee there.
+             "mercari": MERCARI_WOMEN_TEE},
+        ),
+        "button-up": (
+            {"title": "Notations XL Plaid Button-Up Shirt",
+             "ebay_specifics": {"department": "Women", "type": "Button-Up Shirt"}},
+            {"poshmark": "Women > Tops > Button Down Shirts",
+             "mercari": "Women > Tops & blouses > Button down shirt",
+             "depop": DEPOP_WOMEN_SHIRT,
+             # Etsy has no button-down leaf; Blouses is the nearest it offers.
+             "etsy": ETSY_WOMEN_BLOUSE},
+        ),
+        "tunic": (
+            {"title": "Notations XL Floral Tunic Top",
+             "ebay_specifics": {"department": "Women", "type": "Blouse", "style": "Tunic"}},
+            {"poshmark": "Women > Tops > Tunics",
+             "mercari": "Women > Tops & blouses > Tunic",
+             "etsy": "Clothing > Women's Clothing > Tops & Tees > Tunics",
+             # Depop has no tunic leaf.
+             "depop": DEPOP_WOMEN_BLOUSE},
+        ),
+    }
+
+    def test_each_kind_of_top_gets_its_own_leaf(self):
+        mappers = {
+            "poshmark": map_poshmark_category_path,
+            "mercari": map_mercari_category_path,
+            "depop": map_depop_category_path,
+            "etsy": map_etsy_category_path,
+        }
+        for kind, (listing, wanted) in self.CASES.items():
+            for marketplace, path in wanted.items():
+                with self.subTest(kind=kind, marketplace=marketplace):
+                    mapped = mappers[marketplace](
+                        WOMEN_TOPS_PATH, {"department": "Women", **listing},
+                    )
+                    self.assertEqual(mapped, path)
+
+    def test_a_sleeved_tee_is_not_read_as_a_tank(self):
+        """"Short Sleeve" next to a Tank Tops leaf is the mapper, not the seller."""
+        mapped = map_mercari_category_path(
+            "Women > Tops & blouses > Tank Tops",
+            {
+                "title": "Faded Glory L Graphic T-Shirt Short Sleeve",
+                "department": "Women",
+                "ebay_specifics": {"type": "T-Shirt", "sleeveLength": "Short Sleeve"},
+            },
+        )
+        self.assertEqual(mapped, MERCARI_WOMEN_TEE)
+
+    def test_an_unknown_top_is_left_to_vendoo(self):
+        """A sweatshirt has no leaf in these tables; guessing a tee would be worse."""
+        listing = {
+            "title": "Fruit of the Loom M Retro Graphic Sweatshirt",
+            "department": "Women",
+            "ebay_specifics": {"department": "Women", "type": "Sweatshirt"},
+        }
+        for mapper in (map_mercari_category_path, map_etsy_category_path):
+            with self.subTest(mapper=mapper.__name__):
+                self.assertEqual(mapper(WOMEN_TOPS_PATH, listing), WOMEN_TOPS_PATH)
+
+
 class NonTopGarmentTest(unittest.TestCase):
     """The tops mappers must keep their hands off everything else."""
 
