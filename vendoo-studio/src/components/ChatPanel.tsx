@@ -4,6 +4,13 @@ import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
 import type { ConversationActivity, Job, Message } from "../api/types";
 import { ChatMarkdown } from "./ChatMarkdown";
+import {
+  enqueueChatMessage,
+  newQueuedChatMessage,
+  removeChatMessage,
+  takeNextChatMessage,
+  type QueuedChatMessage,
+} from "./chatMessageQueue";
 import { SendProgress } from "./SendProgress";
 import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
@@ -545,11 +552,20 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(live.failedAction);
   const [lastSendText, setLastSendText] = useState(live.lastSendText);
   const [stopping, setStopping] = useState(false);
+  // Follow-ups typed while a run is still writing — same idea as T3 Code's
+  // composer queue: hold them client-side and send when the turn settles.
+  const [pendingQueue, setPendingQueue] = useState<QueuedChatMessage[]>([]);
+  const drainLockRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const thinkingBodyRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    setPendingQueue([]);
+    drainLockRef.current = false;
+  }, [convId]);
 
   const isNearBottom = (el: HTMLDivElement, threshold = 96) =>
     el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
@@ -871,12 +887,21 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     await streamFromFetch(`/api/conversations/${convId}/generate`, "Analyzing photos…");
   }, [convId, streamFromFetch, pinChatToBottom]);
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (
+    text: string,
+    opts?: {
+      browserJobId?: string;
+      browserFields?: QueuedChatMessage["browserFields"];
+    },
+  ) => {
     const browserContext = browserRef.current;
-    const pointedAt = browserContext?.fields || [];
+    const pointedAt = opts?.browserFields ?? browserContext?.fields ?? [];
+    const jobId = opts?.browserJobId ?? browserContext?.jobId;
     const running = getLive(convId).streaming
+      || getLive(convId).generating
+      || getLive(convId).resetting
       || Boolean(queryClient.getQueryData<ConversationActivity>(["activity", convId])?.busy);
-    if ((!text && !pointedAt.length) || running) return;
+    if ((!text && !pointedAt.length) || running) return false;
     pinChatToBottom();
     const liveState = getLive(convId);
     liveState.controller?.abort();
@@ -906,10 +931,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
         body: JSON.stringify({
           text,
-          ...(browserContext
+          ...(pointedAt.length && jobId
             ? {
                 browser: {
-                  job_id: browserContext.jobId,
+                  job_id: jobId,
                   fields: pointedAt.map((field) => ({
                     marketplace: field.marketplace,
                     label: field.label,
@@ -934,10 +959,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
             controller: null,
           });
         }
-        return;
+        return true;
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      if (pointedAt.length) onBrowserFieldsChange?.([]);
+      // Only clear live browser chips when this send used the current selection,
+      // not a snapshot from a queued follow-up.
+      if (!opts?.browserFields && pointedAt.length) onBrowserFieldsChange?.([]);
       const { parts } = await consumeResponseSse(res, (event, nextParts) => applySseToLive(convId, event, nextParts));
       const assembled = parts.content;
       if (stillMine() && isStreamError(assembled)) patchLive(convId, { failedAction: "send" });
@@ -951,10 +978,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           thinkingStarted: false,
         });
       }
-      return;
+      return true;
     } catch (e) {
       if (isAbortError(e)) {
-        if (!stillMine()) return;
+        if (!stillMine()) return true;
         if (getLive(convId).userCancelled) {
           const restore = getLive(convId).restoreInputOnAbort;
           patchLive(convId, {
@@ -970,10 +997,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
             restoreInputOnAbort: false,
           });
           if (restore) setInput(text);
-          return;
+          return true;
         }
         patchLive(convId, { controller: null, streaming: false });
-        return;
+        return true;
       }
       if (stillMine()) {
         patchLive(convId, {
@@ -985,20 +1012,78 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           controller: null,
         });
       }
+      return true;
     }
   }, [convId, queryClient, pinChatToBottom, onBrowserFieldsChange]);
 
+  // Ask-chat prompts from the inspector join the same queue as typed follow-ups.
   useEffect(() => {
-    if (!queuedMessage || busy) return;
+    if (!queuedMessage) return;
     const text = queuedMessage;
     onQueuedMessageConsumed?.();
-    void sendMessage(text);
-  }, [queuedMessage, busy, sendMessage, onQueuedMessageConsumed]);
+    setPendingQueue((queue) => enqueueChatMessage(queue, newQueuedChatMessage(text)));
+    pinChatToBottom();
+  }, [queuedMessage, onQueuedMessageConsumed, pinChatToBottom]);
+
+  useEffect(() => {
+    if (busy || pendingQueue.length === 0 || drainLockRef.current) return;
+    const liveState = getLive(convId);
+    if (
+      liveState.streaming
+      || liveState.generating
+      || liveState.resetting
+      || queryClient.getQueryData<ConversationActivity>(["activity", convId])?.busy
+    ) {
+      return;
+    }
+    const { next, rest } = takeNextChatMessage(pendingQueue);
+    if (!next) return;
+    drainLockRef.current = true;
+    setPendingQueue(rest);
+    void sendMessage(next.text, {
+      browserJobId: next.browserJobId,
+      browserFields: next.browserFields,
+    }).then((started) => {
+      if (!started) {
+        setPendingQueue((queue) => [next, ...queue]);
+      }
+    }).finally(() => {
+      drainLockRef.current = false;
+    });
+  }, [busy, pendingQueue, sendMessage, convId, queryClient]);
 
   const handleSend = useCallback(() => {
-    if (busy) return;
-    void sendMessage(input.trim());
-  }, [busy, input, sendMessage]);
+    const text = input.trim();
+    const liveFields = browser?.fields || [];
+    if (!text && !liveFields.length) return;
+    if (busy) {
+      // Queue plain follow-ups; browser chips ride along as a snapshot so a
+      // later field pick doesn't rewrite what the user queued.
+      const message = newQueuedChatMessage(text, liveFields.length
+        ? {
+            browserJobId: browser?.jobId,
+            browserFields: liveFields.map((field) => ({
+              marketplace: field.marketplace,
+              label: field.label,
+              value: field.value,
+              key: field.key,
+              filled: field.filled,
+              account_managed: field.account_managed,
+            })),
+          }
+        : undefined);
+      setPendingQueue((queue) => enqueueChatMessage(queue, message));
+      setInput("");
+      if (liveFields.length) onBrowserFieldsChange?.([]);
+      pinChatToBottom();
+      return;
+    }
+    void sendMessage(text);
+  }, [busy, input, browser, sendMessage, onBrowserFieldsChange, pinChatToBottom]);
+
+  const handleRemoveQueued = useCallback((id: string) => {
+    setPendingQueue((queue) => removeChatMessage(queue, id));
+  }, []);
 
   const handleCancel = useCallback(async () => {
     const liveState = getLive(convId);
@@ -1119,7 +1204,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const activityLabel = localLabel
     ? activityItems.length > 1 ? `${localLabel} (+${activityItems.length - 1} more)` : localLabel
     : activityItems.join(" · ") || "Finishing up…";
-  const composerPlaceholder = browser
+  const composerPlaceholder = busy
+    ? "Queue a follow-up…"
+    : browser
     ? "Tell Studio what to fix in the Vendoo draft..."
     : !hasPhotos
     ? "Upload photos to begin"
@@ -1128,6 +1215,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       : hasMessages
         ? "Refine the listing..."
         : "Add a note, or generate the listing...";
+  const canSubmit = Boolean(input.trim() || browser?.fields.length);
 
   useEffect(() => {
     const reattach = () => {
@@ -1274,6 +1362,40 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           )
         )}
 
+        {pendingQueue.map((queued, index) => (
+          <div
+            key={queued.id}
+            className="msg msg-user msg-queued"
+            data-queued-message-id={queued.id}
+          >
+            {queued.text ? (
+              <ChatMarkdown text={queued.text} lineBreaks />
+            ) : (
+              <span className="msg-queued-empty">
+                {queued.browserFields?.length
+                  ? `${queued.browserFields.length} field${queued.browserFields.length === 1 ? "" : "s"} from the browser`
+                  : "Empty message"}
+              </span>
+            )}
+            <div className="msg-queued-meta">
+              <span className="msg-queued-label" title={index === 0
+                ? "Sends when the current run finishes"
+                : "Sends after the messages above it"}
+              >
+                Queued
+              </span>
+              <button
+                type="button"
+                className="msg-queued-remove"
+                aria-label="Remove queued message"
+                onClick={() => handleRemoveQueued(queued.id)}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        ))}
+
         {streamFailed && (
           <div className="chat-error" role="alert">
             <div className="chat-error-text">{streamText}</div>
@@ -1407,27 +1529,41 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
               }
             }}
             placeholder={composerPlaceholder}
-            disabled={streaming}
           />
           {busy ? (
-            <button
-              type="button"
-              className="chat-send chat-send-cancel"
-              onClick={() => { void handleCancel(); }}
-              disabled={stopping}
-              aria-label="Stop"
-              title="Stop everything running for this listing"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
-                <rect x="1" y="1" width="8" height="8" rx="1" />
-              </svg>
-            </button>
+            <>
+              <button
+                type="button"
+                className="chat-send chat-send-cancel"
+                onClick={() => { void handleCancel(); }}
+                disabled={stopping}
+                aria-label="Stop"
+                title="Stop everything running for this listing"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+                  <rect x="1" y="1" width="8" height="8" rx="1" />
+                </svg>
+              </button>
+              {canSubmit ? (
+                <button
+                  type="button"
+                  className="chat-send"
+                  onClick={handleSend}
+                  aria-label="Queue message"
+                  title="Queue for when the current run finishes"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M8 12.5V3.5M8 3.5L3.5 8M8 3.5L12.5 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              ) : null}
+            </>
           ) : (
             <button
               type="button"
               className="chat-send"
               onClick={handleSend}
-              disabled={!input.trim() && !browser?.fields.length}
+              disabled={!canSubmit}
               aria-label="Send"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
