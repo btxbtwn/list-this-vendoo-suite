@@ -4,6 +4,7 @@ import {
   folderKeyForFile,
   groupImageFilesByFolder,
   imageFilesFrom,
+  imageFilesFromTransfer,
   isImageFile,
   listingTitleForFolder,
 } from "./photoDrop";
@@ -12,6 +13,52 @@ function file(name: string, type: string, relativePath = ""): File {
   const created = new File(["x"], name, { type });
   Object.defineProperty(created, "webkitRelativePath", { value: relativePath });
   return created;
+}
+
+type MockEntry = {
+  isFile: boolean;
+  isDirectory: boolean;
+  name: string;
+  file?: (success: (file: File) => void) => void;
+  createReader?: () => { readEntries: (success: (entries: MockEntry[]) => void) => void };
+};
+
+function fileEntry(name: string, type: string): MockEntry {
+  return {
+    isFile: true,
+    isDirectory: false,
+    name,
+    file: (success) => success(file(name, type)),
+  };
+}
+
+function dirEntry(name: string, children: MockEntry[]): MockEntry {
+  let delivered = false;
+  return {
+    isFile: false,
+    isDirectory: true,
+    name,
+    createReader: () => ({
+      readEntries: (success) => {
+        if (delivered) {
+          success([]);
+          return;
+        }
+        delivered = true;
+        success(children);
+      },
+    }),
+  };
+}
+
+function transferWithEntries(entries: MockEntry[], files: File[] = []): DataTransfer {
+  return {
+    files,
+    items: entries.map((entry) => ({
+      kind: "file",
+      webkitGetAsEntry: () => entry,
+    })),
+  } as unknown as DataTransfer;
 }
 
 describe("isImageFile", () => {
@@ -42,6 +89,44 @@ describe("imageFilesFrom", () => {
   it("handles a drag with no files", () => {
     expect(imageFilesFrom(null)).toEqual([]);
     expect(imageFilesFrom({ files: null } as unknown as DataTransfer)).toEqual([]);
+  });
+
+  it("finds nothing when only empty directory stubs are in files", () => {
+    // What Chromium puts in `files` for a folder drop before entry traversal.
+    const stub = file("NikeTee", "");
+    const transfer = { files: [stub] } as unknown as DataTransfer;
+    expect(imageFilesFrom(transfer)).toEqual([]);
+  });
+});
+
+describe("imageFilesFromTransfer", () => {
+  it("walks dropped folders when files only has directory stubs", async () => {
+    const transfer = transferWithEntries(
+      [
+        dirEntry("NikeTee", [fileEntry("a.jpg", "image/jpeg"), fileEntry("b.jpg", "image/jpeg")]),
+        dirEntry("AdidasHoodie", [fileEntry("c.jpg", "image/jpeg")]),
+      ],
+      [file("NikeTee", ""), file("AdidasHoodie", "")],
+    );
+
+    const images = await imageFilesFromTransfer(transfer);
+    expect(images.map((f) => f.webkitRelativePath)).toEqual([
+      "NikeTee/a.jpg",
+      "NikeTee/b.jpg",
+      "AdidasHoodie/c.jpg",
+    ]);
+    expect(groupImageFilesByFolder(images).map((g) => g.folder)).toEqual([
+      "AdidasHoodie",
+      "NikeTee",
+    ]);
+  });
+
+  it("falls back to the flat files list when entries are unavailable", async () => {
+    const transfer = {
+      files: [file("front.jpg", "image/jpeg")],
+      items: [],
+    } as unknown as DataTransfer;
+    expect((await imageFilesFromTransfer(transfer)).map((f) => f.name)).toEqual(["front.jpg"]);
   });
 });
 
