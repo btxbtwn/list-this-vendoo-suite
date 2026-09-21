@@ -338,6 +338,50 @@ def _first_sentence(text: str, fallback: str) -> str:
     return sentence
 
 
+# Pricing talk belongs on the price field, never in buyer-facing copy. The model
+# otherwise leaks comp research ("limited sold comps so price is approximate")
+# into the vibe sentence when comps are thin.
+_PRICING_TERMS_RE = re.compile(
+    r"(?i)(?:\$\s*\d|\bprices?d?\b|\bpricing\b|\bcomps?\b|\bcomparables?\b|\bsold listings?\b"
+    r"|\bmarket value\b|\bmsrp\b|\bretail(?:s|ed)? for\b|\bresale value\b|\bworth\b|\bvalued?\b"
+    r"|\boffers?\b|\bnegotiable\b|\bbest offer\b|\bdiscount(?:s|ed)?\b|\bfirm\b)"
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def strip_pricing_from_description(listing: dict) -> bool:
+    """Remove any pricing/comp talk from the buyer-facing description."""
+    if not isinstance(listing, dict):
+        return False
+    desc = str(listing.get("description") or "")
+    if not desc.strip() or not _PRICING_TERMS_RE.search(desc):
+        return False
+
+    kept_blocks: list[str] = []
+    for block in re.split(r"\n\s*\n", desc):
+        lowered = block.strip().lower()
+        # Flaws:/Measurements: blocks are structural; keep them verbatim.
+        if lowered.startswith(("flaws:", "measurements:")):
+            kept_blocks.append(block)
+            continue
+        sentences = [
+            part for part in _SENTENCE_SPLIT_RE.split(block.strip())
+            if part.strip() and not _PRICING_TERMS_RE.search(part)
+        ]
+        if sentences:
+            kept_blocks.append(" ".join(part.strip() for part in sentences))
+    # Stripping can eat the whole vibe sentence; fall back to the title so the
+    # description keeps its opening line.
+    if kept_blocks and kept_blocks[0].strip().lower().startswith(("flaws:", "measurements:")):
+        title = str(listing.get("title") or "").strip()
+        kept_blocks.insert(0, f"{title}." if title else "Resale-ready item.")
+    cleaned = "\n\n".join(block for block in kept_blocks if block.strip()).strip()
+    if cleaned == desc.strip():
+        return False
+    listing["description"] = cleaned
+    return True
+
+
 def ensure_physical_description(listing: dict) -> bool:
     """Rewrite description into the trendy-keyword/Flaws/Measurements formula when markers are missing."""
     from vendoo_studio.models.validation import _description_follows_formula
@@ -466,6 +510,8 @@ def apply_send_readiness_fixes(listing: dict) -> bool:
         return False
     changed = normalize_listing_dropdowns(listing)
     if sanitize_listing_sizes(listing):
+        changed = True
+    if strip_pricing_from_description(listing):
         changed = True
     if ensure_physical_description(listing):
         changed = True

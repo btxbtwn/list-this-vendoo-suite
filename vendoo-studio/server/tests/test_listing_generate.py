@@ -421,6 +421,42 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(listing["depop_specifics"]["style"], ["Casual", "Boho", "Minimalist"])
         self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
 
+    def test_send_readiness_fixes_strip_pricing_from_description(self):
+        from vendoo_studio.services.listing_generate import strip_pricing_from_description
+
+        listing = {
+            "title": "Spectra S Casual Graphic Tee Black Soft",
+            "description": (
+                "Casual streetwear graphic cotton tee with soft short-sleeve fit; limited sold comps so "
+                "price is approximate.\n\n"
+                "Flaws: none noted. See photos for details.\n\n"
+                "Measurements: Pit to pit: 19\""
+            ),
+        }
+        self.assertTrue(strip_pricing_from_description(listing))
+        self.assertNotIn("comps", listing["description"].lower())
+        self.assertNotIn("price", listing["description"].lower())
+        self.assertIn("Flaws: none noted.", listing["description"])
+        self.assertIn('Measurements: Pit to pit: 19"', listing["description"])
+        self.assertFalse(strip_pricing_from_description(listing))
+
+    def test_strip_pricing_keeps_opening_line_when_only_sentence_is_pricing(self):
+        from vendoo_studio.services.listing_generate import strip_pricing_from_description
+
+        listing = {
+            "title": "Spectra S Casual Graphic Tee Black Soft",
+            "description": (
+                "Priced to move, offers welcome.\n\n"
+                "Flaws: none noted. See photos for details.\n\n"
+                "Measurements: See photos"
+            ),
+        }
+        self.assertTrue(strip_pricing_from_description(listing))
+        self.assertTrue(
+            listing["description"].startswith("Spectra S Casual Graphic Tee Black Soft.")
+        )
+        self.assertIn("Flaws:", listing["description"])
+
     def test_sanitize_listing_sizes_strips_approx_prefix(self):
         from vendoo_studio.services.listing_generate import (
             apply_send_readiness_fixes,
