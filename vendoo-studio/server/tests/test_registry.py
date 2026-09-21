@@ -395,6 +395,47 @@ class MercariCategoryMappingTest(unittest.TestCase):
         self.assertEqual(mapped, path)
 
 
+class NonTopGarmentTest(unittest.TestCase):
+    """The tops mappers must keep their hands off everything else."""
+
+    def _dress(self):
+        return {
+            "title": "Southwestern Graphic T-Shirt Dress",
+            "department": "Women",
+            "ebay_specifics": {"department": "Women", "type": "Dress"},
+        }
+
+    def test_a_tshirt_dress_keeps_its_dress_leaf(self):
+        for mapper, path in (
+            (map_mercari_category_path, "Women > Dresses > Other"),
+            (map_depop_category_path, "Women > Dresses > Casual dresses"),
+            (map_etsy_category_path, "Clothing > Women's Clothing > Dresses"),
+        ):
+            with self.subTest(mapper=mapper.__name__):
+                self.assertEqual(mapper(path, self._dress()), path)
+
+    def test_a_dress_is_never_filed_under_tops(self):
+        for mapper in (
+            map_mercari_category_path,
+            map_depop_category_path,
+            map_etsy_category_path,
+            map_poshmark_category_path,
+        ):
+            with self.subTest(mapper=mapper.__name__):
+                self.assertEqual(mapper(WOMEN_TOPS_PATH, self._dress()), WOMEN_TOPS_PATH)
+
+    def test_a_dress_shirt_is_still_a_shirt(self):
+        mapped = map_depop_category_path(
+            WOMEN_TOPS_PATH,
+            {
+                "title": "Notations XL Plaid Dress Shirt",
+                "department": "Women",
+                "ebay_specifics": {"department": "Women", "type": "Button-Up Shirt"},
+            },
+        )
+        self.assertEqual(mapped, DEPOP_WOMEN_SHIRT)
+
+
 class DepopCategoryMappingTest(unittest.TestCase):
     def test_maps_graphic_tee_to_depop_tshirts(self):
         mapped = map_depop_category_path(

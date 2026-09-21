@@ -170,7 +170,8 @@ CATEGORY_NORMALIZATIONS: dict[str, dict[str, str]] = {
 _TOP_ITEM_RE = re.compile(r"\bt-?shirts?\b|\btees?\b|\btops?\b|\bshirts?\b|\bblouses?\b", re.I)
 _TEE_ITEM_RE = re.compile(r"\bt-?shirts?\b|\btees?\b", re.I)
 _NON_TOP_RE = re.compile(
-    r"\bdresses?\b|\bpants?\b|\bjeans?\b|\bskirts?\b|\bshorts?\b|\bjackets?\b|"
+    # "dresses?" would read as "dresse" plus an optional s and miss the singular.
+    r"\bdress(?:es)?\b|\bpants?\b|\bjeans?\b|\bskirts?\b|\bshorts?\b|\bjackets?\b|"
     r"\bcoats?\b|\bsweatshirts?\b|\bsweaters?\b|\bhoodies?\b|\bshoes?\b|\bbags?\b",
     re.I,
 )
@@ -305,6 +306,14 @@ _SLEEVELESS_ITEM_RE = re.compile(r"\b(?:sleeveless|tank|cami|halter|strapless)\b
 _ETSY_ROOT_RE = re.compile(r"^clothing\s*>", re.I)
 _MERCARI_ROOT_RE = re.compile(r"^(women|men|kids|unisex)\s*>", re.I)
 _DEPOP_ROOT_RE = re.compile(r"^(women|men|kids)\s*>", re.I)
+# Every garment word these mappers can read, top or not. The last one a title
+# names is the garment itself. Shorts stays plural: "Short Sleeve" is a sleeve.
+_GARMENT_HEAD_RE = re.compile(
+    r"\b(?:t-?shirts?|tees?|tops?|blouses?|shirts?|tunics?|tanks?|dress(?:es)?|"
+    r"pants?|jeans?|skirts?|shorts|leggings?|jumpsuits?|rompers?|jackets?|coats?|"
+    r"sweatshirts?|sweaters?|hoodies?|shoes?|bags?)\b",
+    re.I,
+)
 # Leaf words naming a top that is not a plain tee. Such a leaf is only right
 # when the listing itself says the same word.
 _SPECIFIC_TOP_LEAF_RE = re.compile(
@@ -368,6 +377,17 @@ def _stale_etsy_tunic_path(path: str, listing: dict) -> bool:
     return bool(_BUTTON_UP_RE.search(garment) or _BLOUSE_RE.search(garment))
 
 
+def _non_top_listing(listing: dict) -> bool:
+    """True when the garment the listing names is not a top.
+
+    English puts the head noun last: a "t-shirt dress" is a dress, a "dress
+    shirt" is a shirt. These mappers only know tops, so anything else is left
+    to Vendoo's own mapping rather than filed under a T-shirts leaf.
+    """
+    named = _GARMENT_HEAD_RE.findall(_listing_text(listing))
+    return bool(named) and bool(_NON_TOP_RE.search(named[-1]))
+
+
 def _stale_top_leaf(path: str, listing: dict) -> bool:
     """True when a tee listing was mapped onto some other women's top leaf.
 
@@ -377,7 +397,7 @@ def _stale_top_leaf(path: str, listing: dict) -> bool:
     do have a T-shirts leaf should use it when the listing says tee.
     """
     leaf = _path_leaf(path)
-    if not leaf or _TEE_RE.search(leaf):
+    if not leaf or _TEE_RE.search(leaf) or _non_top_listing(listing):
         return False
     garment = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
     if not _TEE_RE.search(garment) or _is_blouse_listing(garment):
@@ -419,7 +439,7 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
 
     if _POSHMARK_ROOT_RE.search(raw) and not _stale_tank_path(raw, listing):
         return raw
-    if _NON_TOP_RE.search(_path_leaf(raw)):
+    if _NON_TOP_RE.search(_path_leaf(raw)) or _non_top_listing(listing):
         return raw
 
     gender = _listing_gender(listing, raw)
@@ -459,7 +479,7 @@ def map_mercari_category_path(category: str, listing: dict | None = None) -> str
 
     if _MERCARI_ROOT_RE.search(raw) and not _stale_top_leaf(raw, listing):
         return raw
-    if _NON_TOP_RE.search(_path_leaf(raw)):
+    if _NON_TOP_RE.search(_path_leaf(raw)) or _non_top_listing(listing):
         return raw
 
     # Garment cues only — "Tops & blouses > T-shirts" contains both words and
@@ -499,7 +519,7 @@ def map_etsy_category_path(category: str, listing: dict | None = None) -> str:
 
     if _ETSY_ROOT_RE.search(raw) and not _stale_etsy_path(raw, listing):
         return raw
-    if _NON_TOP_RE.search(_path_leaf(raw)):
+    if _NON_TOP_RE.search(_path_leaf(raw)) or _non_top_listing(listing):
         return raw
 
     # Score garment cues only — never the marketplace path. "Tops & Tees > Tunics"
@@ -540,7 +560,7 @@ def map_depop_category_path(category: str, listing: dict | None = None) -> str:
 
     if _DEPOP_ROOT_RE.search(raw) and not _stale_top_leaf(raw, listing):
         return raw
-    if _NON_TOP_RE.search(_path_leaf(raw)):
+    if _NON_TOP_RE.search(_path_leaf(raw)) or _non_top_listing(listing):
         return raw
 
     haystack = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
