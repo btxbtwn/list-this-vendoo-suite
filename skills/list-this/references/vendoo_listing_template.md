@@ -288,7 +288,7 @@ Depop: No title field → use Universal Description only
   - Rust, Copper, Bronze → **Brown**
   - Indigo, Cobalt, Royal → **Blue**
   - Fuchsia, Magenta, Hot Pink → **Pink**
-  - For multicolor items: primaryColor = "Multi", secondaryColor = blank or most prominent color
+  - For multicolor items: primaryColor = most prominent basic color; secondaryColor = second visible basic color. Do **not** use Multicolor/Multi as primary when cross-listing — Etsy and Poshmark have no Multicolor option and leave primary blank. Prefer Multicolor only on Vendoo/eBay when a second concrete color is also set for fallback markets.
 - `sizeType`: Regular, Petite, Tall, Plus, Maternity
 - `size`: Size value (S, M, L, XL, numeric)
 - `size_us`: US size for consistency

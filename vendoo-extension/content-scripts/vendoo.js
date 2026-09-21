@@ -629,134 +629,58 @@
       return mapped;
   }
 
-  const VENDOO_COLORS = [
-      'Beige', 'Black', 'Blue', 'Brown', 'Cream', 'Gold', 'Gray', 'Green',
-      'Orange', 'Multicolor', 'Pink', 'Purple', 'Red', 'Silver', 'Yellow', 'Tan', 'White',
-  ];
-
-  const COLOR_ALIASES = {
-      grey: 'Gray',
-      gray: 'Gray',
-      multi: 'Multicolor',
-      multicolor: 'Multicolor',
-      'multi color': 'Multicolor',
-      'multi-color': 'Multicolor',
-      navy: 'Navy',
-      burgundy: 'Burgundy',
-      maroon: 'Burgundy',
-      wine: 'Burgundy',
-      khaki: 'Khaki',
-      camel: 'Beige',
-      beige: 'Beige',
-      tan: 'Tan',
-      cream: 'Cream',
-      ivory: 'Cream',
-      'off white': 'Cream',
-      teal: 'Blue',
-      turquoise: 'Blue',
-      aqua: 'Blue',
-      charcoal: 'Gray',
-      slate: 'Gray',
-      mint: 'Green',
-      sage: 'Green',
-      olive: 'Green',
-      coral: 'Orange',
-      salmon: 'Orange',
-      peach: 'Orange',
-      lavender: 'Purple',
-      lilac: 'Purple',
-      mauve: 'Purple',
-  };
-
-  const VENDOO_COLOR_IDENTITY = Object.fromEntries(VENDOO_COLORS.map(c => [c, c]));
-
-  const MARKETPLACE_COLOR_MAP = {
-      vendoo: {
-          ...VENDOO_COLOR_IDENTITY,
-          Grey: 'Gray',
-          Multi: 'Multicolor',
-          Navy: 'Blue',
-          Burgundy: 'Red',
-          Khaki: 'Beige',
-      },
-      ebay: {
-          ...VENDOO_COLOR_IDENTITY,
-          Grey: 'Gray',
-          Multi: 'Multicolor',
-          Navy: 'Blue',
-          Burgundy: 'Red',
-          Khaki: 'Beige',
-      },
-      etsy: {
-          ...VENDOO_COLOR_IDENTITY,
-          Grey: 'Gray',
-          Multi: 'Multicolor',
-          Navy: 'Blue',
-          Burgundy: 'Red',
-          Khaki: 'Beige',
-      },
-      poshmark: {
-          ...VENDOO_COLOR_IDENTITY,
-          Beige: 'Tan',
-          Multicolor: null,
-          Grey: 'Gray',
-          Multi: null,
-          Navy: 'Blue',
-          Burgundy: 'Red',
-          Khaki: 'Tan',
-      },
-      depop: {
-          ...VENDOO_COLOR_IDENTITY,
-          Gray: 'Grey',
-          Grey: 'Grey',
-          Multicolor: 'Multi',
-          Multi: 'Multi',
-          Beige: 'Tan',
-          Navy: 'Navy',
-          Burgundy: 'Burgundy',
-          Khaki: 'Khaki',
-      },
-  };
+  function marketplaceColorsApi() {
+      return globalThis.vendooMarketplaceColors || null;
+  }
 
   function canonicalizeColor(raw) {
-      if (raw == null) return raw;
-      const original = String(raw).trim();
-      if (!original) return original;
-
-      const namedColors = [...VENDOO_COLORS, 'Grey', 'Multi', 'Navy', 'Burgundy', 'Khaki'];
-      const exact = namedColors.find(c => c.toLowerCase() === original.toLowerCase());
-      if (exact) return exact === 'Grey' ? 'Gray' : exact === 'Multi' ? 'Multicolor' : exact;
-
-      const t = original.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-      if (COLOR_ALIASES[t]) return COLOR_ALIASES[t];
-
-      const words = new Set(t.split(' '));
-      const contained = namedColors
-          .filter(c => words.has(c.toLowerCase()))
-          .sort((a, b) => b.length - a.length)[0];
-      if (contained) {
-          return contained === 'Grey' ? 'Gray' : contained === 'Multi' ? 'Multicolor' : contained;
-      }
-
-      return original;
+      const api = marketplaceColorsApi();
+      return api ? api.canonicalizeColor(raw) : raw;
   }
 
   function mapColor(raw, marketplace) {
       if (raw == null || String(raw).trim() === '') return raw;
-      const canonical = canonicalizeColor(raw);
-      const table = MARKETPLACE_COLOR_MAP[marketplace] || MARKETPLACE_COLOR_MAP.vendoo;
-      if (Object.prototype.hasOwnProperty.call(table, canonical)) {
-          const mapped = table[canonical];
-          if (!mapped) {
-              warn(`Color ${marketplace}: "${raw}" has no ${marketplace} option; skipping`);
-              return null;
-          }
-          if (mapped !== String(raw).trim()) {
-              log(`  Color ${marketplace}: "${raw}" → "${mapped}"`);
-          }
-          return mapped;
+      const api = marketplaceColorsApi();
+      if (!api) {
+          warn('Marketplace color helper is not loaded');
+          return raw;
       }
-      return canonical;
+      const mapped = api.mapColor(raw, marketplace);
+      if (mapped == null) {
+          warn(`Color ${marketplace}: "${raw}" has no ${marketplace} option; skipping`);
+          return null;
+      }
+      if (mapped !== String(raw).trim()) {
+          log(`  Color ${marketplace}: "${raw}" → "${mapped}"`);
+      }
+      return mapped;
+  }
+
+  // Etsy/Poshmark skip Multicolor; promote secondary so required primary is filled.
+  function resolveMarketplaceColors(primaryRaw, secondaryRaw, marketplace) {
+      const api = marketplaceColorsApi();
+      if (!api) {
+          return {
+              primary: mapColor(primaryRaw, marketplace),
+              secondary: mapColor(secondaryRaw, marketplace),
+          };
+      }
+      const mappedPrimary = api.mapColor(primaryRaw, marketplace);
+      const mappedSecondary = api.mapColor(secondaryRaw, marketplace);
+      const resolved = api.resolveMarketplaceColors(primaryRaw, secondaryRaw, marketplace);
+      if (String(primaryRaw || '').trim() && mappedPrimary == null && resolved.primary) {
+          warn(`Color ${marketplace}: "${primaryRaw}" has no ${marketplace} option; using secondary "${resolved.primary}"`);
+      } else if (String(primaryRaw || '').trim() && mappedPrimary == null) {
+          warn(`Color ${marketplace}: "${primaryRaw}" has no ${marketplace} option; skipping`);
+      } else if (mappedPrimary && mappedPrimary !== String(primaryRaw).trim()) {
+          log(`  Color ${marketplace}: "${primaryRaw}" → "${mappedPrimary}"`);
+      }
+      if (String(secondaryRaw || '').trim() && mappedSecondary == null && mappedPrimary != null) {
+          warn(`Color ${marketplace}: "${secondaryRaw}" has no ${marketplace} option; skipping`);
+      } else if (mappedSecondary && mappedSecondary !== String(secondaryRaw).trim() && resolved.secondary === mappedSecondary) {
+          log(`  Color ${marketplace}: "${secondaryRaw}" → "${mappedSecondary}"`);
+      }
+      return resolved;
   }
 
   function mappingMarketplace(marketplace) {
@@ -4068,12 +3992,17 @@
       const approvedWhenMade = specs.when_made || specs.whenMade || '';
       const normalizedWhenMade = approvedWhenMade ? normalizeEtsyWhenMade(approvedWhenMade) : '';
 
+      const etsyColors = resolveMarketplaceColors(
+          data.primaryColor || data.color,
+          data.secondaryColor,
+          'etsy'
+      );
       await fillDropdownField(
           resolveMarketplaceField('etsy', ['primary color', 'color'], [
               '#listings\\.etsy\\.overrides\\.primaryColor',
               '#listings\\.etsy\\.marketplaceSpecifics\\.primaryColor',
           ]),
-          mapColor(data.primaryColor || data.color, 'etsy'),
+          etsyColors.primary,
           'Etsy Color'
       );
       await fillDropdownField(
@@ -4081,7 +4010,7 @@
               '#listings\\.etsy\\.overrides\\.secondaryColor',
               '#listings\\.etsy\\.marketplaceSpecifics\\.secondaryColor',
           ]),
-          mapColor(data.secondaryColor, 'etsy'),
+          etsyColors.secondary,
           'Etsy Secondary Color'
       );
 
@@ -4418,9 +4347,14 @@
           true
       );
       await fillDropdownField('#listings\\.poshmark\\.overrides\\.brand', data.brand, 'Poshmark Brand');
+      const poshmarkColors = resolveMarketplaceColors(
+          data.primaryColor || data.color,
+          data.secondaryColor,
+          'poshmark'
+      );
       await fillDropdownField(
           '#listings\\.poshmark\\.overrides\\.primaryColor',
-          mapColor(data.primaryColor || data.color, 'poshmark'),
+          poshmarkColors.primary,
           'Poshmark Color',
           true
       );
@@ -4429,7 +4363,7 @@
               '#listings\\.poshmark\\.overrides\\.secondaryColor',
               '#listings\\.poshmark\\.marketplaceSpecifics\\.secondaryColor',
           ]),
-          mapColor(data.secondaryColor, 'poshmark'),
+          poshmarkColors.secondary,
           'Secondary Color'
       );
 
@@ -5683,7 +5617,7 @@
               ['brand', ['#listings\\.poshmark\\.overrides\\.brand'], ['Brand'], data?.brand],
               ['price', ['#listings\\.poshmark\\.overrides\\.price'], ['Price'], data?.price],
               ['quantity', ['#listings\\.poshmark\\.overrides\\.quantity'], ['Quantity'], data?.quantity],
-              ['primaryColor', ['#listings\\.poshmark\\.overrides\\.primaryColor'], ['Primary Color', 'Color'], mapColor(data?.primaryColor || data?.color, 'poshmark')],
+              ['primaryColor', ['#listings\\.poshmark\\.overrides\\.primaryColor'], ['Primary Color', 'Color'], resolveMarketplaceColors(data?.primaryColor || data?.color, data?.secondaryColor, 'poshmark').primary],
           ],
           mercari: [
               ['brand', ['#listings\\.mercari\\.overrides\\.brand'], ['Brand'], data?.brand],
