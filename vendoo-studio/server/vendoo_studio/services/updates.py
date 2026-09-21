@@ -22,9 +22,11 @@ CLONE_TIMEOUT_S = 180
 INSTALL_PRESERVE = (
     "vendoo-studio/data",
     "vendoo-studio/.venv",
-    "vendoo-studio/dist",
     "vendoo-studio/server/vendoo_studio/desktop.py",
 )
+# dist/ is deliberately absent: carrying the old bundle into a new checkout is
+# how the app ended up serving a stale UI under a current version number. A
+# missing bundle is rebuilt on launch, which is the outcome we want anyway.
 
 
 log = logging.getLogger("vendoo_studio.updates")
@@ -318,20 +320,28 @@ def apply_update_at(root: Path) -> dict:
         return {"ok": True, "updated": False, "sha": rev_parse(root, "HEAD")}
     pin_to_remote(root, remote_ref)
     sha = rev_parse(root, "HEAD")
-    rebuilt = _rebuild_frontend_if_needed(root)
+    rebuilt = _rebuild_frontend(root)
     out = {"ok": True, "updated": True, "sha": sha, "rebuilt": rebuilt}
     if preserved:
         out["preserved_patch"] = str(preserved)
     return out
 
 
-def _rebuild_frontend_if_needed(root: Path) -> bool:
+def _rebuild_frontend(root: Path) -> bool:
+    """Rebuild the UI for the freshly pinned source.
+
+    A failure here must not abort the update: the reset has already landed, and
+    raising used to leave the install wedged — new backend, old bundle, and git
+    in sync so no later update would ever retry the build. The bundle's stamp is
+    now out of date instead, so the next launch rebuilds it.
+    """
     studio = root / "vendoo-studio"
-    dist = studio / "dist"
-    if not dist.exists():
+    try:
+        _run(["npm", "run", "build"], studio, timeout=BUILD_TIMEOUT_S)
+        return True
+    except (UpdateBlocked, subprocess.TimeoutExpired, OSError):
+        log.warning("frontend rebuild failed after update; retrying at next launch", exc_info=True)
         return False
-    _run(["npm", "run", "build"], studio, timeout=BUILD_TIMEOUT_S)
-    return True
 
 
 def schedule_restart(*, force: bool = False) -> None:

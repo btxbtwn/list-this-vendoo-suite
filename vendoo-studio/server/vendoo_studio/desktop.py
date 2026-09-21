@@ -577,11 +577,22 @@ def ensure_on_channel_ref() -> None:
 
 
 def ensure_frontend() -> None:
+    from vendoo_studio.services.frontend_build import frontend_needs_build
+
     index = frontend_dist_dir() / "index.html"
-    if index.exists():
+    # Staleness matters as much as absence: an update that pins new source but
+    # fails to rebuild leaves a bundle that runs fine and is simply the wrong
+    # one. Checking here means the next launch always heals that.
+    reason = frontend_needs_build()
+    if reason is None:
         return
     if is_frozen():
-        raise RuntimeError("The listing UI is missing from this app. Re-download List This Studio.")
+        if not index.exists():
+            raise RuntimeError("The listing UI is missing from this app. Re-download List This Studio.")
+        # Nothing to rebuild from inside a packaged app; the status bar flags it.
+        print(f"warning: packaged interface looks stale: {reason}", flush=True)
+        return
+    print(f"rebuilding the interface: {reason}", flush=True)
     npm = require_command("npm")
     if not (BASE_DIR / "node_modules").exists():
         subprocess.run([npm, "install"], cwd=BASE_DIR, check=True)
