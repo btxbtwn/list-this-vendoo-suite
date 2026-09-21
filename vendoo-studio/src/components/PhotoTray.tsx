@@ -2,13 +2,16 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { dragHasFiles } from "../photoDrop";
+import { dragHasFiles, groupImageFilesByFolder, listingTitleForFolder } from "../photoDrop";
 import type { Photo } from "../api/types";
+import { addToast } from "../ui/toast";
 
 const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
 
 interface Props {
   convId: string;
+  /** When a folder pick expands into several item folders, App can focus the first draft. */
+  onBulkListingsCreated?: (convIds: string[]) => void;
 }
 
 function moveItem<T>(items: T[], from: number, to: number): T[] {
@@ -21,9 +24,10 @@ function moveItem<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
-export function PhotoTray({ convId }: Props) {
+export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const lightboxRef = useRef<HTMLDivElement>(null);
   const suppressClickRef = useRef(false);
   const dragIdRef = useRef<string | null>(null);
@@ -175,12 +179,42 @@ export function PhotoTray({ convId }: Props) {
     setPreviewId(photoId);
   };
 
-  const doUpload = async (fileList: FileList) => {
-    if (!fileList || fileList.length === 0) return;
+  const doUpload = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    if (!files.length) return;
     setUploading(true);
     setUploadError(null);
     try {
-      const result = await api.conversations.uploadPhotos(convId, Array.from(fileList));
+      const groups = groupImageFilesByFolder(files);
+      if (groups.length > 1) {
+        const createdIds: string[] = [];
+        const errors: string[] = [];
+        let totalPhotos = 0;
+        for (const group of groups) {
+          const conv = await api.conversations.create({
+            title: listingTitleForFolder(group.folder),
+          });
+          const result = await api.conversations.uploadPhotos(conv.id, group.files);
+          createdIds.push(conv.id);
+          totalPhotos += result.count;
+          errors.push(...(result.errors || []));
+          await queryClient.invalidateQueries({ queryKey: ["photos", conv.id] });
+        }
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        onBulkListingsCreated?.(createdIds);
+        const title = `Started ${createdIds.length} listings`;
+        const description = `Added ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} from separate folders.`;
+        if (errors.length) {
+          setUploadError(errors.join("; "));
+          addToast({ type: "error", title, description: errors.join("; ") });
+        } else {
+          addToast({ type: "success", title, description });
+        }
+        return;
+      }
+
+      const only = groups[0]?.files || files;
+      const result = await api.conversations.uploadPhotos(convId, only);
       await queryClient.invalidateQueries({ queryKey: ["photos", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       const errors = result.errors || [];
@@ -192,6 +226,7 @@ export function PhotoTray({ convId }: Props) {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = "";
     }
   };
 
@@ -206,7 +241,26 @@ export function PhotoTray({ convId }: Props) {
         <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           {uploading ? "Uploading..." : "Add Photos"}
         </button>
-        <input ref={fileInputRef} type="file" multiple accept="image/*" style={{ display: "none" }} onChange={(e) => { if (e.target.files) doUpload(e.target.files); }} />
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => folderInputRef.current?.click()}
+          disabled={uploading}
+          title="Choose a folder of photos, or a parent folder of item folders for bulk drafts"
+        >
+          Add Folder
+        </button>
+        <input ref={fileInputRef} type="file" multiple accept="image/*" style={{ display: "none" }} onChange={(e) => { if (e.target.files) void doUpload(e.target.files); }} />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          style={{ display: "none" }}
+          // Chromium/WebKit folder pick; React has no typed prop for these.
+          {...({ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+          onChange={(e) => { if (e.target.files) void doUpload(e.target.files); }}
+        />
       </div>
       {uploadError && <div className="photo-tray-error text-2xs text-error">{uploadError}</div>}
       {photos && photos.length > 0 && (

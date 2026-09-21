@@ -49,6 +49,7 @@ interface Props {
   browserOpen?: boolean;
   reviewTab: ListingReviewTab;
   onReviewTabChange: (tab: ListingReviewTab) => void;
+  onBulkListingsCreated?: (convIds: string[]) => void;
 }
 
 interface EditorField {
@@ -69,6 +70,7 @@ export function ListingEditor({
   browserOpen,
   reviewTab,
   onReviewTabChange,
+  onBulkListingsCreated,
 }: Props) {
   const queryClient = useQueryClient();
   const [editTab, setEditTab] = React.useState("general");
@@ -359,7 +361,7 @@ export function ListingEditor({
       <div className={`editor-body${reviewTab === "fields" ? " is-files" : reviewTab === "input" ? " is-input" : ""}`}>
         {reviewTab === "input" ? (
           <>
-            <PhotoTray convId={convId} />
+            <PhotoTray convId={convId} onBulkListingsCreated={onBulkListingsCreated} />
             <ItemDetails convId={convId} />
           </>
         ) : reviewTab === "fields" ? (
