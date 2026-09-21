@@ -114,8 +114,10 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
     from vendoo_studio.repositories.queries import JobRepo
     from vendoo_studio.services.listing_generate import (
+        normalize_mens_bottoms_size,
         propagate_general_size,
         sanitize_listing_sizes,
+        sync_title_size,
     )
     from vendoo_studio.services.schema_probe import is_schema_probe_job
 
@@ -129,7 +131,10 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     photo_count = len(conv_repo.get_photos(conv_id))
     _reject_corrupt_listing(body.listing)
     sanitize_listing_sizes(body.listing)
+    normalize_mens_bottoms_size(body.listing)
     propagate_general_size(body.listing)
+    # The seller's size input is the source of truth; the title follows it.
+    sync_title_size(body.listing)
     normalize_listing_dropdowns(body.listing)
     validation = validate_listing(body.listing, photo_count, require_photos=True)
 
