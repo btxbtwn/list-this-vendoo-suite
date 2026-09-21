@@ -150,6 +150,41 @@ def brand_fallback_in_place(
     return empty and _mercari_no_brand_checked(section_fields)
 
 
+def brand_live_check_done(db: Session, job, marketplace: str) -> bool:
+    """True once this job's filler already wrote the marketplace's brand answer.
+
+    The filler owns the choice between the real brand and the fallback, so one
+    pass per job settles it — without this the forced check would reopen the
+    same gap every round.
+    """
+    want = str(marketplace or "").strip().lower()
+    for entry in FillLogRepo(db).list_for_job(job.id):
+        if str(entry.marketplace or "").strip().lower() != want:
+            continue
+        if "brand" not in field_lookup_key(entry.field or ""):
+            continue
+        if str(entry.status or "").strip().casefold() in {"filled", "uncertain"}:
+            return True
+    return False
+
+
+def brand_needs_live_check(marketplace: str, field: dict, expected: str) -> bool:
+    """True when only the live dropdown can settle a Depop/Mercari brand.
+
+    The API stores whatever string it is handed in ``overrides.brand``, so a
+    draft that reads back the listing's brand is no proof the marketplace
+    carries it. Keep brand a gap until the option list says it is offered, so
+    the filler tries the real brand and falls back to Depop "Other" /
+    Mercari "No Brand/Not sure" when the form rejects it.
+    """
+    label = str(field.get("label") or field.get("field") or "")
+    if field_lookup_key(label) != "brand" or not brand_fallback_for(marketplace):
+        return False
+    if not str(expected or "").strip():
+        return False
+    return not brand_is_offered(field, expected)
+
+
 def _stringify_observed(observed) -> str:
     if isinstance(observed, list):
         return ", ".join(str(part).strip() for part in observed if str(part).strip())
@@ -352,7 +387,11 @@ def deterministic_gap_patches(
             needs_model.append(gap)
             continue
         # Draft already shows this value (or the mapped display form) — no write.
-        if gap_already_has_value(gap, patch_value) or gap_already_has_value(gap, value):
+        # An unverified Depop/Mercari brand is the exception: only the live
+        # dropdown can say whether the stored string is a real option.
+        if not brand_fallback and not brand_needs_live_check(marketplace, gap, value) and (
+            gap_already_has_value(gap, patch_value) or gap_already_has_value(gap, value)
+        ):
             continue
         if (key, str(value)) in tried:
             needs_model.append(gap)
@@ -385,7 +424,12 @@ def drop_noop_gaps(db: Session, job, gaps: list[dict], listing: dict) -> list[di
         marketplace = str(gap.get("marketplace") or "general")
         field = str(gap.get("field") or gap.get("label") or "").strip()
         value = gap.get("expected") or listing_value_for_field(listing, marketplace, field)
-        if gap_already_has_value(gap, value):
+        # A Depop/Mercari brand the option list does not vouch for still needs the
+        # filler, even though the draft reads back the value the API stored.
+        live_brand_check = brand_needs_live_check(marketplace, gap, value)
+        if live_brand_check and brand_live_check_done(db, job, marketplace):
+            continue
+        if not live_brand_check and gap_already_has_value(gap, value):
             continue
         if prior_fill_covers_empty_gap(db, job, gap, value):
             log.info(
@@ -468,8 +512,10 @@ def review_fields(verification: dict, listing: dict) -> list[dict]:
                 matches_expected = field.get("matches_expected")
             empty = observed is None or observed == "" or observed == []
             error = str(field.get("error") or "")
+            # A stored Depop/Mercari brand is not proof the marketplace lists it.
+            brand_unverified = brand_needs_live_check(marketplace, field, listing_expected)
             # Draft already shows the intended value — do not schedule another fill.
-            if not empty and not error and matches_expected is not False:
+            if not empty and not error and not brand_unverified and matches_expected is not False:
                 if matches_expected is True:
                     continue
                 if compare_expected and values_equal(observed, compare_expected):
@@ -489,7 +535,7 @@ def review_fields(verification: dict, listing: dict) -> list[dict]:
             if brand_fallback_in_place(marketplace, field, observed, listing_expected, section.get("fields")):
                 continue
             # A browser comparison also handles chips, booleans and numeric formatting.
-            if empty or error or matches_expected is False or (
+            if empty or error or brand_unverified or matches_expected is False or (
                 matches_expected is None and compare_expected and not values_equal(observed, compare_expected)
             ):
                 gaps.append({
