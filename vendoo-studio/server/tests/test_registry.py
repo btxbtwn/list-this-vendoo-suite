@@ -14,6 +14,9 @@ from vendoo_studio.models.job import Job  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import RegistryRepo
 from vendoo_studio.services.registry import (
+    DEPOP_WOMEN_BLOUSE,
+    DEPOP_WOMEN_SHIRT,
+    DEPOP_WOMEN_TEE,
     ETSY_WOMEN_BLOUSE,
     ETSY_WOMEN_TEE,
     MEN_TSHIRT_PATH,
@@ -28,6 +31,7 @@ from vendoo_studio.services.registry import (
     is_account_managed_field,
     is_learned_listing_field,
     label_to_json_key,
+    map_depop_category_path,
     map_etsy_category_path,
     map_mercari_category_path,
     map_poshmark_category_path,
@@ -365,6 +369,75 @@ class MercariCategoryMappingTest(unittest.TestCase):
         )
         self.assertEqual(mapped, MERCARI_WOMEN_TEE)
 
+    def test_remaps_vendoo_default_blouse_leaf_for_a_tee(self):
+        mapped = map_mercari_category_path(
+            MERCARI_WOMEN_BLOUSE,
+            {
+                "title": "Southwestern Graphic T-Shirt",
+                "department": "Women",
+                "mercari_specifics": {
+                    "categoryPath": ["Women", "Tops & blouses", "Blouse"],
+                },
+            },
+        )
+        self.assertEqual(mapped, MERCARI_WOMEN_TEE)
+
+    def test_keeps_mercari_tank_tops_for_a_sleeveless_tee(self):
+        path = "Women > Tops & blouses > Tank Tops"
+        mapped = map_mercari_category_path(
+            path,
+            {
+                "title": "Southwestern Graphic Tank Top",
+                "department": "Women",
+                "ebay_specifics": {"department": "Women", "type": "T-Shirt"},
+            },
+        )
+        self.assertEqual(mapped, path)
+
+
+class DepopCategoryMappingTest(unittest.TestCase):
+    def test_maps_graphic_tee_to_depop_tshirts(self):
+        mapped = map_depop_category_path(
+            WOMEN_TOPS_PATH,
+            {"title": "Southwestern Graphic T-Shirt", "department": "Women"},
+        )
+        self.assertEqual(mapped, DEPOP_WOMEN_TEE)
+
+    def test_remaps_vendoo_default_other_leaf_for_a_tee(self):
+        mapped = map_depop_category_path(
+            "Women > Tops > Other",
+            {
+                "title": "Southwestern Graphic T-Shirt",
+                "department": "Women",
+                "depop_specifics": {"categoryPath": ["Women", "Tops", "Other"]},
+            },
+        )
+        self.assertEqual(mapped, DEPOP_WOMEN_TEE)
+
+    def test_maps_blouse_and_button_up_apart(self):
+        self.assertEqual(
+            map_depop_category_path(
+                WOMEN_TOPS_PATH,
+                {"title": "Notations XL Floral Blouse", "department": "Women"},
+            ),
+            DEPOP_WOMEN_BLOUSE,
+        )
+        self.assertEqual(
+            map_depop_category_path(
+                WOMEN_TOPS_PATH,
+                {"title": "Notations XL Plaid Button-Up Shirt", "department": "Women"},
+            ),
+            DEPOP_WOMEN_SHIRT,
+        )
+
+    def test_keeps_a_depop_leaf_the_listing_asked_for(self):
+        path = "Women > Tops > Crop tops"
+        mapped = map_depop_category_path(
+            path,
+            {"title": "Southwestern Graphic Crop Top T-Shirt", "department": "Women"},
+        )
+        self.assertEqual(mapped, path)
+
 
 class EtsyCategoryMappingTest(unittest.TestCase):
     def test_maps_button_up_blouse_to_etsy_blouses(self):
@@ -432,3 +505,30 @@ class EtsyCategoryMappingTest(unittest.TestCase):
             {"title": "Southwestern Graphic T-Shirt", "department": "Women"},
         )
         self.assertEqual(mapped, ETSY_WOMEN_TEE)
+
+    def test_remaps_vendoo_default_tunics_leaf_for_a_tee(self):
+        mapped = map_etsy_category_path(
+            "Clothing > Women's Clothing > Tops & Tees > Tunics",
+            {
+                "title": "Southwestern Graphic T-Shirt",
+                "department": "Women",
+                "etsy_specifics": {
+                    "categoryPath": [
+                        "Clothing", "Women's Clothing", "Tops & Tees", "Tunics",
+                    ],
+                },
+            },
+        )
+        self.assertEqual(mapped, ETSY_WOMEN_TEE)
+
+    def test_keeps_etsy_polos_for_a_polo_tee(self):
+        path = "Clothing > Women's Clothing > Tops & Tees > Polos"
+        mapped = map_etsy_category_path(
+            path,
+            {
+                "title": "Izod M Navy Polo Shirt",
+                "department": "Women",
+                "ebay_specifics": {"department": "Women", "type": "T-Shirt"},
+            },
+        )
+        self.assertEqual(mapped, path)

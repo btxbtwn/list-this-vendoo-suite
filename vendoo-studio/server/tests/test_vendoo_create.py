@@ -9,6 +9,12 @@ from types import SimpleNamespace
 from unittest import mock
 
 from vendoo_studio.services import category_fields, vendoo_create
+from vendoo_studio.services.registry import (
+    DEPOP_WOMEN_TEE,
+    ETSY_WOMEN_TEE,
+    MERCARI_WOMEN_TEE,
+    WOMEN_TOPS_PATH,
+)
 from vendoo_studio.services.vendoo_specifics import normalize_specifics
 from vendoo_studio.services.vendoo_create import (
     VendooCreateError,
@@ -660,6 +666,29 @@ class ResolveCategoriesTest(_NoExtraMapping):
         # Blouses answer agrees with it and no search is needed.
         self.assertEqual(out["marketplace_category_ids"]["poshmark"], "posh_blouse")
         self.assertEqual(every_op(fake, "category_search"), [])
+
+    def test_a_tee_asks_each_marketplace_for_its_tshirts_leaf(self):
+        """Vendoo maps every women's top to one leaf; the tee leaves need naming."""
+        listing = {
+            "category_id": "gen_tops",
+            "category_path": WOMEN_TOPS_PATH,
+            "title": "Southwestern Graphic T-Shirt",
+            "department": "Women",
+        }
+        with mock.patch.object(
+            vendoo_create, "_mappable_marketplaces",
+            return_value=("ebay", "etsy", "mercari", "depop"),
+        ):
+            targets = dict(
+                (key, path) for key, _marketplace_id, path in
+                vendoo_create._category_targets(listing)
+            )
+
+        self.assertEqual(targets["etsy"], ETSY_WOMEN_TEE)
+        self.assertEqual(targets["mercari"], MERCARI_WOMEN_TEE)
+        self.assertEqual(targets["depop"], DEPOP_WOMEN_TEE)
+        # eBay has no tee leaf of its own to ask for; Vendoo's mapping decides.
+        self.assertEqual(targets["ebay"], "")
 
     def test_skips_when_already_resolved(self):
         listing = {"category_path": "A > B", "category_id": "already"}
