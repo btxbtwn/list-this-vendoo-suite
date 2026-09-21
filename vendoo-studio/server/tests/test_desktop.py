@@ -353,10 +353,15 @@ class ConnectChromeRouteTest(unittest.IsolatedAsyncioTestCase):
         ) as launch, patch(
             "vendoo_studio.services.chrome_bridge.extension_reload_token_if_needed",
             return_value=None,
-        ):
+        ), patch(
+            "vendoo_studio.routes.extension.wait_for_extension_connection",
+            return_value=True,
+        ) as wait:
             result = await desktop_routes.connect_chrome()
         launch.assert_called_once_with(visible=True)
+        wait.assert_awaited_once()
         self.assertTrue(result["ok"])
+        self.assertTrue(result["connected"])
         self.assertEqual(result["via"], "chrome")
         self.assertNotIn("extension_reload", result)
 
@@ -371,7 +376,47 @@ class ConnectChromeRouteTest(unittest.IsolatedAsyncioTestCase):
         ), patch(
             "vendoo_studio.routes.extension.request_extension_reload",
             return_value=True,
-        ) as reload:
+        ) as reload, patch(
+            "vendoo_studio.routes.extension.wait_for_extension_connection",
+            return_value=False,
+        ):
             result = await desktop_routes.connect_chrome()
         reload.assert_awaited_once_with("gen-1")
         self.assertTrue(result["extension_reload"])
+        self.assertFalse(result["connected"])
+
+
+class WaitForExtensionConnectionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_immediately_when_already_connected(self):
+        from vendoo_studio.routes.extension import wait_for_extension_connection
+
+        manager = SimpleNamespace(connected=True, connection=None, version=None, reload_generation=None, build=None)
+        with patch("vendoo_studio.routes.extension.extension_manager", manager):
+            self.assertTrue(await wait_for_extension_connection(timeout_sec=1.0))
+
+    async def test_nudges_pending_reload_while_waiting(self):
+        from vendoo_studio.routes.extension import wait_for_extension_connection
+
+        manager = SimpleNamespace(
+            connected=False,
+            connection=object(),
+            version="0.2.33",
+            reload_generation=None,
+            build=None,
+        )
+
+        async def connect_after_reload(_token):
+            manager.connected = True
+            return True
+
+        with patch("vendoo_studio.routes.extension.extension_manager", manager), patch(
+            "vendoo_studio.routes.extension.pending_extension_reload_token",
+            return_value="gen-wait",
+        ), patch(
+            "vendoo_studio.routes.extension.request_extension_reload",
+            side_effect=connect_after_reload,
+        ) as reload:
+            connected = await wait_for_extension_connection(timeout_sec=2.0, poll_interval_sec=0.05)
+
+        self.assertTrue(connected)
+        reload.assert_awaited()

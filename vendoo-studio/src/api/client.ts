@@ -608,7 +608,13 @@ export const api = {
         profile?: string;
         profile_dir?: string;
       }>("/desktop/chrome"),
-    connectChrome: () => request<{ ok: boolean }>("/desktop/chrome/connect", { method: "POST" }),
+    connectChrome: () =>
+      request<{
+        ok: boolean;
+        connected?: boolean;
+        extension_reload?: boolean;
+        via?: string;
+      }>("/desktop/chrome/connect", { method: "POST" }),
   },
 
   updates: {
