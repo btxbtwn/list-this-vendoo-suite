@@ -751,6 +751,53 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         gaps = review_fields(self.verification, listing)
         self.assertEqual([(gap["marketplace"], gap["field"]) for gap in gaps], [("mercari", "Brand")])
 
+    def test_stored_brand_still_faces_the_depop_and_mercari_dropdowns(self):
+        # The API can store any string in overrides.brand, so a draft reading the
+        # brand back is not proof Depop/Mercari carry it.
+        self.verification["schema"] = {
+            "depop": {"fields": [{"label": "Brand", "value": "Wren & Glory", "required": True}]},
+            "mercari": {"fields": [
+                {"label": "Brand", "value": "Wren & Glory", "required": True},
+                {"label": "No Brand/Not sure", "value": False},
+            ]},
+        }
+        listing = {**self.listing, "brand": "Wren & Glory"}
+        gaps = review_fields(self.verification, listing)
+        self.assertEqual(
+            [(gap["marketplace"], gap["field"]) for gap in gaps],
+            [("depop", "Brand"), ("mercari", "Brand")],
+        )
+        # The gap survives both no-op filters so the filler gets to choose.
+        self.assertEqual(len(drop_noop_gaps(self.db, self.job, gaps, listing)), 2)
+        ready, needs = deterministic_gap_patches(gaps, listing)
+        self.assertEqual(needs, [])
+        self.assertEqual([patch["value"] for patch in ready], ["Wren & Glory", "Wren & Glory"])
+
+        # Once the filler has written its answer, stop reopening the gap.
+        for marketplace in ("depop", "mercari"):
+            self.db.add(FillLogEntry(
+                job_id=self.job.id,
+                conversation_id=self.conv.id,
+                step=f"filling_{marketplace}",
+                marketplace=marketplace,
+                field="Brand",
+                status="filled",
+                reason="",
+                value_preview="Other",
+            ))
+        self.db.commit()
+        self.assertEqual(drop_noop_gaps(self.db, self.job, gaps, listing), [])
+
+    def test_offered_brand_on_the_draft_is_not_reopened(self):
+        self.verification["schema"] = {"depop": {"fields": [{
+            "label": "Brand",
+            "value": "Nike",
+            "required": True,
+            "options": ["Nike", "Other"],
+            "options_complete": True,
+        }]}}
+        self.assertEqual(review_fields(self.verification, {**self.listing, "brand": "Nike"}), [])
+
     def test_depop_other_does_not_hide_a_brand_depop_carries(self):
         self.verification["schema"] = {"depop": {"fields": [{
             "label": "Brand",
