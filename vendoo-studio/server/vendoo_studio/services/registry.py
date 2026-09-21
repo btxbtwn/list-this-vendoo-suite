@@ -182,6 +182,7 @@ _NON_TOP_RE = re.compile(
 )
 _WOMEN_RE = re.compile(r"\bwomen(?:['’]s)?\b", re.I)
 _MEN_RE = re.compile(r"\bmen(?:['’]s)?\b", re.I)
+_UNISEX_RE = re.compile(r"\bunisex\b", re.I)
 _GENDER_PATH_RE = re.compile(r"(?:department|category_path|categorypath)$", re.I)
 
 
@@ -288,6 +289,13 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
     alias = norms.get(raw.lower()) or norms.get(_category_key(raw))
     haystack = f"{raw} {_listing_text(listing)}"
     gender = _listing_gender(listing, raw)
+    if gender is None and _UNISEX_RE.search(haystack):
+        # Vendoo's General tree has no adult unisex clothing — only Unisex
+        # Kids — so "Unisex Adult Clothing > Tops > T-Shirts" is not a leaf
+        # anything can resolve, and the whole listing stalls on it. Unisex
+        # takes the men's branch here for the same reason it does on the
+        # marketplaces: it has to take one.
+        gender = "men"
     is_top = bool(_TOP_ITEM_RE.search(haystack))
     if gender == "women" and is_top:
         return WOMEN_TOPS_PATH
@@ -373,13 +381,22 @@ def _garment_family(listing: dict) -> str:
 
 
 def _department(listing: dict, raw: str, garment: str) -> str:
+    """Which branch of a marketplace tree this listing belongs in.
+
+    Empty when nothing says — then Vendoo's own mapping stands.
+    """
     gender = _listing_gender(listing, raw)
     if gender in {"women", "men"}:
         return gender
     context = f"{raw} {garment}"
     if _WOMEN_RE.search(context):
         return "women"
-    return "men" if _MEN_RE.search(context) else ""
+    if _MEN_RE.search(context):
+        return "men"
+    # eBay and Vendoo's General tree have a Unisex branch; no marketplace does
+    # — Poshmark, Mercari, Depop and Etsy are Women/Men/Kids only. A unisex
+    # item has to pick a side, and the seller's rule is Men.
+    return "men" if _UNISEX_RE.search(f"{context} {_listing_text(listing)}") else ""
 
 
 def _garment_leaf_and_cue(marketplace: str, listing: dict, raw: str) -> tuple[str, bool]:

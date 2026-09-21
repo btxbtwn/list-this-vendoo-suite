@@ -492,6 +492,52 @@ class TopKindMappingTest(unittest.TestCase):
         )
 
 
+class UnisexDepartmentTest(unittest.TestCase):
+    """No marketplace has a unisex clothing branch, so one side has to be picked."""
+
+    UNISEX_TEE = {
+        "title": "District S Casual Graphic T-Shirt White Crewneck",
+        "department": "Unisex",
+        "category_path": (
+            "Clothing, Shoes & Accessories > Unisex > Unisex Adult Clothing > Tops > T-Shirts"
+        ),
+        "ebay_specifics": {"department": "Unisex", "type": "T-Shirt"},
+    }
+
+    def test_a_unisex_listing_goes_to_the_mens_branch(self):
+        wanted = {
+            map_poshmark_category_path: POSHMARK_MEN_SHORT_TEE,
+            map_mercari_category_path: "Men > Tops > T-shirts",
+            map_depop_category_path: "Men > Tops > T-shirts",
+            map_etsy_category_path: "Clothing > Men's Clothing > Shirts & Tees > T-shirts",
+        }
+        for mapper, path in wanted.items():
+            with self.subTest(mapper=mapper.__name__):
+                self.assertEqual(mapper(self.UNISEX_TEE["category_path"], self.UNISEX_TEE), path)
+
+    def test_an_explicit_gender_still_wins_over_unisex(self):
+        listing = {
+            **self.UNISEX_TEE,
+            "department": "Women",
+            "ebay_specifics": {"department": "Women", "type": "T-Shirt"},
+        }
+        self.assertEqual(
+            map_depop_category_path(listing["category_path"], listing), DEPOP_WOMEN_TEE,
+        )
+
+    def test_a_unisex_general_path_becomes_a_selectable_leaf(self):
+        """Vendoo's General tree has no adult unisex clothing to resolve against."""
+        self.assertEqual(
+            map_vendoo_category_path(self.UNISEX_TEE["category_path"], self.UNISEX_TEE),
+            MEN_TSHIRT_PATH,
+        )
+
+    def test_a_listing_naming_no_department_is_left_to_vendoo(self):
+        listing = {"title": "Graphic T-Shirt", "ebay_specifics": {"type": "T-Shirt"}}
+        path = "Clothing, Shoes & Accessories > Tops"
+        self.assertEqual(map_depop_category_path(path, listing), path)
+
+
 class NonTopGarmentTest(unittest.TestCase):
     """The tops mappers must keep their hands off everything else."""
 
