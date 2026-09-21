@@ -253,6 +253,7 @@ Measurements: {See photos OR specific measurements}
 ```
 - Keep the first line short and keyword-driven (vibe, decade/trend, fit, fabric) — not two separate sentences.
 - Do not add Size, a full condition write-up, shipping speed, or bundle/discount lines — those are covered by marketplace fields and marketplace-level promos already.
+- NEVER include pricing details in the description: no prices, dollar amounts, comps, sold-listing counts, market or resale value, MSRP, discounts, offers, or notes about pricing confidence. Pricing belongs in the price field only.
 
 ### Etsy Digital Download Description Formula
 Use this override only when the Etsy listing is a digital product.
