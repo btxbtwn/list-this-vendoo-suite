@@ -270,17 +270,10 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     marketplace = str(marketplace or "general").strip().lower()
     key = field_lookup_key(field)
     if key == "category" and marketplace in (source.get("marketplace_categories") or {}):
+        from vendoo_studio.services.registry import map_marketplace_category_path
+
         result = str(source["marketplace_categories"][marketplace])
-        if marketplace == "poshmark":
-            from vendoo_studio.services.registry import map_poshmark_category_path
-            return map_poshmark_category_path(result, source)
-        if marketplace == "mercari":
-            from vendoo_studio.services.registry import map_mercari_category_path
-            return map_mercari_category_path(result, source)
-        if marketplace == "etsy":
-            from vendoo_studio.services.registry import map_etsy_category_path
-            return map_etsy_category_path(result, source)
-        return result
+        return map_marketplace_category_path(marketplace, result, source)
     if marketplace in {"", "general", "unknown"}:
         if key in {"weight lbs", "weight lb", "pounds"}:
             return _stringify_listing_value(source.get("weight_lb"))
@@ -305,15 +298,13 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
         if value is None:
             value = _value_from_record(source, key)
     result = _stringify_listing_value(value)
-    if marketplace == "poshmark" and key == "category":
-        from vendoo_studio.services.registry import map_poshmark_category_path
-        return map_poshmark_category_path(result or str(source.get("category_path") or ""), source)
-    if marketplace == "mercari" and key == "category":
-        from vendoo_studio.services.registry import map_mercari_category_path
-        return map_mercari_category_path(result or str(source.get("category_path") or ""), source)
-    if marketplace == "etsy" and key == "category":
-        from vendoo_studio.services.registry import map_etsy_category_path
-        return map_etsy_category_path(result or str(source.get("category_path") or ""), source)
+    if key == "category":
+        from vendoo_studio.services.registry import CATEGORY_PATH_MAPPERS, map_marketplace_category_path
+
+        if marketplace in CATEGORY_PATH_MAPPERS:
+            return map_marketplace_category_path(
+                marketplace, result or str(source.get("category_path") or ""), source,
+            )
     if result and DOES_NOT_APPLY_RE.match(result):
         return ""
     return result or ""

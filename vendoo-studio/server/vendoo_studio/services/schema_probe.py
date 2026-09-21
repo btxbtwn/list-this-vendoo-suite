@@ -355,7 +355,7 @@ async def prepare_generation_schema(
     mapped = await mapped_marketplace_paths(paths["general"], platforms)
     if mapped:
         from vendoo_studio.services.category_lookup import marketplace_path_fits_general
-        from vendoo_studio.services.registry import map_etsy_category_path, map_poshmark_category_path
+        from vendoo_studio.services.registry import map_marketplace_category_path
 
         mapped = {
             mp: path
@@ -367,12 +367,13 @@ async def prepare_generation_schema(
             "title": analysis,
             "description": notes,
         }
-        # Vendoo's mapper often returns Tank Tops / Tunics for a bare Women's Tops
-        # general because the leaf shares the word "tops". Remap with photo/seller text.
-        if "poshmark" in mapped:
-            mapped["poshmark"] = map_poshmark_category_path(mapped["poshmark"], listing_cues)
-        if "etsy" in mapped:
-            mapped["etsy"] = map_etsy_category_path(mapped["etsy"], listing_cues)
+        # Vendoo's mapper often returns Tank Tops / Tunics / Blouse for a bare
+        # Women's Tops general because every top maps to the same leaf. Remap
+        # with photo/seller text so a tee reaches the T-shirts leaf.
+        mapped = {
+            mp: map_marketplace_category_path(mp, path, listing_cues) or path
+            for mp, path in mapped.items()
+        }
     missing = [mp for mp in platforms if mp not in mapped]
     if missing:
         # No mapper (no Chrome, say), or mapper returned hardware collisions —
@@ -400,7 +401,7 @@ async def prepare_generation_schema(
     cached = cached_schema_payload(db, category_path, required)
     if cached:
         # Prefer marketplace leaves that produced the remembered field schemas.
-        from vendoo_studio.services.registry import map_etsy_category_path, map_poshmark_category_path
+        from vendoo_studio.services.registry import map_marketplace_category_path
 
         seed["marketplace_categories"] = {
             mp: str((cached.get(mp) or {}).get("category", {}).get("path") or "").strip()
@@ -412,16 +413,10 @@ async def prepare_generation_schema(
             "title": seed.get("title") or analysis,
             "description": seed.get("description") or notes,
         }
-        if "poshmark" in seed["marketplace_categories"]:
-            seed["marketplace_categories"]["poshmark"] = map_poshmark_category_path(
-                seed["marketplace_categories"]["poshmark"],
-                listing_cues,
-            )
-        if "etsy" in seed["marketplace_categories"]:
-            seed["marketplace_categories"]["etsy"] = map_etsy_category_path(
-                seed["marketplace_categories"]["etsy"],
-                listing_cues,
-            )
+        seed["marketplace_categories"] = {
+            mp: map_marketplace_category_path(mp, path, listing_cues) or path
+            for mp, path in seed["marketplace_categories"].items()
+        }
         ListingRepo(db).save_revision(
             conv_id,
             seed,

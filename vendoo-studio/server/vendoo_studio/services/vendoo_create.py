@@ -193,6 +193,8 @@ def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
         # eBay numeric leaves — search/lookup against marketplace ``general``.
         targets.append(("general", "general", general_path))
 
+    from vendoo_studio.services.registry import CATEGORY_PATH_MAPPERS
+
     cats = listing.get("marketplace_categories")
     cats = cats if isinstance(cats, dict) else {}
     ids = listing.get("marketplace_category_ids")
@@ -201,6 +203,19 @@ def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
         if str(ids.get(marketplace) or "").strip():
             continue
         path = str(cats.get(marketplace) or "").strip()
+        # These trees do not hold every wording the generator uses ("Tops",
+        # "Button-Down Shirts"); map onto a selectable leaf before anything
+        # resolves against it. With no breadcrumb of its own, the general
+        # category is the cue — Vendoo maps that one Women's Tops leaf onto a
+        # single leaf per marketplace, so naming the leaf this garment wants
+        # is the only way its T-shirts leaf is ever asked for.
+        mapper = CATEGORY_PATH_MAPPERS.get(marketplace)
+        if mapper and (path or marketplace in _mappable_marketplaces()):
+            mapped_path = str(mapper(path or general_path, listing) or "").strip()
+            if path:
+                path = mapped_path or path
+            elif mapped_path and mapped_path != general_path:
+                path = mapped_path
         if not path:
             # No breadcrumb of its own is fine now: the mapper works from the
             # general category. Only for marketplaces the seller actually
@@ -211,17 +226,6 @@ def _category_targets(listing: dict[str, Any]) -> list[tuple[str, str, str]]:
             ):
                 targets.append((marketplace, marketplace, ""))
             continue
-        if marketplace == "poshmark":
-            # Poshmark's tree does not hold every wording the generator uses
-            # ("Tops", "Button-Down Shirts"); map it onto a selectable leaf
-            # before anything resolves against it.
-            from vendoo_studio.services.registry import map_poshmark_category_path
-
-            path = map_poshmark_category_path(path, listing) or path
-        elif marketplace == "etsy":
-            from vendoo_studio.services.registry import map_etsy_category_path
-
-            path = map_etsy_category_path(path, listing) or path
         targets.append((marketplace, marketplace, path))
     return targets
 
