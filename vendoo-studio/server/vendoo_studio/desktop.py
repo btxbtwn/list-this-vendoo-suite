@@ -52,6 +52,8 @@ WINDOW_BACKGROUND = "#090909"
 # spacing; moving or resizing them by hand only fights AppKit's own layout.
 TITLEBAR_HEIGHT_PX = 52
 TITLEBAR_TOOLBAR_ID = "VendooStudioTitlebar"
+# NSWindow -> fullscreen notification observer token, one per window.
+_FULLSCREEN_OBSERVERS: dict = {}
 # macOS hands its current window chrome — the larger traffic lights T3 Code
 # shows, and their spacing — only to binaries linked against the macOS 26 SDK.
 # Studio's interpreter is linked far older, so the window keeps the legacy
@@ -883,27 +885,54 @@ def _enable_native_fullscreen(native, AppKit) -> None:
         pass
 
 
-def _set_toolbar_visible(native, visible: bool) -> None:
-    """Show the unified toolbar only outside fullscreen.
+def _detach_toolbar(native) -> None:
+    """Drop the unified toolbar so fullscreen never inherits it.
 
     Entering a fullscreen Space moves the titlebar container out of this window
     and into AppKit's own NSToolbarFullScreenWindow, which paints an opaque
     #1c1c1c band over the top of the web view. Nothing done to *this* window's
-    titlebar reaches that band, so the toolbar has to go while fullscreen. It
-    exists only to inset the traffic lights, and macOS hides those in fullscreen
-    anyway; with no toolbar the fullscreen titlebar stays auto-hidden and the
-    HTML topbar owns the top of the screen.
+    titlebar reaches that band, so the toolbar has to go. It exists only to
+    inset the traffic lights, and macOS hides those in fullscreen anyway; with
+    no toolbar the fullscreen titlebar stays auto-hidden and the HTML topbar
+    owns the top of the screen.
+
+    This must happen *before* the transition starts (see
+    _watch_fullscreen_transitions). Touching the toolbar while the Space is
+    already fullscreen aborts the app on the way out: AppKit's
+    -[NSThemeFrame _reacquireToolbarViewFromFullScreenWindowAndShow:] asserts
+    in -[_NSFullScreenMenuBarCompanionController _relinquishTitlebar].
     """
     try:
-        toolbar = native.toolbar()
+        if native.toolbar() is None:
+            return
     except Exception:
-        return
-    if toolbar is None:
         return
     try:
-        toolbar.setVisible_(visible)
+        native.setToolbar_(None)
     except Exception:
         pass
+
+
+def _watch_fullscreen_transitions(native, AppKit) -> None:
+    """Take the toolbar off the window before AppKit hands it to fullscreen."""
+    if native in _FULLSCREEN_OBSERVERS:
+        return
+    try:
+        center = AppKit.NSNotificationCenter.defaultCenter()
+    except Exception:
+        return
+    try:
+        token = center.addObserverForName_object_queue_usingBlock_(
+            "NSWindowWillEnterFullScreenNotification",
+            native,
+            None,
+            lambda _note: _detach_toolbar(native),
+        )
+    except Exception:
+        return
+    # The notification centre holds the observer weakly; keep the token (and the
+    # block it retains) alive for the window's lifetime.
+    _FULLSCREEN_OBSERVERS[native] = token
 
 
 def _paint_transparent_titlebar(native, AppKit) -> None:
@@ -952,7 +981,7 @@ def apply_unified_macos_chrome(window, *_args, **_kwargs) -> None:
         _enable_native_fullscreen(native, AppKit)
         _enable_window_buttons(native, AppKit)
         _install_titlebar_toolbar(native, AppKit)
-    _set_toolbar_visible(native, not fullscreen)
+        _watch_fullscreen_transitions(native, AppKit)
 
     _paint_transparent_titlebar(native, AppKit)
     _restore_traffic_lights(native, AppKit)
