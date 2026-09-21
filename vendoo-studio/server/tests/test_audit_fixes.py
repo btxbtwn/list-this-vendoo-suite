@@ -662,6 +662,9 @@ class ValidationCasesTest(unittest.TestCase):
         self.assertTrue(ensure_depop_category_optionals(listing))
         depop = listing["depop_specifics"]
         self.assertEqual(len(depop["style"]), 3)
+        self.assertIn("Casual", depop["style"])
+        self.assertIn("Retro", depop["style"])  # title says Retro Blouse
+        self.assertNotEqual(depop["style"], ["Casual", "Retro", "Boho"])
         self.assertEqual(len(depop["occasion"]), 3)
         self.assertNotIn("sizeGrouping", depop)
         result = validate_listing(listing, 5, selected_marketplaces=["depop"])
@@ -670,6 +673,43 @@ class ValidationCasesTest(unittest.TestCase):
             for err in result.errors
         ), result.errors)
         self.assertTrue(result.can_send, result.errors)
+
+    def test_depop_styles_inferred_from_listing_cues(self):
+        from vendoo_studio.models.depop_fields import ensure_depop_category_optionals, infer_depop_styles
+
+        street = {
+            "title": "Nike Graphic Tee Streetwear Skate",
+            "description": "Oversized hoodie street style skateboard",
+            "ebay_specifics": {"type": "T-Shirt"},
+            "depop_specifics": {"source": "Preloved"},
+        }
+        self.assertEqual(
+            infer_depop_styles(street),
+            ["Streetwear", "Casual", "Skater"],
+        )
+        self.assertTrue(ensure_depop_category_optionals(street))
+        self.assertEqual(street["depop_specifics"]["style"], ["Streetwear", "Casual", "Skater"])
+
+        floral = {
+            "title": "Floral Peasant Blouse",
+            "description": "Boho floral embroidered top",
+            "ebay_specifics": {"theme": "Floral", "type": "Blouse"},
+            "depop_specifics": {"style": "Tunic"},
+        }
+        styles = infer_depop_styles(floral)
+        self.assertIn("Boho", styles)
+        self.assertIn("Casual", styles)
+        self.assertNotEqual(styles, ["Casual", "Retro", "Boho"])
+        self.assertTrue(ensure_depop_category_optionals(floral))
+        self.assertEqual(floral["depop_specifics"]["style"], styles)
+
+        empty = {
+            "title": "Item",
+            "description": "x",
+            "ebay_specifics": {},
+            "depop_specifics": {},
+        }
+        self.assertEqual(infer_depop_styles(empty), ["Casual", "Minimalist", "Indie"])
 
     def test_depop_size_grouping_required_for_petite(self):
         from vendoo_studio.models.depop_fields import ensure_depop_category_optionals

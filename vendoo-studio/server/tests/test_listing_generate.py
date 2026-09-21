@@ -418,7 +418,7 @@ class PersistListingTest(unittest.TestCase):
         self.assertIn("Measurements:", listing["description"])
         self.assertEqual(listing.get("weight_oz"), 8)
         self.assertEqual(listing["ebay_specifics"]["season"], "Spring")
-        self.assertEqual(listing["depop_specifics"]["style"], ["Casual", "Retro", "Boho"])
+        self.assertEqual(listing["depop_specifics"]["style"], ["Casual", "Boho", "Minimalist"])
         self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
 
     def test_sanitize_listing_sizes_strips_approx_prefix(self):
