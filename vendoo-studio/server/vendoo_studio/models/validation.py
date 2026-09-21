@@ -10,6 +10,7 @@ from vendoo_studio.models.depop_fields import (
     VALID_DEPOP_GROUPING,
     VALID_DEPOP_PARCEL,
     ensure_depop_category_optionals,
+    infer_depop_styles,
 )
 from vendoo_studio.models.ebay_fields import (
     EBAY_CATEGORY_OPTIONAL_KEYS,
@@ -357,8 +358,13 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
             elif str(style or "").strip():
                 had_invalid = True
         if styles and had_invalid:
-            if not mapped:
-                mapped = ["Casual", "Retro", "Boho"]
+            if len(mapped) < 3:
+                inferred = infer_depop_styles(listing, limit=3, exclude=mapped)
+                for style in inferred:
+                    if style not in mapped:
+                        mapped.append(style)
+                    if len(mapped) >= 3:
+                        break
             mapped = mapped[:3]
             if mapped != styles:
                 depop["style"] = mapped

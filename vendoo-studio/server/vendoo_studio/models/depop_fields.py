@@ -46,8 +46,88 @@ DEPOP_OPTIONAL_MUST_FILL_LOOKUPS = frozenset({
 DEPOP_OPTIONAL_DNA_LOOKUPS = frozenset({
     "size grouping",
 })
-DEPOP_DEFAULT_STYLES = ("Casual", "Retro", "Boho")
+# Last-resort pads when listing text yields fewer than 3 style cues.
+DEPOP_STYLE_FALLBACKS = ("Casual", "Minimalist", "Indie")
 DEPOP_DEFAULT_OCCASIONS = ("Casual", "Going out", "Vacation")
+
+# Keyword cues → Depop style labels. Scores accumulate; top hits win.
+DEPOP_STYLE_CUES: dict[str, tuple[str, ...]] = {
+    "Streetwear": (
+        r"\bstreetwear\b", r"\bstreet\s*style\b",
+        r"\bgraphic\s*(?:tee|t[\s-]?shirt|top)\b", r"\bhype(?:beast)?\b",
+        r"\boversized\s+(?:hoodie|tee|sweat)\b",
+    ),
+    "Sportswear": (
+        r"\bsportswear\b", r"\bathletic\b", r"\bactivewear\b", r"\bworkout\b",
+        r"\bleggings?\b", r"\btrack\s*(?:pant|jacket|suit)\b", r"\bjoggers?\b",
+        r"\bsporty\b",
+    ),
+    "Loungewear": (
+        r"\bloungewear\b", r"\blounge\b", r"\bpajamas?\b", r"\bpyjamas?\b",
+        r"\bsweatpants?\b", r"\brobe\b", r"\bsleepwear\b",
+    ),
+    "Goth": (r"\bgoth(?:ic)?\b", r"\bvampire\b", r"\bbatwing\b"),
+    "Retro": (
+        r"\bretro\b", r"\bvintage\b", r"\bdeadstock\b",
+        r"\b(?:50|60|70|80|90)s\b", r"\bthrowback\b",
+    ),
+    "Boho": (
+        r"\bboho\b", r"\bbohemian\b", r"\bpeasant\b", r"\bfloral\b",
+        r"\bflower(?:ed|s)?\b", r"\bfringe\b", r"\bembroider(?:ed|y)\b",
+        r"\btassels?\b",
+    ),
+    "Western": (
+        r"\bwestern\b", r"\bcowboy\b", r"\bcowgirl\b", r"\brodeo\b",
+        r"\bfringe\s+(?:jacket|vest)\b",
+    ),
+    "Indie": (r"\bindie\b", r"\balternative\b", r"\bthrift(?:ed|y)?\b"),
+    "Skater": (r"\bskater\b", r"\bskate\b", r"\bskateboard\b"),
+    "Rave": (r"\brave\b", r"\bfestival\b", r"\bneon\b", r"\bedm\b"),
+    "Costume": (r"\bcostume\b", r"\bhalloween\b", r"\bdress[\s-]*up\b"),
+    "Cosplay": (r"\bcosplay\b", r"\banime\b", r"\bmanga\b"),
+    "Grunge": (r"\bgrunge\b", r"\bdistressed\b", r"\bflannel\b"),
+    "Emo": (r"\bemo\b",),
+    "Minimalist": (
+        r"\bminimalist\b", r"\bminimal\b", r"\bclean\s*line\b",
+        r"\bbasic\b", r"\bplain\b",
+    ),
+    "Preppy": (
+        r"\bpreppy\b", r"\bprep\b", r"\bcollegiate\b", r"\bplaid\b",
+        r"\btweed\b", r"\bpolo\b", r"\bargyle\b",
+    ),
+    "Avant Garde": (r"\bavant[\s-]*garde\b", r"\bexperimental\b", r"\basymmetric\b"),
+    "Punk": (r"\bpunk\b", r"\bstudded\b", r"\bspiked\b", r"\banarchy\b"),
+    "Glam": (
+        r"\bglam\b", r"\bglitter\b", r"\bsequin\b", r"\bmetallic\b",
+        r"\brhinestone\b", r"\bparty\s*dress\b",
+    ),
+    "Regency": (r"\bregency\b", r"\bbridgerton\b", r"\bempire\s*waist\b"),
+    "Casual": (
+        r"\bcasual\b", r"\beveryday\b", r"\brelaxed\b", r"\btunic\b",
+        r"\bblouse\b", r"\btee\b", r"\bt[\s-]?shirt\b",
+        r"\bjeans?\b", r"\bdenim\b",
+    ),
+    "Utility": (
+        r"\butility\b", r"\btechwear\b", r"\bcargo\b", r"\bworkwear\b",
+        r"\btactical\b",
+    ),
+    "Futuristic": (r"\bfuturistic\b", r"\bcyber\b", r"\bmetallic\s*foil\b"),
+    "Cottage": (r"\bcottage(?:core)?\b", r"\brural\b"),
+    "Fairy": (r"\bfairy(?:core)?\b", r"\bethereal\b", r"\bwhimsical\b"),
+    "Kidcore": (r"\bkidcore\b", r"\bchildlike\b"),
+    "Y2K": (r"\by2k\b", r"\b2000s\b", r"\blow[\s-]*rise\b"),
+    "Biker": (
+        r"\bbiker\b", r"\bmoto(?:rcycle)?\b", r"\bleather\s*jacket\b",
+        r"\bmoto\s*jacket\b",
+    ),
+    "Gorpcore": (
+        r"\bgorpcore\b", r"\bhiking\b", r"\bpatagonia\b",
+        r"\bnorth\s*face\b",
+    ),
+    "Twee": (r"\btwee\b", r"\bquirky\b", r"\bkitschy\b"),
+    "Coquette": (r"\bcoquette\b", r"\bballetcore\b"),
+    "Whimsygoth": (r"\bwhimsygoth\b", r"\bwhimsy\s*goth\b"),
+}
 
 VALID_DEPOP_GROUPING = frozenset({"Maternity", "Petite", "Plus size", "Tall"})
 VALID_DEPOP_PARCEL = (
@@ -58,6 +138,79 @@ VALID_DEPOP_PARCEL = (
     "Large",
     "Extra large",
 )
+
+
+def _pad_depop_tags(values: list[str], defaults: tuple[str, ...], *, limit: int = 3) -> list[str]:
+    kept: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in kept:
+            kept.append(text)
+        if len(kept) >= limit:
+            return kept[:limit]
+    for default in defaults:
+        if default not in kept:
+            kept.append(default)
+        if len(kept) >= limit:
+            break
+    return kept[:limit]
+
+
+def infer_depop_styles(
+    listing: dict | None = None,
+    *,
+    ebay: dict | None = None,
+    limit: int = 3,
+    exclude: list[str] | tuple[str, ...] | set[str] | frozenset[str] | None = None,
+) -> list[str]:
+    """Pick up to ``limit`` Depop styles from listing text (never a fixed Casual/Retro/Boho trio)."""
+    listing = listing if isinstance(listing, dict) else {}
+    if not isinstance(ebay, dict):
+        raw = listing.get("ebay_specifics")
+        ebay = raw if isinstance(raw, dict) else {}
+    hay = ebay_season_haystack(listing, ebay)
+    blocked = {str(item) for item in (exclude or ()) if item}
+    scores: dict[str, int] = {name: 0 for name in VALID_DEPOP_STYLE}
+
+    # Exact Depop label in the haystack is a strong signal.
+    for style in VALID_DEPOP_STYLE:
+        if style in blocked:
+            continue
+        if re.search(rf"\b{re.escape(style)}\b", hay, flags=re.I):
+            scores[style] += 3
+
+    for style, patterns in DEPOP_STYLE_CUES.items():
+        if style in blocked or style not in scores:
+            continue
+        for pattern in patterns:
+            if re.search(pattern, hay, flags=re.I):
+                scores[style] += 1
+
+    # eBay style / theme / pattern fields often carry the best single cue.
+    for key in ("style", "theme", "pattern", "features", "type"):
+        for part in as_list(ebay.get(key)):
+            text = text_value(part)
+            if not text:
+                continue
+            hit = canonical_option(text, VALID_DEPOP_STYLE)
+            if hit and hit not in blocked:
+                scores[hit] += 2
+            folded = text.casefold()
+            for style, patterns in DEPOP_STYLE_CUES.items():
+                if style in blocked:
+                    continue
+                if any(re.search(pattern, folded, flags=re.I) for pattern in patterns):
+                    scores[style] += 1
+
+    ranked = sorted(
+        (name for name, score in scores.items() if score > 0 and name not in blocked),
+        key=lambda name: (-scores[name], name),
+    )
+    picked = ranked[:limit]
+    if len(picked) >= limit:
+        return picked
+    fallbacks = tuple(name for name in DEPOP_STYLE_FALLBACKS if name not in blocked)
+    return _pad_depop_tags(picked, fallbacks, limit=limit)
 
 
 def _infer_depop_parcel_size(listing: dict) -> str:
@@ -81,22 +234,6 @@ def _infer_depop_parcel_size(listing: dict) -> str:
     if total_oz < 32:
         return "Large"
     return "Extra large"
-
-
-def _pad_depop_tags(values: list[str], defaults: tuple[str, ...], *, limit: int = 3) -> list[str]:
-    kept: list[str] = []
-    for value in values:
-        text = str(value or "").strip()
-        if text and text not in kept:
-            kept.append(text)
-        if len(kept) >= limit:
-            return kept[:limit]
-    for default in defaults:
-        if default not in kept:
-            kept.append(default)
-        if len(kept) >= limit:
-            break
-    return kept[:limit]
 
 
 def _map_depop_material(value: str) -> str | None:
@@ -165,19 +302,14 @@ def ensure_depop_category_optionals(listing: dict) -> bool:
         set_key("age", age)
 
     styles = as_list(depop.get("style"))
-    style_hits = [canonical_option(style, VALID_DEPOP_STYLE) for style in styles]
-    if not styles:
-        set_key("style", list(DEPOP_DEFAULT_STYLES))
-    elif all(style_hits) and len({hit for hit in style_hits if hit}) < 3:
-        mapped = []
-        for hit in style_hits:
-            if hit and hit not in mapped:
-                mapped.append(hit)
-        if re.search(r"\b(?:streetwear|graphic|skate)\b", hay) and "Streetwear" not in mapped:
-            mapped.insert(0, "Streetwear")
-        if re.search(r"\b(?:boho|floral|peasant)\b", hay) and "Boho" not in mapped:
-            mapped.append("Boho")
-        padded = _pad_depop_tags(mapped, DEPOP_DEFAULT_STYLES, limit=3)
+    mapped: list[str] = []
+    for style in styles:
+        hit = canonical_option(style, VALID_DEPOP_STYLE)
+        if hit and hit not in mapped:
+            mapped.append(hit)
+    if len(mapped) < 3:
+        inferred = infer_depop_styles(listing, ebay=ebay, limit=3, exclude=mapped)
+        padded = _pad_depop_tags(mapped, tuple(inferred) + DEPOP_STYLE_FALLBACKS, limit=3)
         if padded != styles:
             depop["style"] = padded
             changed = True
