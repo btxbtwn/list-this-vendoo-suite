@@ -44,21 +44,22 @@ The Studio extension maps Vendoo general condition → marketplace labels before
 | Marketplace | Options |
 |---|---|
 | **Vendoo / eBay** | Beige, Black, Blue, Brown, Cream, Gold, Gray, Green, Orange, Multicolor, Pink, Purple, Red, Silver, Yellow, Tan, White |
+| **Etsy** | Same list **without** Multicolor |
 | **Poshmark** | Same list **without** Beige and Multicolor |
 | **Depop** | Black, Grey, White, Brown, Tan, Cream, Yellow, Red, Burgundy, Orange, Pink, Purple, Blue, Navy, Green, Khaki, Multi, Silver, Gold |
 
 Depop uses **Grey** (not Gray) and **Multi** (not Multicolor), plus Burgundy, Navy, Khaki.
 
-The Studio extension maps Vendoo general colors before filling:
+The Studio extension maps Vendoo general colors before filling. When Multicolor has no marketplace option, secondary is promoted to primary so the required field is not left blank:
 
-| Incoming / Vendoo | eBay / Etsy | Poshmark | Depop |
-|---|---|---|---|
-| Gray / Grey | Gray | Gray | Grey |
-| Multicolor / Multi | Multicolor | *skipped* (no option) | Multi |
-| Beige | Beige | Tan | Tan |
-| Navy | Blue | Blue | Navy |
-| Burgundy | Red | Red | Burgundy |
-| Khaki | Beige | Tan | Khaki |
+| Incoming / Vendoo | eBay | Etsy | Poshmark | Depop |
+|---|---|---|---|---|
+| Gray / Grey | Gray | Gray | Gray | Grey |
+| Multicolor / Multi | Multicolor | *skipped* → use secondary | *skipped* → use secondary | Multi |
+| Beige | Beige | Beige | Tan | Tan |
+| Navy | Blue | Blue | Blue | Navy |
+| Burgundy | Red | Red | Red | Burgundy |
+| Khaki | Beige | Beige | Tan | Khaki |
 
 ## Vendoo general
 

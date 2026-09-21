@@ -178,6 +178,14 @@
         "1700s (Vintage)",
         "Before 1700 (Vintage)"
       ],
+      "primaryColor": [
+        "Beige", "Black", "Blue", "Brown", "Cream", "Gold", "Gray", "Green",
+        "Orange", "Pink", "Purple", "Red", "Silver", "Yellow", "Tan", "White"
+      ],
+      "secondaryColor": [
+        "Beige", "Black", "Blue", "Brown", "Cream", "Gold", "Gray", "Green",
+        "Orange", "Pink", "Purple", "Red", "Silver", "Yellow", "Tan", "White"
+      ],
       "listingType": ["Physical Item", "Digital Item"],
       "renewalOption": ["Automatic", "Manual"],
       "listingState": ["Draft Listing", "Live Listing", "Inactive"],
