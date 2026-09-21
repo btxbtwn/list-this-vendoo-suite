@@ -506,10 +506,12 @@ export const api = {
         recent_vendoo_labels: string[];
         settled_shelf_expanded: boolean;
         hidden_vendoo_labels: string[];
+        theme: "dark" | "light" | "system";
       }>("/settings/ui"),
     setUi: (body: {
       recent_vendoo_labels?: string[];
       settled_shelf_expanded?: boolean;
+      theme?: "dark" | "light" | "system";
       remember_labels?: string | string[];
       restore_labels?: string[];
       forget_label?: string;
@@ -519,6 +521,7 @@ export const api = {
         recent_vendoo_labels: string[];
         settled_shelf_expanded: boolean;
         hidden_vendoo_labels: string[];
+        theme: "dark" | "light" | "system";
       }>("/settings/ui", { method: "PUT", body: JSON.stringify(body) }),
     formulas: () =>
       request<{

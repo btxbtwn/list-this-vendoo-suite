@@ -601,7 +601,7 @@
 }
 
 .pr-row.is-active {
-  background: #191919;
+  background: var(--color-selection-fill);
 }
 
 .pr-name {

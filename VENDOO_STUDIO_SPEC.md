@@ -175,7 +175,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Purpose-built local listing workbench for one operator. Photos in, marketplace draft out, human approval before Send to Vendoo.
 - Dense enough for daily operational use.
 - T3 Code-inspired information hierarchy, not an IDE clone.
-- T3 Code stock dark shell from `pingdotgg/t3code` `themePalette.ts`: `#000000` sidebar, `#0a0a0a` workspace, `#111111` surfaces, `#191919` borders, and `#346bf1` accent.
+- T3 Code stock dark shell from `pingdotgg/t3code` `themePalette.ts`: `#000000` sidebar, `#0a0a0a` workspace, `#111111` surfaces, `#191919` borders, and `#346bf1` accent. Settings → Appearance also offers a neutral light shell (inverted surfaces, same cobalt accent) and System (follow the OS). Preference is stored in `settings.json` under `ui.theme` (`dark` | `light` | `system`, default `dark`).
 - The main workspace is inset by 8px inside a 12px rounded frame; navigation remains 244px wide.
 - Sidebar, workspace, and inspector share the same 8px inset and aligned top/bottom frame.
 - Column footers stay independent: sidebar keeps Settings and updates; inspector keeps Send to Vendoo; only the chat column gets a T3-style composer.

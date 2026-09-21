@@ -237,7 +237,7 @@
 }
 
 .pr-pill.is-active {
-  background: #191919;
+  background: var(--color-selection-fill);
   color: var(--color-text);
 }
 
