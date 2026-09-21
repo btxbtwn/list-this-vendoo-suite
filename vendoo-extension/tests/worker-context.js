@@ -14,9 +14,43 @@ function stubApi() {
 }
 
 function loadWorker() {
+  const alarms = [];
+  const alarmListeners = [];
   const context = {
     console: { log() {}, error() {}, warn() {} },
-    chrome: stubApi(),
+    chrome: {
+      alarms: {
+        create(name, info) {
+          alarms.push({ name, ...info });
+        },
+        onAlarm: {
+          addListener(fn) {
+            alarmListeners.push(fn);
+          },
+        },
+      },
+      runtime: {
+        onInstalled: { addListener() {} },
+        onStartup: { addListener() {} },
+        onMessage: { addListener() {} },
+        getManifest: () => ({ version: '0.0.0' }),
+        reload() {},
+        sendMessage() { return Promise.resolve({}); },
+        lastError: null,
+      },
+      storage: {
+        local: {
+          get: async () => ({}),
+          set: async () => {},
+          remove: async () => {},
+        },
+      },
+      tabs: stubApi(),
+      scripting: stubApi(),
+      debugger: stubApi(),
+      system: { display: stubApi() },
+      downloads: stubApi(),
+    },
     // Timers never fire: tests only call pure helpers, and the worker's
     // reconnect loop must not keep the test process alive.
     setTimeout: () => 0,
@@ -24,18 +58,27 @@ function loadWorker() {
     setInterval: () => 0,
     clearInterval: () => {},
     fetch: async () => ({ ok: false, json: async () => ({}) }),
-    WebSocket: function WebSocket() { this.close = () => {}; },
+    WebSocket: function WebSocket() {
+      this.readyState = 0;
+      this.close = () => { this.readyState = 3; };
+    },
     URL,
     URLSearchParams,
     TextEncoder,
     crypto: globalThis.crypto,
   };
+  context.WebSocket.CONNECTING = 0;
+  context.WebSocket.OPEN = 1;
+  context.WebSocket.CLOSING = 2;
+  context.WebSocket.CLOSED = 3;
   context.self = context;
   context.importScripts = (...files) => {
     for (const file of files) {
       vm.runInContext(fs.readFileSync(path.join(ROOT, file), 'utf8'), context, { filename: file });
     }
   };
+  context.__alarms = alarms;
+  context.__alarmListeners = alarmListeners;
   vm.createContext(context);
   context.importScripts('background.js');
   return context;

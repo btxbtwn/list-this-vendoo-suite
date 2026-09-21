@@ -7163,8 +7163,17 @@
       };
   }
 
+  function nudgeStudioConnection() {
+    try {
+      chrome.runtime.sendMessage({ type: 'ENSURE_STUDIO_CONNECTION' }, () => {
+        void chrome.runtime.lastError;
+      });
+    } catch (_) {}
+  }
+
   function init() {
       log(`✓ Content script loaded on ${window.location.hostname}`);
+      nudgeStudioConnection();
       watchSellerSaves();
       
       runtimeListener = (msg, sender, sendResponse) => {

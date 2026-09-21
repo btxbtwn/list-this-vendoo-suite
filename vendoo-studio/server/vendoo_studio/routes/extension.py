@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -17,6 +18,7 @@ from vendoo_studio.services.chrome_bridge import (
     extension_build_status,
     extension_reload_token_if_needed,
     install_bundled_extension,
+    pending_extension_reload_token,
     relaunch_studio_chrome,
 )
 
@@ -209,6 +211,39 @@ async def request_extension_reload(generation: str) -> bool:
         type="extension.reload",
         payload={"generation": generation},
     ).model_dump(mode="json"))
+
+
+async def wait_for_extension_connection(
+    timeout_sec: float = 20.0,
+    *,
+    poll_interval_sec: float = 0.25,
+) -> bool:
+    """Wait until the bridge pairs after Connect Chrome opens everyday Chrome.
+
+    MV3 workers often need a moment (and sometimes one reload) before the
+    WebSocket is live. Keep nudging a pending reload while we wait so a single
+    Connect click can finish the handshake without quitting Chrome.
+    """
+    deadline = time.monotonic() + max(0.0, timeout_sec)
+    last_reload_at = 0.0
+    while True:
+        if extension_manager.connected:
+            return True
+        now = time.monotonic()
+        if now >= deadline:
+            return extension_manager.connected
+        if now - last_reload_at >= 2.0:
+            token = pending_extension_reload_token()
+            if not token:
+                token = extension_reload_token_if_needed(
+                    extension_manager.version,
+                    extension_manager.reload_generation,
+                    extension_manager.build,
+                )
+            if token and extension_manager.connection is not None:
+                await request_extension_reload(token)
+            last_reload_at = now
+        await asyncio.sleep(poll_interval_sec)
 
 
 async def handshake_extension(

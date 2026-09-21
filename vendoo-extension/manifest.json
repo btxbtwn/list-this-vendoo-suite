@@ -1,10 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Vendoo Listing Studio Bridge",
-  "version": "0.2.32",
+  "version": "0.2.33",
+  "minimum_chrome_version": "116",
   "description": "Connect Vendoo Listing Studio to automate marketplace listing drafts",
   "permissions": [
     "activeTab",
+    "alarms",
     "storage",
     "scripting",
     "downloads",
