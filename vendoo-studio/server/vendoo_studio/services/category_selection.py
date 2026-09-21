@@ -37,9 +37,9 @@ _NON_TOP_INTENT_RE = re.compile(
     r"\bcoats?\b|\bhoodies?\b|\bsweatshirts?\b|\bsweaters?\b",
     re.I,
 )
-# Subtypes that steal a plain scoop-neck / graphic tee when search ranks by "tee".
+# Subtypes that steal a plain scoop-neck / graphic tee or blouse when search ranks by "tee"/"top".
 _TOP_NOISE_RE = re.compile(
-    r"\bcrop\b|\bhalter\b|\btube\b|\bmuscle\b|\btanks?\b|\blaptop\b|\bslipper|\bflats?\b|\bheadband|"
+    r"\bcrop\b|\bhalter\b|\btube\b|\bmuscle\b|\btanks?\b|\btunics?\b|\blaptop\b|\bslipper|\bflats?\b|\bheadband|"
     r"\bhats?\b|\bwallets?\b|\bswim|\bbikini|\bmaternity\b|\bactivewear\b|\bvintage\b",
     re.I,
 )
@@ -132,7 +132,8 @@ def _usable_search_node(
     leaf = path.rsplit(">", 1)[-1]
     for match in _TOP_NOISE_RE.finditer(leaf):
         token = match.group(0)
-        if not re.search(rf"\b{re.escape(token)}\b", context, re.I):
+        forms = {token.casefold(), _singular(token.casefold())}
+        if not any(re.search(rf"\b{re.escape(form)}\b", context, re.I) for form in forms):
             return False
     return True
 

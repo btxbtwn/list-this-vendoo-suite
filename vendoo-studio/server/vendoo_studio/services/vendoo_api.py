@@ -977,9 +977,10 @@ def _path_words(parts: list[str]) -> set[str]:
 # Counting them as a leaf match made "Tank Tops" beat "Tees - Short Sleeve"
 # whenever the general leaf was bare "Tops".
 _PARENT_LEAF_WORDS = frozenset({"tops", "top", "shirts", "shirt", "clothing", "clothes"})
-# Sleeveless / specialty subtypes Vendoo often returns for a plain tee under Tops.
+# Specialty subtypes Vendoo often returns for a plain tee/blouse under Tops.
 _SUBTYPE_LEAF_WORDS = frozenset({
     "tank", "tanks", "crop", "crops", "halter", "tube", "muscle", "cami", "camisole",
+    "tunic", "tunics",
 })
 _TEE_LEAF_WORDS = frozenset({"tee", "tees", "tshirt", "tshirts"})
 
@@ -1377,6 +1378,11 @@ def _listing_section(
         from vendoo_studio.services.registry import map_poshmark_category_path
 
         mapped = map_poshmark_category_path(" > ".join(parts), listing)
+        parts = path_parts(mapped) or parts
+    if marketplace == "etsy" and parts:
+        from vendoo_studio.services.registry import map_etsy_category_path
+
+        mapped = map_etsy_category_path(" > ".join(parts), listing)
         parts = path_parts(mapped) or parts
     cat_ids = listing.get("marketplace_category_ids")
     cat_id = None

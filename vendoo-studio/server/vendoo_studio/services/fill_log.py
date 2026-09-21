@@ -277,6 +277,9 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
         if marketplace == "mercari":
             from vendoo_studio.services.registry import map_mercari_category_path
             return map_mercari_category_path(result, source)
+        if marketplace == "etsy":
+            from vendoo_studio.services.registry import map_etsy_category_path
+            return map_etsy_category_path(result, source)
         return result
     if marketplace in {"", "general", "unknown"}:
         if key in {"weight lbs", "weight lb", "pounds"}:
@@ -308,6 +311,9 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
     if marketplace == "mercari" and key == "category":
         from vendoo_studio.services.registry import map_mercari_category_path
         return map_mercari_category_path(result or str(source.get("category_path") or ""), source)
+    if marketplace == "etsy" and key == "category":
+        from vendoo_studio.services.registry import map_etsy_category_path
+        return map_etsy_category_path(result or str(source.get("category_path") or ""), source)
     if result and DOES_NOT_APPLY_RE.match(result):
         return ""
     return result or ""

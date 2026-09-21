@@ -14,6 +14,8 @@ from vendoo_studio.models.job import Job  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import RegistryRepo
 from vendoo_studio.services.registry import (
+    ETSY_WOMEN_BLOUSE,
+    ETSY_WOMEN_TEE,
     MEN_TSHIRT_PATH,
     POSHMARK_MEN_SHORT_TEE,
     POSHMARK_WOMEN_BLOUSE,
@@ -26,6 +28,7 @@ from vendoo_studio.services.registry import (
     is_account_managed_field,
     is_learned_listing_field,
     label_to_json_key,
+    map_etsy_category_path,
     map_mercari_category_path,
     map_poshmark_category_path,
     map_vendoo_category_path,
@@ -361,3 +364,71 @@ class MercariCategoryMappingTest(unittest.TestCase):
             {"title": "Southwestern Graphic T-Shirt", "department": "Women"},
         )
         self.assertEqual(mapped, MERCARI_WOMEN_TEE)
+
+
+class EtsyCategoryMappingTest(unittest.TestCase):
+    def test_maps_button_up_blouse_to_etsy_blouses(self):
+        mapped = map_etsy_category_path(
+            WOMEN_TOPS_PATH,
+            {
+                "title": "Notations XL Floral Short Sleeve Button-Up Blouse",
+                "department": "Women",
+                "ebay_specifics": {
+                    "department": "Women",
+                    "type": "Blouse",
+                    "style": "Button-Up",
+                },
+            },
+        )
+        self.assertEqual(mapped, ETSY_WOMEN_BLOUSE)
+
+    def test_remaps_stale_tunics_for_button_up_blouse(self):
+        mapped = map_etsy_category_path(
+            ETSY_WOMEN_BLOUSE.replace("Blouses", "Tunics"),
+            {
+                "title": "Notations XL Floral Button-Up Blouse",
+                "department": "Women",
+                "ebay_specifics": {
+                    "department": "Women",
+                    "type": "Blouse",
+                    "style": "Button-Up",
+                },
+                "marketplace_categories": {
+                    "etsy": "Clothing > Women's Clothing > Tops & Tees > Tunics",
+                },
+                "etsy_specifics": {
+                    "categoryPath": [
+                        "Clothing", "Women's Clothing", "Tops & Tees", "Tunics",
+                    ],
+                },
+            },
+        )
+        self.assertEqual(mapped, ETSY_WOMEN_BLOUSE)
+
+    def test_keeps_tunics_when_style_is_tunic(self):
+        path = "Clothing > Women's Clothing > Tops & Tees > Tunics"
+        mapped = map_etsy_category_path(
+            path,
+            {
+                "title": "Notations XL Floral Tunic Top",
+                "department": "Women",
+                "ebay_specifics": {
+                    "department": "Women",
+                    "type": "Blouse",
+                    "style": "Tunic",
+                },
+                "etsy_specifics": {
+                    "categoryPath": [
+                        "Clothing", "Women's Clothing", "Tops & Tees", "Tunics",
+                    ],
+                },
+            },
+        )
+        self.assertEqual(mapped, path)
+
+    def test_maps_graphic_tee_to_etsy_tshirts(self):
+        mapped = map_etsy_category_path(
+            WOMEN_TOPS_PATH,
+            {"title": "Southwestern Graphic T-Shirt", "department": "Women"},
+        )
+        self.assertEqual(mapped, ETSY_WOMEN_TEE)
