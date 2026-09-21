@@ -337,16 +337,16 @@ class PoshmarkCategoryMappingTest(unittest.TestCase):
         self.assertEqual(mapped, "Women > Tops > Tank Tops")
 
     def test_does_not_map_sweatshirt_to_poshmark_tee(self):
-        path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters"
+        """An eBay type of T-Shirt does not make a sweatshirt a tee."""
         mapped = map_poshmark_category_path(
-            path,
+            "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters",
             {
                 "title": "Fruit of the Loom M Retro Graphic Sweatshirt",
                 "department": "Men",
                 "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
             },
         )
-        self.assertEqual(mapped, path)
+        self.assertEqual(mapped, "Men > Shirts > Sweatshirts & Hoodies")
         self.assertNotEqual(mapped, POSHMARK_MEN_SHORT_TEE)
 
 
@@ -478,16 +478,18 @@ class TopKindMappingTest(unittest.TestCase):
         )
         self.assertEqual(mapped, MERCARI_WOMEN_TEE)
 
-    def test_an_unknown_top_is_left_to_vendoo(self):
-        """A sweatshirt has no leaf in these tables; guessing a tee would be worse."""
+    def test_a_kind_the_marketplace_lacks_is_left_to_vendoo(self):
+        """Mercari has no women's sweatshirt leaf; Sweaters > Hooded is not one."""
         listing = {
             "title": "Fruit of the Loom M Retro Graphic Sweatshirt",
             "department": "Women",
             "ebay_specifics": {"department": "Women", "type": "Sweatshirt"},
         }
-        for mapper in (map_mercari_category_path, map_etsy_category_path):
-            with self.subTest(mapper=mapper.__name__):
-                self.assertEqual(mapper(WOMEN_TOPS_PATH, listing), WOMEN_TOPS_PATH)
+        self.assertEqual(map_mercari_category_path(WOMEN_TOPS_PATH, listing), WOMEN_TOPS_PATH)
+        self.assertEqual(
+            map_etsy_category_path(WOMEN_TOPS_PATH, listing),
+            "Clothing > Women's Clothing > Hoodies & Sweatshirts > Sweatshirts",
+        )
 
 
 class NonTopGarmentTest(unittest.TestCase):
@@ -510,6 +512,7 @@ class NonTopGarmentTest(unittest.TestCase):
                 self.assertEqual(mapper(path, self._dress()), path)
 
     def test_a_dress_is_never_filed_under_tops(self):
+        """A dress reaches a dress leaf, or none at all — never a tops leaf."""
         for mapper in (
             map_mercari_category_path,
             map_depop_category_path,
@@ -517,7 +520,24 @@ class NonTopGarmentTest(unittest.TestCase):
             map_poshmark_category_path,
         ):
             with self.subTest(mapper=mapper.__name__):
-                self.assertEqual(mapper(WOMEN_TOPS_PATH, self._dress()), WOMEN_TOPS_PATH)
+                mapped = mapper(WOMEN_TOPS_PATH, self._dress())
+                if mapped == WOMEN_TOPS_PATH:
+                    continue  # Left for Vendoo, which is the other safe answer.
+                self.assertIn("Dress", mapped)
+                self.assertNotIn("Top", mapped.rsplit(" > ", 1)[-1])
+
+    def test_a_cut_nobody_named_keeps_vendoos_leaf(self):
+        """Mercari's Other is a real answer; a guessed Maxi is not."""
+        plain = {
+            "title": "Old Navy M Floral Dress",
+            "department": "Women",
+            "ebay_specifics": {"department": "Women", "type": "Dress"},
+        }
+        self.assertEqual(
+            map_mercari_category_path("Women > Dresses > Other", plain),
+            "Women > Dresses > Other",
+        )
+        self.assertEqual(map_mercari_category_path(WOMEN_TOPS_PATH, plain), WOMEN_TOPS_PATH)
 
     def test_a_dress_shirt_is_still_a_shirt(self):
         mapped = map_depop_category_path(

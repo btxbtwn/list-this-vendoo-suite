@@ -1,0 +1,501 @@
+"""Which leaf each marketplace uses for the garment a listing names.
+
+Vendoo maps one General leaf to one leaf per marketplace, so every women's
+top, every dress and every pair of jeans arrives as whatever that single leaf
+is — Tunics on Etsy, Blouse on Mercari, Other on Depop. The marketplaces are
+far more specific than the General tree, and these tables say which leaf to ask
+for instead.
+
+Two rules keep this honest:
+
+* Only an explicit cue maps. "Midi Dress" reaches Mercari's Midi leaf; a dress
+  with no length word keeps whatever Vendoo mapped, because Mercari's Other is
+  a real answer and a guessed Maxi is not.
+* A kind no marketplace leaf covers falls back through ``KIND_FALLBACKS`` and,
+  failing that, is left alone.
+
+Every path here is checked against the shipped category-tree seed by
+``tests/test_garment_categories.py``, so the tables cannot drift from the trees.
+"""
+from __future__ import annotations
+
+import re
+
+# Garment families, and the leaf each marketplace uses for a garment of that
+# family whose particular cut the listing does not name. Marketplaces that
+# subdivide a family without offering a general leaf for it (Poshmark's and
+# Mercari's jeans, say) simply have no entry.
+GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
+    "poshmark": {
+        "women": {
+            "sweatshirt": "Women > Tops > Sweatshirts & Hoodies",
+            "hoodie": "Women > Tops > Sweatshirts & Hoodies",
+            "cardigan": "Women > Sweaters > Cardigans",
+            "sweater_turtleneck": "Women > Sweaters > Cowl & Turtlenecks",
+            "sweater_crewneck": "Women > Sweaters > Crew & Scoop Necks",
+            "sweater_v_neck": "Women > Sweaters > V-Necks",
+            "tee": "Women > Tops > Tees - Short Sleeve",
+            "long_tee": "Women > Tops > Tees - Long Sleeve",
+            "blouse": "Women > Tops > Blouses",
+            "button_up": "Women > Tops > Button Down Shirts",
+            "tank": "Women > Tops > Tank Tops",
+            "cami": "Women > Tops > Camisoles",
+            "crop": "Women > Tops > Crop Tops",
+            "muscle": "Women > Tops > Muscle Tees",
+            "bodysuit": "Women > Tops > Bodysuits",
+            "jersey": "Women > Tops > Jerseys",
+            "tunic": "Women > Tops > Tunics",
+            "dress_mini": "Women > Dresses > Mini",
+            "dress_midi": "Women > Dresses > Midi",
+            "dress_maxi": "Women > Dresses > Maxi",
+            "dress_high_low": "Women > Dresses > High Low",
+            "dress_asymmetrical": "Women > Dresses > Asymmetrical",
+            "dress_prom": "Women > Dresses > Prom",
+            "dress_wedding": "Women > Dresses > Wedding",
+            "dress_strapless": "Women > Dresses > Strapless",
+            "dress_backless": "Women > Dresses > Backless",
+            "dress_one_shoulder": "Women > Dresses > One Shoulder",
+            "dress_long_sleeve": "Women > Dresses > Long Sleeve",
+            "jeans_skinny": "Women > Jeans > Skinny",
+            "jeans_straight": "Women > Jeans > Straight Leg",
+            "jeans_boot_cut": "Women > Jeans > Boot Cut",
+            "jeans_flare": "Women > Jeans > Flare & Wide Leg",
+            "jeans_wide_leg": "Women > Jeans > Flare & Wide Leg",
+            "jeans_boyfriend": "Women > Jeans > Boyfriend",
+            "jeans_cropped": "Women > Jeans > Ankle & Cropped",
+            "jeans_high_rise": "Women > Jeans > High Rise",
+            "jeans_jeggings": "Women > Jeans > Jeggings",
+            "jeans_overalls": "Women > Jeans > Overalls",
+            "pants_skinny": "Women > Pants & Jumpsuits > Skinny",
+            "pants_straight": "Women > Pants & Jumpsuits > Straight Leg",
+            "pants_wide_leg": "Women > Pants & Jumpsuits > Wide Leg",
+            "pants_boot_cut": "Women > Pants & Jumpsuits > Boot Cut & Flare",
+            "pants_cropped": "Women > Pants & Jumpsuits > Ankle & Cropped",
+            "pants_capri": "Women > Pants & Jumpsuits > Capris",
+            "pants_joggers": "Women > Pants & Jumpsuits > Track Pants & Joggers",
+            "pants_trousers": "Women > Pants & Jumpsuits > Trousers",
+            "leggings": "Women > Pants & Jumpsuits > Leggings",
+            "jumpsuit": "Women > Pants & Jumpsuits > Jumpsuits & Rompers",
+            "shorts_bermuda": "Women > Shorts > Bermudas",
+            "shorts_bike": "Women > Shorts > Bike Shorts",
+            "shorts_cargo": "Women > Shorts > Cargos",
+            "shorts_denim": "Women > Shorts > Jean Shorts",
+            "shorts_high_waist": "Women > Shorts > High Waist",
+            "shorts_athletic": "Women > Shorts > Athletic Shorts",
+            "skort": "Women > Shorts > Skorts",
+            "skirt_a_line": "Women > Skirts > A-Line or Full",
+            "skirt_pencil": "Women > Skirts > Pencil",
+            "skirt_mini": "Women > Skirts > Mini",
+            "skirt_midi": "Women > Skirts > Midi",
+            "skirt_maxi": "Women > Skirts > Maxi",
+            "skirt_asymmetrical": "Women > Skirts > Asymmetrical",
+            "skirt_circle": "Women > Skirts > Circle & Skater",
+            "skirt_high_low": "Women > Skirts > High Low",
+        },
+        "men": {
+            "sweatshirt": "Men > Shirts > Sweatshirts & Hoodies",
+            "hoodie": "Men > Shirts > Sweatshirts & Hoodies",
+            "cardigan": "Men > Sweaters > Cardigan",
+            "sweater_turtleneck": "Men > Sweaters > Turtleneck",
+            "sweater_crewneck": "Men > Sweaters > Crewneck",
+            "sweater_v_neck": "Men > Sweaters > V-Neck",
+            "tee": "Men > Shirts > Tees - Short Sleeve",
+            "long_tee": "Men > Shirts > Tees - Long Sleeve",
+            "button_up": "Men > Shirts > Casual Button Down Shirts",
+            "dress_shirt": "Men > Shirts > Dress Shirts",
+            "polo": "Men > Shirts > Polos",
+            "tank": "Men > Shirts > Tank Tops",
+            "jersey": "Men > Shirts > Jerseys",
+            "jeans_skinny": "Men > Jeans > Skinny",
+            "jeans_slim": "Men > Jeans > Slim",
+            "jeans_straight": "Men > Jeans > Straight",
+            "jeans_boot_cut": "Men > Jeans > Bootcut",
+            "jeans_relaxed": "Men > Jeans > Relaxed",
+            "pants_cargo": "Men > Pants > Cargo",
+            "pants_chinos": "Men > Pants > Chinos & Khakis",
+            "pants_corduroy": "Men > Pants > Corduroy",
+            "pants_dress": "Men > Pants > Dress",
+            "pants_joggers": "Men > Pants > Sweatpants & Joggers",
+            "shorts_cargo": "Men > Shorts > Cargo",
+            "shorts_denim": "Men > Shorts > Jean Shorts",
+            "shorts_athletic": "Men > Shorts > Athletic",
+        },
+    },
+    "mercari": {
+        "women": {
+            # Mercari has no women's sweatshirt leaf at all, so one keeps
+            # whatever Vendoo mapped rather than being filed under Sweaters.
+            "hoodie": "Women > Sweaters > Hooded",
+            "cardigan": "Women > Sweaters > Cardigan",
+            "sweater_turtleneck": "Women > Sweaters > Turtleneck Sweaters",
+            "sweater_crewneck": "Women > Sweaters > Crewneck",
+            "sweater_v_neck": "Women > Sweaters > V-neck",
+            "tee": "Women > Tops & blouses > T-shirts",
+            "blouse": "Women > Tops & blouses > Blouse",
+            "button_up": "Women > Tops & blouses > Button down shirt",
+            "tank": "Women > Tops & blouses > Tank Tops",
+            "cami": "Women > Tops & blouses > Camisoles",
+            "halter": "Women > Tops & blouses > Halter",
+            "polo": "Women > Tops & blouses > Polo shirt",
+            "turtleneck": "Women > Tops & blouses > Turtleneck",
+            "bodysuit": "Women > Tops & blouses > Bodysuits",
+            "tunic": "Women > Tops & blouses > Tunic",
+            "dress_mini": "Women > Dresses > Above knee, mini",
+            "dress_knee": "Women > Dresses > Knee-length",
+            "dress_midi": "Women > Dresses > Midi",
+            "dress_maxi": "Women > Dresses > Maxi",
+            "dress_high_low": "Women > Dresses > High Low",
+            "jumpsuit": "Women > Dresses > Jumpsuits & Rompers",
+            "jeans_skinny": "Women > Jeans > Skinny Jeans",
+            "jeans_slim": "Women > Jeans > Slim Jeans",
+            "jeans_straight": "Women > Jeans > Straight leg",
+            "jeans_boot_cut": "Women > Jeans > Boot cut",
+            "jeans_flare": "Women > Jeans > Flare",
+            "jeans_wide_leg": "Women > Jeans > Wide leg",
+            "jeans_boyfriend": "Women > Jeans > Boyfriend",
+            "jeans_cropped": "Women > Jeans > Cropped Jeans",
+            "jeans_capri": "Women > Jeans > Capri Jeans",
+            "jeans_cargo": "Women > Jeans > Cargo",
+            "jeans_relaxed": "Women > Jeans > Relaxed",
+            "jeans_overalls": "Women > Jeans > Overalls",
+            "jeans_jeggings": "Women > Jeans > Leggings",
+            "pants_capri": "Women > Pants > Capri Pants",
+            "pants_cargo": "Women > Pants > Cargo",
+            "pants_casual": "Women > Pants > Casual pants",
+            "pants_corduroy": "Women > Pants > Corduroys",
+            "pants_cropped": "Women > Pants > Cropped Pants",
+            "pants_dress": "Women > Pants > Dress pants",
+            "pants_chinos": "Women > Pants > Khakis, chinos",
+            "pants_leather": "Women > Pants > Leather",
+            "pants_linen": "Women > Pants > Linen",
+            "shorts_bermuda": "Women > Shorts > Bermuda",
+            "shorts_bike": "Women > Shorts > Bike",
+            "shorts_cargo": "Women > Shorts > Cargo",
+            "shorts_chinos": "Women > Shorts > Chino & khaki",
+            "shorts_denim": "Women > Shorts > Denim",
+            "shorts_high_waist": "Women > Shorts > High-waisted",
+            "shorts_short": "Women > Shorts > Short shorts",
+            "skort": "Women > Shorts > Skort",
+            "skirt_a_line": "Women > Skirts > A-line",
+            "skirt_asymmetrical": "Women > Skirts > Asymmetrical",
+            "skirt_maxi": "Women > Skirts > Maxi",
+            "skirt_mini": "Women > Skirts > Mini",
+            "skirt_pencil": "Women > Skirts > Straight, pencil",
+            "skirt_pleated": "Women > Skirts > Pleated",
+            "skirt_tiered": "Women > Skirts > Tiered",
+            "skirt_wrap": "Women > Skirts > Wrap",
+        },
+        "men": {
+            "sweatshirt": "Men > Sweats & hoodies > Sweatshirt, pullover",
+            "hoodie": "Men > Sweats & hoodies > Hoodie",
+            "cardigan": "Men > Sweaters > Cardigan",
+            "sweater_turtleneck": "Men > Sweaters > Turtleneck",
+            "sweater_crewneck": "Men > Sweaters > Crewneck",
+            "sweater_v_neck": "Men > Sweaters > V-neck",
+            "tee": "Men > Tops > T-shirts",
+            "tank": "Men > Tops > Tank",
+            "polo": "Men > Tops > Polos",
+            "turtleneck": "Men > Tops > Turtleneck",
+            "button_up": "Men > Tops > Button-front",
+            "dress_shirt": "Men > Tops > Dress shirts",
+            "henley": "Men > Tops > Henley",
+            "hawaiian": "Men > Tops > Hawaiian",
+            "jersey": "Men > Tops > Rugby Shirts",
+            "jeans_skinny": "Men > Jeans > Skinny Jeans",
+            "jeans_slim": "Men > Jeans > Slim Jeans",
+            "jeans_straight": "Men > Jeans > Classic, straight leg",
+            "jeans_boot_cut": "Men > Jeans > Boot cut",
+            "jeans_relaxed": "Men > Jeans > Relaxed",
+            "jeans_cargo": "Men > Jeans > Cargo",
+            "jeans_overalls": "Men > Jeans > Overalls",
+            "pants_cargo": "Men > Pants > Cargo",
+            "pants_casual": "Men > Pants > Casual pants",
+            "pants_corduroy": "Men > Pants > Corduroys",
+            "pants_chinos": "Men > Pants > Khakis, chinos",
+            "shorts_athletic": "Men > Shorts > Athletic",
+            "shorts_cargo": "Men > Shorts > Cargo",
+            "shorts_casual": "Men > Shorts > Casual shorts",
+            "shorts_chinos": "Men > Shorts > Khakis, chinos",
+            "shorts_denim": "Men > Shorts > Denim",
+        },
+    },
+    "depop": {
+        "women": {
+            "sweatshirt": "Women > Tops > Sweatshirts",
+            "hoodie": "Women > Tops > Hoodies",
+            "cardigan": "Women > Tops > Cardigans",
+            "sweater": "Women > Tops > Sweaters",
+            "tee": "Women > Tops > T-shirts",
+            "blouse": "Women > Tops > Blouses",
+            "button_up": "Women > Tops > Shirts",
+            "tank": "Women > Tops > Tank tops and camis",
+            "cami": "Women > Tops > Tank tops and camis",
+            "crop": "Women > Tops > Crop tops",
+            "polo": "Women > Tops > Polo shirts",
+            "bodysuit": "Women > Tops > Bodysuits",
+            "jersey": "Women > Tops > Jerseys",
+            "corset": "Women > Tops > Corsets",
+            "dress": "Women > Dresses > Dresses",
+            "dress_babydoll": "Women > Dresses > Babydoll dresses",
+            "dress_bodycon": "Women > Dresses > Bodycon dresses",
+            "dress_casual": "Women > Dresses > Casual dresses",
+            "dress_formal": "Women > Dresses > Formal dresses",
+            "dress_going_out": "Women > Dresses > Going out dresses",
+            "dress_prom": "Women > Dresses > Prom dresses",
+            "dress_shift": "Women > Dresses > Shift dresses",
+            "dress_shirt_dress": "Women > Dresses > Shirt dresses",
+            "dress_summer": "Women > Dresses > Summer dresses",
+            "dress_wedding": "Women > Dresses > Wedding dresses",
+            "dress_work": "Women > Dresses > Work dresses",
+            "dress_wrap": "Women > Dresses > Wrap dresses",
+            "jeans": "Women > Bottoms > Jeans",
+            "pants": "Women > Bottoms > Pants",
+            "shorts": "Women > Bottoms > Shorts",
+            "skirt": "Women > Bottoms > Skirts",
+            "leggings": "Women > Bottoms > Leggings",
+            "joggers": "Women > Bottoms > Sweatpants",
+        },
+        "men": {
+            "sweatshirt": "Men > Tops > Sweatshirts",
+            "hoodie": "Men > Tops > Hoodies",
+            "cardigan": "Men > Tops > Cardigans",
+            "sweater": "Men > Tops > Sweaters",
+            "tee": "Men > Tops > T-shirts",
+            "blouse": "Men > Tops > Blouses",
+            "button_up": "Men > Tops > Shirts",
+            "tank": "Men > Tops > Tank tops and camis",
+            "cami": "Men > Tops > Tank tops and camis",
+            "crop": "Men > Tops > Crop tops",
+            "polo": "Men > Tops > Polo shirts",
+            "bodysuit": "Men > Tops > Bodysuits",
+            "jersey": "Men > Tops > Jerseys",
+            "jeans": "Men > Bottoms > Jeans",
+            "pants": "Men > Bottoms > Pants",
+            "shorts": "Men > Bottoms > Shorts",
+            "skirt": "Men > Bottoms > Skirts",
+            "leggings": "Men > Bottoms > Leggings",
+            "joggers": "Men > Bottoms > Sweatpants",
+        },
+    },
+    "etsy": {
+        "women": {
+            "sweatshirt": "Clothing > Women's Clothing > Hoodies & Sweatshirts > Sweatshirts",
+            "hoodie": "Clothing > Women's Clothing > Hoodies & Sweatshirts > Hoodies",
+            "cardigan": "Clothing > Women's Clothing > Sweaters > Cardigans",
+            "sweater": "Clothing > Women's Clothing > Sweaters > Pullover Sweaters",
+            "tee": "Clothing > Women's Clothing > Tops & Tees > T-shirts",
+            "blouse": "Clothing > Women's Clothing > Tops & Tees > Blouses",
+            "tank": "Clothing > Women's Clothing > Tops & Tees > Tanks",
+            "crop": "Clothing > Women's Clothing > Tops & Tees > Crop & Tube Tops > Crop Tops",
+            "tube": "Clothing > Women's Clothing > Tops & Tees > Crop & Tube Tops > Tube Tops",
+            "halter": "Clothing > Women's Clothing > Tops & Tees > Halter Tops",
+            "polo": "Clothing > Women's Clothing > Tops & Tees > Polos",
+            "tunic": "Clothing > Women's Clothing > Tops & Tees > Tunics",
+            "dress": "Clothing > Women's Clothing > Dresses",
+            "jeans": "Clothing > Women's Clothing > Jeans",
+            "pants": "Clothing > Women's Clothing > Pants & Capris > Pants",
+            "pants_capri": "Clothing > Women's Clothing > Pants & Capris > Capris",
+            "shorts": "Clothing > Women's Clothing > Shorts & Skorts > Shorts",
+            "skort": "Clothing > Women's Clothing > Shorts & Skorts > Skorts",
+            "skirt": "Clothing > Women's Clothing > Skirts",
+            "leggings": "Clothing > Women's Clothing > Leggings",
+            "jumpsuit": "Clothing > Women's Clothing > Jumpsuits & Rompers",
+            "jeans_overalls": "Clothing > Women's Clothing > Overalls",
+        },
+        "men": {
+            "sweatshirt": "Clothing > Men's Clothing > Hoodies & Sweatshirts > Sweatshirts",
+            "hoodie": "Clothing > Men's Clothing > Hoodies & Sweatshirts > Hoodies",
+            "cardigan": "Clothing > Men's Clothing > Sweaters > Cardigans",
+            "sweater": "Clothing > Men's Clothing > Sweaters > Pullover Sweaters",
+            "tee": "Clothing > Men's Clothing > Shirts & Tees > T-shirts",
+            "tank": "Clothing > Men's Clothing > Shirts & Tees > Tanks",
+            "polo": "Clothing > Men's Clothing > Shirts & Tees > Polos",
+            "button_up": "Clothing > Men's Clothing > Shirts & Tees > Oxfords & Button Downs",
+            "dress_shirt": "Clothing > Men's Clothing > Shirts & Tees > Dress Shirts",
+            "jeans": "Clothing > Men's Clothing > Jeans",
+            "pants": "Clothing > Men's Clothing > Pants",
+            "shorts": "Clothing > Men's Clothing > Shorts",
+            "leggings": "Clothing > Men's Clothing > Leggings",
+            "jeans_overalls": "Clothing > Men's Clothing > Overalls & Coveralls",
+        },
+    },
+}
+
+# Where to look when a marketplace has no leaf for the kind the listing names.
+# A cut falls back to its family, and a family with no leaf of its own (Mercari
+# subdivides every one) ends the chain — the listing keeps Vendoo's answer.
+KIND_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "long_tee": ("tee",),
+    "button_up": ("blouse",),
+    "dress_shirt": ("button_up",),
+    "henley": ("tee",),
+    "hawaiian": ("button_up",),
+    "tank": ("cami",),
+    "cami": ("tank",),
+    "crop": ("tee",),
+    "tube": ("tank",),
+    "halter": ("tank",),
+    "muscle": ("tee",),
+    "jersey": ("tee",),
+    "tunic": ("blouse",),
+    "corset": (),
+    "polo": (),
+    "turtleneck": (),
+    "bodysuit": (),
+    "skort": ("shorts",),
+    "joggers": ("pants",),
+    "jumpsuit": (),
+    "leggings": ("pants",),
+    # Poshmark files sweatshirts and hoodies together; Etsy and Depop split
+    # them. Neither falls back to the other: Mercari has no women's sweatshirt
+    # leaf, and filing one under Sweaters > Hooded would be worse than leaving
+    # it to Vendoo.
+    "hoodie": (),
+    "sweatshirt": (),
+    "cardigan": ("sweater",),
+    "sweater_turtleneck": ("sweater",),
+    "sweater_crewneck": ("sweater",),
+    "sweater_v_neck": ("sweater",),
+    "sweater": (),
+}
+_FAMILIES = ("dress", "jeans", "pants", "shorts", "skirt")
+
+
+def _family_fallback(kind: str) -> tuple[str, ...]:
+    for family in _FAMILIES:
+        if kind.startswith(f"{family}_"):
+            return (family,)
+    return ()
+
+
+# The cut or occasion a listing names, per family, most specific cue first.
+_DRESS_KIND_RULES: tuple[tuple[str, str], ...] = (
+    ("dress_wedding", r"\bwedding\b|\bbridal\b"),
+    ("dress_prom", r"\bprom\b"),
+    ("dress_formal", r"\bformal\b|\bgown\b|\bevening\b"),
+    ("dress_work", r"\bwork\b|\boffice\b"),
+    ("dress_going_out", r"\bgoing[\s-]*out\b|\bparty\b|\bclub\b"),
+    # A shirt dress buttons up; a t-shirt dress is a casual dress, so the "t-"
+    # must not be swallowed by the word boundary.
+    ("dress_shirt_dress", r"(?<![a-z-])shirt\s*dress(?:es)?\b"),
+    ("dress_bodycon", r"\bbodycon\b"),
+    ("dress_babydoll", r"\bbabydoll\b|\bbaby\s*doll\b"),
+    ("dress_shift", r"\bshift\b"),
+    ("dress_wrap", r"\bwrap\b"),
+    ("dress_one_shoulder", r"\bone[\s-]*shoulder\b"),
+    ("dress_strapless", r"\bstrapless\b"),
+    ("dress_backless", r"\bbackless\b|\bopen\s*back\b"),
+    ("dress_asymmetrical", r"\basymmetric(?:al)?\b"),
+    ("dress_high_low", r"\bhigh[\s-]*low\b"),
+    ("dress_maxi", r"\bmaxi\b|\bfloor[\s-]*length\b|\bankle[\s-]*length\b"),
+    ("dress_midi", r"\bmidi\b|\btea[\s-]*length\b"),
+    ("dress_knee", r"\bknee[\s-]*length\b"),
+    ("dress_mini", r"\bmini\b|\babove[\s-]*(?:the[\s-]*)?knee\b"),
+    ("dress_summer", r"\bsun\s*dress\b|\bsundress\b|\bsummer\b"),
+    ("dress_casual", r"\bcasual\b"),
+)
+_JEANS_KIND_RULES: tuple[tuple[str, str], ...] = (
+    ("jeans_overalls", r"\boveralls?\b|\bdungarees?\b"),
+    ("jeans_jeggings", r"\bjeggings?\b"),
+    ("jeans_boyfriend", r"\bboyfriend\b|\bmom\s*jeans?\b"),
+    ("jeans_boot_cut", r"\bboot[\s-]*cut\b|\bbootcut\b"),
+    ("jeans_flare", r"\bflare[ds]?\b|\bbell[\s-]*bottom"),
+    ("jeans_wide_leg", r"\bwide[\s-]*leg\b|\bbaggy\b"),
+    ("jeans_skinny", r"\bskinny\b"),
+    ("jeans_slim", r"\bslim\b"),
+    ("jeans_straight", r"\bstraight[\s-]*leg\b|\bstraight\b"),
+    ("jeans_relaxed", r"\brelaxed\b|\bloose\b"),
+    ("jeans_cargo", r"\bcargo\b"),
+    ("jeans_capri", r"\bcapris?\b"),
+    ("jeans_cropped", r"\bcropped\b|\bankle\b"),
+    ("jeans_high_rise", r"\bhigh[\s-]*rise\b|\bhigh[\s-]*wais?t(?:ed)?\b"),
+)
+_PANTS_KIND_RULES: tuple[tuple[str, str], ...] = (
+    ("pants_joggers", r"\bjoggers?\b|\bsweat\s*pants?\b|\btrack\s*pants?\b"),
+    ("pants_cargo", r"\bcargo\b"),
+    ("pants_chinos", r"\bchinos?\b|\bkhakis?\b"),
+    ("pants_corduroy", r"\bcorduroys?\b|\bcords\b"),
+    ("pants_leather", r"\bleather\b|\bfaux[\s-]*leather\b"),
+    ("pants_linen", r"\blinen\b"),
+    ("pants_dress", r"\bdress\s*pants?\b|\bslacks?\b"),
+    ("pants_trousers", r"\btrousers?\b"),
+    ("pants_capri", r"\bcapris?\b"),
+    ("pants_cropped", r"\bcropped\b|\bankle\b"),
+    ("pants_wide_leg", r"\bwide[\s-]*leg\b|\bpalazzo\b"),
+    ("pants_boot_cut", r"\bboot[\s-]*cut\b|\bbootcut\b|\bflare[ds]?\b"),
+    ("pants_skinny", r"\bskinny\b"),
+    ("pants_straight", r"\bstraight[\s-]*leg\b|\bstraight\b"),
+    ("pants_casual", r"\bcasual\b"),
+)
+_SHORTS_KIND_RULES: tuple[tuple[str, str], ...] = (
+    ("skort", r"\bskorts?\b"),
+    ("shorts_bermuda", r"\bbermudas?\b"),
+    ("shorts_bike", r"\bbike\b|\bcycling\b"),
+    ("shorts_cargo", r"\bcargo\b"),
+    ("shorts_chinos", r"\bchinos?\b|\bkhakis?\b"),
+    ("shorts_denim", r"\bdenim\b|\bjean\b|\bjeans\b"),
+    ("shorts_athletic", r"\bathletic\b|\brunning\b|\bgym\b|\bbasketball\b"),
+    ("shorts_high_waist", r"\bhigh[\s-]*wais?t(?:ed)?\b|\bhigh[\s-]*rise\b"),
+    ("shorts_short", r"\bshort\s*shorts?\b|\bbooty\b|\bdaisy\s*dukes?\b"),
+    ("shorts_casual", r"\bcasual\b"),
+)
+_SKIRT_KIND_RULES: tuple[tuple[str, str], ...] = (
+    ("skirt_pencil", r"\bpencil\b|\bstraight\b"),
+    ("skirt_a_line", r"\ba[\s-]*line\b|\bfull\s*skirt\b"),
+    ("skirt_circle", r"\bcircle\b|\bskater\b"),
+    ("skirt_pleated", r"\bpleated\b|\bpleats?\b"),
+    ("skirt_tiered", r"\btiered\b"),
+    ("skirt_wrap", r"\bwrap\b"),
+    ("skirt_asymmetrical", r"\basymmetric(?:al)?\b"),
+    ("skirt_high_low", r"\bhigh[\s-]*low\b"),
+    ("skirt_maxi", r"\bmaxi\b|\bfloor[\s-]*length\b"),
+    ("skirt_midi", r"\bmidi\b"),
+    ("skirt_mini", r"\bmini\b"),
+)
+# Tops are read from the kind of top, not a cut; that classifier lives in
+# registry.py alongside the sleeve rules it shares with the mappers.
+FAMILY_KIND_RULES: dict[str, tuple[tuple[str, re.Pattern[str]], ...]] = {
+    family: tuple((kind, re.compile(pattern, re.I)) for kind, pattern in rules)
+    for family, rules in (
+        ("dress", _DRESS_KIND_RULES),
+        ("jeans", _JEANS_KIND_RULES),
+        ("pants", _PANTS_KIND_RULES),
+        ("shorts", _SHORTS_KIND_RULES),
+        ("skirt", _SKIRT_KIND_RULES),
+    )
+}
+# The garment word a title ends on, mapped to the family that reads it.
+FAMILY_OF_GARMENT: dict[str, str] = {
+    "dress": "dress", "dresses": "dress",
+    "jean": "jeans", "jeans": "jeans",
+    "pant": "pants", "pants": "pants", "trouser": "pants", "trousers": "pants",
+    "short": "shorts", "shorts": "shorts",
+    "skirt": "skirt", "skirts": "skirt",
+    "legging": "leggings", "leggings": "leggings",
+    "jumpsuit": "jumpsuit", "jumpsuits": "jumpsuit",
+    "romper": "jumpsuit", "rompers": "jumpsuit",
+}
+
+
+def family_kind(family: str, haystack: str) -> str:
+    """The cut this listing names within its family, or "" when it names none."""
+    for kind, pattern in FAMILY_KIND_RULES.get(family, ()):
+        if pattern.search(haystack):
+            return kind
+    return ""
+
+
+def garment_leaf(marketplace: str, department: str, kind: str) -> str:
+    """This marketplace's leaf for that kind, or "" when it has none."""
+    leaves = (GARMENT_LEAVES.get(marketplace) or {}).get(department) or {}
+    seen: set[str] = set()
+    queue = [kind]
+    while queue:
+        current = queue.pop(0)
+        if not current or current in seen:
+            continue
+        seen.add(current)
+        if leaves.get(current):
+            return leaves[current]
+        queue.extend(KIND_FALLBACKS.get(current) or _family_fallback(current))
+    return ""
