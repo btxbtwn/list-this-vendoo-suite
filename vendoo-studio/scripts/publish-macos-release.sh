@@ -21,6 +21,15 @@ fi
 SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha"])' "$INFO")"
 SHORT="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("short_sha") or d["sha"][:7])' "$INFO")"
 REF="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("ref") or "main")' "$INFO")"
+VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version") or "")' "$INFO")"
+BUILT_AT="$(date -u +'%Y-%m-%d %H:%M UTC')"
+
+# The tag has to end up on this commit, which means GitHub has to have it. Catch
+# that here rather than after a 90 MB upload.
+if ! gh api "repos/${GITHUB_REPO}/commits/${SHA}" --jq '.sha' >/dev/null 2>&1; then
+  echo "Commit $SHORT is not on GitHub. Push $REF before publishing." >&2
+  exit 1
+fi
 
 # Prefer an explicit override, then the PR that landed this SHA, then the commit subject.
 TITLE="${VENDOO_STUDIO_RELEASE_TITLE:-}"
@@ -46,7 +55,10 @@ payload["title"] = sys.argv[2]
 path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 PY
 
-NOTES=$(printf 'sha: %s\nref: %s\n\nInstall\n1. Unzip List-This-Studio-macos.zip\n2. Move List This Studio.app into Applications\n3. Control-click the app and choose Open (first launch only)\n4. In Settings, sign in with ChatGPT or add a MiMo API key\n5. Click Connect Chrome, load the listing extension once, and sign in to Vendoo\n\nNeeds macOS 13+ and Google Chrome. Listing data stays on this Mac.\n' "$SHA" "$REF")
+# GitHub stamps a release with the date it was first published and never
+# refreshes it, so the page can read months old beside a zip built minutes ago.
+# State the build date in the notes, where it is accurate.
+NOTES=$(printf 'version: %s\nbuilt: %s\nsha: %s\nref: %s\n\nInstall\n1. Unzip List-This-Studio-macos.zip\n2. Move List This Studio.app into Applications\n3. Control-click the app and choose Open (first launch only)\n4. In Settings, sign in with ChatGPT or add a MiMo API key\n5. Click Connect Chrome, load the listing extension once, and sign in to Vendoo\n\nNeeds macOS 13+ and Google Chrome. Listing data stays on this Mac.\n' "${VERSION:-unknown}" "$BUILT_AT" "$SHA" "$REF")
 
 if gh release view "$TAG" --repo "$GITHUB_REPO" >/dev/null 2>&1; then
   gh release upload "$TAG" "$ZIP" "$INFO" --clobber --repo "$GITHUB_REPO"
@@ -58,6 +70,20 @@ else
     --notes "$NOTES" \
     --target "$SHA" \
     --repo "$GITHUB_REPO"
+fi
+
+# --target only applies when the tag is created. Re-publishing clobbers the
+# assets and leaves the tag wherever it first landed, so the release page shows
+# an unrelated old commit next to a current build. Move the ref itself.
+TAG_SHA="$(gh api "repos/${GITHUB_REPO}/git/refs/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)"
+if [[ "$TAG_SHA" != "$SHA" ]]; then
+  PREVIOUS="${TAG_SHA:-unset}"
+  if gh api -X PATCH "repos/${GITHUB_REPO}/git/refs/tags/${TAG}" \
+    -f "sha=${SHA}" -F force=true --jq '.object.sha' >/dev/null; then
+    echo "Moved tag $TAG to $SHORT (was ${PREVIOUS:0:7})"
+  else
+    echo "Warning: could not move tag $TAG to $SHORT; the release page will show the old commit." >&2
+  fi
 fi
 
 echo "Published $SHORT ($TITLE) to https://github.com/${GITHUB_REPO}/releases/tag/$TAG"
