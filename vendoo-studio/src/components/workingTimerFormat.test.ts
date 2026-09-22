@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, formatWorkingTimer } from "./workingDuration";
+import { formatDuration, formatWorkingTimer } from "./workingTimerFormat";
 
 describe("formatDuration", () => {
   it("formats sub-second as ms", () => {
