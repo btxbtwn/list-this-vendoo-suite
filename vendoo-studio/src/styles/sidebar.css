@@ -749,20 +749,10 @@ html.desktop-app .editor-header {
   }
 }
 
-/* Inventory sync sits beside Check for Updates — keep color/shape distinct. */
-.sidebar-vendoo-sync-btn {
-  color: var(--color-vendoo);
-}
-
-.sidebar-vendoo-sync-btn:hover:not(:disabled) {
-  color: var(--color-vendoo);
-  background: color-mix(in srgb, var(--color-vendoo) 16%, transparent);
-}
-
+/* Inventory sync sits beside Settings / Check for Updates — same ink color. */
 .sidebar-vendoo-sync-btn.is-busy,
 .sidebar-vendoo-sync-btn:disabled.is-busy {
   opacity: 1;
-  color: var(--color-vendoo);
   cursor: wait;
 }
 
