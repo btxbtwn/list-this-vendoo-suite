@@ -213,11 +213,11 @@ def _scraped_only_fields(
 async def _fetch_specs(listing: dict, marketplace: str, category_id: str):
     """Vendoo's schema for one leaf, fetched now when nothing is cached.
 
-    The cache is only filled when a listing is created or sent, so a listing
-    whose category was picked elsewhere — or changed since — showed a form with
-    the handful of fields some earlier leaf happened to teach us. Asking Vendoo
-    for this listing's own leaf is one round trip, and the answer is stored, so
-    the form is the one that category really renders.
+    The cache fills on create/send and when a bound draft syncs from Vendoo, so
+    a listing whose category was picked elsewhere — or changed since — used to
+    show a form with the handful of fields some earlier leaf happened to teach
+    us. Asking Vendoo for this listing's own leaf is one round trip, and the
+    answer is stored, so the form is the one that category really renders.
     """
     from vendoo_studio.routes.extension import extension_manager
     from vendoo_studio.services.category_fields import save_fields

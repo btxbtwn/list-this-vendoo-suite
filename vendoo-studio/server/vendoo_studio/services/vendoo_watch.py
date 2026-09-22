@@ -298,6 +298,15 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
             _mark_conflict(db, conv_id, item)
         else:
             mark_synced(db, conv_id, item, state.get("revision"))
+        # Best-effort: grow leaf + LLM schema caches from this draft's categories.
+        try:
+            from vendoo_studio.services.category_learn import learn_category_schemas_from_item
+
+            learned = await learn_category_schemas_from_item(db, item)
+            if learned.get("learned"):
+                result["schemas_learned"] = learned["learned"]
+        except Exception:  # noqa: BLE001 - sync succeeded; cache growth is optional
+            log.info("category schema learn skipped after sync", exc_info=True)
         db.expire_all()
         conv = ConversationRepo(db).get(conv_id)
         result["vendoo_status"] = str(parse_notes(conv.notes if conv else None).get("vendooStatus") or "draft")
