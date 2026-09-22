@@ -404,9 +404,8 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     "Relist in Vendoo" badge reads.
 
     Either way the conversation is marked level with Vendoo afterwards. Without
-    that the next sync reads our own write as Vendoo moving, pairs it with the
-    seller's edit, and calls it a conflict — and the "unsent edits" badge would
-    never clear.
+    that the next sync reads our own write as Vendoo moving and pulls it back
+    over the seller's next edit — and the "unsent edits" badge would never clear.
     """
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.listing_generate import latest_photo_analysis
@@ -651,8 +650,9 @@ async def category_map(body: MapRequest):
 
 @router.post("/api/conversations/{conv_id}/vendoo-api/sync")
 async def sync_with_vendoo(conv_id: str, db: Session = Depends(get_db)):
-    """Pull Vendoo's changes when it is safe to; report a conflict when not.
+    """Level with Vendoo: label-only when status/dates moved, else pull content.
 
+    Form-content changes take Vendoo's copy (including over Studio edits).
     Called when a listing is opened or the app regains focus, so the request
     pattern follows the seller rather than a clock.
     """

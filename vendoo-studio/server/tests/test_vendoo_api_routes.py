@@ -422,7 +422,7 @@ class SaveRouteTest(_RouteTest):
     def test_the_write_leaves_studio_level_with_vendoo(self):
         """Otherwise the next sync reads our own write as Vendoo moving.
 
-        That pairs with the seller's edit and reports a conflict, and the
+        That would pull the write back over the seller's next edit, and the
         "unsent edits" chip never clears.
         """
         self.bind()

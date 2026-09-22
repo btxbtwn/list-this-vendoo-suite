@@ -1,17 +1,15 @@
 """Keep a bound listing in step with its Vendoo draft.
 
 Vendoo stamps every item with ``dateLastModified``, so noticing a change there
-is a matter of comparing it against what Studio last saw. What to do about it
-is the harder half: pulling unconditionally would throw away edits made in
-Studio, so a pull only happens when Studio has nothing of its own outstanding.
-When both sides moved, neither wins automatically — the conversation is
-recorded as conflicted and left to the seller.
+is a matter of comparing it against what Studio last saw. When Vendoo moved:
 
-The inventory *label* (draft / active / sold) is different: it is Vendoo's
-own tab for the item, not Studio's listing copy. Every successful ``get_item``
-refreshes that label and the sidebar status, even when content is conflicted —
-so a regenerate-then-relist in Vendoo flips Studio back to active without a
-button.
+- If only inventory status / dates changed (listed, sold, stamps), refresh the
+  sidebar label and marketplace chips — leave Studio's listing fields alone.
+- If form content changed, take Vendoo's copy, including over Studio's unpushed
+  edits. That matches listing or editing in Vendoo, then opening Studio.
+
+Studio-only edits are left alone until Vendoo moves or the seller pushes
+(Update / Send).
 
 Syncs run when the seller saves in Vendoo (the extension says so), when a
 listing is opened, and when Studio regains focus — never on a timer. Each one
@@ -20,6 +18,8 @@ stamps the conversation so the editor can show when it last checked.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -40,6 +40,7 @@ SYNCED_AT = "vendooSyncedAt"
 SYNCED_REVISION = "vendooSyncedRevision"
 CHECKED_AT = "vendooCheckedAt"
 SYNC_CONFLICT = "vendooSyncConflict"
+CONTENT_FINGERPRINT = "vendooContentFingerprint"
 
 __all__ = [
     "sync_state",
@@ -49,9 +50,11 @@ __all__ = [
     "studio_has_unpushed_edits",
     "cache_pulled_item",
     "refresh_inventory_label",
+    "item_content_fingerprint",
     "SYNCED_AT",
     "SYNCED_REVISION",
     "CHECKED_AT",
+    "CONTENT_FINGERPRINT",
 ]
 
 # One sync per conversation at a time: a seller save and a focus event landing
@@ -71,6 +74,34 @@ def _stamp(value: Any) -> int:
         return 0
 
 
+def _hash_payload(payload: Any) -> str:
+    raw = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def listing_content_fingerprint(listing: dict[str, Any] | None) -> str:
+    """Stable hash of Studio listing fields (no inventory status)."""
+    return _hash_payload(listing or {})
+
+
+def item_content_fingerprint(item: dict[str, Any] | None) -> str:
+    """Hash of the form content Studio would pull from this Vendoo item.
+
+    Inventory status and date stamps are excluded: listing on a marketplace
+    bumps ``dateLastModified`` without changing title, specifics, or photos.
+    """
+    from vendoo_studio.services.vendoo_import import listing_from_vendoo, vendoo_image_records
+
+    listing = listing_from_vendoo(item, None)
+    images: list[str] = []
+    for record in vendoo_image_records(item, None):
+        if isinstance(record, dict):
+            images.append(str(record.get("id") or record.get("url") or ""))
+        else:
+            images.append(str(record or ""))
+    return _hash_payload({"listing": listing, "images": images})
+
+
 def studio_has_unpushed_edits(db: Session, conv_id: str) -> bool:
     """True when Studio's current revision is ahead of the last synced one."""
     from vendoo_studio.services.vendoo_import import parse_notes
@@ -83,14 +114,33 @@ def studio_has_unpushed_edits(db: Session, conv_id: str) -> bool:
     return bool(local_revision and synced_revision and local_revision != synced_revision)
 
 
+def _vendoo_content_unchanged(db: Session, conv_id: str, item: dict[str, Any], notes: dict[str, Any]) -> bool:
+    """True when Vendoo's form content matches what Studio last synced."""
+    from vendoo_studio.services.vendoo_import import listing_from_vendoo
+
+    fresh = item_content_fingerprint(item)
+    seen = str(notes.get(CONTENT_FINGERPRINT) or "")
+    if seen:
+        return seen == fresh
+
+    # Older conversations: compare the pulled listing shape to the synced revision.
+    synced_revision = str(notes.get(SYNCED_REVISION) or "")
+    if not synced_revision:
+        return False
+    for revision in ListingRepo(db).get_revisions(conv_id):
+        if revision.id == synced_revision:
+            return listing_content_fingerprint(listing_from_vendoo(item, None)) == listing_content_fingerprint(
+                revision.listing_json if isinstance(revision.listing_json, dict) else {}
+            )
+    return False
+
+
 def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any]:
     """What, if anything, should happen for this conversation.
 
-    ``action`` is one of ``pull`` (Vendoo moved, Studio did not), ``conflict``
-    (both moved), or ``none``.
+    ``action`` is ``pull`` (Vendoo form content moved), ``label`` (only status
+    or dates moved), or ``none``.
     """
-    # parse_notes, not vendoo_binding: the binding helper only reports the item
-    # id and url, and these markers live beside them.
     from vendoo_studio.services.vendoo_import import parse_notes
 
     conv = ConversationRepo(db).get(conv_id)
@@ -100,17 +150,19 @@ def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any
 
     revisions = ListingRepo(db).get_revisions(conv_id)
     local_revision = revisions[0].id if revisions else None
-    local_moved = studio_has_unpushed_edits(db, conv_id)
     remote_moved = bool(remote and seen and remote > seen)
 
-    # Nothing recorded yet: adopt Vendoo's state rather than guessing that
-    # either side is ahead.
     if not seen:
         return {"action": "pull", "reason": "first sync", "remote": remote, "revision": local_revision}
-    if remote_moved and local_moved:
-        return {"action": "conflict", "reason": "both changed", "remote": remote, "revision": local_revision}
+    if remote_moved and _vendoo_content_unchanged(db, conv_id, item, notes):
+        return {"action": "label", "reason": "status only", "remote": remote, "revision": local_revision}
     if remote_moved:
-        return {"action": "pull", "reason": "vendoo changed", "remote": remote, "revision": local_revision}
+        reason = (
+            "both changed, prefer vendoo"
+            if studio_has_unpushed_edits(db, conv_id)
+            else "vendoo changed"
+        )
+        return {"action": "pull", "reason": reason, "remote": remote, "revision": local_revision}
     return {"action": "none", "reason": "up to date", "remote": remote, "revision": local_revision}
 
 
@@ -181,8 +233,8 @@ def apply_pull(
 def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> str:
     """Adopt Vendoo's draft / active / sold label without touching listing fields.
 
-    Safe during a content conflict: the sidebar tab is Vendoo's inventory state,
-    not Studio's form copy. Returns the label applied.
+    The sidebar tab is Vendoo's inventory state, not Studio's form copy.
+    Returns the label applied.
     """
     from vendoo_studio.services.vendoo_import import (
         merge_notes,
@@ -222,6 +274,28 @@ def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> 
     return status
 
 
+def apply_label_sync(db: Session, conv_id: str, item: dict[str, Any]) -> None:
+    """Vendoo only moved status/dates: refresh chips and stamp, keep listing fields."""
+    from vendoo_studio.services.vendoo_import import merge_notes
+
+    refresh_inventory_label(db, conv_id, item)
+    cache_pulled_item(db, conv_id, item, source="vendoo_label")
+    conv = ConversationRepo(db).get(conv_id)
+    if not conv:
+        return
+    stamp = _stamp((item or {}).get("dateLastModified")) or int(
+        datetime.now(UTC).timestamp() * 1000
+    )
+    # Keep SYNCED_REVISION: Studio may still have unpushed edits.
+    conv.notes = merge_notes(conv.notes, {
+        SYNCED_AT: str(stamp),
+        CHECKED_AT: datetime.now(UTC).isoformat(),
+        SYNC_CONFLICT: "",
+        CONTENT_FINGERPRINT: item_content_fingerprint(item),
+    })
+    db.commit()
+
+
 def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: str | None) -> None:
     """Record the Vendoo stamp and revision this conversation is level with."""
     from vendoo_studio.services.vendoo_import import merge_notes
@@ -240,35 +314,16 @@ def mark_synced(db: Session, conv_id: str, item: dict[str, Any], revision_id: st
         SYNCED_REVISION: str(revision_id or ""),
         CHECKED_AT: datetime.now(UTC).isoformat(),
         SYNC_CONFLICT: "",
-    })
-    db.commit()
-
-
-def _mark_conflict(db: Session, conv_id: str, item: dict[str, Any]) -> None:
-    """Both sides moved: keep Studio's fields, still take Vendoo's inventory label."""
-    from vendoo_studio.services.vendoo_import import merge_notes
-
-    refresh_inventory_label(db, conv_id, item)
-    # Marketplace chips read the job draft cache; refresh them without saving
-    # a listing revision so the form stays Studio's.
-    cache_pulled_item(db, conv_id, item, source="vendoo_label")
-    conv = ConversationRepo(db).get(conv_id)
-    if not conv:
-        return
-    conv.notes = merge_notes(conv.notes, {
-        CHECKED_AT: datetime.now(UTC).isoformat(),
-        SYNC_CONFLICT: "1",
+        CONTENT_FINGERPRINT: item_content_fingerprint(item),
     })
     db.commit()
 
 
 async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
-    """Read the bound Vendoo item and pull it when that is safe.
+    """Read the bound Vendoo item and pull or label-refresh as needed.
 
-    ``action`` is ``pull`` (Studio took Vendoo's version), ``conflict`` (both
-    sides moved; listing fields were not overwritten), ``none``, or
-    ``unavailable`` (Chrome or Vendoo could not be reached; nothing was
-    recorded). Inventory labels refresh on every successful read.
+    ``action`` is ``pull`` (form content from Vendoo), ``label`` (status/dates
+    only), ``none``, or ``unavailable``. When form content moved, Vendoo wins.
     """
     from vendoo_studio.services.browser_bridge import BrowserBridgeError
     from vendoo_studio.services.vendoo_create import VendooCreateError, run_ops
@@ -294,8 +349,8 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
         result: dict[str, Any] = {"action": state["action"], "reason": state["reason"], "item_id": item_id}
         if state["action"] == "pull":
             result["revision_id"] = apply_pull(db, conv_id, item)
-        elif state["action"] == "conflict":
-            _mark_conflict(db, conv_id, item)
+        elif state["action"] == "label":
+            apply_label_sync(db, conv_id, item)
         else:
             mark_synced(db, conv_id, item, state.get("revision"))
         # Best-effort: grow leaf + LLM schema caches from this draft's categories.
@@ -321,6 +376,7 @@ def sync_status(db: Session, conv_id: str) -> dict[str, Any]:
     notes = parse_notes(conv.notes if conv else None)
     return {
         "checked_at": notes.get(CHECKED_AT) or None,
+        # Cleared on every successful sync; kept so older notes still deserialize.
         "conflict": bool(notes.get(SYNC_CONFLICT)),
         "revision_id": notes.get(SYNCED_REVISION) or None,
     }
