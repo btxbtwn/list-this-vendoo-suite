@@ -14,6 +14,7 @@ import {
 import { SendProgress } from "./SendProgress";
 import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
+import { stableStreamingText } from "./streamingText";
 import { WorkingDuration } from "./WorkingDuration";
 
 interface Props {
@@ -77,6 +78,42 @@ function ThinkingStreamBody({
         </li>
       ))}
     </ul>
+  );
+}
+
+function BrainIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9.5 4.5A3 3 0 0 0 6 7.46 3.5 3.5 0 0 0 5.5 14 3 3 0 0 0 9 18.5" />
+      <path d="M14.5 4.5A3 3 0 0 1 18 7.46a3.5 3.5 0 0 1 .5 6.54 3 3 0 0 1-3.5 4.5" />
+      <path d="M9.5 4.5A2.5 2.5 0 0 1 12 2v20a2.5 2.5 0 0 1-2.5-2.5M14.5 4.5A2.5 2.5 0 0 0 12 2M15 9.5a3 3 0 0 1 3-2M9 9.5a3 3 0 0 0-3-2M15 14.5a3 3 0 0 0 3 2M9 14.5a3 3 0 0 1-3 2" />
+    </svg>
+  );
+}
+
+function ThinkingTrace({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="thinking-block">
+      <button
+        type="button"
+        className="thinking-disclosure"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span className="thinking-icon"><BrainIcon /></span>
+        <span className="thinking-label">
+          <span>Thinking</span>
+          <span className="activity-shimmer" aria-hidden="true"><span>Thinking</span></span>
+        </span>
+        <span className={`thinking-chevron${expanded ? " is-open" : ""}`} aria-hidden="true">›</span>
+      </button>
+      {expanded ? (
+        <div className="thinking-body">
+          <ThinkingStreamBody text={text} finished={false} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -429,6 +466,7 @@ type LiveStream = {
   streaming: boolean;
   generating: boolean;
   streamText: string;
+  streamDisplayText: string;
   streamThinking: string;
   streamStatus: string;
   thinkingStarted: boolean;
@@ -453,6 +491,7 @@ function emptyLive(): Omit<LiveStream, "listeners"> {
     streaming: false,
     generating: false,
     streamText: "",
+    streamDisplayText: "",
     streamThinking: "",
     streamStatus: "",
     thinkingStarted: false,
@@ -519,8 +558,18 @@ export function useChatBusy(convId: string): boolean {
 
 function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>) {
   const live = getLive(convId);
+  const wasBusy = live.streaming || live.generating || live.resetting;
   Object.assign(live, patch);
   const busy = live.streaming || live.generating || live.resetting;
+  if (patch.streamText !== undefined && patch.streamDisplayText === undefined) {
+    live.streamDisplayText = isStreamError(patch.streamText)
+      ? patch.streamText
+      : busy ? stableStreamingText(patch.streamText) : patch.streamText;
+  } else if (wasBusy && !busy && live.streamText) {
+    // Completion flushes the active paragraph, just as T3 Code flushes its
+    // paragraph buffer when the provider ends the turn.
+    live.streamDisplayText = live.streamText;
+  }
   if (busy && live.workStartedAtMs == null) live.workStartedAtMs = Date.now();
   if (!busy) live.workStartedAtMs = null;
   emitLive(convId);
@@ -528,11 +577,14 @@ function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>
 
 function applySseToLive(convId: string, event: string, parts: SseParts) {
   const live = getLive(convId);
+  const previousDisplayText = live.streamDisplayText;
   if (event === "thinking" || event === "status") live.thinkingStarted = true;
   if (event === "thinking") live.streamThinking = parts.thinking;
   if (event === "status") live.streamStatus = parts.status;
   if (event !== "thinking" && event !== "status" && event !== "listing_updated") {
     live.streamText = parts.content;
+    live.streamDisplayText = stableStreamingText(parts.content);
+    if (live.streamDisplayText === previousDisplayText) return;
   }
   emitLive(convId);
 }
@@ -553,7 +605,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(live.streaming);
   const [generating, setGenerating] = useState(live.generating);
-  const [streamText, setStreamText] = useState(live.streamText);
+  const [streamText, setStreamText] = useState(live.streamDisplayText);
   const [streamThinking, setStreamThinking] = useState(live.streamThinking);
   const [streamStatus, setStreamStatus] = useState(live.streamStatus);
   const [resetting, setResetting] = useState(live.resetting);
@@ -567,7 +619,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const drainLockRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
-  const thinkingBodyRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
 
@@ -650,7 +701,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       const next = getLive(convId);
       setStreaming(next.streaming);
       setGenerating(next.generating);
-      setStreamText(next.streamText);
+      setStreamText(next.streamDisplayText);
       setStreamThinking(next.streamThinking);
       setStreamStatus(next.streamStatus);
       setResetting(next.resetting);
@@ -680,11 +731,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     }
     scrollChatToBottom();
   }, [messages, streamText, streamThinking, scrollChatToBottom]);
-
-  useEffect(() => {
-    const el = thinkingBodyRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [streamThinking]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -1367,11 +1413,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         )}
 
         {(streaming || generating) && !streamFailed && streamThinking.trim() ? (
-          <div className="thinking-block">
-            <div ref={thinkingBodyRef} className="thinking-body">
-              <ThinkingStreamBody text={streamThinking} finished={Boolean(streamText)} />
-            </div>
-          </div>
+          <ThinkingTrace text={streamThinking} />
         ) : null}
 
         {showStreamBubble && (
