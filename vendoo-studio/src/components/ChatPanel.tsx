@@ -14,6 +14,7 @@ import {
 import { SendProgress } from "./SendProgress";
 import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
+import { WorkingDuration } from "./WorkingDuration";
 
 interface Props {
   convId: string;
@@ -439,6 +440,8 @@ type LiveStream = {
   startQueued: boolean;
   /** Regenerate's wipe is in flight; the chat is empty and nothing streams yet. */
   resetting: boolean;
+  /** Wall-clock start of the current busy stretch (Working for …). */
+  workStartedAtMs: number | null;
   listeners: Set<() => void>;
 };
 
@@ -459,6 +462,7 @@ function emptyLive(): Omit<LiveStream, "listeners"> {
     restoreInputOnAbort: false,
     startQueued: false,
     resetting: false,
+    workStartedAtMs: null,
   };
 }
 
@@ -514,7 +518,11 @@ export function useChatBusy(convId: string): boolean {
 }
 
 function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>) {
-  Object.assign(getLive(convId), patch);
+  const live = getLive(convId);
+  Object.assign(live, patch);
+  const busy = live.streaming || live.generating || live.resetting;
+  if (busy && live.workStartedAtMs == null) live.workStartedAtMs = Date.now();
+  if (!busy) live.workStartedAtMs = null;
   emitLive(convId);
 }
 
@@ -549,6 +557,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const [streamThinking, setStreamThinking] = useState(live.streamThinking);
   const [streamStatus, setStreamStatus] = useState(live.streamStatus);
   const [resetting, setResetting] = useState(live.resetting);
+  const [workStartedAtMs, setWorkStartedAtMs] = useState(live.workStartedAtMs);
   const [failedAction, setFailedAction] = useState<"generate" | "send" | null>(live.failedAction);
   const [lastSendText, setLastSendText] = useState(live.lastSendText);
   const [stopping, setStopping] = useState(false);
@@ -645,6 +654,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       setStreamThinking(next.streamThinking);
       setStreamStatus(next.streamStatus);
       setResetting(next.resetting);
+      setWorkStartedAtMs(next.workStartedAtMs);
       setFailedAction(next.failedAction);
       setLastSendText(next.lastSendText);
     };
@@ -1201,9 +1211,36 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     ...(activity?.items || []).filter((item) => item !== localLabel),
   ];
   // Right after a local stream starts, the server may not have reported it yet.
-  const activityLabel = localLabel
+  const activityDetail = localLabel
     ? activityItems.length > 1 ? `${localLabel} (+${activityItems.length - 1} more)` : localLabel
     : activityItems.join(" · ") || "Finishing up…";
+  // T3 Code keeps one live slot: "Working for Xs" plus optional detail — never a
+  // second "Thinking" row beside it. Todos render in the transcript without a
+  // competing status header.
+  const busyActivity = (() => {
+    if (stopping) {
+      return workStartedAtMs != null ? (
+        <>
+          Stopping —{" "}
+          <WorkingDuration startedAtMs={workStartedAtMs} className="chat-activity-duration" />
+          {activityDetail ? ` · ${activityDetail}` : null}
+        </>
+      ) : (
+        <>Stopping — {activityDetail}</>
+      );
+    }
+    if (workStartedAtMs != null) {
+      return (
+        <>
+          Working for{" "}
+          <WorkingDuration startedAtMs={workStartedAtMs} className="chat-activity-duration" />
+          {activityDetail ? ` — ${activityDetail}` : null}
+        </>
+      );
+    }
+    // Background server work with no local stream clock yet.
+    return <>Working — {activityDetail}</>;
+  })();
   const composerPlaceholder = busy
     ? "Queue a follow-up…"
     : browser
@@ -1329,25 +1366,13 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           </div>
         )}
 
-        {(streaming || generating) && !streamFailed && (streamThinking || !streamText) && (
+        {(streaming || generating) && !streamFailed && streamThinking.trim() ? (
           <div className="thinking-block">
-            <div className="thinking-header">
-              <div className="thinking-dot" />
-              <span className="text-xs text-muted">
-                {generating && !streamThinking
-                  ? streamStatus && streamStatus !== "thinking"
-                    ? streamStatus
-                    : "Analyzing photos…"
-                  : "Thinking"}
-              </span>
+            <div ref={thinkingBodyRef} className="thinking-body">
+              <ThinkingStreamBody text={streamThinking} finished={Boolean(streamText)} />
             </div>
-            {streamThinking ? (
-              <div ref={thinkingBodyRef} className="thinking-body">
-                <ThinkingStreamBody text={streamThinking} finished={Boolean(streamText)} />
-              </div>
-            ) : null}
           </div>
-        )}
+        ) : null}
 
         {showStreamBubble && (
           streamVisible ? (
@@ -1462,9 +1487,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           >
             <span className="chat-activity-dot" aria-hidden="true" />
             <span className="chat-activity-text">
-              {busy
-                ? `${stopping ? "Stopping" : "Working"} — ${activityLabel}`
-                : "Done — nothing running"}
+              {busy ? busyActivity : "Done — nothing running"}
             </span>
           </div>
         )}

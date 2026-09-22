@@ -453,7 +453,7 @@ a.sold-comps-row:hover .sold-comps-title {
 }
 
 .thinking-body {
-  margin-left: 14px;
+  margin-left: 0;
   font-size: var(--text-xs);
   line-height: 1.55;
   color: var(--color-text-muted);
@@ -639,6 +639,10 @@ details[open] .json-collapse-summary::before {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-activity-duration {
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-activity-dot {
