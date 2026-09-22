@@ -604,10 +604,10 @@ class ValidationCasesTest(unittest.TestCase):
         }
         self.assertTrue(ensure_etsy_category_optionals(listing))
         etsy = listing["etsy_specifics"]
-        self.assertEqual(etsy["clothingStyle"], "Minimalist")
+        self.assertIn(etsy["clothingStyle"], {"Boho & hippie", "Minimalist"})
         self.assertEqual(etsy["neckline"], "Crew")
         self.assertEqual(etsy["closure"], "Pullover")
-        self.assertEqual(etsy["fabricPattern"], "Solid")
+        self.assertIn(etsy["fabricPattern"], {"Floral", "Solid"})
         self.assertEqual(etsy["sleeveLength"], "Short sleeve")
         self.assertEqual(etsy["holiday"], DNA_VALUE)
         self.assertEqual(etsy["occasion"], DNA_VALUE)

@@ -137,23 +137,56 @@ def ensure_poshmark_style_tags(listing: dict) -> bool:
     tags = as_list(raw.get("styleTags") or raw.get("style_tags"))
     if tags:
         return False
+    from vendoo_studio.models.depop_fields import infer_depop_styles
+    from vendoo_studio.models.ebay_fields import ebay_season_haystack
+    from vendoo_studio.models.listing_values import infer_known_options
+
     depop = listing.get("depop_specifics") if isinstance(listing.get("depop_specifics"), dict) else {}
     ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
-    candidates = [
-        *as_list(depop.get("style")),
-        text_value(ebay.get("style")),
-        text_value(ebay.get("features")),
-        "Casual",
-    ]
     filled: list[str] = []
-    for candidate in candidates:
-        text = text_value(candidate)
-        if text and text not in filled and text.casefold() != DNA_VALUE.casefold():
-            filled.append(text)
+    for candidate in as_list(depop.get("style")):
+        text_tag = text_value(candidate)
+        if text_tag and text_tag not in filled and text_tag.casefold() != DNA_VALUE.casefold():
+            filled.append(text_tag)
         if len(filled) >= 3:
             break
+    if len(filled) < 3:
+        for style in infer_depop_styles(listing, ebay=ebay, limit=3, exclude=filled):
+            if style not in filled:
+                filled.append(style)
+            if len(filled) >= 3:
+                break
+    if len(filled) < 3:
+        posh_options = (
+            "Casual", "Streetwear", "Vintage", "Retro", "Bohemian", "Athletic",
+            "Preppy", "Minimalist", "Graphic Tee", "Floral", "Oversized", "Cotton",
+        )
+        hay = ebay_season_haystack(listing, ebay)
+        for tag in infer_known_options(
+            hay,
+            posh_options,
+            cues={
+                "Streetwear": (r"\bstreetwear\b", r"\bgraphic\b"),
+                "Athletic": (r"\bathletic\b", r"\bworkout\b"),
+                "Floral": (r"\bfloral\b",),
+                "Oversized": (r"\boversized\b",),
+                "Vintage": (r"\bvintage\b",),
+                "Retro": (r"\bretro\b",),
+                "Bohemian": (r"\bboho\b", r"\bbohemian\b"),
+                "Graphic Tee": (r"\bgraphic\s*(?:tee|t[\s-]?shirt)\b",),
+                "Cotton": (r"\bcotton\b",),
+                "Casual": (r"\bcasual\b", r"\btee\b", r"\bt[\s-]?shirt\b"),
+            },
+            fallbacks=("Casual", "Minimalist", "Cotton"),
+            limit=3,
+            exclude=filled,
+        ):
+            if tag not in filled:
+                filled.append(tag)
+            if len(filled) >= 3:
+                break
     while len(filled) < 3:
-        for fallback in ("Casual", "Retro", "Vintage"):
+        for fallback in ("Casual", "Minimalist", "Cotton"):
             if fallback not in filled:
                 filled.append(fallback)
             if len(filled) >= 3:

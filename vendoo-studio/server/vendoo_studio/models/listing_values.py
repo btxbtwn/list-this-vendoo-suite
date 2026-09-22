@@ -165,3 +165,110 @@ def allowed_match(value: str, allowed: Iterable[str]) -> bool:
 def evidence_unknown(description: str, *needles: str) -> bool:
     lower = description.lower()
     return any(needle in lower for needle in needles)
+
+def dropdown_field_options(marketplace: str, *field_names: str) -> list[str]:
+    """Known Vendoo dropdown labels for a marketplace field (first matching name wins)."""
+    forms = marketplace_dropdown_forms().get(str(marketplace or "").casefold()) or {}
+    if not isinstance(forms, dict):
+        return []
+    for name in field_names:
+        labels = forms.get(name)
+        if isinstance(labels, list) and labels:
+            return [str(label) for label in labels if str(label).strip()]
+        needle_key = collapse_option(name)
+        for key, labels in forms.items():
+            if collapse_option(key) == needle_key and isinstance(labels, list) and labels:
+                return [str(label) for label in labels if str(label).strip()]
+    return []
+
+
+def infer_known_option(
+    hay: str,
+    options: Iterable[str],
+    *,
+    cues: dict[str, tuple[str, ...]] | None = None,
+    fallback: str | None = None,
+    exclude: Iterable[str] | None = None,
+) -> str | None:
+    """Pick the best known dropdown option from listing text, or ``fallback``."""
+    picked = infer_known_options(
+        hay,
+        options,
+        cues=cues,
+        fallbacks=(fallback,) if fallback else (),
+        limit=1,
+        exclude=exclude,
+    )
+    return picked[0] if picked else None
+
+
+def infer_known_options(
+    hay: str,
+    options: Iterable[str],
+    *,
+    cues: dict[str, tuple[str, ...]] | None = None,
+    fallbacks: Iterable[str] = (),
+    limit: int = 3,
+    exclude: Iterable[str] | None = None,
+) -> list[str]:
+    """Score known dropdown options against listing text; pad with fallbacks to ``limit``."""
+    limit = max(0, int(limit))
+    if limit == 0:
+        return []
+    blocked = {str(item) for item in (exclude or ()) if item}
+    labels = [
+        str(option).strip()
+        for option in options
+        if str(option).strip() and str(option).strip() != "----" and str(option).strip() not in blocked
+    ]
+    if not labels:
+        out: list[str] = []
+        for fallback in fallbacks:
+            text_fb = str(fallback or "").strip()
+            if text_fb and text_fb not in out and text_fb not in blocked:
+                out.append(text_fb)
+            if len(out) >= limit:
+                break
+        return out[:limit]
+
+    text_hay = str(hay or "")
+    scores: dict[str, int] = {label: 0 for label in labels}
+    for label in labels:
+        if re.search(rf"\b{re.escape(label)}\b", text_hay, flags=re.I):
+            scores[label] += 3
+        collapsed = collapse_option(label)
+        if collapsed and re.search(rf"\b{re.escape(collapsed)}\b", collapse_option(text_hay), flags=re.I):
+            scores[label] += 2
+
+    for label, patterns in (cues or {}).items():
+        if label not in scores:
+            hit = canonical_option(label, labels)
+            if not hit or hit not in scores:
+                continue
+            target = hit
+        else:
+            target = label
+        for pattern in patterns:
+            if re.search(pattern, text_hay, flags=re.I):
+                scores[target] += 1
+
+    ranked = sorted(
+        (name for name, score in scores.items() if score > 0),
+        key=lambda name: (-scores[name], name),
+    )
+    picked: list[str] = []
+    for name in ranked:
+        if name not in picked:
+            picked.append(name)
+        if len(picked) >= limit:
+            return picked[:limit]
+    for fallback in fallbacks:
+        text_fb = str(fallback or "").strip()
+        if not text_fb or text_fb in blocked:
+            continue
+        hit = canonical_option(text_fb, labels) or text_fb
+        if hit not in picked:
+            picked.append(hit)
+        if len(picked) >= limit:
+            break
+    return picked[:limit]
