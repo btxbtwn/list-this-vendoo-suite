@@ -24,6 +24,27 @@ jobs:
           python-version: "3.12"
       - run: python vendoo-studio/scripts/check-version-sync.py
 
+  changelog:
+    name: Changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base commit has to be here to tell a version bump from a rebase.
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Require a changelog entry for the version being shipped
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            python vendoo-studio/scripts/check-changelog.py --base "$BASE_SHA"
+          else
+            python vendoo-studio/scripts/check-changelog.py
+          fi
+
   portable-paths:
     name: Portable paths
     runs-on: ubuntu-latest
@@ -183,6 +204,7 @@ jobs:
     name: CI
     if: always()
     needs:
+      - changelog
       - portable-paths
       - secrets
       - studio-frontend
