@@ -497,6 +497,21 @@ function firestoreValue(value) {
     return { arrayValue: { values: value.map(firestoreValue) } };
   }
   if (typeof value === 'object') {
+    // GET /api/item returns Firebase Timestamp instances as their JSON shape.
+    // A direct REST update must put them back as Firestore timestamps, not as
+    // ordinary {_seconds, _nanoseconds} maps. Vendoo uses these stamps to tell
+    // that each marketplace form has been saved.
+    const seconds = Number(value._seconds);
+    const nanoseconds = Number(value._nanoseconds || 0);
+    if (
+      Number.isInteger(seconds)
+      && Number.isInteger(nanoseconds)
+      && nanoseconds >= 0
+      && nanoseconds < 1_000_000_000
+    ) {
+      const wholeSecond = new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/, '');
+      return { timestampValue: `${wholeSecond}.${String(nanoseconds).padStart(9, '0')}Z` };
+    }
     const fields = {};
     for (const [key, inner] of Object.entries(value)) fields[key] = firestoreValue(inner);
     return { mapValue: { fields } };
