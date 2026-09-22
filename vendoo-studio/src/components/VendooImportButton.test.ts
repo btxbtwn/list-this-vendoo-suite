@@ -50,23 +50,23 @@ describe("importSummary", () => {
 describe("progressLabel", () => {
   it("counts against the inventory total", () => {
     expect(progressLabel(run({ running: true, total: 1119, processed: 40 }))).toBe(
-      "Importing 40 of 1119",
+      "Syncing 40 of 1119",
     );
   });
 
   it("never reports more done than the total", () => {
     expect(progressLabel(run({ running: true, total: 10, processed: 12 }))).toBe(
-      "Importing 10 of 10",
+      "Syncing 10 of 10",
     );
   });
 
   it("falls back to a plain count before the total is known", () => {
-    expect(progressLabel(run({ running: true, processed: 7 }))).toBe("Importing 7…");
+    expect(progressLabel(run({ running: true, processed: 7 }))).toBe("Syncing 7…");
   });
 
   it("shows photos as they arrive", () => {
     expect(progressLabel(run({ running: true, total: 100, processed: 8, photos: 64 }))).toBe(
-      "Importing 8 of 100 · 64 photos",
+      "Syncing 8 of 100 · 64 photos",
     );
   });
 });

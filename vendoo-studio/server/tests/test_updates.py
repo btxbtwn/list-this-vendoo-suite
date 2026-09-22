@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from vendoo_studio.services import updates
 
@@ -119,6 +120,23 @@ class ProductionUpdateTest(unittest.TestCase):
         self.assertTrue(result["updated"])
         self.assertEqual(updates.commit_subject(self.local, "HEAD"), "from github")
         self.assertEqual(_git(self.local, "remote", "get-url", "origin"), str(github))
+
+    def test_prepared_update_waits_for_explicit_install(self):
+        _git(self.remote, "commit", "--allow-empty", "-m", "second")
+        with (
+            patch.object(updates, "repo_root", return_value=self.local),
+            patch("vendoo_studio.services.backups.snapshot_quietly"),
+        ):
+            prepared = updates.prepare_update()
+            progress = updates.update_progress()
+            self.assertTrue(prepared["updated"])
+            self.assertEqual(progress["status"], "downloaded")
+            self.assertEqual(progress["download_percent"], 100)
+
+            installed = updates.install_prepared_update()
+
+        self.assertTrue(installed["updated"])
+        self.assertEqual(updates.update_progress()["status"], "installing")
 
 
 if __name__ == "__main__":

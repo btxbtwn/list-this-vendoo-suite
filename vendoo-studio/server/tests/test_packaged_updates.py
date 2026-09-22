@@ -324,7 +324,7 @@ class PackagedUpdateTest(unittest.TestCase):
         os.environ["VENDOO_STUDIO_DATA_DIR"] = str(Path(self.tmp.name) / "data")
         os.environ["VENDOO_STUDIO_SKIP_CODESIGN"] = "1"
 
-        def fake_download(_client, _url, destination: Path) -> None:
+        def fake_download(_client, _url, destination: Path, _progress_callback=None) -> None:
             destination.write_bytes(archive.read_bytes())
 
         remote = {
@@ -345,11 +345,18 @@ class PackagedUpdateTest(unittest.TestCase):
             patch.object(packaged_updates.subprocess, "Popen") as popen,
         ):
             skipped = packaged_updates.apply_packaged_update()
+            progress = []
+            prepared = packaged_updates.prepare_packaged_update(force=True, progress_callback=progress.append)
+            popen.assert_not_called()
+            installed = packaged_updates.install_prepared_packaged_update()
             forced = packaged_updates.reinstall_packaged_app()
         self.assertFalse(skipped["updated"])
+        self.assertTrue(prepared["prepared"])
+        self.assertTrue(installed["updated"])
+        self.assertEqual(progress, [100.0])
         self.assertTrue(forced["updated"])
         self.assertTrue(forced["reinstalled"])
-        popen.assert_called_once()
+        self.assertEqual(popen.call_count, 2)
 
     def test_replacer_clears_quarantine_before_relaunch(self):
         root = Path(self.tmp.name)

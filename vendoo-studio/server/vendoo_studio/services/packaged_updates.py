@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 
@@ -25,6 +26,9 @@ ZIP_NAME = "List-This-Studio-macos.zip"
 INFO_NAME = "build_info.json"
 APP_BUNDLE_NAME = f"{APP_NAME}.app"
 USER_AGENT = f"ListThisStudio/{app_version()}"
+
+_prepared_lock = threading.Lock()
+_prepared_update: dict | None = None
 
 
 class PackagedUpdateError(RuntimeError):
@@ -279,13 +283,23 @@ def _safe_extract_zip(archive: Path, destination: Path) -> None:
         bundle.extractall(destination)
 
 
-def _download(client: httpx.Client, url: str, destination: Path) -> None:
+def _download(
+    client: httpx.Client,
+    url: str,
+    destination: Path,
+    progress_callback=None,
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with client.stream("GET", url) as response:
         response.raise_for_status()
+        total = int(response.headers.get("content-length") or 0)
+        downloaded = 0
         with destination.open("wb") as handle:
             for chunk in response.iter_bytes():
                 handle.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback and total:
+                    progress_callback(min(100.0, downloaded / total * 100))
 
 
 def _resolve_zip_digest(remote: dict, client: httpx.Client | None = None) -> str | None:
@@ -404,7 +418,10 @@ def _write_replacer(app_path: Path, new_app: Path, pid: int) -> Path:
     return script
 
 
-def apply_packaged_update(*, force: bool = False) -> dict:
+def prepare_packaged_update(*, force: bool = False, progress_callback=None) -> dict:
+    """Download, verify, and unpack an update without restarting the app."""
+    global _prepared_update
+
     status = check_for_packaged_update()
     download_url = status.get("download_url")
     if not force and not status.get("available"):
@@ -425,11 +442,51 @@ def apply_packaged_update(*, force: bool = False) -> dict:
     if not expected_digest:
         expected_digest = _resolve_zip_digest({"zip_sha256": None})
     with httpx.Client(timeout=120.0, headers=_headers(), follow_redirects=True) as client:
-        _download(client, download_url, archive)
+        _download(client, download_url, archive, progress_callback)
     _verify_archive_digest(archive, expected_digest)
     new_app = _extract_app(archive, staging / "unpacked")
     _verify_app_signature(new_app)
     _prepare_app_bundle(new_app, clear_quarantine=True)
+    prepared = {
+        "app_path": app_path,
+        "new_app": new_app,
+        "staging": staging,
+        "sha": status.get("remote_sha"),
+        "packaged": True,
+        "reinstalled": force,
+    }
+    with _prepared_lock:
+        previous = _prepared_update
+        _prepared_update = prepared
+    if previous:
+        previous_staging = previous.get("staging")
+        if isinstance(previous_staging, Path) and previous_staging != staging:
+            shutil.rmtree(previous_staging, ignore_errors=True)
+    if progress_callback:
+        progress_callback(100.0)
+    return {
+        "ok": True,
+        "updated": True,
+        "prepared": True,
+        "sha": status.get("remote_sha"),
+        "packaged": True,
+        "reinstalled": force,
+    }
+
+
+def install_prepared_packaged_update() -> dict:
+    """Arm the staged app replacement. The caller is responsible for exiting."""
+    global _prepared_update
+
+    with _prepared_lock:
+        prepared = _prepared_update
+    if not prepared:
+        raise PackagedUpdateError("Download the update before restarting to install it.")
+    app_path = prepared["app_path"]
+    new_app = prepared["new_app"]
+    if not app_path.exists() or not new_app.exists():
+        raise PackagedUpdateError("The downloaded update is no longer available. Download it again.")
+    _verify_app_signature(new_app)
     script = _write_replacer(app_path, new_app, os.getpid())
     subprocess.Popen(
         [str(script)],
@@ -437,14 +494,23 @@ def apply_packaged_update(*, force: bool = False) -> dict:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+    with _prepared_lock:
+        _prepared_update = None
     return {
         "ok": True,
         "updated": True,
-        "sha": status.get("remote_sha"),
+        "sha": prepared.get("sha"),
         "packaged": True,
         "relaunch": True,
-        "reinstalled": force,
+        "reinstalled": bool(prepared.get("reinstalled")),
     }
+
+
+def apply_packaged_update(*, force: bool = False) -> dict:
+    prepared = prepare_packaged_update(force=force)
+    if not prepared.get("updated"):
+        return prepared
+    return install_prepared_packaged_update()
 
 
 def reinstall_packaged_app() -> dict:
