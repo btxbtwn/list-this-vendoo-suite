@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shlex
 import shutil
@@ -26,6 +27,13 @@ ZIP_NAME = "List-This-Studio-macos.zip"
 INFO_NAME = "build_info.json"
 APP_BUNDLE_NAME = f"{APP_NAME}.app"
 USER_AGENT = f"ListThisStudio/{app_version()}"
+# Download fills this band; verify / extract / codesign take the rest so the
+# meter keeps moving after the last network byte (codesign is often longer).
+DOWNLOAD_PROGRESS_FLOOR = 5.0
+DOWNLOAD_PROGRESS_CEILING = 90.0
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
+# Half-life for unknown Content-Length downloads (~25 MiB → ~63% of the band).
+UNKNOWN_SIZE_HALF_BYTES = 25 * 1024 * 1024
 
 _prepared_lock = threading.Lock()
 _prepared_update: dict | None = None
@@ -283,6 +291,20 @@ def _safe_extract_zip(archive: Path, destination: Path) -> None:
         bundle.extractall(destination)
 
 
+def map_download_progress(raw_percent: float) -> float:
+    """Map 0–100 download completion into the prepare-update progress band."""
+    clamped = min(100.0, max(0.0, float(raw_percent)))
+    span = DOWNLOAD_PROGRESS_CEILING - DOWNLOAD_PROGRESS_FLOOR
+    return DOWNLOAD_PROGRESS_FLOOR + (clamped / 100.0) * span
+
+
+def unknown_size_download_progress(downloaded: int) -> float:
+    """Asymptotic 0–100% when the response has no Content-Length."""
+    if downloaded <= 0:
+        return 0.0
+    return 100.0 * (1.0 - math.exp(-downloaded / UNKNOWN_SIZE_HALF_BYTES))
+
+
 def _download(
     client: httpx.Client,
     url: str,
@@ -294,12 +316,30 @@ def _download(
         response.raise_for_status()
         total = int(response.headers.get("content-length") or 0)
         downloaded = 0
+        last_reported = -1.0
+
+        def report(raw_percent: float) -> None:
+            nonlocal last_reported
+            if not progress_callback:
+                return
+            mapped = map_download_progress(raw_percent)
+            # Emit at least every half percent so the sidebar meter moves, and
+            # always emit the band ceiling when the body is fully written.
+            if mapped < DOWNLOAD_PROGRESS_CEILING and mapped - last_reported < 0.5:
+                return
+            last_reported = mapped
+            progress_callback(mapped)
+
         with destination.open("wb") as handle:
-            for chunk in response.iter_bytes():
+            for chunk in response.iter_bytes(chunk_size=DOWNLOAD_CHUNK_SIZE):
                 handle.write(chunk)
                 downloaded += len(chunk)
-                if progress_callback and total:
-                    progress_callback(min(100.0, downloaded / total * 100))
+                if total > 0:
+                    report(downloaded / total * 100.0)
+                else:
+                    report(unknown_size_download_progress(downloaded))
+        if progress_callback:
+            progress_callback(DOWNLOAD_PROGRESS_CEILING)
 
 
 def _resolve_zip_digest(remote: dict, client: httpx.Client | None = None) -> str | None:
@@ -422,6 +462,11 @@ def prepare_packaged_update(*, force: bool = False, progress_callback=None) -> d
     """Download, verify, and unpack an update without restarting the app."""
     global _prepared_update
 
+    def report(percent: float) -> None:
+        if progress_callback:
+            progress_callback(min(100.0, max(0.0, float(percent))))
+
+    report(1.0)
     status = check_for_packaged_update()
     download_url = status.get("download_url")
     if not force and not status.get("available"):
@@ -441,10 +486,14 @@ def prepare_packaged_update(*, force: bool = False, progress_callback=None) -> d
     archive = staging / ZIP_NAME
     if not expected_digest:
         expected_digest = _resolve_zip_digest({"zip_sha256": None})
+    report(DOWNLOAD_PROGRESS_FLOOR)
     with httpx.Client(timeout=120.0, headers=_headers(), follow_redirects=True) as client:
         _download(client, download_url, archive, progress_callback)
+    report(91.0)
     _verify_archive_digest(archive, expected_digest)
+    report(94.0)
     new_app = _extract_app(archive, staging / "unpacked")
+    report(97.0)
     _verify_app_signature(new_app)
     _prepare_app_bundle(new_app, clear_quarantine=True)
     prepared = {
@@ -462,8 +511,7 @@ def prepare_packaged_update(*, force: bool = False, progress_callback=None) -> d
         previous_staging = previous.get("staging")
         if isinstance(previous_staging, Path) and previous_staging != staging:
             shutil.rmtree(previous_staging, ignore_errors=True)
-    if progress_callback:
-        progress_callback(100.0)
+    report(100.0)
     return {
         "ok": True,
         "updated": True,

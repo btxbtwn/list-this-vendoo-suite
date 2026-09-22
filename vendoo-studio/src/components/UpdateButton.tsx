@@ -75,6 +75,9 @@ export function installConfirmationMessage(data: UpdateStatus) {
 export function useStudioUpdate() {
   const queryClient = useQueryClient();
   const [waiting, setWaiting] = useState(false);
+  // Keep polling while the download POST is in flight — status alone can lag
+  // a tick behind onMutate, and that used to freeze the meter at 0%.
+  const [watchProgress, setWatchProgress] = useState(false);
 
   const { data, isFetching, isFetched, refetch } = useQuery({
     queryKey: ["updates"],
@@ -86,20 +89,25 @@ export function useStudioUpdate() {
   const { data: progress } = useQuery({
     queryKey: ["update-progress"],
     queryFn: api.updates.progress,
-    refetchInterval: (query) =>
-      query.state.data?.status === "downloading" || query.state.data?.status === "installing" ? 300 : false,
+    refetchInterval: (query) => {
+      if (watchProgress) return 250;
+      const status = query.state.data?.status;
+      return status === "downloading" || status === "installing" ? 250 : false;
+    },
   });
 
   const download = useMutation({
     mutationKey: ["studio-update-download"],
     mutationFn: api.updates.download,
     onMutate: () => {
+      setWatchProgress(true);
       queryClient.setQueryData(["update-progress"], {
         status: "downloading",
         download_percent: 0,
         sha: null,
         error: null,
       });
+      void queryClient.invalidateQueries({ queryKey: ["update-progress"] });
     },
     onSuccess: (result) => {
       if (!result.updated) {
@@ -126,6 +134,10 @@ export function useStudioUpdate() {
         title: "Could not download update",
         description: err.message || "An unexpected error occurred.",
       });
+    },
+    onSettled: () => {
+      setWatchProgress(false);
+      void queryClient.invalidateQueries({ queryKey: ["update-progress"] });
     },
   });
 
@@ -289,10 +301,9 @@ export function normalizeDownloadPercent(percent: number | null | undefined): nu
 function DownloadProgressIcon({ percent }: { percent: number | null }) {
   const normalized = normalizeDownloadPercent(percent);
   const offset = DOWNLOAD_PROGRESS_CIRCUMFERENCE * (1 - normalized / 100);
-  // Before the first byte lands the arc is empty — spin a short segment so the
-  // control still reads as active. Spin the outer wrapper so it never fights
-  // the ring's -90° start angle (same continuous spin as T3's animate-spin).
-  const indeterminate = normalized <= 0;
+  // Spin only before the first real progress tick; once the server reports a
+  // percent the ring fills (T3 Code download affordance).
+  const indeterminate = normalized < 1;
   return (
     <span className="sidebar-update-progress-icon">
       <span

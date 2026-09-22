@@ -9,6 +9,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
+
 from vendoo_studio.services import packaged_updates
 
 
@@ -353,10 +355,87 @@ class PackagedUpdateTest(unittest.TestCase):
         self.assertFalse(skipped["updated"])
         self.assertTrue(prepared["prepared"])
         self.assertTrue(installed["updated"])
-        self.assertEqual(progress, [100.0])
+        # Phase markers keep the meter moving even when the download stub is silent.
+        self.assertEqual(progress[0], 1.0)
+        self.assertEqual(progress[-1], 100.0)
+        self.assertGreater(max(progress), 90.0)
         self.assertTrue(forced["updated"])
         self.assertTrue(forced["reinstalled"])
         self.assertEqual(popen.call_count, 2)
+
+    def test_map_download_progress_stays_inside_the_download_band(self):
+        self.assertEqual(packaged_updates.map_download_progress(0), packaged_updates.DOWNLOAD_PROGRESS_FLOOR)
+        self.assertEqual(packaged_updates.map_download_progress(100), packaged_updates.DOWNLOAD_PROGRESS_CEILING)
+        mid = packaged_updates.map_download_progress(50)
+        self.assertGreater(mid, packaged_updates.DOWNLOAD_PROGRESS_FLOOR)
+        self.assertLess(mid, packaged_updates.DOWNLOAD_PROGRESS_CEILING)
+
+    def test_unknown_size_download_progress_climbs_without_content_length(self):
+        self.assertEqual(packaged_updates.unknown_size_download_progress(0), 0.0)
+        early = packaged_updates.unknown_size_download_progress(1024 * 1024)
+        later = packaged_updates.unknown_size_download_progress(50 * 1024 * 1024)
+        self.assertGreater(early, 0.0)
+        self.assertGreater(later, early)
+        self.assertLess(later, 100.0)
+
+    def test_download_reports_progress_with_and_without_content_length(self):
+        import http.server
+        import threading
+
+        payload = b"x" * (200 * 1024)
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                if self.path.endswith("no-cl"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                # Write in pieces so iter_bytes yields more than one chunk.
+                for index in range(0, len(payload), 16 * 1024):
+                    self.wfile.write(payload[index : index + 16 * 1024])
+
+            def log_message(self, *_args):
+                return
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        port = server.server_address[1]
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                with_cl: list[float] = []
+                dest = Path(self.tmp.name) / "with-cl.zip"
+                packaged_updates._download(
+                    client,
+                    f"http://127.0.0.1:{port}/file.zip",
+                    dest,
+                    with_cl.append,
+                )
+                self.assertTrue(dest.is_file())
+                self.assertGreater(len(with_cl), 1)
+                self.assertEqual(with_cl[-1], packaged_updates.DOWNLOAD_PROGRESS_CEILING)
+                self.assertGreater(with_cl[0], packaged_updates.DOWNLOAD_PROGRESS_FLOOR - 0.01)
+
+                no_cl: list[float] = []
+                dest2 = Path(self.tmp.name) / "no-cl.zip"
+                packaged_updates._download(
+                    client,
+                    f"http://127.0.0.1:{port}/no-cl",
+                    dest2,
+                    no_cl.append,
+                )
+                self.assertTrue(dest2.is_file())
+                self.assertGreater(len(no_cl), 0)
+                self.assertEqual(no_cl[-1], packaged_updates.DOWNLOAD_PROGRESS_CEILING)
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_replacer_clears_quarantine_before_relaunch(self):
         root = Path(self.tmp.name)
