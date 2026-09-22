@@ -724,6 +724,48 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
             [("depop", "Other"), ("mercari", "No Brand/Not sure")],
         )
 
+    def test_missing_brand_validation_falls_back_to_depop_other(self):
+        # Vendoo shows "Missing Brand" when an API free-text brand is rejected —
+        # that is still an empty brand, not a model question.
+        gaps = [{
+            "marketplace": "depop",
+            "field": "Brand",
+            "error": "Missing Brand",
+            "options": ["Nike", "Adidas", "Other"],
+            "options_complete": True,
+        }]
+        ready, needs = deterministic_gap_patches(gaps, {"brand": "Energy Sportswear"})
+        self.assertEqual(needs, [])
+        self.assertEqual([(patch["marketplace"], patch["value"]) for patch in ready], [("depop", "Other")])
+
+    def test_empty_depop_brand_after_a_failed_fill_is_still_repaired(self):
+        # A prior fill-log "filled" for the listing brand must not freeze an empty
+        # Depop brand — Other still needs to be selected.
+        self.db.add(FillLogEntry(
+            job_id=self.job.id,
+            conversation_id=self.conv.id,
+            step="filling_depop",
+            marketplace="depop",
+            field="Brand",
+            status="filled",
+            reason="",
+            value_preview="Energy Sportswear",
+        ))
+        self.db.commit()
+        gaps = [{
+            "marketplace": "depop",
+            "field": "Brand",
+            "error": "Missing Brand",
+            "expected": "Energy Sportswear",
+            "observed": "",
+            "options": ["Nike", "Other"],
+            "options_complete": True,
+        }]
+        self.assertEqual(len(drop_noop_gaps(self.db, self.job, gaps, {"brand": "Energy Sportswear"})), 1)
+        ready, needs = deterministic_gap_patches(gaps, {"brand": "Energy Sportswear"})
+        self.assertEqual(needs, [])
+        self.assertEqual(ready[0]["value"], "Other")
+
     def test_listed_brand_is_not_replaced_by_a_fallback(self):
         gaps = [
             {"marketplace": "depop", "field": "Brand", "error": "Empty field",

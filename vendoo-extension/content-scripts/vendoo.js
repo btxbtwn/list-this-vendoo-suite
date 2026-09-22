@@ -520,8 +520,40 @@
     element.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function findFieldClearControl(el) {
+      const root = el?.closest?.(
+          '.MuiAutocomplete-root, .MuiFormControl-root, .MuiInputBase-root, [class*="MuiAutocomplete"], [class*="MuiFormControl"], [class*="category"]'
+      ) || el?.parentElement;
+      if (!root) return null;
+      const selectors = [
+          '.MuiAutocomplete-clearIndicator',
+          'button[aria-label="Clear"]',
+          'button[aria-label*="clear" i]',
+          '.MuiChip-deleteIcon',
+          '[data-testid*="clear" i]',
+      ];
+      for (const sel of selectors) {
+          const node = root.querySelector(sel);
+          if (node && isVisibleElement(node)) return node.closest('button') || node;
+      }
+      return Array.from(root.querySelectorAll('button, [role="button"]')).find((node) => {
+          if (!isVisibleElement(node)) return false;
+          const label = normalizeText(node.getAttribute('aria-label') || node.getAttribute('title') || '');
+          return label.includes('clear') || label.includes('remove') || label.includes('delete');
+      }) || null;
+  }
+
   async function clearInput(element) {
-      if (!element || !element.value) return;
+      if (!element) return;
+      // MUI Autocomplete often keeps the selected label with an empty input value.
+      // Click the clear control first so a prior near-miss (or API free-text) does
+      // not block Depop "Other" / Mercari No Brand.
+      const clearBtn = findFieldClearControl(element);
+      if (clearBtn) {
+          clearBtn.click();
+          await sleep(CONFIG.SLEEP_SHORT);
+      }
+      if (!element.value) return;
       element.focus();
       setReactValue(element, '');
       await sleep(CONFIG.SLEEP_SHORT);
@@ -710,13 +742,16 @@
 
   // Snaps a value onto a currently-offered option. Returns undefined when the
   // registry has nothing to say, so the caller keeps its own result.
-  function coerceToKnownOption(marketplace, fieldName, value) {
+  function coerceToKnownOption(marketplace, fieldName, value, { exactOnly = false } = {}) {
       const raw = String(value == null ? '' : value).trim();
       if (!raw) return undefined;
       const options = knownOptionsFor(marketplace, fieldName);
       if (!options.length) return undefined;
       const exact = options.find((option) => optionMatchesValue(option, raw, true));
       if (exact) return exact;
+      // Brand lists are huge and substring-y: "Sportswear" must not become
+      // "AIM'N Sportswear", and "Other" must not become "Mothercare".
+      if (exactOnly) return undefined;
       const fuzzy = options.find((option) => optionMatchesValue(option, raw, false));
       return fuzzy || undefined;
   }
@@ -728,11 +763,12 @@
       // A null from the static maps means "this value has no option here"; that
       // decision stands. Otherwise let the live option set repair stale output.
       if (mapped === null) return mapped;
+      const brandField = normalizeFieldKey(fieldName) === 'brand';
       // No Brand/Not sure is a checkbox, not a brand option — never snap it onto one.
-      if (normalizeFieldKey(fieldName) === 'brand' && isNoBrandValue(mapped)) return mapped;
+      if (brandField && isNoBrandValue(mapped)) return mapped;
 
-      const corrected = coerceToKnownOption(mp, fieldName, mapped)
-          ?? coerceToKnownOption(mp, fieldName, value);
+      const corrected = coerceToKnownOption(mp, fieldName, mapped, { exactOnly: brandField })
+          ?? coerceToKnownOption(mp, fieldName, value, { exactOnly: brandField });
       if (corrected === undefined) {
           // Known option set, no match: the fill is going to fail. Say so now so
           // the cause is visible, rather than guessing at a near-miss.
@@ -2485,25 +2521,7 @@
   }
 
   function findCategoryClearControl(catBtn) {
-      const root = catBtn.closest('.MuiAutocomplete-root, .MuiFormControl-root, .MuiInputBase-root, [class*="category"]')
-          || catBtn.parentElement;
-      if (!root) return null;
-      const selectors = [
-          '.MuiAutocomplete-clearIndicator',
-          'button[aria-label="Clear"]',
-          'button[aria-label*="clear" i]',
-          '.MuiChip-deleteIcon',
-          '[data-testid*="clear" i]',
-      ];
-      for (const sel of selectors) {
-          const el = root.querySelector(sel);
-          if (el && isVisibleElement(el)) return el.closest('button') || el;
-      }
-      return Array.from(root.querySelectorAll('button, [role="button"]')).find((el) => {
-          if (!isVisibleElement(el)) return false;
-          const label = normalizeText(el.getAttribute('aria-label') || el.getAttribute('title') || '');
-          return label.includes('clear') || label.includes('remove') || label.includes('delete');
-      }) || null;
+      return findFieldClearControl(catBtn);
   }
 
   async function clearExistingCategorySelection(catBtn) {
@@ -4503,7 +4521,7 @@
           });
       };
 
-      if (fieldLooksFilled(el)) await clearInput(el);
+      if (fieldLooksFilled(el) || (el.value || '').trim()) await clearInput(el);
 
       const candidates = brandFillCandidates(data.brand);
       if (candidates.length === 0) {
@@ -4519,6 +4537,7 @@
               await setMercariNoBrandChecked(false);
               return;
           }
+          if (fieldLooksFilled(el) || (el.value || '').trim()) await clearInput(el);
       }
 
       await useNoBrand('Brand not in Mercari list');
@@ -4676,10 +4695,16 @@
               return;
           }
           log('Depop brand missing from list. Selecting Other.');
+          // Clear both typed text and a committed Autocomplete selection.
+          await clearInput(el);
           if (fieldLooksFilled(el)) await clearInput(el);
           const fallback = await fillDropdownField(el, DEPOP_BRAND_FALLBACK, fieldName, true);
-          if (fallback.status === 'filled') log(`  ✓ ${fieldName}: "${DEPOP_BRAND_FALLBACK}"`);
-          else warn(`${fieldName}: could not select a list brand or Other`);
+          const shown = displayedFieldValue(el);
+          if (fallback.status === 'filled' && optionMatchesValue(shown, DEPOP_BRAND_FALLBACK, true)) {
+              log(`  ✓ ${fieldName}: "${DEPOP_BRAND_FALLBACK}"`);
+          } else {
+              warn(`${fieldName}: could not select a list brand or Other`);
+          }
       };
 
       const candidates = brandFillCandidates(data.brand);
@@ -4687,15 +4712,18 @@
           await useOther();
           return;
       }
-      if (fieldLooksFilled(el)) await clearInput(el);
+      if (fieldLooksFilled(el) || (el.value || '').trim()) await clearInput(el);
       for (const candidate of candidates) {
           log(`Trying ${fieldName}: "${candidate}"`);
           const result = await fillDropdownField(el, candidate, fieldName, true);
           const shown = displayedFieldValue(el);
+          // Require an exact displayed match so a coerced near-miss (or free text)
+          // cannot skip the Other fallback.
           if (result.status === 'filled' && optionMatchesValue(shown, candidate, true) && !/^select\b/i.test(shown || '')) {
               log(`  ✓ ${fieldName}: "${shown || candidate}"`);
               return;
           }
+          if (fieldLooksFilled(el) || (el.value || '').trim()) await clearInput(el);
       }
       await useOther();
   }
