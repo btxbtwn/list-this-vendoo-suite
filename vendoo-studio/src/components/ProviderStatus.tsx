@@ -1,5 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { ProviderLogo, resolveProviderLogoId } from "./ProviderLogo";
+
+export function providerStatusModelLabel(
+  configured: boolean,
+  listingModel: string | undefined | null,
+): string {
+  if (!configured) return "Not configured";
+  return listingModel?.trim() || "listing model";
+}
 
 export function ProviderStatus() {
   const { data } = useQuery({
@@ -9,21 +18,22 @@ export function ProviderStatus() {
   });
 
   const connected = Boolean(data?.configured);
+  const logoId = resolveProviderLogoId(data?.provider);
   const providerLabel =
-    data?.provider === "chatgpt"
+    logoId === "chatgpt"
       ? "ChatGPT"
-      : data?.provider === "xiaomi-mimo"
+      : logoId === "mimo"
         ? "MiMo"
-        : data?.provider === "cursor"
+        : logoId === "cursor"
           ? "Cursor"
-          : null;
-  const modelName = connected
-    ? [providerLabel, data?.listing_model].filter(Boolean).join(" · ") || "listing model"
-    : "Not configured";
+          : "Listing AI";
+  const modelName = providerStatusModelLabel(connected, data?.listing_model);
+  const title = connected && logoId ? `${providerLabel} · ${modelName}` : modelName;
 
   return (
-    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <span className="status-provider" title={title}>
       <span className={`status-dot ${connected ? "connected" : ""}`} />
+      {connected && logoId ? <ProviderLogo id={logoId} label={providerLabel} size={14} /> : null}
       <span>{modelName}</span>
     </span>
   );

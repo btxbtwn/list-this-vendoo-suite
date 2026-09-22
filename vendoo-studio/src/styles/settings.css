@@ -23,6 +23,7 @@
 .settings-section-title {
   display: flex;
   align-items: center;
+  gap: 8px;
   min-height: 28px;
   margin-bottom: 10px;
   padding: 0 16px;
@@ -30,6 +31,46 @@
   font-size: 14px;
   font-weight: 400;
   letter-spacing: -0.005em;
+}
+
+.provider-logo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.provider-logo svg {
+  display: block;
+}
+
+.provider-logo-fallback {
+  background: #5c6578;
+}
+
+.provider-logo-letter {
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.settings-provider-in-use {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-provider-select {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .settings-group {
