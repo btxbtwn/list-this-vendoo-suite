@@ -5,6 +5,7 @@ import {
   activeFilterCount,
   filterListings,
   labelOptions,
+  listingStatusTab,
   marketplaceOptions,
   matchesSearch,
   sortListings,
@@ -50,6 +51,11 @@ const draft: FilterableListing = {
   vendoo_labels: [],
   vendoo_marketplaces: [],
 };
+const inProgress: FilterableListing = {
+  ...draft,
+  title: "Generating listing",
+  status: "in_progress",
+};
 const inventory = [tee, boots, draft];
 
 const withFilters = (overrides: Partial<typeof DEFAULT_LISTING_FILTERS>) => ({
@@ -76,6 +82,14 @@ describe("filterListings", () => {
 
   it("filters by status tab", () => {
     expect(filterListings(inventory, "", withFilters({ status: "sold" }))).toEqual([boots]);
+  });
+
+  it("keeps an in-progress listing in the Draft tab", () => {
+    expect(listingStatusTab("in_progress")).toBe("draft");
+    expect(filterListings([...inventory, inProgress], "", withFilters({ status: "draft" }))).toEqual([
+      draft,
+      inProgress,
+    ]);
   });
 
   it("matches any selected marketplace", () => {
@@ -165,6 +179,10 @@ describe("sortListings", () => {
 describe("filter options", () => {
   it("counts each status tab", () => {
     expect(statusCounts(inventory)).toEqual({ all: 3, active: 1, sold: 1, draft: 1 });
+  });
+
+  it("counts an in-progress listing as a draft", () => {
+    expect(statusCounts([...inventory, inProgress])).toEqual({ all: 4, active: 1, sold: 1, draft: 2 });
   });
 
   it("lists every label once, sorted", () => {

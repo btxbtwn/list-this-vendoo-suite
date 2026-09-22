@@ -37,6 +37,7 @@ export function updateHeadline(data: { summary?: string | null } | null | undefi
 export function installConfirmationMessage(data: UpdateStatus) {
   const version = data.short_sha || (data.remote_sha ? data.remote_sha.slice(0, 7) : "");
   const headline = updateHeadline(data);
+  const lines = data.commits || [];
   if (data.packaged) {
     const title = headline
       ? `Install “${headline}” and restart List This Studio?`
@@ -44,6 +45,7 @@ export function installConfirmationMessage(data: UpdateStatus) {
     const details = [
       version ? `Build ${version}` : "",
       headline ? "" : "A new Mac build is on GitHub.",
+      ...lines.filter((line) => line.trim() && line.trim() !== headline),
     ].filter(Boolean);
     return [
       title,
@@ -54,7 +56,6 @@ export function installConfirmationMessage(data: UpdateStatus) {
     ].join("\n");
   }
   const n = data.behind || 0;
-  const lines = (data.commits || []).slice(0, 5);
   const title = headline
     ? `Install “${headline}” and restart List This Studio?`
     : `Install update${version ? ` ${version}` : ""} and restart List This Studio?`;

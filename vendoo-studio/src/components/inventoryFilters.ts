@@ -88,6 +88,12 @@ export const DEFAULT_LISTING_FILTERS: ListingFilters = {
   sort: "recent",
 };
 
+/** The inventory tab a listing belongs to while preserving its detailed row status. */
+export function listingStatusTab(status?: string | null): string {
+  const value = String(status || "draft");
+  return value === "in_progress" ? "draft" : value;
+}
+
 function lower(value: string | null | undefined): string {
   return String(value || "").toLowerCase();
 }
@@ -125,7 +131,7 @@ export function matchesFilters(
   filters: ListingFilters,
   now: number = Date.now(),
 ): boolean {
-  if (filters.status !== "all" && String(listing.status || "draft") !== filters.status) return false;
+  if (filters.status !== "all" && listingStatusTab(listing.status) !== filters.status) return false;
   const listed = listedOn(listing);
   // Vendoo's "View Not Listed" asks for the items no marketplace carries, which
   // is the opposite of picking marketplaces, so it wins over the chips.
@@ -220,7 +226,7 @@ export function sortListings<T extends FilterableListing>(listings: T[], sort: L
 export function statusCounts(listings: FilterableListing[]): Record<string, number> {
   const counts: Record<string, number> = { all: listings.length };
   for (const listing of listings) {
-    const status = String(listing.status || "draft");
+    const status = listingStatusTab(listing.status);
     counts[status] = (counts[status] || 0) + 1;
   }
   return counts;
