@@ -662,4 +662,10 @@ export const api = {
         method: "POST",
       }),
   },
+
+  changelog: () =>
+    request<{
+      version: string;
+      entries: { version: string; date: string | null; body: string }[];
+    }>("/changelog"),
 };
