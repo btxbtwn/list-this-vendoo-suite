@@ -12,6 +12,7 @@ import {
   type QueuedChatMessage,
 } from "./chatMessageQueue";
 import { SendProgress } from "./SendProgress";
+import { EvidenceCard } from "./EvidenceCard";
 import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
 import { stableStreamingText } from "./streamingText";
@@ -1342,14 +1343,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     }
 
     if (m.role === "system" && isPhotoAnalysis(m.text)) {
-      const lines = m.text.split("\n").filter((l: string) => l.trim());
-      const body = lines.slice(1).join("\n");
-      return (
-        <div key={m.id} className="evidence-card">
-          <div className="evidence-header">EVIDENCE</div>
-          <div className="evidence-body">{body || m.text}</div>
-        </div>
-      );
+      return <EvidenceCard key={m.id} text={m.text} />;
     }
 
     if (m.role === "system" && isCompResearch(m.text)) {
