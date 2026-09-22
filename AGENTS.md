@@ -90,7 +90,7 @@ CI (`.github/workflows/ci.yml`) runs these on every pull request and push to `ma
 - **Skills:** Confirm `skills/list-this/SKILL.md` exists and `python -m json.tool skills/list-this/references/vendoo-dropdown-options.json` succeeds.
 - **Secrets:** Do not track `.env`, key files, photos, or private exports. CI scans the working tree with gitleaks.
 
-**Pull requests:** After creating or updating a PR, always check CI (`gh pr checks`) and fix failures before considering the work done. Do not stop while required checks are pending or red. PRs that change `vendoo-studio/` must bump the Studio patch version once (`cd vendoo-studio && ./scripts/bump-version.sh`) so the status-bar version advances.
+**Pull requests:** After creating or updating a PR, always check CI (`gh pr checks`) and fix failures before considering the work done. Do not stop while required checks are pending or red. PRs that change `vendoo-studio/` must bump the Studio patch version once (`cd vendoo-studio && ./scripts/bump-version.sh`) so the status-bar version advances, and add a `CHANGELOG.md` entry for that version — one `## <version> — <YYYY-MM-DD>` heading at the top of the file with a bullet in the seller's words. The app reads that file (Settings → General → About → What's new), and `server/tests/test_changelog.py` fails when the newest entry does not match `VERSION`.
 
 ## Security and Product Invariants
 

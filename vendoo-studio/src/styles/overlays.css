@@ -224,6 +224,69 @@
   margin-top: 4px;
 }
 
+/* ── Changelog (About → What's new) ── */
+
+.changelog-popup {
+  max-width: 36rem;
+}
+
+.changelog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 0 24px 20px;
+  overflow: auto;
+  max-height: min(64vh, 32rem);
+}
+
+.changelog-status {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.changelog-status.is-error {
+  color: var(--color-danger, #e5484d);
+}
+
+.changelog-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.changelog-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.changelog-entry-version {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.changelog-entry-current {
+  padding: 1px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-paper) 72%, transparent);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.changelog-entry-date {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.changelog-entry .chat-markdown {
+  font-size: 14px;
+}
+
 /* ── Toasts (T3 stacked toasts) ── */
 
 .toast-viewport {

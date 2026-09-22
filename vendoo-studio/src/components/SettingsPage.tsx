@@ -6,6 +6,7 @@ import type { ListingProviderId } from "../api/types";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
+import { ChangelogDialog } from "./ChangelogDialog";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ProviderLogo, resolveProviderLogoId } from "./ProviderLogo";
 import {
@@ -390,6 +391,24 @@ function AboutVersionRow({ version }: { version: string }) {
   );
 }
 
+function WhatsNewRow() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <SettingsRow
+        title="What's new"
+        description="Every change to List This Studio, newest first."
+        control={
+          <button type="button" className="btn btn-sm btn-outline" onClick={() => setOpen(true)}>
+            View changelog
+          </button>
+        }
+      />
+      <ChangelogDialog open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
 function BackupsSection() {
   const queryClient = useQueryClient();
   const { data, error, isLoading } = useQuery({
@@ -692,6 +711,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
       <SettingsSection id="about" title="About">
         <DataFolderRow />
         <AboutVersionRow version={status?.version || "…"} />
+        <WhatsNewRow />
       </SettingsSection>
     </>
   );
