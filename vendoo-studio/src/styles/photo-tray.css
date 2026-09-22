@@ -13,7 +13,7 @@
   color: var(--color-text-muted);
 }
 
-/* Keep the count next to the heading; only Add Photos goes to the right edge. */
+/* Keep the count next to the heading; Add Photos / Add Folder sit on the right. */
 .photo-tray .photo-tray-meta {
   margin-right: auto;
   min-width: 0;

@@ -536,6 +536,125 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(dirty["size"], "M")
         self.assertEqual(dirty["ebay_specifics"]["size"], "M")
 
+    def test_mens_bottoms_size_becomes_waist_by_inseam(self):
+        from vendoo_studio.services.listing_generate import (
+            normalize_mens_bottoms_size,
+            sync_title_size,
+        )
+
+        listing = {
+            "title": "Levi's 30 Y2K 501 Straight Jeans Blue Denim",
+            "brand": "Levi's",
+            "size": "30",
+            "department": "Men",
+            "description": "Y2K straight jeans.\n\nFlaws: none noted.\n\nMeasurements: Waist: 15\"; Inseam: 32\"",
+            "ebay_specifics": {"type": "Jeans", "size": "30"},
+        }
+        self.assertTrue(normalize_mens_bottoms_size(listing))
+        self.assertEqual(listing["size"], "30x32")
+        self.assertTrue(sync_title_size(listing))
+        self.assertEqual(listing["title"], "Levi's 30x32 Y2K 501 Straight Jeans Blue Denim")
+
+        # The title's own waist x inseam is enough when no measurements exist.
+        from_title = {
+            "title": "Dickies 34x30 Workwear Carpenter Pants Tan Relaxed",
+            "brand": "Dickies",
+            "size": "34",
+            "department": "Men",
+            "description": "Workwear pants.",
+        }
+        self.assertTrue(normalize_mens_bottoms_size(from_title))
+        self.assertEqual(from_title["size"], "34x30")
+
+        spaced = {
+            "title": "Wrangler 32 x 34 Vintage Cowboy Jeans Blue Straight",
+            "brand": "Wrangler",
+            "size": "32 x 34",
+            "department": "Men",
+            "ebay_specifics": {"type": "Jeans"},
+        }
+        self.assertTrue(normalize_mens_bottoms_size(spaced))
+        self.assertEqual(spaced["size"], "32x34")
+
+    def test_mens_bottoms_size_left_alone_without_an_inseam(self):
+        from vendoo_studio.services.listing_generate import normalize_mens_bottoms_size
+
+        no_inseam = {
+            "title": "Levi's 30 Y2K 501 Straight Jeans Blue Denim",
+            "size": "30",
+            "department": "Men",
+            "description": "Y2K straight jeans.\n\nMeasurements: Waist: 15\"",
+            "ebay_specifics": {"type": "Jeans"},
+        }
+        self.assertFalse(normalize_mens_bottoms_size(no_inseam))
+        self.assertEqual(no_inseam["size"], "30")
+
+        womens = {
+            "title": "Levi's 30 Y2K 501 Straight Jeans Blue Denim",
+            "size": "30",
+            "department": "Women",
+            "description": "Measurements: Waist: 15\"; Inseam: 30\"",
+            "ebay_specifics": {"type": "Jeans"},
+        }
+        self.assertFalse(normalize_mens_bottoms_size(womens))
+        self.assertEqual(womens["size"], "30")
+
+        mens_top = {
+            "title": "Nike L Vintage Swoosh Tee Black Relaxed",
+            "size": "L",
+            "department": "Men",
+            "description": "Measurements: Inseam: 30\"",
+            "ebay_specifics": {"type": "T-Shirt"},
+        }
+        self.assertFalse(normalize_mens_bottoms_size(mens_top))
+        self.assertEqual(mens_top["size"], "L")
+
+    def test_sync_title_size_matches_the_size_field(self):
+        from vendoo_studio.services.listing_generate import sync_title_size
+
+        missing = {
+            "title": "Nike Y2K Swoosh Tee Black Relaxed",
+            "brand": "Nike",
+            "size": "L",
+        }
+        self.assertTrue(sync_title_size(missing))
+        self.assertEqual(missing["title"], "Nike L Y2K Swoosh Tee Black Relaxed")
+
+        already = {
+            "title": "Nike L Y2K Swoosh Tee Black Relaxed",
+            "brand": "Nike",
+            "size": "L",
+        }
+        self.assertFalse(sync_title_size(already))
+
+        # A full 80-character title keeps its own wording rather than being truncated.
+        packed = {
+            "title": "Patagonia " + "Vintage Outdoor Fleece Snap Pullover Jacket Brown Relaxed Cozy Warm Fit",
+            "brand": "Patagonia",
+            "size": "XL",
+        }
+        self.assertFalse(sync_title_size(packed))
+
+    def test_send_readiness_fixes_align_mens_bottoms_size_and_title(self):
+        from vendoo_studio.services.listing_generate import apply_send_readiness_fixes
+
+        listing = {
+            "title": "Levi's 30 Y2K 501 Straight Jeans Blue Denim",
+            "brand": "Levi's",
+            "size": "approx 30",
+            "department": "Men",
+            "price": 48,
+            "condition": "Pre-Owned - Good",
+            "description": "Y2K straight jeans.\n\nFlaws: none noted. See photos for details.\n\nMeasurements: Waist: 15\"; Inseam: 32\"",
+            "ebay_specifics": {"type": "Jeans", "size": "30"},
+            "depop_specifics": {"size": "30", "source": "Preloved"},
+        }
+        self.assertTrue(apply_send_readiness_fixes(listing))
+        self.assertEqual(listing["size"], "30x32")
+        self.assertEqual(listing["ebay_specifics"]["size"], "30x32")
+        self.assertEqual(listing["depop_specifics"]["size"], "30x32")
+        self.assertEqual(listing["title"], "Levi's 30x32 Y2K 501 Straight Jeans Blue Denim")
+
     def test_finalize_calls_model_when_send_blockers_remain(self):
         incomplete = {
             "title": "Notations XL Floral Tunic Top Black Relaxed",

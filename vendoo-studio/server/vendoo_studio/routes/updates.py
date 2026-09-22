@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -55,6 +57,35 @@ async def apply_update(db: Session = Depends(get_db)):
     cancelled_jobs = _cancel_leftover_jobs(db)
     try:
         result = update_service.apply_update()
+    except UpdateBlocked as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return await _after_app_replace(result, cancelled_jobs)
+
+
+@router.get("/progress")
+def update_progress():
+    return update_service.update_progress()
+
+
+@router.post("/download")
+async def download_update():
+    try:
+        return await asyncio.to_thread(update_service.prepare_update)
+    except UpdateBlocked as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@router.post("/restart")
+async def restart_with_update(db: Session = Depends(get_db)):
+    if update_service.update_progress().get("status") != "downloaded":
+        raise HTTPException(409, "Download the update before restarting to install it.")
+    cancelled_jobs = _cancel_leftover_jobs(db)
+    try:
+        result = update_service.install_prepared_update()
     except UpdateBlocked as exc:
         raise HTTPException(409, str(exc)) from exc
     except Exception as exc:

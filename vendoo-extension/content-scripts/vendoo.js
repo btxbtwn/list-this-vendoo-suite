@@ -520,8 +520,40 @@
     element.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function findFieldClearControl(el) {
+      const root = el?.closest?.(
+          '.MuiAutocomplete-root, .MuiFormControl-root, .MuiInputBase-root, [class*="MuiAutocomplete"], [class*="MuiFormControl"], [class*="category"]'
+      ) || el?.parentElement;
+      if (!root) return null;
+      const selectors = [
+          '.MuiAutocomplete-clearIndicator',
+          'button[aria-label="Clear"]',
+          'button[aria-label*="clear" i]',
+          '.MuiChip-deleteIcon',
+          '[data-testid*="clear" i]',
+      ];
+      for (const sel of selectors) {
+          const node = root.querySelector(sel);
+          if (node && isVisibleElement(node)) return node.closest('button') || node;
+      }
+      return Array.from(root.querySelectorAll('button, [role="button"]')).find((node) => {
+          if (!isVisibleElement(node)) return false;
+          const label = normalizeText(node.getAttribute('aria-label') || node.getAttribute('title') || '');
+          return label.includes('clear') || label.includes('remove') || label.includes('delete');
+      }) || null;
+  }
+
   async function clearInput(element) {
-      if (!element || !element.value) return;
+      if (!element) return;
+      // MUI Autocomplete often keeps the selected label with an empty input value.
+      // Click the clear control first so a prior near-miss (or API free-text) does
+      // not block Depop "Other" / Mercari No Brand.
+      const clearBtn = findFieldClearControl(element);
+      if (clearBtn) {
+          clearBtn.click();
+          await sleep(CONFIG.SLEEP_SHORT);
+      }
+      if (!element.value) return;
       element.focus();
       setReactValue(element, '');
       await sleep(CONFIG.SLEEP_SHORT);
@@ -710,13 +742,16 @@
 
   // Snaps a value onto a currently-offered option. Returns undefined when the
   // registry has nothing to say, so the caller keeps its own result.
-  function coerceToKnownOption(marketplace, fieldName, value) {
+  function coerceToKnownOption(marketplace, fieldName, value, { exactOnly = false } = {}) {
       const raw = String(value == null ? '' : value).trim();
       if (!raw) return undefined;
       const options = knownOptionsFor(marketplace, fieldName);
       if (!options.length) return undefined;
       const exact = options.find((option) => optionMatchesValue(option, raw, true));
       if (exact) return exact;
+      // Brand lists are huge and substring-y: "Sportswear" must not become
+      // "AIM'N Sportswear", and "Other" must not become "Mothercare".
+      if (exactOnly) return undefined;
       const fuzzy = options.find((option) => optionMatchesValue(option, raw, false));
       return fuzzy || undefined;
   }
@@ -728,11 +763,12 @@
       // A null from the static maps means "this value has no option here"; that
       // decision stands. Otherwise let the live option set repair stale output.
       if (mapped === null) return mapped;
+      const brandField = normalizeFieldKey(fieldName) === 'brand';
       // No Brand/Not sure is a checkbox, not a brand option — never snap it onto one.
-      if (normalizeFieldKey(fieldName) === 'brand' && isNoBrandValue(mapped)) return mapped;
+      if (brandField && isNoBrandValue(mapped)) return mapped;
 
-      const corrected = coerceToKnownOption(mp, fieldName, mapped)
-          ?? coerceToKnownOption(mp, fieldName, value);
+      const corrected = coerceToKnownOption(mp, fieldName, mapped, { exactOnly: brandField })
+          ?? coerceToKnownOption(mp, fieldName, value, { exactOnly: brandField });
       if (corrected === undefined) {
           // Known option set, no match: the fill is going to fail. Say so now so
           // the cause is visible, rather than guessing at a near-miss.
@@ -1419,15 +1455,23 @@
       let fallback = null;
       for (const sel of selectors) {
           try {
-              const el = document.querySelector(sel);
-              if (!el) continue;
+              const raw = document.querySelector(sel);
+              if (!raw) continue;
+              // Mercari's Shipping Label is stored on carrierId; the native input is
+              // often hidden inside a MUI Select. Drive the visible control instead.
+              const el = visibleDropdownControl(raw) || raw;
               if (isVisibleElement(el) && isEnabledField(el)) return el;
               if (isVisibleElement(el) && !fallback) fallback = el;
+              if (!fallback && isAttachedElement(raw)) fallback = el;
           } catch (_) {}
       }
       const labeled = findInputByLabelPatterns(labelPatterns, isMarketplaceInput(marketplace));
-      if (labeled && isEnabledField(labeled)) return labeled;
-      return labeled || fallback;
+      if (labeled) {
+          const control = visibleDropdownControl(labeled) || labeled;
+          if (isEnabledField(control)) return control;
+          return control;
+      }
+      return fallback;
   }
 
   async function waitForMarketplaceField(marketplace, labelPatterns, selectors, attempts = 8) {
@@ -1822,9 +1866,18 @@
       return out;
   }
 
-  // Mercari's escape hatch for an unlisted brand is a checkbox, so the value can
-  // arrive as a patch ("No Brand/Not sure") instead of a real option.
-  const NO_BRAND_VALUES = new Set(['no brand', 'not sure', 'no brand not sure']);
+  // Mercari's escape hatch for an unlisted brand is the No Brand/Not sure
+  // checkbox (and sometimes a brand-list option with the same label).
+  const NO_BRAND_VALUES = new Set([
+      'no brand',
+      'not sure',
+      'no brand not sure',
+      'unbranded',
+      'none',
+      'n a',
+      'na',
+      'unknown',
+  ]);
   const MERCARI_NO_BRAND_LABEL = 'No Brand/Not sure';
   const DEPOP_BRAND_FALLBACK = 'Other';
 
@@ -2468,25 +2521,7 @@
   }
 
   function findCategoryClearControl(catBtn) {
-      const root = catBtn.closest('.MuiAutocomplete-root, .MuiFormControl-root, .MuiInputBase-root, [class*="category"]')
-          || catBtn.parentElement;
-      if (!root) return null;
-      const selectors = [
-          '.MuiAutocomplete-clearIndicator',
-          'button[aria-label="Clear"]',
-          'button[aria-label*="clear" i]',
-          '.MuiChip-deleteIcon',
-          '[data-testid*="clear" i]',
-      ];
-      for (const sel of selectors) {
-          const el = root.querySelector(sel);
-          if (el && isVisibleElement(el)) return el.closest('button') || el;
-      }
-      return Array.from(root.querySelectorAll('button, [role="button"]')).find((el) => {
-          if (!isVisibleElement(el)) return false;
-          const label = normalizeText(el.getAttribute('aria-label') || el.getAttribute('title') || '');
-          return label.includes('clear') || label.includes('remove') || label.includes('delete');
-      }) || null;
+      return findFieldClearControl(catBtn);
   }
 
   async function clearExistingCategorySelection(catBtn) {
@@ -4383,10 +4418,11 @@
   }
 
   async function setMercariNoBrandChecked(checked, reason = '') {
-      const el = resolveMarketplaceField('mercari', ['no brand', 'not sure', 'no brand/not sure'], [
+      const el = resolveMarketplaceField('mercari', ['no brand', 'no brand/not sure', 'no brand not sure'], [
           '#listings\\.mercari\\.overrides\\.noBrand',
           'input[name="listings.mercari.overrides.noBrand"]',
-      ]);
+          'input[id="listings.mercari.overrides.noBrand"]',
+      ]) || document.getElementById('listings.mercari.overrides.noBrand');
       if (!el) {
           if (checked) {
               warn('No Brand/Not Sure: Element not found');
@@ -4457,19 +4493,35 @@
       }
 
       // Mercari has no "Other" brand — an unlisted brand means No Brand/Not sure.
+      // Newer Vendoo builds expose that as a brand-list option; older ones use the
+      // checkbox. Try the option first, then check the box.
       const useNoBrand = async (reason) => {
           if (fieldLooksFilled(el)) await clearInput(el);
-          const result = await setMercariNoBrandChecked(true, reason);
+          let selected = false;
+          // Non-strict so "No brand / Not sure" matches "No Brand/Not sure".
+          const optionResult = await fillDropdownField(el, MERCARI_NO_BRAND_LABEL, fieldName, false);
+          const shown = displayedFieldValue(el);
+          if (
+              optionResult.status === 'filled'
+              && isNoBrandValue(shown)
+              && !/^select\b/i.test(shown || '')
+          ) {
+              selected = true;
+              log(`  ✓ ${fieldName}: "${shown || MERCARI_NO_BRAND_LABEL}"`);
+          }
+          const checkbox = await setMercariNoBrandChecked(true, reason);
+          const ok = selected || checkbox.status === 'filled';
+          if (!ok) warn(`${fieldName}: could not select No Brand/Not sure`);
           recordFill({
             field: fieldName,
-            status: result.status === 'filled' ? 'filled' : 'failed',
+            status: ok ? 'filled' : 'failed',
             reason,
             selector: selectorFor(el, ''),
             value: MERCARI_NO_BRAND_LABEL,
           });
       };
 
-      if (fieldLooksFilled(el)) await clearInput(el);
+      if (fieldLooksFilled(el) || (el.value || '').trim()) await clearInput(el);
 
       const candidates = brandFillCandidates(data.brand);
       if (candidates.length === 0) {
@@ -4485,6 +4537,7 @@
               await setMercariNoBrandChecked(false);
               return;
           }
+          if (fieldLooksFilled(el) || (el.value || '').trim()) await clearInput(el);
       }
 
       await useNoBrand('Brand not in Mercari list');
@@ -4514,35 +4567,28 @@
 
       await fillMarketplaceSize('mercari', data);
 
+      await fillMercariShippingLabel(data);
+  }
+
+  function mercariShippingLooksSet(el) {
+      // A stored carrier id is not proof the visible label is set — wrong ids
+      // leave the Shipping Label dropdown blank.
+      const shown = normalizeOptionValue(displayedFieldValue(el) || '');
+      return shown.includes('usps ground advantage') || shown.includes('ground advantage');
+  }
+
+  async function fillMercariShippingLabel(data) {
       const shippingLabel = (data.mercari_specifics && data.mercari_specifics.shippingLabel)
           || 'USPS Ground Advantage / 1 - 7 days / $ 6.41 / 0.5 lb';
+      // Prefer label-named selectors; carrierId is the storage key and is often a
+      // hidden native input inside the MUI Select.
       const shippingEl = await waitForMarketplaceField('mercari', ['shipping label'], [
-          '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId',
           '#listings\\.mercari\\.marketplaceSpecifics\\.shippingLabel',
           '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.shippingLabel',
           '#listings\\.mercari\\.overrides\\.shippingLabel',
-      ]);
-      if (shippingEl) {
-          const currentVal = (shippingEl.value || '').trim().toLowerCase();
-          if (!currentVal.includes('usps ground advantage')) {
-              log(`Setting Mercari shipping to ${shippingLabel}`);
-              const filled = await fillDropdownField(shippingEl, shippingLabel, 'Shipping Label', false);
-              // The price in the label is the tier's, and Mercari's rates move.
-              // Fall back to the carrier name so the option still matches.
-              if (filled && filled.status !== 'filled') {
-                  await fillDropdownField(shippingEl, 'USPS Ground Advantage', 'Shipping Label', false);
-              }
-          } else {
-              log('Mercari shipping already USPS Ground Advantage');
-              recordFill({
-                field: 'Shipping Label',
-                status: 'filled',
-                reason: 'Already set',
-                selector: selectorFor(shippingEl, ''),
-                value: shippingLabel,
-              });
-          }
-      } else {
+          '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId',
+      ], 12);
+      if (!shippingEl) {
           warn('Mercari shipping label field not found');
           recordFill({
             field: 'Shipping Label',
@@ -4550,8 +4596,49 @@
             reason: 'Shipping label field not found',
             value: shippingLabel,
           });
+          return;
       }
-      
+
+      if (mercariShippingLooksSet(shippingEl)) {
+          log('Mercari shipping already USPS Ground Advantage');
+          recordFill({
+            field: 'Shipping Label',
+            status: 'filled',
+            reason: 'Already set',
+            selector: selectorFor(shippingEl, ''),
+            value: shippingLabel,
+          });
+          return;
+      }
+
+      // Prefer the stable carrier name — tier prices drift and break exact labels.
+      // Options only appear after weight settles, so retry a few times.
+      const attempts = ['USPS Ground Advantage', shippingLabel];
+      let last = null;
+      for (let round = 0; round < 3; round += 1) {
+          if (round > 0) await sleep(CONFIG.SLEEP_MEDIUM);
+          for (const attempt of attempts) {
+              log(`Setting Mercari shipping to ${attempt}`);
+              last = await fillDropdownField(shippingEl, attempt, 'Shipping Label', false);
+              if (mercariShippingLooksSet(shippingEl)) {
+                  log(`  ✓ Shipping Label: "${displayedFieldValue(shippingEl) || attempt}"`);
+                  return;
+              }
+          }
+      }
+
+      if (!mercariShippingLooksSet(shippingEl)) {
+          warn('Mercari shipping label did not stick');
+          if (last && last.status === 'filled') {
+              recordFill({
+                field: 'Shipping Label',
+                status: 'uncertain',
+                reason: 'Fill reported success but visible label is still blank',
+                selector: selectorFor(shippingEl, ''),
+                value: shippingLabel,
+              });
+          }
+      }
   }
 
   const DEPOP_SIZE_GROUPINGS = {
@@ -4608,10 +4695,16 @@
               return;
           }
           log('Depop brand missing from list. Selecting Other.');
+          // Clear both typed text and a committed Autocomplete selection.
+          await clearInput(el);
           if (fieldLooksFilled(el)) await clearInput(el);
           const fallback = await fillDropdownField(el, DEPOP_BRAND_FALLBACK, fieldName, true);
-          if (fallback.status === 'filled') log(`  ✓ ${fieldName}: "${DEPOP_BRAND_FALLBACK}"`);
-          else warn(`${fieldName}: could not select a list brand or Other`);
+          const shown = displayedFieldValue(el);
+          if (fallback.status === 'filled' && optionMatchesValue(shown, DEPOP_BRAND_FALLBACK, true)) {
+              log(`  ✓ ${fieldName}: "${DEPOP_BRAND_FALLBACK}"`);
+          } else {
+              warn(`${fieldName}: could not select a list brand or Other`);
+          }
       };
 
       const candidates = brandFillCandidates(data.brand);
@@ -4619,15 +4712,18 @@
           await useOther();
           return;
       }
-      if (fieldLooksFilled(el)) await clearInput(el);
+      if (fieldLooksFilled(el) || (el.value || '').trim()) await clearInput(el);
       for (const candidate of candidates) {
           log(`Trying ${fieldName}: "${candidate}"`);
           const result = await fillDropdownField(el, candidate, fieldName, true);
           const shown = displayedFieldValue(el);
+          // Require an exact displayed match so a coerced near-miss (or free text)
+          // cannot skip the Other fallback.
           if (result.status === 'filled' && optionMatchesValue(shown, candidate, true) && !/^select\b/i.test(shown || '')) {
               log(`  ✓ ${fieldName}: "${shown || candidate}"`);
               return;
           }
+          if (fieldLooksFilled(el) || (el.value || '').trim()) await clearInput(el);
       }
       await useOther();
   }
@@ -7163,8 +7259,17 @@
       };
   }
 
+  function nudgeStudioConnection() {
+    try {
+      chrome.runtime.sendMessage({ type: 'ENSURE_STUDIO_CONNECTION' }, () => {
+        void chrome.runtime.lastError;
+      });
+    } catch (_) {}
+  }
+
   function init() {
       log(`✓ Content script loaded on ${window.location.hostname}`);
+      nudgeStudioConnection();
       watchSellerSaves();
       
       runtimeListener = (msg, sender, sendResponse) => {

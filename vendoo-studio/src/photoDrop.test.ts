@@ -1,8 +1,64 @@
 import { describe, expect, it } from "vitest";
-import { dragHasFiles, imageFilesFrom, isImageFile } from "./photoDrop";
+import {
+  dragHasFiles,
+  folderKeyForFile,
+  groupImageFilesByFolder,
+  imageFilesFrom,
+  imageFilesFromTransfer,
+  isImageFile,
+  listingTitleForFolder,
+} from "./photoDrop";
 
-function file(name: string, type: string): File {
-  return new File(["x"], name, { type });
+function file(name: string, type: string, relativePath = ""): File {
+  const created = new File(["x"], name, { type });
+  Object.defineProperty(created, "webkitRelativePath", { value: relativePath });
+  return created;
+}
+
+type MockEntry = {
+  isFile: boolean;
+  isDirectory: boolean;
+  name: string;
+  file?: (success: (file: File) => void) => void;
+  createReader?: () => { readEntries: (success: (entries: MockEntry[]) => void) => void };
+};
+
+function fileEntry(name: string, type: string): MockEntry {
+  return {
+    isFile: true,
+    isDirectory: false,
+    name,
+    file: (success) => success(file(name, type)),
+  };
+}
+
+function dirEntry(name: string, children: MockEntry[]): MockEntry {
+  let delivered = false;
+  return {
+    isFile: false,
+    isDirectory: true,
+    name,
+    createReader: () => ({
+      readEntries: (success) => {
+        if (delivered) {
+          success([]);
+          return;
+        }
+        delivered = true;
+        success(children);
+      },
+    }),
+  };
+}
+
+function transferWithEntries(entries: MockEntry[], files: File[] = []): DataTransfer {
+  return {
+    files,
+    items: entries.map((entry) => ({
+      kind: "file",
+      webkitGetAsEntry: () => entry,
+    })),
+  } as unknown as DataTransfer;
 }
 
 describe("isImageFile", () => {
@@ -34,6 +90,68 @@ describe("imageFilesFrom", () => {
     expect(imageFilesFrom(null)).toEqual([]);
     expect(imageFilesFrom({ files: null } as unknown as DataTransfer)).toEqual([]);
   });
+
+  it("finds nothing when only empty directory stubs are in files", () => {
+    // What Chromium puts in `files` for a folder drop before entry traversal.
+    const stub = file("NikeTee", "");
+    const transfer = { files: [stub] } as unknown as DataTransfer;
+    expect(imageFilesFrom(transfer)).toEqual([]);
+  });
+});
+
+describe("imageFilesFromTransfer", () => {
+  it("walks dropped folders when files only has directory stubs", async () => {
+    const transfer = transferWithEntries(
+      [
+        dirEntry("NikeTee", [fileEntry("a.jpg", "image/jpeg"), fileEntry("b.jpg", "image/jpeg")]),
+        dirEntry("AdidasHoodie", [fileEntry("c.jpg", "image/jpeg")]),
+      ],
+      [file("NikeTee", ""), file("AdidasHoodie", "")],
+    );
+
+    const images = await imageFilesFromTransfer(transfer);
+    expect(images.map((f) => f.webkitRelativePath)).toEqual([
+      "NikeTee/a.jpg",
+      "NikeTee/b.jpg",
+      "AdidasHoodie/c.jpg",
+    ]);
+    expect(groupImageFilesByFolder(images).map((g) => g.folder)).toEqual([
+      "AdidasHoodie",
+      "NikeTee",
+    ]);
+  });
+
+  it("captures every folder entry before the drag data store expires", async () => {
+    let readable = true;
+    const first = dirEntry("NikeTee", [fileEntry("a.jpg", "image/jpeg")]);
+    const createFirstReader = first.createReader!;
+    first.createReader = () => {
+      readable = false;
+      return createFirstReader();
+    };
+    const second = dirEntry("AdidasHoodie", [fileEntry("b.jpg", "image/jpeg")]);
+    const transfer = {
+      files: [file("NikeTee", ""), file("AdidasHoodie", "")],
+      items: [first, second].map((entry) => ({
+        kind: "file",
+        webkitGetAsEntry: () => readable ? entry : null,
+      })),
+    } as unknown as DataTransfer;
+
+    const images = await imageFilesFromTransfer(transfer);
+    expect(images.map((value) => value.webkitRelativePath)).toEqual([
+      "NikeTee/a.jpg",
+      "AdidasHoodie/b.jpg",
+    ]);
+  });
+
+  it("falls back to the flat files list when entries are unavailable", async () => {
+    const transfer = {
+      files: [file("front.jpg", "image/jpeg")],
+      items: [],
+    } as unknown as DataTransfer;
+    expect((await imageFilesFromTransfer(transfer)).map((f) => f.name)).toEqual(["front.jpg"]);
+  });
 });
 
 describe("dragHasFiles", () => {
@@ -43,5 +161,67 @@ describe("dragHasFiles", () => {
       dragHasFiles({ types: ["application/x-vendoo-photo-id", "text/plain"] } as unknown as DataTransfer),
     ).toBe(false);
     expect(dragHasFiles(null)).toBe(false);
+  });
+});
+
+describe("folderKeyForFile", () => {
+  it("returns null for a flat file with no relative path", () => {
+    expect(folderKeyForFile(file("front.jpg", "image/jpeg"))).toBe(null);
+  });
+
+  it("uses the immediate parent directory", () => {
+    expect(folderKeyForFile(file("front.jpg", "image/jpeg", "NikeTee/front.jpg"))).toBe("NikeTee");
+    expect(
+      folderKeyForFile(file("front.jpg", "image/jpeg", "Batch/NikeTee/front.jpg")),
+    ).toBe("Batch/NikeTee");
+  });
+});
+
+describe("listingTitleForFolder", () => {
+  it("uses the last path segment", () => {
+    expect(listingTitleForFolder(null)).toBe("New Listing");
+    expect(listingTitleForFolder("NikeTee")).toBe("NikeTee");
+    expect(listingTitleForFolder("Batch/Adidas Hoodie")).toBe("Adidas Hoodie");
+  });
+});
+
+describe("groupImageFilesByFolder", () => {
+  it("keeps a flat multi-file drop as one group", () => {
+    const groups = groupImageFilesByFolder([
+      file("front.jpg", "image/jpeg"),
+      file("back.jpg", "image/jpeg"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].folder).toBe(null);
+    expect(groups[0].files.map((f) => f.name)).toEqual(["front.jpg", "back.jpg"]);
+  });
+
+  it("splits multiple product folders into separate groups", () => {
+    const groups = groupImageFilesByFolder([
+      file("a.jpg", "image/jpeg", "NikeTee/a.jpg"),
+      file("b.jpg", "image/jpeg", "NikeTee/b.jpg"),
+      file("c.jpg", "image/jpeg", "AdidasHoodie/c.jpg"),
+      file("notes.txt", "text/plain", "AdidasHoodie/notes.txt"),
+    ]);
+    expect(groups.map((g) => g.folder)).toEqual(["AdidasHoodie", "NikeTee"]);
+    expect(groups[0].files.map((f) => f.name)).toEqual(["c.jpg"]);
+    expect(groups[1].files.map((f) => f.name)).toEqual(["a.jpg", "b.jpg"]);
+  });
+
+  it("splits sibling item folders under a shared parent", () => {
+    const groups = groupImageFilesByFolder([
+      file("a.jpg", "image/jpeg", "Batch/Item1/a.jpg"),
+      file("b.jpg", "image/jpeg", "Batch/Item2/b.jpg"),
+    ]);
+    expect(groups.map((g) => g.folder)).toEqual(["Batch/Item1", "Batch/Item2"]);
+  });
+
+  it("keeps one folder of photos as a single group", () => {
+    const groups = groupImageFilesByFolder([
+      file("a.jpg", "image/jpeg", "NikeTee/a.jpg"),
+      file("b.jpg", "image/jpeg", "NikeTee/b.jpg"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].folder).toBe("NikeTee");
   });
 });

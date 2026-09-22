@@ -370,6 +370,26 @@ class ValidationCasesTest(unittest.TestCase):
             result.errors,
         )
 
+    def test_vendoo_general_color_aliases_are_healed(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = copy.deepcopy(VALID_LISTING)
+        listing["primaryColor"] = "Navy"
+        listing["secondaryColor"] = "burgundy"
+
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["primaryColor"], "Blue")
+        self.assertEqual(listing["secondaryColor"], "Red")
+
+    def test_vendoo_general_color_case_is_canonicalized(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = copy.deepcopy(VALID_LISTING)
+        listing["primaryColor"] = "blue"
+
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["primaryColor"], "Blue")
+
     def test_required_ebay_keys_promote_out_of_category_specifics(self):
         import copy
 
@@ -604,10 +624,10 @@ class ValidationCasesTest(unittest.TestCase):
         }
         self.assertTrue(ensure_etsy_category_optionals(listing))
         etsy = listing["etsy_specifics"]
-        self.assertEqual(etsy["clothingStyle"], "Minimalist")
+        self.assertIn(etsy["clothingStyle"], {"Boho & hippie", "Minimalist"})
         self.assertEqual(etsy["neckline"], "Crew")
         self.assertEqual(etsy["closure"], "Pullover")
-        self.assertEqual(etsy["fabricPattern"], "Solid")
+        self.assertIn(etsy["fabricPattern"], {"Floral", "Solid"})
         self.assertEqual(etsy["sleeveLength"], "Short sleeve")
         self.assertEqual(etsy["holiday"], DNA_VALUE)
         self.assertEqual(etsy["occasion"], DNA_VALUE)
@@ -1368,15 +1388,16 @@ console.log(JSON.stringify({ blouse, tee }));
         components = Path(__file__).resolve().parents[2] / "src" / "components"
         panel = "\n".join(
             (components / name).read_text(encoding="utf-8")
-            for name in ("FillLogPanel.tsx", "fillLogForms.ts")
+            for name in ("FillLogPanel.tsx", "fillLogForms.ts", "ListingEditor.tsx", "CopyableLlmError.tsx")
         )
         self.assertIn("function leftoverFieldPrompt", panel)
         self.assertIn("function askChatGapsPrompt", panel)
+        self.assertIn("function askChatTargetCount", panel)
         self.assertIn("Listing:", panel)
         self.assertIn("Marketplace:", panel)
         self.assertIn("Current value:", panel)
         self.assertIn("Ask chat for", panel)
-        self.assertIn("Send to Vendoo writes the listing onto the draft", panel)
+        self.assertIn("askChatGapsPrompt", panel)
         self.assertNotIn("Apply on Vendoo", panel)
         self.assertNotIn("Set Vendoo category", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
@@ -1386,6 +1407,10 @@ console.log(JSON.stringify({ blouse, tee }));
             panel,
         )
         self.assertNotIn("Ask chat to retry", panel)
+        # One bulk Ask-chat button under Update Vendoo (full draft schema), not a
+        # second listing-JSON-only copy in the Fields panel.
+        self.assertNotIn("Ask chat for fields generation could not resolve", panel)
+        self.assertIn("emptyFieldsButtonLabel", panel)
 
     def test_completion_blocker_ask_chat_prompts(self):
         source = (

@@ -6,6 +6,11 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.models.mercari_shipping import DEFAULT_SHIPPING_LABEL
 from vendoo_studio.repositories.queries import RegistryRepo, _normalize_label
+from vendoo_studio.services.garment_categories import (
+    FAMILY_OF_GARMENT,
+    family_kind,
+    garment_leaf,
+)
 
 
 CANONICAL_DEFAULTS: dict[str, dict[str, str]] = {
@@ -170,12 +175,14 @@ CATEGORY_NORMALIZATIONS: dict[str, dict[str, str]] = {
 _TOP_ITEM_RE = re.compile(r"\bt-?shirts?\b|\btees?\b|\btops?\b|\bshirts?\b|\bblouses?\b", re.I)
 _TEE_ITEM_RE = re.compile(r"\bt-?shirts?\b|\btees?\b", re.I)
 _NON_TOP_RE = re.compile(
-    r"\bdresses?\b|\bpants?\b|\bjeans?\b|\bskirts?\b|\bshorts?\b|\bjackets?\b|"
+    # "dresses?" would read as "dresse" plus an optional s and miss the singular.
+    r"\bdress(?:es)?\b|\bpants?\b|\bjeans?\b|\bskirts?\b|\bshorts?\b|\bjackets?\b|"
     r"\bcoats?\b|\bsweatshirts?\b|\bsweaters?\b|\bhoodies?\b|\bshoes?\b|\bbags?\b",
     re.I,
 )
 _WOMEN_RE = re.compile(r"\bwomen(?:['’]s)?\b", re.I)
 _MEN_RE = re.compile(r"\bmen(?:['’]s)?\b", re.I)
+_UNISEX_RE = re.compile(r"\bunisex\b", re.I)
 _GENDER_PATH_RE = re.compile(r"(?:department|category_path|categorypath)$", re.I)
 
 
@@ -282,6 +289,13 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
     alias = norms.get(raw.lower()) or norms.get(_category_key(raw))
     haystack = f"{raw} {_listing_text(listing)}"
     gender = _listing_gender(listing, raw)
+    if gender is None and _UNISEX_RE.search(haystack):
+        # Vendoo's General tree has no adult unisex clothing — only Unisex
+        # Kids — so "Unisex Adult Clothing > Tops > T-Shirts" is not a leaf
+        # anything can resolve, and the whole listing stalls on it. Unisex
+        # takes the men's branch here for the same reason it does on the
+        # marketplaces: it has to take one.
+        gender = "men"
     is_top = bool(_TOP_ITEM_RE.search(haystack))
     if gender == "women" and is_top:
         return WOMEN_TOPS_PATH
@@ -298,26 +312,176 @@ _SHORT_SLEEVE_RE = re.compile(r"short\s*sleeve", re.I)
 _BLOUSE_RE = re.compile(r"\bblouses?\b", re.I)
 _BUTTON_UP_RE = re.compile(r"button[\s-]*(up|front|down)", re.I)
 _POSHMARK_ROOT_RE = re.compile(r"^(men|women|kids|pets|home|electronics)\s*>", re.I)
-_TANK_PATH_RE = re.compile(r"\btank\b", re.I)
-_TUNIC_PATH_RE = re.compile(r"\btunics?\b", re.I)
 _TUNIC_STYLE_RE = re.compile(r"\btunic\b", re.I)
-_SLEEVELESS_ITEM_RE = re.compile(r"\b(?:sleeveless|tank|cami|halter|strapless)\b", re.I)
 _ETSY_ROOT_RE = re.compile(r"^clothing\s*>", re.I)
 _MERCARI_ROOT_RE = re.compile(r"^(women|men|kids|unisex)\s*>", re.I)
 _DEPOP_ROOT_RE = re.compile(r"^(women|men|kids)\s*>", re.I)
-# Leaf words naming a top that is not a plain tee. Such a leaf is only right
-# when the listing itself says the same word.
-_SPECIFIC_TOP_LEAF_RE = re.compile(
-    r"tunics?|tanks?|camis(?:oles?)?|halters?|crop|tube|polos?|turtlenecks?|bodysuits?|"
-    r"wrap|knit|button|corsets?|jerseys?|cardigans?|sweaters?|sweatshirts?|hoodies?|"
-    r"blouses?|shirts?",
+# Every garment word these mappers can read, top or not. The last one a title
+# names is the garment itself. Shorts stays plural: "Short Sleeve" is a sleeve.
+_GARMENT_HEAD_RE = re.compile(
+    r"\b(?:t-?shirts?|tees?|tops?|blouses?|shirts?|tunics?|tanks?|dress(?:es)?|"
+    r"pants?|jeans?|skirts?|shorts|leggings?|jumpsuits?|rompers?|jackets?|coats?|"
+    r"sweatshirts?|sweaters?|hoodies?|shoes?|bags?)\b",
     re.I,
 )
+# The kind of top a listing names, most specific cue first. "Blouse" beats a
+# button-up cue: a listing that says blouse is one, whatever its placket.
+_TOP_KIND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("bodysuit", re.compile(r"\bbodysuits?\b", re.I)),
+    ("corset", re.compile(r"\bcorsets?\b|\bbustiers?\b", re.I)),
+    ("hoodie", re.compile(r"\bhoodies?\b|\bhooded\b", re.I)),
+    ("sweatshirt", re.compile(r"\bsweat\s*shirts?\b|\bcrewneck\s+sweatshirts?\b", re.I)),
+    ("cardigan", re.compile(r"\bcardigans?\b", re.I)),
+    ("sweater_turtleneck", re.compile(r"\bturtleneck\s+sweaters?\b|\bcowl\s*neck\b", re.I)),
+    ("sweater_v_neck", re.compile(r"\bv[\s-]*neck\s+sweaters?\b", re.I)),
+    ("sweater_crewneck", re.compile(r"\bcrew(?:\s*neck)?\s+sweaters?\b|\bscoop\s*neck\s+sweaters?\b", re.I)),
+    ("sweater", re.compile(r"\bsweaters?\b|\bpullovers?\b|\bjumpers?\b", re.I)),
+    ("tunic", _TUNIC_STYLE_RE),
+    ("halter", re.compile(r"\bhalters?\b", re.I)),
+    ("tube", re.compile(r"\btube\s*tops?\b", re.I)),
+    ("crop", re.compile(r"\bcrops?(?:\s*tops?)?\b|\bcropped\b", re.I)),
+    ("cami", re.compile(r"\bcamis(?:oles?)?\b", re.I)),
+    ("tank", re.compile(r"\btanks?\b|\bsleeveless\b", re.I)),
+    ("muscle", re.compile(r"\bmuscle\s*(?:tees?|shirts?|tanks?)\b", re.I)),
+    ("polo", re.compile(r"\bpolos?\b", re.I)),
+    ("turtleneck", re.compile(r"\bturtlenecks?\b|\bmock\s*necks?\b", re.I)),
+    ("jersey", re.compile(r"\bjerseys?\b", re.I)),
+    ("blouse", _BLOUSE_RE),
+    ("button_up", _BUTTON_UP_RE),
+    ("tee", _TEE_RE),
+)
+# Sleeves rule these out: "Short Sleeve Tank" is the mapper reading a leaf it
+# was handed, not the seller describing a tank.
+_SLEEVED_KINDS = frozenset({"tank", "cami", "halter", "tube"})
 
 
-def _is_blouse_listing(haystack: str) -> bool:
-    is_tee = bool(_TEE_RE.search(haystack))
-    return (bool(_BLOUSE_RE.search(haystack)) or bool(_BUTTON_UP_RE.search(haystack))) and not is_tee
+def _top_kind(haystack: str) -> str | None:
+    """Which kind of top the listing names, if it names one at all."""
+    sleeved = bool(_SHORT_SLEEVE_RE.search(haystack) or _LONG_SLEEVE_RE.search(haystack))
+    for kind, pattern in _TOP_KIND_RULES:
+        if not pattern.search(haystack):
+            continue
+        if kind in _SLEEVED_KINDS and sleeved:
+            continue
+        return kind
+    return None
+
+
+def _garment_family(listing: dict) -> str:
+    """Which family of garment the listing names — the head noun decides.
+
+    "T-shirt dress" is a dress, "dress shirt" is a shirt: English puts the head
+    noun last, so the last garment word a title names is the garment.
+    """
+    named = _GARMENT_HEAD_RE.findall(_listing_text(listing))
+    if not named:
+        return ""
+    head = named[-1].casefold().replace("-", "").replace(" ", "")
+    return FAMILY_OF_GARMENT.get(head, "top")
+
+
+def _department(listing: dict, raw: str, garment: str) -> str:
+    """Which branch of a marketplace tree this listing belongs in.
+
+    Empty when nothing says — then Vendoo's own mapping stands.
+    """
+    gender = _listing_gender(listing, raw)
+    if gender in {"women", "men"}:
+        return gender
+    context = f"{raw} {garment}"
+    if _WOMEN_RE.search(context):
+        return "women"
+    if _MEN_RE.search(context):
+        return "men"
+    # eBay and Vendoo's General tree have a Unisex branch; no marketplace does
+    # — Poshmark, Mercari, Depop and Etsy are Women/Men/Kids only. A unisex
+    # item has to pick a side, and the seller's rule is Men.
+    return "men" if _UNISEX_RE.search(f"{context} {_listing_text(listing)}") else ""
+
+
+def _garment_leaf_and_cue(marketplace: str, listing: dict, raw: str) -> tuple[str, bool]:
+    """``(leaf, the listing named that kind itself)`` for this marketplace.
+
+    The leaf is empty when the listing names nothing, or when the marketplace
+    has no leaf for what it names — then Vendoo's own mapping stands. The flag
+    is False for a family leaf reached without a cue ("Dresses" for a dress
+    whose cut nobody named), which is worth mapping from a General breadcrumb
+    but never worth overruling Vendoo's own answer with.
+    """
+    garment = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
+    department = _department(listing, raw, garment)
+    if not department:
+        return "", False
+    family = _garment_family(listing)
+    if family and family != "top":
+        kind = family_kind(family, garment)
+        return garment_leaf(marketplace, department, kind or family), bool(kind)
+    kind = _top_kind(garment)
+    if not kind:
+        return "", False
+    if kind == "tee" and _LONG_SLEEVE_RE.search(garment):
+        long_tee = garment_leaf(marketplace, department, "long_tee")
+        if long_tee:
+            return long_tee, True
+    return garment_leaf(marketplace, department, kind), True
+
+
+def _garment_leaf_for(marketplace: str, listing: dict, raw: str) -> str:
+    return _garment_leaf_and_cue(marketplace, listing, raw)[0]
+
+
+# Words in a leaf label that say nothing about the garment.
+_LEAF_NOISE = frozenset({"and", "the", "other", "shirts", "shirt", "tops", "top"})
+
+
+def _leaf_named_by_listing(leaf: str, listing: dict) -> bool:
+    """True when the listing says everything this leaf label claims."""
+    garment = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
+    words = {
+        word for word in re.findall(r"[a-z]+", leaf.casefold())
+        if len(word) > 2 and word not in _LEAF_NOISE
+    }
+    if not words:
+        return False
+    return all(re.search(rf"\b{re.escape(word.rstrip('s'))}s?\b", garment, re.I) for word in words)
+
+
+def _generic_women_top(listing: dict, raw: str, haystack: str) -> bool:
+    """A women's top with no kind named at all — a tee is the safe default.
+
+    Only for tops: a dress with no cut named must keep Vendoo's leaf, not be
+    filed under tees.
+    """
+    if _garment_family(listing) not in {"", "top"}:
+        return False
+    garment = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
+    return _department(listing, raw, garment) == "women" and bool(_TOP_ITEM_RE.search(haystack))
+
+
+def _stale_leaf(marketplace: str, path: str, listing: dict) -> bool:
+    """True when a better leaf exists and this one names something unsaid.
+
+    Vendoo maps one General leaf to one leaf per marketplace, so a leaf that
+    claims a cut or a kind the listing never mentions ("Tunics", "Other",
+    "Above knee, mini") is its default for the whole family rather than a
+    choice. One the listing does name — Tank Tops for a tank, Midi for a midi —
+    stays put.
+    """
+    leaf = _path_leaf(path)
+    if not leaf:
+        return False
+    wanted, named_by_listing = _garment_leaf_and_cue(marketplace, listing, path)
+    # Without a cue of its own, ours is a family default and Vendoo's guess at
+    # the cut is as good as none at all.
+    if not wanted or not named_by_listing:
+        return False
+    if _leaf_key(_path_leaf(wanted)) == _leaf_key(leaf):
+        return False
+    return not _leaf_named_by_listing(leaf, listing)
+
+
+def _leaf_key(leaf: str) -> str:
+    return "".join(char for char in str(leaf).casefold() if char.isalnum())
 
 
 def _poshmark_haystack(listing: dict, raw: str) -> str:
@@ -336,63 +500,9 @@ def _listing_garment_haystack(listing: dict) -> str:
     )
 
 
-def _stale_tank_path(path: str, listing: dict) -> bool:
-    """True when a Tank Tops leaf was mapped for a sleeved tee."""
-    if not _TANK_PATH_RE.search(path or ""):
-        return False
-    garment = _listing_garment_haystack(listing)
-    if not _TEE_RE.search(garment):
-        return False
-    # Real tanks keep the leaf; short/long sleeve wording (or type T-Shirt without
-    # sleeveless cues) means the mapper confused parent "Tops" with Tank Tops.
-    if _SHORT_SLEEVE_RE.search(garment) or _LONG_SLEEVE_RE.search(garment):
-        return True
-    return not _SLEEVELESS_ITEM_RE.search(garment)
-
-
 def _listing_style(listing: dict) -> str:
     ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
     return str((ebay or {}).get("style") or listing.get("style") or "")
-
-
-def _stale_etsy_tunic_path(path: str, listing: dict) -> bool:
-    """True when Vendoo mapped bare Women's Tops onto Etsy Tunics for a blouse."""
-    if not _TUNIC_PATH_RE.search(path or ""):
-        return False
-    if _TUNIC_STYLE_RE.search(_listing_style(listing)):
-        return False
-    garment = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
-    if _is_blouse_listing(garment):
-        return True
-    # Button-up / blouse type without a Tunic style is not an Etsy Tunics leaf.
-    return bool(_BUTTON_UP_RE.search(garment) or _BLOUSE_RE.search(garment))
-
-
-def _stale_top_leaf(path: str, listing: dict) -> bool:
-    """True when a tee listing was mapped onto some other women's top leaf.
-
-    Vendoo maps the single General "Women's Clothing > Tops" leaf onto one leaf
-    per marketplace, so every women's top arrives as whatever that leaf happens
-    to be — Tunics on Etsy, Blouse on Mercari, Other on Depop. Marketplaces that
-    do have a T-shirts leaf should use it when the listing says tee.
-    """
-    leaf = _path_leaf(path)
-    if not leaf or _TEE_RE.search(leaf):
-        return False
-    garment = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
-    if not _TEE_RE.search(garment) or _is_blouse_listing(garment):
-        return False
-    # "Tank Tops" for a sleeveless tee or "Polos" for a polo tee is a real
-    # choice and stays. A leaf naming nothing the listing says ("Tops",
-    # "Other", "Tunics") is Vendoo's default for every top, not a choice.
-    words = {word.casefold().rstrip("s") for word in _SPECIFIC_TOP_LEAF_RE.findall(leaf)}
-    if not words:
-        return True
-    return any(not re.search(rf"\b{re.escape(word)}s?\b", garment, re.I) for word in words)
-
-
-def _stale_etsy_path(path: str, listing: dict) -> bool:
-    return _stale_etsy_tunic_path(path, listing) or _stale_top_leaf(path, listing)
 
 
 def map_poshmark_category_path(category: str, listing: dict | None = None) -> str:
@@ -414,30 +524,19 @@ def map_poshmark_category_path(category: str, listing: dict | None = None) -> st
             listing_is_women = gender == "women"
             stale_women = listing_is_men and bool(_WOMEN_RE.search(explicit_path))
             stale_men = listing_is_women and bool(_MEN_RE.search(explicit_path)) and not _WOMEN_RE.search(explicit_path)
-            if not stale_women and not stale_men and not _stale_tank_path(explicit_path, listing):
+            if not stale_women and not stale_men and not _stale_leaf("poshmark", explicit_path, listing):
                 return explicit_path
 
-    if _POSHMARK_ROOT_RE.search(raw) and not _stale_tank_path(raw, listing):
+    if _POSHMARK_ROOT_RE.search(raw) and not _stale_leaf("poshmark", raw, listing):
         return raw
+    # Kinds come from the listing alone: the path being remapped says "Tunics"
+    # or "Tank Tops" for every top Vendoo mapped, and would answer for it.
+    leaf = _garment_leaf_for("poshmark", listing, raw)
+    if leaf:
+        return leaf
     if _NON_TOP_RE.search(_path_leaf(raw)):
         return raw
-
-    gender = _listing_gender(listing, raw)
-    is_women = gender == "women"
-    is_men = gender == "men"
-    if gender is None:
-        is_women = bool(_WOMEN_RE.search(haystack))
-        is_men = bool(_MEN_RE.search(haystack)) and not is_women
-    is_tee = bool(_TEE_RE.search(haystack))
-    is_blouse = _is_blouse_listing(haystack)
-    long_sleeve = bool(_LONG_SLEEVE_RE.search(haystack))
-    if is_men and is_tee:
-        return POSHMARK_MEN_LONG_TEE if long_sleeve else POSHMARK_MEN_SHORT_TEE
-    if is_women and is_tee:
-        return POSHMARK_WOMEN_LONG_TEE if long_sleeve else POSHMARK_WOMEN_SHORT_TEE
-    if is_women and is_blouse:
-        return POSHMARK_WOMEN_BLOUSE
-    if is_women and _TOP_ITEM_RE.search(haystack):
+    if _generic_women_top(listing, raw, haystack):
         return POSHMARK_WOMEN_SHORT_TEE
     return raw
 
@@ -454,30 +553,20 @@ def map_mercari_category_path(category: str, listing: dict | None = None) -> str
             explicit_path = " > ".join(str(part).strip() for part in explicit if str(part).strip())
         elif isinstance(explicit, str):
             explicit_path = explicit.strip()
-        if explicit_path and not _stale_top_leaf(explicit_path, listing):
+        if explicit_path and not _stale_leaf("mercari", explicit_path, listing):
             return explicit_path
 
-    if _MERCARI_ROOT_RE.search(raw) and not _stale_top_leaf(raw, listing):
+    if _MERCARI_ROOT_RE.search(raw) and not _stale_leaf("mercari", raw, listing):
         return raw
-    if _NON_TOP_RE.search(_path_leaf(raw)):
-        return raw
-
     # Garment cues only — "Tops & blouses > T-shirts" contains both words and
     # would otherwise answer the question being asked of the listing.
-    haystack = (
-        f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
-    )
-    gender = _listing_gender(listing, raw)
-    is_women = gender == "women"
-    if gender is None:
-        is_women = bool(_WOMEN_RE.search(f"{raw} {haystack}"))
-    is_tee = bool(_TEE_RE.search(haystack))
-    is_blouse = _is_blouse_listing(haystack)
-    if is_women and is_blouse:
-        return MERCARI_WOMEN_BLOUSE
-    if is_women and is_tee:
-        return MERCARI_WOMEN_TEE
-    if is_women and _TOP_ITEM_RE.search(haystack):
+    haystack = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
+    leaf = _garment_leaf_for("mercari", listing, raw)
+    if leaf:
+        return leaf
+    if _NON_TOP_RE.search(_path_leaf(raw)):
+        return raw
+    if _generic_women_top(listing, raw, haystack):
         return MERCARI_WOMEN_TEE
     return raw
 
@@ -494,31 +583,23 @@ def map_etsy_category_path(category: str, listing: dict | None = None) -> str:
             explicit_path = " > ".join(str(part).strip() for part in explicit if str(part).strip())
         elif isinstance(explicit, str):
             explicit_path = explicit.strip()
-        if explicit_path and not _stale_etsy_path(explicit_path, listing):
+        if explicit_path and not _stale_leaf("etsy", explicit_path, listing):
             return explicit_path
 
-    if _ETSY_ROOT_RE.search(raw) and not _stale_etsy_path(raw, listing):
+    if _ETSY_ROOT_RE.search(raw) and not _stale_leaf("etsy", raw, listing):
         return raw
-    if _NON_TOP_RE.search(_path_leaf(raw)):
-        return raw
-
     # Score garment cues only — never the marketplace path. "Tops & Tees > Tunics"
     # contains "Tees" and would otherwise block blouse / button-up detection.
     haystack = (
         f"{_listing_text(listing)} {listing.get('description') or ''} "
         f"{_listing_style(listing)}"
     )
-    gender = _listing_gender(listing, raw)
-    is_women = gender == "women"
-    if gender is None:
-        is_women = bool(_WOMEN_RE.search(f"{raw} {haystack}"))
-    is_tee = bool(_TEE_RE.search(haystack))
-    is_blouse = _is_blouse_listing(haystack)
-    if is_women and is_blouse:
-        return ETSY_WOMEN_BLOUSE
-    if is_women and is_tee:
-        return ETSY_WOMEN_TEE
-    if is_women and _TOP_ITEM_RE.search(haystack):
+    leaf = _garment_leaf_for("etsy", listing, raw)
+    if leaf:
+        return leaf
+    if _NON_TOP_RE.search(_path_leaf(raw)):
+        return raw
+    if _generic_women_top(listing, raw, haystack):
         return ETSY_WOMEN_TEE
     return raw
 
@@ -535,29 +616,19 @@ def map_depop_category_path(category: str, listing: dict | None = None) -> str:
             explicit_path = " > ".join(str(part).strip() for part in explicit if str(part).strip())
         elif isinstance(explicit, str):
             explicit_path = explicit.strip()
-        if explicit_path and not _stale_top_leaf(explicit_path, listing):
+        if explicit_path and not _stale_leaf("depop", explicit_path, listing):
             return explicit_path
 
-    if _DEPOP_ROOT_RE.search(raw) and not _stale_top_leaf(raw, listing):
+    if _DEPOP_ROOT_RE.search(raw) and not _stale_leaf("depop", raw, listing):
         return raw
+    # Depop splits the two: a button-up is a Shirt there, a blouse a Blouse.
+    haystack = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
+    leaf = _garment_leaf_for("depop", listing, raw)
+    if leaf:
+        return leaf
     if _NON_TOP_RE.search(_path_leaf(raw)):
         return raw
-
-    haystack = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
-    gender = _listing_gender(listing, raw)
-    is_women = gender == "women"
-    if gender is None:
-        is_women = bool(_WOMEN_RE.search(f"{raw} {haystack}"))
-    is_tee = bool(_TEE_RE.search(haystack))
-    is_blouse = _is_blouse_listing(haystack)
-    if is_women and is_blouse:
-        # Depop splits the two: a button-up is a Shirt there, a blouse a Blouse.
-        if _BLOUSE_RE.search(haystack):
-            return DEPOP_WOMEN_BLOUSE
-        return DEPOP_WOMEN_SHIRT
-    if is_women and is_tee:
-        return DEPOP_WOMEN_TEE
-    if is_women and _TOP_ITEM_RE.search(haystack):
+    if _generic_women_top(listing, raw, haystack):
         return DEPOP_WOMEN_TEE
     return raw
 

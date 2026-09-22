@@ -7,10 +7,12 @@ import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
 import { MarketplaceLogo } from "./MarketplaceLogo";
+import { ProviderLogo, resolveProviderLogoId } from "./ProviderLogo";
 import {
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionId,
 } from "./settingsNav";
+import { applyTheme, normalizeTheme, type ThemePreference } from "../theme";
 
 type ListingFallbackId = ListingProviderId | "none";
 
@@ -21,11 +23,19 @@ function providerLabel(choice: ListingFallbackId): string {
   return "None";
 }
 
+function providerTitle(choice: ListingProviderId, full = false): ReactNode {
+  const label =
+    choice === "chatgpt" ? "ChatGPT" : choice === "mimo" ? (full ? "Xiaomi MiMo" : "MiMo") : "Cursor";
+  return (
+    <>
+      <ProviderLogo id={choice} label={label} size={18} />
+      <span>{label}</span>
+    </>
+  );
+}
+
 function activeProviderChoice(providerName: string | undefined): ListingProviderId | null {
-  if (providerName === "chatgpt") return "chatgpt";
-  if (providerName === "xiaomi-mimo") return "mimo";
-  if (providerName === "cursor") return "cursor";
-  return null;
+  return resolveProviderLogoId(providerName);
 }
 
 function SettingsSection({
@@ -34,7 +44,7 @@ function SettingsSection({
   children,
 }: {
   id: string;
-  title: string;
+  title: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -354,7 +364,7 @@ function HiddenFieldsSection() {
 }
 
 function AboutVersionRow({ version }: { version: string }) {
-  const { available, busy, description, iconTooltip, onClick, settingsLabel } = useStudioUpdate();
+  const { available, busy, downloaded, description, iconTooltip, onClick, settingsLabel } = useStudioUpdate();
   return (
     <SettingsRow
       title={
@@ -367,9 +377,10 @@ function AboutVersionRow({ version }: { version: string }) {
       control={
         <button
           type="button"
-          className={`btn btn-sm ${available && !busy ? "btn-primary" : "btn-outline"}`}
+          className={`btn btn-sm ${busy || available || downloaded ? "btn-primary" : "btn-outline"}${busy ? " is-busy" : ""}`}
           onClick={onClick}
           disabled={busy}
+          aria-busy={busy || undefined}
           title={iconTooltip}
         >
           {settingsLabel}
@@ -616,6 +627,44 @@ function ListingFormulasSection() {
   );
 }
 
+function AppearanceSection() {
+  const queryClient = useQueryClient();
+  const { data, isPending } = useQuery({
+    queryKey: ["settings-ui"],
+    queryFn: api.settings.ui,
+  });
+  const mutation = useMutation({
+    mutationFn: (theme: ThemePreference) => api.settings.setUi({ theme }),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["settings-ui"], payload);
+      applyTheme(normalizeTheme(payload.theme));
+    },
+  });
+  const theme = normalizeTheme(data?.theme);
+
+  return (
+    <SettingsSection id="appearance" title="Appearance">
+      <SettingsRow
+        title="Theme"
+        description="Dark matches the Studio workbench. Light inverts the same shell. System follows the OS."
+        control={
+          <select
+            className="input settings-model-select"
+            aria-label="Theme"
+            value={theme}
+            disabled={isPending || mutation.isPending}
+            onChange={(event) => mutation.mutate(event.target.value as ThemePreference)}
+          >
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">System</option>
+          </select>
+        }
+      />
+    </SettingsSection>
+  );
+}
+
 function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   const { data: status } = useQuery({
     queryKey: ["status"],
@@ -623,6 +672,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   });
   return (
     <>
+      <AppearanceSection />
       <MarketplacesSection />
       <PackageDimensionsSection />
       <HiddenFieldsSection />
@@ -964,57 +1014,80 @@ function ProvidersPanel() {
           title="Primary"
           description="Tried first when generating listings and reading photos."
           control={
-            <select
-              className="input settings-model-select"
-              aria-label="Primary listing AI"
-              value={primary}
-              disabled={setPreferredMutation.isPending}
-              onChange={(event) => saveOrder(event.target.value as ListingProviderId, fallback)}
-            >
-              <option value="chatgpt">ChatGPT</option>
-              <option value="mimo">Xiaomi MiMo</option>
-              <option value="cursor">Cursor</option>
-            </select>
+            <div className="settings-provider-select">
+              <ProviderLogo id={primary} label={providerLabel(primary)} size={16} />
+              <select
+                className="input settings-model-select"
+                aria-label="Primary listing AI"
+                value={primary}
+                disabled={setPreferredMutation.isPending}
+                onChange={(event) => saveOrder(event.target.value as ListingProviderId, fallback)}
+              >
+                <option value="chatgpt">ChatGPT</option>
+                <option value="mimo">Xiaomi MiMo</option>
+                <option value="cursor">Cursor</option>
+              </select>
+            </div>
           }
         />
         <SettingsRow
           title="Fallback"
           description="Used only when the primary provider is not ready."
           control={
-            <select
-              className="input settings-model-select"
-              aria-label="Fallback listing AI"
-              value={fallback === primary ? "none" : fallback}
-              disabled={setPreferredMutation.isPending}
-              onChange={(event) =>
-                saveOrder(primary, event.target.value as ListingFallbackId)
-              }
-            >
-              <option value="none">None</option>
-              {primary !== "chatgpt" ? <option value="chatgpt">ChatGPT</option> : null}
-              {primary !== "mimo" ? <option value="mimo">Xiaomi MiMo</option> : null}
-              {primary !== "cursor" ? <option value="cursor">Cursor</option> : null}
-            </select>
+            <div className="settings-provider-select">
+              {fallback !== "none" && fallback !== primary ? (
+                <ProviderLogo id={fallback} label={providerLabel(fallback)} size={16} />
+              ) : null}
+              <select
+                className="input settings-model-select"
+                aria-label="Fallback listing AI"
+                value={fallback === primary ? "none" : fallback}
+                disabled={setPreferredMutation.isPending}
+                onChange={(event) =>
+                  saveOrder(primary, event.target.value as ListingFallbackId)
+                }
+              >
+                <option value="none">None</option>
+                {primary !== "chatgpt" ? <option value="chatgpt">ChatGPT</option> : null}
+                {primary !== "mimo" ? <option value="mimo">Xiaomi MiMo</option> : null}
+                {primary !== "cursor" ? <option value="cursor">Cursor</option> : null}
+              </select>
+            </div>
           }
         />
         <SettingsRow title="In use">
-          <p className="settings-row-desc">
-            {provider?.configured && activeChoice
-              ? `${providerLabel(activeChoice)} is active${
-                  activeChoice === primary ? " (primary)" : " (fallback)"
-                }.`
-              : primaryReady
-                ? `${providerLabel(primary)} is ready.`
-                : fallback !== "none" && fallbackReady
-                  ? `${providerLabel(primary)} is not ready — ${providerLabel(fallback)} will be used.`
-                  : `Configure ${providerLabel(primary)}${
-                      fallback !== "none" ? ` or ${providerLabel(fallback)}` : ""
-                    } below.`}
+          <p className="settings-row-desc settings-provider-in-use">
+            {provider?.configured && activeChoice ? (
+              <>
+                <ProviderLogo id={activeChoice} label={providerLabel(activeChoice)} size={16} />
+                <span>
+                  {providerLabel(activeChoice)} is active
+                  {activeChoice === primary ? " (primary)" : " (fallback)"}.
+                </span>
+              </>
+            ) : primaryReady ? (
+              <>
+                <ProviderLogo id={primary} label={providerLabel(primary)} size={16} />
+                <span>{providerLabel(primary)} is ready.</span>
+              </>
+            ) : fallback !== "none" && fallbackReady ? (
+              <>
+                <ProviderLogo id={fallback} label={providerLabel(fallback)} size={16} />
+                <span>
+                  {providerLabel(primary)} is not ready — {providerLabel(fallback)} will be used.
+                </span>
+              </>
+            ) : (
+              <span>
+                Configure {providerLabel(primary)}
+                {fallback !== "none" ? ` or ${providerLabel(fallback)}` : ""} below.
+              </span>
+            )}
           </p>
         </SettingsRow>
       </SettingsSection>
 
-      <SettingsSection id="chatgpt" title="ChatGPT">
+      <SettingsSection id="chatgpt" title={providerTitle("chatgpt")}>
         <SettingsRow
           title="Sign in with ChatGPT"
           description="Uses your ChatGPT subscription to generate listings and look up sold comps. Usage counts against Codex quota, not a Platform API key."
@@ -1087,7 +1160,17 @@ function ProvidersPanel() {
         </SettingsRow>
       </SettingsSection>
 
-      <SettingsSection id="models" title="Models">
+      <SettingsSection
+        id="models"
+        title={
+          <>
+            {activeChoice ? (
+              <ProviderLogo id={activeChoice} label={providerLabel(activeChoice)} size={18} />
+            ) : null}
+            <span>Models</span>
+          </>
+        }
+      >
         <SettingsRow
           title="Vision model"
           description="Used to read product photos."
@@ -1190,7 +1273,7 @@ function ProvidersPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="provider" title="Xiaomi MiMo">
+      <SettingsSection id="provider" title={providerTitle("mimo", true)}>
         <SettingsRow
           title="API key"
           description="Stored in macOS Keychain and never sent to the browser."
@@ -1248,7 +1331,7 @@ function ProvidersPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="cursor" title="Cursor">
+      <SettingsSection id="cursor" title={providerTitle("cursor")}>
         <SettingsRow
           title="API key"
           description="From Cursor Dashboard → Integrations. Stored in Keychain; listing runs use the local Cursor SDK against an empty scratch folder. Sold comps still need ChatGPT signed in or a Brave Search key."

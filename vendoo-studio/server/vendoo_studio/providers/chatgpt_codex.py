@@ -526,10 +526,17 @@ class ChatGPTCodexProvider:
                     "than stopping at the first page of results. "
                     "Keep only specific sold items with a real sold price. Ignore how-to articles, "
                     "search pages, Terapeak marketing, and pricing guides. "
+                    "Every comp must match the requested brand and item type; prefer the same style, "
+                    "size, color, material, and department when those details are present. Exclude lots, "
+                    "bundles, replacement parts, reproductions, and different models or collaborations. "
+                    "Require explicit evidence that the item sold or the listing completed, not merely "
+                    "that it is listed. If a result shows multiple prices, use only the amount explicitly "
+                    "identified as the sold price; otherwise skip it. "
                     "Return JSON only in this shape: "
                     '{"market":"$18-$25","comps":[{"title":"...","price":22,"marketplace":"eBay",'
                     '"condition":"Good","url":"https://www.ebay.com/itm/123"}]} '
-                    "Prefer listing URLs (ebay.com/itm, poshmark.com/listing, mercari.com/us/item, "
+                    "Each comp must have the exact listing URL you observed in search results "
+                    "(ebay.com/itm, poshmark.com/listing, mercari.com/us/item, "
                     "depop.com/products, etsy.com/listing). Do not write a listing. Do not invent "
                     "prices or URLs. If you cannot find sold comps, return {\"market\":\"\",\"comps\":[]}."
                 ),
@@ -538,13 +545,19 @@ class ChatGPTCodexProvider:
         ]
         errors: list[str] = []
         attempts = (
-            {"external_web_access": True, "tool_choice": "required"},
+            {
+                "external_web_access": True,
+                "search_context_size": "high",
+                "tool_choice": "required",
+            },
             {"tool_choice": "required"},
         )
         for attempt in attempts:
             tool: dict = {"type": "web_search"}
             if attempt.get("external_web_access"):
                 tool["external_web_access"] = True
+            if attempt.get("search_context_size"):
+                tool["search_context_size"] = attempt["search_context_size"]
             try:
                 return await self._web_search_once(
                     messages,

@@ -4,6 +4,27 @@ const { loadWorker, call } = require('./worker-context');
 
 const worker = loadWorker();
 
+test('reconnect alarm is registered for MV3 wakeups', () => {
+  call(worker, 'ensureReconnectAlarm');
+  const alarms = worker.__alarms.filter((alarm) => alarm.name === 'studio-reconnect');
+  assert.ok(alarms.length >= 1);
+  assert.equal(alarms[0].periodInMinutes, 0.5);
+  assert.ok(worker.__alarmListeners.length >= 1);
+});
+
+test('ensureStudioConnection resets backoff and opens a socket when idle', async () => {
+  const vm = require('node:vm');
+  vm.runInContext('reconnectAttempt = 4; paired = false; ws = null;', worker);
+  const result = JSON.parse(JSON.stringify(await vm.runInContext(
+    "ensureStudioConnection({ resetBackoff: true })",
+    worker,
+  )));
+  assert.equal(vm.runInContext('reconnectAttempt', worker), 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.connecting, true);
+  assert.ok(vm.runInContext('ws', worker));
+});
+
 test('Vendoo URL helpers recognise draft pages', () => {
   assert.equal(call(worker, 'isNewItemUrl', 'https://web.vendoo.co/app/item/new?marketplace=general'), true);
   assert.equal(call(worker, 'isNewItemUrl', 'https://web.vendoo.co/app/item/abc123'), false);
@@ -189,6 +210,28 @@ test('Firestore documents decode back to plain Vendoo items', () => {
     itemID: 'itm123',
   });
   assert.equal(call(worker, 'firestoreItem', { fields: {} }), null);
+});
+
+test('Firebase timestamp objects encode as Firestore timestamps for form saves', () => {
+  assert.deepEqual(
+    call(worker, 'firestoreValue', { _seconds: 1750000000, _nanoseconds: 123456789 }),
+    { timestampValue: '2025-06-15T15:06:40.123456789Z' },
+  );
+  assert.deepEqual(
+    call(worker, 'firestoreValue', { _seconds: 1750000000, _nanoseconds: 0 }),
+    { timestampValue: '2025-06-15T15:06:40.000000000Z' },
+  );
+  assert.deepEqual(
+    call(worker, 'firestoreValue', { _seconds: 'not-a-timestamp', name: 'ordinary map' }),
+    {
+      mapValue: {
+        fields: {
+          _seconds: { stringValue: 'not-a-timestamp' },
+          name: { stringValue: 'ordinary map' },
+        },
+      },
+    },
+  );
 });
 
 test('the inventory listing pages through Firestore and can ask for ids only', async () => {

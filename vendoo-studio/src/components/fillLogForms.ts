@@ -110,8 +110,14 @@ function applyValueMatchesVendoo(applyValue: string, field: DraftField): boolean
   return normalizeLooseFieldText(got) === normalizeLooseFieldText(want);
 }
 
-export function fieldNeedsVendooApply(field: DraftField, applyValue: string): boolean {
-  if (!applyValue || field.notApplicable || isUnfillableField(field) || field.listingOnly) return false;
+export function fieldNeedsVendooApply(
+  field: DraftField,
+  applyValue: string,
+  marketplace?: string,
+): boolean {
+  if (!applyValue || field.notApplicable || isUnfillableField(field, marketplace) || field.listingOnly) {
+    return false;
+  }
   if (field.missing) return true;
   return !applyValueMatchesVendoo(applyValue, field);
 }
@@ -133,7 +139,7 @@ export function formSyncCounts(
       counts.notApplicable += 1;
       continue;
     }
-    if (isUnfillableField(field)) continue;
+    if (isUnfillableField(field, form.id)) continue;
     const listingValue = listingTextForField(listing, form.id, field);
     if (fromVendooDraft) {
       if (!field.missing) {
@@ -161,10 +167,33 @@ export function fieldsNeedingListingValues(
 ): { form: DraftForm; field: DraftField }[] {
   return forms.flatMap((form) =>
     form.fields
-      .filter((field) => !field.notApplicable && !isUnfillableField(field))
+      .filter((field) => !field.notApplicable && !isUnfillableField(field, form.id))
       .filter((field) => listingFieldEmpty(listing, form.id, field))
       .map((field) => ({ form, field })),
   );
+}
+
+/** Deduped empty listing values + Apply/Send failures for the Ask-chat button. */
+export function askChatTargetCount(
+  forms: DraftForm[],
+  listing: Record<string, unknown> | undefined,
+  failures: FillLogEntry[],
+): number {
+  const seen = new Set<string>();
+  let count = 0;
+  for (const entry of failures) {
+    const key = `${String(entry.marketplace || "").toLowerCase()}:${normalizeFieldName(entry.field)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    count += 1;
+  }
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+    const key = `${form.id}:${fieldMatchKey(field)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    count += 1;
+  }
+  return count;
 }
 
 export function issueLabel(entry: FillLogEntry): string {
@@ -240,12 +269,19 @@ const SYSTEM_FIELDS = new Set([
   "listing state",
   "price currency",
 ]);
+/** Seller-account rows that never belong in listing JSON or Ask chat. */
 const ACCOUNT_SETTING_FIELDS = new Set([
   "allow best offer",
   "auto-accept",
   "auto accept",
   "minimum offer",
   "minimum price",
+  "primary store category",
+  "secondary store category",
+  "store category name",
+  "store category2name",
+  "store category 2 name",
+  "personalization instructions",
   "exclude sku from listing",
   "no brand/not sure",
   "worldwide shipping",
@@ -260,7 +296,62 @@ const ACCOUNT_SETTING_FIELDS = new Set([
   "returns",
   "starting price",
   "payment method",
+  "paypal email",
+  "smart pricing",
+  "status item",
+  "zip code",
+  "mercari local information",
+  "payer id",
 ]);
+/** Only Depop/Mercari set shipping per item; elsewhere it comes from account settings. */
+const ITEM_SHIPPING_MARKETPLACES = new Set(["depop", "mercari"]);
+// Mirrors is_account_managed_field in vendoo_studio/services/registry.py.
+const POLICY_FIELD_RE = /\b(polic(?:y|ies)|returns?|refunds?|handling(?: time)?|processing (?:time|profile)|payment method|ready to ship)\b/;
+const SHIPPING_FIELD_RE = /\b(shipping|shipment|ship to|shipped|delivery|parcel|postage|carrier|package (?:type|size)|who pays)\b/;
+
+function isAccountSettingField(field: DraftField | string): boolean {
+  const raw = typeof field === "string" ? field : field.label || field.key;
+  const key = normalizeLookupKey(raw);
+  if (ACCOUNT_SETTING_FIELDS.has(key)) return true;
+  // Scraped labels often concatenate the whole control path, e.g.
+  // "Pricing Format Details Fixed Price Allow Best Offer".
+  return (
+    key.includes("best offer") ||
+    key.includes("accept offer") ||
+    key.includes("decline offer") ||
+    key.includes("pricing format details") ||
+    key.includes("auto-accept") ||
+    key.includes("auto accept") ||
+    key.includes("store category") ||
+    key.includes("paypal")
+  );
+}
+
+/** True for shipping/policy rows the seller already set in marketplace settings. */
+export function isAccountManagedField(
+  marketplace: string | undefined,
+  field: DraftField | string,
+): boolean {
+  const raw = typeof field === "string" ? field : field.label || field.key;
+  const key = normalizeLookupKey(raw);
+  if (!key) return false;
+  if (isAccountSettingField(field)) return true;
+  if (POLICY_FIELD_RE.test(key)) return true;
+  if (ITEM_SHIPPING_MARKETPLACES.has(String(marketplace || "").trim().toLowerCase())) {
+    return false;
+  }
+  return SHIPPING_FIELD_RE.test(key);
+}
+
+function isUnfillableField(field: DraftField, marketplace?: string): boolean {
+  return (
+    UNFILLABLE_FIELDS.has(field.label.toLowerCase()) ||
+    UNFILLABLE_FIELDS.has(field.key.toLowerCase()) ||
+    isSystemField(field) ||
+    isAccountManagedField(marketplace, field)
+  );
+}
+
 const GENERAL_LISTING_KEYS: Record<string, string> = {
   title: "title",
   description: "description",
@@ -292,37 +383,11 @@ const GENERAL_LISTING_KEYS: Record<string, string> = {
   "vendoo internal notes": "notes",
 };
 
-function isAccountSettingField(field: DraftField | string): boolean {
-  const raw = typeof field === "string" ? field : field.label || field.key;
-  const key = normalizeLookupKey(raw);
-  if (ACCOUNT_SETTING_FIELDS.has(key)) return true;
-  // Scraped labels often concatenate the whole control path, e.g.
-  // "Pricing Format Details Fixed Price Allow Best Offer".
-  return (
-    key.includes("best offer") ||
-    key.includes("accept offer") ||
-    key.includes("decline offer") ||
-    key.includes("pricing format details") ||
-    key.includes("auto-accept") ||
-    key.includes("auto accept")
-  );
-}
-
-function isUnfillableField(field: DraftField): boolean {
-  return (
-    UNFILLABLE_FIELDS.has(field.label.toLowerCase()) ||
-    UNFILLABLE_FIELDS.has(field.key.toLowerCase()) ||
-    isSystemField(field) ||
-    isAccountSettingField(field)
-  );
-}
-
 function isSystemField(field: DraftField | string): boolean {
   const raw = typeof field === "string" ? field : field.label || field.key;
   const key = normalizeLookupKey(raw);
   return SYSTEM_FIELDS.has(key) || /^\d{6,}\s/.test(key);
 }
-
 function normalizeLookupKey(value: string): string {
   const aliases: Record<string, string> = {
     "listing price": "price",
@@ -675,7 +740,7 @@ export function leftoverEntries(report: FillLogReport): FillLogEntry[] {
       if (!FILLABLE_STATUSES.has(entry.status)) continue;
       // Already-correct controls are successes, not leftovers to retry.
       if (isAlreadySetEntry(entry)) continue;
-      if (isAccountSettingField(entry.field)) continue;
+      if (isAccountManagedField(entry.marketplace, entry.field)) continue;
       rows.push(entry);
     }
   }
@@ -698,12 +763,12 @@ export function patchableChangedFields(
   return forms.flatMap((form) =>
     form.fields
       // Empty-on-Vendoo fields and mismatches only — never re-walk matching controls.
-      .filter((field) => !field.listingOnly && !field.notApplicable && !isUnfillableField(field))
+      .filter((field) => !field.listingOnly && !field.notApplicable && !isUnfillableField(field, form.id))
       .map((field) => {
         const leftover = field.leftover;
         const typed = leftover ? String(values[leftover.id] || "").trim() : "";
         const value = typed || listingValueForField(listing, form.id, field);
-        if (!fieldNeedsVendooApply(field, value)) return null;
+        if (!fieldNeedsVendooApply(field, value, form.id)) return null;
         return leftover
           ? { id: leftover.id, marketplace: form.id, field: leftover.field || field.label, value }
           : { marketplace: form.id, field: field.label, value };
@@ -1889,7 +1954,7 @@ export function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsStat
     .map((form) => {
       const fields = form.fields.filter(
         (field) => !isFieldHidden(keys, form.id, field)
-          && !isAccountSettingField(field)
+          && !isAccountManagedField(form.id, field)
           && !isSystemField(field),
       );
       return toForm(form.id, fields, form.liveStatus);
@@ -1902,7 +1967,7 @@ function fieldNeedsAttention(
   field: DraftField,
   listing: Record<string, unknown> | undefined,
 ): boolean {
-  if (field.notApplicable || isUnfillableField(field)) return false;
+  if (field.notApplicable || isUnfillableField(field, form.id)) return false;
   return listingFieldEmpty(listing, form.id, field);
 }
 

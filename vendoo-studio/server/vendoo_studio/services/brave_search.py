@@ -11,7 +11,7 @@ from vendoo_studio.services.keychain import get_brave_api_key
 log = logging.getLogger("vendoo_studio.brave_search")
 
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
-ITEM_FIELDS = ("brand", "category", "style", "size", "color")
+ITEM_FIELDS = ("brand", "category", "style", "size", "color", "material", "pattern", "department")
 MARKETPLACE_SITES = ("ebay.com", "poshmark.com", "mercari.com", "depop.com", "etsy.com")
 # Brave caps count at 20. One 8-result query across five sites usually came back
 # with one or two priced listing URLs; per-site queries spread the budget.
@@ -21,7 +21,7 @@ BRAVE_RESULT_COUNT = 20
 BRAVE_QUERY_STAGGER_SEC = 0.6
 BRAVE_RETRY_SEC = 1.5
 _ANALYSIS_FIELD_RE = re.compile(
-    r"^-\s*(brand|category|style|size|color):\s*(.+?)(?:\s+\(source:.*\))?$",
+    r"^-\s*(brand|category|style|size|color|material|pattern|department):\s*(.+?)(?:\s+\(source:.*\))?$",
     re.I | re.M,
 )
 
@@ -60,8 +60,24 @@ def item_fields(analysis_text: str | None, evidence: dict | None = None) -> dict
 def _query_core(fields: dict[str, str]) -> list[str]:
     brand = fields.get("brand", "").strip()
     # Category arrives as a taxonomy path ("Tops > T-Shirts"); search the leaf.
-    item = (fields.get("category") or fields.get("style") or "").split(">")[-1].strip()
-    return [part for part in (brand, item) if part]
+    category = fields.get("category", "").split(">")[-1].strip()
+    style = fields.get("style", "").strip()
+    parts = [brand]
+    if style:
+        parts.append(style)
+    if category and category.lower() != style.lower():
+        parts.append(category)
+    return [part for part in parts if part]
+
+
+def _query_details(fields: dict[str, str]) -> list[str]:
+    """High-signal visible attributes that narrow generic brand/category searches."""
+    details: list[str] = []
+    for key in ("size", "color", "material", "pattern", "department"):
+        value = fields.get(key, "").strip()
+        if value and value.lower() not in {part.lower() for part in [*_query_core(fields), *details]}:
+            details.append(value)
+    return details
 
 
 def _query_alt(fields: dict[str, str]) -> str:
@@ -78,7 +94,7 @@ def sold_comps_query(fields: dict[str, str]) -> str:
     parts = _query_core(fields)
     if not parts:
         return ""
-    return " ".join([*parts, "sold comps"])[:400]
+    return " ".join([*parts, *_query_details(fields), "sold comps"])[:400]
 
 
 def _site_filter() -> str:
@@ -89,7 +105,7 @@ def brave_sold_query(fields: dict[str, str]) -> str:
     parts = _query_core(fields)
     if not parts:
         return ""
-    return f"{' '.join(parts)} sold {_site_filter()}"[:400]
+    return f"{' '.join([*parts, *_query_details(fields)])} sold {_site_filter()}"[:400]
 
 
 def brave_sold_queries(fields: dict[str, str]) -> list[str]:
@@ -97,7 +113,7 @@ def brave_sold_queries(fields: dict[str, str]) -> list[str]:
     broad = brave_sold_query(fields)
     if not broad:
         return []
-    core = " ".join(_query_core(fields))
+    core = " ".join([*_query_core(fields), *_query_details(fields)])
     queries = [broad]
     queries.extend(f"{core} sold listing site:{site}" for site in MARKETPLACE_SITES)
     alt = _query_alt(fields)
@@ -124,14 +140,20 @@ def _brave_error(resp: httpx.Response) -> str:
     return f"Brave HTTP {resp.status_code}: {text}" if text else f"Brave HTTP {resp.status_code}"
 
 
-def format_comp_results(query: str, results: list[dict], *, source: str = "Brave Search") -> str:
+def format_comp_results(
+    query: str,
+    results: list[dict],
+    *,
+    source: str = "Brave Search",
+    expected_brand: str = "",
+) -> str:
     from vendoo_studio.services.sold_comps import SoldCompsReport, comps_from_web_results, format_sold_comps
 
     return format_sold_comps(
         SoldCompsReport(
             query=query,
             source=source,
-            comps=comps_from_web_results(results),
+            comps=comps_from_web_results(results, expected_brand=expected_brand),
         )
     )
 
@@ -149,6 +171,12 @@ async def search_web(query: str, api_key: str, *, count: int = 8) -> list[dict]:
                 "count": count,
                 "country": "US",
                 "search_lang": "en",
+                # Sold prices age quickly. Brave defines `py` as pages dated in
+                # the last 365 days; disabling spellcheck also preserves exact
+                # brand/model spellings instead of silently rewriting them.
+                "freshness": "py",
+                "result_filter": "web",
+                "spellcheck": "false",
                 "extra_snippets": "true",
             },
         )
@@ -206,7 +234,7 @@ async def search_all(queries: list[str], api_key: str) -> tuple[list[dict], list
     return results, errors
 
 
-async def research_brave_comps(queries: str | list[str]) -> str:
+async def research_brave_comps(queries: str | list[str], *, expected_brand: str = "") -> str:
     api_key = get_brave_api_key()
     if not api_key:
         return ""
@@ -219,7 +247,7 @@ async def research_brave_comps(queries: str | list[str]) -> str:
         results, errors = await search_all(query_list, api_key)
         if not results and errors:
             raise RuntimeError(errors[0])
-        return format_comp_results(query, results)
+        return format_comp_results(query, results, expected_brand=expected_brand)
     except Exception as exc:
         log.warning("Brave sold-comps search failed: %s", exc)
         from vendoo_studio.services.sold_comps import SoldCompsReport, format_sold_comps

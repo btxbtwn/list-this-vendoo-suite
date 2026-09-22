@@ -6,7 +6,8 @@ export function ExtensionStatus() {
   const { data } = useQuery({
     queryKey: ["extension-status"],
     queryFn: api.extension.status,
-    refetchInterval: 5000,
+    // Poll faster while offline so Connect Chrome status flips promptly.
+    refetchInterval: (query) => (query.state.data?.connected ? 5000 : 1500),
   });
 
   const connected = Boolean(data?.connected);

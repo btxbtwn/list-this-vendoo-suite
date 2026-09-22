@@ -1,8 +1,11 @@
 importScripts('category-reader.js');
 const STUDIO_URL = 'http://127.0.0.1:4318';
-const RECONNECT_BASE_MS = 1000;
-const RECONNECT_MAX_MS = 30000;
+const RECONNECT_BASE_MS = 500;
+const RECONNECT_MAX_MS = 8000;
 const HEARTBEAT_MS = 20000;
+const RECONNECT_ALARM = 'studio-reconnect';
+// Chrome's minimum repeating alarm period; wakes the MV3 worker if setTimeout died with it.
+const RECONNECT_ALARM_PERIOD_MINUTES = 0.5;
 const DIAGNOSTIC_OUTBOX_KEY = 'studio_diagnostic_outbox';
 const RELOAD_GENERATION_KEY = 'studio_reload_generation';
 const RELOAD_TABS_KEY = 'studio_reload_tabs';
@@ -123,10 +126,60 @@ async function resolvePairingToken() {
   return fetchStudioPairingToken();
 }
 
+function socketIsLive() {
+  return Boolean(ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING));
+}
+
+function socketIsOpen() {
+  return Boolean(ws && ws.readyState === WebSocket.OPEN);
+}
+
+function discardSocket() {
+  if (!ws) return;
+  try {
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+  } catch (_) {}
+  ws = null;
+}
+
+function ensureReconnectAlarm() {
+  try {
+    chrome.alarms.create(RECONNECT_ALARM, { periodInMinutes: RECONNECT_ALARM_PERIOD_MINUTES });
+  } catch (err) {
+    error(`Reconnect alarm failed: ${err && err.message ? err.message : err}`);
+  }
+}
+
+async function ensureStudioConnection({ resetBackoff = false } = {}) {
+  ensureReconnectAlarm();
+  if (resetBackoff) {
+    reconnectAttempt = 0;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+  if (paired && socketIsOpen()) return { ok: true, paired: true };
+  if (socketIsOpen() && !paired) {
+    await sendIdent();
+    return { ok: true, paired };
+  }
+  if (socketIsLive()) return { ok: true, paired: false, connecting: true };
+  connect();
+  return { ok: true, paired: false, connecting: true };
+}
+
 function connect() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+  if (socketIsLive()) {
     return;
   }
+  discardSocket();
 
   log(`Connecting to ${STUDIO_URL}/api/extension/ws...`);
 
@@ -152,6 +205,10 @@ function connect() {
       if (msg.type === 'error' && /invalid pairing token/i.test(String(msg.message || ''))) {
         fetchStudioPairingToken().then(() => sendIdent()).catch((err) => {
           error(`Pairing token refresh failed: ${err.message}`);
+          discardSocket();
+          paired = false;
+          stopHeartbeat();
+          scheduleReconnect();
         });
         return;
       }
@@ -165,12 +222,13 @@ function connect() {
 
   ws.onclose = (event) => {
     log(`WebSocket closed code=${event.code}`);
+    ws = null;
     paired = false;
     stopHeartbeat();
     scheduleReconnect();
   };
 
-  ws.onerror = (event) => {
+  ws.onerror = () => {
     error('WebSocket error');
   };
 }
@@ -181,6 +239,10 @@ async function sendIdent() {
     token = await resolvePairingToken();
   } catch (err) {
     error(`Pairing token is unavailable: ${err.message}`);
+    discardSocket();
+    paired = false;
+    stopHeartbeat();
+    scheduleReconnect();
     return;
   }
   const stored = await chrome.storage.local.get(RELOAD_GENERATION_KEY);
@@ -227,6 +289,7 @@ async function handleExtensionReload(generation) {
 }
 
 function scheduleReconnect() {
+  ensureReconnectAlarm();
   if (reconnectTimer) return;
   const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, reconnectAttempt), RECONNECT_MAX_MS);
   reconnectAttempt++;
@@ -236,6 +299,21 @@ function scheduleReconnect() {
     connect();
   }, delay);
 }
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (!alarm || alarm.name !== RECONNECT_ALARM) return;
+  ensureStudioConnection();
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  ensureReconnectAlarm();
+  ensureStudioConnection({ resetBackoff: true });
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureReconnectAlarm();
+  ensureStudioConnection({ resetBackoff: true });
+});
 
 function startHeartbeat() {
   stopHeartbeat();
@@ -915,6 +993,9 @@ function sleep(ms) {
 // Existing popup message handlers (backward compatible)
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'GET_STUDIO_STATUS') {
+    if (!paired) {
+      ensureStudioConnection({ resetBackoff: true });
+    }
     sendResponse({
       connected: paired,
       paired,
@@ -924,11 +1005,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'ENSURE_STUDIO_CONNECTION') {
+    ensureStudioConnection({ resetBackoff: true }).then((result) => {
+      sendResponse({ ok: true, paired, ...(result || {}) });
+    }).catch((err) => {
+      sendResponse({ ok: false, error: err.message });
+    });
+    return true;
+  }
+
   if (msg.type === 'PAIR_WITH_STUDIO') {
     const token = msg.token;
     if (token) {
       setPairingToken(token).then(() => {
-        connect();
+        ensureStudioConnection({ resetBackoff: true });
         sendResponse({ ok: true });
       });
     } else {
@@ -975,8 +1065,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'IGNORE_PAIRING') {
     fetchStudioPairingToken().then(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) sendIdent();
-      else connect();
+      if (socketIsOpen()) sendIdent();
+      else ensureStudioConnection({ resetBackoff: true });
       sendResponse({ ok: true });
     }).catch((err) => {
       sendResponse({ ok: false, error: err.message });
@@ -1038,11 +1128,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // Initialize
 (async () => {
+  ensureReconnectAlarm();
   const stored = await chrome.storage.local.get(RELOAD_TABS_KEY);
   if (stored[RELOAD_TABS_KEY]) {
     await chrome.storage.local.remove(RELOAD_TABS_KEY);
     await reloadMarketplaceTabs();
   }
   await restoreActiveJob();
-  connect();
+  await ensureStudioConnection({ resetBackoff: true });
 })();

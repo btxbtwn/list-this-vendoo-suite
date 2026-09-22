@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shlex
 import shutil
@@ -9,6 +10,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 
@@ -25,6 +27,16 @@ ZIP_NAME = "List-This-Studio-macos.zip"
 INFO_NAME = "build_info.json"
 APP_BUNDLE_NAME = f"{APP_NAME}.app"
 USER_AGENT = f"ListThisStudio/{app_version()}"
+# Download fills this band; verify / extract / codesign take the rest so the
+# meter keeps moving after the last network byte (codesign is often longer).
+DOWNLOAD_PROGRESS_FLOOR = 5.0
+DOWNLOAD_PROGRESS_CEILING = 90.0
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
+# Half-life for unknown Content-Length downloads (~25 MiB → ~63% of the band).
+UNKNOWN_SIZE_HALF_BYTES = 25 * 1024 * 1024
+
+_prepared_lock = threading.Lock()
+_prepared_update: dict | None = None
 
 
 class PackagedUpdateError(RuntimeError):
@@ -133,6 +145,27 @@ def _normalize_build_info(payload: dict) -> dict:
     if zip_sha.startswith("sha256:"):
         zip_sha = zip_sha.split(":", 1)[1].strip().lower()
     title = str(payload.get("title") or payload.get("summary") or "").strip()
+    pull_requests = []
+    for item in payload.get("pull_requests") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            number = int(item.get("number"))
+        except (TypeError, ValueError):
+            continue
+        pull_title = str(item.get("title") or "").strip()
+        if number > 0 and pull_title:
+            pull_requests.append({"number": number, "title": pull_title})
+    commits = [
+        f"#{item['number']} — {item['title']}"
+        for item in pull_requests
+    ]
+    if not commits:
+        commits = [
+            str(item).strip()
+            for item in payload.get("commits") or []
+            if str(item).strip()
+        ]
     return {
         "version": payload.get("version") or app_version(),
         "sha": sha,
@@ -140,6 +173,8 @@ def _normalize_build_info(payload: dict) -> dict:
         "ref": payload.get("ref"),
         "zip_sha256": zip_sha or None,
         "title": title,
+        "pull_requests": pull_requests,
+        "commits": commits,
     }
 
 
@@ -256,13 +291,55 @@ def _safe_extract_zip(archive: Path, destination: Path) -> None:
         bundle.extractall(destination)
 
 
-def _download(client: httpx.Client, url: str, destination: Path) -> None:
+def map_download_progress(raw_percent: float) -> float:
+    """Map 0–100 download completion into the prepare-update progress band."""
+    clamped = min(100.0, max(0.0, float(raw_percent)))
+    span = DOWNLOAD_PROGRESS_CEILING - DOWNLOAD_PROGRESS_FLOOR
+    return DOWNLOAD_PROGRESS_FLOOR + (clamped / 100.0) * span
+
+
+def unknown_size_download_progress(downloaded: int) -> float:
+    """Asymptotic 0–100% when the response has no Content-Length."""
+    if downloaded <= 0:
+        return 0.0
+    return 100.0 * (1.0 - math.exp(-downloaded / UNKNOWN_SIZE_HALF_BYTES))
+
+
+def _download(
+    client: httpx.Client,
+    url: str,
+    destination: Path,
+    progress_callback=None,
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with client.stream("GET", url) as response:
         response.raise_for_status()
+        total = int(response.headers.get("content-length") or 0)
+        downloaded = 0
+        last_reported = -1.0
+
+        def report(raw_percent: float) -> None:
+            nonlocal last_reported
+            if not progress_callback:
+                return
+            mapped = map_download_progress(raw_percent)
+            # Emit at least every half percent so the sidebar meter moves, and
+            # always emit the band ceiling when the body is fully written.
+            if mapped < DOWNLOAD_PROGRESS_CEILING and mapped - last_reported < 0.5:
+                return
+            last_reported = mapped
+            progress_callback(mapped)
+
         with destination.open("wb") as handle:
-            for chunk in response.iter_bytes():
+            for chunk in response.iter_bytes(chunk_size=DOWNLOAD_CHUNK_SIZE):
                 handle.write(chunk)
+                downloaded += len(chunk)
+                if total > 0:
+                    report(downloaded / total * 100.0)
+                else:
+                    report(unknown_size_download_progress(downloaded))
+        if progress_callback:
+            progress_callback(DOWNLOAD_PROGRESS_CEILING)
 
 
 def _resolve_zip_digest(remote: dict, client: httpx.Client | None = None) -> str | None:
@@ -288,18 +365,19 @@ def check_for_packaged_update() -> dict:
     remote_sha = remote.get("sha")
     local_sha = local.get("sha")
     available = bool(remote_sha) and remote_sha != local_sha
-    summary = str(remote.get("title") or "").strip()
+    commits = list(remote.get("commits") or [])
+    summary = str((commits[0] if commits else remote.get("title")) or "").strip()
     return {
         "available": available,
         "packaged": True,
-        "behind": 1 if available else 0,
+        "behind": (len(commits) or 1) if available else 0,
         "ahead": 0,
         "branch": remote.get("ref") or "main",
         "local_sha": local_sha,
         "remote_sha": remote_sha,
         "remote_ref": f"github:{GITHUB_REPO}:{RELEASE_TAG}",
         "summary": summary if available else "",
-        "commits": [summary] if summary and available else [],
+        "commits": (commits or ([summary] if summary else [])) if available else [],
         "dirty": [],
         "error": None,
         "short_sha": remote.get("short_sha"),
@@ -380,7 +458,15 @@ def _write_replacer(app_path: Path, new_app: Path, pid: int) -> Path:
     return script
 
 
-def apply_packaged_update(*, force: bool = False) -> dict:
+def prepare_packaged_update(*, force: bool = False, progress_callback=None) -> dict:
+    """Download, verify, and unpack an update without restarting the app."""
+    global _prepared_update
+
+    def report(percent: float) -> None:
+        if progress_callback:
+            progress_callback(min(100.0, max(0.0, float(percent))))
+
+    report(1.0)
     status = check_for_packaged_update()
     download_url = status.get("download_url")
     if not force and not status.get("available"):
@@ -400,12 +486,55 @@ def apply_packaged_update(*, force: bool = False) -> dict:
     archive = staging / ZIP_NAME
     if not expected_digest:
         expected_digest = _resolve_zip_digest({"zip_sha256": None})
+    report(DOWNLOAD_PROGRESS_FLOOR)
     with httpx.Client(timeout=120.0, headers=_headers(), follow_redirects=True) as client:
-        _download(client, download_url, archive)
+        _download(client, download_url, archive, progress_callback)
+    report(91.0)
     _verify_archive_digest(archive, expected_digest)
+    report(94.0)
     new_app = _extract_app(archive, staging / "unpacked")
+    report(97.0)
     _verify_app_signature(new_app)
     _prepare_app_bundle(new_app, clear_quarantine=True)
+    prepared = {
+        "app_path": app_path,
+        "new_app": new_app,
+        "staging": staging,
+        "sha": status.get("remote_sha"),
+        "packaged": True,
+        "reinstalled": force,
+    }
+    with _prepared_lock:
+        previous = _prepared_update
+        _prepared_update = prepared
+    if previous:
+        previous_staging = previous.get("staging")
+        if isinstance(previous_staging, Path) and previous_staging != staging:
+            shutil.rmtree(previous_staging, ignore_errors=True)
+    report(100.0)
+    return {
+        "ok": True,
+        "updated": True,
+        "prepared": True,
+        "sha": status.get("remote_sha"),
+        "packaged": True,
+        "reinstalled": force,
+    }
+
+
+def install_prepared_packaged_update() -> dict:
+    """Arm the staged app replacement. The caller is responsible for exiting."""
+    global _prepared_update
+
+    with _prepared_lock:
+        prepared = _prepared_update
+    if not prepared:
+        raise PackagedUpdateError("Download the update before restarting to install it.")
+    app_path = prepared["app_path"]
+    new_app = prepared["new_app"]
+    if not app_path.exists() or not new_app.exists():
+        raise PackagedUpdateError("The downloaded update is no longer available. Download it again.")
+    _verify_app_signature(new_app)
     script = _write_replacer(app_path, new_app, os.getpid())
     subprocess.Popen(
         [str(script)],
@@ -413,14 +542,23 @@ def apply_packaged_update(*, force: bool = False) -> dict:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+    with _prepared_lock:
+        _prepared_update = None
     return {
         "ok": True,
         "updated": True,
-        "sha": status.get("remote_sha"),
+        "sha": prepared.get("sha"),
         "packaged": True,
         "relaunch": True,
-        "reinstalled": force,
+        "reinstalled": bool(prepared.get("reinstalled")),
     }
+
+
+def apply_packaged_update(*, force: bool = False) -> dict:
+    prepared = prepare_packaged_update(force=force)
+    if not prepared.get("updated"):
+        return prepared
+    return install_prepared_packaged_update()
 
 
 def reinstall_packaged_app() -> dict:

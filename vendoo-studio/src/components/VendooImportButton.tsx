@@ -21,12 +21,12 @@ export function importSummary(run: VendooBulkImport): string {
 
 export function progressLabel(run: VendooBulkImport): string {
   const items = run.total
-    ? `Importing ${Math.min(run.processed, run.total)} of ${run.total}`
-    : `Importing ${run.processed}…`;
+    ? `Syncing ${Math.min(run.processed, run.total)} of ${run.total}`
+    : `Syncing ${run.processed}…`;
   return run.photos ? `${items} · ${run.photos} photos` : items;
 }
 
-/** Pull the whole Vendoo inventory in, photos included. */
+/** Sync the whole Vendoo inventory, photos included. */
 export function VendooImportButton() {
   const queryClient = useQueryClient();
   const wasRunning = useRef(false);
@@ -43,7 +43,7 @@ export function VendooImportButton() {
     onError: (err: Error) =>
       addToast({
         type: "error",
-        title: "Could not start the Vendoo import",
+        title: "Could not start the Vendoo sync",
         description: err.message || "An unexpected error occurred.",
       }),
   });
@@ -73,11 +73,11 @@ export function VendooImportButton() {
     wasRunning.current = false;
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
     if (run.error) {
-      addToast({ type: "error", title: "Vendoo import stopped", description: run.error });
+      addToast({ type: "error", title: "Vendoo sync stopped", description: run.error });
     } else {
       addToast({
         type: run.failed ? "error" : "success",
-        title: run.cancelled ? "Vendoo import cancelled" : "Vendoo import finished",
+        title: run.cancelled ? "Vendoo sync cancelled" : "Vendoo sync finished",
         description: importSummary(run),
       });
     }
@@ -87,14 +87,14 @@ export function VendooImportButton() {
     if (start.isPending) return;
     const ok = await confirmDialog(
       [
-        "Import every listing from Vendoo?",
+        "Sync every listing from Vendoo?",
         "",
-        "Studio reads your whole Vendoo inventory and creates a listing for each item,",
+        "Studio reads your whole Vendoo inventory and syncs a listing for each item,",
         "photos and all. Expect it to run for a while and to use real disk space.",
         "Items already imported are only refreshed when they changed in Vendoo,",
         "and a listing whose Vendoo item you deleted is deleted here too.",
       ].join("\n"),
-      { confirmLabel: "Import" },
+      { confirmLabel: "Sync" },
     );
     if (ok) start.mutate();
   };
@@ -124,16 +124,24 @@ export function VendooImportButton() {
   return (
     <button
       type="button"
-      className="sidebar-icon-btn"
-      title="Import every listing from Vendoo"
-      aria-label="Import every listing from Vendoo"
+      className={`sidebar-icon-btn sidebar-vendoo-sync-btn${start.isPending ? " is-busy" : ""}`}
+      title="Sync Vendoo data"
+      aria-label="Sync Vendoo data"
+      aria-busy={start.isPending || undefined}
       disabled={start.isPending}
       onClick={onClick}
     >
+      {/* Cloud + down arrow, sized to match Settings / Check for Updates glyphs. */}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M12 3v12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-        <path d="M7.5 10.5L12 15l4.5-4.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path
+          d="M4 14.9A7 7 0 1115.71 8h1.79a4.5 4.5 0 012.5 8.242"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path d="M12 12v9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path d="M8 17l4 4 4-4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </button>
   );

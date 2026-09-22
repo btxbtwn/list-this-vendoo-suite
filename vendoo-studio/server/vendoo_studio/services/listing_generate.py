@@ -272,7 +272,8 @@ FINALIZE_GAPS_PROMPT = (
     "Return ONE fenced ```json block with the full updated listing object.\n"
     "Fix every listed validation error you can support from evidence.\n"
     "TITLE and DESCRIPTION follow list-this skill formulas exactly:\n"
-    "- Title order: Brand Size Vibe Item Color Fit (max 80 chars).\n"
+    "- Title order: Brand Size Vibe Item Color Fit (max 80 chars); the size shown is the size "
+    "field verbatim, and men's bottoms size as waist x inseam (30x30).\n"
     "- Physical description: one short trendy vibe/style keyword sentence, then Flaws: and "
     "Measurements: lines — with blank lines between blocks.\n"
     "Preserve the current title and description unless a listed validation error is for title or "
@@ -478,6 +479,108 @@ def sanitize_listing_sizes(listing: dict) -> bool:
     return changed
 
 
+# Men's bottoms sell as waist x inseam ("30x30"); a bare waist reads as a women's size.
+_BOTTOMS_RE = re.compile(
+    r"(?i)\b(jeans|pants|trousers|chinos|slacks|shorts|joggers|sweatpants|cargos|corduroys)\b"
+)
+_WAIST_ONLY_RE = re.compile(r"^(\d{2})\s*(?:w|in|inch|inches|\"|”)?$", re.I)
+_WAIST_INSEAM_RE = re.compile(r"(?i)(?<![\dx])(\d{2})\s*[x\u00d7/]\s*(\d{2})(?![\dx])")
+_INSEAM_LABEL_RE = re.compile(r"(?i)\binseam\b\s*[:=]?\s*(\d{1,2})(?:\.5)?")
+
+
+def _is_mens_bottoms(listing: dict) -> bool:
+    ebay = listing.get("ebay_specifics")
+    ebay = ebay if isinstance(ebay, dict) else {}
+    # "women" also contains "men", so only a leading "men" counts as menswear.
+    department = str(listing.get("department") or ebay.get("department") or "").strip().lower()
+    if not department.startswith("men"):
+        return False
+    haystack = " ".join(
+        str(value or "")
+        for value in (
+            listing.get("category_path"),
+            listing.get("title"),
+            ebay.get("type"),
+        )
+    )
+    return bool(_BOTTOMS_RE.search(haystack))
+
+
+def _bottoms_inseam(listing: dict, waist: str) -> str:
+    """Inseam for a waist-only men's size, from the title, eBay specifics, or measurements."""
+    title_match = _WAIST_INSEAM_RE.search(str(listing.get("title") or ""))
+    if title_match and title_match.group(1) == waist:
+        return title_match.group(2)
+    ebay = listing.get("ebay_specifics")
+    if isinstance(ebay, dict):
+        inseam = re.match(r"^\s*(\d{1,2})", str(ebay.get("inseam") or ""))
+        if inseam:
+            return inseam.group(1)
+    label = _INSEAM_LABEL_RE.search(str(listing.get("description") or ""))
+    if label:
+        return label.group(1)
+    return ""
+
+
+def normalize_mens_bottoms_size(listing: dict) -> bool:
+    """Express men's bottoms sizes as waist x inseam, so a bare `30` becomes `30x30`."""
+    if not isinstance(listing, dict) or not _is_mens_bottoms(listing):
+        return False
+    size = sanitize_size_value(listing.get("size"))
+    if not size:
+        return False
+    paired = _WAIST_INSEAM_RE.fullmatch(size)
+    if paired:
+        # Already waist x inseam; just drop the spacing marketplaces do not use.
+        normalized = f"{paired.group(1)}x{paired.group(2)}"
+        if normalized == size:
+            return False
+        listing["size"] = normalized
+        return True
+    waist_only = _WAIST_ONLY_RE.match(size)
+    if not waist_only:
+        return False
+    waist = waist_only.group(1)
+    inseam = _bottoms_inseam(listing, waist)
+    if not inseam:
+        return False
+    listing["size"] = f"{waist}x{inseam}"
+    return True
+
+
+_TITLE_SIZE_TOKEN_RE = re.compile(
+    # Two digits at most, so a model number like 501 is never mistaken for a size.
+    r"(?i)^(?:x{0,3}s|m|x{0,3}l|os|p[sml]|\d{1,2}[x\u00d7/]\d{1,2}|\d{1,2}(?:\.5)?[wl]?)$"
+)
+
+
+def sync_title_size(listing: dict) -> bool:
+    """Make the title carry the size field verbatim — Brand Size Vibe Item Color Fit."""
+    if not isinstance(listing, dict):
+        return False
+    title = str(listing.get("title") or "").strip()
+    size = sanitize_size_value(listing.get("size"))
+    if not title or not size:
+        return False
+    tokens = title.split()
+    if any(token.strip(",").lower() == size.lower() for token in tokens):
+        return False
+    brand_tokens = [part for part in str(listing.get("brand") or "").strip().split() if part]
+    slot = len(brand_tokens)
+    if [token.lower() for token in tokens[:slot]] != [part.lower() for part in brand_tokens]:
+        slot = 0
+    if slot < len(tokens) and _TITLE_SIZE_TOKEN_RE.match(tokens[slot].strip(",")):
+        tokens[slot] = size
+    else:
+        tokens.insert(slot, size)
+    updated = " ".join(tokens)
+    # Titles cap at 80 characters; leave a full one alone rather than truncate it.
+    if updated == title or len(updated) > 80:
+        return False
+    listing["title"] = updated
+    return True
+
+
 def propagate_general_size(listing: dict) -> bool:
     """Mirror general size into marketplace size slots Vendoo keeps in sync."""
     if not isinstance(listing, dict):
@@ -510,6 +613,11 @@ def apply_send_readiness_fixes(listing: dict) -> bool:
         return False
     changed = normalize_listing_dropdowns(listing)
     if sanitize_listing_sizes(listing):
+        changed = True
+    if normalize_mens_bottoms_size(listing):
+        propagate_general_size(listing)
+        changed = True
+    if sync_title_size(listing):
         changed = True
     if strip_pricing_from_description(listing):
         changed = True

@@ -22,16 +22,38 @@ CLONE_TIMEOUT_S = 180
 INSTALL_PRESERVE = (
     "vendoo-studio/data",
     "vendoo-studio/.venv",
-    "vendoo-studio/dist",
     "vendoo-studio/server/vendoo_studio/desktop.py",
 )
+# dist/ is deliberately absent: carrying the old bundle into a new checkout is
+# how the app ended up serving a stale UI under a current version number. A
+# missing bundle is rebuilt on launch, which is the outcome we want anyway.
 
 
 log = logging.getLogger("vendoo_studio.updates")
 
+_operation_lock = threading.Lock()
+_operation_state: dict = {
+    "status": "idle",
+    "download_percent": None,
+    "sha": None,
+    "error": None,
+}
+_prepared_result: dict | None = None
+
 
 class UpdateBlocked(Exception):
     pass
+
+
+def _set_operation_state(**changes) -> dict:
+    with _operation_lock:
+        _operation_state.update(changes)
+        return dict(_operation_state)
+
+
+def update_progress() -> dict:
+    with _operation_lock:
+        return dict(_operation_state)
 
 
 def _is_dev() -> bool:
@@ -265,6 +287,86 @@ def apply_update() -> dict:
         raise UpdateBlocked("Timed out talking to git.") from exc
 
 
+def prepare_update() -> dict:
+    """Fetch and prepare an update, leaving restart as a separate user action."""
+    global _prepared_result
+
+    with _operation_lock:
+        if _operation_state["status"] == "downloading":
+            raise UpdateBlocked("An update download is already in progress.")
+        _operation_state.update(
+            status="downloading",
+            download_percent=0,
+            sha=None,
+            error=None,
+        )
+    try:
+        from vendoo_studio.services.backups import snapshot_quietly
+
+        snapshot_quietly("pre-update")
+        if is_packaged():
+            from vendoo_studio.services.packaged_updates import (
+                PackagedUpdateError,
+                prepare_packaged_update,
+            )
+
+            try:
+                result = prepare_packaged_update(
+                    progress_callback=lambda percent: _set_operation_state(download_percent=percent)
+                )
+            except PackagedUpdateError as exc:
+                raise UpdateBlocked(str(exc)) from exc
+        else:
+            try:
+                result = apply_update_at(repo_root())
+            except subprocess.TimeoutExpired as exc:
+                raise UpdateBlocked("Timed out talking to git.") from exc
+        if not result.get("updated"):
+            _prepared_result = None
+            _set_operation_state(status="idle", download_percent=None, sha=result.get("sha"), error=None)
+            return result
+        _prepared_result = result
+        _set_operation_state(
+            status="downloaded",
+            download_percent=100,
+            sha=result.get("sha"),
+            error=None,
+        )
+        return result
+    except Exception as exc:
+        _prepared_result = None
+        _set_operation_state(status="error", download_percent=None, error=str(exc))
+        raise
+
+
+def install_prepared_update() -> dict:
+    """Begin installing the prepared update; the route schedules the restart."""
+    global _prepared_result
+
+    with _operation_lock:
+        if _operation_state["status"] != "downloaded" or not _prepared_result:
+            raise UpdateBlocked("Download the update before restarting to install it.")
+        _operation_state.update(status="installing", error=None)
+    try:
+        if is_packaged():
+            from vendoo_studio.services.packaged_updates import (
+                PackagedUpdateError,
+                install_prepared_packaged_update,
+            )
+
+            try:
+                result = install_prepared_packaged_update()
+            except PackagedUpdateError as exc:
+                raise UpdateBlocked(str(exc)) from exc
+        else:
+            result = dict(_prepared_result)
+        _prepared_result = None
+        return result
+    except Exception as exc:
+        _set_operation_state(status="downloaded", error=str(exc))
+        raise
+
+
 def reinstall_app() -> dict:
     if not is_packaged():
         raise UpdateBlocked("Reinstall is only available in the Mac app.")
@@ -318,20 +420,28 @@ def apply_update_at(root: Path) -> dict:
         return {"ok": True, "updated": False, "sha": rev_parse(root, "HEAD")}
     pin_to_remote(root, remote_ref)
     sha = rev_parse(root, "HEAD")
-    rebuilt = _rebuild_frontend_if_needed(root)
+    rebuilt = _rebuild_frontend(root)
     out = {"ok": True, "updated": True, "sha": sha, "rebuilt": rebuilt}
     if preserved:
         out["preserved_patch"] = str(preserved)
     return out
 
 
-def _rebuild_frontend_if_needed(root: Path) -> bool:
+def _rebuild_frontend(root: Path) -> bool:
+    """Rebuild the UI for the freshly pinned source.
+
+    A failure here must not abort the update: the reset has already landed, and
+    raising used to leave the install wedged — new backend, old bundle, and git
+    in sync so no later update would ever retry the build. The bundle's stamp is
+    now out of date instead, so the next launch rebuilds it.
+    """
     studio = root / "vendoo-studio"
-    dist = studio / "dist"
-    if not dist.exists():
+    try:
+        _run(["npm", "run", "build"], studio, timeout=BUILD_TIMEOUT_S)
+        return True
+    except (UpdateBlocked, subprocess.TimeoutExpired, OSError):
+        log.warning("frontend rebuild failed after update; retrying at next launch", exc_info=True)
         return False
-    _run(["npm", "run", "build"], studio, timeout=BUILD_TIMEOUT_S)
-    return True
 
 
 def schedule_restart(*, force: bool = False) -> None:

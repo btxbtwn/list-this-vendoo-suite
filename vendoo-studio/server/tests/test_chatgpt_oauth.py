@@ -160,6 +160,25 @@ class WebSearchExtractTest(unittest.TestCase):
         )
 
 
+class WebSearchRequestTest(unittest.IsolatedAsyncioTestCase):
+    async def test_comp_search_requests_high_context_and_strict_evidence(self):
+        with patch(
+            "vendoo_studio.providers.chatgpt_codex.get_chatgpt_models",
+            return_value={"listing_model": "gpt-5.5"},
+        ):
+            provider = ChatGPTCodexProvider()
+        provider._web_search_once = AsyncMock(return_value={"answer": "{}", "sources": []})
+
+        await provider.web_search("Patagonia Nano Puff jacket M blue sold comps")
+
+        messages = provider._web_search_once.await_args.args[0]
+        tools = provider._web_search_once.await_args.kwargs["tools"]
+        self.assertEqual(tools[0]["search_context_size"], "high")
+        instructions = messages[0]["content"]
+        self.assertIn("Require explicit evidence that the item sold", instructions)
+        self.assertIn("exact listing URL you observed", instructions)
+
+
 class ChatGPTCatalogFetchTest(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_sends_client_version(self):
         captured: dict = {}

@@ -35,6 +35,13 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "general";
 
 export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
+    id: "appearance",
+    title: "Theme",
+    section: "general",
+    targetId: "appearance",
+    searchTerms: ["appearance", "light mode", "dark mode", "system", "color scheme"],
+  },
+  {
     id: "marketplaces",
     title: "Marketplaces",
     section: "general",

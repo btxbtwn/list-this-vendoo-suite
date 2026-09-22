@@ -59,11 +59,21 @@ class SetupGuideSettingsTest(unittest.TestCase):
     def test_ui_prefs_default_and_persist(self):
         self.assertEqual(
             user_settings.get_ui_prefs(),
-            {"recent_vendoo_labels": [], "settled_shelf_expanded": True, "hidden_vendoo_labels": []},
+            {
+                "recent_vendoo_labels": [],
+                "settled_shelf_expanded": True,
+                "hidden_vendoo_labels": [],
+                "theme": "dark",
+            },
         )
         self.assertEqual(
-            user_settings.set_ui_prefs(settled_shelf_expanded=False),
-            {"recent_vendoo_labels": [], "settled_shelf_expanded": False, "hidden_vendoo_labels": []},
+            user_settings.set_ui_prefs(settled_shelf_expanded=False, theme="light"),
+            {
+                "recent_vendoo_labels": [],
+                "settled_shelf_expanded": False,
+                "hidden_vendoo_labels": [],
+                "theme": "light",
+            },
         )
         self.assertEqual(
             user_settings.remember_vendoo_labels("Vintage, Nike, vintage"),
@@ -72,6 +82,9 @@ class SetupGuideSettingsTest(unittest.TestCase):
         stored = json.loads(Path(self.tmp.name, "settings.json").read_text())
         self.assertEqual(stored["ui"]["settled_shelf_expanded"], False)
         self.assertEqual(stored["ui"]["recent_vendoo_labels"], ["Vintage", "Nike"])
+        self.assertEqual(stored["ui"]["theme"], "light")
+        with self.assertRaises(ValueError):
+            user_settings.set_ui_prefs(theme="solarized")
 
     def test_package_dimensions_default_and_persist(self):
         self.assertEqual(
@@ -153,18 +166,23 @@ class SetupGuideRouteTest(unittest.TestCase):
         ui = self.client.get("/api/settings/ui")
         self.assertEqual(ui.status_code, 200)
         self.assertEqual(ui.json()["settled_shelf_expanded"], True)
+        self.assertEqual(ui.json()["theme"], "dark")
 
         saved = self.client.put(
             "/api/settings/ui",
-            json={"settled_shelf_expanded": False, "remember_labels": "Thrifted"},
+            json={"settled_shelf_expanded": False, "remember_labels": "Thrifted", "theme": "system"},
         )
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json()["settled_shelf_expanded"], False)
         self.assertEqual(saved.json()["recent_vendoo_labels"], ["Thrifted"])
+        self.assertEqual(saved.json()["theme"], "system")
 
         forgot = self.client.put("/api/settings/ui", json={"forget_label": "Thrifted"})
         self.assertEqual(forgot.status_code, 200)
         self.assertEqual(forgot.json()["recent_vendoo_labels"], [])
+        self.assertEqual(forgot.json()["theme"], "system")
+        bad_theme = self.client.put("/api/settings/ui", json={"theme": "solarized"})
+        self.assertEqual(bad_theme.status_code, 400)
         self.assertEqual(forgot.json()["hidden_vendoo_labels"], ["Thrifted"])
 
         status = self.client.get("/api/status")

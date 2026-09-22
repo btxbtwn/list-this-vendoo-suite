@@ -251,6 +251,20 @@ def listing_from_vendoo(item: dict | None, form: dict | None) -> dict[str, Any]:
         "depop_specifics": _depop_specifics(listings.get("depop")),
         "etsy_specifics": _etsy_specifics(listings.get("etsy")),
     }
+    # Leaf ids/paths from the live item so Fields / gap fill / schema learn do
+    # not have to re-parse Vendoo's shape after a pull.
+    from vendoo_studio.services.category_learn import category_seed_from_vendoo_item
+
+    seed = category_seed_from_vendoo_item(merged)
+    for key in (
+        "category_id",
+        "marketplace_category_ids",
+        "marketplace_categories",
+        "marketplace_category_objects",
+    ):
+        value = seed.get(key)
+        if value:
+            listing[key] = value
     return listing
 
 

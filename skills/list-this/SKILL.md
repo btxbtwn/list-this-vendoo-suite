@@ -156,6 +156,13 @@ Apply pricing formula from MEMORY.md.
 - Verify the file exists and matches the output you returned before ending the task.
 - If no local path was provided, return JSON for standard listings or copy-pasteable text for Etsy digital download listings in chat only.
 
+**Men's Bottoms Sizing (MANDATORY):**
+- Men's pants, jeans, shorts, and other bottoms size as waist x inseam — `30x30`, not a bare `30`.
+- Put that full `WxL` value in `size` and in every marketplace size field, and use the same value in the title.
+- Take the inseam from the size tag when readable; otherwise use the measured inseam, rounded to the nearest whole inch.
+- Only when no inseam is available at all may a men's bottom fall back to the waist alone.
+- Women's bottoms keep their own sizing (`8`, `M`, `30`) — do not force `WxL` on them.
+
 **Petite Size Normalization (MANDATORY):**
 - Keep the raw verified tag size in the listing copy when it is a petite code such as `PS`, `PM`, `PL`, or `PXL`.
 - For Vendoo/general size mapping, prefer the actual petite code used by the platform dropdown, such as `PS` for petite small, instead of improvising `SP` or free-typing a custom alias.
@@ -241,7 +248,9 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 ```
 - EXACT order
 - Max 80 characters
+- `{SIZE}` is the `size` field verbatim — the title and the size field must never disagree
 - Example: `Levi's 33 Y2K 511 Slim Shorts Black Denim`
+- Men's bottoms example: `Levi's 30x30 Y2K 501 Straight Jeans Blue Denim`
 
 ### DESCRIPTION Formula (Line breaks MANDATORY)
 ```
@@ -327,6 +336,7 @@ Before outputting ANY listing, verify:
 - [ ] **Cross-check passed:** Extractor and verifier agree, or measurement fallback applied and documented
 - [ ] **Comps checked:** web_search used or baseline estimated
 - [ ] **Title formula:** `{BRAND} {SIZE} {VIBE} {ITEM} {COLOR} {FIT}` followed EXACTLY
+- [ ] **Title size matches the size field:** the same value, character for character (men's bottoms: `30x30`, not `30`)
 - [ ] **Title length:** 80 characters or less
 - [ ] **Physical-item description lines:** if the item is physical, use the standard description formula and preserve its required line structure
 - [ ] **Etsy digital description override:** if the item is a digital Etsy product, use the Etsy Digital Download Description Formula instead of the physical-item template

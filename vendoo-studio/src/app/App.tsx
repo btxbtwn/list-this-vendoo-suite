@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
+import { BuildVersion } from "../components/BuildVersion";
 import { ExtensionStatus } from "../components/ExtensionStatus";
 import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
@@ -16,6 +17,7 @@ import {
 } from "../components/settingsNav";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { PhotoDropOverlay } from "../components/PhotoDropOverlay";
+import { BulkUploadDialog } from "../components/BulkUploadDialog";
 import { ToastHost } from "../components/ToastHost";
 import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
 import { WorkspaceTopbar, stopTitlebarDrag } from "../components/WorkspaceTopbar";
@@ -26,6 +28,15 @@ import type { ListingReviewTab } from "../components/ListingReviewTabs";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
 import { addToast } from "../ui/toast";
+import {
+  groupImageFilesByFolder,
+  listingTitleForFolder,
+} from "../photoDrop";
+import {
+  createBulkPhotoListings,
+  type BulkUploadDefaults,
+} from "../bulkPhotoUpload";
+import { ThemeSync } from "../components/ThemeSync";
 
 const ListingEditor = lazy(() =>
   import("../components/ListingEditor").then((module) => ({ default: module.ListingEditor })),
@@ -77,6 +88,7 @@ export function App() {
   const [browserJobId, setBrowserJobId] = useState<string | null>(null);
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const [browserExpanded, setBrowserExpanded] = useState(false);
+  const [pendingBulkFiles, setPendingBulkFiles] = useState<File[] | null>(null);
   const wasPreviewOpen = useRef(false);
   const mainPanelRef = useRef<HTMLElement>(null);
   const [sidebarWidth, setSidebarWidth] = usePanelWidth("sidebar");
@@ -347,16 +359,65 @@ export function App() {
 
   // Photos dropped anywhere in the window land on the open listing; with no
   // listing open the drop starts one, the same as "New listing" then Add Photos.
+  // Multiple folders (Finder multi-select or a parent of item folders) each
+  // become their own draft — a bulk upload — instead of one mixed listing.
   const dropPhotos = useMutation({
-    mutationFn: async (files: File[]) => {
+    mutationFn: async ({
+      files,
+      bulkDefaults = { cog: "", labels: "" },
+    }: {
+      files: File[];
+      bulkDefaults?: BulkUploadDefaults;
+    }) => {
+      const groups = groupImageFilesByFolder(files);
+      if (groups.length > 1) {
+        const listings = await createBulkPhotoListings(groups, bulkDefaults, api.conversations);
+        return { mode: "bulk" as const, listings };
+      }
+
+      const only = groups[0]?.files || files;
       const openConvId = selectedConvId;
-      const convId = openConvId || (await api.conversations.create({ title: "New Listing" })).id;
-      const result = await api.conversations.uploadPhotos(convId, files);
-      return { convId, created: !openConvId, count: result.count, errors: result.errors || [] };
+      const title =
+        !openConvId && groups[0]?.folder
+          ? listingTitleForFolder(groups[0].folder)
+          : "New Listing";
+      const convId = openConvId || (await api.conversations.create({ title })).id;
+      const result = await api.conversations.uploadPhotos(convId, only);
+      return {
+        mode: "single" as const,
+        convId,
+        created: !openConvId,
+        count: result.count,
+        errors: result.errors || [],
+      };
     },
-    onSuccess: ({ convId, created, count, errors }) => {
-      queryClient.invalidateQueries({ queryKey: ["photos", convId] });
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      if (result.mode === "bulk") {
+        for (const listing of result.listings) {
+          queryClient.invalidateQueries({ queryKey: ["photos", listing.convId] });
+        }
+        const first = result.listings[0];
+        if (first) {
+          setSelectedConvId(first.convId);
+          setMobileSidebarOpen(false);
+          setActiveView("listings");
+          setMobilePane("workspace");
+        }
+        const totalPhotos = result.listings.reduce((sum, row) => sum + row.count, 0);
+        const errors = result.listings.flatMap((row) => row.errors);
+        const title = `Started ${result.listings.length} listings`;
+        const description = `Added ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} from separate folders.`;
+        if (errors.length) {
+          addToast({ type: "error", title, description: errors.join("; ") });
+          return;
+        }
+        addToast({ type: "success", title, description });
+        return;
+      }
+
+      const { convId, created, count, errors } = result;
+      queryClient.invalidateQueries({ queryKey: ["photos", convId] });
       if (created) {
         setSelectedConvId(convId);
         setMobileSidebarOpen(false);
@@ -650,6 +711,14 @@ export function App() {
                         setQueuedChatMessage(null);
                         setWorkspaceNonce((value) => value + 1);
                       }}
+                      onBulkListingsCreated={(convIds) => {
+                        const first = convIds[0];
+                        if (!first) return;
+                        setSelectedConvId(first);
+                        setActiveView("listings");
+                        setMobilePane("workspace");
+                        setMobileSidebarOpen(false);
+                      }}
                     />
                   </Suspense>
                 ) : (
@@ -703,16 +772,38 @@ export function App() {
           <ProviderStatus />
         </div>
         <div className="status-right">
-          <div>V {status?.version || "…"}</div>
+          <BuildVersion backendVersion={status?.version} />
         </div>
       </footer>
       <PhotoDropOverlay
-        title={selectedConvId ? `Drop photos into ${String(selectedListing?.title || "this listing")}` : "Drop photos to start a new listing"}
-        hint="JPG, PNG, WEBP or HEIC · up to 20 per listing"
+        title={
+          selectedConvId
+            ? `Drop photos into ${String(selectedListing?.title || "this listing")}`
+            : "Drop photos to start a new listing"
+        }
+        hint="Drop several folders for one draft each · JPG, PNG, WEBP or HEIC · up to 20 per listing"
         busy={dropPhotos.isPending}
         busyLabel="Adding photos…"
-        onFiles={(files) => dropPhotos.mutate(files)}
+        onFiles={(files) => {
+          if (groupImageFilesByFolder(files).length > 1) {
+            setPendingBulkFiles(files);
+            return;
+          }
+          dropPhotos.mutate({ files });
+        }}
       />
+      {pendingBulkFiles ? (
+        <BulkUploadDialog
+          count={groupImageFilesByFolder(pendingBulkFiles).length}
+          onCancel={() => setPendingBulkFiles(null)}
+          onConfirm={(bulkDefaults) => {
+            const files = pendingBulkFiles;
+            setPendingBulkFiles(null);
+            dropPhotos.mutate({ files, bulkDefaults });
+          }}
+        />
+      ) : null}
+      <ThemeSync />
       <ToastHost />
       <ConfirmDialogHost />
       {setupGuideOpen ? (

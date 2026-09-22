@@ -168,7 +168,7 @@ export const api = {
     sync: (convId: string) =>
       request<{
         ok: boolean;
-        action: "pull" | "conflict" | "none" | "unavailable";
+        action: "pull" | "label" | "none" | "unavailable";
         reason: string;
         item_id?: string;
         revision_id?: string;
@@ -513,10 +513,12 @@ export const api = {
         recent_vendoo_labels: string[];
         settled_shelf_expanded: boolean;
         hidden_vendoo_labels: string[];
+        theme: "dark" | "light" | "system";
       }>("/settings/ui"),
     setUi: (body: {
       recent_vendoo_labels?: string[];
       settled_shelf_expanded?: boolean;
+      theme?: "dark" | "light" | "system";
       remember_labels?: string | string[];
       restore_labels?: string[];
       forget_label?: string;
@@ -526,6 +528,7 @@ export const api = {
         recent_vendoo_labels: string[];
         settled_shelf_expanded: boolean;
         hidden_vendoo_labels: string[];
+        theme: "dark" | "light" | "system";
       }>("/settings/ui", { method: "PUT", body: JSON.stringify(body) }),
     formulas: () =>
       request<{
@@ -612,7 +615,13 @@ export const api = {
         profile?: string;
         profile_dir?: string;
       }>("/desktop/chrome"),
-    connectChrome: () => request<{ ok: boolean }>("/desktop/chrome/connect", { method: "POST" }),
+    connectChrome: () =>
+      request<{
+        ok: boolean;
+        connected?: boolean;
+        extension_reload?: boolean;
+        via?: string;
+      }>("/desktop/chrome/connect", { method: "POST" }),
   },
 
   updates: {
@@ -633,6 +642,21 @@ export const api = {
         dirty?: string[];
         error?: string | null;
       }>("/updates"),
+    progress: () =>
+      request<{
+        status: "idle" | "downloading" | "downloaded" | "installing" | "error";
+        download_percent: number | null;
+        sha: string | null;
+        error: string | null;
+      }>("/updates/progress"),
+    download: () =>
+      request<{ ok: boolean; updated: boolean; prepared?: boolean; sha?: string }>("/updates/download", {
+        method: "POST",
+      }),
+    restart: () =>
+      request<{ ok: boolean; updated: boolean; sha?: string; reloading?: boolean }>("/updates/restart", {
+        method: "POST",
+      }),
     apply: () =>
       request<{ ok: boolean; updated: boolean; sha?: string; reloading?: boolean }>("/updates/apply", {
         method: "POST",

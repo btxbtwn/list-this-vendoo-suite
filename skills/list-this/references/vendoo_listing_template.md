@@ -269,8 +269,8 @@ Depop: No title field → use Universal Description only
 - `quantity`: Available quantity (default: 1)
 - `brand`: Brand name
 - `condition`: Vendoo general form values only. See `references/vendoo-dropdown-options.md` — each marketplace uses a different condition vocabulary.
-- `primaryColor`: Main color (MUST be basic color: Red, Blue, Green, Yellow, Orange, Purple, Pink, Brown, Gray, Black, White, Beige, Navy)
-- `secondaryColor`: Accent color (MUST be basic color: Red, Blue, Green, Yellow, Orange, Purple, Pink, Brown, Gray, Black, White, Beige, Navy)
+- `primaryColor`: Main color (MUST be an exact Vendoo General dropdown value: Beige, Black, Blue, Brown, Cream, Gold, Gray, Green, Orange, Multicolor, Pink, Purple, Red, Silver, Yellow, Tan, White)
+- `secondaryColor`: Accent color (MUST be an exact Vendoo General dropdown value: Beige, Black, Blue, Brown, Cream, Gold, Gray, Green, Orange, Multicolor, Pink, Purple, Red, Silver, Yellow, Tan, White)
 - `department`: Men, Women, Unisex, Kids
 
 **Color Standardization Rules:**
@@ -287,6 +287,7 @@ Depop: No title field → use Universal Description only
   - Mustard, Gold → **Yellow**
   - Rust, Copper, Bronze → **Brown**
   - Indigo, Cobalt, Royal → **Blue**
+  - Navy → **Blue** (Navy is a Depop-only dropdown value)
   - Fuchsia, Magenta, Hot Pink → **Pink**
   - For multicolor items: primaryColor = most prominent basic color; secondaryColor = second visible basic color. Do **not** use Multicolor/Multi as primary when cross-listing — Etsy and Poshmark have no Multicolor option and leave primary blank. Prefer Multicolor only on Vendoo/eBay when a second concrete color is also set for fallback markets.
 - `sizeType`: Regular, Petite, Tall, Plus, Maternity

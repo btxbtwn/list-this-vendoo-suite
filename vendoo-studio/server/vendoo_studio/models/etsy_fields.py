@@ -14,7 +14,9 @@ from vendoo_studio.models.listing_values import (
     DNA_VALUE,
     as_mapping,
     canonical_option,
+    dropdown_field_options,
     dropdown_options,
+    infer_known_option,
     normalized_option_key,
     text_value,
 )
@@ -41,6 +43,25 @@ ETSY_OPTIONAL_ALWAYS_DEFAULTS = {
     "closure": "Pullover",
     "pattern": "Solid",
     "fabricPattern": "Solid",
+}
+ETSY_APPAREL_CUES = {
+    "clothingStyle": {
+        "Streetwear": (r"\bstreetwear\b", r"\bgraphic\s*(?:tee|t[\s-]?shirt)\b", r"\bskate\b"),
+        "Athletic": (r"\bathletic\b", r"\bworkout\b", r"\bactivewear\b", r"\bgym\b"),
+        "Boho & hippie": (r"\bboho\b", r"\bbohemian\b", r"\bhippie\b", r"\bfloral\b"),
+        "Gothic": (r"\bgoth(?:ic)?\b",),
+        "Preppy": (r"\bpreppy\b", r"\bpolo\b"),
+        "Rave": (r"\brave\b", r"\bfestival\b"),
+        "Rocker": (r"\brocker\b", r"\bpunk\b"),
+        "Utility": (r"\butility\b", r"\bcargo\b"),
+        "Military": (r"\bmilitary\b",),
+        "Minimalist": (r"\bminimalist\b", r"\bminimal\b", r"\bplain\b", r"\bbasic\b"),
+    },
+    "neckline": {"V-neck": (r"\bv[\s-]*neck\b",), "Henley": (r"\bhenley\b",), "Crew": (r"\bcrew(?:\s*neck)?\b", r"\btee\b")},
+    "closure": {"Pullover": (r"\bpullover\b", r"\btee\b", r"\bt[\s-]?shirt\b"), "Button": (r"\bbutton(?:[\s-]*up|[\s-]*down)?\b",), "Zipper": (r"\bzip(?:per|[\s-]*up)?\b",)},
+    "pattern": {"Floral": (r"\bfloral\b",), "Striped": (r"\bstripe[ds]?\b",), "Plaid": (r"\bplaid\b",), "Solid": (r"\bsolid\b", r"\bplain\b")},
+    "holiday": {"Christmas": (r"\bchristmas\b", r"\bxmas\b"), "Halloween": (r"\bhalloween\b",), "Thanksgiving": (r"\bthanksgiving\b",), "Valentine's Day": (r"\bvalentine\b",), "Easter": (r"\beaster\b",)},
+    "occasion": {"Wedding": (r"\bwedding\b",), "Birthday": (r"\bbirthday\b",), "Graduation": (r"\bgraduation\b",), "Engagement": (r"\bengagement\b",), "Bachelor party": (r"\bbachelor\b",), "Baby shower": (r"\bbaby\s*shower\b",), "Anniversary": (r"\banniversary\b",), "LGBTQ pride": (r"\bpride\b",)},
 }
 # Event/theme attributes — DNA unless the item literally matches.
 ETSY_OPTIONAL_DNA_KEYS = frozenset({
@@ -391,11 +412,40 @@ def ensure_etsy_category_optionals(listing: dict) -> bool:
                 break
 
     for key, default in ETSY_OPTIONAL_ALWAYS_DEFAULTS.items():
+        if key == "fabricPattern":
+            continue
         source = ebay_map.get(key) if key in {"closure", "neckline", "pattern"} else ""
-        set_key(key, source or default)
+        if source and key == "pattern":
+            options = dropdown_field_options("etsy", "fabricPattern", "pattern")
+            hit = canonical_option(source, options) if options else source
+            set_key(key, hit or source)
+            continue
+        if source and key in {"closure", "neckline"}:
+            options = dropdown_field_options("etsy", key)
+            hit = canonical_option(source, options) if options else source
+            set_key(key, hit or source)
+            continue
+        if ebay_optional_blank(ebay_optional_raw(etsy, key)):
+            options = dropdown_field_options(
+                "etsy",
+                "fabricPattern" if key == "pattern" else key,
+                key,
+            )
+            cues = ETSY_APPAREL_CUES.get("pattern" if key == "pattern" else key)
+            hay_early = ebay_season_haystack(listing, ebay)
+            value = infer_known_option(hay_early, options or [default], cues=cues, fallback=default) or default
+            set_key(key, value)
 
     if ebay_optional_blank(ebay_optional_raw(etsy, "fabricPattern")):
-        pattern = text_value(ebay_optional_raw(etsy, "pattern") or ebay_map.get("pattern") or "Solid")
+        pattern = text_value(ebay_optional_raw(etsy, "pattern") or ebay_map.get("pattern") or "")
+        if not pattern:
+            options = dropdown_field_options("etsy", "fabricPattern", "pattern")
+            pattern = infer_known_option(
+                ebay_season_haystack(listing, ebay),
+                options or ["Solid"],
+                cues=ETSY_APPAREL_CUES.get("pattern"),
+                fallback="Solid",
+            ) or "Solid"
         set_key("fabricPattern", pattern)
     if ebay_optional_blank(ebay_optional_raw(etsy, "pattern")):
         set_key("pattern", text_value(ebay_optional_raw(etsy, "fabricPattern") or "Solid"))
@@ -416,7 +466,6 @@ def ensure_etsy_category_optionals(listing: dict) -> bool:
         if key == "graphic":
             if re.search(r"\b(?:graphic|logo|print|slogan|saying|brand\s*logo)\b", hay):
                 if ebay_optional_blank(ebay_optional_raw(etsy, "graphic")):
-                    # Prefer a concrete Etsy chip when the tee is clearly branded/graphic.
                     set_key("graphic", "Brand & logo")
                 continue
         if key == "sustainability":
@@ -430,16 +479,15 @@ def ensure_etsy_category_optionals(listing: dict) -> bool:
                 elif re.search(r"\brecycled\b", hay):
                     set_key("sustainability", "Recycled polyester")
                 continue
-        if key == "holiday" and re.search(
-            r"\b(?:christmas|halloween|thanksgiving|valentine|hanukkah|easter|st\.?\s*patrick)\b",
-            hay,
-        ):
-            continue
-        if key == "occasion" and re.search(
-            r"\b(?:wedding|birthday|graduation|engagement|pride|bachelor|baby\s*shower)\b",
-            hay,
-        ):
-            continue
+        if key in {"holiday", "occasion"}:
+            if ebay_optional_blank(ebay_optional_raw(etsy, key)):
+                options = dropdown_field_options("etsy", key)
+                hit = infer_known_option(hay, options, cues=ETSY_APPAREL_CUES.get(key))
+                if hit:
+                    set_key(key, hit)
+                    continue
+            else:
+                continue
         if ebay_optional_blank(ebay_optional_raw(etsy, key)):
             set_key(key, DNA_VALUE)
 

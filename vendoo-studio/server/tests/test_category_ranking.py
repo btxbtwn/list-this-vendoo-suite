@@ -141,3 +141,34 @@ class CategoryRankingTest(unittest.TestCase):
             tunic, apparel=True, women_tops=True,
             context="Women notations floral tunic top",
         ))
+
+    def test_mens_item_drops_womens_category_candidates(self):
+        """A keyword match must not override the explicitly stated department."""
+        from vendoo_studio.services.category_selection import _collect_choices
+
+        wrong_path = "Sporting Goods > Camping & Hiking > Clothing > Women's > Shirts, Tops & Sweaters"
+        right_path = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts"
+        for category_id, path in (("wrong", wrong_path), ("right", right_path)):
+            self.db.add(CategoryTreeNode(
+                marketplace="ebay", category_id=category_id, parent_id="", path=path,
+                label=path.rsplit(">", 1)[-1].strip(), is_leaf=True, has_children=False,
+            ))
+        self.db.commit()
+
+        with patch(
+            "vendoo_studio.services.category_selection.search_catalog",
+            return_value=[
+                {"id": "wrong", "path": wrong_path, "label": "Shirts, Tops & Sweaters"},
+                {"id": "right", "path": right_path, "label": "T-Shirts"},
+            ],
+        ):
+            choices, _nodes = _collect_choices(
+                self.db,
+                ["ebay"],
+                "men t-shirt",
+                {},
+                "",
+                analysis="- category: T-Shirt\n- department: Men",
+            )
+
+        self.assertEqual([row["path"] for row in choices["ebay"]], [right_path])

@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { FillLogEntry, FillLogReport } from "../api/types";
 import {
   askChatGapsPrompt,
+  askChatTargetCount,
   emptyFieldsPrompt,
   filterForms,
+  fieldsNeedingListingValues,
   hiddenKeySet,
+  isAccountManagedField,
   leftoverEntries,
   listingValueForField,
   liveStatusClass,
@@ -161,6 +164,44 @@ describe("ask-chat prompts", () => {
     expect(prompt).not.toContain("Geo Lat");
     expect(prompt).not.toContain("Price Currency");
     expect(prompt).toContain("Field: Material");
+  });
+
+  it("counts empty listing fields and fill failures without double-counting", () => {
+    expect(askChatTargetCount(depopForm(), { title: "Dress" }, [])).toBe(1);
+    expect(askChatTargetCount(depopForm(), { title: "Dress" }, [
+      entry({ marketplace: "depop", field: "Material", status: "failed" }),
+      entry({ id: "2", marketplace: "ebay", field: "Brand", status: "invalid" }),
+    ])).toBe(2);
+    expect(askChatTargetCount(depopForm(), {
+      title: "Dress",
+      depop_specifics: { material: "Cotton" },
+    }, [
+      entry({ marketplace: "depop", field: "Material", status: "failed" }),
+    ])).toBe(1);
+  });
+
+  it("keeps account policies and eBay shipping out of Ask chat", () => {
+    const forms = [{
+      id: "ebay",
+      label: "eBay",
+      fields: [
+        { key: "shippingPolicyId", label: "Shipping Policy Id", value: "", missing: true },
+        { key: "returnsPolicyId", label: "Returns Policy Id", value: "", missing: true },
+        { key: "paypalEmail", label: "Paypal Email", value: "", missing: true },
+        { key: "primaryStoreCategory", label: "Primary Store Category", value: "", missing: true },
+        { key: "shippingService", label: "Shipping Service", value: "", missing: true },
+        { key: "brand", label: "Brand", value: "", missing: true },
+      ],
+      filled: 0,
+      missing: 6,
+      notApplicable: 0,
+    }];
+    const needing = fieldsNeedingListingValues(forms, { title: "Tee" });
+    expect(needing.map((row) => row.field.label)).toEqual(["Brand"]);
+    expect(isAccountManagedField("ebay", "Shipping Policy Id")).toBe(true);
+    expect(isAccountManagedField("ebay", "Shipping Service")).toBe(true);
+    expect(isAccountManagedField("mercari", "Delivery Method")).toBe(false);
+    expect(isAccountManagedField("depop", "Parcel Size")).toBe(false);
   });
 });
 

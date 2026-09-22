@@ -56,6 +56,7 @@ from vendoo_studio.models.listing_values import (
     canonical_option,
     dedupe_schema_errors,
     evidence_unknown,
+    marketplace_dropdown_forms,
     text_value,
 )
 from vendoo_studio.models.schema import (
@@ -75,6 +76,30 @@ from vendoo_studio.services.marketplaces import (
 TITLE_STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "of", "with", "for", "in", "on", "to",
 })
+
+VENDOO_GENERAL_COLOR_ALIASES = {
+    "grey": "Gray",
+    "multi": "Multicolor",
+    "multi color": "Multicolor",
+    "multicolour": "Multicolor",
+    "navy": "Blue",
+    "burgundy": "Red",
+    "maroon": "Red",
+    "wine": "Red",
+    "khaki": "Beige",
+}
+
+
+def _vendoo_general_color(value: object) -> str | None:
+    raw = text_value(value)
+    if not raw:
+        return None
+    allowed = marketplace_dropdown_forms().get("vendoo", {}).get("primaryColor", [])
+    exact = canonical_option(raw, allowed)
+    if exact:
+        return exact
+    key = re.sub(r"[-_]+", " ", raw).casefold()
+    return VENDOO_GENERAL_COLOR_ALIASES.get(key)
 
 
 def _title_tokens(title: str) -> list[str]:
@@ -137,23 +162,56 @@ def ensure_poshmark_style_tags(listing: dict) -> bool:
     tags = as_list(raw.get("styleTags") or raw.get("style_tags"))
     if tags:
         return False
+    from vendoo_studio.models.depop_fields import infer_depop_styles
+    from vendoo_studio.models.ebay_fields import ebay_season_haystack
+    from vendoo_studio.models.listing_values import infer_known_options
+
     depop = listing.get("depop_specifics") if isinstance(listing.get("depop_specifics"), dict) else {}
     ebay = listing.get("ebay_specifics") if isinstance(listing.get("ebay_specifics"), dict) else {}
-    candidates = [
-        *as_list(depop.get("style")),
-        text_value(ebay.get("style")),
-        text_value(ebay.get("features")),
-        "Casual",
-    ]
     filled: list[str] = []
-    for candidate in candidates:
-        text = text_value(candidate)
-        if text and text not in filled and text.casefold() != DNA_VALUE.casefold():
-            filled.append(text)
+    for candidate in as_list(depop.get("style")):
+        text_tag = text_value(candidate)
+        if text_tag and text_tag not in filled and text_tag.casefold() != DNA_VALUE.casefold():
+            filled.append(text_tag)
         if len(filled) >= 3:
             break
+    if len(filled) < 3:
+        for style in infer_depop_styles(listing, ebay=ebay, limit=3, exclude=filled):
+            if style not in filled:
+                filled.append(style)
+            if len(filled) >= 3:
+                break
+    if len(filled) < 3:
+        posh_options = (
+            "Casual", "Streetwear", "Vintage", "Retro", "Bohemian", "Athletic",
+            "Preppy", "Minimalist", "Graphic Tee", "Floral", "Oversized", "Cotton",
+        )
+        hay = ebay_season_haystack(listing, ebay)
+        for tag in infer_known_options(
+            hay,
+            posh_options,
+            cues={
+                "Streetwear": (r"\bstreetwear\b", r"\bgraphic\b"),
+                "Athletic": (r"\bathletic\b", r"\bworkout\b"),
+                "Floral": (r"\bfloral\b",),
+                "Oversized": (r"\boversized\b",),
+                "Vintage": (r"\bvintage\b",),
+                "Retro": (r"\bretro\b",),
+                "Bohemian": (r"\bboho\b", r"\bbohemian\b"),
+                "Graphic Tee": (r"\bgraphic\s*(?:tee|t[\s-]?shirt)\b",),
+                "Cotton": (r"\bcotton\b",),
+                "Casual": (r"\bcasual\b", r"\btee\b", r"\bt[\s-]?shirt\b"),
+            },
+            fallbacks=("Casual", "Minimalist", "Cotton"),
+            limit=3,
+            exclude=filled,
+        ):
+            if tag not in filled:
+                filled.append(tag)
+            if len(filled) >= 3:
+                break
     while len(filled) < 3:
-        for fallback in ("Casual", "Retro", "Vintage"):
+        for fallback in ("Casual", "Minimalist", "Cotton"):
             if fallback not in filled:
                 filled.append(fallback)
             if len(filled) >= 3:
@@ -260,10 +318,19 @@ def canonicalize_listing_keys(listing: dict) -> bool:
 
 
 def normalize_listing_dropdowns(listing: dict) -> bool:
-    """Rewrite stale Depop/Etsy dropdown values to the current Vendoo options."""
+    """Rewrite dropdown values to the current Vendoo options."""
     if not isinstance(listing, dict):
         return False
     changed = canonicalize_listing_keys(listing)
+
+    # Root colors feed Vendoo General. Keep them in that form's exact
+    # vocabulary; marketplace-specific color names are mapped during fill.
+    for key in ("primaryColor", "secondaryColor"):
+        raw_color = text_value(listing.get(key))
+        color = _vendoo_general_color(raw_color)
+        if color and color != raw_color:
+            listing[key] = color
+            changed = True
 
     # Shipping weight often lands only under marketplace specifics — promote it.
     if "weight_lb" not in listing and "weight_oz" not in listing:

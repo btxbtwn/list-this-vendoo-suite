@@ -23,7 +23,7 @@ def _run(registry_options: dict, calls: list[dict]) -> list:
     helpers = "\n".join([
         _slice(text, "function normalizeOptionValue", "function normalizeComparableText"),
         _slice(text, "function optionMatchesValue", "function isDropdownLike"),
-        _slice(text, "function uniqueStrings", "function brandFillCandidates"),
+        _slice(text, "function uniqueStrings", "// Mercari's escape hatch"),
         _slice(text, "function normalizeFieldKey", "function selectorFor"),
     ])
 
@@ -42,6 +42,10 @@ function mappingMarketplace(marketplace) {{
   const mp = String(marketplace || '').toLowerCase();
   if (!mp || mp === 'general' || mp === 'unknown') return 'vendoo';
   return mp;
+}}
+const NO_BRAND_VALUES = new Set(['no brand', 'not sure', 'no brand not sure']);
+function isNoBrandValue(value) {{
+  return NO_BRAND_VALUES.has(normalizeOptionValue(value));
 }}
 // Stands in for the hardcoded value maps.
 let staticResult;
@@ -195,6 +199,25 @@ class RegistryOptionCoercionTest(unittest.TestCase):
             "static": "",
         }])
         self.assertEqual(result[0], "")
+
+    def test_brand_is_exact_only_never_a_substring_near_miss(self):
+        # "Sportswear" must not become "AIM'N Sportswear"; Depop falls back to
+        # Other in fillDepopBrand instead of guessing a similar list brand.
+        options = {"depop": {"brand": [
+            "Nike",
+            "AIM'N Sportswear",
+            "Airo Sportswear",
+            "Augusta Sportswear",
+            "Mothercare",
+            "Other",
+        ]}}
+        result = _values(options, [
+            {"marketplace": "depop", "field": "Brand", "value": "Sportswear", "static": "Sportswear"},
+            {"marketplace": "depop", "field": "Brand", "value": "Energy Sportswear", "static": "Energy Sportswear"},
+            {"marketplace": "depop", "field": "Brand", "value": "Other", "static": "Other"},
+            {"marketplace": "depop", "field": "Brand", "value": "Nike", "static": "Nike"},
+        ])
+        self.assertEqual(result, ["Sportswear", "Energy Sportswear", "Other", "Nike"])
 
 
 class SchemaProbeCapturesOptionsTest(unittest.TestCase):

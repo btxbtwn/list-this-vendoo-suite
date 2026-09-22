@@ -118,12 +118,6 @@
   opacity: 0.7;
 }
 
-.pr-vendoo-sync-btn.is-conflict {
-  color: var(--color-draft);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
 .pr-vendoo-link-form {
   display: flex;
   align-items: center;
@@ -237,7 +231,7 @@
 }
 
 .pr-pill.is-active {
-  background: #191919;
+  background: var(--color-selection-fill);
   color: var(--color-text);
 }
 
