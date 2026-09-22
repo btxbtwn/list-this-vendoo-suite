@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { formatWorkingTimerSince } from "./workingDuration";
+import { formatWorkingTimerSince } from "./workingTimerFormat";
 
 /**
  * Self-ticking elapsed label so the parent chat row does not re-render every

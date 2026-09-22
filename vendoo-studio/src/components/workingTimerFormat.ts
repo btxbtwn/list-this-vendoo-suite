@@ -1,5 +1,5 @@
 /**
- * Duration labels for the chat working indicator.
+ * Duration-formatting helpers for the chat working indicator.
  * Matches T3 Code's formatDuration / live WorkingTimer (pingdotgg/t3code).
  */
 
