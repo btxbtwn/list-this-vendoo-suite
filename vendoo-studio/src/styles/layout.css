@@ -716,6 +716,38 @@
   gap: 12px;
 }
 
+.status-provider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-provider .provider-logo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.status-provider .provider-logo svg {
+  display: block;
+}
+
+.status-provider .provider-logo-fallback {
+  background: #5c6578;
+}
+
+.status-provider .provider-logo-letter {
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .status-right {
   display: flex;
   align-items: center;
