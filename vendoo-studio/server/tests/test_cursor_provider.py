@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -60,9 +61,11 @@ class UvloopSafeEnvTest(unittest.TestCase):
         dirty = dict(os.environ)
         dirty["CURSOR_TEST_PATH"] = Path("/tmp/cursor-bridge")
         cleaned = uvloop_safe_subprocess_env(dirty)
+        true_command = shutil.which("true")
+        self.assertIsNotNone(true_command)
 
         async def _spawn() -> int:
-            process = await asyncio.create_subprocess_exec("/bin/true", env=cleaned)
+            process = await asyncio.create_subprocess_exec(str(true_command), env=cleaned)
             return await process.wait()
 
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())

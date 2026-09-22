@@ -239,8 +239,10 @@ LISTING_INSTRUCTIONS = (
     "in the seller's own words. Never drop a flaw or soften it to \"none noted\".\n"
     "Use the discovered category fields below. Fill every applicable field with a real value or Does Not Apply. "
     "Only leave a field empty when you must ask the seller a precise question in prose — and never claim the listing is complete while any applicable discovered field is still empty. "
-    "Estimate packaged shipping weight (weight_lb/weight_oz) and package_dimensions_in from the item type — "
-    "do not ask the seller for routine apparel shipping weight or mailer size. "
+    "Always infer and include packaged shipping weight_lb and weight_oz from the item type, size, materials, "
+    "photos, seller notes, and research evidence. Pounds may be 0, but both fields must be present and their "
+    "combined weight must be greater than 0. Do not ask the seller for routine shipping weight. "
+    "Studio supplies package_dimensions_in from the seller's saved Settings default. "
     "Never invent brand, size, material, age, or other product facts without photo or seller evidence. "
     "Prefer verbatim tag text from the photo analysis for brand, size, and material. "
     "Studio applies generated values onto the bound Vendoo draft automatically when Chrome is connected. "
@@ -267,6 +269,8 @@ LISTING_INSTRUCTIONS = (
     '  "size": "...",\n'
     '  "sizeType": "...",\n'
     '  "tags": [...],\n'
+    '  "weight_lb": ... ,\n'
+    '  "weight_oz": ... ,\n'
     '  "package_dimensions_in": "...",\n'
     '  "ebay_specifics": {...},\n'
     '  "depop_specifics": {"source": "Preloved", "age": "Modern"},\n'

@@ -1,5 +1,5 @@
 /** Pure form, field, and prompt logic behind the Fields panel. */
-import type { FillLogEntry, FillLogReport } from "../api/types";
+import type { FillLogEntry, FillLogReport, MarketplaceForm } from "../api/types";
 import { OPTIONS_RULE, optionsForField, type DropdownForms } from "../dropdownOptions";
 import {
   DEPOP_CATEGORY_OPTIONALS,
@@ -233,6 +233,13 @@ const SKIP_KEYS = new Set([
 ]);
 
 const UNFILLABLE_FIELDS = new Set(["photos", "images", "videos", "image"]);
+const SYSTEM_FIELDS = new Set([
+  "carrier id",
+  "geo lat",
+  "geo lng",
+  "listing state",
+  "price currency",
+]);
 const ACCOUNT_SETTING_FIELDS = new Set([
   "allow best offer",
   "auto-accept",
@@ -305,8 +312,15 @@ function isUnfillableField(field: DraftField): boolean {
   return (
     UNFILLABLE_FIELDS.has(field.label.toLowerCase()) ||
     UNFILLABLE_FIELDS.has(field.key.toLowerCase()) ||
+    isSystemField(field) ||
     isAccountSettingField(field)
   );
+}
+
+function isSystemField(field: DraftField | string): boolean {
+  const raw = typeof field === "string" ? field : field.label || field.key;
+  const key = normalizeLookupKey(raw);
+  return SYSTEM_FIELDS.has(key) || /^\d{6,}\s/.test(key);
 }
 
 function normalizeLookupKey(value: string): string {
@@ -395,7 +409,12 @@ export function listingValueForField(
   if (!listing) return "";
   const key = normalizeLookupKey(field.label || field.key);
   let raw: unknown;
-  if (marketplace === "general") {
+  if (["length", "width", "height"].includes(key)) {
+    const dimensions = String(listing.package_dimensions_in || "").split(/\s*[x×]\s*/);
+    raw = dimensions.length === 3
+      ? dimensions[{ length: 0, width: 1, height: 2 }[key as "length" | "width" | "height"]]
+      : undefined;
+  } else if (marketplace === "general") {
     raw = valueFromRecord(listing, key);
   } else {
     const specifics = listing[`${marketplace}_specifics`];
@@ -761,9 +780,10 @@ export function sourceFormsForJob(
   report: FillLogReport | undefined,
   listing: Record<string, unknown> | undefined,
   selectedMarketplaces?: string[],
+  schemaForms?: MarketplaceForm[],
 ): { sourceForms: DraftForm[]; fromVendooDraft: boolean } {
   const enabled = allowedMarketplaceIds(selectedMarketplaces);
-  const draftForms = item ? formsFromDraft(item, report) : [];
+  const draftForms = item ? formsFromDraft(item, report, schemaForms) : [];
   const fillForms = report && Object.keys(report.by_marketplace).length ? formsFromFillLog(report) : [];
   const listingForms = formsFromListing(listing);
   const sourceForms = overlayListingForms(
@@ -1388,7 +1408,13 @@ function strippedFieldKey(key: string): string {
 
 function labelFor(key: string, path: string, labels: FieldLabels): string {
   const scraped = labels && (labels[path] || labels[key] || labels[strippedFieldKey(key)]);
-  return (typeof scraped === "string" && scraped.trim()) || fieldLabel(key);
+  if (typeof scraped === "string" && scraped.trim()) return scraped.trim();
+  const parentPath = path.split(".").slice(0, -1).join(".");
+  const parentKey = parentPath.split(".").pop() || "";
+  const parent = parentKey && !/[A-Za-z]/.test(parentKey) && labels
+    ? labels[parentPath] || labels[parentKey] || labels[strippedFieldKey(parentKey)]
+    : undefined;
+  return (typeof parent === "string" && parent.trim()) || fieldLabel(key);
 }
 
 function flattenFields(value: unknown, prefix = "", labels: FieldLabels = undefined): DraftField[] {
@@ -1421,7 +1447,7 @@ function flattenFields(value: unknown, prefix = "", labels: FieldLabels = undefi
     const path = prefix ? `${prefix}.${key}` : key;
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
       const nestedRecord = nested as Record<string, unknown>;
-      if (nestedRecord.option && nestedRecord.scale) {
+      if ("option" in nestedRecord && "scale" in nestedRecord) {
         rows.push({
           key: `${path}.option`,
           label: "US Size",
@@ -1486,10 +1512,29 @@ function listingSection(listing: Record<string, unknown> | undefined): unknown {
  * taxonomy-id rows are dropped later by withoutTaxonomyIdNoise; keeping the raw
  * id visible was what made Etsy Fields look like random numbers.
  */
-function listingFieldLabels(listing: Record<string, unknown> | undefined, _section?: unknown): FieldLabels {
-  const raw = listing?.fieldLabels;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+function schemaFieldLabels(forms: MarketplaceForm[] | undefined, marketplace: string): FieldLabels {
+  const form = forms?.find((entry) => entry.marketplace === marketplace);
+  if (!form) return undefined;
   const out: Record<string, string> = {};
+  for (const field of form.fields) {
+    const key = String(field.key || "").trim();
+    const label = String(field.label || "").trim();
+    if (!key || !/[A-Za-z]/.test(label)) continue;
+    out[key] = label;
+    out[strippedFieldKey(key)] = label;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function listingFieldLabels(
+  listing: Record<string, unknown> | undefined,
+  schemaLabels: FieldLabels = undefined,
+): FieldLabels {
+  const raw = listing?.fieldLabels;
+  const out: Record<string, string> = { ...schemaLabels };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return Object.keys(out).length ? out : undefined;
+  }
   for (const [path, label] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof label !== "string" || !label.trim()) continue;
     const text = label.trim();
@@ -1501,9 +1546,8 @@ function listingFieldLabels(listing: Record<string, unknown> | undefined, _secti
 }
 
 /** Etsy category specifics use bare taxonomy ids (148789511893) as DOM keys. */
-function isLetterlessFieldKey(key: string): boolean {
-  const leaf = key.split(".").pop() || key;
-  return Boolean(leaf) && !/[A-Za-z]/.test(leaf);
+function isTaxonomyIdFieldKey(key: string): boolean {
+  return key.split(".").some((part) => Boolean(part) && !/[A-Za-z]/.test(part));
 }
 
 /**
@@ -1513,12 +1557,12 @@ function isLetterlessFieldKey(key: string): boolean {
 function withoutTaxonomyIdNoise(fields: DraftField[]): DraftField[] {
   const namedLabels = new Set(
     fields
-      .filter((field) => !isLetterlessFieldKey(field.key))
+      .filter((field) => !isTaxonomyIdFieldKey(field.key))
       .map((field) => normalizeFieldName(field.label))
       .filter(Boolean),
   );
   return fields.filter((field) => {
-    if (!isLetterlessFieldKey(field.key)) return true;
+    if (!isTaxonomyIdFieldKey(field.key)) return true;
     const labelName = normalizeFieldName(field.label);
     if (!labelName || !/[a-z]/.test(labelName)) return false;
     if (namedLabels.has(labelName)) return false;
@@ -1605,7 +1649,11 @@ function toForm(id: string, fields: DraftField[], liveStatus?: string): DraftFor
   };
 }
 
-function formsFromDraft(item: Record<string, unknown> | null | undefined, report?: FillLogReport): DraftForm[] {
+function formsFromDraft(
+  item: Record<string, unknown> | null | undefined,
+  report?: FillLogReport,
+  schemaForms?: MarketplaceForm[],
+): DraftForm[] {
   const leftovers = report ? leftoverEntries(report) : [];
   const forms: DraftForm[] = [];
   const general = item?.generalDetails && typeof item.generalDetails === "object"
@@ -1659,7 +1707,11 @@ function formsFromDraft(item: Record<string, unknown> | null | undefined, report
     const listing = listings[id] as Record<string, unknown> | undefined;
     const section = listing ? listingSection(listing) : undefined;
     const raw = listing
-      ? withoutTaxonomyIdNoise(flattenFields(section, "", listingFieldLabels(listing, section)))
+      ? withoutTaxonomyIdNoise(flattenFields(
+        section,
+        "",
+        listingFieldLabels(listing, schemaFieldLabels(schemaForms, id)),
+      ))
       : [];
     const fields = organizeFields(id, raw, fillLogEntriesForMarket(report, id));
     const liveStatus = liveStatusForMarketplace(id, item);
@@ -1836,7 +1888,9 @@ export function withoutHiddenFields(forms: DraftForm[], hidden: HiddenFieldsStat
   return forms
     .map((form) => {
       const fields = form.fields.filter(
-        (field) => !isFieldHidden(keys, form.id, field) && !isAccountSettingField(field),
+        (field) => !isFieldHidden(keys, form.id, field)
+          && !isAccountSettingField(field)
+          && !isSystemField(field),
       );
       return toForm(form.id, fields, form.liveStatus);
     })
@@ -1847,10 +1901,8 @@ function fieldNeedsAttention(
   form: DraftForm,
   field: DraftField,
   listing: Record<string, unknown> | undefined,
-  fromVendooDraft: boolean,
 ): boolean {
   if (field.notApplicable || isUnfillableField(field)) return false;
-  if (fromVendooDraft) return field.missing;
   return listingFieldEmpty(listing, form.id, field);
 }
 
@@ -1859,14 +1911,13 @@ export function filterForms(
   query: string,
   missingOnly: boolean,
   listing?: Record<string, unknown>,
-  fromVendooDraft = false,
 ): DraftForm[] {
   const needle = query.trim().toLowerCase();
   const filtered = missingOnly || Boolean(needle);
   return forms
     .map((form) => {
       const fields = form.fields.filter((field) => {
-        if (missingOnly && !fieldNeedsAttention(form, field, listing, fromVendooDraft)) return false;
+        if (missingOnly && !fieldNeedsAttention(form, field, listing)) return false;
         if (!needle) return true;
         const listingValue = listingTextForField(listing, form.id, field);
         return (

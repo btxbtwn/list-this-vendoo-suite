@@ -129,6 +129,12 @@ export function FillLogPanel({
     queryFn: api.catalog.dropdownOptions,
     staleTime: Infinity,
   });
+  const { data: schemaForms } = useQuery({
+    queryKey: ["listing-fields", conversationId],
+    queryFn: () => api.vendooApi.listingFields(conversationId || ""),
+    enabled: Boolean(conversationId),
+    staleTime: 60_000,
+  });
   const hiddenQueryKey = ["settings-hidden-fields", conversationId] as const;
   const { data: hiddenData } = useQuery({
     queryKey: hiddenQueryKey,
@@ -150,12 +156,13 @@ export function FillLogPanel({
     report,
     listing,
     marketplaceSettings?.selected,
+    schemaForms?.forms,
   );
   const hidden = hiddenData || emptyHiddenFields();
   const visibleSourceForms = withoutHiddenFields(sourceForms, hidden);
   const hiddenCount = hidden.always.length + hidden.listing.length;
   const sourceKey = visibleSourceForms.map((form) => form.id).join("|");
-  const forms = filterForms(visibleSourceForms, query, missingOnly, listing, fromVendooDraft);
+  const forms = filterForms(visibleSourceForms, query, missingOnly, listing);
   const selectedForm = forms.find((form) => form.id === selected) || forms[0];
   const selectedCounts = selectedForm ? formSyncCounts(selectedForm, listing, fromVendooDraft) : null;
 
@@ -336,12 +343,10 @@ export function FillLogPanel({
           className={`pr-icon-btn${missingOnly ? " is-on" : ""}`}
           title={missingOnly
             ? "Show all fields"
-            : fromVendooDraft
-              ? "Show empty-on-Vendoo fields only"
-              : "Show empty-in-listing fields only"}
+            : "Show empty-in-listing fields only"}
           aria-pressed={missingOnly}
           aria-label={missingOnly
-            ? (fromVendooDraft ? "Showing empty-on-Vendoo fields only" : "Showing empty-in-listing fields only")
+            ? "Showing empty-in-listing fields only"
             : "Showing all fields"}
           onClick={() => setMissingOnly((value) => !value)}
         >

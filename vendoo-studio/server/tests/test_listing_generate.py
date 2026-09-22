@@ -339,6 +339,19 @@ class PersistListingTest(unittest.TestCase):
         )
         self.assertEqual(parsed["price"], 34.0)
 
+    def test_saved_dimension_default_wins_over_model_estimate(self):
+        with patch(
+            "vendoo_studio.services.user_settings.package_dimensions_string",
+            return_value="14x11x4",
+        ):
+            parsed = persist_generated_listing(
+                self.db,
+                self.conv.id,
+                "",
+                parsed={**LISTING_JSON, "package_dimensions_in": "9x6x1"},
+            )
+        self.assertEqual(parsed["package_dimensions_in"], "14x11x4")
+
     def test_persist_with_repair_saves_repaired_listing(self):
         broken = 'Here is the listing:\n```json\n{"title": "Broken Tee", "price": 12,\n```'
 
@@ -420,6 +433,29 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(listing["ebay_specifics"]["season"], "Spring")
         self.assertEqual(listing["depop_specifics"]["style"], ["Casual", "Boho", "Minimalist"])
         self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
+
+    def test_send_readiness_uses_dimension_setting_without_inventing_weight(self):
+        from unittest.mock import patch
+
+        from vendoo_studio.services.listing_generate import apply_send_readiness_fixes
+
+        listing = {
+            "title": "Unbranded L Graphic Tee Navy Regular",
+            "description": "Graphic tee.\n\nFlaws: none noted.\n\nMeasurements: See photos",
+        }
+        with patch(
+            "vendoo_studio.services.user_settings.package_dimensions_string",
+            return_value="14x11x4",
+        ):
+            self.assertTrue(apply_send_readiness_fixes(listing))
+        self.assertEqual(listing["package_dimensions_in"], "14x11x4")
+        self.assertNotIn("weight_lb", listing)
+        self.assertNotIn("weight_oz", listing)
+
+        with_ounces = {**listing, "weight_oz": 8}
+        self.assertTrue(apply_send_readiness_fixes(with_ounces))
+        self.assertEqual(with_ounces["weight_lb"], 0)
+        self.assertEqual(with_ounces["weight_oz"], 8)
 
     def test_send_readiness_fixes_strip_pricing_from_description(self):
         from vendoo_studio.services.listing_generate import strip_pricing_from_description

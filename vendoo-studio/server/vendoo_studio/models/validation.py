@@ -287,6 +287,12 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
             listing["weight_lb"] = lb
             listing["weight_oz"] = oz
             changed = True
+    elif "weight_lb" not in listing:
+        listing["weight_lb"] = 0
+        changed = True
+    elif "weight_oz" not in listing:
+        listing["weight_oz"] = 0
+        changed = True
 
     ebay = listing.get("ebay_specifics")
     if isinstance(ebay, dict):

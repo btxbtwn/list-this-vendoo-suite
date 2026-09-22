@@ -274,15 +274,15 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
 
         result = str(source["marketplace_categories"][marketplace])
         return map_marketplace_category_path(marketplace, result, source)
+    if key in {"length", "width", "height"}:
+        dimensions = re.split(r"\s*[x×]\s*", str(source.get("package_dimensions_in") or ""), flags=re.I)
+        if len(dimensions) == 3:
+            return dimensions[{"length": 0, "width": 1, "height": 2}[key]]
     if marketplace in {"", "general", "unknown"}:
         if key in {"weight lbs", "weight lb", "pounds"}:
             return _stringify_listing_value(source.get("weight_lb"))
         if key in {"weight oz", "ounces"}:
             return _stringify_listing_value(source.get("weight_oz"))
-        if key in {"length", "width", "height"}:
-            dimensions = re.split(r"\s*[x×]\s*", str(source.get("package_dimensions_in") or ""), flags=re.I)
-            if len(dimensions) == 3:
-                return dimensions[{"length": 0, "width": 1, "height": 2}[key]]
     value: Any = None
     if marketplace in {"", "general", "unknown"}:
         value = _value_from_record(source, key)

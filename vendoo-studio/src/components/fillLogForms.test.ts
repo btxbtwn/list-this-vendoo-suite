@@ -3,13 +3,17 @@ import type { FillLogEntry, FillLogReport } from "../api/types";
 import {
   askChatGapsPrompt,
   emptyFieldsPrompt,
+  filterForms,
   hiddenKeySet,
   leftoverEntries,
+  listingValueForField,
   liveStatusClass,
   liveStatusForMarketplace,
   marketplaceLabel,
   mergeDraftItem,
+  sourceFormsForJob,
   statusFromListingStatus,
+  withoutHiddenFields,
 } from "./fillLogForms";
 
 function entry(overrides: Partial<FillLogEntry>): FillLogEntry {
@@ -138,5 +142,93 @@ describe("ask-chat prompts", () => {
   it("leaves fields with no known dropdown unannotated", () => {
     const prompt = emptyFieldsPrompt(depopForm(), false, { title: "Dress" }, { depop: {} });
     expect(prompt).not.toContain("Options (use only these");
+  });
+
+  it("omits Vendoo system controls", () => {
+    const forms = [{
+      id: "depop",
+      label: "Depop",
+      fields: [
+        { key: "geoLat", label: "Geo Lat", value: "", missing: true },
+        { key: "priceCurrency", label: "Price Currency", value: "", missing: true },
+        { key: "material", label: "Material", value: "", missing: true },
+      ],
+      filled: 0,
+      missing: 3,
+      notApplicable: 0,
+    }];
+    const prompt = emptyFieldsPrompt(forms, true, { title: "Shirt" });
+    expect(prompt).not.toContain("Geo Lat");
+    expect(prompt).not.toContain("Price Currency");
+    expect(prompt).toContain("Field: Material");
+  });
+});
+
+describe("Fields filters", () => {
+  const forms = [{
+    id: "ebay",
+    label: "eBay",
+    fields: [
+      { key: "pricingFormat", label: "Pricing Format", value: "Fixed Price", missing: false },
+      { key: "geoLat", label: "Geo Lat", value: "", missing: true },
+      { key: "62809790395_scale", label: "62809790395 Scale", value: "", missing: true },
+    ],
+    filled: 1,
+    missing: 2,
+    notApplicable: 0,
+  }];
+
+  it("shows listing-empty fields even when Vendoo already has a value", () => {
+    const filtered = filterForms(forms, "", true, { title: "Shirt" });
+    expect(filtered[0]?.fields.map((field) => field.label)).toEqual(["Pricing Format"]);
+  });
+
+  it("removes system and raw numeric-id controls from the panel", () => {
+    const visible = withoutHiddenFields(forms, { always: [], listing: [] });
+    expect(visible[0]?.fields.map((field) => field.label)).toEqual(["Pricing Format"]);
+  });
+
+  it("resolves taxonomy IDs through the listing category schema", () => {
+    const { sourceForms } = sourceFormsForJob({
+      listings: {
+        etsy: {
+          categorySpecifics: {
+            "449_62809790395": { scale: "Men's" },
+          },
+        },
+      },
+    }, undefined, {}, ["etsy"], [{
+      marketplace: "etsy",
+      category_id: "449",
+      known: true,
+      fields: [{
+        key: "62809790395",
+        label: "Size",
+        value: "",
+        required: false,
+        multi: false,
+        selection_only: false,
+        options: [],
+      }],
+    }]);
+    const etsy = sourceForms.find((form) => form.id === "etsy");
+    expect(etsy?.fields.some((field) => field.label === "Size")).toBe(true);
+    expect(etsy?.fields.some((field) => /62809790395/.test(field.label))).toBe(false);
+  });
+
+  it("reads separate Vendoo dimensions from the listing package default", () => {
+    const listing = { package_dimensions_in: "13x10x3" };
+    expect(listingValueForField(listing, "general", {
+      key: "length", label: "Length", value: "", missing: true,
+    })).toBe("13");
+    expect(listingValueForField(listing, "general", {
+      key: "width", label: "Width", value: "", missing: true,
+    })).toBe("10");
+    expect(listingValueForField(listing, "general", {
+      key: "height", label: "Height", value: "", missing: true,
+    })).toBe("3");
+    expect(listingValueForField(listing, "ebay", {
+      key: "length", label: "Length", value: "", missing: true,
+    })).toBe("13");
   });
 });

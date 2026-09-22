@@ -24,9 +24,55 @@ CURSOR_MODELS_KEY = "cursor_models"
 DEFAULT_CURSOR_MODEL = "composer-2.5"
 AUTO_CURSOR_MODEL = "auto"
 DEFAULT_SETTLED_SHELF_EXPANDED = True
+PACKAGE_DIMENSIONS_KEY = "package_dimensions_in"
+DEFAULT_PACKAGE_DIMENSIONS = {"length": 13, "width": 10, "height": 3}
 
 ListingProviderChoice = Literal["chatgpt", "mimo", "cursor"]
 ListingFallbackChoice = Literal["chatgpt", "mimo", "cursor", "none"]
+
+
+def _package_dimension(value: object, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"Package {name} must be a whole number from 1 to 120 inches.")
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Package {name} must be a whole number from 1 to 120 inches.") from exc
+    if number < 1 or number > 120 or str(value).strip() not in {str(number), f"{number}.0"}:
+        raise ValueError(f"Package {name} must be a whole number from 1 to 120 inches.")
+    return number
+
+
+def get_package_dimensions() -> dict[str, int]:
+    raw = read_settings().get(PACKAGE_DIMENSIONS_KEY)
+    if not isinstance(raw, dict):
+        return dict(DEFAULT_PACKAGE_DIMENSIONS)
+    try:
+        return {
+            name: _package_dimension(raw.get(name), name)
+            for name in ("length", "width", "height")
+        }
+    except ValueError:
+        return dict(DEFAULT_PACKAGE_DIMENSIONS)
+
+
+def set_package_dimensions(*, length: object, width: object, height: object) -> dict[str, int]:
+    dimensions = {
+        "length": _package_dimension(length, "length"),
+        "width": _package_dimension(width, "width"),
+        "height": _package_dimension(height, "height"),
+    }
+
+    def mutator(payload: dict) -> None:
+        payload[PACKAGE_DIMENSIONS_KEY] = dimensions
+
+    update_settings(mutator)
+    return dimensions
+
+
+def package_dimensions_string() -> str:
+    dimensions = get_package_dimensions()
+    return "x".join(str(dimensions[name]) for name in ("length", "width", "height"))
 
 
 def settings_path() -> Path:
