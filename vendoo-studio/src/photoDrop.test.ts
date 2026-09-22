@@ -121,6 +121,30 @@ describe("imageFilesFromTransfer", () => {
     ]);
   });
 
+  it("captures every folder entry before the drag data store expires", async () => {
+    let readable = true;
+    const first = dirEntry("NikeTee", [fileEntry("a.jpg", "image/jpeg")]);
+    const createFirstReader = first.createReader!;
+    first.createReader = () => {
+      readable = false;
+      return createFirstReader();
+    };
+    const second = dirEntry("AdidasHoodie", [fileEntry("b.jpg", "image/jpeg")]);
+    const transfer = {
+      files: [file("NikeTee", ""), file("AdidasHoodie", "")],
+      items: [first, second].map((entry) => ({
+        kind: "file",
+        webkitGetAsEntry: () => readable ? entry : null,
+      })),
+    } as unknown as DataTransfer;
+
+    const images = await imageFilesFromTransfer(transfer);
+    expect(images.map((value) => value.webkitRelativePath)).toEqual([
+      "NikeTee/a.jpg",
+      "AdidasHoodie/b.jpg",
+    ]);
+  });
+
   it("falls back to the flat files list when entries are unavailable", async () => {
     const transfer = {
       files: [file("front.jpg", "image/jpeg")],
