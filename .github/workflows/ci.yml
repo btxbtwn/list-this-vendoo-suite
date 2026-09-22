@@ -14,6 +14,44 @@ permissions:
   contents: read
 
 jobs:
+  portable-paths:
+    name: Portable paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject case-insensitive path and module collisions
+        run: |
+          python - <<'PY'
+          import subprocess
+          import unicodedata
+          from pathlib import PurePosixPath
+
+          output = subprocess.check_output(["git", "ls-files", "-z"])
+          paths = output.decode("utf-8", errors="surrogateescape").split("\0")
+          module_suffixes = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+          path_seen = {}
+          module_seen = {}
+          collisions = []
+          for path in filter(None, paths):
+              portable = unicodedata.normalize("NFC", path).casefold()
+              previous = path_seen.setdefault(portable, path)
+              if previous != path:
+                  collisions.append(("path", previous, path))
+
+              parsed = PurePosixPath(path)
+              if parsed.suffix.casefold() in module_suffixes:
+                  module = unicodedata.normalize("NFC", str(parsed.with_suffix(""))).casefold()
+                  previous = module_seen.setdefault(module, path)
+                  if previous != path:
+                      collisions.append(("module", previous, path))
+
+          if collisions:
+              print("Tracked paths are ambiguous on case-insensitive filesystems:")
+              for kind, left, right in collisions:
+                  print(f"  {kind}: {left}\n          {right}")
+              raise SystemExit(1)
+          PY
+
   secrets:
     name: Secrets
     runs-on: ubuntu-latest
@@ -135,6 +173,7 @@ jobs:
     name: CI
     if: always()
     needs:
+      - portable-paths
       - secrets
       - studio-frontend
       - studio-backend
