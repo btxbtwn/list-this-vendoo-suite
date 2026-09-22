@@ -73,6 +73,32 @@
   flex: 0 0 auto;
 }
 
+/* ── Bulk photo upload details ── */
+
+.bulk-upload-popup {
+  max-width: 30rem;
+}
+
+.bulk-upload-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  gap: 16px;
+  padding: 0 24px 24px;
+}
+
+.bulk-upload-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bulk-upload-help {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 /* ── Drop price dialog ── */
 
 .price-drop-popup {
@@ -283,6 +309,10 @@
     max-width: none;
     border-radius: 16px 16px 0 0;
     border-bottom: none;
+  }
+
+  .bulk-upload-fields {
+    grid-template-columns: 1fr;
   }
 
   .toast-viewport {

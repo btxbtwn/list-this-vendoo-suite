@@ -2,9 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { dragHasFiles, groupImageFilesByFolder, listingTitleForFolder } from "../photoDrop";
+import { dragHasFiles, groupImageFilesByFolder } from "../photoDrop";
 import type { Photo } from "../api/types";
 import { addToast } from "../ui/toast";
+import { BulkUploadDialog } from "./BulkUploadDialog";
+import {
+  createBulkPhotoListings,
+  type BulkUploadDefaults,
+} from "../bulkPhotoUpload";
 
 const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
 
@@ -36,6 +41,7 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropId, setDropId] = useState<string | null>(null);
+  const [pendingBulkFiles, setPendingBulkFiles] = useState<File[] | null>(null);
 
   const { data: photos } = useQuery({
     queryKey: ["photos", convId],
@@ -179,7 +185,10 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
     setPreviewId(photoId);
   };
 
-  const doUpload = async (fileList: FileList | File[]) => {
+  const doUpload = async (
+    fileList: FileList | File[],
+    bulkDefaults?: BulkUploadDefaults,
+  ) => {
     const files = Array.from(fileList);
     if (!files.length) return;
     setUploading(true);
@@ -187,19 +196,17 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
     try {
       const groups = groupImageFilesByFolder(files);
       if (groups.length > 1) {
-        const createdIds: string[] = [];
-        const errors: string[] = [];
-        let totalPhotos = 0;
-        for (const group of groups) {
-          const conv = await api.conversations.create({
-            title: listingTitleForFolder(group.folder),
-          });
-          const result = await api.conversations.uploadPhotos(conv.id, group.files);
-          createdIds.push(conv.id);
-          totalPhotos += result.count;
-          errors.push(...(result.errors || []));
-          await queryClient.invalidateQueries({ queryKey: ["photos", conv.id] });
+        if (!bulkDefaults) {
+          setPendingBulkFiles(files);
+          return;
         }
+        const listings = await createBulkPhotoListings(groups, bulkDefaults, api.conversations);
+        const createdIds = listings.map((listing) => listing.convId);
+        const errors = listings.flatMap((listing) => listing.errors);
+        const totalPhotos = listings.reduce((sum, listing) => sum + listing.count, 0);
+        await Promise.all(createdIds.map((id) => (
+          queryClient.invalidateQueries({ queryKey: ["photos", id] })
+        )));
         queryClient.invalidateQueries({ queryKey: ["conversations"] });
         onBulkListingsCreated?.(createdIds);
         const title = `Started ${createdIds.length} listings`;
@@ -346,6 +353,17 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
         </div>,
         document.body
       )}
+      {pendingBulkFiles ? (
+        <BulkUploadDialog
+          count={groupImageFilesByFolder(pendingBulkFiles).length}
+          onCancel={() => setPendingBulkFiles(null)}
+          onConfirm={(bulkDefaults) => {
+            const files = pendingBulkFiles;
+            setPendingBulkFiles(null);
+            void doUpload(files, bulkDefaults);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

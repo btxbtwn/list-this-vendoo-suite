@@ -17,6 +17,7 @@ import {
 } from "../components/settingsNav";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { PhotoDropOverlay } from "../components/PhotoDropOverlay";
+import { BulkUploadDialog } from "../components/BulkUploadDialog";
 import { ToastHost } from "../components/ToastHost";
 import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
 import { WorkspaceTopbar, stopTitlebarDrag } from "../components/WorkspaceTopbar";
@@ -31,6 +32,10 @@ import {
   groupImageFilesByFolder,
   listingTitleForFolder,
 } from "../photoDrop";
+import {
+  createBulkPhotoListings,
+  type BulkUploadDefaults,
+} from "../bulkPhotoUpload";
 import { ThemeSync } from "../components/ThemeSync";
 
 const ListingEditor = lazy(() =>
@@ -83,6 +88,7 @@ export function App() {
   const [browserJobId, setBrowserJobId] = useState<string | null>(null);
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const [browserExpanded, setBrowserExpanded] = useState(false);
+  const [pendingBulkFiles, setPendingBulkFiles] = useState<File[] | null>(null);
   const wasPreviewOpen = useRef(false);
   const mainPanelRef = useRef<HTMLElement>(null);
   const [sidebarWidth, setSidebarWidth] = usePanelWidth("sidebar");
@@ -356,27 +362,16 @@ export function App() {
   // Multiple folders (Finder multi-select or a parent of item folders) each
   // become their own draft — a bulk upload — instead of one mixed listing.
   const dropPhotos = useMutation({
-    mutationFn: async (files: File[]) => {
+    mutationFn: async ({
+      files,
+      bulkDefaults = { cog: "", labels: "" },
+    }: {
+      files: File[];
+      bulkDefaults?: BulkUploadDefaults;
+    }) => {
       const groups = groupImageFilesByFolder(files);
       if (groups.length > 1) {
-        const listings: {
-          convId: string;
-          folder: string | null;
-          count: number;
-          errors: string[];
-        }[] = [];
-        for (const group of groups) {
-          const conv = await api.conversations.create({
-            title: listingTitleForFolder(group.folder),
-          });
-          const result = await api.conversations.uploadPhotos(conv.id, group.files);
-          listings.push({
-            convId: conv.id,
-            folder: group.folder,
-            count: result.count,
-            errors: result.errors || [],
-          });
-        }
+        const listings = await createBulkPhotoListings(groups, bulkDefaults, api.conversations);
         return { mode: "bulk" as const, listings };
       }
 
@@ -789,8 +784,25 @@ export function App() {
         hint="Drop several folders for one draft each · JPG, PNG, WEBP or HEIC · up to 20 per listing"
         busy={dropPhotos.isPending}
         busyLabel="Adding photos…"
-        onFiles={(files) => dropPhotos.mutate(files)}
+        onFiles={(files) => {
+          if (groupImageFilesByFolder(files).length > 1) {
+            setPendingBulkFiles(files);
+            return;
+          }
+          dropPhotos.mutate({ files });
+        }}
       />
+      {pendingBulkFiles ? (
+        <BulkUploadDialog
+          count={groupImageFilesByFolder(pendingBulkFiles).length}
+          onCancel={() => setPendingBulkFiles(null)}
+          onConfirm={(bulkDefaults) => {
+            const files = pendingBulkFiles;
+            setPendingBulkFiles(null);
+            dropPhotos.mutate({ files, bulkDefaults });
+          }}
+        />
+      ) : null}
       <ThemeSync />
       <ToastHost />
       <ConfirmDialogHost />
