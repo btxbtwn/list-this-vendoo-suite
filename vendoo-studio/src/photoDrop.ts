@@ -166,9 +166,12 @@ export async function imageFilesFromTransfer(transfer: DataTransfer | null): Pro
   if (!transfer) return [];
 
   const items = transfer.items ? Array.from(transfer.items) : [];
-  const fromEntries: File[] = [];
-  let sawEntry = false;
+  const entries: EntryLike[] = [];
 
+  // Capture every entry before the first await. Browsers invalidate the drag
+  // data store when the drop callback returns, so asking for item 2 only after
+  // item 1 has been enumerated makes a multi-folder drop lose every folder
+  // except the first one.
   for (const item of items) {
     if (item.kind !== "file") continue;
     const getter = (item as DataTransferItem & {
@@ -177,14 +180,18 @@ export async function imageFilesFromTransfer(transfer: DataTransfer | null): Pro
     if (typeof getter !== "function") continue;
     const entry = getter.call(item);
     if (!entry) continue;
-    sawEntry = true;
-    try {
-      fromEntries.push(...(await imageFilesFromEntry(entry, "")));
-    } catch {
-      // Fall through to the files list below.
-    }
+    entries.push(entry);
   }
 
-  if (sawEntry && fromEntries.length) return fromEntries;
+  const expanded = await Promise.all(entries.map(async (entry) => {
+    try {
+      return await imageFilesFromEntry(entry, "");
+    } catch {
+      return [];
+    }
+  }));
+  const fromEntries = expanded.flat();
+
+  if (entries.length && fromEntries.length) return fromEntries;
   return imageFilesFrom(transfer);
 }
