@@ -4,7 +4,9 @@ import {
   askChatGapsPrompt,
   askChatTargetCount,
   emptyFieldsPrompt,
+  fieldsNeedingListingValues,
   hiddenKeySet,
+  isAccountManagedField,
   leftoverEntries,
   liveStatusClass,
   liveStatusForMarketplace,
@@ -153,5 +155,29 @@ describe("ask-chat prompts", () => {
     }, [
       entry({ marketplace: "depop", field: "Material", status: "failed" }),
     ])).toBe(1);
+  });
+
+  it("keeps account policies and eBay shipping out of Ask chat", () => {
+    const forms = [{
+      id: "ebay",
+      label: "eBay",
+      fields: [
+        { key: "shippingPolicyId", label: "Shipping Policy Id", value: "", missing: true },
+        { key: "returnsPolicyId", label: "Returns Policy Id", value: "", missing: true },
+        { key: "paypalEmail", label: "Paypal Email", value: "", missing: true },
+        { key: "primaryStoreCategory", label: "Primary Store Category", value: "", missing: true },
+        { key: "shippingService", label: "Shipping Service", value: "", missing: true },
+        { key: "brand", label: "Brand", value: "", missing: true },
+      ],
+      filled: 0,
+      missing: 6,
+      notApplicable: 0,
+    }];
+    const needing = fieldsNeedingListingValues(forms, { title: "Tee" });
+    expect(needing.map((row) => row.field.label)).toEqual(["Brand"]);
+    expect(isAccountManagedField("ebay", "Shipping Policy Id")).toBe(true);
+    expect(isAccountManagedField("ebay", "Shipping Service")).toBe(true);
+    expect(isAccountManagedField("mercari", "Delivery Method")).toBe(false);
+    expect(isAccountManagedField("depop", "Parcel Size")).toBe(false);
   });
 });
