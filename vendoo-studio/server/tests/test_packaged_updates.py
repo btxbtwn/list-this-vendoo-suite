@@ -60,6 +60,21 @@ class PackagedUpdateTest(unittest.TestCase):
             "https://github.com/btxbtwn/list-this-vendoo-suite/releases/download/studio-macos/build_info.json",
         )
 
+    def test_normalize_build_info_formats_every_pull_request(self):
+        info = packaged_updates._normalize_build_info(
+            {
+                "sha": "bbb2222",
+                "pull_requests": [
+                    {"number": 42, "title": "Newest change", "url": "https://example.test/42"},
+                    {"number": 41, "title": "Earlier change", "url": "https://example.test/41"},
+                ],
+            }
+        )
+        self.assertEqual(
+            info["commits"],
+            ["#42 — Newest change", "#41 — Earlier change"],
+        )
+
     def test_api_headers_include_optional_token(self):
         with patch.dict(os.environ, {"GITHUB_TOKEN": "secret-token"}, clear=False):
             headers = packaged_updates._headers(api=True)
@@ -109,6 +124,28 @@ class PackagedUpdateTest(unittest.TestCase):
         self.assertTrue(status["available"])
         self.assertEqual(status["summary"], "Prompt to pull when Vendoo is saved")
         self.assertEqual(status["commits"], ["Prompt to pull when Vendoo is saved"])
+
+    @patch.object(
+        packaged_updates,
+        "fetch_remote_build_info",
+        return_value={
+            "sha": "bbb2222",
+            "short_sha": "bbb2222",
+            "version": "0.1.0",
+            "ref": "main",
+            "zip_sha256": "ab" * 32,
+            "title": "Newest change",
+            "commits": ["#42 — Newest change", "#41 — Earlier change"],
+        },
+    )
+    def test_packaged_update_includes_every_published_pull_request(self, _remote):
+        status = packaged_updates.check_for_packaged_update()
+        self.assertEqual(status["behind"], 2)
+        self.assertEqual(status["summary"], "#42 — Newest change")
+        self.assertEqual(
+            status["commits"],
+            ["#42 — Newest change", "#41 — Earlier change"],
+        )
 
     @patch.object(
         packaged_updates,

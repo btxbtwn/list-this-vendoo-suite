@@ -24,4 +24,21 @@ describe("installConfirmationMessage", () => {
     });
     expect(message.split("\n")[0]).toBe("Install update deadbeef and restart List This Studio?");
   });
+
+  it("shows every PR included in a packaged update", () => {
+    const message = installConfirmationMessage({
+      available: true,
+      packaged: true,
+      summary: "#405 — Keep Connect Chrome paired",
+      short_sha: "abc1234",
+      commits: [
+        "#405 — Keep Connect Chrome paired",
+        "#404 — File unisex listings under men",
+        "#403 — Match men's bottoms titles to their sizes",
+      ],
+    });
+    expect(message).toContain("#405 — Keep Connect Chrome paired");
+    expect(message).toContain("#404 — File unisex listings under men");
+    expect(message).toContain("#403 — Match men's bottoms titles to their sizes");
+  });
 });

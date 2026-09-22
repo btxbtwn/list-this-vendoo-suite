@@ -133,6 +133,27 @@ def _normalize_build_info(payload: dict) -> dict:
     if zip_sha.startswith("sha256:"):
         zip_sha = zip_sha.split(":", 1)[1].strip().lower()
     title = str(payload.get("title") or payload.get("summary") or "").strip()
+    pull_requests = []
+    for item in payload.get("pull_requests") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            number = int(item.get("number"))
+        except (TypeError, ValueError):
+            continue
+        pull_title = str(item.get("title") or "").strip()
+        if number > 0 and pull_title:
+            pull_requests.append({"number": number, "title": pull_title})
+    commits = [
+        f"#{item['number']} — {item['title']}"
+        for item in pull_requests
+    ]
+    if not commits:
+        commits = [
+            str(item).strip()
+            for item in payload.get("commits") or []
+            if str(item).strip()
+        ]
     return {
         "version": payload.get("version") or app_version(),
         "sha": sha,
@@ -140,6 +161,8 @@ def _normalize_build_info(payload: dict) -> dict:
         "ref": payload.get("ref"),
         "zip_sha256": zip_sha or None,
         "title": title,
+        "pull_requests": pull_requests,
+        "commits": commits,
     }
 
 
@@ -288,18 +311,19 @@ def check_for_packaged_update() -> dict:
     remote_sha = remote.get("sha")
     local_sha = local.get("sha")
     available = bool(remote_sha) and remote_sha != local_sha
-    summary = str(remote.get("title") or "").strip()
+    commits = list(remote.get("commits") or [])
+    summary = str((commits[0] if commits else remote.get("title")) or "").strip()
     return {
         "available": available,
         "packaged": True,
-        "behind": 1 if available else 0,
+        "behind": (len(commits) or 1) if available else 0,
         "ahead": 0,
         "branch": remote.get("ref") or "main",
         "local_sha": local_sha,
         "remote_sha": remote_sha,
         "remote_ref": f"github:{GITHUB_REPO}:{RELEASE_TAG}",
         "summary": summary if available else "",
-        "commits": [summary] if summary and available else [],
+        "commits": (commits or ([summary] if summary else [])) if available else [],
         "dirty": [],
         "error": None,
         "short_sha": remote.get("short_sha"),
