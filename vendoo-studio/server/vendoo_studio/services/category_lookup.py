@@ -91,6 +91,14 @@ def marketplace_path_fits_general(general_path: str, marketplace_path: str) -> b
         return True
     if is_non_apparel_path(market):
         return False
+    general_department = category_department(general_path)
+    marketplace_department = category_department(market)
+    if (
+        general_department
+        and marketplace_department
+        and general_department != marketplace_department
+    ):
+        return False
     return bool(_APPAREL_MARKET_RE.search(market))
 
 
@@ -166,7 +174,7 @@ def condense_category_search_query(*texts: str, override: str = "") -> str:
     joined = "\n".join(str(text or "").strip() for text in (*texts, override) if str(text or "").strip())
     leaf = _path_leaf(override)
     garment = _first_garment(override, joined)
-    gender = _gender(joined)
+    gender = category_department(joined)
     # Sellers often say "women's top" — treat that as tops intent when no sharper garment matched.
     if not garment and gender == "women" and _TOPS_RE.search(joined):
         garment = "tops"
@@ -212,7 +220,8 @@ def _stated_department(text: str) -> str | None:
     return None
 
 
-def _gender(text: str) -> str | None:
+def category_department(text: str) -> str | None:
+    """Return an explicitly stated or otherwise unambiguous department."""
     text = text or ""
     # An explicit department beats inferring one from stray words: "men" shows
     # up inside plenty of listings that are not menswear.
@@ -276,14 +285,14 @@ def pick_category_path(
         path = _match_path(match)
         if path:
             candidates.append(path)
-    want_gender = _gender(query) or _gender(_listing_department(listing))
+    want_gender = category_department(query) or category_department(_listing_department(listing))
     ranked: list[str] = []
     for path in candidates:
         if not path or path in ranked:
             continue
         if _wrong_garment(path, query, listing):
             continue
-        path_gender = _gender(path)
+        path_gender = category_department(path)
         if want_gender and path_gender and path_gender != want_gender:
             continue
         ranked.append(path)

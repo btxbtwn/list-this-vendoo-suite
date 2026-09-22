@@ -56,6 +56,17 @@ class MarketplacePathFitsGeneralTest(unittest.TestCase):
             "Clothing > Women's Clothing > Tops & Tees > T-shirts",
         ))
 
+    def test_rejects_a_marketplace_path_for_the_wrong_department(self):
+        general = "Clothing, Shoes & Accessories > Men > Men's Clothing > Shirts > T-Shirts"
+        self.assertFalse(marketplace_path_fits_general(
+            general,
+            "Sporting Goods > Camping & Hiking > Clothing > Women's > Shirts, Tops & Sweaters",
+        ))
+        self.assertTrue(marketplace_path_fits_general(
+            general,
+            "Men > Shirts > Tees - Short Sleeve",
+        ))
+
 
 class PickCategoryPathTest(unittest.TestCase):
     def test_prefers_sweatshirt_leaf_over_tshirt(self):
