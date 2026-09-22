@@ -441,6 +441,13 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ selected }),
       }),
+    packageDimensions: () =>
+      request<{ length: number; width: number; height: number }>("/settings/package-dimensions"),
+    setPackageDimensions: (dimensions: { length: number; width: number; height: number }) =>
+      request<{ ok: boolean; length: number; width: number; height: number }>("/settings/package-dimensions", {
+        method: "PUT",
+        body: JSON.stringify(dimensions),
+      }),
     hiddenFields: (conversationId?: string) =>
       request<{
         always: { marketplace: string; field: string; label: string }[];

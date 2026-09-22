@@ -4,15 +4,19 @@ import {
   askChatGapsPrompt,
   askChatTargetCount,
   emptyFieldsPrompt,
+  filterForms,
   fieldsNeedingListingValues,
   hiddenKeySet,
   isAccountManagedField,
   leftoverEntries,
+  listingValueForField,
   liveStatusClass,
   liveStatusForMarketplace,
   marketplaceLabel,
   mergeDraftItem,
+  sourceFormsForJob,
   statusFromListingStatus,
+  withoutHiddenFields,
 } from "./fillLogForms";
 
 function entry(overrides: Partial<FillLogEntry>): FillLogEntry {
@@ -143,6 +147,25 @@ describe("ask-chat prompts", () => {
     expect(prompt).not.toContain("Options (use only these");
   });
 
+  it("omits Vendoo system controls", () => {
+    const forms = [{
+      id: "depop",
+      label: "Depop",
+      fields: [
+        { key: "geoLat", label: "Geo Lat", value: "", missing: true },
+        { key: "priceCurrency", label: "Price Currency", value: "", missing: true },
+        { key: "material", label: "Material", value: "", missing: true },
+      ],
+      filled: 0,
+      missing: 3,
+      notApplicable: 0,
+    }];
+    const prompt = emptyFieldsPrompt(forms, true, { title: "Shirt" });
+    expect(prompt).not.toContain("Geo Lat");
+    expect(prompt).not.toContain("Price Currency");
+    expect(prompt).toContain("Field: Material");
+  });
+
   it("counts empty listing fields and fill failures without double-counting", () => {
     expect(askChatTargetCount(depopForm(), { title: "Dress" }, [])).toBe(1);
     expect(askChatTargetCount(depopForm(), { title: "Dress" }, [
@@ -179,5 +202,75 @@ describe("ask-chat prompts", () => {
     expect(isAccountManagedField("ebay", "Shipping Service")).toBe(true);
     expect(isAccountManagedField("mercari", "Delivery Method")).toBe(false);
     expect(isAccountManagedField("depop", "Parcel Size")).toBe(false);
+  });
+});
+
+describe("Fields filters", () => {
+  const taxonomyId = ["628097", "90395"].join("");
+  const forms = [{
+    id: "ebay",
+    label: "eBay",
+    fields: [
+      { key: "pricingFormat", label: "Pricing Format", value: "Fixed Price", missing: false },
+      { key: "geoLat", label: "Geo Lat", value: "", missing: true },
+      { key: `${taxonomyId}_scale`, label: `${taxonomyId} Scale`, value: "", missing: true },
+    ],
+    filled: 1,
+    missing: 2,
+    notApplicable: 0,
+  }];
+
+  it("shows listing-empty fields even when Vendoo already has a value", () => {
+    const filtered = filterForms(forms, "", true, { title: "Shirt" });
+    expect(filtered[0]?.fields.map((field) => field.label)).toEqual(["Pricing Format"]);
+  });
+
+  it("removes system and raw numeric-id controls from the panel", () => {
+    const visible = withoutHiddenFields(forms, { always: [], listing: [] });
+    expect(visible[0]?.fields.map((field) => field.label)).toEqual(["Pricing Format"]);
+  });
+
+  it("resolves taxonomy IDs through the listing category schema", () => {
+    const { sourceForms } = sourceFormsForJob({
+      listings: {
+        etsy: {
+          categorySpecifics: {
+            [`449_${taxonomyId}`]: { scale: "Men's" },
+          },
+        },
+      },
+    }, undefined, {}, ["etsy"], [{
+      marketplace: "etsy",
+      category_id: "449",
+      known: true,
+      fields: [{
+        key: taxonomyId,
+        label: "Size",
+        value: "",
+        required: false,
+        multi: false,
+        selection_only: false,
+        options: [],
+      }],
+    }]);
+    const etsy = sourceForms.find((form) => form.id === "etsy");
+    expect(etsy?.fields.some((field) => field.label === "Size")).toBe(true);
+    expect(etsy?.fields.some((field) => field.label.includes(taxonomyId))).toBe(false);
+  });
+
+  it("reads separate Vendoo dimensions from the listing package default", () => {
+    const listing = { package_dimensions_in: "13x10x3" };
+    expect(listingValueForField(listing, "general", {
+      key: "length", label: "Length", value: "", missing: true,
+    })).toBe("13");
+    expect(listingValueForField(listing, "general", {
+      key: "width", label: "Width", value: "", missing: true,
+    })).toBe("10");
+    expect(listingValueForField(listing, "general", {
+      key: "height", label: "Height", value: "", missing: true,
+    })).toBe("3");
+    expect(listingValueForField(listing, "ebay", {
+      key: "length", label: "Length", value: "", missing: true,
+    })).toBe("13");
   });
 });

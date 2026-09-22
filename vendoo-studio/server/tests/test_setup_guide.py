@@ -86,6 +86,24 @@ class SetupGuideSettingsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             user_settings.set_ui_prefs(theme="solarized")
 
+    def test_package_dimensions_default_and_persist(self):
+        self.assertEqual(
+            user_settings.get_package_dimensions(),
+            {"length": 13, "width": 10, "height": 3},
+        )
+        self.assertEqual(
+            user_settings.set_package_dimensions(length=14, width=11, height=4),
+            {"length": 14, "width": 11, "height": 4},
+        )
+        self.assertEqual(user_settings.package_dimensions_string(), "14x11x4")
+        stored = json.loads(Path(self.tmp.name, "settings.json").read_text())
+        self.assertEqual(
+            stored["package_dimensions_in"],
+            {"length": 14, "width": 11, "height": 4},
+        )
+        with self.assertRaises(ValueError):
+            user_settings.set_package_dimensions(length=0, width=10, height=3)
+
     def test_forgotten_label_stays_hidden_until_restored(self):
         user_settings.remember_vendoo_labels("Vintage, Nike")
         prefs = user_settings.forget_vendoo_label("vintage")
@@ -141,7 +159,7 @@ class SetupGuideRouteTest(unittest.TestCase):
         folder = self.client.get("/api/settings/data-folder")
         self.assertEqual(folder.status_code, 200)
         body = folder.json()
-        self.assertEqual(body["path"], self.tmp.name)
+        self.assertEqual(Path(body["path"]).resolve(), Path(self.tmp.name).resolve())
         self.assertIn("vendoo_studio.db", body["contains"])
         self.assertIn("Keychain", body["secrets"])
 
@@ -169,7 +187,27 @@ class SetupGuideRouteTest(unittest.TestCase):
 
         status = self.client.get("/api/status")
         self.assertEqual(status.status_code, 200)
-        self.assertEqual(status.json()["data_dir"], self.tmp.name)
+        self.assertEqual(
+            Path(status.json()["data_dir"]).resolve(),
+            Path(self.tmp.name).resolve(),
+        )
+
+    def test_package_dimensions_endpoints(self):
+        default = self.client.get("/api/settings/package-dimensions")
+        self.assertEqual(default.status_code, 200)
+        self.assertEqual(default.json(), {"length": 13, "width": 10, "height": 3})
+
+        saved = self.client.put(
+            "/api/settings/package-dimensions",
+            json={"length": 15, "width": 12, "height": 5},
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json(), {"ok": True, "length": 15, "width": 12, "height": 5})
+        rejected = self.client.put(
+            "/api/settings/package-dimensions",
+            json={"length": 0, "width": 12, "height": 5},
+        )
+        self.assertEqual(rejected.status_code, 400)
 
     def test_listing_formulas_endpoint_defaults_and_persists(self):
         from vendoo_studio.services.skill_formulas import (

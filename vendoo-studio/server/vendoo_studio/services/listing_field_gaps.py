@@ -54,7 +54,8 @@ GAP_FILL_SYSTEM = (
     "- Depop Parcel Size follows the packaged weight: under 4oz Extra extra "
     "small, under 8oz Extra small, under 12oz Small, under 1lb Medium, under "
     "2lb Large, otherwise Extra large.\n"
-    "- Estimate packaged shipping weight and package dimensions from item type when asked.\n"
+    "- Infer packaged shipping weight from item type, size, material, photos, seller notes, and research.\n"
+    "- Copy package dimensions from the listing's saved Settings default; do not estimate or ask for them.\n"
     "- Never invent brand, measurements, material, age, or origin without evidence.\n"
     "- Include every listed field that you can resolve; omit fields that need a seller question."
 )

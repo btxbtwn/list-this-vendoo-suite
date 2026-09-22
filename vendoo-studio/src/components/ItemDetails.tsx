@@ -128,8 +128,8 @@ function parseMeasurements(raw: unknown): Measurements {
   return out;
 }
 
-function parseNotes(notes: string | null): ItemDetailsData {
-  if (!notes) return { ...DEFAULTS, measurements: parseMeasurements(null) };
+function parseNotes(notes: string | null, defaultPackageDimensions = DEFAULTS.packageDimensions): ItemDetailsData {
+  if (!notes) return { ...DEFAULTS, packageDimensions: defaultPackageDimensions, measurements: parseMeasurements(null) };
   try {
     const parsed = JSON.parse(notes);
     return {
@@ -137,7 +137,7 @@ function parseNotes(notes: string | null): ItemDetailsData {
       knownFlaws: parsed.knownFlaws || "",
       descriptionMeasurements: parsed.descriptionMeasurements || "",
       cog: parsed.cog || "",
-      packageDimensions: parsed.packageDimensions || "13x10x3",
+      packageDimensions: parsed.packageDimensions || defaultPackageDimensions,
       vendooLabels: parsed.vendooLabels ?? DEFAULTS.vendooLabels,
       poshmarkOriginalPrice: parsed.poshmarkOriginalPrice ?? "0",
       garment: parsed.garment === "shorts"
@@ -146,7 +146,7 @@ function parseNotes(notes: string | null): ItemDetailsData {
       measurements: parseMeasurements(parsed.measurements),
     };
   } catch {
-    return { ...DEFAULTS, measurements: parseMeasurements(null) };
+    return { ...DEFAULTS, packageDimensions: defaultPackageDimensions, measurements: parseMeasurements(null) };
   }
 }
 
@@ -178,6 +178,14 @@ export function ItemDetails({ convId }: Props) {
     queryKey: ["settings-ui"],
     queryFn: api.settings.ui,
   });
+
+  const { data: packageDimensionSettings } = useQuery({
+    queryKey: ["settings-package-dimensions"],
+    queryFn: api.settings.packageDimensions,
+  });
+  const defaultPackageDimensions = packageDimensionSettings
+    ? `${packageDimensionSettings.length}x${packageDimensionSettings.width}x${packageDimensionSettings.height}`
+    : DEFAULTS.packageDimensions;
 
   useEffect(() => {
     if (!uiPrefs || migratedLabelsRef.current) return;
@@ -230,14 +238,15 @@ export function ItemDetails({ convId }: Props) {
     }
     saveGenRef.current += 1;
     if (conv) {
-      const parsed = parseNotes(conv.notes);
+      const parsed = parseNotes(conv.notes, defaultPackageDimensions);
       detailsRef.current = parsed;
       setDetails(parsed);
     } else {
-      detailsRef.current = { ...DEFAULTS };
-      setDetails({ ...DEFAULTS });
+      const defaults = { ...DEFAULTS, packageDimensions: defaultPackageDimensions };
+      detailsRef.current = defaults;
+      setDetails(defaults);
     }
-  }, [convId, conv?.notes, conv?.updated_at]);
+  }, [convId, conv?.notes, conv?.updated_at, defaultPackageDimensions]);
 
   useEffect(() => {
     return () => {
@@ -526,7 +535,7 @@ export function ItemDetails({ convId }: Props) {
           </div>
           <div className="item-field">
             <label className="label">Package L×W×H</label>
-            <input {...f("packageDimensions")} placeholder="13x10x3" />
+            <input {...f("packageDimensions")} placeholder={defaultPackageDimensions} />
           </div>
         </div>
       </section>

@@ -222,21 +222,24 @@ export function completionBlockerPrompt(
   const lower = detail.toLowerCase();
 
   if (/packaged shipping|shipping weight|package dimensions|mailer size/i.test(detail)) {
-    const targets = fields.length
-      ? fields
+    const weightFields = fields.filter(
+      (field) => !/package dimensions|\b(?:length|width|height)\b/i.test(String(field.field || "")),
+    );
+    const targets = weightFields.length
+      ? weightFields
       : [
-          { marketplace: "general", field: "Package Weight" },
-          { marketplace: "general", field: "Package Dimensions" },
+          { marketplace: "general", field: "Package Weight (lb)" },
+          { marketplace: "general", field: "Package Weight (oz)" },
         ];
-    return `Estimate packaged shipping for "${title}" so verification can continue.
+    return `Estimate packaged shipping weight for "${title}" so verification can continue.
 
-Studio could not finish shipping estimates. From photos and item type/size, choose realistic packaged weight and package dimensions (mailer/box). Do not ask clarifying questions.
+Studio supplies package dimensions from Settings. From photos, seller notes, item type, size, materials, and research, infer a realistic packaged weight. Do not ask clarifying questions.
 
 Pause reason:
 ${detail}
 
 Fields to fill:
-${fieldLines(targets) || "- general / Package Weight\n- general / Package Dimensions"}
+${fieldLines(targets) || "- general / Package Weight (lb)\n- general / Package Weight (oz)"}
 
 ${replyShape(targets)}`;
   }

@@ -218,7 +218,11 @@ def listing_from_vendoo(item: dict | None, form: dict | None) -> dict[str, Any]:
     size_type = _text(general.get("sizeType") or _nested_scale(size_raw))
     weight = general.get("weight") if isinstance(general.get("weight"), dict) else {}
     dims = general.get("dimensions") if isinstance(general.get("dimensions"), dict) else {}
-    package = _package_dimensions(dims) or "13x10x3"
+    package = _package_dimensions(dims)
+    if not package:
+        from vendoo_studio.services.user_settings import package_dimensions_string
+
+        package = package_dimensions_string()
 
     listing: dict[str, Any] = {
         "title": title,

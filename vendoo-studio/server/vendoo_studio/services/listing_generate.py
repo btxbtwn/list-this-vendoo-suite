@@ -606,8 +606,8 @@ def propagate_general_size(listing: dict) -> bool:
 
 def apply_send_readiness_fixes(listing: dict) -> bool:
     """Deterministic fixes so generated listings clear common Send blockers."""
-    from vendoo_studio.models.depop_fields import ensure_depop_category_optionals
     from vendoo_studio.models.validation import normalize_listing_dropdowns
+    from vendoo_studio.services.user_settings import package_dimensions_string
 
     if not isinstance(listing, dict):
         return False
@@ -624,13 +624,7 @@ def apply_send_readiness_fixes(listing: dict) -> bool:
     if ensure_physical_description(listing):
         changed = True
     if not str(listing.get("package_dimensions_in") or "").strip():
-        listing["package_dimensions_in"] = "13x10x3"
-        changed = True
-    if "weight_lb" not in listing and "weight_oz" not in listing:
-        listing["weight_lb"] = 0
-        listing["weight_oz"] = 10
-        # Depop's parcel tier is priced by weight, so re-derive it from the default.
-        ensure_depop_category_optionals(listing)
+        listing["package_dimensions_in"] = package_dimensions_string()
         changed = True
     return changed
 
@@ -887,6 +881,12 @@ def persist_generated_listing(
         return None
 
     RegistryService(db).merge_learned_fields(listing)
+    # Dimensions are a seller preference, not a model inference. Start every
+    # generated listing from the saved default; an explicit per-listing value
+    # in Item Details may override it below.
+    from vendoo_studio.services.user_settings import package_dimensions_string
+
+    listing["package_dimensions_in"] = package_dimensions_string()
     apply_send_readiness_fixes(listing)
     revisions = ListingRepo(db).get_revisions(conv_id)
     if revisions:
@@ -982,6 +982,8 @@ async def persist_generated_listing_with_repair(
                 updated["marketplace_categories"] = dict(listing["marketplace_categories"])
             RegistryService(db).merge_learned_fields(updated)
             apply_send_readiness_fixes(updated)
+            if listing.get("package_dimensions_in"):
+                updated["package_dimensions_in"] = listing["package_dimensions_in"]
             listing = updated
             ListingRepo(db).save_revision(conv_id, listing, source="generation_finalize")
             finalized = True
