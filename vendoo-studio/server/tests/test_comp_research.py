@@ -139,6 +139,7 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
         ):
             text = await research_sold_comps(ANALYSIS)
         chatgpt.assert_awaited_once()
+        self.assertEqual(chatgpt.await_args.kwargs["expected_brand"], "Levi's")
         self.assertIn("Source: ChatGPT web search", text)
 
     async def test_chatgpt_failure_uses_brave(self):
@@ -185,14 +186,14 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
         started: list[str] = []
         both_started = asyncio.Event()
 
-        async def chatgpt(_query: str) -> str:
+        async def chatgpt(_query: str, *, expected_brand: str = "") -> str:
             started.append("chatgpt")
             if len(started) == 2:
                 both_started.set()
             await asyncio.wait_for(both_started.wait(), 1)
             return CHATGPT_COMPS
 
-        async def brave(_query: str) -> str:
+        async def brave(_query: str, *, expected_brand: str = "") -> str:
             started.append("brave")
             if len(started) == 2:
                 both_started.set()
@@ -212,7 +213,7 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
     async def test_slow_chatgpt_falls_back_to_brave_after_grace(self):
         import asyncio
 
-        async def slow_chatgpt(_query: str) -> str:
+        async def slow_chatgpt(_query: str, *, expected_brand: str = "") -> str:
             await asyncio.sleep(60)
             return CHATGPT_COMPS
 
@@ -230,7 +231,7 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
         """A thin Brave answer must not cut ChatGPT off after the grace window."""
         import asyncio
 
-        async def slow_chatgpt(_query: str) -> str:
+        async def slow_chatgpt(_query: str, *, expected_brand: str = "") -> str:
             await asyncio.sleep(0.2)
             return CHATGPT_COMPS
 
@@ -252,7 +253,7 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
         """A single Brave listing must not start the grace window."""
         import asyncio
 
-        async def slow_chatgpt(_query: str) -> str:
+        async def slow_chatgpt(_query: str, *, expected_brand: str = "") -> str:
             await asyncio.sleep(0.2)
             return CHATGPT_COMPS
 
@@ -292,7 +293,7 @@ class ResearchFallbackTest(unittest.IsolatedAsyncioTestCase):
     async def test_timeout_returns_note_instead_of_hanging(self):
         import asyncio
 
-        async def hang(_query: str) -> str:
+        async def hang(_query: str, *, expected_brand: str = "") -> str:
             await asyncio.sleep(60)
             return CHATGPT_COMPS
 

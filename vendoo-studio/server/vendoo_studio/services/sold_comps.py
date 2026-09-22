@@ -33,6 +33,15 @@ _SOLD_FOR_RE = re.compile(
     r"sold(?:\s+(?:for|at))?\s*:?\s*\$\s*(\d{1,4}(?:\.\d{1,2})?)",
     re.I,
 )
+_PRICE_BEFORE_SOLD_RE = re.compile(
+    r"\$\s*(\d{1,4}(?:\.\d{1,2})?)\s*(?:[-–—|·,:]\s*)?(?:sold|completed|ended)\b",
+    re.I,
+)
+_SOLD_EVIDENCE_RE = re.compile(
+    r"\b(?:sold(?:\s+(?:for|at|on))?|completed(?:\s+listing)?|item has sold|purchased)\b",
+    re.I,
+)
+_NOT_SOLD_RE = re.compile(r"\b(?:not sold|has(?:n't| not) sold|unsold|sold out)\b", re.I)
 _RANGE_RE = re.compile(
     r"\$\s*(\d{1,4}(?:\.\d{1,2})?)\s*(?:[-–—]|to)\s*\$?\s*(\d{1,4}(?:\.\d{1,2})?)",
     re.I,
@@ -139,6 +148,25 @@ def extract_price(text: str | None) -> float | None:
     return price
 
 
+def extract_sold_price(text: str | None) -> float | None:
+    """Return a price only when the result explicitly says it sold.
+
+    Search snippets often contain both an original/list price and a current
+    price. Without an explicit sold-price association, multiple amounts are
+    ambiguous and are safer to discard than to price a listing from.
+    """
+    blob = text or ""
+    if _NOT_SOLD_RE.search(blob) or not _SOLD_EVIDENCE_RE.search(blob):
+        return None
+    sold = _SOLD_FOR_RE.search(blob) or _PRICE_BEFORE_SOLD_RE.search(blob)
+    if sold:
+        return extract_price(f"${sold.group(1)}")
+    prices = {float(match.group(1)) for match in _PRICE_RE.finditer(blob)}
+    if len(prices) != 1:
+        return None
+    return prices.pop()
+
+
 def market_range(text: str | None = None, comps: list[SoldComp] | None = None) -> str:
     blob = text or ""
     match = _RANGE_RE.search(blob)
@@ -222,7 +250,8 @@ def _comp(
     if price is None:
         return None
     title = _clean_title(title)
-    marketplace = normalize_marketplace(marketplace) or marketplace_from_url(url)
+    url_marketplace = marketplace_from_url(url)
+    marketplace = url_marketplace or normalize_marketplace(marketplace)
     if url and not is_listing_url(url):
         if looks_like_howto(title, url):
             return None
@@ -256,7 +285,29 @@ def _dedupe(comps: list[SoldComp]) -> list[SoldComp]:
     return unique
 
 
-def comps_from_web_results(results: list[dict] | None) -> list[SoldComp]:
+def _normalized_identity(text: str | None) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+
+
+def _matches_brand(text: str, expected_brand: str) -> bool:
+    expected = _normalized_identity(expected_brand)
+    if not expected or expected in {"unbranded", "unknown", "other"}:
+        return True
+    candidate = _normalized_identity(text)
+    if expected in candidate:
+        return True
+    # Apostrophes and punctuation are inconsistently preserved in marketplace
+    # titles ("Levi's" vs "Levis"). Compare compact forms for real brand
+    # names, but not very short names where substring matches are noisy.
+    compact_expected = expected.replace(" ", "")
+    return len(compact_expected) > 3 and compact_expected in candidate.replace(" ", "")
+
+
+def comps_from_web_results(
+    results: list[dict] | None,
+    *,
+    expected_brand: str = "",
+) -> list[SoldComp]:
     comps: list[SoldComp] = []
     for item in results or []:
         if not isinstance(item, dict):
@@ -270,9 +321,11 @@ def comps_from_web_results(results: list[dict] | None) -> list[SoldComp]:
         if isinstance(extras, list):
             snippets.extend(str(snippet) for snippet in extras)
         blob = " ".join([title, *snippets])
+        if not _matches_brand(blob, expected_brand):
+            continue
         comps.append(
             _comp(
-                extract_price(blob),
+                extract_sold_price(blob),
                 marketplace_from_url(url) or marketplace_from_text(blob),
                 title,
                 url,
@@ -308,6 +361,10 @@ def _comp_from_dict(raw: object) -> SoldComp | None:
     if not isinstance(raw, dict):
         return None
     url = str(raw.get("url") or "").strip()
+    # Model-written prices without a directly inspectable marketplace listing
+    # URL are not evidence and must never become pricing inputs.
+    if not is_listing_url(url):
+        return None
     title = str(raw.get("title") or raw.get("item") or "")
     marketplace = str(raw.get("marketplace") or raw.get("market") or "")
     condition = str(raw.get("condition") or "")
@@ -330,7 +387,9 @@ def comps_from_markdown(text: str | None) -> list[SoldComp]:
             continue
         window = f"{stripped} {nxt}"
         price = extract_price(stripped) or extract_price(nxt)
-        if price is None:
+        # Markdown is model-written too; without an observed listing URL this
+        # would turn an unsupported price sentence into a pricing input.
+        if price is None or not urls:
             continue
         url = urls[0] if urls else ""
         title = _clean_title(stripped) or _clean_title(nxt)
@@ -364,7 +423,12 @@ def research_note(answer: str | None) -> str:
     return remainder or blob
 
 
-def comps_from_chatgpt(answer: str | None, sources: list[dict] | None = None) -> tuple[str, list[SoldComp]]:
+def comps_from_chatgpt(
+    answer: str | None,
+    sources: list[dict] | None = None,
+    *,
+    expected_brand: str = "",
+) -> tuple[str, list[SoldComp]]:
     comps: list[SoldComp] = []
     market = ""
     payload = _extract_json(answer)
@@ -372,14 +436,19 @@ def comps_from_chatgpt(answer: str | None, sources: list[dict] | None = None) ->
         market = str(payload.get("market") or payload.get("market_range") or "").strip()
         raw_comps = payload.get("comps")
         if isinstance(raw_comps, list):
-            comps.extend(_comp_from_dict(item) for item in raw_comps)
+            comps.extend(
+                comp
+                for item in raw_comps
+                if (comp := _comp_from_dict(item))
+                and _matches_brand(comp.title, expected_brand)
+            )
     if not any(comps):
         comps = list(comps_from_markdown(answer))
     else:
         comps = [comp for comp in comps if comp]
     for source in sources or []:
         if isinstance(source, dict):
-            comps.extend(comps_from_web_results([source]))
+            comps.extend(comps_from_web_results([source], expected_brand=expected_brand))
     comps = _dedupe(comps)
     return market_range(market or (answer or ""), comps), comps
 

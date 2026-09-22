@@ -34,11 +34,11 @@ BRAVE_PAYLOAD = {
 class CompQueryTest(unittest.TestCase):
     def test_query_uses_brand_and_item_type(self):
         query = sold_comps_query({"brand": "Levi's", "style": "slim shorts", "size": "33"})
-        self.assertEqual(query, "Levi's slim shorts sold comps")
+        self.assertEqual(query, "Levi's slim shorts 33 sold comps")
 
     def test_query_prefers_category_over_style(self):
         query = sold_comps_query({"brand": "Nike", "category": "T-Shirt", "style": "Graphic Tee"})
-        self.assertEqual(query, "Nike T-Shirt sold comps")
+        self.assertEqual(query, "Nike Graphic Tee T-Shirt sold comps")
 
     def test_query_uses_category_path_leaf(self):
         query = sold_comps_query({"brand": "GB Girls", "category": "Tops > T-Shirts"})
@@ -53,10 +53,26 @@ class CompQueryTest(unittest.TestCase):
         self.assertIn("site:ebay.com", query)
 
     def test_fields_from_analysis_text(self):
-        text = "Photo analysis:\n- brand: Levi's (source: tag)\n- style: Slim shorts\n- size: 33"
+        text = (
+            "Photo analysis:\n- brand: Levi's (source: tag)\n- style: Slim shorts\n"
+            "- size: 33\n- material: Cotton\n- department: Men"
+        )
         fields = fields_from_analysis(text)
         self.assertEqual(fields["brand"], "Levi's")
         self.assertEqual(fields["style"], "Slim shorts")
+        self.assertEqual(fields["material"], "Cotton")
+        self.assertEqual(fields["department"], "Men")
+
+    def test_query_includes_visible_details_for_precision(self):
+        query = sold_comps_query({
+            "brand": "Patagonia",
+            "category": "Jackets",
+            "style": "Nano Puff",
+            "size": "M",
+            "color": "Blue",
+            "department": "Men",
+        })
+        self.assertEqual(query, "Patagonia Nano Puff Jackets M Blue Men sold comps")
 
 
 class CompQueryFanOutTest(unittest.TestCase):
@@ -240,6 +256,9 @@ class SearchWebTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["url"], BRAVE_SEARCH_URL)
         self.assertEqual(captured["headers"]["X-Subscription-Token"], "BSA-test")
         self.assertEqual(captured["params"]["q"], "Levi's shorts sold comps")
+        self.assertEqual(captured["params"]["freshness"], "py")
+        self.assertEqual(captured["params"]["result_filter"], "web")
+        self.assertEqual(captured["params"]["spellcheck"], "false")
         self.assertEqual(results[0]["title"], "Levi's 511 Slim Shorts - Sold")
 
 

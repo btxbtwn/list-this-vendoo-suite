@@ -52,6 +52,48 @@ class WebResultFilterTest(unittest.TestCase):
         ])
         self.assertEqual(comps, [])
 
+    def test_drops_active_listing_without_sold_evidence(self):
+        comps = comps_from_web_results([{
+            "title": "Levi's 511 Slim Shorts",
+            "url": "https://www.ebay.com/itm/9",
+            "description": "$22.00 Buy It Now",
+        }])
+        self.assertEqual(comps, [])
+
+    def test_drops_negative_or_retail_sold_language(self):
+        for description in ("Not sold. Asking $22.", "Sold out online. Retail price $22."):
+            with self.subTest(description=description):
+                comps = comps_from_web_results([{
+                    "title": "Levi's 511 Slim Shorts",
+                    "url": "https://www.ebay.com/itm/9",
+                    "description": description,
+                }])
+                self.assertEqual(comps, [])
+
+    def test_drops_ambiguous_multiple_prices(self):
+        comps = comps_from_web_results([{
+            "title": "Levi's 511 Slim Shorts - Sold",
+            "url": "https://www.ebay.com/itm/9",
+            "description": "Was $60, now $22",
+        }])
+        self.assertEqual(comps, [])
+
+    def test_keeps_explicit_sold_price_when_other_prices_exist(self):
+        comps = comps_from_web_results([{
+            "title": "Levi's 511 Slim Shorts - Sold",
+            "url": "https://www.ebay.com/itm/9",
+            "description": "Originally $60. Sold for $22.",
+        }])
+        self.assertEqual([comp.price for comp in comps], [22])
+
+    def test_drops_wrong_brand(self):
+        comps = comps_from_web_results([{
+            "title": "Wrangler Slim Shorts - Sold",
+            "url": "https://www.ebay.com/itm/9",
+            "description": "Sold for $22.",
+        }], expected_brand="Levi's")
+        self.assertEqual(comps, [])
+
 
 class ChatGPTParseTest(unittest.TestCase):
     def test_reads_json_comps(self):
@@ -87,6 +129,19 @@ class ChatGPTParseTest(unittest.TestCase):
         market, comps = comps_from_chatgpt("Typical sold price $20 on eBay.", [])
         self.assertEqual(comps, [])
         self.assertEqual(market, "")
+
+    def test_drops_model_comp_without_listing_url(self):
+        answer = '{"market":"$20-$25","comps":[{"title":"Levi shorts","price":22,"marketplace":"eBay"}]}'
+        _market, comps = comps_from_chatgpt(answer, [])
+        self.assertEqual(comps, [])
+
+    def test_listing_url_is_authoritative_for_marketplace(self):
+        answer = (
+            '{"market":"$22","comps":[{"title":"Levi shorts","price":22,'
+            '"marketplace":"Etsy","url":"https://www.ebay.com/itm/1"}]}'
+        )
+        _market, comps = comps_from_chatgpt(answer, [])
+        self.assertEqual(comps[0].marketplace, "eBay")
 
 
 class FormatParseTest(unittest.TestCase):

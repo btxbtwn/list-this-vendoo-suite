@@ -60,8 +60,14 @@ def _comps_note(query: str, source: str, note: str) -> str:
     return format_sold_comps(SoldCompsReport(query=query, source=source, note=note))
 
 
-def format_chatgpt_comps(query: str, answer: str, sources: list[dict]) -> str:
-    market, comps = comps_from_chatgpt(answer, sources)
+def format_chatgpt_comps(
+    query: str,
+    answer: str,
+    sources: list[dict],
+    *,
+    expected_brand: str = "",
+) -> str:
+    market, comps = comps_from_chatgpt(answer, sources, expected_brand=expected_brand)
     return format_sold_comps(
         SoldCompsReport(
             query=query,
@@ -73,13 +79,18 @@ def format_chatgpt_comps(query: str, answer: str, sources: list[dict]) -> str:
     )
 
 
-async def research_chatgpt_comps(query: str) -> str:
+async def research_chatgpt_comps(query: str, *, expected_brand: str = "") -> str:
     from vendoo_studio.providers.chatgpt_codex import ChatGPTCodexProvider
 
     result = await ChatGPTCodexProvider().web_search(query)
     answer = str(result.get("answer") or "")
     sources = result.get("sources") if isinstance(result.get("sources"), list) else []
-    return format_chatgpt_comps(query, answer, [item for item in sources if isinstance(item, dict)])
+    return format_chatgpt_comps(
+        query,
+        answer,
+        [item for item in sources if isinstance(item, dict)],
+        expected_brand=expected_brand,
+    )
 
 
 async def _research_sold_comps(analysis_text: str | None, evidence: dict | None = None) -> str:
@@ -90,10 +101,18 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
         return _comps_note("", "photo analysis", COMPS_THIN_IDENTITY_NOTE)
 
     tasks: dict[str, asyncio.Task] = {}
+    expected_brand = fields.get("brand", "")
     if chatgpt_signed_in():
-        tasks["chatgpt"] = asyncio.create_task(research_chatgpt_comps(query))
+        tasks["chatgpt"] = asyncio.create_task(
+            research_chatgpt_comps(query, expected_brand=expected_brand)
+        )
     if get_brave_api_key():
-        tasks["brave"] = asyncio.create_task(research_brave_comps(brave_sold_queries(fields) or [query]))
+        tasks["brave"] = asyncio.create_task(
+            research_brave_comps(
+                brave_sold_queries(fields) or [query],
+                expected_brand=expected_brand,
+            )
+        )
     if not tasks:
         return comps_setup_note()
 
