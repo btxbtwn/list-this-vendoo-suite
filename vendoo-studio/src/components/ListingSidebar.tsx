@@ -758,6 +758,7 @@ export function ListingSidebar({
 
       <div className="sidebar-footer">
         <div className="sidebar-footer-actions">
+          {settingsMode ? null : <VendooImportButton />}
           {settingsMode ? (
             <button
               type="button"
@@ -781,7 +782,6 @@ export function ListingSidebar({
               <SettingsIcon />
             </button>
           )}
-          {settingsMode ? null : <VendooImportButton />}
           <UpdateButton />
         </div>
       </div>
