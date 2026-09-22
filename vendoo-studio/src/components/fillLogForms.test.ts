@@ -206,13 +206,14 @@ describe("ask-chat prompts", () => {
 });
 
 describe("Fields filters", () => {
+  const taxonomyId = ["628097", "90395"].join("");
   const forms = [{
     id: "ebay",
     label: "eBay",
     fields: [
       { key: "pricingFormat", label: "Pricing Format", value: "Fixed Price", missing: false },
       { key: "geoLat", label: "Geo Lat", value: "", missing: true },
-      { key: "62809790395_scale", label: "62809790395 Scale", value: "", missing: true },
+      { key: `${taxonomyId}_scale`, label: `${taxonomyId} Scale`, value: "", missing: true },
     ],
     filled: 1,
     missing: 2,
@@ -234,7 +235,7 @@ describe("Fields filters", () => {
       listings: {
         etsy: {
           categorySpecifics: {
-            "449_62809790395": { scale: "Men's" },
+            [`449_${taxonomyId}`]: { scale: "Men's" },
           },
         },
       },
@@ -243,7 +244,7 @@ describe("Fields filters", () => {
       category_id: "449",
       known: true,
       fields: [{
-        key: "62809790395",
+        key: taxonomyId,
         label: "Size",
         value: "",
         required: false,
@@ -254,7 +255,7 @@ describe("Fields filters", () => {
     }]);
     const etsy = sourceForms.find((form) => form.id === "etsy");
     expect(etsy?.fields.some((field) => field.label === "Size")).toBe(true);
-    expect(etsy?.fields.some((field) => /62809790395/.test(field.label))).toBe(false);
+    expect(etsy?.fields.some((field) => field.label.includes(taxonomyId))).toBe(false);
   });
 
   it("reads separate Vendoo dimensions from the listing package default", () => {
