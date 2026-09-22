@@ -927,3 +927,93 @@ details[open] .json-collapse-summary::before {
 .chat-send-cancel:hover:not(:disabled) {
   background: var(--color-tomato-hover);
 }
+
+/* Citing assistant text — the floating action over a selection, the chips it
+   leaves on the composer, and the highlight shown when a chip is clicked. */
+.cite-selection {
+  position: fixed;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  max-width: calc(100vw - 16px);
+  padding: 0 11px;
+  border: 1px solid var(--color-border-bright);
+  border-radius: 13px;
+  background: var(--color-surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.cite-selection:hover:not(:disabled) {
+  border-color: var(--color-cobalt);
+  color: var(--color-cobalt);
+}
+
+.cite-selection:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.chat-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 6px 6px;
+}
+
+.citation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border: 1px solid rgba(52, 107, 241, 0.6);
+  border-radius: 11px;
+  background: rgba(52, 107, 241, 0.12);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+}
+
+.citation-chip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.citation-chip-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.citation-chip button[aria-label="Remove quote"] {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.citation-chip button[aria-label="Remove quote"]:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+::highlight(chat-citation) {
+  background-color: rgba(52, 107, 241, 0.32);
+}

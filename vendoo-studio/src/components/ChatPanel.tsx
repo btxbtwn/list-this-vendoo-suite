@@ -11,6 +11,9 @@ import {
   takeNextChatMessage,
   type QueuedChatMessage,
 } from "./chatMessageQueue";
+import { CiteSelectionToolbar } from "./CiteSelectionToolbar";
+import { citationPreview, formatCitedMessage, type ChatCitation } from "./chatCitations";
+import { revealChatCitation } from "./chatCitationDom";
 import { SendProgress } from "./SendProgress";
 import { EvidenceCard } from "./EvidenceCard";
 import { SoldCompsCard } from "./SoldCompsCard";
@@ -617,14 +620,22 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   // Follow-ups typed while a run is still writing — same idea as T3 Code's
   // composer queue: hold them client-side and send when the turn settles.
   const [pendingQueue, setPendingQueue] = useState<QueuedChatMessage[]>([]);
+  // Assistant text the user quoted into this message, T3 Code style.
+  const [citations, setCitations] = useState<ChatCitation[]>([]);
   const drainLockRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [chatViewport, setChatViewport] = useState<HTMLDivElement | null>(null);
+  const setScrollEl = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setChatViewport(el);
+  }, []);
   const stickToBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
     setPendingQueue([]);
+    setCitations([]);
     drainLockRef.current = false;
   }, [convId]);
 
@@ -1109,8 +1120,23 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     });
   }, [busy, pendingQueue, sendMessage, convId, queryClient]);
 
+  const handleCite = useCallback((citation: ChatCitation) => {
+    setCitations((current) =>
+      current.some((existing) => existing.id === citation.id) ? current : [...current, citation],
+    );
+    textareaRef.current?.focus();
+    return true;
+  }, []);
+
+  const handleShowCitation = useCallback((citation: ChatCitation) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = false;
+    revealChatCitation(el, citation);
+  }, []);
+
   const handleSend = useCallback(() => {
-    const text = input.trim();
+    const text = formatCitedMessage(citations, input);
     const liveFields = browser?.fields || [];
     if (!text && !liveFields.length) return;
     if (busy) {
@@ -1131,12 +1157,14 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         : undefined);
       setPendingQueue((queue) => enqueueChatMessage(queue, message));
       setInput("");
+      setCitations([]);
       if (liveFields.length) onBrowserFieldsChange?.([]);
       pinChatToBottom();
       return;
     }
+    setCitations([]);
     void sendMessage(text);
-  }, [busy, input, browser, sendMessage, onBrowserFieldsChange, pinChatToBottom]);
+  }, [busy, citations, input, browser, sendMessage, onBrowserFieldsChange, pinChatToBottom]);
 
   const handleRemoveQueued = useCallback((id: string) => {
     setPendingQueue((queue) => removeChatMessage(queue, id));
@@ -1299,7 +1327,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       : hasMessages
         ? "Refine the listing..."
         : "Add a note, or generate the listing...";
-  const canSubmit = Boolean(input.trim() || browser?.fields.length);
+  const canSubmit = Boolean(input.trim() || citations.length || browser?.fields.length);
 
   useEffect(() => {
     const reattach = () => {
@@ -1362,7 +1390,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     const visible = assistantDisplayText(m.text);
     if (!visible) return null;
     return (
-      <div key={m.id} className="msg msg-assistant">
+      <div key={m.id} className="msg msg-assistant" data-citation-source={m.id}>
         <ChatMarkdown text={visible} />
       </div>
     );
@@ -1371,7 +1399,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   return (
     <div className="chat-panel">
       <div
-        ref={scrollRef}
+        ref={setScrollEl}
         className="chat-scroll"
         onScroll={handleChatScroll}
         onWheel={handleChatWheel}
@@ -1514,7 +1542,36 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         )}
       </div>
 
+      <CiteSelectionToolbar viewport={chatViewport} onCite={handleCite} />
+
       <div className="chat-composer">
+        {citations.length > 0 && (
+          <div className="chat-citations" aria-label="Quoted assistant text">
+            {citations.map((citation) => (
+              <span key={citation.id} className="citation-chip">
+                <button
+                  type="button"
+                  className="citation-chip-label"
+                  title={citation.text}
+                  onClick={() => handleShowCitation(citation)}
+                >
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M10 11H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4" />
+                    <path d="M20 11h-4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4" />
+                  </svg>
+                  <span>{citationPreview(citation)}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Remove quote"
+                  onClick={() => setCitations((current) => current.filter((item) => item.id !== citation.id))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {(busy || hasMessages) && (
           <div
             className={`chat-activity${busy ? " is-busy" : " is-done"}`}
