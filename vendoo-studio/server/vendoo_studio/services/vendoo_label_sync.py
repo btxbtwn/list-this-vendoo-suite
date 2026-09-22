@@ -124,6 +124,16 @@ async def _run() -> None:
                     before_row = conv.status
                     label = refresh_inventory_label(db, conv.id, item)
                     cache_pulled_item(db, conv.id, item, source="vendoo_label_sync")
+                    # Inventory pass is free warm-up for category schemas the
+                    # seller already uses; short-circuits when already cached.
+                    try:
+                        from vendoo_studio.services.category_learn import (
+                            learn_category_schemas_from_item,
+                        )
+
+                        await learn_category_schemas_from_item(db, item)
+                    except Exception:  # noqa: BLE001 - labels still updated
+                        log.info("schema learn skipped during label sync", exc_info=True)
                     db.expire_all()
                     fresh = conv_repo.get(conv.id)
                     if label != before_label or (fresh is not None and fresh.status != before_row):
