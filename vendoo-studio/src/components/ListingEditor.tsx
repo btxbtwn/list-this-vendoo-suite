@@ -26,16 +26,23 @@ import {
 import { withDropdownOptions } from "../dropdownOptions";
 import { addToast } from "../ui/toast";
 import { useChatBusy } from "./ChatPanel";
-import { fetchVendooItemLive } from "../api/vendooItemQuery";
+import { fetchVendooItemLive, VENDOO_ITEM_STALE_MS, vendooItemQueryKey } from "../api/vendooItemQuery";
 import {
   CopyableLlmError,
   jobErrorPrompt,
   validationErrorsPrompt,
 } from "./CopyableLlmError";
 import {
-  emptyFieldsPrompt,
-  fieldsNeedingListingValues,
+  askChatGapsPrompt,
+  askChatTargetCount,
+  emptyHiddenFields,
+  fillFailureEntries,
+  hiddenFieldKey,
+  hiddenKeySet,
+  mergeDraftItem,
+  normalizeFieldName,
   sourceFormsForJob,
+  withoutHiddenFields,
 } from "./fillLogForms";
 import { ListingBrowserButton, ListingReviewActions } from "./ListingReviewActions";
 import { ListingReviewTabs, type ListingReviewTab } from "./ListingReviewTabs";
@@ -870,15 +877,6 @@ function SendToVendooButton({
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
   const bound = Boolean(vendooItemId);
-  const { sourceForms, fromVendooDraft } = React.useMemo(
-    () => sourceFormsForJob(undefined, undefined, listing, selectedMarketplaces),
-    [listing, selectedMarketplaces],
-  );
-  const emptyFields = React.useMemo(
-    () => fieldsNeedingListingValues(sourceForms, listing),
-    [sourceForms, listing],
-  );
-  const emptyFieldsCount = emptyFields.length;
 
   // Vendoo's dropdown lists ride along in the fix prompts, so chat repairs a
   // rejected option (Depop material "Other") with one the dropdown really has.
@@ -887,13 +885,6 @@ function SendToVendooButton({
     queryFn: api.catalog.dropdownOptions,
     staleTime: Infinity,
   });
-
-  const fillEmptyPrompt = React.useMemo(
-    () => (emptyFieldsCount
-      ? emptyFieldsPrompt(sourceForms, fromVendooDraft, listing, dropdownOptions?.forms)
-      : undefined),
-    [emptyFieldsCount, sourceForms, fromVendooDraft, listing, dropdownOptions?.forms],
-  );
 
   const { data: extStatus } = useQuery({
     queryKey: ["extension-status"],
@@ -906,6 +897,77 @@ function SendToVendooButton({
     queryFn: () => api.jobs.list(convId),
     refetchInterval: 2000,
   });
+
+  const listingJob = jobs?.find((j) => j.conversation_id === convId && j.status !== "cancelled");
+  const listingJobId = listingJob?.id;
+  const chromeConnected = Boolean(extStatus?.connected);
+  const hasDraft = Boolean(vendooItemId || listingJob?.vendoo_item_id || listingJob?.vendoo_url);
+
+  // Same draft + fill-log cache as Fields, so one Ask chat counts the full schema.
+  const { data: draft } = useQuery({
+    queryKey: vendooItemQueryKey(listingJobId || ""),
+    queryFn: () => api.jobs.vendooItem(listingJobId!, { refresh: true }),
+    enabled: Boolean(listingJobId && hasDraft && chromeConnected),
+    staleTime: VENDOO_ITEM_STALE_MS,
+    retry: 1,
+  });
+  const { data: fillReport } = useQuery({
+    queryKey: ["fill-log", listingJobId],
+    queryFn: () => api.jobs.fillLog(listingJobId!),
+    enabled: Boolean(listingJobId),
+    refetchInterval: 2000,
+  });
+  const { data: hiddenData } = useQuery({
+    queryKey: ["settings-hidden-fields", convId],
+    queryFn: () => api.settings.hiddenFields(convId),
+  });
+
+  const hidden = hiddenData || emptyHiddenFields();
+  const { sourceForms, fromVendooDraft } = React.useMemo(
+    () => sourceFormsForJob(
+      mergeDraftItem(draft),
+      fillReport,
+      listing,
+      selectedMarketplaces,
+    ),
+    [draft, fillReport, listing, selectedMarketplaces],
+  );
+  const visibleSourceForms = React.useMemo(
+    () => withoutHiddenFields(sourceForms, hidden),
+    [sourceForms, hidden],
+  );
+  const hiddenKeys = React.useMemo(() => hiddenKeySet(hidden), [hidden]);
+  const fillFailures = React.useMemo(
+    () => (fillReport ? fillFailureEntries(fillReport) : []).filter(
+      (entry) => !hiddenKeys.has(
+        hiddenFieldKey(entry.marketplace.toLowerCase(), normalizeFieldName(entry.field)),
+      ),
+    ),
+    [fillReport, hiddenKeys],
+  );
+  const emptyFieldsCount = React.useMemo(
+    () => askChatTargetCount(visibleSourceForms, listing, fillFailures),
+    [visibleSourceForms, listing, fillFailures],
+  );
+  const fillEmptyPrompt = React.useMemo(
+    () => (emptyFieldsCount
+      ? askChatGapsPrompt(
+        visibleSourceForms,
+        fromVendooDraft,
+        listing,
+        fillFailures,
+        dropdownOptions?.forms,
+      )
+      : undefined),
+    [
+      emptyFieldsCount,
+      visibleSourceForms,
+      fromVendooDraft,
+      listing,
+      fillFailures,
+      dropdownOptions?.forms,
+    ],
+  );
 
   const sendMutation = useMutation({
     mutationFn: async () => {

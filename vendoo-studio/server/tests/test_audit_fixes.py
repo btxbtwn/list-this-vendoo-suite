@@ -1368,15 +1368,16 @@ console.log(JSON.stringify({ blouse, tee }));
         components = Path(__file__).resolve().parents[2] / "src" / "components"
         panel = "\n".join(
             (components / name).read_text(encoding="utf-8")
-            for name in ("FillLogPanel.tsx", "fillLogForms.ts")
+            for name in ("FillLogPanel.tsx", "fillLogForms.ts", "ListingEditor.tsx", "CopyableLlmError.tsx")
         )
         self.assertIn("function leftoverFieldPrompt", panel)
         self.assertIn("function askChatGapsPrompt", panel)
+        self.assertIn("function askChatTargetCount", panel)
         self.assertIn("Listing:", panel)
         self.assertIn("Marketplace:", panel)
         self.assertIn("Current value:", panel)
         self.assertIn("Ask chat for", panel)
-        self.assertIn("Send to Vendoo writes the listing onto the draft", panel)
+        self.assertIn("askChatGapsPrompt", panel)
         self.assertNotIn("Apply on Vendoo", panel)
         self.assertNotIn("Set Vendoo category", panel)
         self.assertIn("function leftoverGeneratedValue", panel)
@@ -1386,6 +1387,10 @@ console.log(JSON.stringify({ blouse, tee }));
             panel,
         )
         self.assertNotIn("Ask chat to retry", panel)
+        # One bulk Ask-chat button under Update Vendoo (full draft schema), not a
+        # second listing-JSON-only copy in the Fields panel.
+        self.assertNotIn("Ask chat for fields generation could not resolve", panel)
+        self.assertIn("emptyFieldsButtonLabel", panel)
 
     def test_completion_blocker_ask_chat_prompts(self):
         source = (

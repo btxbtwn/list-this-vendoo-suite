@@ -8,22 +8,16 @@ import {
 } from "../api/vendooItemQuery";
 import { addToast } from "../ui/toast";
 import { ConnectChromeButton } from "./ConnectChromeButton";
-import { emptyFieldsButtonLabel } from "./CopyableLlmError";
 import {
   EMPTY_CELL,
   FILL_FAILURE_STATUSES,
   UNREAD_CELL,
-  askChatGapsPrompt,
   emptyFieldsPrompt,
   emptyHiddenFields,
   fieldMatchKey,
-  fieldsNeedingListingValues,
-  fillFailureEntries,
   filterForms,
   formSyncCounts,
   groupFields,
-  hiddenFieldKey,
-  hiddenKeySet,
   isProtectedEbayField,
   issueKind,
   issueLabel,
@@ -35,7 +29,6 @@ import {
   liveStatusClass,
   marketplaceLabel,
   mergeDraftItem,
-  normalizeFieldName,
   sourceFormsForJob,
   vendooTextForField,
   withoutHiddenFields,
@@ -269,31 +262,6 @@ export function FillLogPanel({
       addToast({ type: "error", title: (error as Error).message || "Could not restore fields" });
     },
   });
-
-  const hiddenKeys = hiddenKeySet(hidden);
-  const askChatFields = fieldsNeedingListingValues(visibleSourceForms, listing).filter(
-    ({ form, field }) => !hiddenKeys.has(hiddenFieldKey(form.id, fieldMatchKey(field))),
-  );
-  const fillFailures = (report ? fillFailureEntries(report) : []).filter(
-    (entry) => !hiddenKeys.has(hiddenFieldKey(entry.marketplace.toLowerCase(), normalizeFieldName(entry.field))),
-  );
-  const askChatTargets = (() => {
-    const seen = new Set<string>();
-    let count = 0;
-    for (const entry of fillFailures) {
-      const key = `${entry.marketplace.toLowerCase()}:${normalizeFieldName(entry.field)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      count += 1;
-    }
-    for (const { form, field } of askChatFields) {
-      const key = `${form.id}:${fieldMatchKey(field)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      count += 1;
-    }
-    return count;
-  })();
 
   const hideField = (formId: string, field: DraftField, scope: "always" | "listing") => {
     if (scope === "listing" && !conversationId) return;
@@ -611,36 +579,6 @@ export function FillLogPanel({
                 ))
                 )}
               </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {(onAskChat || hasDraft) && (
-        <div className="pr-actions">
-          <p className="pr-notice">
-            {onAskChat ? "Ask chat for fields generation could not resolve. " : ""}Send to Vendoo writes the listing onto the draft. Nothing is published.
-          </p>
-          {onAskChat && (
-            <div className="pr-action">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={askChatTargets === 0}
-                title="Send empty listing fields to chat. Does not change Vendoo yet."
-                onClick={() => onAskChat(askChatGapsPrompt(
-                  visibleSourceForms,
-                  fromVendooDraft,
-                  listing,
-                  fillFailures,
-                  dropdownOptions?.forms,
-                ))}
-              >
-                {emptyFieldsButtonLabel(askChatTargets)}
-              </button>
-              <p className="pr-action-hint">
-                Empty listing values — writes listing JSON only, not Vendoo.
-              </p>
             </div>
           )}
         </div>

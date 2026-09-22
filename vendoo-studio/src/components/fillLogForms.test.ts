@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FillLogEntry, FillLogReport } from "../api/types";
 import {
   askChatGapsPrompt,
+  askChatTargetCount,
   emptyFieldsPrompt,
   hiddenKeySet,
   leftoverEntries,
@@ -138,5 +139,19 @@ describe("ask-chat prompts", () => {
   it("leaves fields with no known dropdown unannotated", () => {
     const prompt = emptyFieldsPrompt(depopForm(), false, { title: "Dress" }, { depop: {} });
     expect(prompt).not.toContain("Options (use only these");
+  });
+
+  it("counts empty listing fields and fill failures without double-counting", () => {
+    expect(askChatTargetCount(depopForm(), { title: "Dress" }, [])).toBe(1);
+    expect(askChatTargetCount(depopForm(), { title: "Dress" }, [
+      entry({ marketplace: "depop", field: "Material", status: "failed" }),
+      entry({ id: "2", marketplace: "ebay", field: "Brand", status: "invalid" }),
+    ])).toBe(2);
+    expect(askChatTargetCount(depopForm(), {
+      title: "Dress",
+      depop_specifics: { material: "Cotton" },
+    }, [
+      entry({ marketplace: "depop", field: "Material", status: "failed" }),
+    ])).toBe(1);
   });
 });

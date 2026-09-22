@@ -167,6 +167,29 @@ export function fieldsNeedingListingValues(
   );
 }
 
+/** Deduped empty listing values + Apply/Send failures for the Ask-chat button. */
+export function askChatTargetCount(
+  forms: DraftForm[],
+  listing: Record<string, unknown> | undefined,
+  failures: FillLogEntry[],
+): number {
+  const seen = new Set<string>();
+  let count = 0;
+  for (const entry of failures) {
+    const key = `${String(entry.marketplace || "").toLowerCase()}:${normalizeFieldName(entry.field)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    count += 1;
+  }
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+    const key = `${form.id}:${fieldMatchKey(field)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    count += 1;
+  }
+  return count;
+}
+
 export function issueLabel(entry: FillLogEntry): string {
   if (entry.status === "new") return "Discovered on form";
   if (isAlreadySetEntry(entry)) return "Already set";
