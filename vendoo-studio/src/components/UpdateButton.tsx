@@ -83,20 +83,63 @@ export function useStudioUpdate() {
     refetchOnWindowFocus: true,
   });
 
-  const apply = useMutation({
-    mutationKey: ["studio-update-apply"],
-    mutationFn: api.updates.apply,
-    onSuccess: async (result) => {
+  const { data: progress } = useQuery({
+    queryKey: ["update-progress"],
+    queryFn: api.updates.progress,
+    refetchInterval: (query) =>
+      query.state.data?.status === "downloading" || query.state.data?.status === "installing" ? 300 : false,
+  });
+
+  const download = useMutation({
+    mutationKey: ["studio-update-download"],
+    mutationFn: api.updates.download,
+    onMutate: () => {
+      queryClient.setQueryData(["update-progress"], {
+        status: "downloading",
+        download_percent: 0,
+        sha: null,
+        error: null,
+      });
+    },
+    onSuccess: (result) => {
       if (!result.updated) {
-        queryClient.invalidateQueries({ queryKey: ["updates"] });
+        void queryClient.invalidateQueries({ queryKey: ["updates"] });
+        void queryClient.invalidateQueries({ queryKey: ["update-progress"] });
         return;
       }
+      queryClient.setQueryData(["update-progress"], {
+        status: "downloaded",
+        download_percent: 100,
+        sha: result.sha || null,
+        error: null,
+      });
+      addToast({
+        type: "success",
+        title: "Update downloaded",
+        description: "Restart the app from the update button to install it.",
+      });
+    },
+    onError: (err: Error) => {
+      void queryClient.invalidateQueries({ queryKey: ["update-progress"] });
+      addToast({
+        type: "error",
+        title: "Could not download update",
+        description: err.message || "An unexpected error occurred.",
+      });
+    },
+  });
+
+  const restart = useMutation({
+    mutationKey: ["studio-update-restart"],
+    mutationFn: api.updates.restart,
+    onSuccess: async (result) => {
+      if (!result.updated) return;
       setWaiting(true);
       await waitForReload();
     },
     onError: (err: Error) => {
       setWaiting(false);
-      queryClient.invalidateQueries({ queryKey: ["updates"] });
+      void queryClient.invalidateQueries({ queryKey: ["update-progress"] });
       addToast({
         type: "error",
         title: "Could not install update",
@@ -105,35 +148,56 @@ export function useStudioUpdate() {
     },
   });
 
-  const busy = apply.isPending || waiting;
+  const downloading = download.isPending || progress?.status === "downloading";
+  const downloaded = progress?.status === "downloaded";
+  const restarting = restart.isPending || waiting || progress?.status === "installing";
+  const busy = downloading || restarting;
   const available = Boolean(data?.available);
-  const checking = isFetching && !busy && !available;
-  const upToDate = isFetched && !available && !busy;
+  const checking = isFetching && !busy && !downloaded && !available;
+  const upToDate = isFetched && !available && !busy && !downloaded;
+  const downloadPercent = downloading ? progress?.download_percent ?? 0 : null;
 
-  const settingsLabel = busy
-    ? "Updating…"
-    : checking && !isFetched
-      ? "Checking…"
-      : available
-        ? "Update"
-        : upToDate
-          ? "Up to Date"
-          : "Check for Updates";
+  const settingsLabel = restarting
+    ? "Restarting…"
+    : downloading
+      ? `Downloading ${Math.round(downloadPercent || 0)}%`
+      : downloaded
+        ? "Restart to Update"
+        : checking && !isFetched
+          ? "Checking…"
+          : available
+            ? "Download Update"
+            : upToDate
+              ? "Up to Date"
+              : "Check for Updates";
 
-  const description = available
-    ? updateHeadline(data) || "Update available."
-    : "Current version of the application.";
+  const description = downloaded
+    ? "Update downloaded and ready to install."
+    : available
+      ? updateHeadline(data) || "Update available."
+      : "Current version of the application.";
 
-  const iconTooltip = busy
-    ? "Updating…"
-    : checking
-      ? "Checking for updates…"
-      : available
-        ? updateHeadline(data) || "Update available"
-        : data?.error || "Check for updates";
+  const iconTooltip = restarting
+    ? "Restarting to install update…"
+    : downloading
+      ? `Downloading update (${Math.round(downloadPercent || 0)}%)`
+      : downloaded
+        ? "Restart to update"
+        : checking
+          ? "Checking for updates…"
+          : available
+            ? updateHeadline(data) || "Update available"
+            : data?.error || "Check for updates";
 
   const onClick = async () => {
     if (busy) return;
+    if (downloaded) {
+      const latest = data || (await refetch()).data;
+      if (!latest) return;
+      const confirmed = await confirmDialog(installConfirmationMessage(latest), { variant: "destructive" });
+      if (confirmed) restart.mutate();
+      return;
+    }
     const latest = data?.available ? data : (await refetch()).data;
     if (!latest) return;
     if (latest.error && !latest.available) {
@@ -145,14 +209,16 @@ export function useStudioUpdate() {
       return;
     }
     if (!latest.available) return;
-    const confirmed = await confirmDialog(installConfirmationMessage(latest), { variant: "destructive" });
-    if (confirmed) apply.mutate();
+    download.mutate();
   };
 
   return {
     available,
     busy,
     checking,
+    downloaded,
+    downloading,
+    downloadPercent,
     description,
     iconTooltip,
     settingsLabel,
@@ -190,7 +256,7 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
   );
 }
 
-function DownloadIcon() {
+function DownloadIcon({ showDot = true }: { showDot?: boolean }) {
   return (
     <span className="sidebar-update-available-icon">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -204,25 +270,72 @@ function DownloadIcon() {
         <path d="M7 10l5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M12 15V3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
       </svg>
-      <span className="sidebar-update-dot" />
+      {showDot ? <span className="sidebar-update-dot" /> : null}
+    </span>
+  );
+}
+
+const DOWNLOAD_PROGRESS_RADIUS = 14;
+const DOWNLOAD_PROGRESS_CIRCUMFERENCE = 2 * Math.PI * DOWNLOAD_PROGRESS_RADIUS;
+
+function DownloadProgressIcon({ percent }: { percent: number | null }) {
+  const normalized = Math.min(
+    100,
+    Math.max(0, typeof percent === "number" && Number.isFinite(percent) ? percent : 0),
+  );
+  const offset = DOWNLOAD_PROGRESS_CIRCUMFERENCE * (1 - normalized / 100);
+  return (
+    <span className="sidebar-update-progress-icon">
+      <svg className="sidebar-update-progress-ring" viewBox="0 0 32 32" aria-hidden="true">
+        <circle className="sidebar-update-progress-track" cx="16" cy="16" r={DOWNLOAD_PROGRESS_RADIUS} />
+        <circle
+          className="sidebar-update-progress-value"
+          cx="16"
+          cy="16"
+          r={DOWNLOAD_PROGRESS_RADIUS}
+          strokeDasharray={DOWNLOAD_PROGRESS_CIRCUMFERENCE}
+          strokeDashoffset={offset}
+        />
+      </svg>
+      <DownloadIcon showDot={false} />
+    </span>
+  );
+}
+
+function RestartIcon() {
+  return (
+    <span className="sidebar-update-restart-icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M20 11a8 8 0 10-2.34 5.66" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path d="M20 5v6h-6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="sidebar-update-ready-check" aria-hidden="true">✓</span>
     </span>
   );
 }
 
 export function UpdateButton() {
-  const { available, busy, checking, iconTooltip, onClick } = useStudioUpdate();
-  const showAvailable = available && !busy && !checking;
+  const { available, busy, checking, downloaded, downloading, downloadPercent, iconTooltip, onClick } = useStudioUpdate();
+  const showAvailable = available && !busy && !checking && !downloaded;
 
   return (
     <button
       type="button"
-      className={`sidebar-update-btn${showAvailable || busy ? " is-active" : ""}`}
+      className={`sidebar-update-btn${showAvailable || busy || downloaded ? " is-active" : ""}`}
       onClick={onClick}
       disabled={busy}
       aria-label={iconTooltip}
       title={iconTooltip}
     >
-      {showAvailable ? <DownloadIcon /> : <RefreshIcon spinning={busy || checking} />}
+      {downloading ? (
+        <DownloadProgressIcon percent={downloadPercent} />
+      ) : downloaded ? (
+        <RestartIcon />
+      ) : showAvailable ? (
+        <DownloadIcon />
+      ) : (
+        <RefreshIcon spinning={checking || busy} />
+      )}
     </button>
   );
 }

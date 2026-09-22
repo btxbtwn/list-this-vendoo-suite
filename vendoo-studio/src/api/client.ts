@@ -635,6 +635,21 @@ export const api = {
         dirty?: string[];
         error?: string | null;
       }>("/updates"),
+    progress: () =>
+      request<{
+        status: "idle" | "downloading" | "downloaded" | "installing" | "error";
+        download_percent: number | null;
+        sha: string | null;
+        error: string | null;
+      }>("/updates/progress"),
+    download: () =>
+      request<{ ok: boolean; updated: boolean; prepared?: boolean; sha?: string }>("/updates/download", {
+        method: "POST",
+      }),
+    restart: () =>
+      request<{ ok: boolean; updated: boolean; sha?: string; reloading?: boolean }>("/updates/restart", {
+        method: "POST",
+      }),
     apply: () =>
       request<{ ok: boolean; updated: boolean; sha?: string; reloading?: boolean }>("/updates/apply", {
         method: "POST",

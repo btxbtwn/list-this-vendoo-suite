@@ -355,7 +355,7 @@ function HiddenFieldsSection() {
 }
 
 function AboutVersionRow({ version }: { version: string }) {
-  const { available, busy, description, iconTooltip, onClick, settingsLabel } = useStudioUpdate();
+  const { available, busy, downloaded, description, iconTooltip, onClick, settingsLabel } = useStudioUpdate();
   return (
     <SettingsRow
       title={
@@ -368,7 +368,7 @@ function AboutVersionRow({ version }: { version: string }) {
       control={
         <button
           type="button"
-          className={`btn btn-sm ${available && !busy ? "btn-primary" : "btn-outline"}`}
+          className={`btn btn-sm ${(available || downloaded) && !busy ? "btn-primary" : "btn-outline"}`}
           onClick={onClick}
           disabled={busy}
           title={iconTooltip}
