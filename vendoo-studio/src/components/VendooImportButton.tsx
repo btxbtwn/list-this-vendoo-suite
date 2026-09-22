@@ -131,16 +131,17 @@ export function VendooImportButton() {
       disabled={start.isPending}
       onClick={onClick}
     >
-      {/* Cloud + down arrow: inventory pull, not the circular refresh used by Check for Updates. */}
+      {/* Cloud + down arrow, sized to match Settings / Check for Updates glyphs. */}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
-          d="M7.5 18H17a4 4 0 00.4-8 5.5 5.5 0 00-10.7-1.6A3.5 3.5 0 007.5 18z"
+          d="M4 14.9A7 7 0 1115.71 8h1.79a4.5 4.5 0 012.5 8.242"
           stroke="currentColor"
           strokeWidth="1.75"
+          strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <path d="M12 10v6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-        <path d="M9.5 14L12 16.5 14.5 14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M12 12v9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path d="M8 17l4 4 4-4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </button>
   );
