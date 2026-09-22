@@ -1419,15 +1419,23 @@
       let fallback = null;
       for (const sel of selectors) {
           try {
-              const el = document.querySelector(sel);
-              if (!el) continue;
+              const raw = document.querySelector(sel);
+              if (!raw) continue;
+              // Mercari's Shipping Label is stored on carrierId; the native input is
+              // often hidden inside a MUI Select. Drive the visible control instead.
+              const el = visibleDropdownControl(raw) || raw;
               if (isVisibleElement(el) && isEnabledField(el)) return el;
               if (isVisibleElement(el) && !fallback) fallback = el;
+              if (!fallback && isAttachedElement(raw)) fallback = el;
           } catch (_) {}
       }
       const labeled = findInputByLabelPatterns(labelPatterns, isMarketplaceInput(marketplace));
-      if (labeled && isEnabledField(labeled)) return labeled;
-      return labeled || fallback;
+      if (labeled) {
+          const control = visibleDropdownControl(labeled) || labeled;
+          if (isEnabledField(control)) return control;
+          return control;
+      }
+      return fallback;
   }
 
   async function waitForMarketplaceField(marketplace, labelPatterns, selectors, attempts = 8) {
@@ -1822,9 +1830,18 @@
       return out;
   }
 
-  // Mercari's escape hatch for an unlisted brand is a checkbox, so the value can
-  // arrive as a patch ("No Brand/Not sure") instead of a real option.
-  const NO_BRAND_VALUES = new Set(['no brand', 'not sure', 'no brand not sure']);
+  // Mercari's escape hatch for an unlisted brand is the No Brand/Not sure
+  // checkbox (and sometimes a brand-list option with the same label).
+  const NO_BRAND_VALUES = new Set([
+      'no brand',
+      'not sure',
+      'no brand not sure',
+      'unbranded',
+      'none',
+      'n a',
+      'na',
+      'unknown',
+  ]);
   const MERCARI_NO_BRAND_LABEL = 'No Brand/Not sure';
   const DEPOP_BRAND_FALLBACK = 'Other';
 
@@ -4383,10 +4400,11 @@
   }
 
   async function setMercariNoBrandChecked(checked, reason = '') {
-      const el = resolveMarketplaceField('mercari', ['no brand', 'not sure', 'no brand/not sure'], [
+      const el = resolveMarketplaceField('mercari', ['no brand', 'no brand/not sure', 'no brand not sure'], [
           '#listings\\.mercari\\.overrides\\.noBrand',
           'input[name="listings.mercari.overrides.noBrand"]',
-      ]);
+          'input[id="listings.mercari.overrides.noBrand"]',
+      ]) || document.getElementById('listings.mercari.overrides.noBrand');
       if (!el) {
           if (checked) {
               warn('No Brand/Not Sure: Element not found');
@@ -4457,12 +4475,28 @@
       }
 
       // Mercari has no "Other" brand — an unlisted brand means No Brand/Not sure.
+      // Newer Vendoo builds expose that as a brand-list option; older ones use the
+      // checkbox. Try the option first, then check the box.
       const useNoBrand = async (reason) => {
           if (fieldLooksFilled(el)) await clearInput(el);
-          const result = await setMercariNoBrandChecked(true, reason);
+          let selected = false;
+          // Non-strict so "No brand / Not sure" matches "No Brand/Not sure".
+          const optionResult = await fillDropdownField(el, MERCARI_NO_BRAND_LABEL, fieldName, false);
+          const shown = displayedFieldValue(el);
+          if (
+              optionResult.status === 'filled'
+              && isNoBrandValue(shown)
+              && !/^select\b/i.test(shown || '')
+          ) {
+              selected = true;
+              log(`  ✓ ${fieldName}: "${shown || MERCARI_NO_BRAND_LABEL}"`);
+          }
+          const checkbox = await setMercariNoBrandChecked(true, reason);
+          const ok = selected || checkbox.status === 'filled';
+          if (!ok) warn(`${fieldName}: could not select No Brand/Not sure`);
           recordFill({
             field: fieldName,
-            status: result.status === 'filled' ? 'filled' : 'failed',
+            status: ok ? 'filled' : 'failed',
             reason,
             selector: selectorFor(el, ''),
             value: MERCARI_NO_BRAND_LABEL,
@@ -4514,35 +4548,28 @@
 
       await fillMarketplaceSize('mercari', data);
 
+      await fillMercariShippingLabel(data);
+  }
+
+  function mercariShippingLooksSet(el) {
+      // A stored carrier id is not proof the visible label is set — wrong ids
+      // leave the Shipping Label dropdown blank.
+      const shown = normalizeOptionValue(displayedFieldValue(el) || '');
+      return shown.includes('usps ground advantage') || shown.includes('ground advantage');
+  }
+
+  async function fillMercariShippingLabel(data) {
       const shippingLabel = (data.mercari_specifics && data.mercari_specifics.shippingLabel)
           || 'USPS Ground Advantage / 1 - 7 days / $ 6.41 / 0.5 lb';
+      // Prefer label-named selectors; carrierId is the storage key and is often a
+      // hidden native input inside the MUI Select.
       const shippingEl = await waitForMarketplaceField('mercari', ['shipping label'], [
-          '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId',
           '#listings\\.mercari\\.marketplaceSpecifics\\.shippingLabel',
           '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.shippingLabel',
           '#listings\\.mercari\\.overrides\\.shippingLabel',
-      ]);
-      if (shippingEl) {
-          const currentVal = (shippingEl.value || '').trim().toLowerCase();
-          if (!currentVal.includes('usps ground advantage')) {
-              log(`Setting Mercari shipping to ${shippingLabel}`);
-              const filled = await fillDropdownField(shippingEl, shippingLabel, 'Shipping Label', false);
-              // The price in the label is the tier's, and Mercari's rates move.
-              // Fall back to the carrier name so the option still matches.
-              if (filled && filled.status !== 'filled') {
-                  await fillDropdownField(shippingEl, 'USPS Ground Advantage', 'Shipping Label', false);
-              }
-          } else {
-              log('Mercari shipping already USPS Ground Advantage');
-              recordFill({
-                field: 'Shipping Label',
-                status: 'filled',
-                reason: 'Already set',
-                selector: selectorFor(shippingEl, ''),
-                value: shippingLabel,
-              });
-          }
-      } else {
+          '#listings\\.mercari\\.marketplaceSpecifics\\.shipping\\.carrierId',
+      ], 12);
+      if (!shippingEl) {
           warn('Mercari shipping label field not found');
           recordFill({
             field: 'Shipping Label',
@@ -4550,8 +4577,49 @@
             reason: 'Shipping label field not found',
             value: shippingLabel,
           });
+          return;
       }
-      
+
+      if (mercariShippingLooksSet(shippingEl)) {
+          log('Mercari shipping already USPS Ground Advantage');
+          recordFill({
+            field: 'Shipping Label',
+            status: 'filled',
+            reason: 'Already set',
+            selector: selectorFor(shippingEl, ''),
+            value: shippingLabel,
+          });
+          return;
+      }
+
+      // Prefer the stable carrier name — tier prices drift and break exact labels.
+      // Options only appear after weight settles, so retry a few times.
+      const attempts = ['USPS Ground Advantage', shippingLabel];
+      let last = null;
+      for (let round = 0; round < 3; round += 1) {
+          if (round > 0) await sleep(CONFIG.SLEEP_MEDIUM);
+          for (const attempt of attempts) {
+              log(`Setting Mercari shipping to ${attempt}`);
+              last = await fillDropdownField(shippingEl, attempt, 'Shipping Label', false);
+              if (mercariShippingLooksSet(shippingEl)) {
+                  log(`  ✓ Shipping Label: "${displayedFieldValue(shippingEl) || attempt}"`);
+                  return;
+              }
+          }
+      }
+
+      if (!mercariShippingLooksSet(shippingEl)) {
+          warn('Mercari shipping label did not stick');
+          if (last && last.status === 'filled') {
+              recordFill({
+                field: 'Shipping Label',
+                status: 'uncertain',
+                reason: 'Fill reported success but visible label is still blank',
+                selector: selectorFor(shippingEl, ''),
+                value: shippingLabel,
+              });
+          }
+      }
   }
 
   const DEPOP_SIZE_GROUPINGS = {

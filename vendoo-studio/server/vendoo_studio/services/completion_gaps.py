@@ -155,7 +155,8 @@ def brand_live_check_done(db: Session, job, marketplace: str) -> bool:
 
     The filler owns the choice between the real brand and the fallback, so one
     pass per job settles it — without this the forced check would reopen the
-    same gap every round.
+    same gap every round. Typed-fallback ``uncertain`` does not count: that is
+    free text the form rejected, and Mercari still needs No Brand/Not sure.
     """
     want = str(marketplace or "").strip().lower()
     for entry in FillLogRepo(db).list_for_job(job.id):
@@ -163,7 +164,7 @@ def brand_live_check_done(db: Session, job, marketplace: str) -> bool:
             continue
         if "brand" not in field_lookup_key(entry.field or ""):
             continue
-        if str(entry.status or "").strip().casefold() in {"filled", "uncertain"}:
+        if str(entry.status or "").strip().casefold() == "filled":
             return True
     return False
 

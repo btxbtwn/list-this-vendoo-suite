@@ -788,6 +788,32 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.db.commit()
         self.assertEqual(drop_noop_gaps(self.db, self.job, gaps, listing), [])
 
+    def test_uncertain_brand_fill_does_not_settle_live_check(self):
+        # Typed-fallback uncertain is free text the form rejected — Mercari still
+        # needs No Brand/Not sure, so the gap must reopen for another pass.
+        self.verification["schema"] = {
+            "mercari": {"fields": [
+                {"label": "Brand", "value": "m&c life energy", "required": True},
+                {"label": "No Brand/Not sure", "value": False},
+            ]},
+        }
+        listing = {**self.listing, "brand": "m&c life energy"}
+        gaps = review_fields(self.verification, listing)
+        self.assertEqual([(gap["marketplace"], gap["field"]) for gap in gaps], [("mercari", "Brand")])
+
+        self.db.add(FillLogEntry(
+            job_id=self.job.id,
+            conversation_id=self.conv.id,
+            step="filling_mercari",
+            marketplace="mercari",
+            field="Brand",
+            status="uncertain",
+            reason="Typed fallback; dropdown option was not clicked",
+            value_preview="m&c life energy",
+        ))
+        self.db.commit()
+        self.assertEqual(len(drop_noop_gaps(self.db, self.job, gaps, listing)), 1)
+
     def test_offered_brand_on_the_draft_is_not_reopened(self):
         self.verification["schema"] = {"depop": {"fields": [{
             "label": "Brand",
