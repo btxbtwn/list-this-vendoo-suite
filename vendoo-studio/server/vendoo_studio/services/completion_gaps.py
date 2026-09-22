@@ -23,6 +23,26 @@ log = logging.getLogger(__name__)
 
 SOFT_GAP_ERRORS = frozenset({"", "empty field", "saved value differs"})
 DNA_VALUE = "Does Not Apply"
+# Vendoo's Depop brand validation copy — empty brand, not a model question.
+_BRAND_VALIDATION_ERROR_RE = re.compile(
+    r"missing brand|choose a brand|brand from (?:their|the) list|not on the brand list",
+    re.I,
+)
+
+
+def soft_gap_error(error: str, *, marketplace: str = "", field: str = "") -> str:
+    """Normalize gap errors that deterministic patches can still answer."""
+    text = str(error or "").strip()
+    folded = text.casefold()
+    if folded in SOFT_GAP_ERRORS:
+        return folded
+    if (
+        field_lookup_key(field) == "brand"
+        and brand_fallback_for(marketplace)
+        and _BRAND_VALIDATION_ERROR_RE.search(text)
+    ):
+        return "empty field"
+    return folded
 
 
 def field_option_labels(field: dict) -> set[str]:
@@ -222,8 +242,12 @@ def prior_fill_covers_empty_gap(db: Session, job, gap: dict, value) -> bool:
         return False
     if not _gap_is_empty(gap):
         return False
-    error = str(gap.get("error") or "").strip().casefold()
-    if error not in {"", "empty field"}:
+    error = soft_gap_error(
+        gap.get("error") or "",
+        marketplace=str(gap.get("marketplace") or ""),
+        field=str(gap.get("field") or gap.get("label") or ""),
+    )
+    if error not in SOFT_GAP_ERRORS:
         return False
     from vendoo_studio.services.fill_log import preview_value
 
@@ -233,6 +257,10 @@ def prior_fill_covers_empty_gap(db: Session, job, gap: dict, value) -> bool:
     marketplace = str(gap.get("marketplace") or "general").strip().lower() or "general"
     field_key = field_lookup_key(gap.get("field") or gap.get("label") or "")
     if not field_key:
+        return False
+    # Depop/Mercari brand: an empty draft means Other / No Brand did not stick.
+    # Never treat a prior fill-log entry as covering it.
+    if field_key == "brand" and brand_fallback_for(marketplace):
         return False
     for entry in FillLogRepo(db).list_for_job(job.id):
         if str(entry.marketplace or "").strip().lower() != marketplace:
@@ -281,7 +309,11 @@ def deterministic_gap_patches(
         key = field_id({"marketplace": marketplace, "field": field})
         if key in accepted:
             continue
-        error = str(gap.get("error") or "").strip().casefold()
+        error = soft_gap_error(
+            gap.get("error") or "",
+            marketplace=marketplace,
+            field=field,
+        )
         if error not in SOFT_GAP_ERRORS:
             needs_model.append(gap)
             continue
@@ -428,7 +460,11 @@ def drop_noop_gaps(db: Session, job, gaps: list[dict], listing: dict) -> list[di
         # filler, even though the draft reads back the value the API stored.
         live_brand_check = brand_needs_live_check(marketplace, gap, value)
         if live_brand_check and brand_live_check_done(db, job, marketplace):
-            continue
+            # Reopen only when the draft is still empty — Other / No Brand never
+            # stuck. A free-text brand that read back after the filler ran is
+            # settled by brand_live_check_done (see PR #396).
+            if not _gap_is_empty(gap):
+                continue
         if not live_brand_check and gap_already_has_value(gap, value):
             continue
         if prior_fill_covers_empty_gap(db, job, gap, value):
