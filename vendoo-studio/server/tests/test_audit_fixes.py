@@ -370,6 +370,26 @@ class ValidationCasesTest(unittest.TestCase):
             result.errors,
         )
 
+    def test_vendoo_general_color_aliases_are_healed(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = copy.deepcopy(VALID_LISTING)
+        listing["primaryColor"] = "Navy"
+        listing["secondaryColor"] = "burgundy"
+
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["primaryColor"], "Blue")
+        self.assertEqual(listing["secondaryColor"], "Red")
+
+    def test_vendoo_general_color_case_is_canonicalized(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        listing = copy.deepcopy(VALID_LISTING)
+        listing["primaryColor"] = "blue"
+
+        self.assertTrue(normalize_listing_dropdowns(listing))
+        self.assertEqual(listing["primaryColor"], "Blue")
+
     def test_required_ebay_keys_promote_out_of_category_specifics(self):
         import copy
 

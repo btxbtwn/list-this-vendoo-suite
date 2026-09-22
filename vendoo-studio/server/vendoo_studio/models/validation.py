@@ -56,6 +56,7 @@ from vendoo_studio.models.listing_values import (
     canonical_option,
     dedupe_schema_errors,
     evidence_unknown,
+    marketplace_dropdown_forms,
     text_value,
 )
 from vendoo_studio.models.schema import (
@@ -75,6 +76,30 @@ from vendoo_studio.services.marketplaces import (
 TITLE_STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "of", "with", "for", "in", "on", "to",
 })
+
+VENDOO_GENERAL_COLOR_ALIASES = {
+    "grey": "Gray",
+    "multi": "Multicolor",
+    "multi color": "Multicolor",
+    "multicolour": "Multicolor",
+    "navy": "Blue",
+    "burgundy": "Red",
+    "maroon": "Red",
+    "wine": "Red",
+    "khaki": "Beige",
+}
+
+
+def _vendoo_general_color(value: object) -> str | None:
+    raw = text_value(value)
+    if not raw:
+        return None
+    allowed = marketplace_dropdown_forms().get("vendoo", {}).get("primaryColor", [])
+    exact = canonical_option(raw, allowed)
+    if exact:
+        return exact
+    key = re.sub(r"[-_]+", " ", raw).casefold()
+    return VENDOO_GENERAL_COLOR_ALIASES.get(key)
 
 
 def _title_tokens(title: str) -> list[str]:
@@ -293,10 +318,19 @@ def canonicalize_listing_keys(listing: dict) -> bool:
 
 
 def normalize_listing_dropdowns(listing: dict) -> bool:
-    """Rewrite stale Depop/Etsy dropdown values to the current Vendoo options."""
+    """Rewrite dropdown values to the current Vendoo options."""
     if not isinstance(listing, dict):
         return False
     changed = canonicalize_listing_keys(listing)
+
+    # Root colors feed Vendoo General. Keep them in that form's exact
+    # vocabulary; marketplace-specific color names are mapped during fill.
+    for key in ("primaryColor", "secondaryColor"):
+        raw_color = text_value(listing.get(key))
+        color = _vendoo_general_color(raw_color)
+        if color and color != raw_color:
+            listing[key] = color
+            changed = True
 
     # Shipping weight often lands only under marketplace specifics — promote it.
     if "weight_lb" not in listing and "weight_oz" not in listing:
