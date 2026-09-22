@@ -545,6 +545,7 @@ export function FillLogPanel({
                                   type="button"
                                   disabled={!conversationId || hideMutation.isPending}
                                   onClick={() => hideField(selectedForm.id, field, "listing")}
+                                  title="Hide on this listing only — drops it from Fields and Ask chat"
                                 >
                                   This listing
                                 </button>
@@ -552,6 +553,7 @@ export function FillLogPanel({
                                   type="button"
                                   disabled={hideMutation.isPending}
                                   onClick={() => hideField(selectedForm.id, field, "always")}
+                                  title="Hide on every listing — drops it from Fields and Ask chat"
                                 >
                                   Always
                                 </button>
@@ -563,7 +565,7 @@ export function FillLogPanel({
                                 className="pr-hide-btn"
                                 aria-label={menuOpen ? `Cancel hiding ${field.label}` : `Hide ${field.label}`}
                                 aria-expanded={menuOpen}
-                                title="Hide this field"
+                                title="Hide from Fields and Ask chat"
                                 onClick={() => setOpenMenu(menuOpen ? null : { kind: "field", key: menuKey })}
                               >
                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
