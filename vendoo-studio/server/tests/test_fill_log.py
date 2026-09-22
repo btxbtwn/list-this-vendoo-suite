@@ -91,6 +91,10 @@ class FillLogHelpersTest(unittest.TestCase):
         self.assertEqual(listing_value_for_field(listing, "ebay", "Department"), "Women")
         self.assertEqual(listing_value_for_field(listing, "ebay", "Type"), "Blouse")
         self.assertEqual(listing_value_for_field(listing, "ebay", "Country of Origin"), "United States")
+        self.assertEqual(
+            listing_value_for_field({"package_dimensions_in": "13x10x3"}, "ebay", "Length"),
+            "13",
+        )
         self.assertEqual(listing_value_for_field({"ebay_specifics": {"yearManufactured": "D"}}, "ebay", "Year Manufactured"), "")
         self.assertEqual(
             listing_value_for_field({"ebay_specifics": {"character": "Does Not Apply"}}, "ebay", "Character"),

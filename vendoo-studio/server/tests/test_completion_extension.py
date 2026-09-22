@@ -117,6 +117,35 @@ const fieldLooksFilled = () => false;
         self.assertFalse(result[0]["disabled"])
         self.assertTrue(result[1]["disabled"])
 
+    def test_draft_scrape_reads_visible_mui_select_for_hidden_id_input(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        function = source[
+            source.index("  function scrapeMarketplaceListingsFromDom"):
+            source.index("  function scrapeGeneralDetailsFromDom")
+        ]
+        script = r"""
+const visible = {display: 'Cotton'};
+const hidden = {
+  id: 'listings.ebay.categorySpecifics.15687_Material',
+  getAttribute: () => null,
+};
+const document = {querySelectorAll: () => [hidden]};
+const normalizeScrapedFieldKey = value => value;
+const visibleDropdownControl = el => el === hidden ? visible : null;
+const readPersistedControlValue = el => el.display || '';
+const fieldLooksFilled = el => el === visible;
+const scrapedFieldKeyNeedsLabel = () => false;
+""" + function + r"""
+console.log(JSON.stringify(scrapeMarketplaceListingsFromDom()));
+"""
+        result = json.loads(subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, check=True,
+        ).stdout)
+        self.assertEqual(
+            result["ebay"]["categorySpecifics"]["15687_Material"],
+            "Cotton",
+        )
+
     def test_ensure_marketplace_form_ready_reactivates_after_category_remount(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
         start = source.index("  async function ensureMarketplaceFormReady")

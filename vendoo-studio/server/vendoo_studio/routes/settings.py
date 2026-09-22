@@ -27,6 +27,12 @@ class MarketplacesConfig(BaseModel):
     selected: list[str]
 
 
+class PackageDimensionsConfig(BaseModel):
+    length: int
+    width: int
+    height: int
+
+
 class HiddenFieldConfig(BaseModel):
     marketplace: str
     field: str
@@ -360,6 +366,28 @@ def set_marketplaces(config: MarketplacesConfig):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, **_marketplaces_payload(selected)}
+
+
+@router.get("/package-dimensions")
+def get_package_dimensions():
+    from vendoo_studio.services.user_settings import get_package_dimensions as load_package_dimensions
+
+    return load_package_dimensions()
+
+
+@router.put("/package-dimensions")
+def set_package_dimensions(config: PackageDimensionsConfig):
+    from vendoo_studio.services.user_settings import set_package_dimensions as save_package_dimensions
+
+    try:
+        dimensions = save_package_dimensions(
+            length=config.length,
+            width=config.width,
+            height=config.height,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **dimensions}
 
 
 @router.get("/hidden-fields")

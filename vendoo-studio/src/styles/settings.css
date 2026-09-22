@@ -157,6 +157,30 @@
   min-width: 0;
 }
 
+.settings-dimensions-editor {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(5rem, 7rem)) auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settings-dimension-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .settings-dimensions-editor {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .settings-dimensions-editor .btn {
+    grid-column: 1 / -1;
+  }
+}
+
 .settings-formula-editor {
   display: flex;
   flex-direction: column;

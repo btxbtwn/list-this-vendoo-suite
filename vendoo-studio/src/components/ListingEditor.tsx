@@ -994,11 +994,14 @@ function SendToVendooButton({
       queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
       if (res.kind === "create") {
         const gaps = [...(res.unresolved || []), ...(res.unfilled || [])];
+        const gapCount = new Set(gaps.map((gap) =>
+          `${String(gap.marketplace || "general").toLowerCase()}:${String(gap.field || gap.reason || "").toLowerCase()}`,
+        )).size;
         addToast({
-          type: gaps.length ? "error" : "success",
+          type: gapCount ? "error" : "success",
           title: "Sent to Vendoo",
-          description: gaps.length
-            ? `Draft created. ${gaps.length} field${gaps.length === 1 ? "" : "s"} still need a value.`
+          description: gapCount
+            ? `Draft created. Vendoo reported ${gapCount} form gap${gapCount === 1 ? "" : "s"}. Ask Chat only includes fields still empty in Studio.`
             : "Draft created with marketplace fields filled.",
         });
       } else {

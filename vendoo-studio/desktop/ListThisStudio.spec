@@ -13,6 +13,7 @@ REPO = STUDIO.parent
 ICON = SPECDIR / "AppIcon.icns"
 BUILD_INFO = SPECDIR / "build_info.json"
 VERSION_FILE = STUDIO / "VERSION"
+CHANGELOG_FILE = REPO / "CHANGELOG.md"
 
 SKIP_PARTS = {
     ".git",
@@ -87,6 +88,8 @@ if BUILD_INFO.is_file():
     datas.append((str(BUILD_INFO), "."))
 if VERSION_FILE.is_file():
     datas.append((str(VERSION_FILE), "."))
+if CHANGELOG_FILE.is_file():
+    datas.append((str(CHANGELOG_FILE), "."))
 
 a = Analysis(
     [str(STUDIO / "server" / "vendoo_studio" / "desktop.py")],

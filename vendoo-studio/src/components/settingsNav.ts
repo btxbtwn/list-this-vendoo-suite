@@ -91,6 +91,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["about", "update", "check for updates"],
   },
   {
+    id: "whats-new",
+    title: "What's new",
+    section: "general",
+    targetId: "about",
+    searchTerms: ["changelog", "release notes", "history", "changes", "what changed"],
+  },
+  {
     id: "listing-ai",
     title: "Listing AI",
     section: "providers",

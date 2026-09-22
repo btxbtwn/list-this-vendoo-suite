@@ -6,8 +6,9 @@ This is a local-first monorepo: listing skills, Vendoo Listing Studio, and the C
 
 1. Use a branch. Keep unrelated work out of the same PR.
 2. Change one component unless the JSON listing contract requires a cross-cut.
-3. Run the checks for the paths you touched (same commands as CI).
-4. Open a pull request with the template checklist completed.
+3. Touching `vendoo-studio/`? Bump the version once (`cd vendoo-studio && ./scripts/bump-version.sh`) and add a [`CHANGELOG.md`](CHANGELOG.md) entry for it — a `## <version> — <YYYY-MM-DD>` heading at the top with a bullet describing the change for sellers. Studio shows that file under Settings → General → About → What's new, and CI's Changelog job rejects a bump that arrives without an entry.
+4. Run the checks for the paths you touched (same commands as CI).
+5. Open a pull request with the template checklist completed.
 
 ## Checks
 
@@ -17,6 +18,7 @@ This is a local-first monorepo: listing skills, Vendoo Listing Studio, and the C
 | `vendoo-studio/` backend | `cd vendoo-studio && ruff check server && python -m pytest -q -n auto` |
 | `vendoo-extension/` | `node --check` on changed JS files; `node --test 'vendoo-extension/tests/*.test.js'`; `python -m json.tool vendoo-extension/manifest.json` |
 | `skills/list-this/` | Confirm `SKILL.md` and reference JSON still parse |
+| `CHANGELOG.md` / version bumps | `python vendoo-studio/scripts/check-changelog.py` |
 
 CI on every pull request and push to `main` runs these jobs and a secret scan. The macOS packaging workflow is separate and only publishes the Studio app.
 

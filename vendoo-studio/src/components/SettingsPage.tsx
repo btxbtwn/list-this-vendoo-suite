@@ -6,6 +6,7 @@ import type { ListingProviderId } from "../api/types";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
+import { ChangelogDialog } from "./ChangelogDialog";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ProviderLogo, resolveProviderLogoId } from "./ProviderLogo";
 import {
@@ -390,6 +391,24 @@ function AboutVersionRow({ version }: { version: string }) {
   );
 }
 
+function WhatsNewRow() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <SettingsRow
+        title="What's new"
+        description="Every change to List This Studio, newest first."
+        control={
+          <button type="button" className="btn btn-sm btn-outline" onClick={() => setOpen(true)}>
+            View changelog
+          </button>
+        }
+      />
+      <ChangelogDialog open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
 function BackupsSection() {
   const queryClient = useQueryClient();
   const { data, error, isLoading } = useQuery({
@@ -674,6 +693,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
     <>
       <AppearanceSection />
       <MarketplacesSection />
+      <PackageDimensionsSection />
       <HiddenFieldsSection />
       <ListingFormulasSection />
       <SettingsSection id="setup-guide" title="Setup guide">
@@ -691,8 +711,88 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
       <SettingsSection id="about" title="About">
         <DataFolderRow />
         <AboutVersionRow version={status?.version || "…"} />
+        <WhatsNewRow />
       </SettingsSection>
     </>
+  );
+}
+
+function PackageDimensionsSection() {
+  const queryClient = useQueryClient();
+  const { data, error, isPending } = useQuery({
+    queryKey: ["settings-package-dimensions"],
+    queryFn: api.settings.packageDimensions,
+  });
+  const [draft, setDraft] = useState<{ length: string; width: string; height: string } | null>(null);
+  const values = draft || {
+    length: String(data?.length ?? 13),
+    width: String(data?.width ?? 10),
+    height: String(data?.height ?? 3),
+  };
+  const saveMutation = useMutation({
+    mutationFn: (dimensions: { length: number; width: number; height: number }) =>
+      api.settings.setPackageDimensions(dimensions),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["settings-package-dimensions"], payload);
+      setDraft(null);
+    },
+  });
+  const parsed = {
+    length: Number(values.length),
+    width: Number(values.width),
+    height: Number(values.height),
+  };
+  const valid = Object.values(parsed).every((value) => Number.isInteger(value) && value >= 1 && value <= 120);
+  const dirty = Boolean(
+    data && valid && (
+      parsed.length !== data.length || parsed.width !== data.width || parsed.height !== data.height
+    ),
+  );
+
+  return (
+    <SettingsSection id="package-dimensions" title="Shipping defaults">
+      <SettingsRow
+        title="Package dimensions"
+        description="Used as the L × W × H default on every generated listing. Packaged weight is inferred separately for each item from its evidence."
+      >
+        {isPending ? (
+          <p className="settings-row-desc">Loading package dimensions…</p>
+        ) : error ? (
+          <p className="settings-row-desc text-error">{(error as Error).message || "Could not load package dimensions"}</p>
+        ) : (
+          <div className="settings-dimensions-editor">
+            {(["length", "width", "height"] as const).map((name) => (
+              <label className="settings-dimension-field" key={name}>
+                <span className="settings-formula-label">{name[0].toUpperCase() + name.slice(1)} (in)</span>
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  max="120"
+                  step="1"
+                  value={values[name]}
+                  onChange={(event) => setDraft({ ...values, [name]: event.target.value })}
+                />
+              </label>
+            ))}
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              disabled={!dirty || saveMutation.isPending}
+              onClick={() => saveMutation.mutate(parsed)}
+            >
+              {saveMutation.isPending ? "Saving…" : "Save dimensions"}
+            </button>
+          </div>
+        )}
+        {draft && !valid ? (
+          <p className="settings-row-desc text-error">Use whole inches from 1 to 120.</p>
+        ) : null}
+        {saveMutation.isError ? (
+          <p className="settings-row-desc text-error">{(saveMutation.error as Error).message}</p>
+        ) : null}
+      </SettingsRow>
+    </SettingsSection>
   );
 }
 
