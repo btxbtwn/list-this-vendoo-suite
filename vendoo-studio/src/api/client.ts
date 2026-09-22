@@ -168,7 +168,7 @@ export const api = {
     sync: (convId: string) =>
       request<{
         ok: boolean;
-        action: "pull" | "conflict" | "none" | "unavailable";
+        action: "pull" | "label" | "none" | "unavailable";
         reason: string;
         item_id?: string;
         revision_id?: string;

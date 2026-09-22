@@ -21,11 +21,9 @@ export function checkedAgo(checkedAt: string, now: number): string {
  *
  * Vendoo's edits come in on their own: when the seller saves in Vendoo (the
  * extension tells Studio), when the listing opens, and when Studio regains
- * focus — never on a timer against Vendoo. Inventory labels (draft / active /
- * sold) always follow Vendoo, even when listing fields conflict. Nothing pops
- * up; this line says when Studio last checked. The one thing left to the
- * seller is a content conflict, where both sides changed and taking Vendoo's
- * version would drop Studio's edits.
+ * focus — never on a timer against Vendoo. Status/date-only changes refresh
+ * labels without rewriting listing fields; form-content changes take Vendoo's
+ * copy. Nothing pops up; this line says when Studio last checked.
  */
 export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boolean }) {
   const queryClient = useQueryClient();
@@ -62,14 +60,10 @@ export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boo
 
   const sync = useMutation({
     mutationFn: () => api.vendooApi.sync(convId),
-    // Label (draft/active/sold) can move without a new revision — e.g. conflict
-    // after a regenerate-then-relist — so refresh the sidebar on every check.
+    // Label (draft/active/sold) can move without a new revision, so refresh
+    // the sidebar on every check.
     onSuccess: refreshListing,
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["vendoo-sync", convId] }),
-  });
-  const takeVendoo = useMutation({
-    mutationFn: () => api.vendooApi.pull(convId),
-    onSuccess: refreshListing,
   });
   const { mutate: runSync } = sync;
 
@@ -89,9 +83,9 @@ export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boo
 
   if (!bound) return null;
 
-  const busy = sync.isPending || takeVendoo.isPending;
+  const busy = sync.isPending;
   const checkedAt = status?.checked_at;
-  const failed = sync.data?.action === "unavailable" || sync.isError || takeVendoo.isError;
+  const failed = sync.data?.action === "unavailable" || sync.isError;
   let label: string;
   if (busy) label = "Syncing…";
   else if (checkedAt) label = `Synced ${checkedAgo(checkedAt, now)}`;
@@ -116,17 +110,6 @@ export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boo
       >
         {label}
       </button>
-      {status?.conflict && !busy ? (
-        <button
-          type="button"
-          className="pr-vendoo-sync-btn is-conflict"
-          title="Vendoo and Studio both changed since the last sync. Studio kept its version. Click to replace it with Vendoo's."
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => takeVendoo.mutate()}
-        >
-          Both changed · use Vendoo's
-        </button>
-      ) : null}
     </span>
   );
 }

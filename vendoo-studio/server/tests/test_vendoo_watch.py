@@ -12,12 +12,14 @@ from vendoo_studio.database import Base
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
-from vendoo_studio.services.vendoo_import import merge_notes
+from vendoo_studio.services.vendoo_import import merge_notes, parse_notes
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
 from vendoo_studio.services.vendoo_watch import (
+    CONTENT_FINGERPRINT,
     SYNCED_AT,
     SYNCED_REVISION,
     apply_pull,
+    item_content_fingerprint,
     sync_conversation,
     sync_state,
     sync_status,
@@ -40,8 +42,25 @@ class SyncStateTest(unittest.TestCase):
         conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1", **values})
         self.db.commit()
 
-    def item(self, stamp):
-        return {"itemID": "itm1", "dateLastModified": stamp, "generalDetails": {"title": "From Vendoo"}}
+    def item(self, stamp, *, title="From Vendoo", listed=False):
+        payload = {
+            "itemID": "itm1",
+            "dateLastModified": stamp,
+            "generalDetails": {"title": title},
+        }
+        if listed:
+            payload["listings"] = {"ebay": {"status": {"listed": True}}}
+        return payload
+
+    def level_with(self, stamp, *, title="From Vendoo"):
+        """Record Studio as synced to this Vendoo stamp and form content."""
+        item = self.item(stamp, title=title)
+        self.note(**{
+            SYNCED_AT: str(stamp),
+            SYNCED_REVISION: self.rev.id,
+            CONTENT_FINGERPRINT: item_content_fingerprint(item),
+        })
+        return item
 
     def test_first_sync_adopts_vendoos_state(self):
         self.note()
@@ -49,35 +68,48 @@ class SyncStateTest(unittest.TestCase):
         self.assertEqual(state["action"], "pull")
         self.assertEqual(state["reason"], "first sync")
 
-    def test_vendoo_moving_alone_pulls(self):
-        self.note(**{SYNCED_AT: "1000", SYNCED_REVISION: self.rev.id})
-        self.assertEqual(sync_state(self.db, self.conv.id, self.item(2000))["action"], "pull")
+    def test_vendoo_content_change_pulls(self):
+        self.level_with(1000, title="Old")
+        state = sync_state(self.db, self.conv.id, self.item(2000, title="New"))
+        self.assertEqual(state["action"], "pull")
+        self.assertEqual(state["reason"], "vendoo changed")
+
+    def test_status_only_change_is_label_not_pull(self):
+        self.level_with(1000, title="Same")
+        state = sync_state(self.db, self.conv.id, self.item(2000, title="Same", listed=True))
+        self.assertEqual(state["action"], "label")
+        self.assertEqual(state["reason"], "status only")
 
     def test_nothing_moving_does_nothing(self):
-        self.note(**{SYNCED_AT: "2000", SYNCED_REVISION: self.rev.id})
+        self.level_with(2000)
         self.assertEqual(sync_state(self.db, self.conv.id, self.item(2000))["action"], "none")
 
-    def test_both_moving_is_a_conflict_not_an_overwrite(self):
-        """Studio's edits are not Vendoo's to discard, nor the reverse."""
-        self.note(**{SYNCED_AT: "1000", SYNCED_REVISION: self.rev.id})
+    def test_both_moving_prefers_vendoo_when_content_changed(self):
+        self.level_with(1000, title="Old")
         ListingRepo(self.db).save_revision(self.conv.id, {"title": "Edited here"}, source="user")
-        state = sync_state(self.db, self.conv.id, self.item(2000))
-        self.assertEqual(state["action"], "conflict")
+        state = sync_state(self.db, self.conv.id, self.item(2000, title="From Vendoo"))
+        self.assertEqual(state["action"], "pull")
+        self.assertEqual(state["reason"], "both changed, prefer vendoo")
+
+    def test_studio_edits_survive_status_only_vendoo_list(self):
+        """List in Vendoo after a Studio regenerate: keep the regenerate."""
+        self.level_with(1000, title="Old")
+        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Regenerated"}, source="user")
+        state = sync_state(self.db, self.conv.id, self.item(2000, title="Old", listed=True))
+        self.assertEqual(state["action"], "label")
 
     def test_studio_moving_alone_does_not_pull(self):
-        self.note(**{SYNCED_AT: "2000", SYNCED_REVISION: self.rev.id})
+        self.level_with(2000)
         ListingRepo(self.db).save_revision(self.conv.id, {"title": "Edited here"}, source="user")
         self.assertEqual(sync_state(self.db, self.conv.id, self.item(2000))["action"], "none")
 
     def test_a_pull_records_where_both_sides_stand(self):
         self.note()
         revision_id = apply_pull(self.db, self.conv.id, self.item(5000))
-        from vendoo_studio.services.vendoo_import import parse_notes
-
         binding = parse_notes(ConversationRepo(self.db).get(self.conv.id).notes)
         self.assertEqual(binding[SYNCED_AT], "5000")
         self.assertEqual(binding[SYNCED_REVISION], revision_id)
-        # And syncing again now finds nothing to do.
+        self.assertTrue(binding[CONTENT_FINGERPRINT])
         self.assertEqual(sync_state(self.db, self.conv.id, self.item(5000))["action"], "none")
 
     def test_a_pull_refreshes_the_job_draft_cache_for_thread_status(self):
@@ -140,7 +172,7 @@ class SyncStateTest(unittest.TestCase):
 
 
 class SyncConversationTest(unittest.TestCase):
-    """The seller is never asked: safe pulls apply, conflicts are only recorded."""
+    """When Vendoo moved: label if status-only, else take Vendoo's form content."""
 
     def setUp(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -148,8 +180,18 @@ class SyncConversationTest(unittest.TestCase):
         self.db = sessionmaker(bind=engine)()
         self.conv = ConversationRepo(self.db).create(title="Tee")
         self.rev = ListingRepo(self.db).save_revision(self.conv.id, {"title": "Tee"}, source="model")
+        item = {
+            "itemID": "itm1",
+            "dateLastModified": 1000,
+            "generalDetails": {"title": "From Vendoo"},
+        }
         conv = ConversationRepo(self.db).get(self.conv.id)
-        conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1", SYNCED_AT: "1000", SYNCED_REVISION: self.rev.id})
+        conv.notes = merge_notes(conv.notes, {
+            "vendooItemId": "itm1",
+            SYNCED_AT: "1000",
+            SYNCED_REVISION: self.rev.id,
+            CONTENT_FINGERPRINT: item_content_fingerprint(item),
+        })
         self.db.commit()
 
     def tearDown(self):
@@ -169,8 +211,12 @@ class SyncConversationTest(unittest.TestCase):
         with mock.patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
             return asyncio.run(sync_conversation(self.db, self.conv.id))
 
-    def test_vendoo_save_pulls_without_asking(self):
-        result = self.sync()
+    def test_vendoo_content_change_pulls_without_asking(self):
+        result = self.sync(item={
+            "itemID": "itm1",
+            "dateLastModified": 2000,
+            "generalDetails": {"title": "Changed in Vendoo"},
+        })
         self.assertEqual(result["action"], "pull")
         self.assertEqual(ListingRepo(self.db).get_revisions(self.conv.id)[0].id, result["revision_id"])
         status = sync_status(self.db, self.conv.id)
@@ -178,27 +224,8 @@ class SyncConversationTest(unittest.TestCase):
         self.assertFalse(status["conflict"])
         self.assertEqual(status["revision_id"], result["revision_id"])
 
-    def test_up_to_date_still_stamps_the_check(self):
-        result = self.sync(stamp=1000)
-        self.assertEqual(result["action"], "none")
-        self.assertTrue(sync_status(self.db, self.conv.id)["checked_at"])
-
-    def test_conflict_keeps_studio_and_flags_it(self):
-        edited = ListingRepo(self.db).save_revision(self.conv.id, {"title": "Edited here"}, source="user")
-        result = self.sync()
-        self.assertEqual(result["action"], "conflict")
-        self.assertEqual(ListingRepo(self.db).get_revisions(self.conv.id)[0].id, edited.id)
-        self.assertTrue(sync_status(self.db, self.conv.id)["conflict"])
-
-    def test_conflict_still_flips_draft_to_active_after_relist(self):
-        """Regenerate leaves Studio draft; a Vendoo relist must retab without a pull."""
-        from vendoo_studio.services.vendoo_import import parse_notes
-
-        ConversationRepo(self.db).update_status(self.conv.id, "draft")
-        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Regenerated"}, source="user")
-        JobRepo(self.db).create(
-            self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
-        )
+    def test_status_only_list_keeps_studio_fields(self):
+        edited = ListingRepo(self.db).save_revision(self.conv.id, {"title": "Regenerated"}, source="user")
         listed = {
             "itemID": "itm1",
             "dateLastModified": 2000,
@@ -206,22 +233,42 @@ class SyncConversationTest(unittest.TestCase):
             "listings": {"ebay": {"status": {"listed": True}}},
         }
         result = self.sync(item=listed)
-        self.assertEqual(result["action"], "conflict")
+        self.assertEqual(result["action"], "label")
+        self.assertEqual(result["reason"], "status only")
         self.assertEqual(result["vendoo_status"], "active")
-        conv = ConversationRepo(self.db).get(self.conv.id)
-        self.assertEqual(conv.status, "active")
-        self.assertEqual(parse_notes(conv.notes)["vendooStatus"], "active")
-        # Form text stayed Studio's regenerate; only the inventory label moved.
+        self.assertEqual(ListingRepo(self.db).get_revisions(self.conv.id)[0].id, edited.id)
         self.assertEqual(
             ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json["title"],
             "Regenerated",
         )
-        self.assertTrue(sync_status(self.db, self.conv.id)["conflict"])
+        conv = ConversationRepo(self.db).get(self.conv.id)
+        self.assertEqual(conv.status, "active")
+        notes = parse_notes(conv.notes)
+        self.assertEqual(notes[SYNCED_AT], "2000")
+        self.assertEqual(notes[SYNCED_REVISION], self.rev.id)
+        self.assertFalse(sync_status(self.db, self.conv.id)["conflict"])
+
+    def test_up_to_date_still_stamps_the_check(self):
+        result = self.sync(stamp=1000)
+        self.assertEqual(result["action"], "none")
+        self.assertTrue(sync_status(self.db, self.conv.id)["checked_at"])
+
+    def test_content_change_with_studio_edits_takes_vendoo(self):
+        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Edited here"}, source="user")
+        result = self.sync(item={
+            "itemID": "itm1",
+            "dateLastModified": 2000,
+            "generalDetails": {"title": "Vendoo rewrote this"},
+        })
+        self.assertEqual(result["action"], "pull")
+        self.assertEqual(result["reason"], "both changed, prefer vendoo")
+        self.assertEqual(
+            ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json["title"],
+            "Vendoo rewrote this",
+        )
 
     def test_stuck_listing_badge_clears_when_no_send_is_running(self):
         """Listed on Vendoo with a finished job must not stay on Listing."""
-        from vendoo_studio.services.vendoo_import import parse_notes
-
         ConversationRepo(self.db).update_status(self.conv.id, "listing")
         JobRepo(self.db).create(
             self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
@@ -229,7 +276,7 @@ class SyncConversationTest(unittest.TestCase):
         listed = {
             "itemID": "itm1",
             "dateLastModified": 2000,
-            "generalDetails": {"title": "Tee"},
+            "generalDetails": {"title": "From Vendoo"},
             "listings": {"ebay": {"status": {"listed": True}}},
         }
         result = self.sync(item=listed)
