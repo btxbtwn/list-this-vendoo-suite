@@ -347,7 +347,7 @@ class SaveRouteTest(_RouteTest):
                     writes.append(sorted(op["updates"]))
             return {"ok": True, "results": []}
 
-        async def fake_prepare(job, listing, *, provider=None, evidence=""):
+        async def fake_prepare(job, listing, *, provider=None, evidence="", mark=None):
             return listing, {}, None, [], []
 
         with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops), \
@@ -359,6 +359,47 @@ class SaveRouteTest(_RouteTest):
         self.assertTrue(all(path.startswith("listings.") for path in writes[1]))
         self.assertIn("generalDetails.title", writes[0])
         self.assertIn("listings.ebay.overrides.title", writes[1])
+
+    def test_save_runs_as_a_dispatched_job_the_editor_can_poll(self):
+        """Update must leave a job trail like first Send, or the button stays idle."""
+        self.bind()
+        steps: list[str] = []
+
+        async def fake_prepare(job, listing, **kwargs):
+            mark = kwargs.get("mark")
+            if mark:
+                mark("vendoo_api_specifics")
+                mark("vendoo_api_fields")
+                steps.extend(["vendoo_api_specifics", "vendoo_api_fields"])
+            return listing, {}, None, [], []
+
+        async def fake_run_ops(job, ops):
+            if ops[0]["op"] == "get_item":
+                return {
+                    "ok": True,
+                    "results": [{
+                        "op": "get_item",
+                        "item": {"itemID": "itm1", "generalDetails": {"title": "Old"}},
+                    }],
+                }
+            return {"ok": True, "results": [{"op": "update_item", "ok": True}]}
+
+        with (
+            patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops),
+            patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", fake_prepare),
+            patch(
+                "vendoo_studio.services.vendoo_api.build_vendoo_item",
+                lambda *a, **k: ({"generalDetails": {"title": "New"}}, []),
+            ),
+        ):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(steps, ["vendoo_api_specifics", "vendoo_api_fields"])
+        jobs = JobRepo(self.db).list_by_conversation(self.conv.id)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].status, "completed")
+        self.assertEqual(jobs[0].current_step, "vendoo_api_saved")
+        self.assertEqual(jobs[0].vendoo_item_id, "itm1")
 
     def test_names_the_live_marketplaces_to_relist(self):
         self.bind()
