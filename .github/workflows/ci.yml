@@ -204,6 +204,7 @@ jobs:
     name: CI
     if: always()
     needs:
+      - version-sync
       - changelog
       - portable-paths
       - secrets
