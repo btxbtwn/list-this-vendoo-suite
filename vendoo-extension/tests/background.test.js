@@ -212,6 +212,28 @@ test('Firestore documents decode back to plain Vendoo items', () => {
   assert.equal(call(worker, 'firestoreItem', { fields: {} }), null);
 });
 
+test('Firebase timestamp objects encode as Firestore timestamps for form saves', () => {
+  assert.deepEqual(
+    call(worker, 'firestoreValue', { _seconds: 1750000000, _nanoseconds: 123456789 }),
+    { timestampValue: '2025-06-15T15:06:40.123456789Z' },
+  );
+  assert.deepEqual(
+    call(worker, 'firestoreValue', { _seconds: 1750000000, _nanoseconds: 0 }),
+    { timestampValue: '2025-06-15T15:06:40.000000000Z' },
+  );
+  assert.deepEqual(
+    call(worker, 'firestoreValue', { _seconds: 'not-a-timestamp', name: 'ordinary map' }),
+    {
+      mapValue: {
+        fields: {
+          _seconds: { stringValue: 'not-a-timestamp' },
+          name: { stringValue: 'ordinary map' },
+        },
+      },
+    },
+  );
+});
+
 test('the inventory listing pages through Firestore and can ask for ids only', async () => {
   const vm = require('node:vm');
   const requests = [];
