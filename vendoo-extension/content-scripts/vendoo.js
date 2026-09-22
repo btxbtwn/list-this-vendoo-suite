@@ -6035,8 +6035,23 @@
           if (!fieldKey || /image/i.test(fieldKey)) continue;
           if (!listings[marketplace]) listings[marketplace] = {};
           if (!listings[marketplace][bucket]) listings[marketplace][bucket] = {};
-          let value = readPersistedControlValue(el);
-          if (value && typeof value !== 'boolean' && !Array.isArray(value) && !fieldLooksFilled(el)) value = '';
+          // MUI Select puts the stable Vendoo id on a hidden native input while
+          // rendering the saved label in a sibling combobox. Keep the hidden
+          // input for the JSON path, but read and validate the visible control.
+          // Autocomplete/tag fields still resolve to themselves and continue to
+          // use their selected chips through readPersistedControlValue.
+          const valueControl = visibleDropdownControl(el) || el;
+          let value = readPersistedControlValue(valueControl);
+          if ((value == null || value === '' || (Array.isArray(value) && value.length === 0)) && valueControl !== el) {
+              value = readPersistedControlValue(el);
+          }
+          if (
+              value
+              && typeof value !== 'boolean'
+              && !Array.isArray(value)
+              && !fieldLooksFilled(valueControl)
+              && !fieldLooksFilled(el)
+          ) value = '';
           // Keep empty strings so Studio Fields can show unfilled optional keys.
           if (!(fieldKey in listings[marketplace][bucket]) || value === true || value === false || (Array.isArray(value) ? value.length : value)) {
               listings[marketplace][bucket][fieldKey] = value;
