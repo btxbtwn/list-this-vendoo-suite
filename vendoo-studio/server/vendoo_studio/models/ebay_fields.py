@@ -9,7 +9,10 @@ from typing import Any
 from vendoo_studio.models.listing_values import (
     DNA_VALUE,
     collapse_option,
+    dropdown_field_options,
     evidence_unknown,
+    infer_known_option,
+    infer_known_options,
     normalized_option_key,
     text_value,
 )
@@ -106,12 +109,14 @@ EBAY_CATEGORY_OPTIONAL_KEYS = (
 # eBay's Condition Description is the same line on every listing this seller
 # makes — the photos carry the condition, so it never varies per item.
 EBAY_CONDITION_DESCRIPTION = "SEE PHOTOS FOR CONDITION AND MEASUREMENTS"
-EBAY_OPTIONAL_ALWAYS_DEFAULTS = {
+EBAY_OPTIONAL_FIXED_DEFAULTS = {
     "handmade": "No",
     "personalize": "No",
     "unitQuantity": "1",
     "unitType": "Unit",
     "vintage": "No",
+}
+EBAY_OPTIONAL_INFER_FALLBACKS = {
     "pattern": "Solid",
     "occasion": "Casual",
     "fit": "Regular",
@@ -119,6 +124,59 @@ EBAY_OPTIONAL_ALWAYS_DEFAULTS = {
     "closure": "Pullover",
     "neckline": "Crew Neck",
     "features": "Lightweight",
+}
+EBAY_OPTIONAL_ALWAYS_DEFAULTS = {**EBAY_OPTIONAL_FIXED_DEFAULTS, **EBAY_OPTIONAL_INFER_FALLBACKS}
+EBAY_OCCASION_OPTIONS = (
+    "Casual", "Workwear", "Formal", "Party/Cocktail", "Activewear",
+    "Travel", "Everyday", "Business",
+)
+EBAY_APPAREL_CUES = {
+    "pattern": {
+        "Floral": (r"\bfloral\b", r"\bflower(?:ed|s)?\b"),
+        "Striped": (r"\bstripe[ds]?\b",),
+        "Plaid": (r"\bplaid\b",),
+        "Graphic Print": (r"\bgraphic\b", r"\blogo\b"),
+        "Solid": (r"\bsolid\b", r"\bplain\b"),
+    },
+    "fit": {
+        "Relaxed": (r"\brelaxed\b", r"\boversized\b"),
+        "Slim": (r"\bslim\b",),
+        "Athletic": (r"\bathletic\b", r"\bworkout\b"),
+        "Regular": (r"\bregular\b",),
+        "Classic": (r"\bclassic\b",),
+    },
+    "style": {
+        "Cropped": (r"\bcrop(?:ped)?\b",),
+        "Ringer": (r"\bringer\b",),
+        "Basic": (r"\bbasic\b", r"\btee\b", r"\bt[\s-]?shirt\b"),
+    },
+    "neckline": {
+        "V-Neck": (r"\bv[\s-]*neck\b",),
+        "Crew Neck": (r"\bcrew(?:\s*neck)?\b",),
+        "Henley": (r"\bhenley\b",),
+        "Collared": (r"\bcollar(?:ed)?\b", r"\bpolo\b"),
+    },
+    "closure": {
+        "Pullover": (r"\bpullover\b", r"\btee\b", r"\bt[\s-]?shirt\b"),
+        "Button": (r"\bbutton(?:[\s-]*up|[\s-]*down)?\b",),
+        "Zip": (r"\bzip(?:per|[\s-]*up)?\b",),
+    },
+    "features": {
+        "Lightweight": (r"\blightweight\b", r"\btee\b", r"\bt[\s-]?shirt\b", r"\bblouse\b"),
+        "Heavyweight": (r"\bheavyweight\b",),
+        "Hooded": (r"\bhood(?:ed|ie)?\b",),
+        "Pockets": (r"\bpocket(?:s)?\b",),
+        "Stretch": (r"\bstretch\b",),
+        "Oversized": (r"\boversized\b",),
+    },
+    "occasion": {
+        "Casual": (r"\bcasual\b", r"\beveryday\b", r"\btee\b"),
+        "Workwear": (r"\bworkwear\b", r"\boffice\b"),
+        "Formal": (r"\bformal\b", r"\bwedding\b"),
+        "Party/Cocktail": (r"\bparty\b", r"\bcocktail\b"),
+        "Activewear": (r"\bactivewear\b", r"\bworkout\b", r"\bgym\b"),
+        "Travel": (r"\btravel\b", r"\bvacation\b"),
+    },
 }
 # Only these may be Does Not Apply when empty — everything else must be a real value.
 # Fabric Weight is numeric on eBay (must be > 0); DNA is rejected at list time.
@@ -511,8 +569,33 @@ def ensure_ebay_category_optionals(listing: dict) -> bool:
                 ebay["category_specifics"] = nested
             changed = True
 
-    for key, default in EBAY_OPTIONAL_ALWAYS_DEFAULTS.items():
+    for key, default in EBAY_OPTIONAL_FIXED_DEFAULTS.items():
         set_key(key, default)
+
+    hay = ebay_season_haystack(listing, ebay)
+    field_option_names = {
+        "pattern": ("Pattern", "pattern"),
+        "fit": ("fit", "Fit"),
+        "style": ("Style", "style"),
+        "neckline": ("Neckline", "neckline"),
+        "closure": ("closure", "Closure"),
+        "features": ("Features", "features"),
+    }
+    for key, fallback in EBAY_OPTIONAL_INFER_FALLBACKS.items():
+        if not ebay_optional_blank(ebay_optional_raw(ebay, key)):
+            continue
+        if key == "occasion":
+            options = list(EBAY_OCCASION_OPTIONS)
+        else:
+            options = dropdown_field_options("ebay", *field_option_names.get(key, (key,))) or [fallback]
+        cues = EBAY_APPAREL_CUES.get(key)
+        if key == "features":
+            picked = infer_known_options(hay, options, cues=cues, fallbacks=(fallback,), limit=1)
+            value = picked[0] if picked else fallback
+        else:
+            value = infer_known_option(hay, options, cues=cues, fallback=fallback) or fallback
+        set_key(key, value)
+
 
     # Condition Description is fixed, not a default: whatever a model wrote or
     # an import carried over is replaced.

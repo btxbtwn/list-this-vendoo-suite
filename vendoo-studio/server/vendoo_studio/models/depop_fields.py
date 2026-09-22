@@ -8,11 +8,11 @@ from typing import Any
 from vendoo_studio.models.ebay_fields import (
     ebay_optional_blank,
     ebay_season_haystack,
-    infer_ebay_season,
 )
 from vendoo_studio.models.listing_values import (
     as_list,
     canonical_option,
+    infer_known_options,
     text_value,
 )
 from vendoo_studio.models.schema import (
@@ -48,7 +48,29 @@ DEPOP_OPTIONAL_DNA_LOOKUPS = frozenset({
 })
 # Last-resort pads when listing text yields fewer than 3 style cues.
 DEPOP_STYLE_FALLBACKS = ("Casual", "Minimalist", "Indie")
-DEPOP_DEFAULT_OCCASIONS = ("Casual", "Going out", "Vacation")
+DEPOP_OCCASION_FALLBACKS = ("Casual", "Going out", "Vacation")
+DEPOP_DEFAULT_OCCASIONS = DEPOP_OCCASION_FALLBACKS
+DEPOP_OCCASION_EBAY_ALIASES = {
+    "workwear": "Work", "activewear": "Workout", "formal": "Special Occasion",
+    "party/cocktail": "Party", "everyday": "Casual", "travel": "Vacation",
+    "business": "Work", "casual": "Casual",
+}
+DEPOP_OCCASION_CUES = {
+    "Festival": (r"\bfestival\b", r"\brave\b"),
+    "Going out": (r"\bgoing[\s-]*out\b", r"\bnight[\s-]*out\b", r"\bcocktail\b", r"\bblouse\b"),
+    "Outdoors": (r"\boutdoor(?:s)?\b", r"\bhiking\b", r"\bcamping\b", r"\bpatagonia\b"),
+    "Party": (r"\bparty\b", r"\bsequin\b", r"\bglam\b"),
+    "Relaxation": (r"\brelax(?:ation|ing)?\b", r"\blounge(?:wear)?\b", r"\bpajamas?\b"),
+    "School": (r"\bschool\b", r"\bcampus\b", r"\bcollegiate\b"),
+    "Ski": (r"\bski(?:ing)?\b", r"\bsnowboard\b"),
+    "Special Occasion": (r"\bspecial\s*occasion\b", r"\bwedding\b", r"\bformal\b", r"\bprom\b"),
+    "Summer": (r"\bsummer\b", r"\bbeach\b", r"\btropical\b", r"\bshorts?\b"),
+    "Vacation": (r"\bvacation\b", r"\btravel\b", r"\bresort\b"),
+    "Winter": (r"\bwinter\b", r"\bsnow\b", r"\bparka\b", r"\bpuffer\b"),
+    "Work": (r"\bwork(?:wear)?\b", r"\boffice\b", r"\bbusiness\b"),
+    "Workout": (r"\bworkout\b", r"\bgym\b", r"\bactivewear\b", r"\bathletic\b", r"\bleggings?\b"),
+    "Casual": (r"\bcasual\b", r"\beveryday\b", r"\btee\b", r"\bt[\s-]?shirt\b", r"\brelaxed\b"),
+}
 
 # Keyword cues → Depop style labels. Scores accumulate; top hits win.
 DEPOP_STYLE_CUES: dict[str, tuple[str, ...]] = {
@@ -213,6 +235,77 @@ def infer_depop_styles(
     return _pad_depop_tags(picked, fallbacks, limit=limit)
 
 
+def _map_ebay_occasion_to_depop(value: str) -> str | None:
+    folded = str(value or "").casefold()
+    if not folded:
+        return None
+    for key, mapped in DEPOP_OCCASION_EBAY_ALIASES.items():
+        if key in folded:
+            return mapped
+    return canonical_option(str(value), VALID_DEPOP_OCCASION)
+
+
+def infer_depop_occasions(
+    listing: dict | None = None,
+    *,
+    ebay: dict | None = None,
+    limit: int = 3,
+    exclude=None,
+) -> list[str]:
+    """Pick up to ``limit`` Depop occasions from listing text and known dropdown options."""
+    listing = listing if isinstance(listing, dict) else {}
+    if not isinstance(ebay, dict):
+        raw = listing.get("ebay_specifics")
+        ebay = raw if isinstance(raw, dict) else {}
+    hay = ebay_season_haystack(listing, ebay)
+    blocked = {str(item) for item in (exclude or ()) if item}
+    seeded: list[str] = []
+    for part in as_list(ebay.get("occasion")):
+        hit = _map_ebay_occasion_to_depop(str(part))
+        if hit and hit not in blocked and hit not in seeded:
+            seeded.append(hit)
+    type_boosts = {
+        "t-shirt": ("Casual", "School", "Summer"),
+        "tee": ("Casual", "School", "Summer"),
+        "hoodie": ("Casual", "School"),
+        "blouse": ("Casual", "Going out", "Work"),
+        "dress": ("Going out", "Party", "Special Occasion"),
+        "leggings": ("Workout", "Casual"),
+        "joggers": ("Workout", "Casual"),
+        "shorts": ("Casual", "Summer", "Vacation"),
+        "parka": ("Winter", "Outdoors"),
+        "coat": ("Winter", "Work"),
+        "puffer": ("Winter", "Outdoors"),
+    }
+    type_hay = " ".join(text_value(part) for key in ("type", "features", "style") for part in as_list(ebay.get(key))).casefold()
+    for needle, boosts in type_boosts.items():
+        if needle in type_hay:
+            for occasion in boosts:
+                if occasion not in blocked and occasion not in seeded:
+                    seeded.append(occasion)
+    season = text_value(ebay.get("season"))
+    if season in {"Summer", "Winter"} and season not in blocked and season not in seeded:
+        seeded.append(season)
+    depop = listing.get("depop_specifics") if isinstance(listing.get("depop_specifics"), dict) else {}
+    style_boosts = {
+        "Streetwear": ("Casual", "Going out"),
+        "Sportswear": ("Workout", "Casual"),
+        "Loungewear": ("Relaxation", "Casual"),
+        "Rave": ("Festival", "Party"),
+        "Gorpcore": ("Outdoors", "Vacation"),
+        "Preppy": ("School", "Work"),
+    }
+    for style in as_list(depop.get("style")):
+        for occasion in style_boosts.get(str(style), ()):
+            if occasion not in blocked and occasion not in seeded:
+                seeded.append(occasion)
+    scored = infer_known_options(
+        hay, VALID_DEPOP_OCCASION, cues=DEPOP_OCCASION_CUES,
+        fallbacks=DEPOP_OCCASION_FALLBACKS, limit=limit, exclude=blocked,
+    )
+    return _pad_depop_tags(seeded, tuple(scored) + DEPOP_OCCASION_FALLBACKS, limit=limit)
+
+
 def _infer_depop_parcel_size(listing: dict) -> str:
     """Depop's parcel tier is priced by weight — empty when the listing has no weight."""
     try:
@@ -314,43 +407,24 @@ def ensure_depop_category_optionals(listing: dict) -> bool:
             depop["style"] = padded
             changed = True
 
+    working = {**listing, "depop_specifics": depop}
     occasions = as_list(depop.get("occasion"))
     occasion_hits = [canonical_option(occasion, VALID_DEPOP_OCCASION) for occasion in occasions]
     if not occasions:
         mapped = []
-        ebay_occ = ebay.get("occasion") if isinstance(ebay, dict) else None
-        for occasion in as_list(ebay_occ):
-            folded = str(occasion or "").casefold()
-            alias = {
-                "workwear": "Work",
-                "activewear": "Workout",
-                "formal": "Special Occasion",
-                "party/cocktail": "Party",
-                "everyday": "Casual",
-                "travel": "Vacation",
-                "business": "Work",
-                "casual": "Casual",
-            }
-            mapped_value = None
-            for key, value in alias.items():
-                if key in folded:
-                    mapped_value = value
-                    break
-            hit = mapped_value or canonical_option(str(occasion), VALID_DEPOP_OCCASION)
+        for occasion in as_list(ebay.get("occasion") if isinstance(ebay, dict) else None):
+            hit = _map_ebay_occasion_to_depop(str(occasion))
             if hit and hit not in mapped:
                 mapped.append(hit)
-        season = text_value(ebay.get("season") if isinstance(ebay, dict) else "") or infer_ebay_season(listing, ebay=ebay)
-        if season == "Summer" and "Summer" not in mapped:
-            mapped.append("Summer")
-        if season == "Winter" and "Winter" not in mapped:
-            mapped.append("Winter")
-        set_key("occasion", _pad_depop_tags(mapped, DEPOP_DEFAULT_OCCASIONS, limit=3))
+        inferred = infer_depop_occasions(working, ebay=ebay, limit=3, exclude=mapped)
+        set_key("occasion", _pad_depop_tags(mapped, tuple(inferred) + DEPOP_OCCASION_FALLBACKS, limit=3))
     elif all(occasion_hits) and len({hit for hit in occasion_hits if hit}) < 3:
         mapped = []
         for hit in occasion_hits:
             if hit and hit not in mapped:
                 mapped.append(hit)
-        padded = _pad_depop_tags(mapped, DEPOP_DEFAULT_OCCASIONS, limit=3)
+        inferred = infer_depop_occasions(working, ebay=ebay, limit=3, exclude=mapped)
+        padded = _pad_depop_tags(mapped, tuple(inferred) + DEPOP_OCCASION_FALLBACKS, limit=3)
         if padded != occasions:
             depop["occasion"] = padded
             changed = True
