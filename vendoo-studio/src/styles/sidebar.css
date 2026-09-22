@@ -665,23 +665,32 @@ html.desktop-app .editor-header {
   place-items: center;
 }
 
-.sidebar-update-progress-ring {
+.sidebar-update-progress-spin {
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.sidebar-update-progress-spin.is-indeterminate {
+  /* Full turns on the wrapper; the ring keeps a static -90deg start angle. */
+  animation: sidebar-update-spin 1s linear infinite;
+  will-change: transform;
+  transform-origin: center;
+}
+
+.sidebar-update-progress-ring {
   width: 32px;
   height: 32px;
   transform: rotate(-90deg);
   pointer-events: none;
-}
-
-.sidebar-update-progress-ring.is-indeterminate {
-  animation: sidebar-update-spin 0.9s linear infinite;
+  overflow: visible;
 }
 
 .sidebar-update-progress-track,
 .sidebar-update-progress-value {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 1.5;
 }
 
 .sidebar-update-progress-track {
@@ -703,6 +712,11 @@ html.desktop-app .editor-header {
   line-height: 1;
   letter-spacing: -0.02em;
   color: currentColor;
+}
+
+.sidebar-update-progress-icon .sidebar-update-available-icon {
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar-update-restart-icon {
@@ -731,7 +745,9 @@ html.desktop-app .editor-header {
 }
 
 .sidebar-update-glyph.is-spinning {
-  animation: sidebar-update-spin 0.8s linear infinite;
+  animation: sidebar-update-spin 1s linear infinite;
+  will-change: transform;
+  transform-origin: center;
 }
 
 @keyframes sidebar-update-spin {
@@ -740,8 +756,9 @@ html.desktop-app .editor-header {
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar-update-glyph.is-spinning,
-  .sidebar-update-progress-ring.is-indeterminate {
+  .sidebar-update-progress-spin.is-indeterminate {
     animation: none;
+    will-change: auto;
   }
 
   .sidebar-update-progress-value {

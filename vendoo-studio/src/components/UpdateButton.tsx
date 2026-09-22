@@ -289,27 +289,37 @@ export function normalizeDownloadPercent(percent: number | null | undefined): nu
 function DownloadProgressIcon({ percent }: { percent: number | null }) {
   const normalized = normalizeDownloadPercent(percent);
   const offset = DOWNLOAD_PROGRESS_CIRCUMFERENCE * (1 - normalized / 100);
-  // Before the first byte lands the ring sits at 0 — spin the track so it still
-  // reads as progress instead of a disabled control.
+  // Before the first byte lands the arc is empty — spin a short segment so the
+  // control still reads as active. Spin the outer wrapper so it never fights
+  // the ring's -90° start angle (same continuous spin as T3's animate-spin).
   const indeterminate = normalized <= 0;
   return (
     <span className="sidebar-update-progress-icon">
-      <svg
-        className={`sidebar-update-progress-ring${indeterminate ? " is-indeterminate" : ""}`}
-        viewBox="0 0 32 32"
+      <span
+        className={
+          indeterminate
+            ? "sidebar-update-progress-spin is-indeterminate"
+            : "sidebar-update-progress-spin"
+        }
         aria-hidden="true"
       >
-        <circle className="sidebar-update-progress-track" cx="16" cy="16" r={DOWNLOAD_PROGRESS_RADIUS} />
-        <circle
-          className="sidebar-update-progress-value"
-          cx="16"
-          cy="16"
-          r={DOWNLOAD_PROGRESS_RADIUS}
-          strokeDasharray={DOWNLOAD_PROGRESS_CIRCUMFERENCE}
-          strokeDashoffset={indeterminate ? DOWNLOAD_PROGRESS_CIRCUMFERENCE * 0.75 : offset}
-        />
-      </svg>
-      <span className="sidebar-update-progress-pct">{Math.round(normalized)}</span>
+        <svg className="sidebar-update-progress-ring" viewBox="0 0 32 32">
+          <circle className="sidebar-update-progress-track" cx="16" cy="16" r={DOWNLOAD_PROGRESS_RADIUS} />
+          <circle
+            className="sidebar-update-progress-value"
+            cx="16"
+            cy="16"
+            r={DOWNLOAD_PROGRESS_RADIUS}
+            strokeDasharray={DOWNLOAD_PROGRESS_CIRCUMFERENCE}
+            strokeDashoffset={indeterminate ? DOWNLOAD_PROGRESS_CIRCUMFERENCE * 0.75 : offset}
+          />
+        </svg>
+      </span>
+      {indeterminate ? (
+        <DownloadIcon showDot={false} />
+      ) : (
+        <span className="sidebar-update-progress-pct">{Math.round(normalized)}</span>
+      )}
     </span>
   );
 }
