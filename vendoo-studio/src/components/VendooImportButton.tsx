@@ -124,17 +124,23 @@ export function VendooImportButton() {
   return (
     <button
       type="button"
-      className="sidebar-icon-btn"
+      className={`sidebar-icon-btn sidebar-vendoo-sync-btn${start.isPending ? " is-busy" : ""}`}
       title="Sync Vendoo data"
       aria-label="Sync Vendoo data"
+      aria-busy={start.isPending || undefined}
       disabled={start.isPending}
       onClick={onClick}
     >
+      {/* Cloud + down arrow: inventory pull, not the circular refresh used by Check for Updates. */}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M20 11a8 8 0 00-14.9-4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-        <path d="M20 4v7h-7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M4 13a8 8 0 0014.9 4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-        <path d="M4 20v-7h7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M7.5 18H17a4 4 0 00.4-8 5.5 5.5 0 00-10.7-1.6A3.5 3.5 0 007.5 18z"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinejoin="round"
+        />
+        <path d="M12 10v6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path d="M9.5 14L12 16.5 14.5 14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </button>
   );
