@@ -1,4 +1,5 @@
 import { ChatMarkdown } from "./ChatMarkdown";
+import { MarketplaceLogo, hasMarketplaceLogo } from "./MarketplaceLogo";
 
 export interface SoldComp {
   price: string;
@@ -25,12 +26,11 @@ const MIN_CONFIDENT_COMPS = 3;
 const RANGE_RE =
   /\$\s*(\d{1,4}(?:\.\d{1,2})?)\s*(?:[-–—]|to)\s*\$?\s*(\d{1,4}(?:\.\d{1,2})?)/i;
 
+// The comps come back with display names ("eBay", "Poshmark"); the logo set is
+// keyed by Vendoo's ids, and anything it does not carry gets the general mark.
 function marketplaceSlug(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z]/g, "");
-  if (slug === "ebay" || slug === "poshmark" || slug === "mercari" || slug === "depop" || slug === "etsy") {
-    return slug;
-  }
-  return "other";
+  return hasMarketplaceLogo(slug) ? slug : "general";
 }
 
 function sourceLabel(source: string): string {
@@ -134,12 +134,34 @@ export function parseSoldComps(text: string): SoldCompsReport | null {
   return report;
 }
 
+/* lucide `tag`. Same 14px muted glyph the Evidence card heads with; T3 Code
+   pairs an icon with a sentence-case title on its timeline cards. */
+function TagIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
+      <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
+    </svg>
+  );
+}
+
 function CompRow({ comp }: { comp: SoldComp }) {
   const inner = (
     <>
       <span className="sold-comps-price">{comp.price}</span>
-      <span className={`sold-comps-market sold-comps-market-${marketplaceSlug(comp.marketplace)}`}>
-        {comp.marketplace}
+      <span className="sold-comps-market">
+        <MarketplaceLogo id={marketplaceSlug(comp.marketplace)} label={comp.marketplace} size={14} />
+        <span className="sold-comps-market-name">{comp.marketplace}</span>
       </span>
       <span className="sold-comps-copy">
         <span className="sold-comps-title">{comp.title}</span>
@@ -172,19 +194,21 @@ export function SoldCompsCard({ text }: { text: string }) {
   const note = report ? report.note : fallbackNote(text);
   const count = report?.comps.length ?? 0;
   const thin = count > 0 && count < MIN_CONFIDENT_COMPS;
-  const meta = [
-    report?.market ? `${report.market} market` : "",
-    sourceLabel(report?.source || ""),
-    thin ? `only ${count} sold — too thin to price from` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const market = report?.market || "";
+  const source = sourceLabel(report?.source || "");
 
   return (
     <div className="evidence-card sold-comps-card">
-      <div className="evidence-header">SOLD COMPS</div>
+      <div className="evidence-header">
+        <TagIcon />
+        <span className="evidence-title">Sold comps</span>
+        {market ? <span className="sold-comps-range">{market} market</span> : null}
+        {source ? <span className="sold-comps-source">{source}</span> : null}
+      </div>
       <div className="sold-comps-body">
-        {meta ? <div className="sold-comps-meta">{meta}</div> : null}
+        {thin ? (
+          <div className="sold-comps-meta">only {count} sold — too thin to price from</div>
+        ) : null}
         {report?.comps.length ? (
           <div className="sold-comps-list">
             {report.comps.map((comp, index) => (
