@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.77 — 2026-09-22
+
+- Fail CI when a version bump ships without a changelog entry
+
 ## 0.1.76 — 2026-09-22
 
 - Add this changelog, and read it in the app under Settings → General → About → What's new
