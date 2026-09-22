@@ -12,10 +12,17 @@ describe("ProviderLogo", () => {
     }
   });
 
-  it("keeps brand fills on provider logos", () => {
-    expect(providerLogoColor("chatgpt")).toBe("#10A37F");
-    expect(providerLogoColor("mimo")).toBe("#FF6900");
-    expect(providerLogoColor("cursor")).toBe("#000000");
+  it("keeps current brand fills on provider logos", () => {
+    expect(providerLogoColor("chatgpt")).toBe("#000000");
+    expect(providerLogoColor("mimo")).toBe("#000000");
+    expect(providerLogoColor("cursor")).toBe("#26251E");
+  });
+
+  it("ships the 2025 OpenAI blossom and Cursor 2D cube geometry", () => {
+    expect(PROVIDER_LOGOS.chatgpt.paths[0].d).toContain("M101.228");
+    expect(PROVIDER_LOGOS.chatgpt.viewBox).toBe("0 0 180 180");
+    expect(PROVIDER_LOGOS.cursor.viewBox).toBe("0 0 466.73 532.09");
+    expect(PROVIDER_LOGOS.mimo.paths.length).toBeGreaterThan(1);
   });
 
   it("maps API provider names to logo ids", () => {
