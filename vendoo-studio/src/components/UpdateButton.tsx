@@ -278,15 +278,27 @@ function DownloadIcon({ showDot = true }: { showDot?: boolean }) {
 const DOWNLOAD_PROGRESS_RADIUS = 14;
 const DOWNLOAD_PROGRESS_CIRCUMFERENCE = 2 * Math.PI * DOWNLOAD_PROGRESS_RADIUS;
 
-function DownloadProgressIcon({ percent }: { percent: number | null }) {
-  const normalized = Math.min(
+/** Clamp a download percent for the sidebar progress ring. */
+export function normalizeDownloadPercent(percent: number | null | undefined): number {
+  return Math.min(
     100,
     Math.max(0, typeof percent === "number" && Number.isFinite(percent) ? percent : 0),
   );
+}
+
+function DownloadProgressIcon({ percent }: { percent: number | null }) {
+  const normalized = normalizeDownloadPercent(percent);
   const offset = DOWNLOAD_PROGRESS_CIRCUMFERENCE * (1 - normalized / 100);
+  // Before the first byte lands the ring sits at 0 — spin the track so it still
+  // reads as progress instead of a disabled control.
+  const indeterminate = normalized <= 0;
   return (
     <span className="sidebar-update-progress-icon">
-      <svg className="sidebar-update-progress-ring" viewBox="0 0 32 32" aria-hidden="true">
+      <svg
+        className={`sidebar-update-progress-ring${indeterminate ? " is-indeterminate" : ""}`}
+        viewBox="0 0 32 32"
+        aria-hidden="true"
+      >
         <circle className="sidebar-update-progress-track" cx="16" cy="16" r={DOWNLOAD_PROGRESS_RADIUS} />
         <circle
           className="sidebar-update-progress-value"
@@ -294,10 +306,10 @@ function DownloadProgressIcon({ percent }: { percent: number | null }) {
           cy="16"
           r={DOWNLOAD_PROGRESS_RADIUS}
           strokeDasharray={DOWNLOAD_PROGRESS_CIRCUMFERENCE}
-          strokeDashoffset={offset}
+          strokeDashoffset={indeterminate ? DOWNLOAD_PROGRESS_CIRCUMFERENCE * 0.75 : offset}
         />
       </svg>
-      <DownloadIcon showDot={false} />
+      <span className="sidebar-update-progress-pct">{Math.round(normalized)}</span>
     </span>
   );
 }
@@ -321,9 +333,12 @@ export function UpdateButton() {
   return (
     <button
       type="button"
-      className={`sidebar-update-btn${showAvailable || busy || downloaded ? " is-active" : ""}`}
+      // Keep the control enabled while busy so the webview does not wash it out —
+      // onClick already no-ops when busy, and aria-disabled carries the state.
+      className={`sidebar-update-btn${showAvailable || busy || downloaded ? " is-active" : ""}${busy ? " is-busy" : ""}`}
       onClick={onClick}
-      disabled={busy}
+      aria-disabled={busy || undefined}
+      aria-busy={busy || undefined}
       aria-label={iconTooltip}
       title={iconTooltip}
     >

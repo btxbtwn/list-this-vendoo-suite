@@ -39,6 +39,7 @@
 /* Busy is not "blocked" — keep the filled color and a wait cursor so Send /
    Update still read as work in progress rather than a greyed-out control. */
 .btn-primary:disabled.is-busy {
+  opacity: 1;
   background: var(--color-cobalt);
   color: var(--color-accent-ink);
   box-shadow: none;
@@ -46,6 +47,7 @@
 }
 
 .btn-success:disabled.is-busy {
+  opacity: 1;
   background: var(--color-vendoo);
   color: var(--color-accent-ink);
   box-shadow: none;
@@ -53,6 +55,7 @@
 }
 
 .btn-danger:disabled.is-busy {
+  opacity: 1;
   background: var(--color-tomato);
   color: white;
   box-shadow: none;

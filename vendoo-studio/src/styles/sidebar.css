@@ -625,8 +625,17 @@ html.desktop-app .editor-header {
   background: var(--color-ink-hover);
 }
 
-.sidebar-update-btn:disabled {
-  cursor: not-allowed;
+.sidebar-update-btn:disabled,
+.sidebar-update-btn[aria-disabled="true"] {
+  cursor: wait;
+}
+
+/* Busy must stay fully opaque — native disabled styling washes the ring out. */
+.sidebar-update-btn.is-busy {
+  opacity: 1;
+  color: var(--color-text);
+  background: var(--color-ink-raised);
+  cursor: wait;
 }
 
 .sidebar-update-available-icon {
@@ -665,10 +674,14 @@ html.desktop-app .editor-header {
   pointer-events: none;
 }
 
+.sidebar-update-progress-ring.is-indeterminate {
+  animation: sidebar-update-spin 0.9s linear infinite;
+}
+
 .sidebar-update-progress-track,
 .sidebar-update-progress-value {
   fill: none;
-  stroke-width: 1.5;
+  stroke-width: 2;
 }
 
 .sidebar-update-progress-track {
@@ -679,6 +692,17 @@ html.desktop-app .editor-header {
   stroke: currentColor;
   stroke-linecap: round;
   transition: stroke-dashoffset 300ms ease-out;
+}
+
+.sidebar-update-progress-pct {
+  position: relative;
+  z-index: 1;
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: currentColor;
 }
 
 .sidebar-update-restart-icon {
@@ -715,13 +739,31 @@ html.desktop-app .editor-header {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-update-glyph.is-spinning {
+  .sidebar-update-glyph.is-spinning,
+  .sidebar-update-progress-ring.is-indeterminate {
     animation: none;
   }
 
   .sidebar-update-progress-value {
     transition: none;
   }
+}
+
+/* Inventory sync sits beside Check for Updates — keep color/shape distinct. */
+.sidebar-vendoo-sync-btn {
+  color: var(--color-vendoo);
+}
+
+.sidebar-vendoo-sync-btn:hover:not(:disabled) {
+  color: var(--color-vendoo);
+  background: color-mix(in srgb, var(--color-vendoo) 16%, transparent);
+}
+
+.sidebar-vendoo-sync-btn.is-busy,
+.sidebar-vendoo-sync-btn:disabled.is-busy {
+  opacity: 1;
+  color: var(--color-vendoo);
+  cursor: wait;
 }
 
 /* Whole-inventory Vendoo import, in the sidebar footer beside the updater. */

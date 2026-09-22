@@ -368,9 +368,10 @@ function AboutVersionRow({ version }: { version: string }) {
       control={
         <button
           type="button"
-          className={`btn btn-sm ${(available || downloaded) && !busy ? "btn-primary" : "btn-outline"}`}
+          className={`btn btn-sm ${busy || available || downloaded ? "btn-primary" : "btn-outline"}${busy ? " is-busy" : ""}`}
           onClick={onClick}
           disabled={busy}
+          aria-busy={busy || undefined}
           title={iconTooltip}
         >
           {settingsLabel}
