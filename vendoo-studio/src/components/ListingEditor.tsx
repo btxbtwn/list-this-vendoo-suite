@@ -914,6 +914,12 @@ function SendToVendooButton({
       }
       return { kind: "create" as const, ...(await api.vendooApi.create(convId)) };
     },
+    onMutate: () => {
+      // Surface the dispatched save/create job as soon as the server writes it,
+      // rather than waiting for the next 2s poll.
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
+    },
     onSuccess: (res) => {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
@@ -1043,7 +1049,7 @@ function SendToVendooButton({
     const label = probeActive
       ? "Discovering fields"
       : apiCreateActive
-        ? "Sending to Vendoo"
+        ? (bound ? "Updating Vendoo" : "Sending to Vendoo")
         : "Filling fields in the browser";
     const statusText = probeActive
       ? (existingJob.current_step || existingJob.status)
@@ -1145,9 +1151,10 @@ function SendToVendooButton({
     <div>
       <button
         type="button"
-        className={bound ? "btn btn-primary" : "btn btn-success"}
+        className={`${bound ? "btn btn-primary" : "btn btn-success"}${sendMutation.isPending ? " is-busy" : ""}`}
         style={{ width: "100%" }}
         disabled={!sendEnabled}
+        aria-busy={sendMutation.isPending}
         title={generating
           ? "Wait for generation to finish before sending"
           : bound
@@ -1158,7 +1165,7 @@ function SendToVendooButton({
         {sendMutation.isPending ? (
           <span className="send-btn-busy">
             <span className="send-spinner" aria-hidden="true" />
-            Sending…
+            {bound ? "Updating…" : "Sending…"}
           </span>
         ) : sendLabel}
       </button>

@@ -27,6 +27,28 @@ log = logging.getLogger("vendoo_studio.vendoo_api_routes")
 
 CREATE_STEP = "vendoo_api_create"
 CREATED_STEP = "vendoo_api_created"
+# Update Vendoo starts on categories so the editor's job card lights up the
+# same way first Send does, instead of sitting on a silent HTTP wait.
+SAVE_STEP = "vendoo_api_categories"
+SAVED_STEP = "vendoo_api_saved"
+PATCH_STEP = "vendoo_api_patch"
+
+
+def _mark_vendoo_api_step(job, step: str) -> None:
+    """Advance a dispatched create/save job so the editor progress card moves."""
+    from sqlalchemy.orm import object_session
+
+    try:
+        session = object_session(job)
+    except Exception:  # noqa: BLE001 - tests pass a plain namespace
+        return
+    if session is None:
+        return
+    JobRepo(session).update_status(job.id, "dispatched", step)
+    session.refresh(job)
+    status = str(getattr(job, "status", "") or "")
+    if status in {"cancelled", "failed"}:
+        raise VendooCreateError(getattr(job, "last_error", None) or f"Send was {status}")
 
 
 class ProbeRequest(BaseModel):
@@ -406,7 +428,11 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     Either way the conversation is marked level with Vendoo afterwards. Without
     that the next sync reads our own write as Vendoo moving and pulls it back
     over the seller's next edit — and the "unsent edits" badge would never clear.
+
+    The job is held in ``dispatched`` while it runs (same as first Send) so the
+    editor can show step progress instead of a silent wait on the button.
     """
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.listing_generate import latest_photo_analysis
     from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
@@ -437,17 +463,37 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     if not revisions:
         raise HTTPException(400, "No listing to save.")
 
+    job_repo = JobRepo(db)
+    if job_repo.get_running():
+        raise HTTPException(409, "Chrome is busy with another Vendoo job. Try again when it finishes.")
+    if any(job.status in ACTIVE_JOB_STATUSES for job in job_repo.list_by_conversation(conv_id)):
+        raise HTTPException(409, "This listing is already queued or sending to Vendoo.")
+
     snapshot = prepare_listing_snapshot(db, conv, revisions[0].listing_json)
     provider = get_listing_provider() if provider_is_configured() else None
     evidence = latest_photo_analysis(conv_repo.get_messages(conv_id)) or str(conv.notes or "")
-    job = SimpleNamespace(id=None)
+    job = job_repo.create(
+        conv_id=conv_id,
+        approved_revision_id=revisions[0].id,
+        listing_snapshot=snapshot,
+        vendoo_item_id=item_id,
+        status="dispatched",
+        current_step=SAVE_STEP,
+    )
+
+    def mark(step: str) -> None:
+        _mark_vendoo_api_step(job, step)
+
+    updates: dict = {}
+    current: dict = {}
+    desired: dict = {}
     try:
         reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
         current = next(
             (r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None
         ) or {}
         snapshot, specifics, schema, _unresolved, _unfilled = await prepare_listing_for_vendoo(
-            job, snapshot, provider=provider, evidence=evidence,
+            job, snapshot, provider=provider, evidence=evidence, mark=mark,
         )
         # Keep the photos already on the draft — save never re-uploads them.
         current_images = (
@@ -474,11 +520,21 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         form_updates = force_condition_updates(
             desired, {k: v for k, v in updates.items() if k.startswith(f"{LISTINGS_KEY}.")}
         )
+        mark(PATCH_STEP)
         for batch in (general_updates, form_updates):
             if batch:
                 await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": batch}])
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        job = job_repo.get(job.id) or job
+        if str(getattr(job, "status", "") or "") in {"cancelled", "failed"} or "cancelled" in str(exc).lower():
+            raise HTTPException(409, str(exc) or "Update was cancelled") from exc
+        job_repo.update_status(job.id, "failed", SAVE_STEP, error=str(exc))
+        job_repo.add_event(job.id, "vendoo_api_save_failed", SAVE_STEP, {"error": str(exc)})
         raise _http_error(exc) from exc
+
+    job = job_repo.get(job.id) or job
+    if str(getattr(job, "status", "") or "") == "cancelled":
+        raise HTTPException(409, "Update was cancelled")
 
     relist_needed: list[str] = []
     if updates:
@@ -505,6 +561,12 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     if desired.get("dateLastModified"):
         synced_item["dateLastModified"] = desired["dateLastModified"]
     mark_synced(db, conv_id, synced_item, revisions[0].id)
+    job_repo.update_status(job.id, "completed", SAVED_STEP, vendoo_item_id=item_id)
+    job_repo.add_event(job.id, "vendoo_api_saved", SAVED_STEP, {
+        "item_id": item_id,
+        "updated": sorted(updates),
+        "relist_needed": relist_needed,
+    })
     return SaveResponse(
         ok=True, item_id=item_id, updated=sorted(updates), relist_needed=relist_needed,
     )
