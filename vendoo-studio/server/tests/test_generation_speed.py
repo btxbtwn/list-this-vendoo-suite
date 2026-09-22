@@ -60,6 +60,10 @@ class ListingPromptOrderTest(unittest.TestCase):
         self.assertIn("- etsy: Holiday", section)
         self.assertNotIn("Pattern", section)
 
+    def test_prompt_requires_vendoo_general_color_options(self):
+        self.assertIn("Colors must be exact Vendoo General dropdown values", chat_prompts.LISTING_INSTRUCTIONS)
+        self.assertIn("Use Blue for navy", chat_prompts.LISTING_INSTRUCTIONS)
+
 
 class _QuickProvider:
     def __init__(self):

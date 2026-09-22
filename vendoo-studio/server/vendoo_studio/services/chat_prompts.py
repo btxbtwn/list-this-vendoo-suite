@@ -227,7 +227,9 @@ LISTING_INSTRUCTIONS = (
     "Preserve category_path and marketplace_categories from the verified category selections below. "
     "Each marketplace uses its own category tree; do not substitute another form's breadcrumb.\n\n"
     "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
-    "when a second color is visible. Use Vendoo general condition values such as "
+    "when a second color is visible. Colors must be exact Vendoo General dropdown values from "
+    "the listing rules below. Use Blue for navy; Navy is only a Depop option. "
+    "Use Vendoo general condition values such as "
     '"Pre-Owned - Good". Keep tags to 5 or fewer. Depop needs source and age. '
     "Mercari shippingLabel must be USPS Ground Advantage.\n\n"
     "TITLE and DESCRIPTION are non-negotiable skill formulas — copy the structure from "
