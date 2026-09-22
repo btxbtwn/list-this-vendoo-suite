@@ -263,6 +263,7 @@ html.desktop-app .editor-header {
   display: flex;
   align-items: center;
   gap: 2px;
+  width: 100%;
 }
 
 .sidebar-back-btn {
@@ -597,7 +598,7 @@ html.desktop-app .editor-header {
   justify-content: center;
   width: 32px;
   height: 32px;
-  margin-left: 0;
+  margin-left: auto;
   flex-shrink: 0;
   border: none;
   border-radius: 999px;
