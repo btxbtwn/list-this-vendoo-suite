@@ -10,6 +10,7 @@ from vendoo_studio.models.catalog import CategoryTree, CategoryTreeNode
 from vendoo_studio.providers.xiaomi_mimo import unpack_stream_item
 from vendoo_studio.services.catalog_index import search_catalog
 from vendoo_studio.services.category_lookup import (
+    category_department,
     condense_category_search_query,
     is_apparel_general,
     is_non_apparel_path,
@@ -121,9 +122,13 @@ def _usable_search_node(
     apparel: bool,
     women_tops: bool,
     context: str = "",
+    department: str | None = None,
 ) -> bool:
     path = node.path or ""
     if apparel and is_non_apparel_path(path):
+        return False
+    path_department = category_department(path)
+    if department and path_department and path_department != department:
         return False
     if not women_tops:
         return True
@@ -331,6 +336,7 @@ def _collect_choices(
     women_tops = _women_tops_intent(analysis, notes, override, query)
     apparel = women_tops or _apparel_intent(analysis, notes, override, query)
     context = "\n".join(str(text or "") for text in (analysis, notes, override, query))
+    department = category_department(context)
     for marketplace in marketplaces:
         if marketplace in selected:
             continue
@@ -376,6 +382,7 @@ def _collect_choices(
                 continue
             if not _usable_search_node(
                 node, apparel=apparel, women_tops=women_tops, context=context,
+                department=department,
             ):
                 continue
             search_nodes.append(node)
@@ -389,6 +396,7 @@ def _collect_choices(
             for node in _leaves_matching_query(db, marketplace, query, prefix):
                 if not _usable_search_node(
                     node, apparel=apparel, women_tops=women_tops, context=context,
+                    department=department,
                 ):
                     continue
                 _take(node)
