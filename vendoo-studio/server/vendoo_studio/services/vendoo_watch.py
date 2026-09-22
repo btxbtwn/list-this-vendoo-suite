@@ -1,15 +1,17 @@
 """Keep a bound listing in step with its Vendoo draft.
 
 Vendoo stamps every item with ``dateLastModified``, so noticing a change there
-is a matter of comparing it against what Studio last saw. When Vendoo moved,
-Studio takes Vendoo's copy — including when Studio also has unpushed edits.
-That matches the usual case: the seller listed or edited in Vendoo, then Studio
-synced. Studio-only edits are left alone until Vendoo moves or the seller
-pushes (Update / Send).
+is a matter of comparing it against what Studio last saw. What to do about it
+is the harder half: pulling unconditionally would throw away edits made in
+Studio, so a pull only happens when Studio has nothing of its own outstanding.
+When both sides moved, neither wins automatically — the conversation is
+recorded as conflicted and left to the seller.
 
 The inventory *label* (draft / active / sold) is different: it is Vendoo's
 own tab for the item, not Studio's listing copy. Every successful ``get_item``
-refreshes that label and the sidebar status.
+refreshes that label and the sidebar status, even when content is conflicted —
+so a regenerate-then-relist in Vendoo flips Studio back to active without a
+button.
 
 Syncs run when the seller saves in Vendoo (the extension says so), when a
 listing is opened, and when Studio regains focus — never on a timer. Each one
@@ -84,8 +86,8 @@ def studio_has_unpushed_edits(db: Session, conv_id: str) -> bool:
 def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any]:
     """What, if anything, should happen for this conversation.
 
-    ``action`` is ``pull`` when Vendoo moved (Studio edits yield if both did),
-    or ``none``.
+    ``action`` is one of ``pull`` (Vendoo moved, Studio did not), ``conflict``
+    (both moved), or ``none``.
     """
     # parse_notes, not vendoo_binding: the binding helper only reports the item
     # id and url, and these markers live beside them.
@@ -98,15 +100,17 @@ def sync_state(db: Session, conv_id: str, item: dict[str, Any]) -> dict[str, Any
 
     revisions = ListingRepo(db).get_revisions(conv_id)
     local_revision = revisions[0].id if revisions else None
+    local_moved = studio_has_unpushed_edits(db, conv_id)
     remote_moved = bool(remote and seen and remote > seen)
 
     # Nothing recorded yet: adopt Vendoo's state rather than guessing that
     # either side is ahead.
     if not seen:
         return {"action": "pull", "reason": "first sync", "remote": remote, "revision": local_revision}
+    if remote_moved and local_moved:
+        return {"action": "conflict", "reason": "both changed", "remote": remote, "revision": local_revision}
     if remote_moved:
-        reason = "both changed, prefer vendoo" if studio_has_unpushed_edits(db, conv_id) else "vendoo changed"
-        return {"action": "pull", "reason": reason, "remote": remote, "revision": local_revision}
+        return {"action": "pull", "reason": "vendoo changed", "remote": remote, "revision": local_revision}
     return {"action": "none", "reason": "up to date", "remote": remote, "revision": local_revision}
 
 
