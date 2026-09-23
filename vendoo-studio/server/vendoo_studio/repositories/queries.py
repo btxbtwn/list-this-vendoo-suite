@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Conversation, Message, Photo, new_id, utcnow
@@ -13,10 +13,21 @@ from vendoo_studio.models.job import (
     RUNNING_JOB_STATUSES,
     Job,
     JobEvent,
+    VendooDraftCache,
 )
 from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
 from vendoo_studio.models.registry import FieldRegistry
 from vendoo_studio.models.fill_log import FillLogEntry
+
+# Keys the extension sends with a step result that are only useful while the
+# message is being handled: the item, the discovered schema, the fill log and
+# the verification are all stored somewhere of their own. Kept in the event as
+# well they are the largest rows in the database and nothing reads them.
+BULKY_EVENT_KEYS = ("item", "schema", "fill_log", "verification")
+SANITIZED_EVENT_TYPES = ("step_completed", "step_failed")
+# One row each: the newest progress is the only progress worth having, and the
+# stored review already carries every schema section read so far.
+UPSERT_EVENT_TYPES = ("progress", "completion_review")
 
 BUSY_LISTING_STATUSES = ("in_progress", "listing")
 # Vendoo's own inventory labels, plus the one state Vendoo has no name for.
@@ -404,6 +415,20 @@ class ListingRepo:
         return self.db.query(ListingRevision).filter(ListingRevision.conversation_id == conv_id).order_by(ListingRevision.created_at.desc()).all()
 
 
+def _draft_cache_response(row: VendooDraftCache) -> dict:
+    """A cache row in the shape the draft endpoints and the sidebar read."""
+    payload = row.payload if isinstance(row.payload, dict) else {}
+    return {
+        "ok": True,
+        "source": row.source or "cache",
+        "item_id": row.item_id,
+        "url": row.url,
+        "item": payload.get("item"),
+        "form": payload.get("form"),
+        "statuses": payload.get("statuses"),
+    }
+
+
 class JobRepo:
     def __init__(self, db: Session):
         self.db = db
@@ -518,12 +543,23 @@ class JobRepo:
         self.db.refresh(job)
         return job
 
+    def _next_sequence(self, job_id: str) -> int:
+        top = (
+            self.db.query(func.max(JobEvent.sequence))
+            .filter(JobEvent.job_id == job_id)
+            .scalar()
+        )
+        return int(top) + 1 if top is not None else 0
+
     def add_event(self, job_id: str, event_type: str, step: str | None = None, payload: dict | None = None) -> JobEvent:
-        count = self.db.query(JobEvent).filter(JobEvent.job_id == job_id).count()
+        if event_type in SANITIZED_EVENT_TYPES and isinstance(payload, dict):
+            payload = {key: value for key, value in payload.items() if key not in BULKY_EVENT_KEYS}
+        if event_type in UPSERT_EVENT_TYPES:
+            return self._upsert_event(job_id, event_type, step, payload)
         event = JobEvent(
             id=new_id(),
             job_id=job_id,
-            sequence=count,
+            sequence=self._next_sequence(job_id),
             event_type=event_type,
             step=step,
             payload=payload,
@@ -531,6 +567,68 @@ class JobRepo:
         self.db.add(event)
         self.db.commit()
         return event
+
+    def _upsert_event(self, job_id: str, event_type: str, step: str | None, payload: dict | None) -> JobEvent:
+        """Keep one row of this type per job, moved to the end of the timeline."""
+        existing = (
+            self.db.query(JobEvent)
+            .filter(JobEvent.job_id == job_id, JobEvent.event_type == event_type)
+            .order_by(JobEvent.sequence.desc())
+            .all()
+        )
+        if not existing:
+            event = JobEvent(
+                id=new_id(),
+                job_id=job_id,
+                sequence=self._next_sequence(job_id),
+                event_type=event_type,
+                step=step,
+                payload=payload,
+            )
+            self.db.add(event)
+            self.db.commit()
+            return event
+
+        latest = existing[0]
+        stale = [event.id for event in existing[1:]]
+        if stale:
+            self.db.query(JobEvent).filter(JobEvent.id.in_(stale)).delete(synchronize_session=False)
+        latest.sequence = self._next_sequence(job_id)
+        latest.step = step
+        latest.payload = payload
+        latest.created_at = utcnow()
+        self.db.commit()
+        self.db.refresh(latest)
+        return latest
+
+    def prune_duplicate_upsert_events(self) -> int:
+        """Drop every all-but-newest progress and review row left by older builds."""
+        deleted = 0
+        for event_type in UPSERT_EVENT_TYPES:
+            newest = (
+                self.db.query(
+                    JobEvent.job_id.label("job_id"),
+                    func.max(JobEvent.sequence).label("sequence"),
+                )
+                .filter(JobEvent.event_type == event_type)
+                .group_by(JobEvent.job_id)
+                .subquery()
+            )
+            keep = select(JobEvent.id).join(
+                newest,
+                and_(
+                    JobEvent.job_id == newest.c.job_id,
+                    JobEvent.sequence == newest.c.sequence,
+                    JobEvent.event_type == event_type,
+                ),
+            )
+            deleted += (
+                self.db.query(JobEvent)
+                .filter(JobEvent.event_type == event_type, JobEvent.id.notin_(keep))
+                .delete(synchronize_session=False)
+            ) or 0
+        self.db.commit()
+        return int(deleted)
 
     def get_events(self, job_id: str) -> list[JobEvent]:
         return self.db.query(JobEvent).filter(JobEvent.job_id == job_id).order_by(JobEvent.sequence).all()
@@ -544,28 +642,27 @@ class JobRepo:
         )
 
     def latest_vendoo_drafts(self, job_ids: list[str]) -> dict[str, dict]:
-        """Newest cached draft for many jobs at once.
+        """Cached Vendoo status for many jobs at once.
 
         The sidebar badges every rendered row, so a whole inventory would
-        otherwise mean one query per listing on each refresh.
+        otherwise mean one query per listing on each refresh. Rows with nothing
+        to say about a marketplace are left out so the caller can fall back to
+        what the import recorded.
         """
+        from vendoo_studio.services.draft_cache import draft_has_status_signal
+
         if not job_ids:
             return {}
         rows = (
-            self.db.query(JobEvent)
-            .filter(JobEvent.job_id.in_(job_ids), JobEvent.event_type == "vendoo_draft")
-            .order_by(JobEvent.job_id, JobEvent.sequence.desc())
+            self.db.query(VendooDraftCache)
+            .filter(VendooDraftCache.job_id.in_(job_ids))
             .all()
         )
-        drafts: dict[str, dict] = {}
-        for event in rows:
-            if event.job_id in drafts or not isinstance(event.payload, dict):
-                continue
-            payload = event.payload
-            if not payload.get("item") and not payload.get("form"):
-                continue
-            drafts[event.job_id] = payload
-        return drafts
+        return {
+            row.job_id: _draft_cache_response(row)
+            for row in rows
+            if draft_has_status_signal(row.payload)
+        }
 
     def save_vendoo_draft(
         self,
@@ -578,84 +675,41 @@ class JobRepo:
         source: str | None = None,
         step: str | None = None,
         statuses: dict | None = None,
-    ) -> JobEvent:
-        """Cache the latest Vendoo draft for a job.
+    ) -> VendooDraftCache:
+        """Record where Vendoo says this job's item stands, one row per job.
 
-        Only one ``vendoo_draft`` row is kept per job. Sync/watch used to append
-        a full item snapshot on every pull; that grew ``job_events`` by
-        gigabytes and made Studio crash with ``database or disk is full``.
+        Only the status slices are kept. Everything else a draft carries is
+        read live by the panel that needs it.
         """
-        payload = {
-            "ok": True,
-            "source": source or "cache",
-            "item_id": item_id,
-            "url": url,
-            "item": item,
-            "form": form,
-            "statuses": statuses,
-        }
-        existing = (
-            self.db.query(JobEvent)
-            .filter(JobEvent.job_id == job_id, JobEvent.event_type == "vendoo_draft")
-            .order_by(JobEvent.sequence.desc())
-            .all()
-        )
-        if existing:
-            latest = existing[0]
-            latest.step = step
-            latest.payload = payload
-            stale_ids = [event.id for event in existing[1:]]
-            if stale_ids:
-                (
-                    self.db.query(JobEvent)
-                    .filter(JobEvent.id.in_(stale_ids))
-                    .delete(synchronize_session=False)
-                )
-            self.db.commit()
-            self.db.refresh(latest)
-            return latest
-        return self.add_event(job_id, "vendoo_draft", step, payload)
+        from vendoo_studio.services.draft_cache import slim_vendoo_draft_payload
+
+        row = self.db.query(VendooDraftCache).filter(VendooDraftCache.job_id == job_id).first()
+        if row is None:
+            row = VendooDraftCache(job_id=job_id)
+            self.db.add(row)
+        row.item_id = item_id
+        row.url = url
+        row.source = source or "cache"
+        row.step = step
+        row.payload = slim_vendoo_draft_payload(item=item, form=form, statuses=statuses)
+        row.updated_at = utcnow()
+        self.db.commit()
+        self.db.refresh(row)
+        return row
 
     def prune_stale_vendoo_drafts(self) -> int:
-        """Drop every ``vendoo_draft`` that is not the newest for its job."""
-        from sqlalchemy import and_, func, select
-
-        newest = (
-            self.db.query(
-                JobEvent.job_id.label("job_id"),
-                func.max(JobEvent.sequence).label("sequence"),
-            )
-            .filter(JobEvent.event_type == "vendoo_draft")
-            .group_by(JobEvent.job_id)
-            .subquery()
-        )
-        keep_ids = select(JobEvent.id).join(
-            newest,
-            and_(
-                JobEvent.job_id == newest.c.job_id,
-                JobEvent.sequence == newest.c.sequence,
-                JobEvent.event_type == "vendoo_draft",
-            ),
-        )
+        """Drop the ``vendoo_draft`` events earlier builds appended per pull."""
         deleted = (
             self.db.query(JobEvent)
-            .filter(
-                JobEvent.event_type == "vendoo_draft",
-                JobEvent.id.notin_(keep_ids),
-            )
+            .filter(JobEvent.event_type == "vendoo_draft")
             .delete(synchronize_session=False)
         )
         self.db.commit()
         return int(deleted or 0)
 
     def get_vendoo_draft(self, job_id: str) -> dict | None:
-        event = self.latest_event(job_id, "vendoo_draft")
-        if not event or not isinstance(event.payload, dict):
-            return None
-        payload = event.payload
-        if not payload.get("item") and not payload.get("form"):
-            return None
-        return payload
+        row = self.db.query(VendooDraftCache).filter(VendooDraftCache.job_id == job_id).first()
+        return _draft_cache_response(row) if row else None
 
 
 class DiagnosticRepo:

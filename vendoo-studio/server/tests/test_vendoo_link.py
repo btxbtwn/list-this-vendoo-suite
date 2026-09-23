@@ -129,20 +129,17 @@ class LinkVendooDraftTest(unittest.TestCase):
         ensure = self.client.post("/api/jobs/ensure-draft", json={"conversation_id": blank.id})
         self.assertEqual(ensure.status_code, 200, ensure.text)
         job_id = ensure.json()["id"]
-        JobRepo(self.db).save_vendoo_draft(
-            job_id,
-            item={
-                "generalDetails": {"title": "Levi's 501 jeans", "price": 42, "brand": "Levi's"},
-                "images": [{"url": "https://cdn.example/a.jpg"}],
-            },
-            form=None,
-            item_id="draft789",
-            url="https://web.vendoo.co/app/item/draft789",
-            source="api",
-            step="fields_applied",
-        )
+        item = {
+            "itemID": "draft789",
+            "generalDetails": {"title": "Levi's 501 jeans", "price": 42, "brand": "Levi's"},
+            "images": [{"url": "https://cdn.example/a.jpg"}],
+        }
 
-        response = self.client.post(f"/api/jobs/{job_id}/import-draft")
+        async def fake_run_ops(job, ops):
+            return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": item}]}
+
+        with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
+            response = self.client.post(f"/api/jobs/{job_id}/import-draft")
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(body["photo_count"], 1)
@@ -156,14 +153,16 @@ class LinkVendooDraftTest(unittest.TestCase):
         self.assertEqual(len(ConversationRepo(self.db).get_photos(blank.id)), 1)
         self.assertEqual(JobRepo(self.db).get(job_id).listing_snapshot["title"], "Levi's 501 jeans")
 
-    def test_import_draft_requires_a_read_draft(self):
+    def test_import_draft_says_so_when_vendoo_cannot_be_read(self):
+        """Import reads the draft from Vendoo, so Chrome being away is a clear failure."""
         self.client.post(
             f"/api/conversations/{self.conv.id}/vendoo-link",
             json={"url_or_id": "unread123"},
         )
         job_id = self.client.post("/api/jobs/ensure-draft", json={"conversation_id": self.conv.id}).json()["id"]
         response = self.client.post(f"/api/jobs/{job_id}/import-draft")
-        self.assertEqual(response.status_code, 400, response.text)
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertIn("Chrome", response.json()["detail"])
 
     def test_rejects_invalid_ref(self):
         response = self.client.post(

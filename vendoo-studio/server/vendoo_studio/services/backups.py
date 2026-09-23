@@ -39,6 +39,16 @@ NAME_PATTERN = re.compile(rf"^{PREFIX}-(\d{{8}}-\d{{6}})-([a-z0-9-]+)\.db$")
 # is another full copy, and a day of updates will fill the disk.
 KEEP_NEWEST = 3
 KEEP_DAILY_FOR = timedelta(days=30)
+# A month of daily copies of a database that grew to several GB is a folder
+# nobody has room for, so retention is capped by size and count as well as by
+# age. The newest few survive either cap: a backup you cannot restore from is
+# worth less than the space it saves.
+MAX_SNAPSHOT_COUNT = 20
+MAX_RETAINED_BYTES = 8 * 1024**3
+# VACUUM INTO writes a whole second copy of the database, and it writes it
+# beside the original. Starting one without room for it leaves a half-written
+# file on a disk that was already nearly full.
+FREE_SPACE_FACTOR = 2
 
 _lock = threading.Lock()
 
@@ -157,7 +167,18 @@ def _keepers(snapshots: list[Snapshot], now: datetime) -> set[Path]:
         if day not in seen_days:
             seen_days.add(day)
             keep.add(snapshot.path)
-    return keep
+
+    # Newest first, so once either cap is reached everything older goes too.
+    capped: set[Path] = set()
+    retained = 0
+    for position, snapshot in enumerate(s for s in snapshots if s.path in keep):
+        retained += snapshot.size_bytes
+        if position >= KEEP_NEWEST and (
+            position >= MAX_SNAPSHOT_COUNT or retained > MAX_RETAINED_BYTES
+        ):
+            break
+        capped.add(snapshot.path)
+    return capped
 
 
 def prune_snapshots(directory: Path | None = None, *, now: datetime | None = None) -> list[Path]:
@@ -236,6 +257,63 @@ def mirror_photos(folder: Path | None = None) -> int:
     return copied
 
 
+def _readable_size(size_bytes: float) -> str:
+    if size_bytes >= 1024**3:
+        return f"{size_bytes / 1024**3:.1f} GB"
+    return f"{size_bytes / 1024**2:.0f} MB"
+
+
+def database_bytes(source: str | Path | None = None) -> int:
+    """The database and the write-ahead log beside it, which a copy includes."""
+    database = Path(source or DATABASE_PATH)
+    if not database.exists():
+        return 0
+    wal = database.with_name(database.name + "-wal")
+    return database.stat().st_size + (wal.stat().st_size if wal.exists() else 0)
+
+
+def snapshot_blocker(*, source: str | Path | None = None) -> str | None:
+    """Why a snapshot cannot be taken right now, in the seller's words."""
+    database = Path(source or DATABASE_PATH)
+    if not database.exists():
+        return f"No database at {database}"
+    needed = database_bytes(database) * FREE_SPACE_FACTOR
+    try:
+        free = shutil.disk_usage(backups_dir()).free
+    except OSError as exc:
+        return f"Could not check free disk space: {exc}"
+    if free < needed:
+        return (
+            f"Not enough free disk space to back up safely: {_readable_size(free)} free, "
+            f"{_readable_size(needed)} needed. Free up space and back up again."
+        )
+    return None
+
+
+def storage_status(*, source: str | Path | None = None) -> dict:
+    """Sizes, free space and the one warning the Backups card should show."""
+    snapshots = list_snapshots()
+    retained = sum(snapshot.size_bytes for snapshot in snapshots)
+    blocker = snapshot_blocker(source=source)
+    warning = blocker
+    if warning is None and retained >= MAX_RETAINED_BYTES:
+        warning = (
+            f"Snapshots are using {_readable_size(retained)}, the most Studio keeps. "
+            "The oldest are removed as new ones are taken."
+        )
+    try:
+        free = shutil.disk_usage(backups_dir()).free
+    except OSError:
+        free = 0
+    return {
+        "database_bytes": database_bytes(source),
+        "retained_bytes": retained,
+        "disk_free_bytes": free,
+        "can_snapshot": blocker is None,
+        "warning": warning,
+    }
+
+
 def take_snapshot(reason: str, *, source: str | Path | None = None) -> Snapshot:
     """Write a verified copy of the database and return it.
 
@@ -243,8 +321,9 @@ def take_snapshot(reason: str, *, source: str | Path | None = None) -> Snapshot:
     snapshot came from an update and which from a timer.
     """
     database = Path(source or DATABASE_PATH)
-    if not database.exists():
-        raise BackupError(f"No database at {database}")
+    blocker = snapshot_blocker(source=database)
+    if blocker:
+        raise BackupError(blocker)
 
     with _lock:
         directory = backups_dir()

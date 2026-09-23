@@ -353,4 +353,23 @@ export interface BackupsStatus {
   snapshots: BackupSnapshot[];
   folder: string | null;
   latest: BackupSnapshot | null;
+  database_bytes?: number;
+  retained_bytes?: number;
+  disk_free_bytes?: number;
+  can_snapshot?: boolean;
+  warning?: string | null;
+}
+
+export interface DatabaseTableSize {
+  table: string;
+  bytes: number | null;
+  rows: number;
+}
+
+export interface DatabaseReport {
+  path: string;
+  database_bytes: number;
+  tables: DatabaseTableSize[];
+  ok?: boolean;
+  pruned?: { vendoo_drafts: number; duplicate_events: number; deleted: number };
 }

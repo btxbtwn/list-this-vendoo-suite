@@ -275,8 +275,11 @@ async def get_vendoo_item(
         else:
             raise HTTPException(400, "No Vendoo draft is available yet. Import or send the listing first.")
 
+    # The cache holds marketplace status, not the draft's fields, so it answers
+    # the sidebar's peek and stands in when Vendoo cannot be reached. A panel
+    # asking for the item itself gets a live read.
     cached = repo.get_vendoo_draft(job_id)
-    if cached and not refresh:
+    if cache_only and cached:
         return VendooItemResponse(
             ok=True,
             source=cached.get("source") or "cache",
@@ -484,18 +487,42 @@ class ImportDraftResponse(BaseModel):
 
 @router.post("/{job_id}/import-draft", response_model=ImportDraftResponse)
 async def import_draft(job_id: str, db: Session = Depends(get_db)):
-    """Copy the last-read Vendoo draft into the Studio listing and pull its photos."""
+    """Read the Vendoo draft and copy its fields and photos into the listing.
+
+    The cached draft holds marketplace status and nothing else, so the fields
+    come from Vendoo on the way in rather than from whatever was last seen.
+    """
+    from vendoo_studio.routes.extension import durable_vendoo_item_id
+    from vendoo_studio.services.browser_bridge import BrowserBridgeError
+    from vendoo_studio.services.vendoo_create import VendooCreateError, run_ops
     from vendoo_studio.services.vendoo_import import import_vendoo_draft
 
     repo = JobRepo(db)
     job = repo.get(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    cached = repo.get_vendoo_draft(job_id)
-    if not cached:
-        raise HTTPException(400, "Read the Vendoo draft before importing it.")
+    item_id = durable_vendoo_item_id(job.vendoo_item_id)
+    if not item_id:
+        raise HTTPException(400, "No Vendoo draft is available yet. Import or send the listing first.")
 
-    result = await import_vendoo_draft(db, job.conversation_id, cached.get("item"), cached.get("form"), job=job)
+    try:
+        reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+    except (VendooCreateError, BrowserBridgeError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    hit = next((row for row in reply.get("results", []) if row.get("op") == "get_item"), {})
+    item = hit.get("item") if isinstance(hit.get("item"), dict) else None
+    if not item:
+        raise HTTPException(502, "Vendoo returned no item for this draft")
+
+    repo.save_vendoo_draft(
+        job.id,
+        item=item,
+        item_id=item_id,
+        url=job.vendoo_url or f"https://web.vendoo.co/app/item/{item_id}",
+        source="api",
+        step=job.current_step,
+    )
+    result = await import_vendoo_draft(db, job.conversation_id, item, None, job=job)
     job.approved_revision_id = result["revision"].id
     job.listing_snapshot = result["listing"]
     db.commit()

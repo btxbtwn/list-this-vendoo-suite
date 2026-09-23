@@ -172,6 +172,58 @@ def test_prune_keeps_newest_and_one_per_day(backups_dir):
     assert ancient.path.name not in kept
 
 
+def test_prune_caps_how_many_snapshots_are_kept(backups_dir, monkeypatch):
+    monkeypatch.setattr(backups, "MAX_SNAPSHOT_COUNT", 5)
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    for days in range(10):
+        _stub(backups_dir, days, f"day{days}", now)
+
+    prune_snapshots(backups_dir, now=now)
+
+    assert len(list_snapshots(backups_dir)) == 5
+
+
+def test_prune_caps_how_much_disk_snapshots_are_worth(backups_dir, monkeypatch):
+    """A month of daily copies of a multi-GB database is not a month worth keeping."""
+    monkeypatch.setattr(backups, "MAX_RETAINED_BYTES", 10_000)
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    for days in range(8):
+        path = _stub(backups_dir, days, f"day{days}", now).path
+        path.write_bytes(b"x" * 4_000)
+
+    prune_snapshots(backups_dir, now=now)
+
+    # The newest three are kept whatever the cap says; nothing older survives it.
+    assert len(list_snapshots(backups_dir)) == 3
+
+
+def test_a_snapshot_is_refused_when_the_disk_is_nearly_full(source_db, backups_dir, monkeypatch):
+    monkeypatch.setattr(
+        backups.shutil,
+        "disk_usage",
+        lambda path: type("Usage", (), {"total": 0, "used": 0, "free": 8})(),
+    )
+
+    with pytest.raises(BackupError, match="free disk space"):
+        take_snapshot("timer", source=source_db)
+
+    assert list_snapshots(backups_dir) == []
+
+
+def test_storage_status_reports_the_low_disk_warning(source_db, backups_dir, monkeypatch):
+    monkeypatch.setattr(
+        backups.shutil,
+        "disk_usage",
+        lambda path: type("Usage", (), {"total": 0, "used": 0, "free": 8})(),
+    )
+
+    status = backups.storage_status(source=source_db)
+
+    assert status["can_snapshot"] is False
+    assert "free disk space" in status["warning"]
+    assert status["database_bytes"] > 0
+
+
 def test_prune_never_empties_an_old_install(backups_dir):
     now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
     for days in (400, 401, 402, 403):

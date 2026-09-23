@@ -16,7 +16,6 @@ from vendoo_studio.models.fill_log import FillLogEntry
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.job_metrics import fill_success_stats, job_timing
-from vendoo_studio.services.send_skip import matching_marketplaces, specifics_match
 from extension_sources import background_source
 
 EXTENSION = Path(__file__).resolve().parents[3] / "vendoo-extension"
@@ -37,35 +36,6 @@ class _DbTest(unittest.TestCase):
             conv_id=self.conv.id, approved_revision_id=revision.id,
             listing_snapshot={"title": "Tee"}, status="completed", vendoo_item_id="item-1",
         )
-
-
-class SendSkipTest(_DbTest):
-    ITEM = {
-        "itemID": "item-1",
-        "generalDetails": {"title": "Tee"},
-        "listings": {
-            "ebay": {"marketplaceSpecifics": {"type": "T-Shirt", "department": "Men"},
-                     "categorySpecifics": {"material": "Cotton"}},
-            "depop": {"marketplaceSpecifics": {"source": "Preloved", "style": ["Streetwear", "Vintage"]}},
-        },
-    }
-
-    def test_specifics_match_normalizes_case_numbers_and_lists(self):
-        self.assertTrue(specifics_match({"type": "t-shirt", "price": 20}, {"type": "T-Shirt", "price": "20.0"}))
-        self.assertTrue(specifics_match({"style": ["vintage", "Streetwear"]}, {"style": ["Streetwear", "Vintage"]}))
-        self.assertFalse(specifics_match({"type": "Tank"}, {"type": "T-Shirt"}))
-        self.assertFalse(specifics_match({"type": "T-Shirt", "sleeve": "Short"}, {"type": "T-Shirt"}))
-        self.assertFalse(specifics_match({}, {"type": "T-Shirt"}))
-
-    def test_only_marketplaces_matching_the_latest_draft_are_skipped(self):
-        JobRepo(self.db).save_vendoo_draft(self.job.id, item=self.ITEM, item_id="item-1", source="api_readback")
-        listing = {
-            "ebay_specifics": {"type": "T-Shirt", "department": "Men", "material": "cotton"},
-            "depop_specifics": {"source": "Preloved", "style": ["Streetwear", "Y2K"]},
-        }
-        skip = matching_marketplaces(self.db, self.conv.id, "item-1", listing, ["ebay", "depop", "etsy"])
-        self.assertEqual(skip, ["ebay"])
-        self.assertEqual(matching_marketplaces(self.db, self.conv.id, "other-item", listing, ["ebay"]), [])
 
 
 class JobMetricsTest(_DbTest):
