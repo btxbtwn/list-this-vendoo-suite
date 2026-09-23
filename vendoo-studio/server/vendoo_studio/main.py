@@ -52,6 +52,26 @@ async def lifespan(app: FastAPI):
         start_snapshot_timer()
     except Exception:
         pass
+    try:
+        from vendoo_studio.database import SessionLocal
+        from vendoo_studio.repositories.queries import JobRepo
+        import logging
+        import threading
+
+        def _prune_stale_drafts() -> None:
+            try:
+                with SessionLocal() as db:
+                    deleted = JobRepo(db).prune_stale_vendoo_drafts()
+                if deleted:
+                    logging.getLogger("vendoo_studio").info(
+                        "Pruned %s stale vendoo_draft job events", deleted
+                    )
+            except Exception:
+                pass
+
+        threading.Thread(target=_prune_stale_drafts, name="prune-vendoo-drafts", daemon=True).start()
+    except Exception:
+        pass
     yield
     try:
         from vendoo_studio.services.backups import stop_snapshot_timer

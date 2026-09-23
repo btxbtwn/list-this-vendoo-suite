@@ -146,6 +146,26 @@ class SyncStateTest(unittest.TestCase):
         self.assertEqual(cached["source"], "vendoo_sync")
         self.assertEqual(cached["item"]["listings"]["ebay"]["status"], {"listed": True})
         self.assertEqual(cached["item"]["listings"]["depop"]["status"], {"notListed": True})
+        drafts = [
+            event
+            for event in JobRepo(self.db).get_events(job.id)
+            if event.event_type == "vendoo_draft"
+        ]
+        self.assertEqual(len(drafts), 1)
+
+    def test_save_vendoo_draft_keeps_a_single_row_per_job(self):
+        job = JobRepo(self.db).create(
+            self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
+        )
+        repo = JobRepo(self.db)
+        repo.save_vendoo_draft(job.id, item={"itemID": "itm1", "n": 1}, item_id="itm1", source="a")
+        repo.save_vendoo_draft(job.id, item={"itemID": "itm1", "n": 2}, item_id="itm1", source="b")
+        repo.save_vendoo_draft(job.id, item={"itemID": "itm1", "n": 3}, item_id="itm1", source="c")
+        drafts = [event for event in repo.get_events(job.id) if event.event_type == "vendoo_draft"]
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0].payload["source"], "c")
+        self.assertEqual(drafts[0].payload["item"]["n"], 3)
+        self.assertEqual(repo.prune_stale_vendoo_drafts(), 0)
 
     def test_a_pull_refreshes_the_bound_job_even_when_a_newer_job_exists(self):
         """The sidebar may read an older bound job; a newer unbound one must not hide it."""
