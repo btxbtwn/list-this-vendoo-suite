@@ -180,6 +180,37 @@ describe("ask-chat prompts", () => {
     ])).toBe(1);
   });
 
+  it("after a Vendoo draft, Ask chat only targets blanks on the form that lack listing JSON", () => {
+    const forms = [{
+      id: "depop",
+      label: "Depop",
+      fields: [
+        { key: "material", label: "Material", value: "", missing: true },
+        { key: "brand", label: "Brand", value: "Nike", missing: false },
+        { key: "style", label: "Style", value: "", missing: true },
+        { key: "colour", label: "Colour", value: "", missing: true, listingOnly: true },
+      ],
+      filled: 1,
+      missing: 2,
+      notApplicable: 0,
+    }];
+    const listing = {
+      title: "Dress",
+      depop_specifics: { style: "Streetwear" },
+    };
+    // Material: empty on Vendoo + empty in JSON → Ask chat
+    // Brand: filled on Vendoo, empty in JSON → not Ask chat (not a Vendoo blank)
+    // Style: empty on Vendoo, has JSON → ready to Update, not Ask chat
+    // Colour: listingOnly overlay → not a confirmed Vendoo form blank
+    expect(fieldsNeedingListingValues(forms, listing, true).map((row) => row.field.label))
+      .toEqual(["Material"]);
+    expect(askChatTargetCount(forms, listing, [], true)).toBe(1);
+    expect(askChatGapsPrompt(forms, true, listing, [])).toContain("empty on Vendoo and in listing JSON");
+    expect(askChatGapsPrompt(forms, true, listing, [])).toContain("Field: Material");
+    expect(askChatGapsPrompt(forms, true, listing, [])).not.toContain("Field: Brand");
+    expect(askChatGapsPrompt(forms, true, listing, [])).not.toContain("Field: Colour");
+  });
+
   it("keeps account policies and eBay shipping out of Ask chat", () => {
     const forms = [{
       id: "ebay",
