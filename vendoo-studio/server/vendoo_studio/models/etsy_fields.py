@@ -24,6 +24,86 @@ from vendoo_studio.models.schema import (
     _scalar_text,
 )
 
+# Etsy OpenAPI: tags may contain letters, numbers, whitespace, -, ', ™, ©, ®.
+# Help center: max 13 tags, max 20 chars each; cannot start with - or '.
+ETSY_TAG_LIMIT = 13
+ETSY_TAG_MAX_LENGTH = 20
+_ETSY_TAG_KEEP_EXTRA = frozenset("-'™©®")
+_ETSY_TAG_SPACE_CHARS = str.maketrans({
+    "_": " ",
+    "/": " ",
+    "#": " ",
+    "&": " ",
+    "+": " ",
+    ".": " ",
+    ",": " ",
+    ";": " ",
+    ":": " ",
+    "!": " ",
+    "?": " ",
+    "(": " ",
+    ")": " ",
+    "[": " ",
+    "]": " ",
+    "{": " ",
+    "}": " ",
+    "*": " ",
+    "%": " ",
+    "@": " ",
+    '"': " ",
+    "\u201c": " ",
+    "\u201d": " ",
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u2013": "-",
+    "\u2014": "-",
+})
+
+
+def sanitize_etsy_tag(raw: Any) -> str:
+    """Strip characters Etsy rejects in a single tag string."""
+    text = str(raw or "").translate(_ETSY_TAG_SPACE_CHARS)
+    if not text.strip():
+        return ""
+    chars: list[str] = []
+    for ch in text:
+        if ch.isalpha() or ch.isdigit() or ch in _ETSY_TAG_KEEP_EXTRA:
+            chars.append(ch)
+        elif ch.isspace():
+            chars.append(" ")
+    cleaned = re.sub(r"\s+", " ", "".join(chars)).strip()
+    # Cannot start or end with hyphen/apostrophe.
+    return cleaned.strip("-'").strip()
+
+
+def sanitize_etsy_tags(
+    tags: Any,
+    *,
+    limit: int = ETSY_TAG_LIMIT,
+    max_length: int = ETSY_TAG_MAX_LENGTH,
+) -> list[str]:
+    """Return Etsy-safe tags: valid chars, ≤20 chars, ≤13 unique values."""
+    if isinstance(tags, str):
+        raw_tags = [part.strip() for part in tags.split(",") if part.strip()]
+    elif isinstance(tags, list):
+        raw_tags = [str(part).strip() for part in tags if str(part or "").strip()]
+    else:
+        raw_tags = []
+    out: list[str] = []
+    seen: set[str] = set()
+    for tag in raw_tags:
+        cleaned = sanitize_etsy_tag(tag)
+        if not cleaned or len(cleaned) > max_length:
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cleaned)
+        if len(out) >= limit:
+            break
+    return out
+
 ETSY_CATEGORY_OPTIONAL_KEYS = (
     "clothingStyle",
     "sleeveLength",

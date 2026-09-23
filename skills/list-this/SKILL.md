@@ -373,6 +373,7 @@ Before outputting ANY listing, verify:
 - `when_made` must be an exact current Etsy dropdown value from `vendoo-dropdown-options.json` (for example `2010 - 2019 (Recently)`), not `2010s` or `2010-2019`
 - primaryColor and sku must be present; secondaryColor when a second color is visible
 - Up to 13 tags, up to 10 materials
+- Tags: letters, numbers, spaces, hyphens, and apostrophes only (no `#`, `/`, `&`, `%`, or other punctuation). Apostrophes and hyphens cannot start a tag.
 - Vintage items (20+ years) need "When Made" set
 
 **Poshmark:**

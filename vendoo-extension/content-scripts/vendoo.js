@@ -4247,9 +4247,24 @@
   function listingTagValues(data) {
       const raw = data?.tags;
       if (!raw) return [];
+      // Etsy rejects tags with special characters; Vendoo copies general tags
+      // onto the Etsy form on save, so keep chips Etsy-safe here.
       return uniqueStrings((Array.isArray(raw) ? raw : String(raw).split(','))
-          .map((tag) => String(tag).trim())
-          .filter(Boolean));
+          .map((tag) => sanitizeEtsyTag(tag))
+          .filter(Boolean)
+          .filter((tag) => tag.length <= 20)
+          .slice(0, 13));
+  }
+
+  // Letters, numbers, spaces, hyphen, apostrophe, ™ © ® — Etsy OpenAPI tag rules.
+  function sanitizeEtsyTag(raw) {
+      let text = String(raw || '')
+          .replace(/[\u2018\u2019]/g, "'")
+          .replace(/[\u2013\u2014]/g, '-')
+          .replace(/[\u201C\u201D_/#&+.,;:!?()[\]{}*%@"]/g, ' ');
+      text = text.replace(/[^\p{L}\p{Nd}\p{Zs}\-'™©®]/gu, '');
+      text = text.replace(/\s+/g, ' ').trim().replace(/^[-']+|[-']+$/g, '').trim();
+      return text;
   }
 
   function marketplaceSizeSelectors(marketplace) {
