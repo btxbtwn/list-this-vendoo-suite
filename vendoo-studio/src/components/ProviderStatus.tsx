@@ -32,7 +32,7 @@ export function ProviderStatus() {
 
   return (
     <span className="status-provider" title={title}>
-      <span className={`status-dot ${connected ? "connected" : ""}`} />
+      {!connected ? <span className="status-dot error" /> : null}
       {connected && logoId ? <ProviderLogo id={logoId} label={providerLabel} size={14} /> : null}
       <span>{modelName}</span>
     </span>

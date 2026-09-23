@@ -766,6 +766,10 @@
   background: var(--color-success);
 }
 
+.status-dot.error {
+  background: var(--color-error);
+}
+
 .status-dot.outdated {
   background: var(--color-draft);
 }
