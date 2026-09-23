@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.85 — 2026-09-23
+
+- Sending a prompt on a listing no longer fails with "database is locked" while a Vendoo label sync is running
+- A sent prompt now stamps the listing's activity time correctly, so it keeps its place in the sidebar's recent order
+
 ## 0.1.84 — 2026-09-23
 
 - Stop caching every Vendoo sync as a new job event (that ballooned the database and crashed Studio); keep one draft per job and prune leftover backup clones more aggressively

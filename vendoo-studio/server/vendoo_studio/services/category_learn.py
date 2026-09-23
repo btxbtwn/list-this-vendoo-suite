@@ -191,6 +191,9 @@ async def learn_category_schemas_from_item(
     ):
         return {"learned": [], "reason": "already cached", "general_path": general_path}
 
+    # Same reason as the sweep's page loop: no read snapshot may span a Chrome
+    # round-trip, or writers on the request path queue behind it.
+    db.commit()
     try:
         specs = await fetch_listing_specifics(SimpleNamespace(id=None), seed)
     except Exception:  # noqa: BLE001 - sync must not fail over schema learning

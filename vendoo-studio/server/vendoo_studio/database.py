@@ -3,9 +3,16 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from vendoo_studio.config import DATABASE_PATH
 
+# SQLite serialises writers. Studio writes from the request path *and* from
+# background sweeps (Vendoo label sync, watch, bulk import), so a chat send can
+# arrive while a sweep holds the write lock. sqlite3's stock 5s busy timeout is
+# short enough that a Chrome round-trip inside a sweep pushed sends over it, and
+# the seller saw the prompt die with "database is locked". Wait instead.
+BUSY_TIMEOUT_SEC = 30
+
 engine = create_engine(
     f"sqlite:///{DATABASE_PATH}",
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": BUSY_TIMEOUT_SEC},
     echo=False,
 )
 
@@ -17,6 +24,9 @@ def enable_wal(dbapi_connection, _connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
+    # connect_args only covers the driver's own waiting; the pragma is what the
+    # engine honours on statements it issues outside that path.
+    cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_SEC * 1000}")
     cursor.close()
 
 

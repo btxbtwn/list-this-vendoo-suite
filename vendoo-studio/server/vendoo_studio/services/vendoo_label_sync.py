@@ -111,6 +111,11 @@ async def _run() -> None:
         with SessionLocal() as db:
             conv_repo = ConversationRepo(db)
             while True:
+                # End the open read transaction before the Chrome round-trip.
+                # Holding a WAL read snapshot across the whole sweep pins the
+                # log against checkpointing and starves the request path's
+                # writers, which is what surfaced as "database is locked".
+                db.commit()
                 items, page_token = await _list_page(page_token)
                 for item in items:
                     item_id = str(item.get("id") or item.get("itemID") or "").strip()

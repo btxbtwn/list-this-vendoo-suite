@@ -316,9 +316,14 @@ class ConversationRepo:
     def add_message(self, conv_id: str, role: str, text: str, provider: str | None = None, model: str | None = None) -> Message:
         msg = Message(conversation_id=conv_id, role=role, text=text, provider=provider, model=model)
         self.db.add(msg)
+        # ``created_at`` is a column default, so it exists only once the INSERT
+        # is flushed. Reading it before that stamped the conversation's
+        # updated_at with NULL, which drops the listing out of the sidebar's
+        # recency order and makes sync_statuses skip its job-status guard.
+        self.db.flush()
         conv = self.db.query(Conversation).filter(Conversation.id == conv_id).first()
         if conv:
-            conv.updated_at = msg.created_at
+            conv.updated_at = msg.created_at or utcnow()
         self.db.commit()
         return msg
 
