@@ -140,6 +140,7 @@ interface Props {
 export function ComposerPromptEditor({ value, onChange, onSubmit, placeholder, handleRef }: Props) {
   const submitRef = useRef(onSubmit);
   submitRef.current = onSubmit;
+  const placeholderRef = useRef(placeholder);
 
   const extensions = useMemo(
     () => [
@@ -161,7 +162,7 @@ export function ComposerPromptEditor({ value, onChange, onSubmit, placeholder, h
         underline: false,
       }),
       CitationExtension,
-      Placeholder.configure({ placeholder }),
+      Placeholder.configure({ placeholder: () => placeholderRef.current }),
       Extension.create({
         name: "composer-submit",
         addKeyboardShortcuts: () => ({
@@ -172,7 +173,7 @@ export function ComposerPromptEditor({ value, onChange, onSubmit, placeholder, h
         }),
       }),
     ],
-    [placeholder],
+    [],
   );
 
   const editor = useEditor(
@@ -185,10 +186,18 @@ export function ComposerPromptEditor({ value, onChange, onSubmit, placeholder, h
     [extensions],
   );
 
+  useEffect(() => {
+    placeholderRef.current = placeholder;
+    if (!editor || editor.isDestroyed) return;
+    // Refresh the placeholder decoration without replacing the editor during
+    // an Enter keydown. Replacing it leaves the value sync with a dead view.
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, placeholder]);
+
   // A send that clears the box, or a queued message put back, arrives as a new
   // value; anything the editor itself produced already matches.
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     if (docToPrompt(editor.getJSON() as ComposerNode) === value) return;
     editor.commands.setContent(asContent(promptToDoc(value)), { emitUpdate: false });
   }, [editor, value]);
