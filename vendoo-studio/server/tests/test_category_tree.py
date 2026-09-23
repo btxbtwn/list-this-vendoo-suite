@@ -355,7 +355,9 @@ class CatalogIndexTest(unittest.TestCase):
 
     def test_skill_search_returns_rule_snippets(self):
         from vendoo_studio.services.catalog_index import relevant_skill_rules
-        text = relevant_skill_rules(self.db, "category path women's tops measurements")
+        reset_catalog_index_cache()
+        with patch("vendoo_studio.services.catalog_index.ensure_catalog_index", side_effect=AssertionError("full index built")):
+            text = relevant_skill_rules(self.db, "category path women's tops measurements")
         self.assertTrue(text.strip())
         self.assertIn("TITLE Formula", text)
         self.assertIn("{BRAND} {SIZE} {VIBE} {ITEM} {COLOR} {FIT}", text)
