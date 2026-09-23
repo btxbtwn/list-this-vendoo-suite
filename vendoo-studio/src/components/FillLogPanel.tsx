@@ -526,7 +526,7 @@ export function FillLogPanel({
                               </span>
                             )}
                             {onAskChat && !field.notApplicable && (
-                              listingEmpty
+                              (listingEmpty && (!fromVendooDraft || field.missing))
                               || (leftover && FILL_FAILURE_STATUSES.has(leftover.status))
                             ) && (
                               <button

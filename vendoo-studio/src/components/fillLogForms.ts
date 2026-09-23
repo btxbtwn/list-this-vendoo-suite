@@ -164,11 +164,18 @@ export function formSyncCounts(
 export function fieldsNeedingListingValues(
   forms: DraftForm[],
   listing: Record<string, unknown> | undefined,
+  fromVendooDraft = false,
 ): { form: DraftForm; field: DraftField }[] {
   return forms.flatMap((form) =>
     form.fields
       .filter((field) => !field.notApplicable && !isUnfillableField(field, form.id))
       .filter((field) => listingFieldEmpty(listing, form.id, field))
+      .filter((field) => {
+        if (!fromVendooDraft) return true;
+        // After Send: only blanks confirmed on the live Vendoo draft form.
+        if (field.listingOnly) return false;
+        return field.missing;
+      })
       .map((field) => ({ form, field })),
   );
 }
@@ -178,6 +185,7 @@ export function askChatTargetCount(
   forms: DraftForm[],
   listing: Record<string, unknown> | undefined,
   failures: FillLogEntry[],
+  fromVendooDraft = false,
 ): number {
   const seen = new Set<string>();
   let count = 0;
@@ -187,7 +195,7 @@ export function askChatTargetCount(
     seen.add(key);
     count += 1;
   }
-  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing, fromVendooDraft)) {
     const key = `${form.id}:${fieldMatchKey(field)}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -610,7 +618,7 @@ export function emptyFieldsPrompt(
     status: string;
     reason: string;
   }[] = [];
-  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing, fromDraft)) {
     const leftover = field.leftover;
     rows.push({
       marketplace: form.id,
@@ -620,7 +628,7 @@ export function emptyFieldsPrompt(
       current: listingTextForField(listing, form.id, field) || EMPTY_CELL,
       status: leftover ? leftoverStatusLabel(leftover) : "missing in listing",
       reason: leftover?.reason || (fromDraft
-        ? "empty in listing JSON (field exists on the Vendoo form)"
+        ? "empty on Vendoo and in listing JSON"
         : "empty in listing JSON"),
     });
   }
@@ -687,7 +695,7 @@ export function askChatGapsPrompt(
     );
   }
 
-  for (const { form, field } of fieldsNeedingListingValues(forms, listing)) {
+  for (const { form, field } of fieldsNeedingListingValues(forms, listing, fromDraft)) {
     const leftover = field.leftover;
     const key = `${form.id}:${fieldMatchKey(field)}`;
     pushLine(
@@ -697,13 +705,13 @@ export function askChatGapsPrompt(
   Current value: ${listingTextForField(listing, form.id, field) || EMPTY_CELL}
   Status: ${leftover ? leftoverStatusLabel(leftover) : "missing in listing"}
   Reason: ${leftover?.reason || (fromDraft
-    ? "empty in listing JSON (field exists on the Vendoo form)"
+    ? "empty on Vendoo and in listing JSON"
     : "empty in listing JSON")}`,
       key,
     );
   }
 
-  const emptyCount = fieldsNeedingListingValues(forms, listing).length;
+  const emptyCount = fieldsNeedingListingValues(forms, listing, fromDraft).length;
   const failCount = failures.length;
   const parts: string[] = [];
   if (emptyCount) parts.push(`${emptyCount} empty`);
