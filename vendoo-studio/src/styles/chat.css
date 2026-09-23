@@ -910,6 +910,48 @@ details[open] .json-collapse-summary::before {
   opacity: 0.55;
 }
 
+/* The composer is a rich text editor so cited quotes can sit inline as chips
+   where the seller dropped them, the way T3 Code's composer works. */
+.chat-composer-editor {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-composer-editor .chat-composer-input {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-composer-editor p {
+  margin: 0;
+}
+
+/* Tiptap's placeholder decoration, matching the textarea placeholder. */
+.chat-composer-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-text-muted);
+}
+
+.composer-citation-node {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+
+.composer-citation-node .citation-chip {
+  user-select: none;
+}
+
+.chat-composer-editor .ProseMirror-selectednode .citation-chip {
+  outline: 2px solid var(--color-cobalt);
+  outline-offset: 1px;
+}
+
 .chat-send {
   display: inline-flex;
   align-items: center;

@@ -267,12 +267,3 @@ export function collectChatCitations(text: string) {
   return citations;
 }
 
-/**
- * The sent message carries its quotes as links above the typed text, so the
- * bubble shows chips that lead back to the source.
- */
-export function formatCitedMessage(citations: readonly ChatCitation[], text: string): string {
-  const body = text.trim();
-  if (citations.length === 0) return body;
-  return [...citations.map(serializeChatCitation), body].filter(Boolean).join("\n\n");
-}

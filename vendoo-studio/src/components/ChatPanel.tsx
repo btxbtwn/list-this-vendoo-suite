@@ -12,10 +12,10 @@ import {
   type QueuedChatMessage,
 } from "./chatMessageQueue";
 import { CiteSelectionToolbar } from "./CiteSelectionToolbar";
-import { formatCitedMessage, type ChatCitation } from "./chatCitations";
+import { type ChatCitation } from "./chatCitations";
 import { revealChatCitation } from "./chatCitationDom";
 import { ChatCitationRevealContext } from "./chatCitationContext";
-import { CitationChip } from "./CitationChip";
+import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { SendProgress } from "./SendProgress";
 import { EvidenceCard } from "./EvidenceCard";
 import { SoldCompsCard } from "./SoldCompsCard";
@@ -622,8 +622,9 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   // Follow-ups typed while a run is still writing — same idea as T3 Code's
   // composer queue: hold them client-side and send when the turn settles.
   const [pendingQueue, setPendingQueue] = useState<QueuedChatMessage[]>([]);
-  // Assistant text the user quoted into this message, T3 Code style.
-  const [citations, setCitations] = useState<ChatCitation[]>([]);
+  // Quotes live inline in the composer itself, T3 Code style: `input` is the
+  // markdown prompt, and a quote inside it is its citation link.
+  const composerRef = useRef<ComposerPromptEditorHandle | null>(null);
   const drainLockRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [chatViewport, setChatViewport] = useState<HTMLDivElement | null>(null);
@@ -632,12 +633,10 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     setChatViewport(el);
   }, []);
   const stickToBottomRef = useRef(true);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
     setPendingQueue([]);
-    setCitations([]);
     drainLockRef.current = false;
   }, [convId]);
 
@@ -745,13 +744,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     }
     scrollChatToBottom();
   }, [messages, streamText, streamThinking, scrollChatToBottom]);
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
-  }, [input]);
 
   const handleChatScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -1123,10 +1115,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   }, [busy, pendingQueue, sendMessage, convId, queryClient]);
 
   const handleCite = useCallback((citation: ChatCitation) => {
-    setCitations((current) =>
-      current.some((existing) => existing.id === citation.id) ? current : [...current, citation],
-    );
-    textareaRef.current?.focus();
+    composerRef.current?.insertCitation(citation);
     return true;
   }, []);
 
@@ -1137,8 +1126,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     revealChatCitation(el, citation);
   }, []);
 
-  const sendCited = useCallback((quotes: readonly ChatCitation[]) => {
-    const text = formatCitedMessage(quotes, input);
+  const handleSend = useCallback(() => {
+    const text = input.trim();
     const liveFields = browser?.fields || [];
     if (!text && !liveFields.length) return;
     if (busy) {
@@ -1159,28 +1148,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         : undefined);
       setPendingQueue((queue) => enqueueChatMessage(queue, message));
       setInput("");
-      setCitations([]);
       if (liveFields.length) onBrowserFieldsChange?.([]);
       pinChatToBottom();
       return;
     }
-    setCitations([]);
     void sendMessage(text);
   }, [busy, input, browser, sendMessage, onBrowserFieldsChange, pinChatToBottom]);
-
-  const handleSend = useCallback(() => sendCited(citations), [citations, sendCited]);
-
-  const handleCitationComment = useCallback((citation: ChatCitation) => {
-    setCitations((current) =>
-      current.map((item) => (item.id === citation.id ? citation : item)),
-    );
-  }, []);
-
-  const handleCitationCommentAndSend = useCallback((citation: ChatCitation) => {
-    const quotes = citations.map((item) => (item.id === citation.id ? citation : item));
-    setCitations(quotes);
-    sendCited(quotes);
-  }, [citations, sendCited]);
 
   const handleRemoveQueued = useCallback((id: string) => {
     setPendingQueue((queue) => removeChatMessage(queue, id));
@@ -1343,7 +1316,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       : hasMessages
         ? "Refine the listing..."
         : "Add a note, or generate the listing...";
-  const canSubmit = Boolean(input.trim() || citations.length || browser?.fields.length);
+  const canSubmit = Boolean(input.trim() || browser?.fields.length);
 
   useEffect(() => {
     const reattach = () => {
@@ -1562,23 +1535,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       <CiteSelectionToolbar viewport={chatViewport} onCite={handleCite} />
 
       <div className="chat-composer">
-        {citations.length > 0 && (
-          <div className="chat-citations" aria-label="Quoted text">
-            {citations.map((citation) => (
-              <CitationChip
-                key={citation.id}
-                citation={citation}
-                composer
-                onReveal={handleShowCitation}
-                onRemove={(quoted) =>
-                  setCitations((current) => current.filter((item) => item.id !== quoted.id))
-                }
-                onComment={handleCitationComment}
-                onCommentAndSend={handleCitationCommentAndSend}
-              />
-            ))}
-          </div>
-        )}
         {(busy || hasMessages) && (
           <div
             className={`chat-activity${busy ? " is-busy" : " is-done"}`}
@@ -1623,34 +1579,11 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           </div>
         )}
         <div className="chat-composer-pill">
-          <textarea
-            ref={textareaRef}
-            className="chat-composer-input"
-            rows={1}
+          <ComposerPromptEditor
+            handleRef={composerRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onPaste={(e) => {
-              const pasted = e.clipboardData?.getData("text/plain");
-              if (pasted == null) return;
-              // Keep paste reliable in the controlled composer (desktop webview
-              // sometimes delivers Paste without updating React state).
-              e.preventDefault();
-              const el = e.currentTarget;
-              const start = el.selectionStart ?? input.length;
-              const end = el.selectionEnd ?? input.length;
-              const next = `${input.slice(0, start)}${pasted}${input.slice(end)}`;
-              setInput(next);
-              requestAnimationFrame(() => {
-                const cursor = start + pasted.length;
-                el.setSelectionRange(cursor, cursor);
-              });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
+            onChange={setInput}
+            onSubmit={handleSend}
             placeholder={composerPlaceholder}
           />
           {busy ? (

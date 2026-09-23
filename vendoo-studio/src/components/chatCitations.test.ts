@@ -6,7 +6,6 @@ import {
   createChatCitationSelector,
   findChatCitationText,
   formatChatCitationHref,
-  formatCitedMessage,
   parseChatCitationHref,
   rawTextOffset,
   serializeChatCitation,
@@ -126,29 +125,11 @@ describe("citation links", () => {
     ).toBeNull();
   });
 
-  it("collects the citations in a sent message", () => {
-    const citation = citationFor("m1", MESSAGE, "wool");
-    const message = formatCitedMessage([citation], "Fix this.");
-    expect(collectChatCitations(message).map((match) => match.citation)).toEqual([citation]);
-  });
-});
-
-describe("formatCitedMessage", () => {
-  it("returns the typed text when nothing is cited", () => {
-    expect(formatCitedMessage([], "  Change the title  ")).toBe("Change the title");
-  });
-
-  it("puts each quote above the message as a link", () => {
-    const first = citationFor("m1", MESSAGE, "The lining is silk.");
+  it("collects the quotes sitting inline in a sent message", () => {
+    const first = citationFor("m1", MESSAGE, "wool");
     const second = citationFor("m2", "Price: *$40*", "*$40*");
-    expect(formatCitedMessage([first, second], "Fix both.")).toBe(
-      `${serializeChatCitation(first)}\n\n${serializeChatCitation(second)}\n\nFix both.`,
-    );
-  });
-
-  it("sends the quote alone when the composer is empty", () => {
-    const citation = citationFor("m1", MESSAGE, "wool");
-    expect(formatCitedMessage([citation], "")).toBe(serializeChatCitation(citation));
+    const message = `Make ${serializeChatCitation(first)} cotton and drop ${serializeChatCitation(second)}.`;
+    expect(collectChatCitations(message).map((match) => match.citation)).toEqual([first, second]);
   });
 });
 
