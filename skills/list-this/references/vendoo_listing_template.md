@@ -293,7 +293,7 @@ Depop: No title field → use Universal Description only
 - `sizeType`: Regular, Petite, Tall, Plus, Maternity
 - `size`: Size value (S, M, L, XL, numeric)
 - `size_us`: US size for consistency
-- `tags`: Array of keywords
+- `tags`: Array of keywords. When Etsy is selected, each tag may only use letters, numbers, spaces, hyphens, and apostrophes (max 20 chars, max 13 tags). No `#`, `/`, `&`, or other special characters.
 - `labels`: Array of Vendoo labels
 - `weight_lb`, `weight_oz`: Packaged shipping weight. Estimate from item type/size when the seller did not provide a scale weight (do not ask). Example: a women's M graphic tee is often `0` lb / `8`–`12` oz packaged.
 - `package_dimensions_in`: Format "LxWxH". Use a reasonable poly-mailer / packaging estimate for the item unless the seller provided dimensions.
@@ -308,7 +308,7 @@ All eBay Item Specifics fields. Use Appendix values.
 - `who_made`, `what_is`, `when_made` (required for Etsy). `when_made` must be an exact Etsy dropdown value from `vendoo-dropdown-options.json`, such as `2010 - 2019 (Recently)`, not `2010s` or `2010-2019`.
 - `section`: Shop section
 - `materials`: Array of materials
-- `tags`: Up to 13 tags
+- `tags`: Up to 13 tags (letters/numbers/spaces/hyphen/apostrophe only; max 20 chars each)
 - `renewalOption`
 - Shipping profile, processing time, and return policy are account-level Etsy settings — leave them out
 - `category_specifics`: T-shirt optional fields after Show Optional Fields. Use live Etsy dropdown values from `vendoo-dropdown-options.json` (`clothingStyle`, `sleeveLength`, `neckline`, `closure`, `graphic`, `fabricPattern`). Fill every applicable row. Use Does Not Apply only for `graphic` / `collarStyle` / `occasion` / `holiday` / `sustainability` when they literally do not apply.

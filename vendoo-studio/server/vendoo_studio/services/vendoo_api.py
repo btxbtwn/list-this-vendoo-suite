@@ -25,6 +25,7 @@ from copy import deepcopy
 from typing import Any
 
 from vendoo_studio.models.ebay_fields import EBAY_CONDITION_DESCRIPTION
+from vendoo_studio.models.etsy_fields import sanitize_etsy_tags
 from vendoo_studio.models.mercari_shipping import (
     DEFAULT_PACKAGE_OUNCES,
     DEFAULT_SHIPPING_LABEL,
@@ -115,8 +116,6 @@ ETSY_WHAT_CODES = {
 }
 # Vendoo's listingStateOptions: draft = Draft Listing, active = Live Listing, edit = Inactive.
 ETSY_LIVE_LISTING = "active"
-ETSY_TAG_LIMIT = 13
-ETSY_TAG_MAX_LENGTH = 20
 
 SPECIFICS_SOURCES = {mp: f"{mp}_specifics" for mp in ("ebay", "poshmark", "mercari", "depop", "etsy")}
 
@@ -789,11 +788,11 @@ def _apply_etsy_tags(known: dict[str, Any], general: dict[str, Any]) -> None:
     """Etsy Tags come from the general form's Tags.
 
     Vendoo's form save copies them over; an API write has to do it itself or
-    the Etsy form shows no tags.
+    the Etsy form shows no tags. Strip characters Etsy rejects (#, /, &, …).
     """
-    tags = [tag for tag in _string_list(general.get("tags")) if len(tag) <= ETSY_TAG_MAX_LENGTH]
+    tags = sanitize_etsy_tags(_string_list(general.get("tags")))
     if tags:
-        known["tags"] = tags[:ETSY_TAG_LIMIT]
+        known["tags"] = tags
 
 
 def _apply_poshmark_smart_sell(known: dict[str, Any]) -> None:
@@ -1695,6 +1694,10 @@ def apply_update_all(
             value = tags if key == "tags" else general.get(key)
             if value in (None, "", []):
                 continue
+            if key == "tags" and marketplace == "etsy":
+                value = sanitize_etsy_tags(value)
+                if not value:
+                    continue
             want_over[key] = deepcopy(value)
         # A regenerated listing weighs and measures whatever the new item does;
         # without this the forms keep the previous package and ship on it.
@@ -1709,9 +1712,7 @@ def apply_update_all(
             or isinstance((have_section.get("marketplaceSpecifics") or {}).get("tags"), list)
         ):
             specifics = _bucket(want_section, "marketplaceSpecifics")
-            copied = [tag for tag in tags if len(tag) <= ETSY_TAG_MAX_LENGTH] if marketplace == "etsy" else list(tags)
-            if marketplace == "etsy":
-                copied = copied[:ETSY_TAG_LIMIT]
+            copied = sanitize_etsy_tags(tags) if marketplace == "etsy" else list(tags)
             if copied:
                 specifics["tags"] = copied
         _apply_condition(have_section, want_section, general, schema)

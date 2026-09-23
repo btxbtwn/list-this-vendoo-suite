@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.83 — 2026-09-23
+
+- Strip special characters from Etsy tags before Send so Etsy no longer rejects them
+
 ## 0.1.82 — 2026-09-23
 
 - Hide the green status-bar dot next to the model logo when everything is fine; show red only when the listing model is not configured
