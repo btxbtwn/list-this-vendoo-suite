@@ -1,21 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { captureChatSelection } from "./chatCitationDom";
-import { CITATION_MAX_TEXT_LENGTH, type ChatCitation } from "./chatCitations";
+import { chatCitationId, CITATION_MAX_TEXT_LENGTH, type ChatCitation } from "./chatCitations";
+import { QuoteIcon } from "./CitationChip";
 import {
   observeSelectionActions,
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "./selectionActions";
-
-function QuoteIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 11H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4" />
-      <path d="M20 11h-4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4" />
-    </svg>
-  );
-}
 
 interface Props {
   /** The scroll container holding the messages; citations come from inside it. */
@@ -59,7 +51,7 @@ export function CiteSelectionToolbar({ viewport, onCite }: Props) {
       const rects = captured.range.getClientRects();
       setSelection({
         citation: {
-          id: `${captured.messageId}:${captured.selector.start}:${captured.selector.end}`,
+          id: chatCitationId(captured.messageId, captured.selector),
           messageId: captured.messageId,
           ...captured.selector,
         },
@@ -78,8 +70,32 @@ export function CiteSelectionToolbar({ viewport, onCite }: Props) {
       onDismiss: clear,
     });
     actionsRef.current = actions;
+    // Tab reaches the button while the selection is live, so a quote can be
+    // taken from the keyboard — T3 Code's selection toolbar does the same.
+    const focusActions = (event: KeyboardEvent) => {
+      const button = buttonRef.current;
+      if (
+        event.key !== "Tab" ||
+        event.shiftKey ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.isComposing ||
+        event.defaultPrevented ||
+        !button ||
+        button.contains(event.target as Node)
+      ) {
+        return;
+      }
+      if (button.disabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      button.focus({ preventScroll: true });
+    };
+    document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
     return () => {
+      document.removeEventListener("keydown", focusActions, true);
       document.removeEventListener("selectionchange", actions.selectionChanged);
       actions.dispose();
       actionsRef.current = null;
@@ -115,7 +131,7 @@ export function CiteSelectionToolbar({ viewport, onCite }: Props) {
         }
       }}
     >
-      <QuoteIcon />
+      <QuoteIcon size={12} />
       {tooLong ? "Shorten selection" : "Cite"}
     </button>,
     document.body,

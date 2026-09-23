@@ -159,12 +159,12 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function EvidenceCard({ text }: { text: string }) {
+export function EvidenceCard({ text, messageId }: { text: string; messageId: string }) {
   const report = parseEvidence(text);
   const count = report ? evidenceFieldCount(report) : 0;
 
   return (
-    <div className="evidence-card">
+    <div className="evidence-card" data-citation-source={messageId}>
       <div className="evidence-header">
         <EyeIcon />
         <span className="evidence-title">Evidence</span>

@@ -13,7 +13,15 @@ import {
 
 export const CITATION_SOURCE_ATTR = "data-citation-source";
 const CITATION_HIGHLIGHT = "chat-citation";
-const CITATION_HIGHLIGHT_MS = 2200;
+// T3 Code's citation pulse: two beats, a hold so a late glance still finds the
+// quote, then a fade.
+const CITATION_PULSE_DURATION_MS = 650;
+const CITATION_HIGHLIGHT_HOLD_MS = 1575;
+const CITATION_HIGHLIGHT_FADE_MS = 450;
+const CITATION_HIGHLIGHT_TOTAL_MS =
+  1.5 * CITATION_PULSE_DURATION_MS + CITATION_HIGHLIGHT_HOLD_MS + CITATION_HIGHLIGHT_FADE_MS;
+const CITATION_HIGHLIGHT_OPACITY = "--chat-citation-highlight-opacity";
+const CITATION_HIGHLIGHT_PEAK = 0.45;
 
 const CONTROL_SELECTOR = "button, input, textarea, select, [role=button], [contenteditable]";
 const EXCLUDED_SELECTOR = `${CONTROL_SELECTOR}, [hidden], [aria-hidden=true], script, style, template, noscript, svg`;
@@ -175,31 +183,63 @@ export function findChatCitationSource(
   ) ?? null;
 }
 
-let clearHighlight: number | null = null;
+let activePulse: Animation | null = null;
 
-/** Scrolls the quoted text into view and marks it briefly. */
+/** Scrolls the quoted text into view and pulses it, following T3 Code. */
 export function revealChatCitation(viewport: HTMLElement, citation: ChatCitation): boolean {
   const source = findChatCitationSource(viewport, citation.messageId);
   const range = source ? resolveChatCitationRange(source, citation) : null;
-  if (!range) return false;
+  if (!source || !range) return false;
 
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const rect = range.getBoundingClientRect();
   const viewportRect = viewport.getBoundingClientRect();
   if (rect.top < viewportRect.top + 24 || rect.bottom > viewportRect.bottom - 24) {
     viewport.scrollTo({
       top: Math.max(0, viewport.scrollTop + rect.top - viewportRect.top - viewportRect.height / 3),
-      behavior: "smooth",
+      behavior: reducedMotion ? "auto" : "smooth",
     });
   }
 
   if (typeof Highlight === "undefined" || typeof CSS === "undefined" || !CSS.highlights) {
     return true;
   }
-  if (clearHighlight !== null) window.clearTimeout(clearHighlight);
-  CSS.highlights.set(CITATION_HIGHLIGHT, new Highlight(range));
-  clearHighlight = window.setTimeout(() => {
-    clearHighlight = null;
-    CSS.highlights.delete(CITATION_HIGHLIGHT);
-  }, CITATION_HIGHLIGHT_MS);
+  activePulse?.cancel();
+  const highlight = new Highlight(range);
+  CSS.highlights.set(CITATION_HIGHLIGHT, highlight);
+  const at = (milliseconds: number) => milliseconds / CITATION_HIGHLIGHT_TOTAL_MS;
+  const holdEnd = at(CITATION_HIGHLIGHT_TOTAL_MS - CITATION_HIGHLIGHT_FADE_MS);
+  const pulse = source.animate(
+    reducedMotion
+      ? [
+          { offset: 0, [CITATION_HIGHLIGHT_OPACITY]: CITATION_HIGHLIGHT_PEAK },
+          { offset: holdEnd, [CITATION_HIGHLIGHT_OPACITY]: CITATION_HIGHLIGHT_PEAK },
+          { offset: 1, [CITATION_HIGHLIGHT_OPACITY]: 0 },
+        ]
+      : [
+          { offset: 0, [CITATION_HIGHLIGHT_OPACITY]: 0 },
+          {
+            offset: at(CITATION_PULSE_DURATION_MS * 0.5),
+            [CITATION_HIGHLIGHT_OPACITY]: CITATION_HIGHLIGHT_PEAK,
+          },
+          { offset: at(CITATION_PULSE_DURATION_MS), [CITATION_HIGHLIGHT_OPACITY]: 0 },
+          {
+            offset: at(CITATION_PULSE_DURATION_MS * 1.5),
+            [CITATION_HIGHLIGHT_OPACITY]: CITATION_HIGHLIGHT_PEAK,
+          },
+          { offset: holdEnd, [CITATION_HIGHLIGHT_OPACITY]: CITATION_HIGHLIGHT_PEAK },
+          { offset: 1, [CITATION_HIGHLIGHT_OPACITY]: 0 },
+        ],
+    { duration: CITATION_HIGHLIGHT_TOTAL_MS, easing: "ease-in-out" },
+  );
+  activePulse = pulse;
+  const clear = () => {
+    if (activePulse !== pulse) return;
+    activePulse = null;
+    if (CSS.highlights.get(CITATION_HIGHLIGHT) === highlight) {
+      CSS.highlights.delete(CITATION_HIGHLIGHT);
+    }
+  };
+  void pulse.finished.then(clear, clear);
   return true;
 }

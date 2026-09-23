@@ -12,8 +12,10 @@ import {
   type QueuedChatMessage,
 } from "./chatMessageQueue";
 import { CiteSelectionToolbar } from "./CiteSelectionToolbar";
-import { citationPreview, formatCitedMessage, type ChatCitation } from "./chatCitations";
+import { formatCitedMessage, type ChatCitation } from "./chatCitations";
 import { revealChatCitation } from "./chatCitationDom";
+import { ChatCitationRevealContext } from "./chatCitationContext";
+import { CitationChip } from "./CitationChip";
 import { SendProgress } from "./SendProgress";
 import { EvidenceCard } from "./EvidenceCard";
 import { SoldCompsCard } from "./SoldCompsCard";
@@ -1135,8 +1137,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     revealChatCitation(el, citation);
   }, []);
 
-  const handleSend = useCallback(() => {
-    const text = formatCitedMessage(citations, input);
+  const sendCited = useCallback((quotes: readonly ChatCitation[]) => {
+    const text = formatCitedMessage(quotes, input);
     const liveFields = browser?.fields || [];
     if (!text && !liveFields.length) return;
     if (busy) {
@@ -1164,7 +1166,21 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     }
     setCitations([]);
     void sendMessage(text);
-  }, [busy, citations, input, browser, sendMessage, onBrowserFieldsChange, pinChatToBottom]);
+  }, [busy, input, browser, sendMessage, onBrowserFieldsChange, pinChatToBottom]);
+
+  const handleSend = useCallback(() => sendCited(citations), [citations, sendCited]);
+
+  const handleCitationComment = useCallback((citation: ChatCitation) => {
+    setCitations((current) =>
+      current.map((item) => (item.id === citation.id ? citation : item)),
+    );
+  }, []);
+
+  const handleCitationCommentAndSend = useCallback((citation: ChatCitation) => {
+    const quotes = citations.map((item) => (item.id === citation.id ? citation : item));
+    setCitations(quotes);
+    sendCited(quotes);
+  }, [citations, sendCited]);
 
   const handleRemoveQueued = useCallback((id: string) => {
     setPendingQueue((queue) => removeChatMessage(queue, id));
@@ -1371,11 +1387,11 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     }
 
     if (m.role === "system" && isPhotoAnalysis(m.text)) {
-      return <EvidenceCard key={m.id} text={m.text} />;
+      return <EvidenceCard key={m.id} text={m.text} messageId={m.id} />;
     }
 
     if (m.role === "system" && isCompResearch(m.text)) {
-      return <SoldCompsCard key={m.id} text={m.text} />;
+      return <SoldCompsCard key={m.id} text={m.text} messageId={m.id} />;
     }
 
     if (m.role === "system") {
@@ -1397,6 +1413,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   }
 
   return (
+    <ChatCitationRevealContext value={handleShowCitation}>
     <div className="chat-panel">
       <div
         ref={setScrollEl}
@@ -1441,7 +1458,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         {showStreamBubble && (
           streamVisible ? (
             <div className="msg msg-assistant">
-              <ChatMarkdown text={streamVisible} />
+              <ChatMarkdown text={streamVisible} isStreaming />
             </div>
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
@@ -1546,29 +1563,19 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
 
       <div className="chat-composer">
         {citations.length > 0 && (
-          <div className="chat-citations" aria-label="Quoted assistant text">
+          <div className="chat-citations" aria-label="Quoted text">
             {citations.map((citation) => (
-              <span key={citation.id} className="citation-chip">
-                <button
-                  type="button"
-                  className="citation-chip-label"
-                  title={citation.text}
-                  onClick={() => handleShowCitation(citation)}
-                >
-                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M10 11H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4" />
-                    <path d="M20 11h-4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4" />
-                  </svg>
-                  <span>{citationPreview(citation)}</span>
-                </button>
-                <button
-                  type="button"
-                  aria-label="Remove quote"
-                  onClick={() => setCitations((current) => current.filter((item) => item.id !== citation.id))}
-                >
-                  ×
-                </button>
-              </span>
+              <CitationChip
+                key={citation.id}
+                citation={citation}
+                composer
+                onReveal={handleShowCitation}
+                onRemove={(quoted) =>
+                  setCitations((current) => current.filter((item) => item.id !== quoted.id))
+                }
+                onComment={handleCitationComment}
+                onCommentAndSend={handleCitationCommentAndSend}
+              />
             ))}
           </div>
         )}
@@ -1690,5 +1697,6 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         </div>
       </div>
     </div>
+    </ChatCitationRevealContext>
   );
 }

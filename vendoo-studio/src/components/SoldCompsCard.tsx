@@ -189,7 +189,7 @@ function fallbackNote(text: string): string {
   );
 }
 
-export function SoldCompsCard({ text }: { text: string }) {
+export function SoldCompsCard({ text, messageId }: { text: string; messageId?: string }) {
   const report = parseSoldComps(text);
   const note = report ? report.note : fallbackNote(text);
   const count = report?.comps.length ?? 0;
@@ -198,7 +198,7 @@ export function SoldCompsCard({ text }: { text: string }) {
   const source = sourceLabel(report?.source || "");
 
   return (
-    <div className="evidence-card sold-comps-card">
+    <div className="evidence-card sold-comps-card" data-citation-source={messageId}>
       <div className="evidence-header">
         <TagIcon />
         <span className="evidence-title">Sold comps</span>

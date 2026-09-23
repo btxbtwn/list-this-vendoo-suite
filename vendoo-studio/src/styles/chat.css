@@ -107,6 +107,23 @@
   min-width: 0;
 }
 
+/* Paragraphs and code blocks arrive in chunks while a response streams. Fade
+   each new block in so the chunk does not pop. @starting-style only applies
+   when an element is first inserted, and the rule is gated on data-streaming,
+   so opening a finished conversation never replays the fade. Opacity only, one
+   shot, no layout change. */
+@media (prefers-reduced-motion: no-preference) {
+  .chat-markdown[data-streaming] > * {
+    transition: opacity 600ms ease-out;
+  }
+
+  @starting-style {
+    .chat-markdown[data-streaming] > * {
+      opacity: 0;
+    }
+  }
+}
+
 .chat-markdown > :first-child {
   margin-top: 0;
 }
@@ -998,7 +1015,10 @@ details[open] .json-collapse-summary::before {
   white-space: nowrap;
 }
 
-.citation-chip button[aria-label="Remove quote"] {
+.citation-chip-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
   border: none;
@@ -1007,13 +1027,82 @@ details[open] .json-collapse-summary::before {
   color: var(--color-text-secondary);
   cursor: pointer;
   line-height: 1;
+  padding: 0;
 }
 
-.citation-chip button[aria-label="Remove quote"]:hover {
+.citation-chip-action:hover {
   background: var(--color-surface);
   color: var(--color-text);
 }
 
+/* The same chip inside a sent message, where it leads back to the quote. */
+.citation-chip.is-inline {
+  height: 20px;
+  padding: 0 8px;
+  vertical-align: baseline;
+}
+
+.citation-chip-comment {
+  position: relative;
+  display: inline-flex;
+}
+
+.citation-comment-editor {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: -6px;
+  z-index: 70;
+  width: 264px;
+  padding: 10px;
+  border: 1px solid var(--color-border-bright);
+  border-radius: 10px;
+  background: var(--color-surface);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+}
+
+.citation-comment-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  max-height: 160px;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+}
+
+.citation-comment-editor textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+.citation-comment-error {
+  margin: 4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-tomato);
+}
+
+.citation-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* The quote pulses twice, holds, then fades when a chip is clicked — T3 Code's
+   citation highlight, driven by an animated custom property. */
+@property --chat-citation-highlight-opacity {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
 ::highlight(chat-citation) {
-  background-color: rgba(52, 107, 241, 0.32);
+  background-color: color-mix(
+    in oklab,
+    var(--color-cobalt) calc(var(--chat-citation-highlight-opacity) * 100%),
+    transparent
+  );
 }

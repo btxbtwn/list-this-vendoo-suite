@@ -6,6 +6,13 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.79 — 2026-09-23
+
+- Replies now fade in paragraph by paragraph as they arrive, instead of popping
+- Quote the Evidence and Sold comps cards, not just the assistant's reply
+- A quote you cite becomes a chip in your sent message: click it to jump back to the source, which pulses so you can find it
+- Add a comment to a quote from its chip and send it along with the quote
+
 ## 0.1.78 — 2026-09-23
 
 - Quote assistant text in the chat composer with the new Cite button

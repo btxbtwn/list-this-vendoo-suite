@@ -14,6 +14,10 @@ from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.database import SessionLocal, get_db
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services import activity
+from vendoo_studio.services.chat_citations import (
+    citations_to_plain_text,
+    expand_citations_for_provider,
+)
 from vendoo_studio.services.chat_listing import persist_chat_result
 from vendoo_studio.services.chat_prompts import build_chat_messages
 from vendoo_studio.services.listing_generate import (
@@ -103,7 +107,7 @@ async def _browser_fix_stream(conv_id: str, body: ChatMessage, provider, provide
     request = FixRequest(
         job_id=body.browser.job_id,
         conversation_id=conv_id,
-        instruction=body.text,
+        instruction=expand_citations_for_provider(body.text),
         picked=[item.model_dump() for item in body.browser.fields],
     )
     final = ""
@@ -230,7 +234,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                     provider_name=provider_name,
                     provider_model=provider_model,
                     stream_error=stream_error,
-                    user_message=body.text,
+                    user_message=citations_to_plain_text(body.text),
                 )
             )
             # Tracked on its own: a dropped connection cancels this generator, not the save.

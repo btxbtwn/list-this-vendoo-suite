@@ -7,6 +7,7 @@
 
 export const CITATION_CONTEXT_LENGTH = 32;
 export const CITATION_MAX_TEXT_LENGTH = 8000;
+export const CITATION_MAX_COMMENT_LENGTH = 8000;
 
 export interface ChatCitationSelector {
   readonly text: string;
@@ -19,6 +20,13 @@ export interface ChatCitationSelector {
 export interface ChatCitation extends ChatCitationSelector {
   readonly id: string;
   readonly messageId: string;
+  /** A note the seller wrote about this quote; it rides along with the quote. */
+  readonly comment?: string;
+}
+
+/** Identifies one quote of one message, so a repeated cite does not stack up. */
+export function chatCitationId(messageId: string, selector: ChatCitationSelector): string {
+  return `${messageId}:${selector.start}:${selector.end}`;
 }
 
 function normalizeWhitespace(text: string): string {
@@ -127,33 +135,144 @@ export function rawTextOffset(text: string, normalizedOffset: number): number {
   return text.length;
 }
 
-/** One-line label for a citation chip. */
-export function citationPreview(citation: ChatCitationSelector, limit = 52): string {
-  const preview = normalizeWhitespace(citation.text).trim();
+/** One-line label for a citation chip; the seller's note wins over the quote. */
+export function citationPreview(
+  citation: ChatCitationSelector & { comment?: string },
+  limit = 64,
+): string {
+  const preview = normalizeWhitespace(citation.comment?.trim() || citation.text).trim();
   return preview.length > limit ? `${preview.slice(0, limit)}…` : preview;
 }
 
-function escapeMarkdown(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/[\\`*_[\]{}()#+.!|~-]/g, "\\$&");
+/** Edits only the note, leaving the quote and its source selector unchanged. */
+export function withChatCitationComment(citation: ChatCitation, comment: string): ChatCitation {
+  const { comment: _previous, ...source } = citation;
+  const trimmed = comment.trim();
+  return trimmed ? { ...source, comment: trimmed } : source;
 }
 
 /**
- * The sent message carries its quotes inline, so the model reads them as
- * reference material and the user bubble shows what was cited.
+ * Citation links, following T3 Code: the sent message carries each quote as a
+ * self-contained link, so the bubble renders a chip that leads back to the
+ * source and the server expands the same link into reference material for the
+ * model.
  */
-export function formatCitedMessage(citations: readonly ChatCitationSelector[], text: string): string {
+const CITATION_PROTOCOL = "studio-citation:";
+const CITATION_HREF_PREFIX = `${CITATION_PROTOCOL}//v1/`;
+export const CITATION_LINK_LABEL = "Quoted text";
+// Percent encoding needs up to nine characters per UTF-16 code unit; 16k covers selectors.
+const MAX_CITATION_HREF_LENGTH =
+  9 * (CITATION_MAX_TEXT_LENGTH + CITATION_MAX_COMMENT_LENGTH) + 16_000;
+const CITATION_LINK = new RegExp(
+  String.raw`\[${CITATION_LINK_LABEL}\]\((${CITATION_HREF_PREFIX}[^\s)]{1,${MAX_CITATION_HREF_LENGTH - CITATION_HREF_PREFIX.length}})\)`,
+  "g",
+);
+
+function encodePathPart(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+/** Self-contained, so the composer draft and the sent message agree. */
+export function formatChatCitationHref(citation: ChatCitation): string {
+  const query = new URLSearchParams({
+    text: citation.text,
+    start: String(citation.start),
+    end: String(citation.end),
+    prefix: citation.prefix,
+    suffix: citation.suffix,
+  });
+  if (citation.comment !== undefined) query.set("comment", citation.comment);
+  return `${CITATION_HREF_PREFIX}${encodePathPart(citation.messageId)}?${query}`;
+}
+
+export function parseChatCitationHref(href: string): ChatCitation | null {
+  if (!href.startsWith(CITATION_HREF_PREFIX) || href.length > MAX_CITATION_HREF_LENGTH) {
+    return null;
+  }
+  try {
+    const url = new URL(href);
+    const parts = url.pathname.slice(1).split("/");
+    if (
+      url.protocol !== CITATION_PROTOCOL ||
+      url.hostname !== "v1" ||
+      parts.length !== 1 ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.hash
+    ) {
+      return null;
+    }
+    const requiredKeys = ["text", "start", "end", "prefix", "suffix"];
+    const comment = url.searchParams.get("comment");
+    if (
+      url.searchParams.size !== requiredKeys.length + (comment === null ? 0 : 1) ||
+      requiredKeys.some((key) => url.searchParams.getAll(key).length !== 1)
+    ) {
+      return null;
+    }
+    const rawStart = url.searchParams.get("start") ?? "";
+    const rawEnd = url.searchParams.get("end") ?? "";
+    if (!/^\d{1,16}$/.test(rawStart) || !/^\d{1,16}$/.test(rawEnd)) return null;
+    const start = Number(rawStart);
+    const end = Number(rawEnd);
+    const messageId = decodeURIComponent(parts[0]!);
+    const text = url.searchParams.get("text") ?? "";
+    const prefix = url.searchParams.get("prefix") ?? "";
+    const suffix = url.searchParams.get("suffix") ?? "";
+    if (
+      !messageId ||
+      text.trim().length === 0 ||
+      text.length > CITATION_MAX_TEXT_LENGTH ||
+      (comment !== null && comment.length > CITATION_MAX_COMMENT_LENGTH) ||
+      prefix.length > CITATION_CONTEXT_LENGTH ||
+      suffix.length > CITATION_CONTEXT_LENGTH ||
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      end <= start
+    ) {
+      return null;
+    }
+    const selector: ChatCitationSelector = { text, start, end, prefix, suffix };
+    return {
+      id: chatCitationId(messageId, selector),
+      messageId,
+      ...selector,
+      ...(comment === null ? {} : { comment }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function serializeChatCitation(citation: ChatCitation): string {
+  return `[${CITATION_LINK_LABEL}](${formatChatCitationHref(citation)})`;
+}
+
+export function collectChatCitations(text: string) {
+  const citations: { citation: ChatCitation; source: string; start: number; end: number }[] = [];
+  for (const match of text.matchAll(CITATION_LINK)) {
+    const citation = parseChatCitationHref(match[1]!);
+    if (!citation) continue;
+    citations.push({
+      citation,
+      source: match[0],
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+  }
+  return citations;
+}
+
+/**
+ * The sent message carries its quotes as links above the typed text, so the
+ * bubble shows chips that lead back to the source.
+ */
+export function formatCitedMessage(citations: readonly ChatCitation[], text: string): string {
   const body = text.trim();
   if (citations.length === 0) return body;
-  const quotes = citations.map((citation) => {
-    const lines = escapeMarkdown(citation.text.trim())
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
-    return `> Quoted from your earlier reply:\n${lines}`;
-  });
-  return [...quotes, body].filter(Boolean).join("\n\n");
+  return [...citations.map(serializeChatCitation), body].filter(Boolean).join("\n\n");
 }
