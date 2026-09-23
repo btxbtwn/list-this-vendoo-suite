@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.89 — 2026-09-23
+
+- Sending a chat prompt no longer turns the Studio window black
+
 ## 0.1.88 — 2026-09-23
 
 - Chat prompts no longer stall while Studio builds the full category index; listing rules load right away
