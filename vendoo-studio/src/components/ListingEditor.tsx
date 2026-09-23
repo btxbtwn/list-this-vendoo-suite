@@ -946,8 +946,8 @@ function SendToVendooButton({
     [fillReport, hiddenKeys],
   );
   const emptyFieldsCount = React.useMemo(
-    () => askChatTargetCount(visibleSourceForms, listing, fillFailures),
-    [visibleSourceForms, listing, fillFailures],
+    () => askChatTargetCount(visibleSourceForms, listing, fillFailures, fromVendooDraft),
+    [visibleSourceForms, listing, fillFailures, fromVendooDraft],
   );
   const fillEmptyPrompt = React.useMemo(
     () => (emptyFieldsCount
