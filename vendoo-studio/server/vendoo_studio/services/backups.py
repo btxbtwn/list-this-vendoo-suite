@@ -34,11 +34,10 @@ PREFIX = "vendoo_studio"
 STAMP_FORMAT = "%Y%m%d-%H%M%S"
 NAME_PATTERN = re.compile(rf"^{PREFIX}-(\d{{8}}-\d{{6}})-([a-z0-9-]+)\.db$")
 
-# Keep every snapshot from the last day, one per day for a month, and never
-# drop the newest few whatever their age: an install that sat unused for a
-# season should still have something to go back to.
+# Keep the newest few always, plus one per day for a month. Do not keep every
+# snapshot from the last day: with a multi-GB database each pre-update clone
+# is another full copy, and a day of updates will fill the disk.
 KEEP_NEWEST = 3
-KEEP_ALL_WITHIN = timedelta(days=1)
 KEEP_DAILY_FOR = timedelta(days=30)
 
 _lock = threading.Lock()
@@ -152,9 +151,6 @@ def _keepers(snapshots: list[Snapshot], now: datetime) -> set[Path]:
     seen_days: set[str] = set()
     for snapshot in snapshots:
         age = now - snapshot.taken_at
-        if age <= KEEP_ALL_WITHIN:
-            keep.add(snapshot.path)
-            continue
         if age > KEEP_DAILY_FOR:
             continue
         day = snapshot.taken_at.strftime("%Y%m%d")

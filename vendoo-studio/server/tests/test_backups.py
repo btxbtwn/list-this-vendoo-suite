@@ -151,9 +151,13 @@ def _stub(directory, days_ago, reason="timer", now=None):
     return Snapshot(path=path, taken_at=taken, reason=reason, size_bytes=0)
 
 
-def test_prune_keeps_recent_and_one_per_day(backups_dir):
+def test_prune_keeps_newest_and_one_per_day(backups_dir):
     now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
-    today = [_stub(backups_dir, 0, f"run{n}", now) for n in range(4)]
+    # Spread same-day snapshots across hours so "newest three" is unambiguous.
+    today = [
+        _stub(backups_dir, hour / 24, f"run{n}", now)
+        for n, hour in enumerate([0, 1, 2, 3])
+    ]
     # Both of these land on 2026-09-17; only the newer one should survive.
     _stub(backups_dir, 3, "morning", now)
     _stub(backups_dir, 3.1, "evening", now)
@@ -162,7 +166,8 @@ def test_prune_keeps_recent_and_one_per_day(backups_dir):
     prune_snapshots(backups_dir, now=now)
 
     kept = {snapshot.path.name for snapshot in list_snapshots(backups_dir)}
-    assert all(snapshot.path.name in kept for snapshot in today)
+    assert {snapshot.path.name for snapshot in today[:3]} <= kept
+    assert today[3].path.name not in kept
     assert len([name for name in kept if "morning" in name or "evening" in name]) == 1
     assert ancient.path.name not in kept
 

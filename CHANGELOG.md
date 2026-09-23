@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.84 — 2026-09-23
+
+- Stop caching every Vendoo sync as a new job event (that ballooned the database and crashed Studio); keep one draft per job and prune leftover backup clones more aggressively
+
 ## 0.1.83 — 2026-09-23
 
 - Strip special characters from Etsy tags before Send so Etsy no longer rejects them

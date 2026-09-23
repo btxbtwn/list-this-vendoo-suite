@@ -579,20 +579,74 @@ class JobRepo:
         step: str | None = None,
         statuses: dict | None = None,
     ) -> JobEvent:
-        return self.add_event(
-            job_id,
-            "vendoo_draft",
-            step,
-            {
-                "ok": True,
-                "source": source or "cache",
-                "item_id": item_id,
-                "url": url,
-                "item": item,
-                "form": form,
-                "statuses": statuses,
-            },
+        """Cache the latest Vendoo draft for a job.
+
+        Only one ``vendoo_draft`` row is kept per job. Sync/watch used to append
+        a full item snapshot on every pull; that grew ``job_events`` by
+        gigabytes and made Studio crash with ``database or disk is full``.
+        """
+        payload = {
+            "ok": True,
+            "source": source or "cache",
+            "item_id": item_id,
+            "url": url,
+            "item": item,
+            "form": form,
+            "statuses": statuses,
+        }
+        existing = (
+            self.db.query(JobEvent)
+            .filter(JobEvent.job_id == job_id, JobEvent.event_type == "vendoo_draft")
+            .order_by(JobEvent.sequence.desc())
+            .all()
         )
+        if existing:
+            latest = existing[0]
+            latest.step = step
+            latest.payload = payload
+            stale_ids = [event.id for event in existing[1:]]
+            if stale_ids:
+                (
+                    self.db.query(JobEvent)
+                    .filter(JobEvent.id.in_(stale_ids))
+                    .delete(synchronize_session=False)
+                )
+            self.db.commit()
+            self.db.refresh(latest)
+            return latest
+        return self.add_event(job_id, "vendoo_draft", step, payload)
+
+    def prune_stale_vendoo_drafts(self) -> int:
+        """Drop every ``vendoo_draft`` that is not the newest for its job."""
+        from sqlalchemy import and_, func, select
+
+        newest = (
+            self.db.query(
+                JobEvent.job_id.label("job_id"),
+                func.max(JobEvent.sequence).label("sequence"),
+            )
+            .filter(JobEvent.event_type == "vendoo_draft")
+            .group_by(JobEvent.job_id)
+            .subquery()
+        )
+        keep_ids = select(JobEvent.id).join(
+            newest,
+            and_(
+                JobEvent.job_id == newest.c.job_id,
+                JobEvent.sequence == newest.c.sequence,
+                JobEvent.event_type == "vendoo_draft",
+            ),
+        )
+        deleted = (
+            self.db.query(JobEvent)
+            .filter(
+                JobEvent.event_type == "vendoo_draft",
+                JobEvent.id.notin_(keep_ids),
+            )
+            .delete(synchronize_session=False)
+        )
+        self.db.commit()
+        return int(deleted or 0)
 
     def get_vendoo_draft(self, job_id: str) -> dict | None:
         event = self.latest_event(job_id, "vendoo_draft")
