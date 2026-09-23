@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatCitationId,
   citationPreview,
+  collectChatCitations,
   createChatCitationSelector,
   findChatCitationText,
-  formatCitedMessage,
+  formatChatCitationHref,
+  parseChatCitationHref,
   rawTextOffset,
+  serializeChatCitation,
+  withChatCitationComment,
+  type ChatCitation,
 } from "./chatCitations";
 
 const MESSAGE = "The jacket is wool.\nThe lining is silk.";
@@ -15,6 +21,11 @@ function selectorFor(text: string, quote: string, occurrence = 0) {
   const selector = createChatCitationSelector(text, start, start + quote.length);
   if (!selector) throw new Error("expected a selector");
   return selector;
+}
+
+function citationFor(messageId: string, text: string, quote: string): ChatCitation {
+  const selector = selectorFor(text, quote);
+  return { id: chatCitationId(messageId, selector), messageId, ...selector };
 }
 
 describe("createChatCitationSelector", () => {
@@ -72,33 +83,53 @@ describe("findChatCitationText", () => {
   });
 });
 
-describe("formatCitedMessage", () => {
-  it("returns the typed text when nothing is cited", () => {
-    expect(formatCitedMessage([], "  Change the title  ")).toBe("Change the title");
+describe("citation links", () => {
+  it("round-trips a quote through its href", () => {
+    const citation = citationFor("m1", MESSAGE, "The lining is silk.");
+    const parsed = parseChatCitationHref(formatChatCitationHref(citation));
+    expect(parsed).toEqual(citation);
   });
 
-  it("quotes each citation above the message and escapes its markdown", () => {
-    const message = formatCitedMessage(
-      [selectorFor(MESSAGE, "The lining is silk."), selectorFor("Price: *$40*", "*$40*")],
-      "Fix both.",
-    );
-    expect(message).toBe(
-      "> Quoted from your earlier reply:\n> The lining is silk\\.\n\n" +
-        "> Quoted from your earlier reply:\n> \\*$40\\*\n\n" +
-        "Fix both.",
-    );
+  it("round-trips the seller's comment", () => {
+    const citation = withChatCitationComment(citationFor("m1", MESSAGE, "wool"), "  wrong fibre ");
+    expect(citation.comment).toBe("wrong fibre");
+    expect(parseChatCitationHref(formatChatCitationHref(citation))?.comment).toBe("wrong fibre");
   });
 
-  it("sends the quote alone when the composer is empty", () => {
-    expect(formatCitedMessage([selectorFor(MESSAGE, "wool")], "")).toBe(
-      "> Quoted from your earlier reply:\n> wool",
+  it("drops the comment when it is cleared", () => {
+    const citation = withChatCitationComment(
+      withChatCitationComment(citationFor("m1", MESSAGE, "wool"), "note"),
+      "   ",
     );
+    expect(citation.comment).toBeUndefined();
+    expect(formatChatCitationHref(citation)).not.toContain("comment=");
   });
 
-  it("keeps a multi-line quote inside one block", () => {
-    expect(formatCitedMessage([selectorFor(MESSAGE, MESSAGE)], "")).toBe(
-      "> Quoted from your earlier reply:\n> The jacket is wool\\.\n> The lining is silk\\.",
-    );
+  it("keeps message ids with slashes and spaces intact", () => {
+    const citation = citationFor("msg 1/2", MESSAGE, "wool");
+    expect(parseChatCitationHref(formatChatCitationHref(citation))?.messageId).toBe("msg 1/2");
+  });
+
+  it("rejects hrefs that are not citations", () => {
+    expect(parseChatCitationHref("https://example.com")).toBeNull();
+    expect(parseChatCitationHref("studio-citation://v1/m1?text=hi")).toBeNull();
+    expect(parseChatCitationHref("studio-citation://v2/m1?text=hi&start=0&end=2&prefix=&suffix=")).toBeNull();
+  });
+
+  it("rejects an empty quote and a backwards range", () => {
+    expect(
+      parseChatCitationHref("studio-citation://v1/m1?text=%20&start=0&end=2&prefix=&suffix="),
+    ).toBeNull();
+    expect(
+      parseChatCitationHref("studio-citation://v1/m1?text=hi&start=4&end=2&prefix=&suffix="),
+    ).toBeNull();
+  });
+
+  it("collects the quotes sitting inline in a sent message", () => {
+    const first = citationFor("m1", MESSAGE, "wool");
+    const second = citationFor("m2", "Price: *$40*", "*$40*");
+    const message = `Make ${serializeChatCitation(first)} cotton and drop ${serializeChatCitation(second)}.`;
+    expect(collectChatCitations(message).map((match) => match.citation)).toEqual([first, second]);
   });
 });
 

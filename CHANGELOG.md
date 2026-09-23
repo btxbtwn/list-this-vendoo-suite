@@ -6,6 +6,14 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.81 — 2026-09-23
+
+- Replies now fade in paragraph by paragraph as they arrive, instead of popping
+- Quote the Evidence and Sold comps cards, not just the assistant's reply
+- Quotes now sit inline in the message box, right where you drop them, and keep their place in the message you send
+- A quote you cite becomes a chip in your sent message: click it to jump back to the source, which pulses so you can find it
+- Add a comment to a quote from its chip and send it along with the quote
+
 ## 0.1.80 — 2026-09-23
 
 - After Send, Ask chat targets fields that are empty on the Vendoo draft and missing from listing JSON

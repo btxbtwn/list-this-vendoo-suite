@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.config import PHOTOS_DIR, skills_dir
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+from vendoo_studio.services.chat_citations import (
+    citations_to_plain_text,
+    expand_citations_for_provider,
+)
 from vendoo_studio.services.comp_research import research_sold_comps
 from vendoo_studio.services.listing_generate import (
     PHOTO_ANALYSIS_RETRY_MESSAGE,
@@ -90,7 +94,11 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
     conv = repo.get(conv_id)
     notes = (conv.notes if conv else "") or ""
 
-    skill_rules = load_skill_rules(user_message, db)
+    # Quotes the seller cited are links in the stored message; the rule search
+    # and the request heuristics read them as the text the seller sees.
+    user_message_text = citations_to_plain_text(user_message)
+
+    skill_rules = load_skill_rules(user_message_text, db)
 
     photo_analysis_text = ""
     comps_text = ""
@@ -99,7 +107,7 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
     if photos and existing_analysis and photo_analysis_usable(existing_analysis):
         photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
         skill_rules = load_skill_rules(
-            f"{user_message}\n{photo_analysis_text}\n{seller_item_details(notes)}",
+            f"{user_message_text}\n{photo_analysis_text}\n{seller_item_details(notes)}",
             db,
         )
     elif photos:
@@ -119,7 +127,7 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
             repo.add_message(conv_id, "system", analysis_note)
             photo_analysis_text = analysis_with_photo_count(len(photos), analysis_note)
             skill_rules = load_skill_rules(
-                f"{user_message}\n{photo_analysis_text}\n{seller_item_details(notes)}",
+                f"{user_message_text}\n{photo_analysis_text}\n{seller_item_details(notes)}",
                 db,
             )
             comps_text = await research_sold_comps(photo_analysis_text, evidence)
@@ -132,7 +140,7 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
 
     from vendoo_studio.services.fill_log import is_missing_fields_request
 
-    ask_missing_fields = is_missing_fields_request(user_message)
+    ask_missing_fields = is_missing_fields_request(user_message_text)
     if ask_missing_fields:
         change_instructions = (
             "The seller asked you to fill specific empty/leftover fields.\n"
@@ -215,9 +223,12 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
         role = msg.role
         if role == "model":
             role = "assistant"
-        messages.append({"role": role, "content": msg.text})
+        # The model reads the seller's quotes as reference material; the stored
+        # message keeps the links that render as chips in chat.
+        content = expand_citations_for_provider(msg.text) if role == "user" else msg.text
+        messages.append({"role": role, "content": content})
 
-    messages.append({"role": "user", "content": user_message})
+    messages.append({"role": "user", "content": expand_citations_for_provider(user_message)})
     return messages
 
 
