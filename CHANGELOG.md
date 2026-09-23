@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.78 — 2026-09-23
+
+- Quote assistant text in the chat composer with the new Cite button
+
 ## 0.1.77 — 2026-09-22
 
 - Fail CI when a version bump ships without a changelog entry
