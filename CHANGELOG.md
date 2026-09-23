@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.88 — 2026-09-23
+
+- Chat prompts no longer stall while Studio builds the full category index; listing rules load right away
+
 ## 0.1.87 — 2026-09-23
 
 - Keep Vendoo marketplace status in a small per-listing cache instead of storing whole draft copies in job history, so sync cannot refill the disk

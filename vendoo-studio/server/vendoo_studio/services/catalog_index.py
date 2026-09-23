@@ -774,7 +774,23 @@ def relevant_skill_rules(db: Session, query: str, *, max_chars: int = 8000, top_
                 continue
         return with_pinned_formulas("\n\n---\n\n".join(parts), max_chars=max_chars)
 
-    hits = search_catalog(db, query, kind="skill", top_k=top_k)
+    # Chat only needs the small canonical skill corpus. Building the full
+    # category index here blocks the first prompt while tens of thousands of
+    # category documents are materialized and indexed.
+    tokens = [token.casefold() for token in re.findall(r"[a-z0-9']+", query.casefold()) if len(token) > 1]
+    hits = []
+    for path in _skill_files():
+        try:
+            chunks = _chunk_markdown(path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        for title, body in chunks:
+            score = sum(body.casefold().count(token) for token in tokens)
+            if tokens and score == 0:
+                continue
+            hits.append({"title": title, "path": str(path), "snippet": body[:4000], "score": score})
+    hits.sort(key=lambda hit: (-hit["score"], hit["path"], hit["title"]))
+    hits = hits[:top_k]
     if not hits:
         skill_md = skills_dir() / "list-this" / "SKILL.md"
         raw = skill_md.read_text(encoding="utf-8")[:max_chars] if skill_md.is_file() else ""
