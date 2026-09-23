@@ -6,6 +6,12 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.87 — 2026-09-23
+
+- Keep Vendoo marketplace status in a small per-listing cache instead of storing whole draft copies in job history, so sync cannot refill the disk
+- Cap how many backup snapshots Studio keeps by size and count, refuse to back up when free disk is less than twice the database, and show a clear warning in Settings
+- Settings → About now reports the largest database tables and can prune leftover job events; Studio vacuums on quit so freed space returns to the disk
+
 ## 0.1.85 — 2026-09-23
 
 - Sending a prompt on a listing no longer fails with "database is locked" while a Vendoo label sync is running

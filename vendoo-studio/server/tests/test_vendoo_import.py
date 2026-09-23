@@ -400,7 +400,7 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertEqual(job.vendoo_item_id, "abc123")
         draft = JobRepo(self.db).get_vendoo_draft(job.id)
         self.assertIsNotNone(draft)
-        self.assertTrue(draft.get("item") or draft.get("form"))
+        self.assertEqual(draft["item_id"], "abc123")
 
     @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
     def test_import_same_item_updates_existing_conversation(self, download):
@@ -440,7 +440,8 @@ class VendooImportRouteTest(unittest.TestCase):
             self.assertEqual(response.status_code, 400, item_id)
 
     @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
-    def test_import_draft_available_without_chrome(self, download):
+    def test_the_cached_draft_still_answers_without_chrome(self, download):
+        """Fields come from Vendoo, but the binding Studio last saw survives Chrome being away."""
         download.return_value = []
         imported = self._import().json()
         job_id = imported["job_id"]
@@ -450,7 +451,6 @@ class VendooImportRouteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertTrue(body["ok"])
-        self.assertTrue(body.get("item") or body.get("form"))
         self.assertEqual(body.get("item_id"), "abc123")
 
     @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)

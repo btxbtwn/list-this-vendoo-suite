@@ -1,8 +1,8 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { backupSummary } from "./backupSummary";
 import { api } from "../api/client";
 import type { ListingProviderId } from "../api/types";
+import { backupSummary, formatBytes } from "./backupSummary";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
@@ -438,18 +438,29 @@ function BackupsSection() {
   });
 
   const latest = data?.latest;
+  const warning = data?.warning;
 
   return (
     <SettingsSection id="backups" title="Backups">
+      {warning ? (
+        <SettingsRow
+          id="backup-warning"
+          title="Cannot back up safely"
+          description={warning}
+          status={<span className="text-error">Action needed</span>}
+        />
+      ) : null}
       <SettingsRow
         id="backup-status"
         title="Snapshots"
-        description="Studio copies the database when it starts, every six hours, and before any update or schema change. Each copy is checked before it is kept."
+        description="Studio copies the database when it starts, every six hours, and before any update or schema change. Each copy is checked before it is kept. Old copies are dropped once they fill the retention budget."
         status={
           isLoading ? (
             "Checking…"
           ) : error ? (
             <span className="text-error">{(error as Error).message || "Could not read backups"}</span>
+          ) : data && !data.can_snapshot && warning ? (
+            <span className="text-error">{warning}</span>
           ) : latest ? (
             backupSummary(data)
           ) : (
@@ -461,7 +472,7 @@ function BackupsSection() {
             type="button"
             className="btn btn-sm btn-outline"
             onClick={() => snapshot.mutate()}
-            disabled={snapshot.isPending}
+            disabled={snapshot.isPending || data?.can_snapshot === false}
           >
             {snapshot.isPending ? "Backing up…" : "Back up now"}
           </button>
@@ -503,6 +514,66 @@ function BackupsSection() {
         </div>
       </SettingsRow>
     </SettingsSection>
+  );
+}
+
+function DatabaseMaintenanceRow() {
+  const queryClient = useQueryClient();
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["settings-database"],
+    queryFn: api.settings.database,
+  });
+  const prune = useMutation({
+    mutationFn: api.settings.pruneDatabase,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["settings-database"] });
+      void queryClient.invalidateQueries({ queryKey: ["backups"] });
+    },
+  });
+
+  const top = data?.tables?.[0];
+  const status = isLoading
+    ? "Checking…"
+    : error
+      ? ((error as Error).message || "Could not read the database")
+      : data
+        ? `${formatBytes(data.database_bytes)}${top ? ` · largest table ${top.table}` : ""}`
+        : "—";
+
+  return (
+    <SettingsRow
+      id="database-maintenance"
+      title="Database"
+      description="Listings and job history live here. Prune drops leftover job events; free space returns to the disk the next time you quit Studio."
+      status={error ? <span className="text-error">{status}</span> : status}
+      control={
+        <button
+          type="button"
+          className="btn btn-sm btn-outline"
+          onClick={() => prune.mutate()}
+          disabled={prune.isPending || isLoading}
+        >
+          {prune.isPending ? "Pruning…" : "Prune leftover events"}
+        </button>
+      }
+    >
+      {data?.tables?.length ? (
+        <div className="settings-hidden-list">
+          {data.tables.slice(0, 5).map((row) => (
+            <div key={row.table}>
+              {row.table}
+              {row.bytes != null ? ` · ${formatBytes(row.bytes)}` : ""} · {row.rows} rows
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {prune.data?.pruned && prune.data.pruned.deleted > 0 ? (
+        <p className="text-sm opacity-70">
+          Removed {prune.data.pruned.deleted} leftover event
+          {prune.data.pruned.deleted === 1 ? "" : "s"}. Quit Studio to reclaim the disk space.
+        </p>
+      ) : null}
+    </SettingsRow>
   );
 }
 
@@ -710,6 +781,7 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
       <BackupsSection />
       <SettingsSection id="about" title="About">
         <DataFolderRow />
+        <DatabaseMaintenanceRow />
         <AboutVersionRow version={status?.version || "…"} />
         <WhatsNewRow />
       </SettingsSection>

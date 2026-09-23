@@ -375,12 +375,6 @@ async def dispatch_queued_jobs():
                 # Cached schema already learned for this category — skip the live
                 # marketplace tour. Fill still sets categories when needed.
                 options["skipDiscoverSchema"] = True
-        if not schema_probe and reuse_existing and item_id and platforms:
-            from vendoo_studio.services.send_skip import matching_marketplaces
-            skip = matching_marketplaces(db, job.conversation_id, item_id, snapshot, platforms)
-            if skip:
-                options["skipPlatforms"] = skip
-                repo.add_event(job.id, "send_skip_platforms", "dispatch", {"platforms": skip})
         if resume_from:
             options["resumeFrom"] = resume_from
         if schema_probe:

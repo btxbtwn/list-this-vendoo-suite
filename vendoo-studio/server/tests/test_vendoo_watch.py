@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from vendoo_studio.database import Base
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
+from vendoo_studio.models.job import JobEvent, VendooDraftCache
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services.vendoo_import import merge_notes, parse_notes
@@ -146,26 +147,57 @@ class SyncStateTest(unittest.TestCase):
         self.assertEqual(cached["source"], "vendoo_sync")
         self.assertEqual(cached["item"]["listings"]["ebay"]["status"], {"listed": True})
         self.assertEqual(cached["item"]["listings"]["depop"]["status"], {"notListed": True})
-        drafts = [
-            event
-            for event in JobRepo(self.db).get_events(job.id)
-            if event.event_type == "vendoo_draft"
-        ]
-        self.assertEqual(len(drafts), 1)
+        self.assertEqual(self.db.query(JobEvent).filter(JobEvent.event_type == "vendoo_draft").count(), 0)
 
-    def test_save_vendoo_draft_keeps_a_single_row_per_job(self):
+    def test_repeated_saves_keep_one_cache_row_and_no_job_events(self):
+        """Sync pulls on a timer: a hundred of them must not grow the database."""
         job = JobRepo(self.db).create(
             self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
         )
         repo = JobRepo(self.db)
-        repo.save_vendoo_draft(job.id, item={"itemID": "itm1", "n": 1}, item_id="itm1", source="a")
-        repo.save_vendoo_draft(job.id, item={"itemID": "itm1", "n": 2}, item_id="itm1", source="b")
-        repo.save_vendoo_draft(job.id, item={"itemID": "itm1", "n": 3}, item_id="itm1", source="c")
-        drafts = [event for event in repo.get_events(job.id) if event.event_type == "vendoo_draft"]
-        self.assertEqual(len(drafts), 1)
-        self.assertEqual(drafts[0].payload["source"], "c")
-        self.assertEqual(drafts[0].payload["item"]["n"], 3)
+        for attempt in range(100):
+            repo.save_vendoo_draft(
+                job.id,
+                item={
+                    "itemID": "itm1",
+                    "listings": {"ebay": {"status": {"listed": True}}},
+                },
+                item_id="itm1",
+                source=f"pull-{attempt}",
+            )
+        self.assertEqual(self.db.query(VendooDraftCache).count(), 1)
+        self.assertEqual(self.db.query(JobEvent).count(), 0)
+        self.assertEqual(repo.get_vendoo_draft(job.id)["source"], "pull-99")
         self.assertEqual(repo.prune_stale_vendoo_drafts(), 0)
+
+    def test_the_cache_keeps_status_and_drops_the_rest_of_the_item(self):
+        job = JobRepo(self.db).create(
+            self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
+        )
+        repo = JobRepo(self.db)
+        repo.save_vendoo_draft(
+            job.id,
+            item={
+                "itemID": "itm1",
+                "generalDetails": {"description": "x" * 5000, "price": "24.00"},
+                "listings": {
+                    "ebay": {"status": {"listed": True}, "marketplaceSpecifics": {"type": "Tee"}},
+                },
+            },
+            item_id="itm1",
+            source="vendoo_pull",
+        )
+        row = self.db.query(VendooDraftCache).one()
+        self.assertEqual(row.payload, {"item": {"listings": {"ebay": {"status": {"listed": True}}}}})
+
+    def test_an_item_with_no_status_badges_nothing(self):
+        job = JobRepo(self.db).create(
+            self.conv.id, self.rev.id, {"title": "Tee"}, vendoo_item_id="itm1", status="completed",
+        )
+        repo = JobRepo(self.db)
+        repo.save_vendoo_draft(job.id, item={"itemID": "itm1"}, item_id="itm1", source="api")
+        self.assertEqual(repo.latest_vendoo_drafts([job.id]), {})
+        self.assertEqual(repo.get_vendoo_draft(job.id)["source"], "api")
 
     def test_a_pull_refreshes_the_bound_job_even_when_a_newer_job_exists(self):
         """The sidebar may read an older bound job; a newer unbound one must not hide it."""

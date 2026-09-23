@@ -117,24 +117,24 @@ def failed_readback_platforms(verification: dict, platforms: list[str]) -> list[
     return [mp for mp in platforms if not schema_section_readable(schema.get(mp))]
 
 
-def merge_prior_readback_schemas(repo: JobRepo, job_id: str, verification: dict, platforms: list[str]) -> dict:
-    """Keep marketplace sections that already scraped cleanly across verification attempts."""
+def carry_readable_schema_sections(prior: dict | None, verification: dict) -> dict:
+    """Keep marketplace sections that already scraped cleanly across attempts.
+
+    A retry re-reads only the marketplaces that failed, so on its own it says
+    nothing about the ones that worked the first time. Merging happens on the
+    way in because only the newest review is kept.
+    """
     merged = deepcopy(verification) if isinstance(verification, dict) else {}
     schema = deepcopy(merged.get("schema") or {})
-    for event in repo.get_events(job_id):
-        if event.event_type != "completion_review":
-            continue
-        prior = (event.payload or {}).get("schema") or {}
-        if not isinstance(prior, dict):
-            continue
-        for marketplace in platforms:
+    previous = prior.get("schema") if isinstance(prior, dict) else None
+    if isinstance(previous, dict):
+        for marketplace, section in previous.items():
             if schema_section_readable(schema.get(marketplace)):
                 continue
-            previous = prior.get(marketplace)
-            if schema_section_readable(previous):
-                schema[marketplace] = deepcopy(previous)
+            if schema_section_readable(section):
+                schema[marketplace] = deepcopy(section)
     merged["schema"] = schema
-    if any(schema_section_readable(schema.get(mp)) for mp in platforms):
+    if any(schema_section_readable(section) for section in schema.values()):
         merged["readback"] = True
     return merged
 

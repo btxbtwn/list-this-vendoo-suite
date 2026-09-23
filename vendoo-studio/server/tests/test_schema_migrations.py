@@ -142,6 +142,51 @@ def test_ensure_schema_is_idempotent(engine, snapshots):
     assert inspect_database(engine.url.database).clean
 
 
+def test_the_draft_cache_takes_over_from_the_old_draft_events(engine, snapshots):
+    """A database from the previous release keeps its statuses and loses the bulk."""
+    from alembic import command
+
+    config = schema_migrations.alembic_config(str(engine.url))
+    command.upgrade(config, "c3a71f0b5d42")
+    with sqlite3.connect(engine.url.database) as connection:
+        connection.execute(
+            "INSERT INTO conversations (id, title) VALUES ('c1', 'vintage coat')"
+        )
+        connection.execute(
+            "INSERT INTO jobs (id, conversation_id, approved_revision_id, listing_snapshot) "
+            "VALUES ('j1', 'c1', 'r1', '{}')"
+        )
+        for sequence, listed in enumerate([False, False, True]):
+            payload = (
+                '{"ok": true, "source": "vendoo_sync", "item_id": "itm1", '
+                '"url": "https://web.vendoo.co/app/item/itm1", '
+                '"item": {"generalDetails": {"description": "' + "x" * 2000 + '"}, '
+                '"listings": {"ebay": {"status": {"listed": ' + str(listed).lower() + '}}}}}'
+            )
+            connection.execute(
+                "INSERT INTO job_events (id, job_id, sequence, event_type, payload, created_at) "
+                f"VALUES ('e{sequence}', 'j1', {sequence}, 'vendoo_draft', ?, "
+                f"'2026-09-2{sequence} 00:00:00')",
+                (payload,),
+            )
+
+    assert ensure_schema(engine) == head_revision()
+
+    with sqlite3.connect(engine.url.database) as connection:
+        cached = connection.execute(
+            "SELECT item_id, source, payload FROM vendoo_draft_cache"
+        ).fetchall()
+        left = connection.execute(
+            "SELECT COUNT(*) FROM job_events WHERE event_type = 'vendoo_draft'"
+        ).fetchone()
+
+    assert left == (0,)
+    assert len(cached) == 1
+    item_id, source, payload = cached[0]
+    assert (item_id, source) == ("itm1", "vendoo_sync")
+    assert payload == '{"item": {"listings": {"ebay": {"status": {"listed": true}}}}}'
+
+
 REVISION_TEMPLATE = '''"""{message}"""
 from alembic import op
 import sqlalchemy as sa

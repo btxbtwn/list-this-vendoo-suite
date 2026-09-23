@@ -84,6 +84,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["backup", "reinstall", "photos", "sqlite", "application support", "preserve"],
   },
   {
+    id: "database-maintenance",
+    title: "Database",
+    section: "general",
+    targetId: "database-maintenance",
+    searchTerms: ["vacuum", "prune", "job events", "disk space", "table size", "bloat"],
+  },
+  {
     id: "about-version",
     title: "Version",
     section: "general",

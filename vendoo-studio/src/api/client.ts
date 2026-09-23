@@ -2,6 +2,7 @@ import type {
   BackupSnapshot,
   BackupsStatus,
   Conversation,
+  DatabaseReport,
   DeleteConversationResult,
   FillLogReport,
   Job,
@@ -507,6 +508,9 @@ export const api = {
       request<{ ok: boolean; dismissed: boolean }>("/settings/setup-guide/dismiss", { method: "POST" }),
     dataFolder: () =>
       request<{ path: string; contains: string[]; secrets: string }>("/settings/data-folder"),
+    database: () => request<DatabaseReport>("/settings/database"),
+    pruneDatabase: () =>
+      request<DatabaseReport>("/settings/database/prune", { method: "POST" }),
     ui: () =>
       request<{
         ok: boolean;

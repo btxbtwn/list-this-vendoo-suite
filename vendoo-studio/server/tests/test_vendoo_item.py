@@ -96,9 +96,14 @@ class VendooItemRouteTest(unittest.TestCase):
         self.assertEqual(body["item"]["generalDetails"]["title"], "Nike tee")
         self.assertIsNone(body["form"])
 
+        # Vendoo is unreachable now, so the read falls back to the cache. The
+        # cache keeps marketplace status and nothing else.
         cached = self.client.post(f"/api/jobs/{self.job.id}/vendoo-item")
         self.assertEqual(cached.status_code, 200, cached.text)
-        self.assertEqual(cached.json()["item"]["generalDetails"]["title"], "Nike tee")
+        self.assertEqual(
+            cached.json()["item"]["listings"]["ebay"]["status"], {"listed": True}
+        )
+        self.assertEqual(cached.json()["item_id"], "abc123")
 
     def test_vendoo_item_cache_only_skips_live_read(self):
         self._connect_chrome()

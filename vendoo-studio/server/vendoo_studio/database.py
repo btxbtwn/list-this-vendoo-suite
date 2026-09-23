@@ -46,7 +46,7 @@ def load_models() -> None:
     """Import every model so ``Base.metadata`` describes the whole schema."""
     from vendoo_studio.models.conversation import Conversation  # noqa: F401
     from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
-    from vendoo_studio.models.job import Job, JobEvent  # noqa: F401
+    from vendoo_studio.models.job import Job, JobEvent, VendooDraftCache  # noqa: F401
     from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation  # noqa: F401
     from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
     from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401

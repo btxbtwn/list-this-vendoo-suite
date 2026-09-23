@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from vendoo_studio.database import get_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -614,6 +617,22 @@ def get_data_folder():
         ],
         "secrets": "macOS Keychain (API keys and ChatGPT tokens are not stored in this folder)",
     }
+
+
+@router.get("/database")
+def get_database_report(db: Session = Depends(get_db)):
+    from vendoo_studio.services.maintenance import maintenance_report
+
+    return maintenance_report(db)
+
+
+@router.post("/database/prune")
+def prune_database(db: Session = Depends(get_db)):
+    """Drop job events nothing reads. Space returns to disk on the next quit."""
+    from vendoo_studio.services.maintenance import maintenance_report, prune_event_bloat
+
+    pruned = prune_event_bloat(db)
+    return {"ok": True, "pruned": pruned, **maintenance_report(db)}
 
 
 class UiPrefsConfig(BaseModel):

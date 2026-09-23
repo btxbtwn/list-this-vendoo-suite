@@ -74,6 +74,19 @@ else
   bad "Google Chrome not found. Install it from https://www.google.com/chrome"
 fi
 
+DB="${VENDOO_STUDIO_DATA_DIR:-$HOME/Library/Application Support/List This Studio}/vendoo_studio.db"
+if [[ -f "$DB" ]]; then
+  ok "Database ($(du -h "$DB" | cut -f1)) at $DB"
+  if command -v sqlite3 >/dev/null 2>&1; then
+    # dbstat is a compile-time option; a build without it just prints nothing.
+    sqlite3 "$DB" \
+      "SELECT '        ' || name || '  ' || (SUM(pgsize) / 1048576) || ' MB'
+       FROM dbstat GROUP BY name ORDER BY SUM(pgsize) DESC LIMIT 5;" 2>/dev/null || true
+  fi
+else
+  warn "No database yet at $DB. It is created the first time Studio starts."
+fi
+
 if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:4318 -sTCP:LISTEN >/dev/null 2>&1; then
   bad "Port 4318 is already in use. Quit the other Studio process before starting a new one."
 else

@@ -10,6 +10,7 @@ from vendoo_studio.services.backups import (
     backup_folder,
     list_snapshots,
     set_backup_folder,
+    storage_status,
     take_snapshot,
 )
 
@@ -28,6 +29,7 @@ def get_backups():
         "snapshots": [snapshot.as_dict() for snapshot in snapshots],
         "folder": str(folder) if folder else None,
         "latest": snapshots[0].as_dict() if snapshots else None,
+        **storage_status(),
     }
 
 

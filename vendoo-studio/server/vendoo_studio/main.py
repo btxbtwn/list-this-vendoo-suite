@@ -54,22 +54,22 @@ async def lifespan(app: FastAPI):
         pass
     try:
         from vendoo_studio.database import SessionLocal
-        from vendoo_studio.repositories.queries import JobRepo
+        from vendoo_studio.services.maintenance import prune_event_bloat
         import logging
         import threading
 
-        def _prune_stale_drafts() -> None:
+        def _prune_event_bloat() -> None:
             try:
                 with SessionLocal() as db:
-                    deleted = JobRepo(db).prune_stale_vendoo_drafts()
-                if deleted:
+                    pruned = prune_event_bloat(db)
+                if pruned["deleted"]:
                     logging.getLogger("vendoo_studio").info(
-                        "Pruned %s stale vendoo_draft job events", deleted
+                        "Pruned %s job event(s) nothing reads", pruned["deleted"]
                     )
             except Exception:
                 pass
 
-        threading.Thread(target=_prune_stale_drafts, name="prune-vendoo-drafts", daemon=True).start()
+        threading.Thread(target=_prune_event_bloat, name="prune-job-events", daemon=True).start()
     except Exception:
         pass
     yield
@@ -78,6 +78,14 @@ async def lifespan(app: FastAPI):
         stop_snapshot_timer()
     except Exception:
         pass
+    # Last thing before the process goes: pruning frees pages inside the file,
+    # and only VACUUM hands them back to the disk. Nobody is waiting on it here.
+    try:
+        from vendoo_studio.services.maintenance import vacuum_database
+        vacuum_database()
+    except Exception as exc:
+        import logging
+        logging.getLogger("vendoo_studio").warning("Could not vacuum the database: %s", exc)
 
 
 app = FastAPI(

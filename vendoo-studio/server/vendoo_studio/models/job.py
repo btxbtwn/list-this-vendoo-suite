@@ -47,3 +47,23 @@ class JobEvent(Base):
     step = Column(String, nullable=True)
     payload = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow)
+
+
+class VendooDraftCache(Base):
+    """The last Vendoo status Studio saw for a job — one row, status only.
+
+    This used to be an appended ``job_events`` row carrying the whole Vendoo
+    item. Sync writes one on every pull, an item is tens of kilobytes, and the
+    table grew past 9 GB before anyone noticed. Nothing reads the rest of the
+    item back from here, so nothing else is kept.
+    """
+
+    __tablename__ = "vendoo_draft_cache"
+
+    job_id = Column(String, ForeignKey("jobs.id"), primary_key=True)
+    item_id = Column(String, nullable=True)
+    url = Column(String, nullable=True)
+    source = Column(String, nullable=True)
+    step = Column(String, nullable=True)
+    payload = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

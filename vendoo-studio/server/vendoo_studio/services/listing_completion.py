@@ -36,10 +36,10 @@ from vendoo_studio.services.completion_pause import (
     pause_job,
 )
 from vendoo_studio.services.completion_readback import (
+    carry_readable_schema_sections,
     category_mismatches,
     failed_readback_platforms,
     incomplete_readback,
-    merge_prior_readback_schemas,
     repair_category_mismatches,
     retry_incomplete_readback,
 )
@@ -230,11 +230,13 @@ def _auto_no_evidence(fields: list[dict]) -> list[dict]:
 
 
 def store_verification(db: Session, job, verification: dict) -> None:
-    JobRepo(db).add_event(
+    repo = JobRepo(db)
+    prior = repo.latest_event(job.id, "completion_review")
+    repo.add_event(
         job.id,
         "completion_review",
         "verifying_draft",
-        deepcopy(verification) if isinstance(verification, dict) else {},
+        carry_readable_schema_sections(prior.payload if prior else None, verification),
     )
     remember_schema(
         db,
@@ -299,11 +301,11 @@ async def complete_job(db: Session, job_id: str) -> None:
     event = repo.latest_event(job.id, "completion_review")
     if not event:
         return
+    # The stored review already carries every section read so far: sections are
+    # merged in as each verification attempt lands.
     verification = event.payload or {}
     schema = verification.get("schema") or {}
     platforms = ["general", *((job.listing_snapshot or {}).get("platforms") or [])]
-    verification = merge_prior_readback_schemas(repo, job.id, verification, platforms)
-    schema = verification.get("schema") or {}
     if incomplete_readback(verification, platforms, vendoo_item_id=job.vendoo_item_id):
         failed = failed_readback_platforms(verification, platforms)
         if await retry_incomplete_readback(db, job, platforms, verification, failed=failed):
@@ -316,10 +318,6 @@ async def complete_job(db: Session, job_id: str) -> None:
             [],
         )
         return
-    # Persist a merged full schema when prior attempts filled marketplace gaps.
-    prior_failed = failed_readback_platforms(event.payload or {}, platforms)
-    if prior_failed and not failed_readback_platforms(verification, platforms):
-        store_verification(db, job, verification)
     revisions = ListingRepo(db).get_revisions(job.conversation_id)
     listing = deepcopy(revisions[0].listing_json if revisions else job.listing_snapshot)
     mismatches = category_mismatches(verification, listing)
