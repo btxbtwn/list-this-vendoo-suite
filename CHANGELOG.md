@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.82 — 2026-09-23
+
+- Hide the green status-bar dot next to the model logo when everything is fine; show red only when the listing model is not configured
+
 ## 0.1.81 — 2026-09-23
 
 - Replies now fade in paragraph by paragraph as they arrive, instead of popping
