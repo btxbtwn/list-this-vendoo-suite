@@ -20,6 +20,7 @@ import { SendProgress } from "./SendProgress";
 import { EvidenceCard } from "./EvidenceCard";
 import { SoldCompsCard } from "./SoldCompsCard";
 import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
+import { coalesceSseEvents, type SseParts } from "./sseCoalesce";
 import { stableStreamingText } from "./streamingText";
 import { WorkingDuration } from "./WorkingDuration";
 
@@ -371,7 +372,6 @@ function formatClientStreamError(
   return `Error: ${raw}`;
 }
 
-type SseParts = { content: string; thinking: string; status: string };
 type SseParseState = { eventType: string; parts: SseParts; dataLines: number };
 
 const SSE_FETCH: RequestInit = {
@@ -417,8 +417,13 @@ function consumeSseText(
 ): { parts: SseParts; sawDone: boolean } {
   const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" }, dataLines: 0 };
   let sawDone = false;
-  for (const line of text.split("\n")) {
-    if (applySseLine(line, state, onEvent)) sawDone = true;
+  const batch = coalesceSseEvents(onEvent);
+  try {
+    for (const line of text.split("\n")) {
+      if (applySseLine(line, state, (event, parts) => batch.push(event, parts))) sawDone = true;
+    }
+  } finally {
+    batch.flush();
   }
   return { parts: state.parts, sawDone };
 }
@@ -431,17 +436,25 @@ async function consumeSse(
   let buffer = "";
   let sawDone = false;
   const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" }, dataLines: 0 };
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    for (const raw of lines) {
-      if (applySseLine(raw, state, onEvent)) sawDone = true;
+  const batch = coalesceSseEvents(onEvent);
+  const emit = (event: string, parts: SseParts) => batch.push(event, parts);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const raw of lines) {
+        if (applySseLine(raw, state, emit)) sawDone = true;
+      }
     }
+    if (buffer && applySseLine(buffer, state, emit)) sawDone = true;
+  } finally {
+    // The caller flips streaming off right after this returns, so the last
+    // batch has to land first -- including when the read throws or aborts.
+    batch.flush();
   }
-  if (buffer && applySseLine(buffer, state, onEvent)) sawDone = true;
   return { parts: state.parts, sawDone };
 }
 

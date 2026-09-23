@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import plistlib
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -601,6 +602,70 @@ def ensure_frontend() -> None:
         raise RuntimeError("The frontend build finished without creating dist/index.html.")
 
 
+BRIDGE_MARKER = "cursor-sdk-bridge"
+
+
+def reap_orphaned_bridges() -> int:
+    """Kill Cursor bridge processes left behind by an earlier Studio.
+
+    Every listing run launches a cursor-sdk-bridge subprocess pair. The
+    context manager around it only unwinds on a clean exit, so a force-quit --
+    which is what a blank window usually ends in -- strands both halves. They
+    get reparented to launchd and sit there holding memory until reboot, which
+    on a small machine is what pushes the next run into swap.
+
+    Only processes that are both orphaned (reparented to PID 1) and pointed at
+    this install's workspace are killed, so a second Studio's live bridges are
+    left alone.
+    """
+    from vendoo_studio.providers.cursor_agent import listing_scratch_dir
+
+    try:
+        workspace = str(listing_scratch_dir())
+        out = subprocess.run(
+            ["ps", "-Ao", "pid=,ppid=,command="],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+    except Exception:
+        return 0
+
+    victims: list[int] = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid_s, ppid_s, command = parts
+        if BRIDGE_MARKER not in command or workspace not in command:
+            continue
+        try:
+            pid, ppid = int(pid_s), int(ppid_s)
+        except ValueError:
+            continue
+        # ppid 1 means the Studio that launched it is gone.
+        if ppid != 1 or pid == os.getpid():
+            continue
+        victims.append(pid)
+
+    if not victims:
+        return 0
+
+    for pid in victims:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    time.sleep(0.5)
+    for pid in victims:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    print(f"reaped {len(victims)} orphaned bridge process(es)", flush=True)
+    return len(victims)
+
+
 def start_owned_server() -> None:
     global _server, _server_thread, _owned_server
     if studio_is_up():
@@ -1058,6 +1123,7 @@ def _boot_window(window) -> None:
         except Exception:
             pass
         window.load_html(splash_html("Starting the local studio server…"))
+        reap_orphaned_bridges()
         start_owned_server()
         window.load_url(APP_URL)
     except Exception as exc:
@@ -1130,12 +1196,81 @@ def enable_editable_context_menus() -> None:
         pass
 
 
+def enable_webcontent_crash_recovery() -> None:
+    """Reload the page when macOS kills the WKWebView content process.
+
+    WebKit runs the page in a separate WebContent process. Under memory
+    pressure macOS kills that process, and WKWebView then just sits there
+    showing a blank window forever -- the app looks crashed even though the
+    Python side is still healthy. pywebview's Cocoa backend never implements
+    ``webView:webContentProcessDidTerminate:``, so nothing brings the page
+    back. Register it ourselves and reload.
+    """
+    try:
+        import objc
+        from webview.platforms.cocoa import BrowserView
+    except Exception:
+        return
+
+    delegate = getattr(BrowserView, "BrowserDelegate", None)
+    if delegate is None:
+        return
+
+    selector = b"webViewWebContentProcessDidTerminate:"
+    try:
+        if delegate.instancesRespondToSelector_(selector.decode()):
+            return
+    except Exception:
+        pass
+
+    # A page that dies again immediately would otherwise spin on reload.
+    state = {"last": 0.0, "delay": 1.0}
+
+    def did_terminate(self, webkit_host):  # noqa: ANN001
+        print("webview content process died; reloading", flush=True)
+        now = time.monotonic()
+        if now - state["last"] < 30.0:
+            state["delay"] = min(state["delay"] * 2.0, 30.0)
+        else:
+            state["delay"] = 1.0
+        state["last"] = now
+
+        def reload_later() -> None:
+            time.sleep(state["delay"])
+            try:
+                if webkit_host.URL() is None:
+                    _load_app_url(webkit_host)
+                else:
+                    webkit_host.reload()
+            except Exception as exc:
+                print(f"webview reload failed: {exc}", flush=True)
+
+        threading.Thread(target=reload_later, daemon=True).start()
+
+    try:
+        objc.classAddMethods(
+            delegate,
+            [objc.selector(did_terminate, selector=selector, signature=b"v@:@")],
+        )
+    except Exception as exc:
+        print(f"could not install webview recovery: {exc}", flush=True)
+
+
+def _load_app_url(webkit_host) -> None:  # noqa: ANN001
+    """Reload from scratch when the dead page left no URL to reload."""
+    from Foundation import NSURL, NSURLRequest
+
+    url = NSURL.URLWithString_(APP_URL)
+    webkit_host.loadRequest_(NSURLRequest.requestWithURL_(url))
+
+
 def run_window() -> None:
     _set_macos_app_name()
     _set_macos_app_icon()
     import webview
 
     enable_editable_context_menus()
+    enable_webcontent_crash_recovery()
     window = create_studio_window(webview)
     webview.start(lambda: _boot_window(window), **studio_start_kwargs())
     stop_owned_server()
