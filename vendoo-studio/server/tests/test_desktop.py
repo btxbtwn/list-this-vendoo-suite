@@ -420,3 +420,58 @@ class WaitForExtensionConnectionTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(connected)
         reload.assert_awaited()
+
+
+class ReapOrphanedBridgesTest(unittest.TestCase):
+    WORKSPACE = "/Users/x/Library/Application Support/List This Studio/cursor-listing-workspace"
+
+    def _run(self, ps_output, killed):
+        def fake_kill(pid, sig):
+            killed.append((pid, sig))
+
+        with patch.object(desktop.subprocess, "run") as run, \
+                patch.object(desktop.os, "kill", side_effect=fake_kill), \
+                patch.object(desktop.time, "sleep"), \
+                patch(
+                    "vendoo_studio.providers.cursor_agent.listing_scratch_dir",
+                    return_value=Path(self.WORKSPACE),
+                ):
+            run.return_value = SimpleNamespace(stdout=ps_output)
+            return desktop.reap_orphaned_bridges()
+
+    def test_kills_orphaned_bridge_for_this_workspace(self):
+        killed: list[tuple[int, int]] = []
+        count = self._run(
+            f"  501     1 sh /App/cursor-sdk-bridge --workspace {self.WORKSPACE}\n",
+            killed,
+        )
+        self.assertEqual(count, 1)
+        self.assertEqual([pid for pid, _ in killed], [501, 501])
+
+    def test_leaves_live_bridge_alone(self):
+        """A bridge whose Studio is still running has a real parent, not PID 1."""
+        killed: list[tuple[int, int]] = []
+        count = self._run(
+            f"  502   440 sh /App/cursor-sdk-bridge --workspace {self.WORKSPACE}\n",
+            killed,
+        )
+        self.assertEqual(count, 0)
+        self.assertEqual(killed, [])
+
+    def test_leaves_other_workspace_alone(self):
+        killed: list[tuple[int, int]] = []
+        count = self._run(
+            "  503     1 sh /App/cursor-sdk-bridge --workspace /Users/x/other-workspace\n",
+            killed,
+        )
+        self.assertEqual(count, 0)
+        self.assertEqual(killed, [])
+
+    def test_ignores_unrelated_orphans(self):
+        killed: list[tuple[int, int]] = []
+        count = self._run("  504     1 /usr/sbin/cupsd -l\n", killed)
+        self.assertEqual(count, 0)
+
+    def test_survives_ps_failure(self):
+        with patch.object(desktop.subprocess, "run", side_effect=OSError("boom")):
+            self.assertEqual(desktop.reap_orphaned_bridges(), 0)
