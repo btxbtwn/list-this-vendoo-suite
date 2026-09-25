@@ -596,6 +596,56 @@ class NonTopGarmentTest(unittest.TestCase):
         )
         self.assertEqual(mapped, DEPOP_WOMEN_SHIRT)
 
+    def test_a_cropped_trucker_jacket_is_not_a_crop_top(self):
+        """'Cropped' is a hem length on a jacket, not a Crop Tops cue."""
+        listing = {
+            "title": "Finity 8 Cropped Trucker Jacket Black Slim",
+            "department": "Women",
+            "category_path": (
+                "Clothing, Shoes & Accessories > Women > Women's Clothing "
+                "> Coats, Jackets & Vests"
+            ),
+            "ebay_specifics": {
+                "department": "Women",
+                "style": "Basic Jacket",
+                "sleeveLength": "Long Sleeve",
+            },
+            "description": "Y2K cropped trucker jacket stretch cotton twill.",
+        }
+        general = listing["category_path"]
+        self.assertEqual(
+            map_poshmark_category_path(general, listing),
+            "Women > Jackets & Coats > Jean Jackets",
+        )
+        self.assertEqual(
+            map_mercari_category_path(general, listing),
+            "Women > Coats & jackets > Jean jacket",
+        )
+        self.assertEqual(
+            map_etsy_category_path(general, listing),
+            "Clothing > Women's Clothing > Jackets & Coats",
+        )
+        self.assertEqual(
+            map_depop_category_path(general, listing),
+            "Women > Coats and jackets > Jackets",
+        )
+        # Already-wrong tops leaves from an earlier generate must remap too.
+        self.assertEqual(
+            map_poshmark_category_path("Women > Tops > Crop Tops", listing),
+            "Women > Jackets & Coats > Jean Jackets",
+        )
+        self.assertEqual(
+            map_mercari_category_path("Women > Tops & blouses > T-shirts", listing),
+            "Women > Coats & jackets > Jean jacket",
+        )
+        self.assertEqual(
+            map_etsy_category_path(
+                "Clothing > Women's Clothing > Tops & Tees > Crop & Tube Tops > Crop Tops",
+                listing,
+            ),
+            "Clothing > Women's Clothing > Jackets & Coats",
+        )
+
 
 class DepopCategoryMappingTest(unittest.TestCase):
     def test_maps_graphic_tee_to_depop_tshirts(self):
