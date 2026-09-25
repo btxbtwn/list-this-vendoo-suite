@@ -91,6 +91,18 @@ GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
             "skirt_asymmetrical": "Women > Skirts > Asymmetrical",
             "skirt_circle": "Women > Skirts > Circle & Skater",
             "skirt_high_low": "Women > Skirts > High Low",
+            # No general Jackets leaf — only an explicit cut maps.
+            "jacket_jean": "Women > Jackets & Coats > Jean Jackets",
+            "jacket_leather": "Women > Jackets & Coats > Leather Jackets",
+            "jacket_bomber": "Women > Jackets & Coats > Bomber Jackets",
+            "jacket_puffer": "Women > Jackets & Coats > Puffers",
+            "jacket_trench": "Women > Jackets & Coats > Trench Coats",
+            "jacket_varsity": "Women > Jackets & Coats > Varsity Jackets",
+            "jacket_utility": "Women > Jackets & Coats > Utility Jackets",
+            "jacket_blazer": "Women > Jackets & Coats > Blazers & Suit Jackets",
+            "jacket_teddy": "Women > Jackets & Coats > Teddy Jackets",
+            "vest": "Women > Jackets & Coats > Vests",
+            "coat_pea": "Women > Jackets & Coats > Pea Coats",
         },
         "men": {
             "sweatshirt": "Men > Shirts > Sweatshirts & Hoodies",
@@ -119,6 +131,15 @@ GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
             "shorts_cargo": "Men > Shorts > Cargo",
             "shorts_denim": "Men > Shorts > Jean Shorts",
             "shorts_athletic": "Men > Shorts > Athletic",
+            "jacket_jean": "Men > Jackets & Coats > Lightweight & Shirt Jackets",
+            "jacket_bomber": "Men > Jackets & Coats > Bomber & Varsity",
+            "jacket_varsity": "Men > Jackets & Coats > Bomber & Varsity",
+            "jacket_puffer": "Men > Jackets & Coats > Puffers",
+            "jacket_trench": "Men > Jackets & Coats > Trench Coats",
+            "jacket_utility": "Men > Jackets & Coats > Military & Field",
+            "jacket_blazer": "Men > Suits & Blazers > Sport Coats & Blazers",
+            "vest": "Men > Jackets & Coats > Vests",
+            "coat_pea": "Men > Jackets & Coats > Pea Coats",
         },
     },
     "mercari": {
@@ -184,6 +205,19 @@ GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
             "skirt_pleated": "Women > Skirts > Pleated",
             "skirt_tiered": "Women > Skirts > Tiered",
             "skirt_wrap": "Women > Skirts > Wrap",
+            # Mercari subdivides coats; Other is the family default when no cut
+            # is named. Trucker/denim cues reach Jean jacket.
+            "jacket": "Women > Coats & jackets > Other",
+            "jacket_jean": "Women > Coats & jackets > Jean jacket",
+            "jacket_leather": "Women > Coats & jackets > Motorcycle",
+            "jacket_bomber": "Women > Coats & jackets > Other",
+            "jacket_puffer": "Women > Coats & jackets > Puffer",
+            "jacket_trench": "Women > Coats & jackets > Trench",
+            "jacket_utility": "Women > Coats & jackets > Military",
+            "jacket_blazer": "Women > Suits & blazers > Blazer",
+            "vest": "Women > Coats & jackets > Vest",
+            "coat_pea": "Women > Coats & jackets > Peacoat",
+            "coat": "Women > Coats & jackets > Other",
         },
         "men": {
             "sweatshirt": "Men > Sweats & hoodies > Sweatshirt, pullover",
@@ -217,6 +251,18 @@ GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
             "shorts_casual": "Men > Shorts > Casual shorts",
             "shorts_chinos": "Men > Shorts > Khakis, chinos",
             "shorts_denim": "Men > Shorts > Denim",
+            "jacket": "Men > Coats & jackets > Other",
+            "jacket_jean": "Men > Coats & jackets > Jean jacket",
+            "jacket_leather": "Men > Coats & jackets > Motorcycle",
+            "jacket_bomber": "Men > Coats & jackets > Flight/bomber",
+            "jacket_puffer": "Men > Coats & jackets > Puffer",
+            "jacket_trench": "Men > Coats & jackets > Trench",
+            "jacket_utility": "Men > Coats & jackets > Military",
+            "jacket_varsity": "Men > Coats & jackets > Varsity/baseball",
+            "jacket_blazer": "Men > Blazers & sport coats > Other",
+            "vest": "Men > Coats & jackets > Vest",
+            "coat_pea": "Men > Coats & jackets > Peacoat",
+            "coat": "Men > Coats & jackets > Other",
         },
     },
     "depop": {
@@ -254,6 +300,14 @@ GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
             "skirt": "Women > Bottoms > Skirts",
             "leggings": "Women > Bottoms > Leggings",
             "joggers": "Women > Bottoms > Sweatpants",
+            "jacket": "Women > Coats and jackets > Jackets",
+            "jacket_jean": "Women > Coats and jackets > Jackets",
+            "jacket_leather": "Women > Coats and jackets > Jackets",
+            "jacket_bomber": "Women > Coats and jackets > Jackets",
+            "jacket_blazer": "Women > Suits > Tailored jackets",
+            "coat": "Women > Coats and jackets > Coats",
+            "coat_pea": "Women > Coats and jackets > Coats",
+            "vest": "Women > Coats and jackets > Vests",
         },
         "men": {
             "sweatshirt": "Men > Tops > Sweatshirts",
@@ -275,6 +329,14 @@ GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
             "skirt": "Men > Bottoms > Skirts",
             "leggings": "Men > Bottoms > Leggings",
             "joggers": "Men > Bottoms > Sweatpants",
+            "jacket": "Men > Coats and jackets > Jackets",
+            "jacket_jean": "Men > Coats and jackets > Jackets",
+            "jacket_leather": "Men > Coats and jackets > Jackets",
+            "jacket_bomber": "Men > Coats and jackets > Jackets",
+            "jacket_blazer": "Men > Suits > Tailored jackets",
+            "coat": "Men > Coats and jackets > Coats",
+            "coat_pea": "Men > Coats and jackets > Coats",
+            "vest": "Men > Coats and jackets > Vests",
         },
     },
     "etsy": {
@@ -301,6 +363,14 @@ GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
             "leggings": "Clothing > Women's Clothing > Leggings",
             "jumpsuit": "Clothing > Women's Clothing > Jumpsuits & Rompers",
             "jeans_overalls": "Clothing > Women's Clothing > Overalls",
+            "jacket": "Clothing > Women's Clothing > Jackets & Coats",
+            "jacket_jean": "Clothing > Women's Clothing > Jackets & Coats",
+            "jacket_leather": "Clothing > Women's Clothing > Jackets & Coats",
+            "jacket_bomber": "Clothing > Women's Clothing > Jackets & Coats",
+            "jacket_blazer": "Clothing > Women's Clothing > Jackets & Coats",
+            "coat": "Clothing > Women's Clothing > Jackets & Coats",
+            "coat_pea": "Clothing > Women's Clothing > Jackets & Coats",
+            "vest": "Clothing > Women's Clothing > Jackets & Coats",
         },
         "men": {
             "sweatshirt": "Clothing > Men's Clothing > Hoodies & Sweatshirts > Sweatshirts",
@@ -317,6 +387,14 @@ GARMENT_LEAVES: dict[str, dict[str, dict[str, str]]] = {
             "shorts": "Clothing > Men's Clothing > Shorts",
             "leggings": "Clothing > Men's Clothing > Leggings",
             "jeans_overalls": "Clothing > Men's Clothing > Overalls & Coveralls",
+            "jacket": "Clothing > Men's Clothing > Jackets & Coats",
+            "jacket_jean": "Clothing > Men's Clothing > Jackets & Coats",
+            "jacket_leather": "Clothing > Men's Clothing > Jackets & Coats",
+            "jacket_bomber": "Clothing > Men's Clothing > Jackets & Coats",
+            "jacket_blazer": "Clothing > Men's Clothing > Suits & Sport Coats > Sport Coats",
+            "coat": "Clothing > Men's Clothing > Jackets & Coats",
+            "coat_pea": "Clothing > Men's Clothing > Jackets & Coats",
+            "vest": "Clothing > Men's Clothing > Jackets & Coats",
         },
     },
 }
@@ -357,8 +435,23 @@ KIND_FALLBACKS: dict[str, tuple[str, ...]] = {
     "sweater_crewneck": ("sweater",),
     "sweater_v_neck": ("sweater",),
     "sweater": (),
+    # Jacket cuts fall back to the marketplace's general jacket leaf when it
+    # has one (Depop/Etsy/Mercari Other). Poshmark has no general leaf, so an
+    # unnamed jacket stays with Vendoo's answer rather than a guessed Jean.
+    "jacket_jean": ("jacket",),
+    "jacket_leather": ("jacket",),
+    "jacket_bomber": ("jacket",),
+    "jacket_puffer": ("jacket",),
+    "jacket_trench": ("jacket",),
+    "jacket_varsity": ("jacket",),
+    "jacket_utility": ("jacket",),
+    "jacket_blazer": ("jacket",),
+    "jacket_teddy": ("jacket",),
+    "coat_pea": ("coat", "jacket"),
+    "coat": ("jacket",),
+    "vest": ("jacket",),
 }
-_FAMILIES = ("dress", "jeans", "pants", "shorts", "skirt")
+_FAMILIES = ("dress", "jeans", "pants", "shorts", "skirt", "jacket")
 
 
 def _family_fallback(kind: str) -> tuple[str, ...]:
@@ -452,6 +545,20 @@ _SKIRT_KIND_RULES: tuple[tuple[str, str], ...] = (
     ("skirt_midi", r"\bmidi\b"),
     ("skirt_mini", r"\bmini\b"),
 )
+_JACKET_KIND_RULES: tuple[tuple[str, str], ...] = (
+    ("vest", r"\bvests?\b"),
+    ("jacket_blazer", r"\bblazers?\b|\bsport\s*coats?\b|\bsuit\s*jackets?\b"),
+    ("jacket_leather", r"\bleather\b|\bfaux[\s-]*leather\b"),
+    ("jacket_jean", r"\btrucker\b|\bdenim\b|\bjean\s*jackets?\b"),
+    ("jacket_bomber", r"\bbomber\b|\bflight\b"),
+    ("jacket_varsity", r"\bvarsity\b|\bbletterman\b"),
+    ("jacket_puffer", r"\bpuffers?\b|\bquilted\b|\bdown\b"),
+    ("jacket_trench", r"\btrench\b"),
+    ("jacket_utility", r"\butility\b|\bfield\b|\bmilitary\b"),
+    ("jacket_teddy", r"\bteddy\b|\bsherpa\b"),
+    ("coat_pea", r"\bpea[\s-]*coats?\b"),
+    ("coat", r"\bcoats?\b"),
+)
 # Tops are read from the kind of top, not a cut; that classifier lives in
 # registry.py alongside the sleeve rules it shares with the mappers.
 FAMILY_KIND_RULES: dict[str, tuple[tuple[str, re.Pattern[str]], ...]] = {
@@ -462,6 +569,7 @@ FAMILY_KIND_RULES: dict[str, tuple[tuple[str, re.Pattern[str]], ...]] = {
         ("pants", _PANTS_KIND_RULES),
         ("shorts", _SHORTS_KIND_RULES),
         ("skirt", _SKIRT_KIND_RULES),
+        ("jacket", _JACKET_KIND_RULES),
     )
 }
 # The garment word a title ends on, mapped to the family that reads it.
@@ -474,6 +582,10 @@ FAMILY_OF_GARMENT: dict[str, str] = {
     "legging": "leggings", "leggings": "leggings",
     "jumpsuit": "jumpsuit", "jumpsuits": "jumpsuit",
     "romper": "jumpsuit", "rompers": "jumpsuit",
+    "jacket": "jacket", "jackets": "jacket",
+    "coat": "jacket", "coats": "jacket",
+    "vest": "jacket", "vests": "jacket",
+    "blazer": "jacket", "blazers": "jacket",
 }
 
 

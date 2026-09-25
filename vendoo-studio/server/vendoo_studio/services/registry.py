@@ -320,7 +320,8 @@ _DEPOP_ROOT_RE = re.compile(r"^(women|men|kids)\s*>", re.I)
 # names is the garment itself. Shorts stays plural: "Short Sleeve" is a sleeve.
 _GARMENT_HEAD_RE = re.compile(
     r"\b(?:t-?shirts?|tees?|tops?|blouses?|shirts?|tunics?|tanks?|dress(?:es)?|"
-    r"pants?|jeans?|skirts?|shorts|leggings?|jumpsuits?|rompers?|jackets?|coats?|"
+    r"pants?|jeans?|skirts?|shorts|leggings?|jumpsuits?|rompers?|"
+    r"jackets?|coats?|vests?|blazers?|"
     r"sweatshirts?|sweaters?|hoodies?|shoes?|bags?)\b",
     re.I,
 )
@@ -339,7 +340,8 @@ _TOP_KIND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("tunic", _TUNIC_STYLE_RE),
     ("halter", re.compile(r"\bhalters?\b", re.I)),
     ("tube", re.compile(r"\btube\s*tops?\b", re.I)),
-    ("crop", re.compile(r"\bcrops?(?:\s*tops?)?\b|\bcropped\b", re.I)),
+    # "Cropped" alone is a hem length (cropped jacket/jeans), not a crop top.
+    ("crop", re.compile(r"\bcrop(?:ped)?\s*tops?\b|\bcrops?\b", re.I)),
     ("cami", re.compile(r"\bcamis(?:oles?)?\b", re.I)),
     ("tank", re.compile(r"\btanks?\b|\bsleeveless\b", re.I)),
     ("muscle", re.compile(r"\bmuscle\s*(?:tees?|shirts?|tanks?)\b", re.I)),

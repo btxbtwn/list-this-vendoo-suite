@@ -83,6 +83,9 @@ class FamilyKindTest(unittest.TestCase):
             ("shorts", "Nike Athletic Running Shorts"): "shorts_athletic",
             ("skirt", "Ann Taylor Black Pencil Skirt"): "skirt_pencil",
             ("skirt", "Pleated Tennis Mini Skirt"): "skirt_pleated",
+            ("jacket", "Finity 8 Cropped Trucker Jacket"): "jacket_jean",
+            ("jacket", "Vintage Leather Moto Jacket"): "jacket_leather",
+            ("jacket", "Wool Pea Coat"): "coat_pea",
         }
         for (family, title), wanted in cases.items():
             with self.subTest(title=title):
@@ -91,6 +94,7 @@ class FamilyKindTest(unittest.TestCase):
     def test_a_cut_nobody_named_stays_empty(self):
         self.assertEqual(family_kind("dress", "Old Navy Floral Dress"), "")
         self.assertEqual(family_kind("jeans", "Levi's 501 Jeans"), "")
+        self.assertEqual(family_kind("jacket", "Black Jacket"), "")
 
 
 class GarmentLeafLookupTest(unittest.TestCase):
