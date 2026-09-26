@@ -6,10 +6,14 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.92 — 2026-09-26
+## 0.1.93 — 2026-09-26
 
 - Men's pants and jeans size as the waist (34) instead of 34x34, so the size dropdown fills
 - Condition is set to a real Vendoo value, and defaults to Pre-Owned - Good when it was left blank
+
+## 0.1.92 — 2026-09-26
+
+- A jersey-knit women's t-shirt stays under T-shirts on Depop. Sports jerseys still use the Jerseys category.
 
 ## 0.1.91 — 2026-09-26
 
