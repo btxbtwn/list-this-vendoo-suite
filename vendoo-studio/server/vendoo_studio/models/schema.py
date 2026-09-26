@@ -325,8 +325,12 @@ class ListingSchema(BaseModel):
                 return "Pre-Owned - Fair"
             if "imperfection" in lv:
                 return "New With Imperfections"
+            if "brand new" in lv or "nwt" in lv.split():
+                return "New With Tags/Box"
             if "new" in lv and "tag" in lv:
                 return "New With Tags/Box"
+            if "used" in lv:
+                return "Pre-Owned - Good"
             if "new" in lv:
                 return "New Without Tags/Box"
         return v

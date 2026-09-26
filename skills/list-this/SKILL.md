@@ -157,11 +157,11 @@ Apply pricing formula from MEMORY.md.
 - If no local path was provided, return JSON for standard listings or copy-pasteable text for Etsy digital download listings in chat only.
 
 **Men's Bottoms Sizing (MANDATORY):**
-- Men's pants, jeans, shorts, and other bottoms size as waist x inseam — `30x30`, not a bare `30`.
-- Put that full `WxL` value in `size` and in every marketplace size field, and use the same value in the title.
-- Take the inseam from the size tag when readable; otherwise use the measured inseam, rounded to the nearest whole inch.
-- Only when no inseam is available at all may a men's bottom fall back to the waist alone.
-- Women's bottoms keep their own sizing (`8`, `M`, `30`) — do not force `WxL` on them.
+- Men's pants, jeans, shorts, and other bottoms use the waist alone — `34`, never `34x34` or `34x32`.
+- Vendoo and marketplace size dropdowns are waist or letter sizes. A waist x inseam value does not match, so the size field stays blank.
+- Put that waist in `size`, in every marketplace size field, and in the title.
+- When a real inseam is known and it is not a copy of the waist, put it on the eBay Inseam field and in Measurements. Never invent an inseam by repeating the waist.
+- Women's bottoms keep their own sizing (`8`, `M`, `30`).
 
 **Petite Size Normalization (MANDATORY):**
 - Keep the raw verified tag size in the listing copy when it is a petite code such as `PS`, `PM`, `PL`, or `PXL`.
@@ -171,7 +171,7 @@ Apply pricing formula from MEMORY.md.
 
 **Measurement-Derived Size Fallback (MANDATORY when no size tag is visible):**
 - When no readable size tag exists in the photos, derive size from measurements instead of blocking the listing.
-- Use the most defensible size expression for the item type. For pants, prefer waist-first sizing such as `30` or `30x29` when supported by the measurements.
+- Use the most defensible size expression for the item type. For men's pants, use the waist alone (`34`). Do not write waist x inseam in `size`.
 - Put that clean value in `size` / marketplace size fields — never `approx 10` or similar; approximate language belongs only in the description.
 - Use `sizeType = Regular` unless the measurements or garment styling clearly indicate Petite, Tall, Plus, or Maternity.
 - Record the fallback clearly in the description measurements line when helpful.
@@ -250,7 +250,7 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 - Max 80 characters
 - `{SIZE}` is the `size` field verbatim — the title and the size field must never disagree
 - Example: `Levi's 33 Y2K 511 Slim Shorts Black Denim`
-- Men's bottoms example: `Levi's 30x30 Y2K 501 Straight Jeans Blue Denim`
+- Men's bottoms example: `Levi's 34 Y2K 501 Straight Jeans Blue Denim`
 
 ### DESCRIPTION Formula (Line breaks MANDATORY)
 ```
@@ -336,7 +336,8 @@ Before outputting ANY listing, verify:
 - [ ] **Cross-check passed:** Extractor and verifier agree, or measurement fallback applied and documented
 - [ ] **Comps checked:** web_search used or baseline estimated
 - [ ] **Title formula:** `{BRAND} {SIZE} {VIBE} {ITEM} {COLOR} {FIT}` followed EXACTLY
-- [ ] **Title size matches the size field:** the same value, character for character (men's bottoms: `30x30`, not `30`)
+- [ ] **Title size matches the size field:** the same value, character for character (men's bottoms: `34`, not `34x34`)
+- [ ] **Condition is a Vendoo general value and is not blank** (`Pre-Owned - Good`, `New With Tags/Box`, and the other values in `references/vendoo-dropdown-options.md`)
 - [ ] **Title length:** 80 characters or less
 - [ ] **Physical-item description lines:** if the item is physical, use the standard description formula and preserve its required line structure
 - [ ] **Etsy digital description override:** if the item is a digital Etsy product, use the Etsy Digital Download Description Formula instead of the physical-item template

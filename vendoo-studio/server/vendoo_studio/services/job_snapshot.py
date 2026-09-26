@@ -161,6 +161,9 @@ def ensure_listing_defaults(listing_snapshot: dict) -> None:
     listing_snapshot["mercari_specifics"] = mercari
 
     from vendoo_studio.models.validation import normalize_listing_dropdowns
+    from vendoo_studio.services.listing_generate import align_size_fields
+
+    align_size_fields(listing_snapshot)
     normalize_listing_dropdowns(listing_snapshot)
 
 

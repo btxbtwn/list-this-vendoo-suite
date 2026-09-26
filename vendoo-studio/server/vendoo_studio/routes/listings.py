@@ -70,6 +70,8 @@ class ValidationResponse(BaseModel):
 
 @router.get("/api/conversations/{conv_id}/listing")
 def get_listing(conv_id: str, db: Session = Depends(get_db)):
+    from vendoo_studio.services.listing_generate import align_size_fields
+
     conv_repo = ConversationRepo(db)
     if not conv_repo.get(conv_id):
         raise HTTPException(404, "Conversation not found")
@@ -85,7 +87,13 @@ def get_listing(conv_id: str, db: Session = Depends(get_db)):
         latest = revisions[0]
         listing_data = copy.deepcopy(latest.listing_json)
 
-    if isinstance(listing_data, dict) and normalize_listing_dropdowns(listing_data):
+    changed = False
+    if isinstance(listing_data, dict):
+        if align_size_fields(listing_data):
+            changed = True
+        if normalize_listing_dropdowns(listing_data):
+            changed = True
+    if changed:
         revision = listing_repo.save_revision(
             conv_id,
             listing_data,
@@ -114,10 +122,8 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
     from vendoo_studio.repositories.queries import JobRepo
     from vendoo_studio.services.listing_generate import (
-        normalize_mens_bottoms_size,
-        propagate_general_size,
+        align_size_fields,
         sanitize_listing_sizes,
-        sync_title_size,
     )
     from vendoo_studio.services.schema_probe import is_schema_probe_job
 
@@ -131,10 +137,8 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     photo_count = len(conv_repo.get_photos(conv_id))
     _reject_corrupt_listing(body.listing)
     sanitize_listing_sizes(body.listing)
-    normalize_mens_bottoms_size(body.listing)
-    propagate_general_size(body.listing)
     # The seller's size input is the source of truth; the title follows it.
-    sync_title_size(body.listing)
+    align_size_fields(body.listing)
     normalize_listing_dropdowns(body.listing)
     validation = validate_listing(body.listing, photo_count, require_photos=True)
 
