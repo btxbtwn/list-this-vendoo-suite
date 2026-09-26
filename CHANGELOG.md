@@ -6,9 +6,13 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.91 — 2026-09-26
+## 0.1.92 — 2026-09-26
 
 - A jersey-knit women's t-shirt stays under T-shirts on Depop. Sports jerseys still use the Jerseys category.
+
+## 0.1.91 — 2026-09-26
+
+- Mercari Smart Pricing stays off, so a draft no longer asks for a floor price
 
 ## 0.1.90 — 2026-09-25
 

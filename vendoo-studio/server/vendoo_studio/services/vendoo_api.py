@@ -805,6 +805,18 @@ def _apply_poshmark_smart_sell(known: dict[str, Any]) -> None:
         smart["minPrice"] = POSHMARK_SMART_SELL_MIN
 
 
+def _apply_mercari_smart_pricing(known: dict[str, Any]) -> None:
+    """Leave Mercari Smart Pricing off.
+
+    The seller lists at the price they set. Vendoo turns Smart Pricing on by
+    default, and that demands a floor price the form then blocks on
+    ("Missing Floor Price"). A listing that asks for it, or a draft that
+    already has it, is turned back off on every save.
+    """
+    known["smartPricing"] = False
+    known["floorPrice"] = ""
+
+
 def _apply_mercari_shipping(
     known: dict[str, Any],
     weight: dict[str, Any] | None = None,
@@ -1466,6 +1478,7 @@ def _listing_section(
         _apply_poshmark_smart_sell(known)
     elif marketplace == "mercari":
         _apply_mercari_shipping(known, section["overrides"].get("weight"), section["overrides"])
+        _apply_mercari_smart_pricing(known)
     elif marketplace == "depop":
         _apply_depop_option_codes(known, unresolved)
 
@@ -1723,11 +1736,13 @@ def apply_update_all(
             weight = want_over.get("weight") or have_over.get("weight") or general.get("weight")
             if isinstance(weight, dict):
                 want_over["weight"] = deepcopy(weight)
+            specifics = _bucket(want_section, "marketplaceSpecifics")
             _apply_mercari_shipping(
-                _bucket(want_section, "marketplaceSpecifics"),
+                specifics,
                 weight if isinstance(weight, dict) else None,
                 want_over,
             )
+            _apply_mercari_smart_pricing(specifics)
         _clear_stale_category_specifics(have_section, want_section)
         # Keep the original form-created stamp; refresh only last-modified so
         # Vendoo marks the form saved the way first Send does.
@@ -1785,10 +1800,13 @@ def changed_fields(current: dict[str, Any], desired: dict[str, Any]) -> dict[str
             return
         if want in (None, "", []):
             # Push empties that clear a real value: "Does Not Apply" leftovers,
-            # marketplace condition resets, and stale leaf aspect keys.
+            # marketplace condition resets, stale leaf aspect keys, and a
+            # Mercari floor price left behind after Smart Pricing is turned off.
             if is_not_applicable(have) or (
                 have not in (None, "", []) and (
-                    _is_condition_path(prefix) or ".categorySpecifics." in prefix
+                    _is_condition_path(prefix)
+                    or ".categorySpecifics." in prefix
+                    or prefix.endswith(".marketplaceSpecifics.floorPrice")
                 )
             ):
                 out[prefix] = want
