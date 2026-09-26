@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.91 — 2026-09-26
+
+- A jersey-knit women's t-shirt stays under T-shirts on Depop. Sports jerseys still use the Jerseys category.
+
 ## 0.1.90 — 2026-09-25
 
 - Cropped jackets map to jackets on Poshmark, Mercari, Depop, and Etsy instead of crop tops

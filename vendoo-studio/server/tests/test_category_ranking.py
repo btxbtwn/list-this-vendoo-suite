@@ -108,6 +108,23 @@ class CategoryRankingTest(unittest.TestCase):
             context="Women black tube top",
         ))
 
+    def test_jersey_fabric_does_not_offer_the_jerseys_leaf(self):
+        from vendoo_studio.services.category_selection import _usable_search_node
+
+        jersey = CategoryTreeNode(
+            marketplace="depop", category_id="jersey", parent_id="",
+            path="Women > Tops > Jerseys",
+            label="Jerseys", is_leaf=True, has_children=False,
+        )
+        self.assertFalse(_usable_search_node(
+            jersey, apparel=True, women_tops=True,
+            context="Women cotton jersey graphic t-shirt",
+        ))
+        self.assertTrue(_usable_search_node(
+            jersey, apparel=True, women_tops=True,
+            context="Women vintage basketball jersey",
+        ))
+
     def test_tank_tops_stay_out_unless_listing_says_tank(self):
         from vendoo_studio.services.category_selection import _usable_search_node
 

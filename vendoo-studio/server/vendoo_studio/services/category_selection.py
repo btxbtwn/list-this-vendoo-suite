@@ -16,7 +16,7 @@ from vendoo_studio.services.category_lookup import (
     is_non_apparel_path,
 )
 from vendoo_studio.services.listing_completion import parse_resolution
-from vendoo_studio.services.registry import WOMEN_TOPS_SEEDS
+from vendoo_studio.services.registry import WOMEN_TOPS_SEEDS, _names_jersey_garment
 
 log = logging.getLogger("vendoo_studio.category_selection")
 DEFAULT_TOP_K = 15
@@ -130,11 +130,14 @@ def _usable_search_node(
     path_department = category_department(path)
     if department and path_department and path_department != department:
         return False
-    if not women_tops:
-        return True
     # Only the leaf matters — parent "Crop & Tube Tops" must not veto a Tube Tops
     # listing that never said "crop".
     leaf = path.rsplit(">", 1)[-1]
+    # Jersey knit is t-shirt cloth. Offer the Jerseys leaf only for a sports jersey.
+    if apparel and re.search(r"\bjerseys?\b", leaf, re.I) and not _names_jersey_garment(context):
+        return False
+    if not women_tops:
+        return True
     for match in _TOP_NOISE_RE.finditer(leaf):
         token = match.group(0)
         forms = {token.casefold(), _singular(token.casefold())}
