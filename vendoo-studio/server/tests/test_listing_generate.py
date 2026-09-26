@@ -536,13 +536,30 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(dirty["size"], "M")
         self.assertEqual(dirty["ebay_specifics"]["size"], "M")
 
-    def test_mens_bottoms_size_becomes_waist_by_inseam(self):
+    def test_mens_bottoms_size_is_the_waist_alone(self):
         from vendoo_studio.services.listing_generate import (
             normalize_mens_bottoms_size,
             sync_title_size,
         )
 
-        listing = {
+        # A repeated waist is an invented inseam. The dropdown value is 34.
+        duplicated = {
+            "title": "Levi's 34x34 Y2K 501 Straight Jeans Blue Denim",
+            "brand": "Levi's",
+            "size": "34x34",
+            "department": "Men",
+            "description": "Y2K straight jeans.",
+            "ebay_specifics": {"type": "Jeans", "size": "34x34"},
+        }
+        self.assertTrue(normalize_mens_bottoms_size(duplicated))
+        self.assertEqual(duplicated["size"], "34")
+        self.assertEqual(duplicated["ebay_specifics"]["size"], "34")
+        self.assertNotIn("inseam", duplicated["ebay_specifics"])
+        self.assertTrue(sync_title_size(duplicated))
+        self.assertEqual(duplicated["title"], "Levi's 34 Y2K 501 Straight Jeans Blue Denim")
+
+        # A real inseam stays on the eBay field. Size stays the waist.
+        measured = {
             "title": "Levi's 30 Y2K 501 Straight Jeans Blue Denim",
             "brand": "Levi's",
             "size": "30",
@@ -550,31 +567,58 @@ class PersistListingTest(unittest.TestCase):
             "description": "Y2K straight jeans.\n\nFlaws: none noted.\n\nMeasurements: Waist: 15\"; Inseam: 32\"",
             "ebay_specifics": {"type": "Jeans", "size": "30"},
         }
-        self.assertTrue(normalize_mens_bottoms_size(listing))
-        self.assertEqual(listing["size"], "30x32")
-        self.assertTrue(sync_title_size(listing))
-        self.assertEqual(listing["title"], "Levi's 30x32 Y2K 501 Straight Jeans Blue Denim")
+        self.assertTrue(normalize_mens_bottoms_size(measured))
+        self.assertEqual(measured["size"], "30")
+        self.assertEqual(measured["ebay_specifics"]["size"], "30")
+        self.assertEqual(measured["ebay_specifics"]["inseam"], "32")
+        self.assertFalse(sync_title_size(measured))
 
-        # The title's own waist x inseam is enough when no measurements exist.
         from_title = {
             "title": "Dickies 34x30 Workwear Carpenter Pants Tan Relaxed",
             "brand": "Dickies",
-            "size": "34",
+            "size": "34x30",
             "department": "Men",
             "description": "Workwear pants.",
+            "ebay_specifics": {"type": "Pants", "size": "34x30"},
         }
         self.assertTrue(normalize_mens_bottoms_size(from_title))
-        self.assertEqual(from_title["size"], "34x30")
+        self.assertEqual(from_title["size"], "34")
+        self.assertEqual(from_title["ebay_specifics"]["inseam"], "30")
+        self.assertTrue(sync_title_size(from_title))
+        self.assertEqual(from_title["title"], "Dickies 34 Workwear Carpenter Pants Tan Relaxed")
 
         spaced = {
             "title": "Wrangler 32 x 34 Vintage Cowboy Jeans Blue Straight",
             "brand": "Wrangler",
             "size": "32 x 34",
             "department": "Men",
-            "ebay_specifics": {"type": "Jeans"},
+            "ebay_specifics": {"type": "Jeans", "inseam": "34"},
         }
         self.assertTrue(normalize_mens_bottoms_size(spaced))
-        self.assertEqual(spaced["size"], "32x34")
+        self.assertEqual(spaced["size"], "32")
+        self.assertEqual(spaced["ebay_specifics"]["inseam"], "34")
+
+    def test_missing_condition_becomes_vendoo_general_value(self):
+        from vendoo_studio.models.validation import normalize_listing_dropdowns
+
+        blank = {"title": "Levi's 34 Jeans", "department": "Men"}
+        self.assertTrue(normalize_listing_dropdowns(blank))
+        self.assertEqual(blank["condition"], "Pre-Owned - Good")
+
+        used = {"title": "Levi's 34 Jeans", "condition": "Used"}
+        self.assertTrue(normalize_listing_dropdowns(used))
+        self.assertEqual(used["condition"], "Pre-Owned - Good")
+
+        good = {"title": "Levi's 34 Jeans", "condition": "Good"}
+        self.assertTrue(normalize_listing_dropdowns(good))
+        self.assertEqual(good["condition"], "Pre-Owned - Good")
+
+        digital = {
+            "title": "Printable art",
+            "etsy_specifics": {"listingType": "Digital"},
+        }
+        normalize_listing_dropdowns(digital)
+        self.assertNotIn("condition", digital)
 
     def test_mens_bottoms_size_left_alone_without_an_inseam(self):
         from vendoo_studio.services.listing_generate import normalize_mens_bottoms_size
@@ -650,10 +694,12 @@ class PersistListingTest(unittest.TestCase):
             "depop_specifics": {"size": "30", "source": "Preloved"},
         }
         self.assertTrue(apply_send_readiness_fixes(listing))
-        self.assertEqual(listing["size"], "30x32")
-        self.assertEqual(listing["ebay_specifics"]["size"], "30x32")
-        self.assertEqual(listing["depop_specifics"]["size"], "30x32")
-        self.assertEqual(listing["title"], "Levi's 30x32 Y2K 501 Straight Jeans Blue Denim")
+        self.assertEqual(listing["size"], "30")
+        self.assertEqual(listing["ebay_specifics"]["size"], "30")
+        self.assertEqual(listing["ebay_specifics"]["inseam"], "32")
+        self.assertEqual(listing["depop_specifics"]["size"], "30")
+        self.assertEqual(listing["title"], "Levi's 30 Y2K 501 Straight Jeans Blue Denim")
+        self.assertEqual(listing["condition"], "Pre-Owned - Good")
 
     def test_finalize_calls_model_when_send_blockers_remain(self):
         incomplete = {

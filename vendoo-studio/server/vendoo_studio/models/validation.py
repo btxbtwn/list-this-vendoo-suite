@@ -66,6 +66,7 @@ from vendoo_studio.models.schema import (
     VALID_DEPOP_OCCASION,
     VALID_DEPOP_SOURCE,
     VALID_DEPOP_STYLE,
+    VALID_CONDITIONS,
     ListingSchema,
 )
 from vendoo_studio.services.marketplaces import (
@@ -317,11 +318,33 @@ def canonicalize_listing_keys(listing: dict) -> bool:
     return changed
 
 
+def _ensure_general_condition(listing: dict) -> bool:
+    """Put a Vendoo general condition on every physical listing.
+
+    Loose words (`Good`, `Used`) miss the dropdown. A blank condition leaves the
+    field empty, so resale listings fall back to Pre-Owned - Good.
+    """
+    if is_etsy_digital_listing(listing):
+        return False
+    raw = text_value(listing.get("condition"))
+    if not raw and not any(text_value(listing.get(key)) for key in ("title", "description", "brand", "size")):
+        return False
+    canonical = ListingSchema.validate_condition(raw) if raw else ""
+    if not canonical or canonical not in VALID_CONDITIONS:
+        canonical = "Pre-Owned - Good"
+    if canonical == raw:
+        return False
+    listing["condition"] = canonical
+    return True
+
+
 def normalize_listing_dropdowns(listing: dict) -> bool:
     """Rewrite dropdown values to the current Vendoo options."""
     if not isinstance(listing, dict):
         return False
     changed = canonicalize_listing_keys(listing)
+    if _ensure_general_condition(listing):
+        changed = True
 
     # Root colors feed Vendoo General. Keep them in that form's exact
     # vocabulary; marketplace-specific color names are mapped during fill.

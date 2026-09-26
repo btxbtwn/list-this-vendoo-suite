@@ -273,7 +273,7 @@ FINALIZE_GAPS_PROMPT = (
     "Fix every listed validation error you can support from evidence.\n"
     "TITLE and DESCRIPTION follow list-this skill formulas exactly:\n"
     "- Title order: Brand Size Vibe Item Color Fit (max 80 chars); the size shown is the size "
-    "field verbatim, and men's bottoms size as waist x inseam (30x30).\n"
+    "field verbatim, and men's bottoms size is the waist alone (34), never waist x inseam.\n"
     "- Physical description: one short trendy vibe/style keyword sentence, then Flaws: and "
     "Measurements: lines — with blank lines between blocks.\n"
     "Preserve the current title and description unless a listed validation error is for title or "
@@ -479,7 +479,7 @@ def sanitize_listing_sizes(listing: dict) -> bool:
     return changed
 
 
-# Men's bottoms sell as waist x inseam ("30x30"); a bare waist reads as a women's size.
+# Vendoo size dropdowns are the waist (`34`). `34x34` does not match, so the field stays blank.
 _BOTTOMS_RE = re.compile(
     r"(?i)\b(jeans|pants|trousers|chinos|slacks|shorts|joggers|sweatpants|cargos|corduroys)\b"
 )
@@ -493,7 +493,8 @@ def _is_mens_bottoms(listing: dict) -> bool:
     ebay = ebay if isinstance(ebay, dict) else {}
     # "women" also contains "men", so only a leading "men" counts as menswear.
     department = str(listing.get("department") or ebay.get("department") or "").strip().lower()
-    if not department.startswith("men"):
+    category = str(listing.get("category_path") or "").strip().lower()
+    if not department.startswith("men") and not category.startswith("men"):
         return False
     haystack = " ".join(
         str(value or "")
@@ -522,30 +523,99 @@ def _bottoms_inseam(listing: dict, waist: str) -> str:
     return ""
 
 
-def normalize_mens_bottoms_size(listing: dict) -> bool:
-    """Express men's bottoms sizes as waist x inseam, so a bare `30` becomes `30x30`."""
-    if not isinstance(listing, dict) or not _is_mens_bottoms(listing):
-        return False
-    size = sanitize_size_value(listing.get("size"))
-    if not size:
-        return False
-    paired = _WAIST_INSEAM_RE.fullmatch(size)
-    if paired:
-        # Already waist x inseam; just drop the spacing marketplaces do not use.
-        normalized = f"{paired.group(1)}x{paired.group(2)}"
-        if normalized == size:
-            return False
-        listing["size"] = normalized
-        return True
-    waist_only = _WAIST_ONLY_RE.match(size)
-    if not waist_only:
-        return False
-    waist = waist_only.group(1)
-    inseam = _bottoms_inseam(listing, waist)
+def _collapse_waist_inseam(raw: str) -> tuple[str, str]:
+    """Return `(waist, inseam)` when `raw` is waist x inseam. Inseam is blank when it copies the waist."""
+    paired = _WAIST_INSEAM_RE.fullmatch(raw)
+    if not paired:
+        return "", ""
+    waist, inseam = paired.group(1), paired.group(2)
+    return waist, inseam if inseam != waist else ""
+
+
+def _store_bottoms_inseam(listing: dict, inseam: str) -> bool:
     if not inseam:
         return False
-    listing["size"] = f"{waist}x{inseam}"
+    ebay = listing.get("ebay_specifics")
+    ebay = dict(ebay) if isinstance(ebay, dict) else {}
+    if str(ebay.get("inseam") or "").strip():
+        return False
+    ebay["inseam"] = inseam
+    listing["ebay_specifics"] = ebay
     return True
+
+
+def normalize_mens_bottoms_size(listing: dict) -> bool:
+    """Men's bottoms size is the waist. `34x34` and `34x32` both become `34`.
+
+    A distinct inseam is kept on the eBay Inseam field. A repeated waist (`34x34`)
+    is dropped — that pair is an invented inseam, and it does not match the size dropdown.
+    """
+    if not isinstance(listing, dict) or not _is_mens_bottoms(listing):
+        return False
+    changed = False
+    size = sanitize_size_value(listing.get("size"))
+    waist, inseam = _collapse_waist_inseam(size)
+    if waist:
+        listing["size"] = waist
+        changed = True
+    elif size:
+        waist_only = _WAIST_ONLY_RE.match(size)
+        if waist_only:
+            waist = waist_only.group(1)
+
+    for key in ("size_us", "sizeUs"):
+        if key not in listing:
+            continue
+        raw = sanitize_size_value(listing.get(key))
+        key_waist, key_inseam = _collapse_waist_inseam(raw)
+        if not key_waist:
+            continue
+        waist = waist or key_waist
+        inseam = inseam or key_inseam
+        if raw != waist:
+            listing[key] = waist
+            changed = True
+
+    for specifics_key in _SIZE_SPECIFIC_KEYS:
+        block = listing.get(specifics_key)
+        if not isinstance(block, dict) or "size" not in block:
+            continue
+        raw = sanitize_size_value(block.get("size"))
+        key_waist, key_inseam = _collapse_waist_inseam(raw)
+        if not key_waist:
+            continue
+        waist = waist or key_waist
+        inseam = inseam or key_inseam
+        target = waist
+        if str(block.get("size") or "").strip() != target:
+            listing[specifics_key] = {**block, "size": target}
+            changed = True
+
+    if waist and not str(listing.get("size") or "").strip():
+        listing["size"] = waist
+        changed = True
+
+    if not inseam and waist:
+        found = _bottoms_inseam(listing, waist)
+        if found and found != waist:
+            inseam = found
+    if _store_bottoms_inseam(listing, inseam):
+        changed = True
+    return changed
+
+
+def align_size_fields(listing: dict) -> bool:
+    """Collapse men's bottoms to a waist size and make the title match that size."""
+    if not isinstance(listing, dict):
+        return False
+    changed = False
+    if normalize_mens_bottoms_size(listing):
+        changed = True
+    if propagate_general_size(listing):
+        changed = True
+    if sync_title_size(listing):
+        changed = True
+    return changed
 
 
 _TITLE_SIZE_TOKEN_RE = re.compile(
@@ -614,10 +684,7 @@ def apply_send_readiness_fixes(listing: dict) -> bool:
     changed = normalize_listing_dropdowns(listing)
     if sanitize_listing_sizes(listing):
         changed = True
-    if normalize_mens_bottoms_size(listing):
-        propagate_general_size(listing)
-        changed = True
-    if sync_title_size(listing):
+    if align_size_fields(listing):
         changed = True
     if strip_pricing_from_description(listing):
         changed = True
