@@ -655,6 +655,72 @@ class DepopCategoryMappingTest(unittest.TestCase):
         )
         self.assertEqual(mapped, DEPOP_WOMEN_TEE)
 
+    def test_cotton_jersey_fabric_does_not_file_a_tee_as_a_jersey(self):
+        """Jersey knit is the cloth a t-shirt is made of, not Depop's Jerseys leaf."""
+        listing = {
+            "title": "Unbranded S Y2K Casual Graphic T-Shirt Black",
+            "department": "Women",
+            "description": "Soft cotton jersey, short sleeve crewneck.",
+            "ebay_specifics": {"department": "Women", "type": "T-Shirt", "material": "Jersey"},
+        }
+        self.assertEqual(map_depop_category_path(WOMEN_TOPS_PATH, listing), DEPOP_WOMEN_TEE)
+        self.assertEqual(
+            map_poshmark_category_path(WOMEN_TOPS_PATH, listing),
+            POSHMARK_WOMEN_SHORT_TEE,
+        )
+
+    def test_photo_analysis_material_jersey_stays_a_tshirt(self):
+        analysis = (
+            "Photo analysis:\n"
+            "- material: jersey\n"
+            "- category: t-shirt\n"
+            "- department: Women\n"
+        )
+        listing = {"title": analysis, "department": "Women", "description": ""}
+        self.assertEqual(
+            map_depop_category_path("Women > Tops > Other", listing),
+            DEPOP_WOMEN_TEE,
+        )
+
+    def test_a_jerseys_leaf_already_chosen_for_a_tee_is_replaced(self):
+        listing = {
+            "title": "Unbranded S Graphic T-Shirt",
+            "department": "Women",
+            "description": "Cotton jersey knit.",
+            "depop_specifics": {"categoryPath": ["Women", "Tops", "Jerseys"]},
+        }
+        self.assertEqual(
+            map_depop_category_path("Women > Tops > Jerseys", listing),
+            DEPOP_WOMEN_TEE,
+        )
+
+    def test_a_sports_jersey_stays_on_the_jerseys_leaf(self):
+        listing = {
+            "title": "Nike M Vintage Basketball Jersey White",
+            "department": "Women",
+            "ebay_specifics": {"department": "Women", "type": "Jersey"},
+        }
+        self.assertEqual(
+            map_depop_category_path(WOMEN_TOPS_PATH, listing),
+            "Women > Tops > Jerseys",
+        )
+        self.assertEqual(
+            map_poshmark_category_path(WOMEN_TOPS_PATH, listing),
+            "Women > Tops > Jerseys",
+        )
+
+    def test_mens_cotton_jersey_tee_is_not_a_rugby_shirt(self):
+        listing = {
+            "title": "Gildan M Graphic T-Shirt",
+            "department": "Men",
+            "description": "Cotton jersey.",
+            "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+        }
+        self.assertEqual(
+            map_mercari_category_path(MEN_TSHIRT_PATH, listing),
+            "Men > Tops > T-shirts",
+        )
+
     def test_remaps_vendoo_default_other_leaf_for_a_tee(self):
         mapped = map_depop_category_path(
             "Women > Tops > Other",
