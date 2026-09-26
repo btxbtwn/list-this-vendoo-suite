@@ -826,6 +826,8 @@ async def create_item(
             or path.endswith(".marketplaceSpecifics.whatIsIt")
             or path.endswith(".marketplaceSpecifics.whenMade")
             or path.endswith(".marketplaceSpecifics.smartSell")
+            or path.endswith(".marketplaceSpecifics.smartPricing")
+            or path.endswith(".marketplaceSpecifics.floorPrice")
             or path.endswith(".marketplaceSpecifics.shippingLabel")
             or ".marketplaceSpecifics.shipping." in path
             or ".marketplaceSpecifics.pricingFormat" in path

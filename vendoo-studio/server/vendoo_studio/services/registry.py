@@ -56,6 +56,10 @@ SELLER_SETTING_LABELS = frozenset({
     "returns",
     "starting price",
     "payment method",
+    "smart pricing",
+    "smart offers",
+    "floor price",
+    "set a floor price",
 })
 
 # Only Depop (parcel size) and Mercari (shipping label) price shipping per item.

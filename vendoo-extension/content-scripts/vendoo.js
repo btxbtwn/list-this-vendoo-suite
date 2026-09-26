@@ -280,6 +280,10 @@
     'returns',
     'starting price',
     'payment method',
+    'smart pricing',
+    'smart offers',
+    'floor price',
+    'set a floor price',
   ]);
 
   function isAccountSettingField(value) {
@@ -4558,6 +4562,69 @@
       await useNoBrand('Brand not in Mercari list');
   }
 
+  function mercariSmartPricingControl() {
+      const byId = document.querySelector('#listings\\.mercari\\.marketplaceSpecifics\\.smartPricing')
+          || document.querySelector('input[name="listings.mercari.marketplaceSpecifics.smartPricing"]')
+          || document.getElementById('listings.mercari.marketplaceSpecifics.smartPricing');
+      if (byId) return byId;
+
+      const nodes = document.querySelectorAll('label, span, p, div, h2, h3, h4');
+      for (const node of nodes) {
+          const own = normalizeText(Array.from(node.childNodes)
+              .filter((child) => child.nodeType === Node.TEXT_NODE)
+              .map((child) => child.textContent)
+              .join(' ')).replace(/\s*\*$/, '');
+          const whole = normalizeText(node.textContent || '').replace(/\s*\*$/, '');
+          if (own !== 'smart pricing' && whole !== 'smart pricing') continue;
+          const scope = node.closest('.MuiFormControl-root, .MuiFormControlLabel-root') || node.parentElement;
+          const control = scope?.querySelector('input[type="checkbox"], [role="switch"], [role="checkbox"]');
+          if (control) return control;
+      }
+      return null;
+  }
+
+  function switchIsOn(el) {
+      if (!el) return false;
+      if (readPersistedControlValue(el) === true || el.checked) return true;
+      if (el.getAttribute?.('aria-checked') === 'true') return true;
+      const root = el.closest?.('.MuiSwitch-root, .MuiFormControlLabel-root, label');
+      return Boolean(root?.querySelector?.('.Mui-checked, [aria-checked="true"]'));
+  }
+
+  async function setMercariSmartPricingOff() {
+      const el = mercariSmartPricingControl();
+      if (!el) return { status: 'not_found' };
+      if (!switchIsOn(el)) {
+          recordFill({
+              field: 'Smart Pricing',
+              status: 'filled',
+              reason: 'Already off',
+              selector: selectorFor(el, ''),
+              value: false,
+          });
+          return { status: 'filled' };
+      }
+
+      const clickTarget = el.closest?.('.MuiSwitch-root, label') || el;
+      clickTarget.click();
+      await sleep(CONFIG.SLEEP_SHORT);
+      if (switchIsOn(el)) {
+          el.click();
+          await sleep(CONFIG.SLEEP_SHORT);
+      }
+      const off = !switchIsOn(el);
+      if (off) log('Mercari Smart Pricing left off');
+      else warn('Mercari Smart Pricing stayed on');
+      recordFill({
+          field: 'Smart Pricing',
+          status: off ? 'filled' : 'failed',
+          reason: off ? 'Left off' : 'Toggle stayed on',
+          selector: selectorFor(el, ''),
+          value: false,
+      });
+      return { status: off ? 'filled' : 'failed' };
+  }
+
   async function fillMercariForm(data, { skipCategory = false } = {}) {
       log('Filling Mercari form...');
       if (!skipCategory) {
@@ -4583,6 +4650,7 @@
       await fillMarketplaceSize('mercari', data);
 
       await fillMercariShippingLabel(data);
+      await setMercariSmartPricingOff();
   }
 
   function mercariShippingLooksSet(el) {
@@ -6882,6 +6950,7 @@
                   if (marketplace === 'general' || marketplace === 'unknown' || !marketplace) {
                       await pushGeneralUpdatesToMarketplaces(1200);
                   }
+                  if (marketplace === 'mercari') await setMercariSmartPricingOff();
                   const log = finishFillLog({ skipUnmapped: true });
                   allEntries.push(...log.entries);
                   continue;
@@ -6978,6 +7047,7 @@
               if (!skipReverify) {
                   reverifyPatchedFields(pending);
               }
+              if (marketplace === 'mercari') await setMercariSmartPricingOff();
               const log = finishFillLog({ skipUnmapped: true });
               allEntries.push(...log.entries);
           }

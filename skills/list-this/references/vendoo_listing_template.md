@@ -318,6 +318,9 @@ All eBay Item Specifics fields. Use Appendix values.
 - `smartPricing`: Enable smart pricing (true/false)
 - Shipping discount and return policy are account-level Poshmark settings — leave them out
 
+**Mercari Specifics:**
+- Leave Smart Pricing off. Do not set `smartPricing` or a floor price — the form then requires a floor and blocks the draft.
+
 **Depop Specifics:**
 - `source`: Preloved, Vintage, Deadstock, etc.
 - `age`: Modern, Vintage, Y2K, 90s, etc.

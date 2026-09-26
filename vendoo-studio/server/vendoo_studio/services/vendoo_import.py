@@ -1268,6 +1268,10 @@ def _mercari_specifics(section: Any) -> dict[str, Any]:
         specifics["categoryPath"] = []
     label = _text(specifics.get("shippingLabel")) or DEFAULT_SHIPPING_LABEL
     specifics["shippingLabel"] = label
+    # Smart Pricing is a Vendoo default the seller does not use. Drop it so a
+    # later save cannot turn the toggle back on from the imported listing.
+    specifics.pop("smartPricing", None)
+    specifics.pop("floorPrice", None)
     return specifics
 
 
