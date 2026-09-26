@@ -306,6 +306,9 @@ const ACCOUNT_SETTING_FIELDS = new Set([
   "payment method",
   "paypal email",
   "smart pricing",
+  "smart offers",
+  "floor price",
+  "set a floor price",
   "status item",
   "zip code",
   "mercari local information",
@@ -331,7 +334,10 @@ function isAccountSettingField(field: DraftField | string): boolean {
     key.includes("auto-accept") ||
     key.includes("auto accept") ||
     key.includes("store category") ||
-    key.includes("paypal")
+    key.includes("paypal") ||
+    key.includes("smart pricing") ||
+    key.includes("smart offers") ||
+    key.includes("floor price")
   );
 }
 

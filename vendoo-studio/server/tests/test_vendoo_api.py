@@ -246,7 +246,8 @@ class BuildItemTest(unittest.TestCase):
 
         mercari = listings["mercari"]
         self.assertEqual(mercari["overrides"]["categoryV2"]["displayPath"], ["Men", "Jeans"])
-        self.assertTrue(mercari["marketplaceSpecifics"]["smartPricing"])
+        self.assertFalse(mercari["marketplaceSpecifics"]["smartPricing"])
+        self.assertEqual(mercari["marketplaceSpecifics"]["floorPrice"], "")
         self.assertEqual(mercari["categorySpecifics"], {})
         # LISTING is 1 lb 8 oz — the 2 lb Ground Advantage tier.
         self.assertEqual(
@@ -1363,6 +1364,30 @@ class ApplyUpdateAllTest(unittest.TestCase):
         self.assertEqual(out["listings.mercari.marketplaceSpecifics.shipping.carrierId"], "2511")
         self.assertIn("Ground Advantage", out["listings.mercari.marketplaceSpecifics.shippingLabel"])
         self.assertEqual(out["listings.mercari.marketplaceSpecifics.shipping.deliveryMethod"], "mercari_shipping")
+
+    def test_mercari_smart_pricing_is_turned_off_on_update(self):
+        """A draft that already has Smart Pricing on is switched off on save."""
+        current = {
+            "generalDetails": {"weight": {"pounds": "0", "ounces": "8"}},
+            "listings": {
+                "mercari": {
+                    "marketplaceID": "mercari",
+                    "overrides": {},
+                    "marketplaceSpecifics": {"smartPricing": True, "floorPrice": "12"},
+                },
+            },
+        }
+        desired = {
+            "generalDetails": {"weight": {"pounds": "0", "ounces": "8"}},
+            "listings": {"mercari": {"marketplaceID": "mercari", "overrides": {}}},
+        }
+        apply_update_all(current, desired)
+        mercari = desired["listings"]["mercari"]["marketplaceSpecifics"]
+        self.assertFalse(mercari["smartPricing"])
+        self.assertEqual(mercari["floorPrice"], "")
+        out = changed_fields(current, desired)
+        self.assertIs(out["listings.mercari.marketplaceSpecifics.smartPricing"], False)
+        self.assertEqual(out["listings.mercari.marketplaceSpecifics.floorPrice"], "")
 
     def test_regenerated_package_lands_on_every_marketplace_form(self):
         """A new weight and box size must not leave the old ones on the forms."""

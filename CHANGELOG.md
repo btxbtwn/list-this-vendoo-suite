@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.91 — 2026-09-26
+
+- Mercari Smart Pricing stays off, so a draft no longer asks for a floor price
+
 ## 0.1.90 — 2026-09-25
 
 - Cropped jackets map to jackets on Poshmark, Mercari, Depop, and Etsy instead of crop tops

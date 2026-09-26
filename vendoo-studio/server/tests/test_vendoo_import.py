@@ -72,7 +72,11 @@ VENDOO_ITEM = {
             }
         },
         "mercari": {
-            "marketplaceSpecifics": {"shippingLabel": "USPS Ground Advantage"}
+            "marketplaceSpecifics": {
+                "shippingLabel": "USPS Ground Advantage",
+                "smartPricing": True,
+                "floorPrice": "8",
+            }
         },
         "depop": {
             "marketplaceSpecifics": {"source": "Preloved", "style": ["Streetwear"]}
@@ -115,6 +119,8 @@ class VendooImportMapperTest(unittest.TestCase):
         self.assertEqual(listing["poshmark_specifics"]["originalPrice"], 40)
         self.assertEqual(listing["poshmark_specifics"]["categoryPath"], ["Women", "Tops"])
         self.assertEqual(listing["mercari_specifics"]["shippingLabel"], "USPS Ground Advantage")
+        self.assertNotIn("smartPricing", listing["mercari_specifics"])
+        self.assertNotIn("floorPrice", listing["mercari_specifics"])
         self.assertEqual(listing["depop_specifics"]["source"], "Preloved")
         self.assertEqual(listing["etsy_specifics"]["who_made"], "Another company or person")
         self.assertEqual(listing["etsy_specifics"]["category_specifics"]["sleeveLength"], "Short Sleeve")
