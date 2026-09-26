@@ -56,6 +56,10 @@ SELLER_SETTING_LABELS = frozenset({
     "returns",
     "starting price",
     "payment method",
+    "smart pricing",
+    "smart offers",
+    "floor price",
+    "set a floor price",
 })
 
 # Only Depop (parcel size) and Mercari (shipping label) price shipping per item.
@@ -347,6 +351,8 @@ _TOP_KIND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("muscle", re.compile(r"\bmuscle\s*(?:tees?|shirts?|tanks?)\b", re.I)),
     ("polo", re.compile(r"\bpolos?\b", re.I)),
     ("turtleneck", re.compile(r"\bturtlenecks?\b|\bmock\s*necks?\b", re.I)),
+    # Matched by ``_names_jersey_garment``, not this pattern: "jersey" is also
+    # the knit a t-shirt is made of.
     ("jersey", re.compile(r"\bjerseys?\b", re.I)),
     ("blouse", _BLOUSE_RE),
     ("button_up", _BUTTON_UP_RE),
@@ -355,13 +361,57 @@ _TOP_KIND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
 # Sleeves rule these out: "Short Sleeve Tank" is the mapper reading a leaf it
 # was handed, not the seller describing a tank.
 _SLEEVED_KINDS = frozenset({"tank", "cami", "halter", "tube"})
+# "Jersey" is a knit before it is a sports shirt. These are the fabric mentions;
+# a football/basketball jersey still names the garment.
+_JERSEY_FABRIC_RE = re.compile(
+    r"\bnew\s+jersey\b"
+    r"|"
+    r"\b(?:material|fabric(?:\s*type)?)\s*:?\s*(?:[a-z]+\s+){0,3}jerseys?\b"
+    r"|"
+    r"\b(?:cotton|silk|rayon|polyester|poly|stretch|ribbed|rib|knit|knitted|wool|"
+    r"modal|viscose|bamboo|tissue|ponte|interlock|slub|lightweight|heavyweight|"
+    r"fine|double|single|french|lycra|spandex|soft|combed)\s+jerseys?\b"
+    r"|"
+    r"\bjerseys?\s+(?:knit|knits|fabric|material|cotton|blend|tee|tees|t-?shirts?|"
+    r"tops?|dresses?|tanks?|skirts?)\b",
+    re.I,
+)
+_SPORTS_JERSEY_RE = re.compile(
+    r"\b(?:footballs?|basketballs?|soccers?|hockey|baseballs?|softballs?|sports?|"
+    r"teams?|athletics?|replicas?|nba|nfl|mlb|nhl|ncaa|varsity|cheer)\s+jerseys?\b",
+    re.I,
+)
+# A more specific garment in the same text means the leftover "jersey" is cloth.
+_JERSEY_OTHER_GARMENT_RE = re.compile(
+    r"\b(?:t-?shirts?|tees?|blouses?|tanks?|camisoles?|camis?|hoodies?|"
+    r"sweatshirts?|sweaters?|dresses?|skirts?|jeans?|pants?)\b",
+    re.I,
+)
+
+
+def _names_jersey_garment(haystack: str) -> bool:
+    """True when the listing is a sports jersey, not a jersey-knit tee."""
+    text = haystack or ""
+    if not re.search(r"\bjerseys?\b", text, re.I):
+        return False
+    if _SPORTS_JERSEY_RE.search(text):
+        return True
+    stripped = _JERSEY_FABRIC_RE.sub(" ", text)
+    if not re.search(r"\bjerseys?\b", stripped, re.I):
+        return False
+    if _JERSEY_OTHER_GARMENT_RE.search(stripped):
+        return False
+    return True
 
 
 def _top_kind(haystack: str) -> str | None:
     """Which kind of top the listing names, if it names one at all."""
     sleeved = bool(_SHORT_SLEEVE_RE.search(haystack) or _LONG_SLEEVE_RE.search(haystack))
     for kind, pattern in _TOP_KIND_RULES:
-        if not pattern.search(haystack):
+        if kind == "jersey":
+            if not _names_jersey_garment(haystack):
+                continue
+        elif not pattern.search(haystack):
             continue
         if kind in _SLEEVED_KINDS and sleeved:
             continue
@@ -439,6 +489,9 @@ _LEAF_NOISE = frozenset({"and", "the", "other", "shirts", "shirt", "tops", "top"
 def _leaf_named_by_listing(leaf: str, listing: dict) -> bool:
     """True when the listing says everything this leaf label claims."""
     garment = f"{_listing_garment_haystack(listing)} {_listing_style(listing)}"
+    # "Jerseys" is named by a sports jersey. Cotton jersey, the knit, is not.
+    if re.fullmatch(r"jerseys?", leaf.casefold().strip()):
+        return _names_jersey_garment(garment)
     words = {
         word for word in re.findall(r"[a-z]+", leaf.casefold())
         if len(word) > 2 and word not in _LEAF_NOISE
