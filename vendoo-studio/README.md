@@ -24,7 +24,7 @@ Publish the zip as the rolling GitHub release (`studio-macos`):
 
 Pushes to `main` that touch Studio, the extension, or listing skills also build and replace that release through `.github/workflows/studio-macos.yml`.
 
-The packaged app does not git-pull. **Check for updates** compares the stamped build SHA against the GitHub release and, if newer, downloads the zip, replaces the `.app`, and relaunches. All Studio data stays in `~/Library/Application Support/List This Studio` (listings, photos, drafts, hidden fields, settings, fill logs, logs). API keys remain in macOS Keychain. Settings → About shows the folder path.
+The packaged app does not git-pull. **Check for updates** compares the stamped build SHA against the GitHub release and, if newer, downloads the zip, replaces the `.app`, and relaunches. All Studio data stays in `~/Library/Application Support/List This Studio` (listings, photos, drafts, hidden fields, settings, fill logs, logs). API keys remain in macOS Keychain. Settings → Data shows the folder path.
 
 The recipient:
 
@@ -115,7 +115,7 @@ vendoo-studio/           Local web app (FastAPI + React)
 ## Security
 
 - Binds only to `127.0.0.1` (localhost).
-- Optional **Settings → Connections → Tailscale HTTPS** uses private Tailscale Serve to proxy HTTPS to that loopback port. Funnel stays off; only devices on your Tailnet can open the link. Same Studio process and data as on the Mac — not a second install.
+- Optional **Settings → Connections → Remote access** uses private Tailscale Serve to proxy HTTPS to that loopback port. Funnel stays off; only devices on your Tailnet can open the link. Same Studio process and data as on the Mac — not a second install.
 - API keys and ChatGPT tokens live in macOS Keychain, never in SQLite, browser storage, or logs.
 - Never sent to the React frontend or Chrome extension.
 - Photos are served only through the Studio origin (`GET /api/photos/{id}`).
@@ -153,7 +153,7 @@ The same data folder also holds `photos/`, `fill-logs/`, `settings.json` (market
 
 Studio snapshots the database to `backups/` on startup, every six hours, and before any update or schema migration. Snapshots are written with `VACUUM INTO`, so they are consistent while Studio keeps running, and each one is checked with `PRAGMA integrity_check` before it is kept. Recent snapshots are kept for a day, then one per day for a month, and the newest three are never discarded.
 
-**Copy them off this machine.** Snapshots in `backups/` die with the disk they sit on. Set a backup folder in **Settings → Backups** — an external drive, a synced folder, or a network share — and every snapshot goes there too, along with your photos. Photos are copied incrementally and are never deleted from the backup folder when they are deleted in Studio, because that is the copy you want when the deletion was a mistake. The same thing over the API:
+**Copy them off this machine.** Snapshots in `backups/` die with the disk they sit on. Set a backup folder in **Settings → Data → Backups** — an external drive, a synced folder, or a network share — and every snapshot goes there too, along with your photos. Photos are copied incrementally and are never deleted from the backup folder when they are deleted in Studio, because that is the copy you want when the deletion was a mistake. The same thing over the API:
 
 ```bash
 curl -X PUT http://127.0.0.1:4318/api/backups/folder \

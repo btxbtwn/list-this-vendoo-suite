@@ -1,6 +1,6 @@
 /** T3 Code-style settings categories for Vendoo Studio. */
 
-export type SettingsSectionId = "general" | "providers" | "integrations" | "connections";
+export type SettingsSectionId = "general" | "listings" | "providers" | "connections" | "data";
 
 export type SettingsNavItem = {
   id: SettingsSectionId;
@@ -16,19 +16,21 @@ export type SettingsSearchItem = {
   searchTerms?: string[];
 };
 
-/** Sidebar order matches T3 Code: General first, then providers/integrations/connections. */
+/** Sidebar order follows T3 Code: General first, then what the seller changes most. */
 export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   { id: "general", label: "General" },
+  { id: "listings", label: "Listings" },
   { id: "providers", label: "Providers" },
-  { id: "integrations", label: "Integrations" },
   { id: "connections", label: "Connections" },
+  { id: "data", label: "Data" },
 ];
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsSectionId, string>> = {
   general: "General",
+  listings: "Listings",
   providers: "Providers",
-  integrations: "Integrations",
   connections: "Connections",
+  data: "Data",
 };
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "general";
@@ -44,21 +46,28 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: "marketplaces",
     title: "Marketplaces",
-    section: "general",
+    section: "listings",
     targetId: "marketplaces",
     searchTerms: ["list to", "ebay", "poshmark", "mercari", "depop", "etsy"],
   },
   {
+    id: "package-dimensions",
+    title: "Package dimensions",
+    section: "listings",
+    targetId: "package-dimensions",
+    searchTerms: ["shipping", "box", "length", "width", "height", "size"],
+  },
+  {
     id: "hidden-fields",
     title: "Always hidden fields",
-    section: "general",
+    section: "listings",
     targetId: "hidden-fields",
     searchTerms: ["exclude", "hide fields", "fields tab"],
   },
   {
     id: "listing-formulas",
     title: "Title and description formulas",
-    section: "general",
+    section: "listings",
     targetId: "listing-formulas",
     searchTerms: ["formula", "title", "description", "template", "flaws", "measurements"],
   },
@@ -72,21 +81,21 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: "backups",
     title: "Backups",
-    section: "general",
+    section: "data",
     targetId: "backups",
     searchTerms: ["backup", "snapshot", "restore", "lose data", "external drive", "copy", "sqlite"],
   },
   {
     id: "data-folder",
     title: "Data folder",
-    section: "general",
+    section: "data",
     targetId: "data-folder",
     searchTerms: ["backup", "reinstall", "photos", "sqlite", "application support", "preserve"],
   },
   {
     id: "database-maintenance",
     title: "Database",
-    section: "general",
+    section: "data",
     targetId: "database-maintenance",
     searchTerms: ["vacuum", "prune", "job events", "disk space", "table size", "bloat"],
   },
@@ -156,7 +165,7 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: "brave",
     title: "Brave Search",
-    section: "integrations",
+    section: "providers",
     targetId: "brave",
     searchTerms: ["comps", "sold", "api key", "fallback search"],
   },
@@ -168,11 +177,25 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["extension", "connect chrome", "browser"],
   },
   {
+    id: "extension-folder",
+    title: "Listing extension folder",
+    section: "connections",
+    targetId: "extension-folder",
+    searchTerms: ["load unpacked", "chrome extensions", "developer mode"],
+  },
+  {
+    id: "category-trees",
+    title: "Marketplace category trees",
+    section: "connections",
+    targetId: "category-trees",
+    searchTerms: ["categories", "extract", "sync", "taxonomy"],
+  },
+  {
     id: "tailscale-https",
     title: "Tailscale HTTPS",
     section: "connections",
     targetId: "tailscale-https",
-    searchTerms: ["mobile", "phone", "remote", "tailnet", "serve", "network"],
+    searchTerms: ["remote access", "mobile", "phone", "remote", "tailnet", "serve", "network"],
   },
 ];
 

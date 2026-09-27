@@ -100,7 +100,7 @@ function CategoryTreesRow() {
     refetchInterval: 3000});
   const sync = useMutation({mutationFn: api.catalog.sync,
     onSuccess: () => queryClient.invalidateQueries({queryKey: ["category-trees"]})});
-  return <SettingsRow title="Marketplace category trees"
+  return <SettingsRow id="category-trees" title="Marketplace category trees"
     description="Extract the full General, eBay, Poshmark, Mercari, Depop, and Etsy trees from Vendoo. Keep Chrome connected. Interrupted extraction resumes from its last saved branch."
     control={<button className="btn btn-sm btn-outline" disabled={data?.running || data?.complete || sync.isPending}
       onClick={() => sync.mutate()}>{data?.complete ? "Complete" : data?.running ? "Extracting…" : "Extract / resume"}</button>}>
@@ -763,10 +763,6 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   return (
     <>
       <AppearanceSection />
-      <MarketplacesSection />
-      <PackageDimensionsSection />
-      <HiddenFieldsSection />
-      <ListingFormulasSection />
       <SettingsSection id="setup-guide" title="Setup guide">
         <SettingsRow
           title="First-run tutorial"
@@ -778,12 +774,32 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
           }
         />
       </SettingsSection>
-      <BackupsSection />
       <SettingsSection id="about" title="About">
-        <DataFolderRow />
-        <DatabaseMaintenanceRow />
         <AboutVersionRow version={status?.version || "…"} />
         <WhatsNewRow />
+      </SettingsSection>
+    </>
+  );
+}
+
+function ListingsPanel() {
+  return (
+    <>
+      <MarketplacesSection />
+      <PackageDimensionsSection />
+      <HiddenFieldsSection />
+      <ListingFormulasSection />
+    </>
+  );
+}
+
+function DataPanel() {
+  return (
+    <>
+      <BackupsSection />
+      <SettingsSection id="storage" title="Storage">
+        <DataFolderRow />
+        <DatabaseMaintenanceRow />
       </SettingsSection>
     </>
   );
@@ -1496,35 +1512,34 @@ function ProvidersPanel() {
           }
         />
       </SettingsSection>
+
+      <BraveSearchSection chatgptSignedIn={chatgptSignedIn} />
     </>
   );
 }
 
-function IntegrationsPanel() {
-  const { data: provider } = useQuery({
-    queryKey: ["settings-provider"],
-    queryFn: api.settings.provider,
-  });
-  return <BraveSearchSection chatgptSignedIn={Boolean(provider?.chatgpt?.signed_in)} />;
-}
-
 function ConnectionsPanel() {
   return (
-    <SettingsSection id="connections" title="Connections">
-      <TailscaleHttpsRow />
-      <SettingsRow
-        title="Vendoo in Chrome"
-        description="Connect Chrome opens Vendoo in your everyday Chrome and reloads Studio's listing extension so it matches this build. Send to Vendoo creates or updates a draft over Vendoo's API using that signed-in session."
-        control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
-      />
-      <SettingsRow
-        title="Listing extension folder"
-        description="Copy this path. In chrome://extensions turn on Developer mode, click Load unpacked, press Control-Shift-G (⌘⇧G) to search for the folder, paste the path, then Open. Studio overwrites this folder on launch so Chrome and Studio stay on the same files."
-      >
-        <ExtensionLoadPath compact hideHint />
-      </SettingsRow>
-      <CategoryTreesRow />
-    </SettingsSection>
+    <>
+      <SettingsSection id="connections" title="Vendoo">
+        <SettingsRow
+          title="Vendoo in Chrome"
+          description="Connect Chrome opens Vendoo in your everyday Chrome and reloads Studio's listing extension so it matches this build. Send to Vendoo creates or updates a draft over Vendoo's API using that signed-in session."
+          control={<ConnectChromeButton className="btn btn-sm btn-outline" />}
+        />
+        <SettingsRow
+          id="extension-folder"
+          title="Listing extension folder"
+          description="Copy this path. In chrome://extensions turn on Developer mode, click Load unpacked, press Control-Shift-G (⌘⇧G) to search for the folder, paste the path, then Open. Studio overwrites this folder on launch so Chrome and Studio stay on the same files."
+        >
+          <ExtensionLoadPath compact hideHint />
+        </SettingsRow>
+        <CategoryTreesRow />
+      </SettingsSection>
+      <SettingsSection id="remote-access" title="Remote access">
+        <TailscaleHttpsRow />
+      </SettingsSection>
+    </>
   );
 }
 
@@ -1713,9 +1728,10 @@ export function SettingsPage({
     <div className="settings-page" data-settings-page-scroll>
       <div className="settings-page-inner">
         {section === "general" ? <GeneralPanel onOpenSetupGuide={onOpenSetupGuide} /> : null}
+        {section === "listings" ? <ListingsPanel /> : null}
         {section === "providers" ? <ProvidersPanel /> : null}
-        {section === "integrations" ? <IntegrationsPanel /> : null}
         {section === "connections" ? <ConnectionsPanel /> : null}
+        {section === "data" ? <DataPanel /> : null}
       </div>
     </div>
   );
