@@ -112,8 +112,18 @@ export function RegenerateListingButton({
       markChatResetting(convId, true);
       await api.conversations.reset(convId, { keepInputs: true });
       // Chat must see the empty listing before it starts, or it reads the old
-      // listing JSON as "generation already finished".
-      await refreshAfterReset(queryClient, convId);
+      // listing JSON as "generation already finished". Read both directly:
+      // awaiting invalidateQueries also awaits any shared refetch, and one
+      // whose retry React Query paused (window hidden) never settles.
+      await queryClient.cancelQueries({ queryKey: ["listing", convId] });
+      await queryClient.cancelQueries({ queryKey: ["messages", convId] });
+      const [listing, messages] = await Promise.all([
+        api.listings.get(convId),
+        api.conversations.messages(convId),
+      ]);
+      queryClient.setQueryData(["listing", convId], listing);
+      queryClient.setQueryData(["messages", convId], messages);
+      void refreshAfterReset(queryClient, convId);
     },
     onSuccess: () => {
       // Stop during the wipe clears the phase; honour it instead of generating.

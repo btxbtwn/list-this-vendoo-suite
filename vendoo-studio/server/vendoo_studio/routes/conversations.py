@@ -392,11 +392,8 @@ async def reset_conversation(
     from vendoo_studio.services.streaming import stop_generation
     from vendoo_studio.services.hidden_fields import clear_listing_hidden_fields
     from vendoo_studio.services.listing_carryover import carryover_updates
-    from vendoo_studio.services.vendoo_create import (
-        LOOKUP_TIMEOUT_SEC,
-        apply_label_display_names,
-        label_display_map,
-    )
+    from vendoo_studio.services import vendoo_label_catalog
+    from vendoo_studio.services.vendoo_create import apply_label_display_names
     from vendoo_studio.services.vendoo_import import (
         merge_notes,
         parse_notes,
@@ -420,21 +417,10 @@ async def reset_conversation(
         # measurements and flaws in the description — move there first.
         revisions = ListingRepo(db).get_revisions(conv_id)
         latest = dict(revisions[0].listing_json) if revisions else None
-        label_job = next(
-            (
-                job
-                for job in JobRepo(db).list_by_conversation(conv_id)
-                if job.status != "cancelled"
-            ),
-            None,
-        )
-        # One bounded catalog read for both label lists: Regenerate must not sit
-        # on a silent Chrome, and label names are a nicety, not the reset.
-        # Cache fills the map when Chrome is quiet; a missing job still applies it.
-        latest_labels = latest.get("labels") if isinstance(latest, dict) else None
-        label_names: dict[str, str] = {}
-        if latest_labels or split_vendoo_labels(parse_notes(notes).get("vendooLabels")):
-            label_names = await label_display_map(label_job, timeout=LOOKUP_TIMEOUT_SEC)
+        # Label names come from the cached catalog only. Label sync keeps it
+        # fresh; asking Chrome here held Regenerate for the whole lookup
+        # timeout whenever Chrome was slow, and names are a nicety.
+        label_names = vendoo_label_catalog.load()
         if label_names and isinstance(latest, dict) and latest.get("labels"):
             latest["labels"] = apply_label_display_names(latest["labels"], label_names)
         carried = carryover_updates(latest, parse_notes(notes))

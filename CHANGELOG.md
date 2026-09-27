@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.126 — 2026-09-27
+
+- **Regenerate** no longer gets stuck on "Clearing chat and generated fields…". Clearing no longer waits on Chrome for your label names, and the rewrite starts as soon as the listing is cleared.
+
 ## 0.1.125 — 2026-09-27
 
 - **Open listing** no longer hangs on "Opening…" until you quit Studio. When Chrome is slow, Studio stops waiting on it sooner, and if the Chrome extension doesn't open the listing within a few seconds, Studio opens it in Chrome itself.
