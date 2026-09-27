@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.123 — 2026-09-27
+
+- The Sourcing page really does reach Raghouse and Thrift Vintage Fashion now. The last fix only covered part of the app, so the stores' certificates were still being rejected.
+
 ## 0.1.122 — 2026-09-27
 
 - A listing no longer shows **Unsent edits** just because Studio pulled Vendoo's copy and you opened it. The chip now means you changed something that Vendoo doesn't have yet.
