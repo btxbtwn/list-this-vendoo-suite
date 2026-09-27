@@ -58,22 +58,45 @@ export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boo
     seenRevision.current = status.revision_id;
   }, [status, refreshListing]);
 
+  // A check can wait minutes on a busy Chrome. One at a time, dropped when the
+  // listing closes: stacked checks fill the webview's six connections and
+  // queue every other request (Open listing, loads) behind them.
+  const inFlight = React.useRef<AbortController | null>(null);
   const sync = useMutation({
-    mutationFn: () => api.vendooApi.sync(convId),
+    mutationFn: async () => {
+      const controller = new AbortController();
+      inFlight.current = controller;
+      try {
+        return await api.vendooApi.sync(convId, controller.signal);
+      } catch (err) {
+        if (controller.signal.aborted) return null;
+        throw err;
+      } finally {
+        if (inFlight.current === controller) inFlight.current = null;
+      }
+    },
     // Label (draft/active/sold) can move without a new revision, so refresh
     // the sidebar on every check.
-    onSuccess: refreshListing,
+    onSuccess: (data) => {
+      if (data) refreshListing();
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["vendoo-sync", convId] }),
   });
   const { mutate: runSync } = sync;
+  const syncOnce = React.useCallback(() => {
+    if (!inFlight.current) runSync();
+  }, [runSync]);
 
   React.useEffect(() => {
     if (!bound) return undefined;
-    runSync();
-    const onFocus = () => runSync();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [convId, bound, runSync]);
+    syncOnce();
+    window.addEventListener("focus", syncOnce);
+    return () => {
+      window.removeEventListener("focus", syncOnce);
+      inFlight.current?.abort();
+      inFlight.current = null;
+    };
+  }, [convId, bound, syncOnce]);
 
   React.useEffect(() => {
     if (!bound) return undefined;
@@ -106,7 +129,7 @@ export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boo
         disabled={busy}
         title={title}
         onMouseDown={(event) => event.stopPropagation()}
-        onClick={() => runSync()}
+        onClick={syncOnce}
       >
         {label}
       </button>

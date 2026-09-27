@@ -41,7 +41,7 @@ function useVendooDraft(jobId: string, enabled: boolean) {
   return useQuery({
     queryKey: vendooItemQueryKey(jobId),
     // Tab-free API read of the saved item (session via Chrome; no Vendoo tab).
-    queryFn: () => api.jobs.vendooItem(jobId, { refresh: true }),
+    queryFn: ({ signal }) => api.jobs.vendooItem(jobId, { refresh: true, signal }),
     enabled,
     staleTime: VENDOO_ITEM_STALE_MS,
     retry: 1,
