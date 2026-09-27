@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.99 — 2026-09-27
+
+- Sold comps no longer read foreign prices like HK$1990 or AU $19.90 as US dollars, and $1,250 reads as $1,250 instead of $1
+
 ## 0.1.98 — 2026-09-27
 
 - The marketplace links on a listing are now logos, so the line under the title no longer wraps
