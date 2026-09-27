@@ -758,7 +758,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const { data: jobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: () => api.jobs.list(),
-    refetchInterval: busy ? 2000 : 5000,
+    refetchInterval: busy ? 2000 : false,
   });
 
   // Anything posted in the background shows up as soon as activity notices it.

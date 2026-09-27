@@ -27,12 +27,14 @@ class ConversationCreate(BaseModel):
     notes: str | None = None
 
 
-class ConversationResponse(BaseModel):
+class ConversationSummary(BaseModel):
+    """One inventory row. The sidebar polls the whole inventory, so the seller's
+    notes stay out: they are most of the payload and only the open listing reads them."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     title: str | None
-    notes: str | None
     status: str
     settled_at: str | None = None
     unsettled_at: str | None = None
@@ -71,6 +73,10 @@ class ConversationResponse(BaseModel):
     vendoo_relist_pending: list[str] = []
 
 
+class ConversationResponse(ConversationSummary):
+    notes: str | None
+
+
 class MessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,7 +111,7 @@ def create_conversation(body: ConversationCreate, db: Session = Depends(get_db))
     return _conv_response(conv)
 
 
-@router.get("", response_model=list[ConversationResponse])
+@router.get("", response_model=list[ConversationSummary])
 def list_conversations(db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
     repo.reconcile_job_statuses()
