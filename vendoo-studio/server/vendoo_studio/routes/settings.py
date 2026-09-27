@@ -729,3 +729,18 @@ def disable_tailscale():
         return disable()
     except TailscaleServeError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/vendoo-api-logs")
+def get_vendoo_api_logs():
+    from vendoo_studio.services.vendoo_api_log import list_entries
+
+    return {"entries": list_entries()}
+
+
+@router.delete("/vendoo-api-logs")
+def delete_vendoo_api_logs():
+    from vendoo_studio.services.vendoo_api_log import clear
+
+    clear()
+    return {"ok": True}

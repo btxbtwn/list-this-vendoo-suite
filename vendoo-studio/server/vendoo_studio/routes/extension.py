@@ -689,6 +689,12 @@ async def extension_websocket(ws: WebSocket):
                 await ws.send_json({"type": "error", "message": "Not paired"})
                 continue
 
+            if msg_type == "vendoo.api_log":
+                from vendoo_studio.services.vendoo_api_log import ingest
+
+                ingest(message.get("payload"))
+                continue
+
             job_id = message.get("job_id")
             if (
                 job_id

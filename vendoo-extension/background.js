@@ -110,6 +110,30 @@ function send(message) {
   }
 }
 
+// Request lines waiting for a paired socket. Kept in memory only: a service
+// worker restart drops them, and nothing here is a token or a body.
+const VENDOO_API_LOG_LIMIT = 200;
+const vendooApiLogQueue = [];
+
+function recordVendooApiLog(entry) {
+  if (!entry || typeof entry !== 'object') return;
+  vendooApiLogQueue.push(entry);
+  while (vendooApiLogQueue.length > VENDOO_API_LOG_LIMIT) vendooApiLogQueue.shift();
+  flushVendooApiLogs();
+}
+
+function flushVendooApiLogs() {
+  if (!paired || !ws || ws.readyState !== WebSocket.OPEN || vendooApiLogQueue.length === 0) return;
+  const entries = vendooApiLogQueue.splice(0, vendooApiLogQueue.length);
+  send({
+    version: 1,
+    type: 'vendoo.api_log',
+    message_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
+    sent_at: new Date().toISOString(),
+    payload: { entries },
+  });
+}
+
 async function fetchStudioPairingToken() {
   const resp = await fetch(`${STUDIO_URL}/api/extension/pairing-token`);
   if (!resp.ok) throw new Error(`pairing-token HTTP ${resp.status}`);
@@ -448,6 +472,7 @@ async function handleStudioMessage(msg) {
     case 'connection.accepted':
       log('Paired with Studio');
       paired = true;
+      flushVendooApiLogs();
       break;
 
     case 'job.start': {

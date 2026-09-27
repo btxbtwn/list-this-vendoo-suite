@@ -126,6 +126,7 @@ async function readItemFromPage(tabId, itemId) {
   let last = { ok: false, error: 'No result from the Vendoo page' };
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
+      const started = Date.now();
       const [execution] = await chrome.scripting.executeScript({
         target: { tabId },
         world: 'MAIN',
@@ -133,6 +134,15 @@ async function readItemFromPage(tabId, itemId) {
         args: [itemId || ''],
       });
       const result = execution?.result;
+      if (result && typeof result === 'object' && Number.isFinite(result.status)) {
+        noteVendooApiCall({
+          method: 'GET',
+          url: `https://api.web.vendoo.co/api/item/${encodeURIComponent(result.item_id || itemId || '')}`,
+          status: result.status,
+          ok: Boolean(result.ok),
+          durationMs: Date.now() - started,
+        });
+      }
       if (result && typeof result === 'object') {
         if (result.ok || attempt === attempts - 1) return result;
         last = result;

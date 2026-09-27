@@ -477,6 +477,53 @@
   }
 }
 
+.settings-api-log {
+  max-height: 28rem;
+  margin-top: 12px;
+  overflow: auto;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+}
+
+.settings-api-log-table {
+  width: 100%;
+  min-width: 36rem;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.settings-api-log-table th {
+  position: sticky;
+  top: 0;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
+.settings-api-log-table td {
+  padding: 6px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
+  vertical-align: baseline;
+}
+
+.settings-api-log-table .is-failed td {
+  color: var(--color-tomato);
+}
+
+.settings-api-log-path {
+  word-break: break-all;
+}
+
+.settings-api-log-empty {
+  margin: 0;
+  padding: 4px 0 2px;
+}
+
 @media (max-width: 900px) {
   .settings-page-inner {
     padding: 16px 16px 32px;
