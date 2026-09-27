@@ -415,14 +415,16 @@ async def get_vendoo_item(
 
     from vendoo_studio.routes.extension import durable_vendoo_item_id
     from vendoo_studio.services.browser_bridge import BrowserBridgeError
-    from vendoo_studio.services.vendoo_create import VendooCreateError, run_ops
+    from vendoo_studio.services.vendoo_create import ITEM_READ_TIMEOUT_SEC, VendooCreateError, run_ops
 
     item_id = durable_vendoo_item_id(job.vendoo_item_id)
     if not item_id:
         raise HTTPException(400, "No Vendoo draft is available yet. Import or send the listing first.")
 
     try:
-        reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+        reply = await run_ops(
+            job, [{"op": "get_item", "item_id": item_id}], timeout=ITEM_READ_TIMEOUT_SEC,
+        )
     except (VendooCreateError, BrowserBridgeError) as exc:
         if refresh:
             raise HTTPException(502, str(exc)) from exc
@@ -500,7 +502,7 @@ async def import_draft(job_id: str, db: Session = Depends(get_db)):
     """
     from vendoo_studio.routes.extension import durable_vendoo_item_id
     from vendoo_studio.services.browser_bridge import BrowserBridgeError
-    from vendoo_studio.services.vendoo_create import VendooCreateError, run_ops
+    from vendoo_studio.services.vendoo_create import ITEM_READ_TIMEOUT_SEC, VendooCreateError, run_ops
     from vendoo_studio.services.vendoo_import import import_vendoo_draft
 
     repo = JobRepo(db)
@@ -512,7 +514,9 @@ async def import_draft(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "No Vendoo draft is available yet. Import or send the listing first.")
 
     try:
-        reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+        reply = await run_ops(
+            job, [{"op": "get_item", "item_id": item_id}], timeout=ITEM_READ_TIMEOUT_SEC,
+        )
     except (VendooCreateError, BrowserBridgeError) as exc:
         raise HTTPException(502, str(exc)) from exc
     hit = next((row for row in reply.get("results", []) if row.get("op") == "get_item"), {})

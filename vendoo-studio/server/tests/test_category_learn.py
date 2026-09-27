@@ -236,7 +236,7 @@ class SyncConversationLearnsSchemasTest(unittest.TestCase):
         self.db.close()
 
     def test_successful_sync_learns_schemas(self):
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": ITEM}]}
 
         async def fake_learn(db, item):

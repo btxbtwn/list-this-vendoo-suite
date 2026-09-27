@@ -48,6 +48,11 @@ REQUEST_TIMEOUT_SEC = 240.0
 # Reads that only decorate the result must not hold up the caller for as long as
 # a form fill may legitimately take.
 LOOKUP_TIMEOUT_SEC = 10.0
+# Reading one item. Normally under a second; the slow case is the extension
+# opening a Vendoo tab to refresh the sign-in. Opening a listing makes these
+# reads, and each one holds one of the webview's six connections to Studio,
+# so they cannot wait as long as a write does.
+ITEM_READ_TIMEOUT_SEC = 45.0
 SCHEMA_FILE = "vendoo-item-schema.json"
 # Marketplaces whose category tree unlocks the rest of that form's fields.
 CATEGORY_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")

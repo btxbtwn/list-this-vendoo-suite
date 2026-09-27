@@ -361,7 +361,7 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
     only), ``none``, or ``unavailable``. When form content moved, Vendoo wins.
     """
     from vendoo_studio.services.browser_bridge import BrowserBridgeError
-    from vendoo_studio.services.vendoo_create import VendooCreateError, run_ops
+    from vendoo_studio.services.vendoo_create import ITEM_READ_TIMEOUT_SEC, VendooCreateError, run_ops
     from vendoo_studio.services.vendoo_import import parse_notes, vendoo_binding
 
     lock = _locks.setdefault(conv_id, asyncio.Lock())
@@ -375,7 +375,10 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
         if not item_id:
             return {"action": "none", "reason": "no vendoo draft"}
         try:
-            reply = await run_ops(SimpleNamespace(id=None), [{"op": "get_item", "item_id": item_id}])
+            reply = await run_ops(
+                SimpleNamespace(id=None), [{"op": "get_item", "item_id": item_id}],
+                timeout=ITEM_READ_TIMEOUT_SEC,
+            )
         except (BrowserBridgeError, VendooCreateError) as exc:
             return {"action": "unavailable", "reason": str(exc) or "vendoo unavailable"}
         item = next((r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None)

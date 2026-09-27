@@ -27,6 +27,11 @@ router = APIRouter(tags=["extension"])
 log = logging.getLogger("vendoo_studio.extension")
 
 VENDOO_GET_TIMEOUT_SEC = 120
+# A message is a few KB. A send that has not gone out in this long is waiting on
+# an extension that stopped reading, and would otherwise wait forever.
+SEND_TIMEOUT_SEC = 5.0
+# Showing a tab is quick; past this Studio opens the listing in Chrome itself.
+OPEN_LISTING_TIMEOUT_SEC = 8.0
 ROUTE_ITEM_IDS = frozenset({"new", "edit", "create"})
 
 
@@ -158,11 +163,16 @@ class ExtensionManager:
         if not connection:
             return False
         try:
-            await connection.send_json(message)
+            await asyncio.wait_for(connection.send_json(message), SEND_TIMEOUT_SEC)
             return True
         except Exception:
             if self.connection is connection:
                 self._mark_disconnected()
+                # Closing makes the extension reconnect on a fresh socket.
+                try:
+                    await asyncio.wait_for(connection.close(), 1.0)
+                except Exception:
+                    pass
             return False
 
     async def disconnect(self, ws: WebSocket | None = None):
@@ -489,18 +499,36 @@ async def dispatch_search_categories(job, request_id: str, query: str) -> bool:
 
 
 async def dispatch_open_listing(job) -> bool:
+    """True once the extension says the listing tab is showing.
+
+    Handing the message over is not enough: an extension that is paired but
+    stuck takes it and opens nothing, which reads as a button that never works.
+    """
     if not extension_manager.connected:
         return False
-    return await extension_manager.send_message(ProtocolMessage(
+    request_id = uuid.uuid4().hex
+    waiter = extension_manager.register_wait(request_id)
+    sent = await extension_manager.send_message(ProtocolMessage(
         type="job.open_listing",
         job_id=job.id,
-        message_id=uuid.uuid4().hex[:12],
+        message_id=request_id,
         payload={
             "job_id": job.id,
             "vendoo_item_id": job.vendoo_item_id,
             "vendoo_url": job.vendoo_url,
+            "request_id": request_id,
         },
     ).model_dump(mode="json"))
+    if not sent:
+        extension_manager.cancel_wait(request_id)
+        return False
+    try:
+        result = await asyncio.wait_for(waiter, OPEN_LISTING_TIMEOUT_SEC)
+    except (TimeoutError, asyncio.CancelledError):
+        extension_manager.cancel_wait(request_id)
+        log.info("extension did not open listing for job %s; opening Chrome directly", job.id)
+        return False
+    return bool(isinstance(result, dict) and result.get("ok"))
 
 
 async def dispatch_show_vendoo() -> bool:

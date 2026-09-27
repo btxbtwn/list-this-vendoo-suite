@@ -67,7 +67,7 @@ class VendooItemRouteTest(unittest.TestCase):
     def test_vendoo_item_returns_draft_json(self):
         self._connect_chrome()
 
-        async def fake_ops(job, ops):
+        async def fake_ops(job, ops, **_kwargs):
             self.assertEqual(ops, [{"op": "get_item", "item_id": "abc123"}])
             return {
                 "ok": True,
@@ -152,7 +152,7 @@ class VendooItemRouteTest(unittest.TestCase):
         self._connect_chrome()
         from vendoo_studio.services.vendoo_create import VendooCreateError
 
-        async def ok_ops(job, ops):
+        async def ok_ops(job, ops, **_kwargs):
             return {
                 "ok": True,
                 "results": [{
@@ -180,7 +180,7 @@ class VendooItemRouteTest(unittest.TestCase):
         """API get_item does not share the Vendoo tab, so verification does not block it."""
         self._connect_chrome()
 
-        async def ok_ops(job, ops):
+        async def ok_ops(job, ops, **_kwargs):
             return {
                 "ok": True,
                 "results": [{

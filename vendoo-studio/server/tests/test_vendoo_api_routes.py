@@ -246,7 +246,7 @@ class PullRouteTest(_RouteTest):
             "listings": {"ebay": {"status": {"listed": True}}},
         }
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": fresh}]}
 
         with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
@@ -294,7 +294,7 @@ class ListRouteTest(_RouteTest):
         self.bind()
         sent = {}
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             sent.update(ops[0])
             return {"ok": True, "results": [{"op": "list_item", "ok": True, "result": {"queued": True}}]}
 
@@ -312,7 +312,7 @@ class ListRouteTest(_RouteTest):
         self.bind()
         sent = {}
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             sent.update(ops[0])
             return {"ok": True, "results": [{"op": "delist_item", "ok": True, "result": {}}]}
 
@@ -342,7 +342,7 @@ class DeleteRouteTest(_RouteTest):
         self.db.commit()
         sent = []
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             sent.extend(op["item_id"] for op in ops)
             return {"ok": True, "results": [
                 {"op": "delete_item", "ok": True, "deleted": op["item_id"]} for op in ops
@@ -390,7 +390,7 @@ class SaveRouteTest(_RouteTest):
         self.db.commit()
 
     def save(self, item):
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             if ops[0]["op"] == "get_item":
                 return {"ok": True, "results": [{"op": "get_item", "item": item}]}
             return {"ok": True, "results": [{"op": "update_item", "ok": True}]}
@@ -420,7 +420,7 @@ class SaveRouteTest(_RouteTest):
         }
         writes: list[list[str]] = []
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             for op in ops:
                 if op["op"] == "get_item":
                     return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": current}]}
@@ -446,7 +446,7 @@ class SaveRouteTest(_RouteTest):
         self.bind()
         updates: dict = {}
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             if ops[0]["op"] == "get_item":
                 return {"ok": True, "results": [{"op": "get_item", "item": {
                     "itemID": "itm1", "dateLastModified": 1000, "generalDetails": {"title": "Old"},
@@ -485,7 +485,7 @@ class SaveRouteTest(_RouteTest):
                 steps.extend(["vendoo_api_specifics", "vendoo_api_fields"])
             return listing, {}, None, [], []
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             if ops[0]["op"] == "get_item":
                 return {
                     "ok": True,
