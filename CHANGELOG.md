@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.94 — 2026-09-27
+
+- Generating a listing shows its work in the chat as it happens: each step, the photo analysis thinking, every web search, and the evidence and sold comps cards as they land
+- The "Working for" timer moved from above the message box into the chat
+
 ## 0.1.93 — 2026-09-26
 
 - Men's pants and jeans size as the waist (34) instead of 34x34, so the size dropdown fills
