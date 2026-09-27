@@ -614,7 +614,7 @@ async def clear_relist_reminder(conv_id: str, db: Session = Depends(get_db)):
 @router.post("/api/conversations/{conv_id}/vendoo-api/pull")
 async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
     """Take Vendoo's version even when Studio has edits of its own."""
-    from vendoo_studio.services.vendoo_create import run_ops
+    from vendoo_studio.services.vendoo_create import ITEM_READ_TIMEOUT_SEC, run_ops
     from vendoo_studio.services.vendoo_import import vendoo_binding
     from vendoo_studio.services.vendoo_watch import apply_pull
 
@@ -626,7 +626,10 @@ async def pull_from_vendoo(conv_id: str, db: Session = Depends(get_db)):
     if not item_id:
         raise HTTPException(409, "This listing has no Vendoo draft to pull from.")
     try:
-        reply = await run_ops(SimpleNamespace(id=None), [{"op": "get_item", "item_id": item_id}])
+        reply = await run_ops(
+            SimpleNamespace(id=None), [{"op": "get_item", "item_id": item_id}],
+            timeout=ITEM_READ_TIMEOUT_SEC,
+        )
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
         raise _http_error(exc) from exc
     item = next((r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None)

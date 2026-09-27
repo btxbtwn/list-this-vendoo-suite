@@ -108,7 +108,7 @@ class UnsentEditsTest(unittest.TestCase):
         self.mark_synced_on(self.revision.id)
         item = {**copy.deepcopy(VENDOO_ITEM), "itemID": "itm1", "dateLastModified": 2000}
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": item}]}
 
         with mock.patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -125,6 +126,67 @@ class OpenListingRouteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["via"], "chrome")
         launch.assert_called_once()
+
+
+class DispatchOpenListingTest(unittest.IsolatedAsyncioTestCase):
+    """Open listing counts only when the extension says the tab is showing."""
+
+    def setUp(self):
+        self.job = MagicMock(id="job1", vendoo_item_id="abc123", vendoo_url=None)
+        self.sent: list[dict] = []
+        extension_manager.paired = True
+
+    def tearDown(self):
+        extension_manager.connection = None
+        extension_manager.paired = False
+
+    def _connection(self, *, reply: dict | None = None, hang: bool = False):
+        connection = MagicMock()
+
+        async def send_json(message):
+            if hang:
+                await asyncio.Event().wait()
+            self.sent.append(message)
+            if reply is not None:
+                request_id = message["payload"]["request_id"]
+                asyncio.get_running_loop().call_soon(
+                    extension_manager.resolve_wait, request_id, {**reply, "request_id": request_id},
+                )
+
+        connection.send_json = send_json
+        connection.close = AsyncMock()
+        extension_manager.connection = connection
+        return connection
+
+    async def test_opened_when_the_extension_confirms(self):
+        from vendoo_studio.routes.extension import dispatch_open_listing
+
+        self._connection(reply={"ok": True})
+        self.assertTrue(await dispatch_open_listing(self.job))
+        self.assertEqual(self.sent[0]["type"], "job.open_listing")
+
+    async def test_not_opened_when_the_extension_reports_failure(self):
+        from vendoo_studio.routes.extension import dispatch_open_listing
+
+        self._connection(reply={"ok": False, "error": "no window"})
+        self.assertFalse(await dispatch_open_listing(self.job))
+
+    async def test_not_opened_when_the_extension_never_answers(self):
+        from vendoo_studio.routes.extension import dispatch_open_listing
+
+        self._connection()
+        with patch("vendoo_studio.routes.extension.OPEN_LISTING_TIMEOUT_SEC", 0.05):
+            self.assertFalse(await dispatch_open_listing(self.job))
+        self.assertEqual(extension_manager._waits, {})
+
+    async def test_a_send_that_never_goes_out_gives_up_and_drops_the_socket(self):
+        from vendoo_studio.routes.extension import dispatch_open_listing
+
+        connection = self._connection(hang=True)
+        with patch("vendoo_studio.routes.extension.SEND_TIMEOUT_SEC", 0.05):
+            self.assertFalse(await dispatch_open_listing(self.job))
+        self.assertFalse(extension_manager.connected)
+        connection.close.assert_awaited()
 
 
 if __name__ == "__main__":

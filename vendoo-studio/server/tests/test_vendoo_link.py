@@ -135,7 +135,7 @@ class LinkVendooDraftTest(unittest.TestCase):
             "images": [{"url": "https://cdn.example/a.jpg"}],
         }
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": item}]}
 
         with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):

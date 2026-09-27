@@ -251,7 +251,7 @@ class SyncConversationTest(unittest.TestCase):
         self.db.close()
 
     def sync(self, *, stamp=2000, error=None, item=None):
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_kwargs):
             if error:
                 raise error
             payload = item or {
@@ -307,7 +307,7 @@ class SyncConversationTest(unittest.TestCase):
         async def run():
             chrome_answered = asyncio.Event()
 
-            async def slow_run_ops(job, ops):
+            async def slow_run_ops(job, ops, **_kwargs):
                 nonlocal calls
                 calls += 1
                 await chrome_answered.wait()

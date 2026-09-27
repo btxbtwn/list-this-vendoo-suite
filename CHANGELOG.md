@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.125 — 2026-09-27
+
+- **Open listing** no longer hangs on "Opening…" until you quit Studio. When Chrome is slow, Studio stops waiting on it sooner, and if the Chrome extension doesn't open the listing within a few seconds, Studio opens it in Chrome itself.
+
 ## 0.1.124 — 2026-09-27
 
 - **Unsent edits** now clears on listings that got stuck with it even though nothing was changed. Studio compares what the listing says with what Vendoo last had, so tidying sizes and dropdowns no longer counts as an edit.

@@ -584,9 +584,19 @@ async function handleStudioMessage(msg) {
 
     case 'job.open_listing': {
       const payload = msg.payload || {};
-      const opened = await focusVendooListing(payload);
+      // Studio waits for this answer and opens Chrome itself when it never
+      // comes, so a failure has to be reported rather than only logged.
+      let opened;
+      try {
+        opened = await focusVendooListing(payload);
+      } catch (err) {
+        opened = { ok: false, error: err.message };
+      }
       if (!opened.ok) {
         log(`job.open_listing failed: ${opened.error || 'unknown error'}`);
+      }
+      if (payload.request_id) {
+        sendBrowserResult(msg, { ok: Boolean(opened.ok), error: opened.error || null });
       }
       break;
     }
