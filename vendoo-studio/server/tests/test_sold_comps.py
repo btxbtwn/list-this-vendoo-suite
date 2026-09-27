@@ -70,13 +70,35 @@ class WebResultFilterTest(unittest.TestCase):
                 }])
                 self.assertEqual(comps, [])
 
-    def test_drops_ambiguous_multiple_prices(self):
+    def test_ignores_was_price_and_keeps_the_remaining_sold_price(self):
         comps = comps_from_web_results([{
             "title": "Levi's 511 Slim Shorts - Sold",
             "url": "https://www.ebay.com/itm/9",
             "description": "Was $60, now $22",
         }])
+        self.assertEqual([comp.price for comp in comps], [22])
+
+    def test_drops_retail_price_copied_from_the_title(self):
+        # The seller wrote the tag price into the title and the description.
+        # The listing is still for sale; "items sold" is the seller's feedback.
+        comps = comps_from_web_results([{
+            "title": "Breckenridge Womens Blue Fleece Holiday Sweatshirt Small NWT $44 | eBay",
+            "url": "https://www.ebay.com/itm/204478063754",
+            "description": (
+                "Breckenridge Womens Blue Fleece Holiday Sweatshirt Small NWT $44 - "
+                "Features: Brand: Breckenridge. Retail: $44.00. Style: Sweatshirt."
+            ),
+            "extra_snippets": ["countrycorner4281 100% positive feedback • 6.3K items sold"],
+        }])
         self.assertEqual(comps, [])
+
+    def test_keeps_selling_price_when_retail_is_also_listed(self):
+        comps = comps_from_web_results([{
+            "title": "Breckenridge Womens Blue Fleece Holiday Sweatshirt Small NWT $44",
+            "url": "https://www.ebay.com/itm/204478063754",
+            "description": "Sold. US $18.00. Retail: $44.00. 6.3K items sold.",
+        }])
+        self.assertEqual([comp.price for comp in comps], [18])
 
     def test_keeps_explicit_sold_price_when_other_prices_exist(self):
         comps = comps_from_web_results([{

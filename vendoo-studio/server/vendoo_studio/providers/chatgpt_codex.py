@@ -549,8 +549,10 @@ class ChatGPTCodexProvider:
                     "size, color, material, and department when those details are present. Exclude lots, "
                     "bundles, replacement parts, reproductions, and different models or collaborations. "
                     "Require explicit evidence that the item sold or the listing completed, not merely "
-                    "that it is listed. If a result shows multiple prices, use only the amount explicitly "
-                    "identified as the sold price; otherwise skip it. "
+                    "that it is listed. A seller's lifetime \"items sold\" count is not that evidence. "
+                    "If a result shows multiple prices, use only the amount explicitly identified as the "
+                    "sold price; otherwise skip it. A number in the title, or one labeled retail, MSRP, "
+                    "was, or original, is not the sold price. "
                     "Return JSON only in this shape: "
                     '{"market":"$18-$25","comps":[{"title":"...","price":22,"marketplace":"eBay",'
                     '"condition":"Good","url":"https://www.ebay.com/itm/123"}]} '
