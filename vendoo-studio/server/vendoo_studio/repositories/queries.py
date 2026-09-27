@@ -413,6 +413,17 @@ class ListingRepo:
         self.db.refresh(revision)
         return revision
 
+    def revision_bodies(self, revision_ids: set[str]) -> dict[str, dict]:
+        """Listing JSON for several revisions in one query."""
+        if not revision_ids:
+            return {}
+        rows = (
+            self.db.query(ListingRevision.id, ListingRevision.listing_json)
+            .filter(ListingRevision.id.in_(revision_ids))
+            .all()
+        )
+        return {rev_id: body for rev_id, body in rows if isinstance(body, dict)}
+
     def get_revision(self, revision_id: str) -> ListingRevision | None:
         return self.db.query(ListingRevision).filter(ListingRevision.id == revision_id).first()
 
