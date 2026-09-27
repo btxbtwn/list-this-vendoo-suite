@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.127 — 2026-09-27
+
+- **Regenerate** no longer starts a sold comps search on its own. Click **Search sold comps** in the price dialog when you want one.
+
 ## 0.1.126 — 2026-09-27
 
 - **Regenerate** no longer gets stuck on "Clearing chat and generated fields…". Clearing no longer waits on Chrome for your label names, and the rewrite starts as soon as the listing is cleared.
