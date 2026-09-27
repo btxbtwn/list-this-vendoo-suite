@@ -235,6 +235,26 @@
   color: var(--color-text);
 }
 
+/* The live marketplace listings, each opening its own page. */
+.pr-marketplace-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pr-marketplace-link {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pr-marketplace-link:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
 .editor-title {
   font-size: var(--text-sm);
   font-weight: 500;

@@ -20,6 +20,8 @@ export interface Conversation {
   price?: number | null;
   vendoo_labels?: string[];
   vendoo_marketplaces?: string[];
+  /** Each marketplace listing's own page, where Vendoo recorded one. */
+  vendoo_listing_urls?: Record<string, string>;
   /** Vendoo's own time tracking: when the item was created, last modified,
    * last went live (a relist moves this) and sold, plus the listing and sale
    * date per marketplace. */

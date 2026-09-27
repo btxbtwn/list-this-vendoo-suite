@@ -48,6 +48,8 @@ class ConversationResponse(BaseModel):
     price: float | None = None
     vendoo_labels: list[str] = []
     vendoo_marketplaces: list[str] = []
+    # Each marketplace listing's own page, where Vendoo recorded one.
+    vendoo_listing_urls: dict[str, str] = {}
     # Vendoo's own time tracking for the item: when it was created, last
     # modified, last went live (a relist moves this) and sold, plus the listing
     # date per marketplace. "listed" drives the staleness filter and sort.
@@ -558,6 +560,13 @@ def _relist_pending(notes: dict) -> list[str]:
     return [str(market).strip() for market in raw if str(market).strip()]
 
 
+def _listing_urls(notes: dict) -> dict[str, str]:
+    raw = notes.get("vendooListingUrls")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(market): str(url) for market, url in raw.items() if url}
+
+
 def _vendoo_dates(notes: dict) -> dict:
     """Vendoo's time tracking for the row, as the sidebar and details read it."""
     dates = notes.get("vendooDates") if isinstance(notes.get("vendooDates"), dict) else {}
@@ -617,6 +626,7 @@ def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
         price=row.get("price"),
         vendoo_labels=raw_labels,
         vendoo_marketplaces=[str(m) for m in marketplaces] if isinstance(marketplaces, list) else [],
+        vendoo_listing_urls=_listing_urls(notes),
         unsent_edits=_unsent_edits(notes, row.get("current_revision_id")),
         **_vendoo_dates(notes),
     )

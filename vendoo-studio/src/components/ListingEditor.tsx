@@ -299,6 +299,7 @@ export function ListingEditor({
               ensureDraftMutation.mutate({ importDraft: true });
             }}
           />
+          <MarketplaceLinks urls={conversation?.vendoo_listing_urls} />
           <VendooSyncStatus
             convId={convId}
             bound={Boolean(listingJob?.vendoo_item_id || importedItemId)}
@@ -834,6 +835,28 @@ function VendooLinkControl({
     >
       {itemId ? `vendoo ← ${String(itemId).slice(0, 8)}` : "Link Vendoo draft"}
     </button>
+  );
+}
+
+/** Opens each marketplace's own listing page, alphabetically. */
+function MarketplaceLinks({ urls }: { urls?: Record<string, string> }) {
+  const entries = Object.entries(urls || {}).sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return null;
+  return (
+    <span className="pr-marketplace-links">
+      {entries.map(([id, url]) => (
+        <a
+          key={id}
+          className="pr-marketplace-link"
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Open the ${marketplaceName(id)} listing`}
+        >
+          {marketplaceName(id)}
+        </a>
+      ))}
+    </span>
   );
 }
 

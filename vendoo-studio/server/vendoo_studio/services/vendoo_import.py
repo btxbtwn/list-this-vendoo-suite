@@ -517,6 +517,25 @@ def vendoo_listed_marketplaces(item: dict | None, form: dict | None = None) -> l
     return sorted(live)
 
 
+def vendoo_listing_urls(item: dict | None, form: dict | None = None) -> dict[str, str]:
+    """Each live or sold marketplace listing's own page, by marketplace.
+
+    Vendoo records the marketplace's URL beside the listed id when it posts or
+    imports a listing, and clears both on delist, so a listing that is no
+    longer up has no link to offer.
+    """
+    merged = _merge_payloads(form, item)
+    urls: dict[str, str] = {}
+    for name, listing in _listing_entries(merged, external=False):
+        status = listing.get("status") if isinstance(listing.get("status"), dict) else {}
+        if not (status.get("listed") is True or status.get("sold") is True or status.get("shipped") is True):
+            continue
+        url = str(listing.get("listingURL") or "").strip()
+        if url.startswith(("https://", "http://")):
+            urls[VENDOO_MARKETPLACE_ALIASES.get(name, name)] = url
+    return urls
+
+
 def vendoo_relistable_marketplaces(item: dict | None, form: dict | None = None) -> list[str]:
     """Live marketplaces whose listing a relist would actually replace.
 
@@ -779,6 +798,7 @@ async def import_vendoo_item(
         "vendooUrl": item_url,
         "vendooStatus": status,
         "vendooMarketplaces": marketplaces,
+        "vendooListingUrls": vendoo_listing_urls(item, form),
         "vendooDates": vendoo_dates(item, form),
         "vendooSale": vendoo_sale(item, form),
         # Vendoo's own image stands in for the sidebar thumbnail when a photo
