@@ -241,6 +241,7 @@ def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> 
         vendoo_dates,
         vendoo_item_status,
         vendoo_listed_marketplaces,
+        vendoo_listing_urls,
         vendoo_updated_at,
     )
 
@@ -258,6 +259,7 @@ def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> 
     repo.write_notes(conv_id, merge_notes(conv.notes, {
         "vendooStatus": status,
         "vendooMarketplaces": vendoo_listed_marketplaces(item, None),
+        "vendooListingUrls": vendoo_listing_urls(item, None),
         "vendooDates": vendoo_dates(item, None),
         "vendooUpdatedAt": vendoo_updated_at(item, None),
     }), bump_updated_at=False)

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.97 — 2026-09-27
+
+- Each listing now links straight to its live eBay, Poshmark, Mercari and other marketplace pages, next to the Vendoo link. Links show up after the next Vendoo sync.
+
 ## 0.1.96 — 2026-09-27
 
 - Analytics profit now takes off marketplace fees and the shipping labels you paid, the same way Vendoo works it out. Re-import from Vendoo to pull in the fees for sales you already have

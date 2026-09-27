@@ -17,6 +17,7 @@ from vendoo_studio.routes.conversations import _conv_response, _extras
 from vendoo_studio.services.vendoo_import import (
     split_vendoo_labels,
     vendoo_listed_marketplaces,
+    vendoo_listing_urls,
 )
 
 
@@ -80,6 +81,35 @@ class ListingFacetsTest(unittest.TestCase):
     def test_listed_marketplaces_are_empty_without_listings(self):
         self.assertEqual(vendoo_listed_marketplaces(None, None), [])
         self.assertEqual(vendoo_listed_marketplaces({"listings": "nope"}, None), [])
+
+    def test_listing_urls_come_from_live_and_sold_listings(self):
+        item = {
+            "listings": {
+                "ebay": {"status": {"listed": True}, "listingURL": "https://www.ebay.com/itm/123"},
+                "poshmark": {
+                    "status": {"sold": True},
+                    "listingURL": "https://poshmark.com/listing/abc",
+                },
+                # Delisted: the page is gone even if a stale URL lingers.
+                "mercari": {"status": {"notListed": True}, "listingURL": "https://www.mercari.com/us/item/m1/"},
+                "etsy": {"status": {"listed": True}, "listingURL": ""},
+                "depop": {"status": {"listed": True}, "listingURL": "javascript:alert(1)"},
+                "vestiaireApi": {"status": {"listed": True}, "listingURL": "https://vestiairecollective.com/x"},
+            }
+        }
+        self.assertEqual(vendoo_listing_urls(item, None), {
+            "ebay": "https://www.ebay.com/itm/123",
+            "poshmark": "https://poshmark.com/listing/abc",
+            "vestiaire": "https://vestiairecollective.com/x",
+        })
+        self.assertEqual(vendoo_listing_urls(None, None), {})
+
+    def test_response_carries_listing_urls(self):
+        conv = self.convs.create(title="Nike tee")
+        conv.notes = json.dumps({"vendooListingUrls": {"ebay": "https://www.ebay.com/itm/123", "etsy": ""}})
+        self.db.commit()
+        response = _conv_response(conv)
+        self.assertEqual(response.vendoo_listing_urls, {"ebay": "https://www.ebay.com/itm/123"})
 
     def test_labels_split_on_commas(self):
         self.assertEqual(split_vendoo_labels(" A19 , To List ,"), ["A19", "To List"])

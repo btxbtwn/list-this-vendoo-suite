@@ -109,6 +109,7 @@ async def _run() -> None:
         vendoo_dates,
         vendoo_item_status,
         vendoo_listed_marketplaces,
+        vendoo_listing_urls,
         vendoo_sale,
         vendoo_updated_at,
     )
@@ -127,11 +128,13 @@ async def _run() -> None:
         notes = parse_notes(conv.notes)
         status = vendoo_item_status(item, None)
         marketplaces = vendoo_listed_marketplaces(item, None)
+        listing_urls = vendoo_listing_urls(item, None)
         dates = vendoo_dates(item, None)
         sale = vendoo_sale(item, None)
         if (
             notes.get("vendooStatus") == status
             and notes.get("vendooMarketplaces") == marketplaces
+            and (notes.get("vendooListingUrls") or {}) == listing_urls
             and notes.get("vendooDates") == dates
             and (notes.get("vendooSale") or {}) == sale
         ):
@@ -139,6 +142,7 @@ async def _run() -> None:
         conv.notes = merge_notes(conv.notes, {
             "vendooStatus": status,
             "vendooMarketplaces": marketplaces,
+            "vendooListingUrls": listing_urls,
             "vendooDates": dates,
             "vendooSale": sale,
         })
