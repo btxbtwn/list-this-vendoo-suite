@@ -16,7 +16,7 @@ from vendoo_studio.config import PHOTOS_DIR
 from vendoo_studio.models.conversation import Message, Photo as PhotoModel
 from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation
 from vendoo_studio.models.fill_log import FillLogEntry
-from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job, JobEvent
+from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job, JobEvent, VendooDraftCache
 from vendoo_studio.models.listing import Listing, ListingRevision
 from vendoo_studio.repositories.queries import ConversationRepo
 from vendoo_studio.services.photos import delete_thumbnails
@@ -49,6 +49,9 @@ def wipe_contents(db: Session, conv_id: str, *, keep_photos: bool = False) -> tu
         db.query(DiagnosticRun).filter(DiagnosticRun.job_id.in_(job_ids)).delete(synchronize_session=False)
         db.query(FillLogEntry).filter(FillLogEntry.job_id.in_(job_ids)).delete(synchronize_session=False)
         db.query(JobEvent).filter(JobEvent.job_id.in_(job_ids)).delete(synchronize_session=False)
+        # Synced Vendoo status lives here, one row per job. Leaving it makes
+        # DELETE FROM jobs fail the foreign key, and Regenerate never finishes.
+        db.query(VendooDraftCache).filter(VendooDraftCache.job_id.in_(job_ids)).delete(synchronize_session=False)
         db.query(Job).filter(Job.conversation_id == conv_id).delete(synchronize_session=False)
 
     db.query(ListingRevision).filter(ListingRevision.conversation_id == conv_id).delete(synchronize_session=False)

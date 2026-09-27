@@ -19,7 +19,7 @@ from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
 from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation  # noqa: F401
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
-from vendoo_studio.models.job import Job
+from vendoo_studio.models.job import Job, VendooDraftCache
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
@@ -105,6 +105,24 @@ class ConversationResetTest(unittest.TestCase):
             os.environ.pop("VENDOO_STUDIO_DATA_DIR", None)
         else:
             os.environ["VENDOO_STUDIO_DATA_DIR"] = self._data
+
+    def test_reset_drops_vendoo_draft_cache_before_the_job(self):
+        """A synced draft row references the job. Wipe must delete it first.
+
+        Otherwise DELETE FROM jobs raises a foreign-key error and Regenerate
+        never leaves "Clearing chat and generated fields".
+        """
+        job = self.db.query(Job).filter(Job.conversation_id == self.conv.id).one()
+        self.db.add(VendooDraftCache(job_id=job.id, item_id="QVzIZuKs", source="watch"))
+        self.db.commit()
+
+        with photos_dir(self.photos_tmp.name):
+            response = self.client.post(f"/api/conversations/{self.conv.id}/reset")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(VendooDraftCache).count(), 0)
+        self.assertEqual(self.db.query(Job).filter(Job.conversation_id == self.conv.id).count(), 0)
 
     def test_reset_wipes_listing_and_keeps_conversation(self):
         with photos_dir(self.photos_tmp.name):

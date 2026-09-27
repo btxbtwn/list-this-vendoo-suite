@@ -1,6 +1,8 @@
+import asyncio
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +14,8 @@ from vendoo_studio.database import Base
 from vendoo_studio.models.catalog import CategorySchema, CategoryTree, CategoryTreeNode
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.services.catalog_index import (
+    ensure_catalog_index,
+    mark_catalog_index_stale,
     rebuild_catalog_index,
     reset_catalog_index_cache,
     search_catalog,
@@ -333,6 +337,57 @@ class CatalogIndexTest(unittest.TestCase):
             os.environ.pop("VENDOO_STUDIO_DATA_DIR", None)
         else:
             os.environ["VENDOO_STUDIO_DATA_DIR"] = self._data
+
+    def test_rebuild_does_not_hold_the_reader_lock_while_tokenizing(self):
+        from vendoo_studio.services import catalog_index as catalog
+
+        seen = {}
+
+        def load(_docs):
+            seen["reader_free"] = catalog._INDEX_LOCK.acquire(blocking=False)
+            if seen["reader_free"]:
+                catalog._INDEX_LOCK.release()
+            return None
+
+        with patch("vendoo_studio.services.catalog_index._load_semble_index", load):
+            rebuild_catalog_index(self.db)
+        self.assertTrue(seen["reader_free"])
+
+    def test_ensure_on_the_event_loop_does_not_wait_for_a_rebuild(self):
+        """A category-sync rebuild must not freeze Regenerate's reset request."""
+        from vendoo_studio.services import catalog_index as catalog
+
+        mark_catalog_index_stale()
+        catalog._REBUILD_LOCK.acquire()
+        box: dict = {}
+
+        def in_loop() -> None:
+            async def call():
+                with (
+                    patch.object(catalog, "fingerprint", return_value={"trees": {}}),
+                    patch.object(catalog, "_kick_rebuild") as kick,
+                ):
+                    result = ensure_catalog_index(self.db)
+                    return result, kick.called
+
+            try:
+                box["value"] = asyncio.run(asyncio.wait_for(call(), timeout=1))
+            except Exception as exc:
+                box["error"] = exc
+
+        worker = threading.Thread(target=in_loop)
+        worker.start()
+        worker.join(1.5)
+        still_blocked = worker.is_alive()
+        try:
+            self.assertFalse(still_blocked, "ensure waited on the catalog rebuild and froze the event loop")
+        finally:
+            catalog._REBUILD_LOCK.release()
+            worker.join(2)
+        self.assertNotIn("error", box)
+        result, kicked = box["value"]
+        self.assertFalse(result["rebuilt"])
+        self.assertTrue(kicked)
 
     def test_search_returns_verified_leaf_for_womens_tops(self):
         hits = search_catalog(self.db, "women floral blouse tops", kind="category", top_k=5)
