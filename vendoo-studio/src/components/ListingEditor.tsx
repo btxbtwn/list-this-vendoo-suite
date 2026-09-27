@@ -10,6 +10,7 @@ import { ConnectChromeButton } from "./ConnectChromeButton";
 import { SendProgress, useSendStep } from "./SendProgress";
 import { VendooSyncStatus } from "./VendooSyncStatus";
 import { OpenListingButton } from "./OpenListingButton";
+import { MarketplaceLogo } from "./MarketplaceLogo";
 import { marketplaceName } from "./marketplaceNames";
 import {
   describeMarketplaces,
@@ -851,9 +852,9 @@ function MarketplaceLinks({ urls }: { urls?: Record<string, string> }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          title={`Open the ${marketplaceName(id)} listing`}
+          aria-label={`Open the ${marketplaceName(id)} listing`}
         >
-          {marketplaceName(id)}
+          <MarketplaceLogo id={id} label={`Open the ${marketplaceName(id)} listing`} size={16} />
         </a>
       ))}
     </span>
