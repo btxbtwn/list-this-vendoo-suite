@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.114 — 2026-09-27
+
+- Settings has a Logs page that shows live API calls between Studio and Vendoo. Tokens and request bodies stay off the page.
+
 ## 0.1.113 — 2026-09-27
 
 - Sold comps now come from every model you have connected — ChatGPT, Cursor and MiMo each search the web with their own search, and their results are combined. Brave only runs when they find fewer than three sales or can't search.
