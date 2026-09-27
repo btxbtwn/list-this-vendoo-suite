@@ -1,4 +1,6 @@
-export type SseParts = { content: string; thinking: string; status: string };
+import type { LiveTraceEntry } from "./liveTrace";
+
+export type SseParts = { content: string; thinking: string; status: string; trace: LiveTraceEntry[] };
 
 /** Batch window for streamed SSE events, in milliseconds. */
 const SSE_FLUSH_MS = 50;

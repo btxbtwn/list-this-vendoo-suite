@@ -6,6 +6,7 @@ import re
 
 import httpx
 
+from vendoo_studio.services import live_trace
 from vendoo_studio.services.keychain import get_brave_api_key
 
 log = logging.getLogger("vendoo_studio.brave_search")
@@ -206,12 +207,14 @@ async def _search_one(query: str, api_key: str, *, delay: float) -> list[dict]:
     if delay:
         await asyncio.sleep(delay)
     try:
-        return await search_web(query, api_key, count=BRAVE_RESULT_COUNT)
+        results = await search_web(query, api_key, count=BRAVE_RESULT_COUNT)
     except Exception as exc:
         if "429" not in str(exc):
             raise
         await asyncio.sleep(BRAVE_RETRY_SEC)
-        return await search_web(query, api_key, count=BRAVE_RESULT_COUNT)
+        results = await search_web(query, api_key, count=BRAVE_RESULT_COUNT)
+    live_trace.emit("step", f"Searched Brave: {query}")
+    return results
 
 
 async def search_all(queries: list[str], api_key: str) -> tuple[list[dict], list[str]]:

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { coalesceSseEvents, type SseParts } from "./sseCoalesce";
 
-const parts = (content: string): SseParts => ({ content, thinking: "", status: "" });
+const parts = (content: string): SseParts => ({ content, thinking: "", status: "", trace: [] });
 
 describe("coalesceSseEvents", () => {
   it("paints the first event immediately", () => {
@@ -33,7 +33,7 @@ describe("coalesceSseEvents", () => {
     vi.useFakeTimers();
     const onEvent = vi.fn();
     const batch = coalesceSseEvents(onEvent, 50);
-    const live: SseParts = { content: "", thinking: "", status: "" };
+    const live: SseParts = { content: "", thinking: "", status: "", trace: [] };
     batch.push("thinking", live); // leading edge
     onEvent.mockClear();
     live.thinking = "hmm";

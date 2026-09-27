@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.95 — 2026-09-27
+
+- Generating a listing shows its work in the chat as it happens: each step, the photo analysis thinking, every web search, and the evidence and sold comps cards as they land
+- The "Working for" timer moved from above the message box into the chat
+
 ## 0.1.94 — 2026-09-27
 
 - Analytics shows what sold, what's still listed, and how long it took
