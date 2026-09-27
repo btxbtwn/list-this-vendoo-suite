@@ -169,6 +169,50 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_agents.create.call_args.args[0], {"tools": ["webSearch", "webFetch"]})
         self.assertEqual(steps, [("step", "Cursor: Searching eBay for sold Nike tees.")])
 
+    async def test_web_search_past_its_budget_asks_the_agent_for_what_it_found(self):
+        provider = CursorProvider(api_key="cursor_test")
+        answer = '{"comps":[],"live":[{"title":"Nike Tee","price":20,"url":"https://www.ebay.com/itm/1"}]}'
+
+        class SearchingRun:
+            id = "run-search"
+
+            def __init__(self):
+                self.stopped = threading.Event()
+
+            def stream(self):
+                self.stopped.wait(5)
+                return iter(())
+
+            def cancel(self):
+                self.stopped.set()
+
+            def wait(self):
+                return MagicMock(status="cancelled", result="", id=self.id)
+
+        class WrapUpRun:
+            id = "run-wrap"
+
+            def stream(self):
+                return iter(())
+
+            def wait(self):
+                return MagicMock(status="finished", result=answer, id=self.id)
+
+        fake_client, fake_agents = fake_bridge(SearchingRun())
+        agent = fake_agents.create.return_value
+        agent.send = MagicMock(side_effect=[SearchingRun(), WrapUpRun()])
+        with (
+            patch("cursor_sdk.Client.launch_bridge", return_value=fake_client),
+            patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
+            patch("vendoo_studio.providers.cursor_agent.WEB_SEARCH_WRAP_UP_SEC", 0.05),
+        ):
+            scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
+            result = await provider.web_search([{"role": "user", "content": "Nike tee sold comps"}])
+
+        self.assertEqual(result["answer"], answer)
+        self.assertEqual(agent.send.call_count, 2)
+        self.assertIn("Stop searching now", agent.send.call_args.args[0].text)
+
     async def test_stalled_run_times_out_and_closes_the_bridge(self):
         provider = CursorProvider(api_key="cursor_test")
         closed = threading.Event()

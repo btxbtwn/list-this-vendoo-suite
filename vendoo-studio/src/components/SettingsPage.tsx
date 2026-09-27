@@ -162,7 +162,7 @@ function BraveSearchSection({ chatgptSignedIn }: { chatgptSignedIn: boolean }) {
         title="API key"
         description={
           <>
-            Used to look up sold comps when your connected models' web search finds fewer than three sales or none is connected. Get a key at{" "}
+            Used to look up sold comps when your listing model's web search fails, times out or finds no sales. Get a key at{" "}
             <a href="https://api.search.brave.com" target="_blank" rel="noreferrer">
               api.search.brave.com
             </a>
@@ -194,8 +194,8 @@ function BraveSearchSection({ chatgptSignedIn }: { chatgptSignedIn: boolean }) {
           configured
             ? `Fallback · ${brave?.masked_key}`
             : chatgptSignedIn
-              ? "Fallback when model web search finds too few sold comps"
-              : "Not configured — sold comps use your connected models' web search only"
+              ? "Fallback when your listing model's web search does not work"
+              : "Not configured — sold comps use your listing model's web search only"
         }
         status={
           testResult ? (
@@ -1384,7 +1384,7 @@ function ProvidersPanel() {
       <SettingsSection id="provider" title={providerTitle("mimo", true)}>
         <SettingsRow
           title="API key"
-          description="Stored in macOS Keychain and never sent to the browser. Sold comps use MiMo's web search, which needs the Web Search plugin turned on in the MiMo console (Plugin Management)."
+          description="Stored in macOS Keychain and never sent to the browser. When MiMo is your listing model, sold comps use its web search, which needs the Web Search plugin turned on in the MiMo console (Plugin Management)."
         >
           <div className="settings-row-field">
             <input
@@ -1442,7 +1442,7 @@ function ProvidersPanel() {
       <SettingsSection id="cursor" title={providerTitle("cursor")}>
         <SettingsRow
           title="API key"
-          description="From Cursor Dashboard → Integrations. Stored in Keychain; listing runs use the local Cursor SDK against an empty scratch folder. Also searches the web for sold comps."
+          description="From Cursor Dashboard → Integrations. Stored in Keychain; listing runs use the local Cursor SDK against an empty scratch folder. When Cursor is your listing model it also searches the web for sold comps."
         >
           <div className="settings-row-field">
             <input

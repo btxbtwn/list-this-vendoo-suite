@@ -106,8 +106,8 @@ export function RegeneratePriceDialog({
 }) {
   const queryClient = useQueryClient();
 
-  // History and sell-through answer at once; sold comps are web searches by
-  // every connected model that can take minutes, so they stream in on top
+  // History and sell-through answer at once; sold comps are a web search by
+  // the listing model that can take minutes, so they stream in on top
   // instead of holding the whole dialog.
   const previewQuery = useQuery({
     queryKey: ["price-drop-preview", convId],
