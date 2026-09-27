@@ -245,6 +245,13 @@ export function App() {
     closeMobileSidebar();
   };
   const openAnalytics = () => togglePage("analytics");
+  const openProviders = () => {
+    setSettingsSection("providers");
+    setSettingsTargetId(null);
+    setActiveView("settings");
+    setMobilePane("workspace");
+    closeMobileSidebar();
+  };
   const openSourcing = () => togglePage("sourcing");
 
   const openListing = (id: string) => {
@@ -683,7 +690,7 @@ export function App() {
                 </Suspense>
               ) : activeView === "sourcing" ? (
                 <Suspense fallback={null}>
-                  <SourcingPage />
+                  <SourcingPage onOpenProviders={openProviders} />
                 </Suspense>
               ) : selectedConvId ? (
                 <div className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>

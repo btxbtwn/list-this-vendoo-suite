@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { SourcingCart, SourcingLot, SourcingSnapshot } from "../api/types";
-import { formatRoi, freeShippingGap, isZip, lotMeta, otherLots, whenChecked } from "./boxScout";
+import {
+  cartTotal,
+  clockTime,
+  freeShippingGap,
+  isZip,
+  lotReason,
+  moneyBack,
+  nextUpdate,
+  otherLots,
+  piecesLabel,
+} from "./boxScout";
 
 function lot(overrides: Partial<SourcingLot> = {}): SourcingLot {
   return {
@@ -51,28 +61,39 @@ function cart(overrides: Partial<SourcingCart> = {}): SourcingCart {
   };
 }
 
-describe("freeShippingGap", () => {
-  it("says how much more unlocks free shipping", () => {
-    expect(freeShippingGap(cart())).toBe(35);
+describe("money", () => {
+  it("adds shipping to a store's total", () => {
+    expect(cartTotal(cart())).toBe(205);
   });
 
-  it("is null once shipping is free or when the store has no threshold", () => {
+  it("says what each dollar spent should bring back", () => {
+    expect(moneyBack(418, 1210)).toBe("$3.89");
+    expect(moneyBack(0, 0)).toBe("$0");
+  });
+
+  it("says how much more unlocks free shipping", () => {
+    expect(freeShippingGap(cart())).toBe(35);
     expect(freeShippingGap(cart({ free_shipping: true }))).toBeNull();
     expect(freeShippingGap(cart({ free_shipping_over: null }))).toBeNull();
   });
 });
 
-describe("lotMeta", () => {
-  it("marks estimated counts and weights", () => {
-    expect(lotMeta(lot())).toBe("Good · 69 pcs · 28 lb");
-    expect(lotMeta(lot({ grade: "b", pcs_estimated: true, lbs_estimated: true, vip: true }))).toBe(
-      "B grade · ~69 pcs · ~28 lb · VIP only",
+describe("box wording", () => {
+  it("says about when the piece count is estimated from weight", () => {
+    expect(piecesLabel(lot())).toBe("69 pieces");
+    expect(piecesLabel(lot({ pcs: 150, pcs_estimated: true }))).toBe("about 150 pieces");
+  });
+
+  it("explains a box in plain words", () => {
+    expect(lotReason(lot())).toBe("69 pieces · Good condition · sells for about $14 each");
+    expect(lotReason(lot({ grade: "recycle", resale_per_pc: null, vip: true, store: "raghouse" }), true)).toBe(
+      "Raghouse · 69 pieces · Needs some fixing · VIP members only",
     );
   });
 });
 
 describe("otherLots", () => {
-  it("shows the best lot of each theme the buy list did not take", () => {
+  it("shows the best box of each kind the buy list did not take", () => {
     const picked = lot({ variant_id: 1, theme: "cartoon t-shirts" });
     const snapshot = {
       buy_list: { budget: 300, total: 132, expected_profit: 388, carts: [cart({ lots: [picked] })] },
@@ -89,16 +110,16 @@ describe("otherLots", () => {
   });
 });
 
-describe("formatting", () => {
-  it("rounds ROI to a whole percent", () => {
-    expect(formatRoi(2.944)).toBe("294%");
+describe("times", () => {
+  it("shows only the time for today and adds the day otherwise", () => {
+    const now = new Date(2026, 8, 27, 18, 0);
+    expect(clockTime(new Date(2026, 8, 27, 14, 5).toISOString(), now)).not.toMatch(/[A-Za-z]{3} /);
+    expect(clockTime(new Date(2026, 8, 25, 14, 5).toISOString(), now)).toMatch(/^[A-Za-z]{3} /);
+    expect(clockTime("not a date", now)).toBe("");
   });
 
-  it("says today for a check made today", () => {
-    const now = new Date(2026, 8, 27, 18, 0);
-    expect(whenChecked(new Date(2026, 8, 27, 14, 5).toISOString(), now)).toMatch(/^today /);
-    expect(whenChecked(new Date(2026, 8, 25, 14, 5).toISOString(), now)).not.toMatch(/^today /);
-    expect(whenChecked("not a date", now)).toBe("");
+  it("puts the next update six hours after the last", () => {
+    expect(nextUpdate("2026-09-27T12:00:00.000Z")).toBe("2026-09-27T18:00:00.000Z");
   });
 });
 

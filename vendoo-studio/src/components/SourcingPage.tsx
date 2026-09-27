@@ -4,11 +4,26 @@ import { api } from "../api/client";
 import type { SourcingCart, SourcingLot, SourcingPrefs, SourcingSnapshot, SourcingState } from "../api/types";
 import { addToast } from "../ui/toast";
 import { formatMoney } from "./analyticsFormat";
-import { formatRoi, freeShippingGap, isZip, lotCount, lotMeta, otherLots, whenChecked } from "./boxScout";
+import {
+  REFRESH_HOURS,
+  boxCount,
+  cartTotal,
+  clockTime,
+  freeShippingGap,
+  isZip,
+  lotReason,
+  moneyBack,
+  nextUpdate,
+  otherLots,
+} from "./boxScout";
 
 const QUERY_KEY = ["sourcing"];
 
-export function SourcingPage() {
+interface Props {
+  onOpenProviders: () => void;
+}
+
+export function SourcingPage({ onOpenProviders }: Props) {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: QUERY_KEY,
@@ -18,7 +33,7 @@ export function SourcingPage() {
   });
   const onSaved = (state: SourcingState) => queryClient.setQueryData(QUERY_KEY, state);
   const onError = (error: Error) =>
-    addToast({ type: "error", title: "Could not update sourcing", description: error.message });
+    addToast({ type: "error", title: "Could not update your buy list", description: error.message });
   const refresh = useMutation({ mutationFn: api.sourcing.refresh, onSuccess: onSaved, onError });
   const savePrefs = useMutation({
     mutationFn: (prefs: Partial<SourcingPrefs>) => api.sourcing.savePrefs(prefs),
@@ -30,77 +45,46 @@ export function SourcingPage() {
 
   return (
     <div className="analytics-page">
-      <div className="analytics-inner">
-        <header className="analytics-header">
-          <p className="analytics-lead">
-            Studio checks Raghouse and Thrift Vintage Fashion every 6 hours and picks the boxes worth buying,
-            with shipping to the ZIP below. Open a cart, check it, and pay.
+      <div className="analytics-inner sourcing-inner">
+        <header className="sourcing-header">
+          <div className="sourcing-title-row">
+            <h1 className="sourcing-title">Your buy list</h1>
+            {data ? (
+              <UpdateStatus
+                snapshot={snapshot}
+                refreshing={data.refreshing || refresh.isPending}
+                onRefresh={() => refresh.mutate()}
+              />
+            ) : null}
+          </div>
+          <p className="sourcing-lead">
+            Studio watches Raghouse and Thrift Vintage Fashion for you and picks the boxes worth buying. Open a
+            cart, check it, and pay. Nothing is bought without you.
           </p>
           {data ? (
-            <div className="sourcing-toolbar">
-              <ZipField
-                zip={data.prefs.zip}
-                recent={data.prefs.recent_zips}
-                disabled={savePrefs.isPending}
-                onSave={(zip) => savePrefs.mutate({ zip })}
-              />
-              <BudgetField
-                budget={data.prefs.budget}
-                disabled={savePrefs.isPending}
-                onSave={(budget) => savePrefs.mutate({ budget })}
-              />
-              <label className="sourcing-check">
-                <input
-                  type="checkbox"
-                  checked={data.prefs.raghouse_vip}
-                  disabled={savePrefs.isPending}
-                  onChange={(event) => savePrefs.mutate({ raghouse_vip: event.target.checked })}
-                />
-                I have Raghouse VIP
-              </label>
-              <span className="sourcing-status">
-                {data.refreshing
-                  ? "Checking the stores…"
-                  : snapshot
-                    ? `Checked ${whenChecked(snapshot.updated_at)}`
-                    : null}
-              </span>
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                onClick={() => refresh.mutate()}
-                disabled={data.refreshing || refresh.isPending}
-              >
-                Check now
-              </button>
-            </div>
+            <Settings prefs={data.prefs} saving={savePrefs.isPending} onSave={(prefs) => savePrefs.mutate(prefs)} />
           ) : null}
         </header>
 
         {query.isLoading ? <p className="analytics-status">Loading…</p> : null}
         {query.isError ? (
-          <p className="analytics-status">{(query.error as Error).message || "Could not load sourcing."}</p>
+          <p className="analytics-status">{(query.error as Error).message || "Could not load your buy list."}</p>
         ) : null}
+
         {data && !snapshot ? (
-          <p className="analytics-status">
-            Studio is reading both stores and pricing what they have. The first check takes a few minutes.
-          </p>
+          <div className="sourcing-empty">
+            <div className="sourcing-empty-title">Getting your first list ready…</div>
+            <p>Studio is reading both stores and looking up what their boxes resell for. This takes a few minutes.</p>
+          </div>
         ) : null}
 
         {data && snapshot ? (
           <>
-            <StoreErrors snapshot={snapshot} />
-            <BuyList data={data} snapshot={snapshot} />
+            <StoreProblems snapshot={snapshot} />
+            <BuyList data={data} snapshot={snapshot} onOpenProviders={onOpenProviders} />
+            <MoreBoxes snapshot={snapshot} />
             <Trending trend={data.trend} />
-            <section className="analytics-section" aria-label="Other boxes">
-              <h2 className="analytics-section-title">Next best boxes</h2>
-              <ol className="sourcing-boxes">
-                {otherLots(snapshot).map((lot) => (
-                  <LotRow key={lot.variant_id} lot={lot} showStore />
-                ))}
-              </ol>
-            </section>
-            <p className="analytics-note sourcing-footnote">{assumptions(snapshot)}</p>
+            <HowItWorks snapshot={snapshot} />
           </>
         ) : null}
       </div>
@@ -108,123 +92,254 @@ export function SourcingPage() {
   );
 }
 
-function BuyList({ data, snapshot }: { data: SourcingState; snapshot: SourcingSnapshot }) {
-  const plan = snapshot.buy_list;
-  // Prices found earlier stay good for two weeks, so a list can stand without a model connected.
-  if (plan.carts.length === 0 && !data.research_available) {
-    return (
-      <section className="analytics-section" aria-label="Buy list">
-        <h2 className="analytics-section-title">Buy these</h2>
-        <p className="analytics-note">
-          Connect ChatGPT, Cursor or MiMo in Settings → Providers so Studio can look up what these boxes resell
-          for. Until then it can rank boxes but cannot tell which ones pay for themselves.
-        </p>
-      </section>
-    );
-  }
+function UpdateStatus({
+  snapshot,
+  refreshing,
+  onRefresh,
+}: {
+  snapshot: SourcingSnapshot | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  if (refreshing) return <span className="sourcing-updated">Updating…</span>;
   return (
-    <section className="analytics-section" aria-label="Buy list">
-      <h2 className="analytics-section-title">Buy these</h2>
-      {plan.carts.length === 0 ? (
-        <p className="analytics-note">
-          Nothing is expected to at least double your money within {formatMoney(plan.budget)} right now.{" "}
-          {snapshot.priced_themes === 0 ? "Studio has not priced any boxes yet." : "Studio will check again soon."}
-        </p>
-      ) : (
-        <>
-          <div className="analytics-stats">
-            <Stat label="Spend" value={formatMoney(Math.round(plan.total))} hint={`of ${formatMoney(plan.budget)}`} />
-            <Stat label="Expected profit" value={formatMoney(Math.round(plan.expected_profit))} />
-            <Stat label="Boxes" value={String(plan.carts.reduce((sum, cart) => sum + cart.lots.length, 0))} />
-          </div>
-          {plan.carts.map((cart) => (
-            <Cart key={cart.store} cart={cart} />
-          ))}
-        </>
-      )}
-    </section>
+    <span className="sourcing-updated">
+      {snapshot ? `Updated ${clockTime(snapshot.updated_at)} · next ${clockTime(nextUpdate(snapshot.updated_at))}` : ""}
+      <button type="button" className="sourcing-link" onClick={onRefresh}>
+        Update now
+      </button>
+    </span>
   );
 }
 
-function Cart({ cart }: { cart: SourcingCart }) {
-  const gap = freeShippingGap(cart);
-  const shipping = cart.free_shipping ? "free shipping" : `about ${formatMoney(Math.round(cart.shipping))} shipping`;
+function Settings({
+  prefs,
+  saving,
+  onSave,
+}: {
+  prefs: SourcingPrefs;
+  saving: boolean;
+  onSave: (prefs: Partial<SourcingPrefs>) => void;
+}) {
+  const otherZips = prefs.recent_zips.filter((zip) => zip !== prefs.zip);
   return (
-    <div className="sourcing-cart">
-      <div className="sourcing-cart-header">
-        <div>
-          <div className="sourcing-cart-name">{cart.name}</div>
-          <div className="sourcing-box-meta">
-            {lotCount(cart.lots.length)} · {formatMoney(cart.subtotal)} + {shipping}
-            {gap ? ` · ${formatMoney(gap)} more ships free` : ""}
-          </div>
-        </div>
-        <a className="btn btn-sm" href={cart.cart_url} target="_blank" rel="noopener noreferrer">
-          Open cart
-        </a>
-      </div>
-      <ol className="sourcing-boxes">
-        {cart.lots.map((lot) => (
-          <LotRow key={lot.variant_id} lot={lot} />
+    <div className="sourcing-settings">
+      <span className="sourcing-setting">
+        Ship to
+        <DraftInput
+          value={prefs.zip}
+          label="ZIP code the boxes ship to"
+          width="5.5rem"
+          inputMode="numeric"
+          maxLength={5}
+          disabled={saving}
+          clean={(text) => text.replace(/\D/g, "")}
+          accept={isZip}
+          onCommit={(zip) => onSave({ zip })}
+        />
+        {otherZips.length ? <span className="sourcing-or">or</span> : null}
+        {otherZips.map((zip) => (
+          <button
+            key={zip}
+            type="button"
+            className="sourcing-chip is-button"
+            disabled={saving}
+            title={`Ship to ${zip} instead`}
+            onClick={() => onSave({ zip })}
+          >
+            {zip}
+          </button>
         ))}
-      </ol>
+      </span>
+      <span className="sourcing-setting">
+        Spend up to
+        <DraftInput
+          value={String(prefs.budget)}
+          label="Most to spend"
+          prefix="$"
+          width="5.5rem"
+          inputMode="decimal"
+          disabled={saving}
+          clean={(text) => text.replace(/[^\d.]/g, "")}
+          accept={(text) => Number(text) > 0}
+          onCommit={(text) => onSave({ budget: Number(text) })}
+        />
+      </span>
+      <label className="sourcing-setting sourcing-check">
+        <input
+          type="checkbox"
+          checked={prefs.raghouse_vip}
+          disabled={saving}
+          onChange={(event) => onSave({ raghouse_vip: event.target.checked })}
+        />
+        I'm a Raghouse VIP
+      </label>
     </div>
   );
 }
 
-function LotRow({ lot, showStore = false }: { lot: SourcingLot; showStore?: boolean }) {
-  const resale =
-    lot.resale_per_pc != null
-      ? `resells ~${formatMoney(lot.resale_per_pc)}/pc`
-      : lot.seller_resale != null
-        ? `store says ~${formatMoney(lot.seller_resale)}/pc`
-        : null;
-  const meta = [showStore ? storeName(lot.store) : null, lotMeta(lot), resale].filter(Boolean).join(" · ");
+function BuyList({
+  data,
+  snapshot,
+  onOpenProviders,
+}: {
+  data: SourcingState;
+  snapshot: SourcingSnapshot;
+  onOpenProviders: () => void;
+}) {
+  const plan = snapshot.buy_list;
+  if (plan.carts.length === 0) {
+    // Prices found earlier stay good for two weeks, so a list can stand without a model connected.
+    if (!data.research_available) {
+      return (
+        <div className="sourcing-empty">
+          <div className="sourcing-empty-title">One step before Studio can pick boxes</div>
+          <p>
+            Studio asks an AI to look up what each kind of box resells for. Connect ChatGPT, Cursor or MiMo and
+            your list fills in on the next update.
+          </p>
+          <button type="button" className="btn btn-primary btn-sm" onClick={onOpenProviders}>
+            Connect an AI
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="sourcing-empty">
+        <div className="sourcing-empty-title">No box is worth buying right now</div>
+        <p>
+          Nothing is expected to at least double your money within {formatMoney(plan.budget)}. Studio checks again
+          by itself around {clockTime(nextUpdate(snapshot.updated_at))}.
+        </p>
+      </div>
+    );
+  }
+  const boxes = plan.carts.reduce((sum, cart) => sum + cart.lots.length, 0);
   return (
-    <li>
-      <a className="sourcing-box" href={lot.url} target="_blank" rel="noopener noreferrer">
-        <span className="sourcing-box-main">
-          <span className="sourcing-box-title">{lot.title}</span>
-          <span className="sourcing-box-meta">
-            {meta}
-            {lot.trend_hits.length ? <span className="sourcing-box-trend"> · {lot.trend_hits.join(", ")}</span> : null}
-          </span>
-        </span>
-        <span className="sourcing-box-cost">
-          <span className="sourcing-box-value">{formatMoney(Math.round(lot.landed))} landed</span>
-          <span className="sourcing-box-meta">
-            {formatMoney(lot.price)} + {formatMoney(Math.round(lot.ship_est))} ship
-          </span>
-        </span>
-        <span className="sourcing-box-profit">
-          {lot.expected_profit != null && lot.roi != null ? (
-            <>
-              <span className={lot.expected_profit >= 0 ? "is-positive" : "is-negative"}>
-                {lot.expected_profit >= 0 ? "+" : "−"}
-                {formatMoney(Math.abs(Math.round(lot.expected_profit)))}
-              </span>
-              <span className="sourcing-box-meta">{formatRoi(lot.roi)}</span>
-            </>
-          ) : (
-            <span className="sourcing-box-meta">{formatMoney(lot.cog_per_usable_pc)}/pc</span>
-          )}
-        </span>
+    <>
+      <section className="sourcing-summary" aria-label="Summary">
+        <div className="sourcing-summary-main">
+          Buy {boxCount(boxes)} for {formatMoney(Math.round(plan.total))}
+        </div>
+        <div className="sourcing-summary-sub">
+          Expected profit about{" "}
+          <strong className="sourcing-profit">{formatMoney(Math.round(plan.expected_profit))}</strong>. Every $1 you
+          spend should come back as about {moneyBack(plan.total, plan.expected_profit)}.
+        </div>
+      </section>
+      {plan.carts.map((cart, index) => (
+        <Cart key={cart.store} cart={cart} step={plan.carts.length > 1 ? index + 1 : null} of={plan.carts.length} />
+      ))}
+    </>
+  );
+}
+
+function Cart({ cart, step, of }: { cart: SourcingCart; step: number | null; of: number }) {
+  const gap = freeShippingGap(cart);
+  return (
+    <section className="sourcing-cart" aria-label={cart.name}>
+      <div className="sourcing-cart-head">
+        {step ? <span className="sourcing-step">Step {step} of {of}</span> : null}
+        <h2 className="sourcing-cart-name">
+          {cart.name} · {boxCount(cart.lots.length)}
+        </h2>
+      </div>
+      <ol className="sourcing-items">
+        {cart.lots.map((lot) => (
+          <Item key={lot.variant_id} lot={lot} />
+        ))}
+      </ol>
+      <dl className="sourcing-totals">
+        <dt>Boxes</dt>
+        <dd>{formatMoney(cart.subtotal)}</dd>
+        <dt>Shipping{cart.free_shipping ? "" : " (estimate)"}</dt>
+        <dd>{cart.free_shipping ? "Free" : formatMoney(Math.round(cart.shipping))}</dd>
+        <dt className="is-total">Total</dt>
+        <dd className="is-total">{formatMoney(Math.round(cartTotal(cart)))}</dd>
+      </dl>
+      {gap ? (
+        <p className="sourcing-hint">
+          Spend {formatMoney(gap)} more at {cart.name} and shipping is free.
+        </p>
+      ) : null}
+      <a className="btn btn-primary sourcing-cart-button" href={cart.cart_url} target="_blank" rel="noopener noreferrer">
+        Open {cart.name} cart
       </a>
+      <p className="sourcing-hint sourcing-cart-note">The cart opens with these boxes already in it. Check it, then pay.</p>
+    </section>
+  );
+}
+
+function Item({ lot }: { lot: SourcingLot }) {
+  return (
+    <li className="sourcing-item">
+      <div className="sourcing-item-main">
+        <a className="sourcing-item-title" href={lot.url} target="_blank" rel="noopener noreferrer">
+          {lot.title}
+        </a>
+        <div className="sourcing-item-reason">
+          {lotReason(lot)}
+          {lot.trend_hits.length ? <span className="sourcing-trend"> · trending: {lot.trend_hits.join(", ")}</span> : null}
+        </div>
+      </div>
+      <div className="sourcing-item-money">
+        <div>{formatMoney(Math.round(lot.landed))}</div>
+        {lot.expected_profit != null ? (
+          <div className={lot.expected_profit >= 0 ? "sourcing-profit" : "sourcing-loss"}>
+            {lot.expected_profit >= 0 ? "+" : "−"}
+            {formatMoney(Math.abs(Math.round(lot.expected_profit)))} profit
+          </div>
+        ) : null}
+      </div>
     </li>
   );
 }
 
+function MoreBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
+  const lots = otherLots(snapshot);
+  if (lots.length === 0) return null;
+  return (
+    <details className="sourcing-more">
+      <summary>See {lots.length} more boxes Studio looked at</summary>
+      <ol className="sourcing-items">
+        {lots.map((lot) => (
+          <li key={lot.variant_id} className="sourcing-item">
+            <div className="sourcing-item-main">
+              <a className="sourcing-item-title" href={lot.url} target="_blank" rel="noopener noreferrer">
+                {lot.title}
+              </a>
+              <div className="sourcing-item-reason">{lotReason(lot, true)}</div>
+            </div>
+            <div className="sourcing-item-money">
+              <div>{formatMoney(Math.round(lot.landed))}</div>
+              <div className="sourcing-item-why">{whyNotPicked(lot, snapshot)}</div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
+/** Why a box that was looked at is not on the list, in a few words. */
+function whyNotPicked(lot: SourcingLot, snapshot: SourcingSnapshot): string {
+  const profit = lot.expected_profit;
+  if (profit == null) return "price not known yet";
+  if (profit < 0) return `would lose ${formatMoney(Math.abs(Math.round(profit)))}`;
+  if (lot.roi != null && lot.roi < 1) return `only +${formatMoney(Math.round(profit))} profit`;
+  if (lot.landed > snapshot.buy_list.budget - snapshot.buy_list.total) return "over your budget";
+  return `+${formatMoney(Math.round(profit))} profit`;
+}
+
 function Trending({ trend }: { trend: SourcingState["trend"] }) {
   if (trend.terms.length === 0) return null;
-  const when = trend.updated_at ? whenChecked(trend.updated_at) : "";
   return (
-    <section className="analytics-section" aria-label="Trending">
-      <h2 className="analytics-section-title">
-        Selling now{when ? ` · ${trend.source ? `${trend.source}, ` : ""}${when}` : ""}
-      </h2>
-      <div className="sourcing-terms">
+    <section className="sourcing-section" aria-label="Selling right now">
+      <h2 className="sourcing-section-title">Selling right now</h2>
+      <p className="sourcing-hint">Boxes with these in the name get picked first. Updated every week.</p>
+      <div className="sourcing-chips">
         {trend.terms.map((term) => (
-          <span key={term} className="sourcing-term">
+          <span key={term} className="sourcing-chip">
             {term}
           </span>
         ))}
@@ -233,144 +348,103 @@ function Trending({ trend }: { trend: SourcingState["trend"] }) {
   );
 }
 
-function StoreErrors({ snapshot }: { snapshot: SourcingSnapshot }) {
-  const errors = Object.values(snapshot.stores).filter((store) => store.error);
-  if (errors.length === 0) return null;
+function StoreProblems({ snapshot }: { snapshot: SourcingSnapshot }) {
+  const problems = Object.values(snapshot.stores).filter((store) => store.error);
+  if (problems.length === 0) return null;
   return (
-    <div className="sourcing-errors">
-      {errors.map((store) => (
-        <p key={store.name} className="analytics-note">
-          {store.error} Its boxes are missing from this check.
+    <div className="sourcing-problem" role="status">
+      {problems.map((store) => (
+        <p key={store.name}>
+          {store.error} Its boxes are left out until the next update.
         </p>
       ))}
     </div>
   );
 }
 
-function ZipField({
-  zip,
-  recent,
-  disabled,
-  onSave,
-}: {
-  zip: string;
-  recent: string[];
-  disabled: boolean;
-  onSave: (zip: string) => void;
-}) {
-  const [draft, setDraft] = useState(zip);
-  const [saved, setSaved] = useState(zip);
-  if (saved !== zip) {
-    setSaved(zip);
-    setDraft(zip);
-  }
-  const commit = () => {
-    const next = draft.trim();
-    if (isZip(next) && next !== zip) onSave(next);
-    else setDraft(zip);
-  };
-  const others = recent.filter((item) => item !== zip);
-  return (
-    <div className="sourcing-zip">
-      <label className="sourcing-budget">
-        <span className="label">Ship to</span>
-        <input
-          className="input input-sm"
-          type="text"
-          inputMode="numeric"
-          autoComplete="postal-code"
-          maxLength={5}
-          placeholder="ZIP"
-          aria-label="Ship to ZIP code"
-          value={draft}
-          disabled={disabled}
-          onChange={(event) => setDraft(event.target.value.replace(/\D/g, ""))}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") commit();
-          }}
-        />
-      </label>
-      {others.map((item) => (
-        <button
-          key={item}
-          type="button"
-          className="sourcing-zip-recent"
-          disabled={disabled}
-          title={`Ship to ${item}`}
-          onClick={() => onSave(item)}
-        >
-          {item}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function BudgetField({ budget, disabled, onSave }: { budget: number; disabled: boolean; onSave: (v: number) => void }) {
-  const [draft, setDraft] = useState(String(budget));
-  const [saved, setSaved] = useState(budget);
-  if (saved !== budget) {
-    setSaved(budget);
-    setDraft(String(budget));
-  }
-  const commit = () => {
-    const value = Number(draft);
-    if (Number.isFinite(value) && value > 0 && value !== budget) onSave(value);
-    else setDraft(String(budget));
-  };
-  return (
-    <label className="sourcing-budget">
-      <span className="label">Budget</span>
-      <input
-        className="input input-sm"
-        type="number"
-        inputMode="decimal"
-        min={1}
-        step={25}
-        value={draft}
-        disabled={disabled}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") commit();
-        }}
-      />
-    </label>
-  );
-}
-
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="analytics-stat">
-      <div className="analytics-stat-label">{label}</div>
-      <div className="analytics-stat-value">{value}</div>
-      {hint ? <div className="analytics-stat-hint">{hint}</div> : null}
-    </div>
-  );
-}
-
-function zones(snapshot: SourcingSnapshot): string {
-  return Object.values(snapshot.stores)
-    .filter((store) => store.zone != null)
-    .map((store) => `zone ${store.zone} from ${store.name}`)
-    .join(", ");
-}
-
-function storeName(store: string): string {
-  return store === "tvf" ? "Thrift Vintage Fashion" : "Raghouse";
-}
-
-function assumptions(snapshot: SourcingSnapshot): string {
+function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
   const a = snapshot.assumptions;
   const s = snapshot.shipping;
   return (
-    `Profit assumes ${Math.round(a.sell_through * 100)}% of the usable pieces sell at an average-demand ` +
-    `price, more for boxes that sell out fast, less for slow ones, and ${Math.round(a.fees * 100)}% ` +
-    `marketplace fees. Usable pieces: 90% of a plain box, 75% of Recycle & Good, 60% of Recycle or B grade. ` +
-    `Resale prices come from sold listings your connected model found, rechecked every two weeks. Shipping is ` +
-    `the UPS Ground list price to ${snapshot.destination_zip} (${zones(snapshot)}) plus ${formatMoney(s.residential_surcharge)} home ` +
-    `delivery and ${s.fuel_surcharge_pct}% fuel (as of ${s.fuel_surcharge_as_of}); stores quote discounted ` +
-    `rates, so expect to pay less. Studio never buys anything: the cart links only fill the cart.`
+    <details className="sourcing-more">
+      <summary>How Studio picks boxes</summary>
+      <ul className="sourcing-how">
+        <li>Every {REFRESH_HOURS} hours it reads every box both stores have in stock.</li>
+        <li>
+          It asks your AI what one piece of each kind of box sells for on eBay, Poshmark, Depop and Mercari, and
+          checks again every two weeks.
+        </li>
+        <li>
+          Profit assumes about {Math.round(a.sell_through * 100)}% of the good pieces sell (more for boxes that sell
+          out fast), minus {Math.round(a.fees * 100)}% marketplace fees and the box's cost with shipping. Boxes that
+          need fixing count fewer good pieces.
+        </li>
+        <li>It picks the best boxes that should at least double your money, one of each kind, up to your budget.</li>
+        <li>
+          Shipping is estimated from each warehouse to {snapshot.destination_zip} at UPS Ground prices with a{" "}
+          {formatMoney(s.residential_surcharge)} home delivery fee and {s.fuel_surcharge_pct}% fuel. Stores usually
+          charge less.
+        </li>
+        <li>Studio never buys. The cart buttons only fill a cart for you to check and pay.</li>
+      </ul>
+    </details>
+  );
+}
+
+function DraftInput({
+  value,
+  label,
+  prefix,
+  width,
+  inputMode,
+  maxLength,
+  disabled,
+  clean,
+  accept,
+  onCommit,
+}: {
+  value: string;
+  label: string;
+  prefix?: string;
+  width: string;
+  inputMode: "numeric" | "decimal";
+  maxLength?: number;
+  disabled: boolean;
+  clean: (text: string) => string;
+  accept: (text: string) => boolean;
+  onCommit: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [saved, setSaved] = useState(value);
+  if (saved !== value) {
+    // The saved value changed underneath the field, e.g. a recent ZIP was tapped.
+    setSaved(value);
+    setDraft(value);
+  }
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== value && accept(next)) onCommit(next);
+    else setDraft(value);
+  };
+  return (
+    <span className="sourcing-input">
+      {prefix ? <span className="sourcing-input-prefix">{prefix}</span> : null}
+      <input
+        className="input input-sm"
+        style={{ width }}
+        type="text"
+        inputMode={inputMode}
+        maxLength={maxLength}
+        aria-label={label}
+        value={draft}
+        disabled={disabled}
+        onChange={(event) => setDraft(clean(event.target.value))}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") setDraft(value);
+        }}
+      />
+    </span>
   );
 }
