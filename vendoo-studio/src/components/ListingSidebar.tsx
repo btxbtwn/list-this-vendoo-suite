@@ -17,6 +17,7 @@ import { SuggestionsPanel } from "./SuggestionsPanel";
 import { marketplacesNeedingRelist, relistStage } from "./relistStatus";
 import { marketplaceName } from "./marketplaceNames";
 import { stopTitlebarDrag } from "./WorkspaceTopbar";
+import type { WorkspaceView } from "./workspaceCrumbs";
 import {
   DEFAULT_LISTING_FILTERS,
   filterListings,
@@ -95,7 +96,7 @@ type Listing = {
 interface Props {
   conversations: Listing[] | undefined;
   selectedConvId: string | null;
-  activeView: "listings" | "settings";
+  activeView: WorkspaceView;
   settingsSection: SettingsSectionId;
   creating?: boolean;
   canCreate?: boolean;
@@ -106,6 +107,7 @@ interface Props {
   onCreate: () => void;
   onDelete: (id: string, title: string) => void;
   onOpenSettings: () => void;
+  onOpenAnalytics: () => void;
   onCloseSettings: () => void;
   onSettingsSectionChange: (section: SettingsSectionId) => void;
   onSettingsSearchResult: (item: SettingsSearchItem) => void;
@@ -141,6 +143,14 @@ export function SearchIcon() {
     <svg className="sidebar-search-icon" width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
       <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function AnalyticsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 19V10M10 19V5M16 19v-6M21 19H3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
     </svg>
   );
 }
@@ -268,6 +278,7 @@ export function ListingSidebar({
   onCreate,
   onDelete,
   onOpenSettings,
+  onOpenAnalytics,
   onCloseSettings,
   onSettingsSectionChange,
   onSettingsSearchResult,
@@ -772,15 +783,27 @@ export function ListingSidebar({
               <span>Back</span>
             </button>
           ) : (
-            <button
-              type="button"
-              className="sidebar-icon-btn"
-              title="Settings"
-              aria-label="Settings"
-              onClick={onOpenSettings}
-            >
-              <SettingsIcon />
-            </button>
+            <>
+              <button
+                type="button"
+                className={`sidebar-icon-btn${activeView === "analytics" ? " selected" : ""}`}
+                title="Analytics"
+                aria-label="Analytics"
+                aria-pressed={activeView === "analytics"}
+                onClick={onOpenAnalytics}
+              >
+                <AnalyticsIcon />
+              </button>
+              <button
+                type="button"
+                className="sidebar-icon-btn"
+                title="Settings"
+                aria-label="Settings"
+                onClick={onOpenSettings}
+              >
+                <SettingsIcon />
+              </button>
+            </>
           )}
           <UpdateButton />
         </div>

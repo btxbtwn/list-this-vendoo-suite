@@ -28,4 +28,11 @@ describe("workspaceCrumbs", () => {
   it("stops at Settings when the section has no label", () => {
     expect(workspaceCrumbs("settings", "", null)).toEqual({ context: "Settings", title: null });
   });
+
+  it("reads Analytics with nothing open under it", () => {
+    expect(workspaceCrumbs("analytics", "Providers", { title: "REI XL" })).toEqual({
+      context: "Analytics",
+      title: null,
+    });
+  });
 });
