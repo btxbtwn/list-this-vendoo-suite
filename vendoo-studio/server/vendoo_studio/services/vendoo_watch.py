@@ -277,7 +277,7 @@ def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> 
 
 
 def apply_label_sync(db: Session, conv_id: str, item: dict[str, Any]) -> None:
-    """Vendoo only moved status/dates: refresh chips and stamp, keep listing fields."""
+    """Vendoo's form content is unchanged: refresh chips and stamp, keep listing fields."""
     from vendoo_studio.services.vendoo_import import merge_notes
 
     refresh_inventory_label(db, conv_id, item)
@@ -355,10 +355,11 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
         result: dict[str, Any] = {"action": state["action"], "reason": state["reason"], "item_id": item_id}
         if state["action"] == "pull":
             result["revision_id"] = apply_pull(db, conv_id, item)
-        elif state["action"] == "label":
-            apply_label_sync(db, conv_id, item)
         else:
-            mark_synced(db, conv_id, item, state.get("revision"))
+            # Vendoo's form content has not moved, so Studio is exactly as far
+            # ahead as it was. Stamping its newest revision as synced here would
+            # clear the unsent-edits chip on every open without a write.
+            apply_label_sync(db, conv_id, item)
         # Best-effort: grow leaf + LLM schema caches from this draft's categories.
         try:
             from vendoo_studio.services.category_learn import learn_category_schemas_from_item

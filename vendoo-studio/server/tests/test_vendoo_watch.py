@@ -21,6 +21,7 @@ from vendoo_studio.services.vendoo_watch import (
     SYNCED_REVISION,
     apply_pull,
     item_content_fingerprint,
+    studio_has_unpushed_edits,
     sync_conversation,
     sync_state,
     sync_status,
@@ -329,6 +330,13 @@ class SyncConversationTest(unittest.TestCase):
         result = self.sync(stamp=1000)
         self.assertEqual(result["action"], "none")
         self.assertTrue(sync_status(self.db, self.conv.id)["checked_at"])
+
+    def test_up_to_date_check_keeps_unsent_studio_edits(self):
+        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Edited here"}, source="user")
+        result = self.sync(stamp=1000)
+        self.assertEqual(result["action"], "none")
+        self.assertTrue(studio_has_unpushed_edits(self.db, self.conv.id))
+        self.assertEqual(sync_status(self.db, self.conv.id)["revision_id"], self.rev.id)
 
     def test_content_change_with_studio_edits_takes_vendoo(self):
         ListingRepo(self.db).save_revision(self.conv.id, {"title": "Edited here"}, source="user")

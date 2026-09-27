@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.117 — 2026-09-27
+
+- The **Unsent edits** chip stays until you press Update Vendoo. Opening a listing no longer clears it when the edits never reached Vendoo.
+
 ## 0.1.116 — 2026-09-27
 
 - Sold comps now come only from the model you use for listings (Settings → Listing AI). If its web search fails, times out or finds no sales, Brave Search takes over.
