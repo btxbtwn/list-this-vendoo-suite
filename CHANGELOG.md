@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.111 — 2026-09-27
+
+- Send to Vendoo and Update Vendoo no longer get stuck when the model stops answering while it fills category fields. After two minutes the listing goes to Vendoo with the fields that were filled, and the ones still empty are listed so you can fill them.
+
 ## 0.1.110 — 2026-09-27
 
 - Regenerate no longer sits on "Researching sold comps…" before you can pick a price. The suggestion from your price history and past sales shows right away and Confirm works immediately; live sold comps load underneath and update the suggestion when they arrive, unless you've already chosen a price.

@@ -91,6 +91,28 @@ class FillListingSpecificsTest(unittest.TestCase):
         # nothing, so it stops rather than looping.
         self.assertEqual([row["field"] for row in remaining], ["Season"])
 
+    def test_a_stalled_model_cannot_hold_the_send(self):
+        """Past the deadline the fill returns what landed and reports the rest."""
+        calls = []
+
+        async def reply(provider, *, listing, gaps, evidence):
+            calls.append(gaps)
+            if len(calls) == 1:
+                return [{"marketplace": "ebay", "field": "Department", "value": "Women"}]
+            await asyncio.Event().wait()
+
+        with (
+            mock.patch("vendoo_studio.services.listing_field_gaps._request_missing_field_values", reply),
+            mock.patch.object(specifics_fill, "FILL_DEADLINE_SEC", 0.2),
+        ):
+            listing, remaining = run(asyncio.wait_for(
+                specifics_fill.fill_listing_specifics({}, self.FIELDS, provider=object()),
+                timeout=5,
+            ))
+
+        self.assertEqual(listing["ebay_specifics"].get("department"), "Women")
+        self.assertEqual([row["field"] for row in remaining], ["Season"])
+
     def test_without_a_provider_it_reports_instead_of_asking(self):
         listing, remaining = run(specifics_fill.fill_listing_specifics({}, self.FIELDS, provider=None))
         self.assertEqual(listing, {})

@@ -13,7 +13,9 @@ the five with learned forms.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 from vendoo_studio.services.fill_log import listing_value_for_field, write_values_into_listing
@@ -23,8 +25,13 @@ log = logging.getLogger("vendoo_studio.specifics_fill")
 
 # Enough rounds to clear a big category without spinning if the model stalls.
 MAX_ROUNDS = 6
+# The whole fill, not each round. Send and Update Vendoo wait on this step, and
+# a model that stalls — Cursor can sit silent for minutes a call — held the
+# send on "Filling marketplace fields" with no end. Past it, the listing goes
+# to Vendoo with what landed and the rest is reported as still empty.
+FILL_DEADLINE_SEC = 120.0
 
-__all__ = ["specifics_gaps", "fill_listing_specifics", "MAX_ROUNDS"]
+__all__ = ["specifics_gaps", "fill_listing_specifics", "MAX_ROUNDS", "FILL_DEADLINE_SEC"]
 
 
 def specifics_gaps(
@@ -66,7 +73,8 @@ async def fill_listing_specifics(
     """Fill every empty category field. Returns ``(listing, still_empty)``.
 
     Rounds stop early when the model returns nothing, so a field it cannot
-    support from the evidence is reported rather than invented.
+    support from the evidence is reported rather than invented, and stop at
+    ``FILL_DEADLINE_SEC`` so a stalled model cannot hold the send.
     """
     from vendoo_studio.services.fill_log import MAX_PATCH_FIELDS
     from vendoo_studio.services.listing_field_gaps import (
@@ -79,16 +87,25 @@ async def fill_listing_specifics(
         return current, specifics_gaps(current, specifics)
 
     filled = 0
+    deadline = time.monotonic() + FILL_DEADLINE_SEC
     for _ in range(MAX_ROUNDS):
         gaps = specifics_gaps(current, specifics)
         if not gaps:
             break
-        patches = await _request_missing_field_values(
+        request = asyncio.ensure_future(_request_missing_field_values(
             provider,
             listing=current,
             gaps=gaps[:MAX_GAPS_PER_ROUND],
             evidence=evidence,
-        )
+        ))
+        # Not wait_for: that waits out the cancelled call's cleanup, and a
+        # stalled provider's cleanup can itself block on its worker thread.
+        done, _pending = await asyncio.wait({request}, timeout=max(deadline - time.monotonic(), 0))
+        if not done:
+            request.cancel()
+            log.warning("category field fill stopped after %.0fs", FILL_DEADLINE_SEC)
+            break
+        patches = request.result()
         if not patches:
             break
         # Cap what lands, not just what was asked: a model that answers more
