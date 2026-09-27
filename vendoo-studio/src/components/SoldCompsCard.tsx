@@ -15,15 +15,19 @@ export interface SoldCompsReport {
   market: string;
   note: string;
   comps: SoldComp[];
-  /** Still for sale: what this item competes with, never a price input. */
+  /** Still for sale: what this item competes with. */
   live: SoldComp[];
+  /** Median live asking price, "$12": the most the listing should ask. */
+  liveCeiling: string;
 }
 
 const INSTRUCTION =
   "Use these live results to set market price, then listing price = market × 1.35 (whole dollars).";
-// Matches LIVE_HEADER in server/vendoo_studio/services/sold_comps.py.
-const LIVE_HEADER =
-  "Live listings (for sale now — asking prices, not sales; do not price from these):";
+// Matches _LIVE_HEADER_PREFIX in server/vendoo_studio/services/sold_comps.py;
+// older blocks carry a longer header that starts the same way.
+const LIVE_HEADER_PREFIX = "Live listings (for sale now";
+// Matches LIVE_INSTRUCTION in server/vendoo_studio/services/sold_comps.py.
+const LIVE_INSTRUCTION_RE = /^Live asking median (\$[\d.,]+) — /;
 const THIN_INSTRUCTION_RE = /^Only \d+ sold listings? found — too thin to price from\./;
 // Matches MIN_CONFIDENT_COMPS in server/vendoo_studio/services/sold_comps.py.
 const MIN_CONFIDENT_COMPS = 3;
@@ -71,7 +75,8 @@ function isMetaLine(stripped: string): boolean {
   return (
     stripped === "Sold comps:" ||
     stripped === INSTRUCTION ||
-    stripped === LIVE_HEADER ||
+    stripped.startsWith(LIVE_HEADER_PREFIX) ||
+    LIVE_INSTRUCTION_RE.test(stripped) ||
     THIN_INSTRUCTION_RE.test(stripped) ||
     stripped.startsWith("Query:") ||
     stripped.startsWith("Source:") ||
@@ -83,7 +88,7 @@ export function parseSoldComps(text: string): SoldCompsReport | null {
   const blob = (text || "").trim();
   if (!blob.startsWith("Sold comps:")) return null;
 
-  const report: SoldCompsReport = { query: "", source: "", market: "", note: "", comps: [], live: [] };
+  const report: SoldCompsReport = { query: "", source: "", market: "", note: "", comps: [], live: [], liveCeiling: "" };
   let pending: SoldComp | null = null;
   let target = report.comps;
   const noteLines: string[] = [];
@@ -112,7 +117,12 @@ export function parseSoldComps(text: string): SoldCompsReport | null {
       report.market = stripped.slice(7).trim();
       continue;
     }
-    if (stripped === LIVE_HEADER) {
+    const ceiling = stripped.match(LIVE_INSTRUCTION_RE);
+    if (ceiling) {
+      report.liveCeiling = ceiling[1];
+      continue;
+    }
+    if (stripped.startsWith(LIVE_HEADER_PREFIX)) {
       pushPending();
       target = report.live;
       continue;
@@ -238,7 +248,11 @@ export function SoldCompsCard({ text, messageId }: { text: string; messageId?: s
         ) : null}
         {report?.live.length ? (
           <>
-            <div className="sold-comps-meta">live now · asking prices, not used for pricing</div>
+            <div className="sold-comps-meta">
+              {report.liveCeiling
+                ? `live now · their ${report.liveCeiling} median ask caps the price`
+                : "live now · asking prices, too few to cap the price"}
+            </div>
             <div className="sold-comps-list sold-comps-live">
               {report.live.map((comp, index) => (
                 <CompRow key={`live-${comp.price}-${comp.title}-${index}`} comp={comp} />

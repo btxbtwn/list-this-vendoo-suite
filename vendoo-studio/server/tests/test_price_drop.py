@@ -203,6 +203,42 @@ class CompsFormulaTest(unittest.TestCase):
         self.assertIsNone(target)
         self.assertEqual(len(report.comps), 2)
 
+    def test_live_asking_median_caps_the_target(self):
+        text = (
+            "Sold comps:\n"
+            "Query: Nike tee sold comps\n"
+            "Source: Brave Search\n"
+            "\n"
+            "- $20 · eBay · Nike Tee\n"
+            "- $18 · Poshmark · Nike Tee\n"
+            "- $22 · Mercari · Nike Tee\n"
+            "\n"
+            "Live listings (for sale now — asking prices, not sales):\n"
+            "- $21 · eBay · Nike Tee\n"
+            "- $22.50 · Poshmark · Nike Tee\n"
+            "- $25 · Mercari · Nike Tee\n"
+        )
+        market, target, _ = comps_formula_price(text)
+        self.assertEqual(market, 20.0)
+        self.assertEqual(target, 22)
+
+    def test_live_ceiling_prices_when_sold_comps_are_thin(self):
+        text = (
+            "Sold comps:\n"
+            "Query: Paper Crane top sold comps\n"
+            "Source: Cursor\n"
+            "\n"
+            "- $12 · Poshmark · Paper Crane smocked top\n"
+            "\n"
+            "Live listings (for sale now — asking prices, not sales):\n"
+            "- $12 · Poshmark · Paper Crane crop top\n"
+            "- $23 · Poshmark · Paper Crane bustier\n"
+            "- $3 · Depop · Paper Crane crop\n"
+        )
+        market, target, _ = comps_formula_price(text)
+        self.assertIsNone(market)
+        self.assertEqual(target, 12)
+
 
 class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
     async def test_preview_without_comps(self):
@@ -257,6 +293,25 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         # The default percent describes a price comps replaced — do not claim it.
         self.assertNotIn("markdown", preview["suggested_reason"])
         self.assertTrue(preview["suggested_reason"].startswith("Live comps target $27"))
+
+    async def test_preview_names_the_live_ceiling_when_it_sets_the_price(self):
+        listing = {"price": 20, "brand": "Paper Crane", "category_path": "Tops"}
+        revisions = [_rev(20, "generation", rev_id="r1")]
+        comps = (
+            "Sold comps:\n"
+            "Query: Paper Crane top sold comps\n"
+            "Source: Cursor\n"
+            "\n"
+            "Live listings (for sale now — asking prices, not sales):\n"
+            "- $12 · Poshmark · Paper Crane crop top\n"
+            "- $13 · Poshmark · Paper Crane bustier\n"
+            "- $14 · Depop · Paper Crane crop\n"
+        )
+        with patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True):
+            preview = build_preview(listing, revisions, comps_text=comps)
+        self.assertEqual(preview["suggested_mode"], "comps")
+        self.assertEqual(preview["suggested_price"], 13)
+        self.assertTrue(preview["suggested_reason"].startswith("Similar listings for sale ask a median of $13"))
 
     async def test_preview_reason_never_states_a_percent(self):
         """The chip shows the cut it really makes; the note must not claim another."""

@@ -32,5 +32,26 @@ describe("parseSoldComps", () => {
       },
     ]);
     expect(report.note).toBe("");
+    expect(report.liveCeiling).toBe("");
+  });
+
+  it("reads the live asking median", () => {
+    const text = [
+      "Sold comps:",
+      "Query: Paper Crane crop top sold comps",
+      "Source: Cursor",
+      "No sold listings found. Use an estimated baseline and note pricing uncertainty in the description.",
+      "",
+      "Live listings (for sale now — asking prices, not sales):",
+      "- $12 · Poshmark · Paper Crane crop top",
+      "- $23 · Poshmark · Paper Crane bustier",
+      "- $3 · Depop · Paper Crane crop",
+      "",
+      "Live asking median $12 — list at or below it; go higher only when this item is clearly better than those listings (new with tags, better condition, rarer size).",
+    ].join("\n");
+    const report = parseSoldComps(text)!;
+    expect(report.live.map((comp) => comp.price)).toEqual(["$12", "$23", "$3"]);
+    expect(report.liveCeiling).toBe("$12");
+    expect(report.note).not.toContain("Live asking median");
   });
 });

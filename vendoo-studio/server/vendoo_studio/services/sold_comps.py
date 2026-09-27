@@ -28,8 +28,16 @@ EMPTY_NOTE = (
     "No sold listings found. Use an estimated baseline and note pricing uncertainty in the description."
 )
 # Listings still for sale show what this item competes with. An asking price is
-# what a seller hopes for, not what the market paid, so they never set a price.
-LIVE_HEADER = "Live listings (for sale now — asking prices, not sales; do not price from these):"
+# what a seller hopes for, not what the market paid, so it never sets the price.
+# It caps it: a buyer comparing this item with a cheaper one for sale beside it
+# buys the cheaper one, so the median asking price is the most this should ask.
+LIVE_HEADER = "Live listings (for sale now — asking prices, not sales):"
+# Blocks saved before the ceiling carried a longer header; both start this way.
+_LIVE_HEADER_PREFIX = "Live listings (for sale now"
+LIVE_INSTRUCTION = (
+    "Live asking median {price} — list at or below it; go higher only when this item is "
+    "clearly better than those listings (new with tags, better condition, rarer size)."
+)
 MAX_LIVE = 8
 
 # A US dollar sign. eBay and Brave show foreign listings as "HK$1990",
@@ -112,6 +120,8 @@ _THIN_INSTRUCTION_RE = re.compile(
     re.escape(THIN_INSTRUCTION).replace(r"\{count\}", r"\d+").replace(r"\{plural\}", r"s?")
 )
 
+_LIVE_INSTRUCTION_RE = re.compile(r"^Live asking median \$[\d.,]+ — ")
+
 _LISTING_HOSTS = (
     ("ebay.", "/itm/", "eBay"),
     ("poshmark.com", "/listing/", "Poshmark"),
@@ -160,6 +170,20 @@ def comps_instruction(count: int) -> str:
     if count >= MIN_CONFIDENT_COMPS:
         return INSTRUCTION
     return THIN_INSTRUCTION.format(count=count, plural="" if count == 1 else "s")
+
+
+def live_ceiling(report: SoldCompsReport | None) -> float | None:
+    """Median asking price of the live listings: the most this item should ask.
+
+    Like sold comps, fewer than MIN_CONFIDENT_COMPS is one or two sellers' hopes,
+    not a market, so there is no ceiling. Wild prices are dropped first.
+    """
+    if report is None:
+        return None
+    prices = [comp.price for comp in report.live if comp.price > 0]
+    if len(prices) < MIN_CONFIDENT_COMPS:
+        return None
+    return float(statistics.median(trim_outliers(prices)))
 
 
 def format_price(value: float) -> str:
@@ -633,6 +657,10 @@ def format_sold_comps(report: SoldCompsReport) -> str:
         lines.append("")
         lines.append(LIVE_HEADER)
         lines.extend(_comp_lines(report.live[:MAX_LIVE]))
+        ceiling = live_ceiling(report)
+        if ceiling is not None:
+            lines.append("")
+            lines.append(LIVE_INSTRUCTION.format(price=format_price(ceiling)))
     return "\n".join(lines)
 
 
@@ -651,7 +679,7 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
     for raw in blob.splitlines()[1:]:
         line = raw.rstrip()
         stripped = line.strip()
-        if stripped == LIVE_HEADER:
+        if stripped.startswith(_LIVE_HEADER_PREFIX):
             if pending:
                 target.append(pending)
                 pending = None
@@ -666,7 +694,11 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
         if stripped.startswith("Market:"):
             market = stripped[7:].strip()
             continue
-        if stripped == INSTRUCTION or _THIN_INSTRUCTION_RE.match(stripped):
+        if (
+            stripped == INSTRUCTION
+            or _THIN_INSTRUCTION_RE.match(stripped)
+            or _LIVE_INSTRUCTION_RE.match(stripped)
+        ):
             continue
         if stripped.startswith("http://") or stripped.startswith("https://"):
             if pending and is_listing_url(stripped):
