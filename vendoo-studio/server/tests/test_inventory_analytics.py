@@ -77,6 +77,18 @@ class SummarizeAnalyticsTest(unittest.TestCase):
         self.assertEqual(payload["sales"]["profit_known"], 2)
         self.assertEqual(payload["sales"]["profit"], 15)
 
+    def test_profit_nets_fees_and_shipping_like_vendoo(self):
+        payload = summarize(
+            [
+                _item(conversation_id="a", sold_price=40, cost=10, fees=8.5, shipping_cost=7, shipping_credit=5),
+                _item(conversation_id="b", sold_price=20, cost=5),
+            ],
+            range_id="all",
+            now=NOW,
+        )
+        self.assertEqual(payload["sales"]["profit"], 34.5)
+        self.assertEqual(payload["sales"]["fees_known"], 1)
+
     def test_a_sale_outside_the_window_drops_out(self):
         old = _item(sold_at=NOW - timedelta(days=40), days_listed=10)
         self.assertEqual(summarize([old], range_id="30d", now=NOW)["sales"]["count"], 0)

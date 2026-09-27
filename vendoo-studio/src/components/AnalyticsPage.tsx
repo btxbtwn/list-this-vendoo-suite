@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { AnalyticsRange, InventoryAnalytics } from "../api/types";
+import type { AnalyticsRange, AnalyticsSales, InventoryAnalytics } from "../api/types";
 import { formatDays, formatMoney } from "./analyticsFormat";
 import { marketplaceName } from "./marketplaceNames";
 
@@ -171,6 +171,15 @@ function InventoryStrip({ inventory }: { inventory: InventoryAnalytics["inventor
   return <p className="analytics-inventory">{parts.join(" · ")}</p>;
 }
 
+function profitHint(sales: AnalyticsSales): string {
+  if (sales.profit_known === 0) return "Add a cost to see profit";
+  const scope =
+    sales.profit_known === sales.count ? "" : ` on ${sales.profit_known} of ${sales.count} sales`;
+  if (sales.fees_known === 0) return `Sold price minus cost${scope}. No fees recorded yet`;
+  if (sales.fees_known === sales.profit_known) return `After cost, fees and shipping${scope}`;
+  return `After cost, fees and shipping${scope}. Fees recorded on ${sales.fees_known}`;
+}
+
 function SalesStats({ data }: { data: InventoryAnalytics }) {
   const sales = data.sales;
   const profit = sales.profit;
@@ -186,13 +195,7 @@ function SalesStats({ data }: { data: InventoryAnalytics }) {
         label="Profit"
         value={profit == null ? "—" : formatMoney(profit)}
         negative={profit != null && profit < 0}
-        hint={
-          sales.profit_known === 0
-            ? "Add a cost to see profit"
-            : sales.profit_known === sales.count
-              ? "Sold price minus cost"
-              : `Sold price minus cost on ${sales.profit_known} of ${sales.count}`
-        }
+        hint={profitHint(sales)}
       />
       <Stat
         label="Median time to sell"

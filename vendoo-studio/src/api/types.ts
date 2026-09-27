@@ -357,6 +357,7 @@ export interface AnalyticsSales {
   revenue: number;
   profit: number | null;
   profit_known: number;
+  fees_known: number;
   average_price: number | null;
   median_days: number | null;
 }

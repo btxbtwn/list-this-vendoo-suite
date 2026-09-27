@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.96 — 2026-09-27
+
+- Analytics profit now takes off marketplace fees and the shipping labels you paid, the same way Vendoo works it out. Re-import from Vendoo to pull in the fees for sales you already have
+
 ## 0.1.95 — 2026-09-27
 
 - Generating a listing shows its work in the chat as it happens: each step, the photo analysis thinking, every web search, and the evidence and sold comps cards as they land

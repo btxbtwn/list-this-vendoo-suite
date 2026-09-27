@@ -654,15 +654,21 @@ def _sale_price(entry: Any) -> float:
 
 
 def vendoo_sale(item: dict | None, form: dict | None = None) -> dict[str, Any]:
-    """What the item sold for, and where, or {} when it has not sold.
+    """What the item sold for, where, and what the sale cost, or {} when unsold.
 
     Vendoo records the sale price on the item's sale record and again on the
     marketplace listing that closed it. Studio keeps it because the seller's
     own closed sales are what a price-drop suggestion should be reasoning
     from — the listing's last asking price is only a stand-in for it.
+
+    The sale also carries what Vendoo nets profit from: the item cost at the
+    time of sale, marketplace and other fees, the label the seller paid for,
+    and the shipping the buyer paid. Each is kept only when Vendoo has it, so
+    an unrecorded fee reads as unknown rather than as zero.
     """
     merged = _merge_payloads(form, item)
     sale_record = merged.get("saleRecord") if isinstance(merged.get("saleRecord"), dict) else {}
+    sale = sale_record
     price = _sale_price(sale_record)
     marketplace = str(sale_record.get("marketplace") or "").strip()
     if not price:
@@ -670,20 +676,47 @@ def vendoo_sale(item: dict | None, form: dict | None = None) -> dict[str, Any]:
             sales = listing.get("sales")
             if not isinstance(sales, list):
                 continue
-            for sale in sales:
-                price = _sale_price(sale)
+            for entry in sales:
+                price = _sale_price(entry)
                 if price:
+                    sale = entry
                     marketplace = marketplace or name
                     break
             if price:
                 break
     if not price:
         return {}
-    return {
+    result: dict[str, Any] = {
         "price": price,
         "marketplace": VENDOO_MARKETPLACE_ALIASES.get(marketplace, marketplace),
         "soldAt": str(vendoo_dates(item, form).get("sold") or ""),
     }
+    fees = [_sale_amount(sale, key) for key in ("marketplace_fees", "other_fees")]
+    if any(fee is not None for fee in fees):
+        result["fees"] = round(sum(fee or 0.0 for fee in fees), 2)
+    for key, name in (
+        ("product_cost", "cost"),
+        ("shipping_cost", "shippingCost"),
+        ("shipping_credit", "shippingCredit"),
+    ):
+        amount = _sale_amount(sale, key)
+        if amount is not None:
+            result[name] = amount
+    return result
+
+
+def _sale_amount(entry: dict, key: str) -> float | None:
+    """One money field off a sale, or None when Vendoo did not record it."""
+    value = entry.get(key)
+    if value is None or value == "":
+        return None
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return None
+    if amount != amount or amount < 0:
+        return None
+    return amount
 
 
 def vendoo_listed_at(item: dict | None, form: dict | None = None) -> str:
