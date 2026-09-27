@@ -147,8 +147,8 @@ async def run_listing_generation(
             comps_task = asyncio.create_task(research_sold_comps(prompt_analysis, evidence))
             child_tasks.append(comps_task)
         else:
-            # Cursor/MiMo can generate without ChatGPT; comps still need ChatGPT or Brave.
-            # Surface that in chat so the SOLD COMPS card does not silently disappear.
+            # Nothing connected can search. Surface that in chat so the SOLD
+            # COMPS card does not silently disappear.
             comps_text = comps_setup_note()
 
         pending = {schema_task, *([comps_task] if comps_task else [])}
@@ -163,15 +163,9 @@ async def run_listing_generation(
         if comps_task is not None:
             comps_text = comps_task.result() or ""
         if comps_text:
-            if "Source: ChatGPT" in comps_text:
-                source = "chatgpt"
-            elif "Source: Brave" in comps_text:
-                source = "brave"
-            else:
-                source = "system"
             still_current()
             comps_message = stream_repo.add_message(
-                conv_id, "system", comps_text, provider=source, model="web-search",
+                conv_id, "system", comps_text, provider="web-search", model="web-search",
             )
             run.publish(sse_event("posted", str(comps_message.id)))
 

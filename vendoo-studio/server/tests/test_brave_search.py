@@ -11,8 +11,8 @@ from vendoo_studio.services.brave_search import (
     comp_identities,
     search_all,
     fields_from_analysis,
-    format_comp_results,
-    research_brave_comps,
+    comp_report,
+    research_brave_report,
     search_web,
     sold_comps_query,
 )
@@ -172,9 +172,9 @@ class SearchAllTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(errors, [])
 
 
-class FormatCompsTest(unittest.TestCase):
-    def test_formats_results_for_prompt(self):
-        text = format_comp_results("Levi's slim shorts sold comps", [
+class CompReportTest(unittest.TestCase):
+    def test_keeps_sold_listings_and_drops_guides(self):
+        report = comp_report("Levi's slim shorts sold comps", [
             BRAVE_PAYLOAD["web"]["results"][0],
             {
                 "title": "How to find sold comps on eBay",
@@ -182,53 +182,39 @@ class FormatCompsTest(unittest.TestCase):
                 "description": "Learn how to search sold listings for $20.",
             },
         ])
-        self.assertTrue(text.startswith("Sold comps:"))
-        self.assertIn("Query: Levi's slim shorts sold comps", text)
-        self.assertIn("Source: Brave Search", text)
-        self.assertIn("$22 · eBay", text)
-        self.assertIn("https://www.ebay.com/itm/123", text)
-        # One listing is too thin to price from; the how-to hit is not a comp.
-        self.assertIn("Only 1 sold listing found", text)
-        self.assertNotIn("How to", text)
+        self.assertEqual(report.query, "Levi's slim shorts sold comps")
+        self.assertEqual(report.source, "Brave")
+        self.assertEqual([(comp.price, comp.url) for comp in report.comps], [(22, "https://www.ebay.com/itm/123")])
 
-    def test_three_listings_get_the_pricing_formula(self):
-        text = format_comp_results("Levi's slim shorts sold comps", [
-            BRAVE_PAYLOAD["web"]["results"][0],
-            {
-                "title": "Levi's Slim Shorts - Sold",
-                "url": "https://poshmark.com/listing/abc",
-                "description": "Sold for $19.",
-            },
-            {
-                "title": "Levi's 511 Shorts",
-                "url": "https://www.mercari.com/item/m123",
-                "description": "Sold for $25.",
-            },
-        ])
-        self.assertIn("market × 1.35", text)
-        self.assertNotIn("too thin to price from", text)
+    def test_priced_listing_still_for_sale_is_live_not_sold(self):
+        report = comp_report("Levi's slim shorts", [{
+            "title": "Levi's 511 Slim Shorts",
+            "url": "https://www.ebay.com/itm/9",
+            "description": "US $24.00 Buy It Now · Add to cart",
+        }])
+        self.assertEqual(report.comps, [])
+        self.assertEqual([(comp.price, comp.marketplace) for comp in report.live], [(24, "eBay")])
 
-    def test_empty_results_asks_for_baseline(self):
-        text = format_comp_results("Nike tee sold comps", [])
-        self.assertIn("No sold listings found", text)
-        self.assertIn("estimated baseline", text)
+    def test_empty_results_are_an_empty_report(self):
+        report = comp_report("Nike tee sold comps", [])
+        self.assertEqual((report.comps, report.live), ([], []))
 
 
 class ResearchCompsTest(unittest.IsolatedAsyncioTestCase):
-    async def test_skips_when_no_api_key(self):
+    async def test_raises_without_api_key(self):
         with patch("vendoo_studio.services.brave_search.get_brave_api_key", return_value=None):
-            text = await research_brave_comps("Levi's shorts sold comps")
-        self.assertEqual(text, "")
+            with self.assertRaises(RuntimeError):
+                await research_brave_report("Levi's shorts sold comps")
 
-    async def test_searches_and_formats_when_key_present(self):
+    async def test_searches_when_key_present(self):
         with (
             patch("vendoo_studio.services.brave_search.get_brave_api_key", return_value="BSA-test"),
             patch("vendoo_studio.services.brave_search.search_web", new=AsyncMock(return_value=BRAVE_PAYLOAD["web"]["results"])) as search,
         ):
-            text = await research_brave_comps("Levi's Slim shorts sold comps")
+            report = await research_brave_report("Levi's Slim shorts sold comps")
         search.assert_awaited_once()
         self.assertEqual(search.await_args.args[0], "Levi's Slim shorts sold comps")
-        self.assertIn("$22 · eBay", text)
+        self.assertEqual([comp.price for comp in report.comps], [22])
 
     async def test_query_list_merges_every_marketplace(self):
         per_site = {
@@ -245,22 +231,21 @@ class ResearchCompsTest(unittest.IsolatedAsyncioTestCase):
             patch("vendoo_studio.services.brave_search.search_web", new=fake_search),
             patch("vendoo_studio.services.brave_search.BRAVE_QUERY_STAGGER_SEC", 0),
         ):
-            text = await research_brave_comps(
+            report = await research_brave_report(
                 brave_sold_queries({"brand": "Levi's", "category": "Bottoms > Shorts"})
             )
-        for fragment in ("$22 · eBay", "$19 · Poshmark", "$25 · Mercari"):
-            self.assertIn(fragment, text)
-        self.assertIn("market × 1.35", text)
+        self.assertEqual(
+            sorted((comp.price, comp.marketplace) for comp in report.comps),
+            [(19, "Poshmark"), (22, "eBay"), (25, "Mercari")],
+        )
 
-    async def test_search_failure_returns_baseline_note(self):
+    async def test_search_failure_raises(self):
         with (
             patch("vendoo_studio.services.brave_search.get_brave_api_key", return_value="BSA-test"),
             patch("vendoo_studio.services.brave_search.search_web", new=AsyncMock(side_effect=RuntimeError("Brave HTTP 401: invalid token"))),
         ):
-            text = await research_brave_comps("Nike Tee sold comps")
-        self.assertTrue(text.startswith("Sold comps:"))
-        self.assertIn("Search failed", text)
-        self.assertIn("estimated baseline", text)
+            with self.assertRaisesRegex(RuntimeError, "401"):
+                await research_brave_report("Nike Tee sold comps")
 
 
 class SearchWebTest(unittest.IsolatedAsyncioTestCase):

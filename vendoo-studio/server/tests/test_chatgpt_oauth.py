@@ -5,6 +5,7 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from vendoo_studio.services.comp_research import comps_search_messages
 from vendoo_studio.providers.chatgpt_codex import (
     MODELS_CLIENT_VERSION,
     USER_AGENT,
@@ -161,6 +162,8 @@ class WebSearchExtractTest(unittest.TestCase):
 
 
 class WebSearchRequestTest(unittest.IsolatedAsyncioTestCase):
+    """The comps prompt itself lives in comp_research; the provider sends it as is."""
+
     async def test_comp_search_requests_high_context_and_strict_evidence(self):
         with patch(
             "vendoo_studio.providers.chatgpt_codex.get_chatgpt_models",
@@ -169,7 +172,7 @@ class WebSearchRequestTest(unittest.IsolatedAsyncioTestCase):
             provider = ChatGPTCodexProvider()
         provider._web_search_once = AsyncMock(return_value={"answer": "{}", "sources": []})
 
-        await provider.web_search("Patagonia Nano Puff jacket M blue sold comps")
+        await provider.web_search(comps_search_messages("Patagonia Nano Puff jacket M blue sold comps"))
 
         messages = provider._web_search_once.await_args.args[0]
         tools = provider._web_search_once.await_args.kwargs["tools"]

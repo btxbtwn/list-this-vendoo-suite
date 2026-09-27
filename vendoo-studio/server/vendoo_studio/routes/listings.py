@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import copy
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -249,32 +252,95 @@ def _current_listing(conv_id: str, db: Session) -> tuple[dict, list]:
     return listing, revisions
 
 
-@router.post("/api/conversations/{conv_id}/price-drop/preview")
-async def preview_price_drop(conv_id: str, comps: bool = True, db: Session = Depends(get_db)):
-    """Live comps + history-aware suggestion. Does not change the listing.
-
-    ``comps=false`` skips the web search, which can take a minute and a half,
-    so the dialog can offer the history and sell-through suggestion at once.
-    """
+def _preview_inputs(conv_id: str, db: Session) -> tuple[dict, list, str, list, int | None]:
     from vendoo_studio.services.listing_generate import latest_photo_analysis
-
     from vendoo_studio.services.sell_through import collect_outcomes, listing_age_days
 
     listing, revisions = _current_listing(conv_id, db)
     conv_repo = ConversationRepo(db)
     analysis = latest_photo_analysis(conv_repo.get_messages(conv_id))
     conv = conv_repo.get(conv_id)
+    age_days = listing_age_days(conv.notes if conv else None)
+    return listing, revisions, analysis, collect_outcomes(db), age_days
+
+
+@router.post("/api/conversations/{conv_id}/price-drop/preview")
+def preview_price_drop(conv_id: str, db: Session = Depends(get_db)):
+    """History and sell-through suggestion. Does not change the listing.
+
+    Sold comps are a web search that can take minutes; the dialog streams them
+    from ``/price-drop/comps`` on top of this.
+    """
+    listing, revisions, _analysis, outcomes, age_days = _preview_inputs(conv_id, db)
     try:
-        return await build_preview(
-            listing,
-            revisions,
-            analysis_text=analysis,
-            run_comps=comps,
-            sold_outcomes=collect_outcomes(db),
-            age_days=listing_age_days(conv.notes if conv else None),
-        )
+        return build_preview(listing, revisions, sold_outcomes=outcomes, age_days=age_days)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/api/conversations/{conv_id}/price-drop/comps")
+def stream_price_drop_comps(conv_id: str, db: Session = Depends(get_db)):
+    """Stream sold comps as each source answers, with the suggestion they imply.
+
+    Events: ``step`` (a search the models ran), ``source`` (JSON: one source's
+    state and counts), ``preview`` (JSON: the full preview with the comps so
+    far), then ``[DONE]``. Does not change the listing.
+    """
+    from vendoo_studio.services import live_trace
+    from vendoo_studio.services.comp_research import stream_sold_comps
+    from vendoo_studio.services.price_drop import fields_from_listing
+    from vendoo_studio.services.streaming import KEEPALIVE, SSE_HEADERS, sse_event
+
+    listing, revisions, analysis, outcomes, age_days = _preview_inputs(conv_id, db)
+    evidence = fields_from_listing(listing)
+
+    def preview(comps_text: str) -> str:
+        return json.dumps(build_preview(
+            listing, revisions, comps_text=comps_text, sold_outcomes=outcomes, age_days=age_days,
+        ))
+
+    async def events():
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+        def trace(kind: str, text: str) -> None:
+            if kind == "step":
+                queue.put_nowait(sse_event("step", text))
+
+        async def research() -> None:
+            live_trace.bind(trace)
+            try:
+                async for event in stream_sold_comps(analysis, evidence):
+                    if event.kind == "source":
+                        queue.put_nowait(sse_event("source", json.dumps({
+                            "source": event.source,
+                            "state": event.state,
+                            "sold": event.sold,
+                            "live": event.live,
+                            "detail": event.detail,
+                        })))
+                    else:
+                        queue.put_nowait(sse_event("preview", preview(event.text)))
+            except Exception as exc:
+                queue.put_nowait(sse_event("error", str(exc) or "Sold comps search failed."))
+            finally:
+                queue.put_nowait(None)
+
+        task = asyncio.create_task(research())
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=10)
+                except TimeoutError:
+                    yield KEEPALIVE
+                    continue
+                if item is None:
+                    break
+                yield item
+            yield "data: [DONE]\n\n"
+        finally:
+            task.cancel()
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.post("/api/conversations/{conv_id}/price-drop")

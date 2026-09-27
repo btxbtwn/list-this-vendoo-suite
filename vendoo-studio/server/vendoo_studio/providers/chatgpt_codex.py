@@ -533,37 +533,8 @@ class ChatGPTCodexProvider:
             raise RuntimeError("ChatGPT returned an empty listing response")
         yield text
 
-    async def web_search(self, query: str) -> dict:
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are researching sold prices for a secondhand marketplace listing. "
-                    "Search the live web for recently sold comps on eBay, Poshmark, Mercari, Depop, and Etsy. "
-                    "Find as many as you can — aim for at least six across two or more of those "
-                    "marketplaces, up to fifteen. Run several searches with different wording rather "
-                    "than stopping at the first page of results. "
-                    "Keep only specific sold items with a real sold price. Ignore how-to articles, "
-                    "search pages, Terapeak marketing, and pricing guides. "
-                    "Every comp must match the requested brand and item type; prefer the same style, "
-                    "size, color, material, and department when those details are present. Exclude lots, "
-                    "bundles, replacement parts, reproductions, and different models or collaborations. "
-                    "Require explicit evidence that the item sold or the listing completed, not merely "
-                    "that it is listed. A seller's lifetime \"items sold\" count is not that evidence. "
-                    "If a result shows multiple prices, use only the amount explicitly identified as the "
-                    "sold price; otherwise skip it. A number in the title, or one labeled retail, MSRP, "
-                    "was, or original, is not the sold price. "
-                    "Return JSON only in this shape: "
-                    '{"market":"$18-$25","comps":[{"title":"...","price":22,"marketplace":"eBay",'
-                    '"condition":"Good","url":"https://www.ebay.com/itm/123"}]} '
-                    "Each comp must have the exact listing URL you observed in search results "
-                    "(ebay.com/itm, poshmark.com/listing, mercari.com/us/item, "
-                    "depop.com/products, etsy.com/listing). Do not write a listing. Do not invent "
-                    "prices or URLs. If you cannot find sold comps, return {\"market\":\"\",\"comps\":[]}."
-                ),
-            },
-            {"role": "user", "content": f"Find recently sold marketplace comps for: {query}"},
-        ]
+    async def web_search(self, messages: list[dict]) -> dict:
+        """Run ``messages`` with the native web search tool: ``{"answer", "sources"}``."""
         errors: list[str] = []
         attempts = (
             {
@@ -614,7 +585,7 @@ class ChatGPTCodexProvider:
                         output.append(item)
                         searched = web_search_query(item)
                         if searched:
-                            live_trace.emit("step", f"Searched the web: {searched}")
+                            live_trace.emit("step", f"ChatGPT searched: {searched}")
         sources = web_search_sources(output)
         completed = web_search_answer(output)
         text = completed or answer.strip()

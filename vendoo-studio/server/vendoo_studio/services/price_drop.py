@@ -16,7 +16,7 @@ from typing import Any
 
 from vendoo_studio.models.listing import ListingRevision
 from vendoo_studio.services.brave_search import item_fields
-from vendoo_studio.services.comp_research import comps_search_available, research_sold_comps
+from vendoo_studio.services.comp_research import comps_search_available
 from vendoo_studio.services.sold_comps import (
     MIN_CONFIDENT_COMPS,
     SoldCompsReport,
@@ -268,12 +268,11 @@ def event_payload(event: PriceDropEvent) -> dict[str, Any]:
     }
 
 
-async def build_preview(
+def build_preview(
     listing: dict,
     revisions: list[ListingRevision],
     *,
-    analysis_text: str | None = None,
-    run_comps: bool = True,
+    comps_text: str = "",
     sold_outcomes: list[Any] | None = None,
     age_days: int | None = None,
 ) -> dict[str, Any]:
@@ -291,15 +290,8 @@ async def build_preview(
     if str(suggested_percent) not in prices_by_percent:
         prices_by_percent[str(suggested_percent)] = price_after_percent(current, suggested_percent)
 
-    comps_text = ""
     comps_available = comps_search_available()
-    market: float | None = None
-    comps_target: int | None = None
-    report: SoldCompsReport | None = None
-    if run_comps and comps_available:
-        evidence = fields_from_listing(listing)
-        comps_text = await research_sold_comps(analysis_text, evidence)
-        market, comps_target, report = comps_formula_price(comps_text)
+    market, comps_target, report = comps_formula_price(comps_text)
 
     suggested_price = price_after_percent(current, suggested_percent)
     suggested_mode = "percent"

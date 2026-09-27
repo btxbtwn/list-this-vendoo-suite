@@ -6,6 +6,12 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.113 — 2026-09-27
+
+- Sold comps now come from every model you have connected — ChatGPT, Cursor and MiMo each search the web with their own search, and their results are combined. Brave only runs when they find fewer than three sales or can't search.
+- The Regenerate dialog shows comps as they arrive: each source says whether it is still searching, how many sold and live listings it found, or why it failed.
+- Sold comps now include a Live listings section — similar items still for sale, with their asking prices. They are there to show what you're competing with and never change the suggested price.
+
 ## 0.1.112 — 2026-09-27
 
 - Sold comps no longer count a seller's live listings as sales. A shop's shipping price ("$15 shipping at checkout") and its "items sold" count were being read as a sold price, so items still for sale at $3.99 showed as $15 comps.

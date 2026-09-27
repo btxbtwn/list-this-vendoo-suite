@@ -148,6 +148,15 @@ export interface PriceDropComps {
   query: string;
 }
 
+/** One comps source's progress: ChatGPT, Cursor, MiMo, or the Brave fallback. */
+export interface PriceDropCompsSource {
+  source: string;
+  state: "searching" | "done" | "failed" | "timeout" | string;
+  sold: number;
+  live: number;
+  detail: string;
+}
+
 export interface PriceDropOption {
   price: number;
   /** The target that produced this price; the label uses effective_percent. */

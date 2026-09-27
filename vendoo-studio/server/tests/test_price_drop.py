@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, UTC
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from vendoo_studio.services.price_drop import (
     drop_options,
@@ -210,25 +210,21 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         revisions = [_rev(48, "generation", rev_id="r1")]
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()) as research,
         ):
-            preview = await build_preview(listing, revisions)
-        research.assert_not_called()
+            preview = build_preview(listing, revisions)
         self.assertEqual(preview["current_price"], 48)
         self.assertEqual(preview["suggested_percent"], 10)
         self.assertEqual(preview["suggested_price"], 43)
         self.assertEqual(preview["prices_by_percent"]["10"], 43)
         self.assertFalse(preview["comps"]["available"])
 
-    async def test_preview_can_skip_comps_when_they_are_available(self):
+    async def test_preview_without_comps_text_when_they_are_available(self):
         listing = {"price": 48, "brand": "Nike", "category_path": "Tops > T-Shirts"}
         revisions = [_rev(48, "generation", rev_id="r1")]
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()) as research,
         ):
-            preview = await build_preview(listing, revisions, run_comps=False)
-        research.assert_not_called()
+            preview = build_preview(listing, revisions)
         self.assertEqual(preview["suggested_price"], 43)
         self.assertTrue(preview["comps"]["available"])
         self.assertEqual(preview["comps"]["text"], "")
@@ -253,9 +249,8 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock(return_value=comps)),
         ):
-            preview = await build_preview(listing, revisions)
+            preview = build_preview(listing, revisions, comps_text=comps)
         self.assertEqual(preview["comps"]["target_price"], 27)
         self.assertEqual(preview["suggested_mode"], "comps")
         self.assertEqual(preview["suggested_price"], 27)
@@ -269,9 +264,8 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         revisions = [_rev(9, "generation", rev_id="r1")]
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()),
         ):
-            preview = await build_preview(listing, revisions)
+            preview = build_preview(listing, revisions)
         # 10% off $9 is $8.10, floored to $8 — an 11.1% cut, so "10%" would lie.
         self.assertEqual(preview["suggested_price"], 8)
         self.assertEqual(preview["suggested_effective_percent"], 11.1)
@@ -285,9 +279,8 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         revisions = [_rev(100, "generation", rev_id="r1")]
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()),
         ):
-            preview = await build_preview(listing, revisions)
+            preview = build_preview(listing, revisions)
         self.assertEqual(preview["suggested_price"], 90)
         self.assertEqual(preview["suggested_effective_percent"], 10.0)
         self.assertEqual(
@@ -309,9 +302,8 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock(return_value=comps)),
         ):
-            preview = await build_preview(listing, revisions)
+            preview = build_preview(listing, revisions, comps_text=comps)
         self.assertIsNone(preview["comps"]["target_price"])
         self.assertIsNone(preview["comps"]["market_midpoint"])
         self.assertEqual(preview["suggested_mode"], "percent")
@@ -341,9 +333,8 @@ class PreviewSellThroughTest(unittest.IsolatedAsyncioTestCase):
         revisions = [_rev(48, "generation", rev_id="r1")]
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()),
         ):
-            preview = await build_preview(
+            preview = build_preview(
                 listing, revisions, sold_outcomes=self._outcomes(), age_days=30,
             )
         # Those jeans sold 30% off after 30 days, and this one is 30 days in.
@@ -374,10 +365,9 @@ class PreviewSellThroughTest(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock(return_value=comps)),
         ):
-            preview = await build_preview(
-                listing, revisions, sold_outcomes=self._outcomes(), age_days=30,
+            preview = build_preview(
+                listing, revisions, comps_text=comps, sold_outcomes=self._outcomes(), age_days=30,
             )
         # Comps say $40 (market $30 × 1.35); the seller's own jeans say $33.
         self.assertEqual(preview["comps"]["target_price"], 40)
@@ -389,9 +379,8 @@ class PreviewSellThroughTest(unittest.IsolatedAsyncioTestCase):
         revisions = [_rev(48, "generation", rev_id="r1")]
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()),
         ):
-            preview = await build_preview(
+            preview = build_preview(
                 listing, revisions, sold_outcomes=self._outcomes(count=2), age_days=30,
             )
         self.assertEqual(preview["suggested_mode"], "percent")
@@ -405,9 +394,8 @@ class PreviewSellThroughTest(unittest.IsolatedAsyncioTestCase):
         revisions = [_rev(48, "generation", rev_id="r1")]
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()),
         ):
-            preview = await build_preview(
+            preview = build_preview(
                 listing,
                 revisions,
                 sold_outcomes=self._outcomes(sold=100.0),

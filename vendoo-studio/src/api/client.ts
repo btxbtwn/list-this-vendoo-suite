@@ -18,6 +18,7 @@ import type {
   Photo,
   PhotoUploadResult,
   PriceDropApplyResult,
+  PriceDropCompsSource,
   PriceDropPreview,
   ProviderStatus,
   ProviderTestResult,
@@ -32,6 +33,7 @@ import type {
   AnalyticsRange,
   InventoryAnalytics,
 } from "./types";
+import { readSse } from "./sse";
 
 const BASE = "/api";
 
@@ -282,10 +284,37 @@ export const api = {
     revisions: (convId: string) => request<ListingRevision[]>(`/conversations/${convId}/revisions`),
     restore: (convId: string, revisionId: string) =>
       request<RevisionRestoreResult>(`/conversations/${convId}/revisions/${revisionId}/restore`, { method: "POST" }),
-    priceDropPreview: (convId: string, { comps }: { comps: boolean }) =>
-      request<PriceDropPreview>(`/conversations/${convId}/price-drop/preview?comps=${comps}`, {
+    priceDropPreview: (convId: string) =>
+      request<PriceDropPreview>(`/conversations/${convId}/price-drop/preview`, { method: "POST" }),
+    /** Stream sold comps: each source's progress, then the preview they imply. */
+    priceDropComps: async (
+      convId: string,
+      handlers: {
+        onSource: (source: PriceDropCompsSource) => void;
+        onStep: (text: string) => void;
+        onPreview: (preview: PriceDropPreview) => void;
+      },
+      signal?: AbortSignal,
+    ): Promise<void> => {
+      const res = await fetch(`${BASE}/conversations/${convId}/price-drop/comps`, {
         method: "POST",
-      }),
+        headers: { Accept: "text/event-stream" },
+        cache: "no-store",
+        signal,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(errorMessage(body, `Request failed: ${res.status}`));
+      }
+      let failure = "";
+      await readSse(res, (event, data) => {
+        if (event === "source") handlers.onSource(JSON.parse(data) as PriceDropCompsSource);
+        else if (event === "step") handlers.onStep(data);
+        else if (event === "preview") handlers.onPreview(JSON.parse(data) as PriceDropPreview);
+        else if (event === "error") failure = data;
+      });
+      if (failure) throw new Error(failure);
+    },
     applyPriceDrop: (
       convId: string,
       body: { price: number; percent?: number | null; mode: "percent" | "comps" | "custom" },

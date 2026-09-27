@@ -429,7 +429,7 @@ Before outputting ANY listing, verify:
 
 ## Notes
 
-- Use web search for comps. Studio uses ChatGPT web search first when signed in, then Brave Search if a key is saved.
+- Use web search for comps. Studio runs every connected model's own web search (ChatGPT, Cursor, MiMo) and combines the results, then uses Brave Search if they find fewer than three sales and a key is saved.
 - Standard listing JSON output must be copy/paste friendly with a `json` code block
 - Etsy digital download output must be copy-pasteable plain text or markdown, not JSON
 - When the user provides a local path, save the final standard listing as `listing.json` or the Etsy digital download listing as `listing.md` in the resolved photo folder

@@ -6,10 +6,12 @@ import json
 import logging
 import os
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from vendoo_studio.config import user_data_root
+from vendoo_studio.services import live_trace
 from vendoo_studio.providers.xiaomi_mimo import VISION_MAX_SIDE, encode_images
 from vendoo_studio.services.user_settings import (
     DEFAULT_CURSOR_MODEL,
@@ -24,6 +26,13 @@ TEXT_ONLY_PREAMBLE = (
     "Reply with assistant text only. Do not edit files, run shell commands, or use tools. "
     "When asked for JSON, return only valid JSON with no markdown fences."
 )
+WEB_SEARCH_PREAMBLE = (
+    "You are a research assistant for Vendoo Listing Studio. Use only web search and "
+    "web fetch. Do not edit files or run shell commands. "
+    "When asked for JSON, return only valid JSON with no markdown fences."
+)
+# The only built-in tools a comps search may use.
+WEB_TOOLS = ("webSearch", "webFetch")
 _STREAM_DONE = object()
 # A Cursor run that sends nothing for this long has stalled. The SDK waits on
 # it forever, and generation's field fill sat behind one with the listing busy.
@@ -118,8 +127,14 @@ def _image_from_data_url(url: str):
         return None
 
 
-def _flatten_messages(messages: list[dict]) -> tuple[str, list]:
-    lines = [TEXT_ONLY_PREAMBLE, ""]
+@dataclass(frozen=True)
+class _Thinking:
+    text: str
+    finished: bool
+
+
+def _flatten_messages(messages: list[dict], preamble: str = TEXT_ONLY_PREAMBLE) -> tuple[str, list]:
+    lines = [preamble, ""]
     images: list = []
     for msg in messages:
         role = str(msg.get("role") or "user").upper()
@@ -277,7 +292,45 @@ class CursorProvider:
         async for content in self._run(messages, stream=stream, model=self.listing_model):
             yield content
 
-    async def _run(self, messages: list[dict], *, stream: bool, model: str | None = None):
+    async def web_search(self, messages: list[dict]) -> dict:
+        """Run ``messages`` with web search and fetch only: ``{"answer", "sources"}``.
+
+        The SDK does not report web tool calls, so each finished thought
+        ("Searching Mercari for sold …") is what shows the search moving.
+        """
+        thought = ""
+
+        def on_thinking(piece: _Thinking) -> None:
+            nonlocal thought
+            thought += piece.text
+            if piece.finished:
+                line = " ".join(thought.split())
+                thought = ""
+                if line:
+                    live_trace.emit("step", f"Cursor: {line[:200]}")
+
+        answer = ""
+        async for chunk in self._run(
+            messages,
+            stream=False,
+            model=self.listing_model,
+            tools=WEB_TOOLS,
+            on_thinking=on_thinking,
+            preamble=WEB_SEARCH_PREAMBLE,
+        ):
+            answer += chunk
+        return {"answer": answer.strip(), "sources": []}
+
+    async def _run(
+        self,
+        messages: list[dict],
+        *,
+        stream: bool,
+        model: str | None = None,
+        tools: tuple[str, ...] | None = None,
+        on_thinking: Callable[[_Thinking], None] | None = None,
+        preamble: str = TEXT_ONLY_PREAMBLE,
+    ):
         from cursor_sdk import (
             Client,
             CursorAgentError,
@@ -286,9 +339,9 @@ class CursorProvider:
         )
 
         selected = (model or self.listing_model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
-        prompt, images = _flatten_messages(messages)
+        prompt, images = _flatten_messages(messages, preamble)
         if not prompt:
-            prompt = TEXT_ONLY_PREAMBLE
+            prompt = preamble
         scratch = str(listing_scratch_dir())
         message = UserMessage(text=prompt, images=images or None)
         loop = asyncio.get_running_loop()
@@ -305,18 +358,30 @@ class CursorProvider:
                     with Client.launch_bridge(workspace=scratch) as client:
                         handles["client"] = client
                         with client.agents.create(
+                            {"tools": list(tools)} if tools is not None else None,
                             model=selected,
                             api_key=self.api_key,
                             local=LocalAgentOptions(cwd=scratch, setting_sources=[]),
                         ) as agent:
                             run = agent.send(message)
                             handles["run"] = run
-                            if stream:
+                            if stream or on_thinking is not None:
                                 yielded = False
-                                for chunk in run.iter_text():
-                                    if chunk:
-                                        yielded = True
-                                        _emit(chunk)
+                                for sdk_message in run.stream():
+                                    kind = getattr(sdk_message, "type", "")
+                                    if kind == "thinking" and on_thinking is not None:
+                                        _emit(_Thinking(
+                                            text=str(getattr(sdk_message, "text", "") or ""),
+                                            finished=getattr(sdk_message, "thinking_duration_ms", None) is not None,
+                                        ))
+                                    elif kind == "assistant" and stream:
+                                        content = getattr(getattr(sdk_message, "message", None), "content", ())
+                                        for block in content:
+                                            chunk = getattr(block, "text", "")
+                                            if chunk:
+                                                yielded = True
+                                                _emit(chunk)
+                            if stream:
                                 result = run.wait()
                                 if result.status == "error":
                                     raise RuntimeError(f"Cursor run failed: {result.id}")
@@ -366,6 +431,10 @@ class CursorProvider:
                 if isinstance(item, BaseException):
                     finished = True
                     raise item
+                if isinstance(item, _Thinking):
+                    if on_thinking is not None:
+                        on_thinking(item)
+                    continue
                 yield item  # type: ignore[misc]
         finally:
             if not finished:

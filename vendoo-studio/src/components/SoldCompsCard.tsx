@@ -15,10 +15,15 @@ export interface SoldCompsReport {
   market: string;
   note: string;
   comps: SoldComp[];
+  /** Still for sale: what this item competes with, never a price input. */
+  live: SoldComp[];
 }
 
 const INSTRUCTION =
   "Use these live results to set market price, then listing price = market × 1.35 (whole dollars).";
+// Matches LIVE_HEADER in server/vendoo_studio/services/sold_comps.py.
+const LIVE_HEADER =
+  "Live listings (for sale now — asking prices, not sales; do not price from these):";
 const THIN_INSTRUCTION_RE = /^Only \d+ sold listings? found — too thin to price from\./;
 // Matches MIN_CONFIDENT_COMPS in server/vendoo_studio/services/sold_comps.py.
 const MIN_CONFIDENT_COMPS = 3;
@@ -33,10 +38,13 @@ function marketplaceSlug(name: string): string {
   return hasMarketplaceLogo(slug) ? slug : "general";
 }
 
+/** "ChatGPT + Cursor + Brave" — every source that answered. */
 function sourceLabel(source: string): string {
-  if (/chatgpt/i.test(source)) return "ChatGPT";
-  if (/brave/i.test(source)) return "Brave";
-  return source;
+  return source
+    .split("+")
+    .map((part) => part.replace(/\s*(web search|search)$/i, "").trim())
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function formatMoney(value: string): string {
@@ -63,6 +71,7 @@ function isMetaLine(stripped: string): boolean {
   return (
     stripped === "Sold comps:" ||
     stripped === INSTRUCTION ||
+    stripped === LIVE_HEADER ||
     THIN_INSTRUCTION_RE.test(stripped) ||
     stripped.startsWith("Query:") ||
     stripped.startsWith("Source:") ||
@@ -74,12 +83,13 @@ export function parseSoldComps(text: string): SoldCompsReport | null {
   const blob = (text || "").trim();
   if (!blob.startsWith("Sold comps:")) return null;
 
-  const report: SoldCompsReport = { query: "", source: "", market: "", note: "", comps: [] };
+  const report: SoldCompsReport = { query: "", source: "", market: "", note: "", comps: [], live: [] };
   let pending: SoldComp | null = null;
+  let target = report.comps;
   const noteLines: string[] = [];
 
   const pushPending = () => {
-    if (pending) report.comps.push(pending);
+    if (pending) target.push(pending);
     pending = null;
   };
 
@@ -102,12 +112,17 @@ export function parseSoldComps(text: string): SoldCompsReport | null {
       report.market = stripped.slice(7).trim();
       continue;
     }
+    if (stripped === LIVE_HEADER) {
+      pushPending();
+      target = report.live;
+      continue;
+    }
     if (isMetaLine(stripped)) continue;
     if (/^https?:\/\//i.test(stripped)) {
       if (pending) {
         pending.url = stripped;
         pushPending();
-      } else if (!report.comps.length) {
+      } else if (!report.comps.length && target === report.comps) {
         pushNote(stripped);
       }
       continue;
@@ -124,7 +139,7 @@ export function parseSoldComps(text: string): SoldCompsReport | null {
       };
       continue;
     }
-    if (!report.comps.length && !pending) {
+    if (!report.comps.length && !pending && target === report.comps) {
       pushNote(raw);
     }
   }
@@ -220,6 +235,16 @@ export function SoldCompsCard({ text, messageId }: { text: string; messageId?: s
           <div className="sold-comps-empty">
             <ChatMarkdown text={note} />
           </div>
+        ) : null}
+        {report?.live.length ? (
+          <>
+            <div className="sold-comps-meta">live now · asking prices, not used for pricing</div>
+            <div className="sold-comps-list sold-comps-live">
+              {report.live.map((comp, index) => (
+                <CompRow key={`live-${comp.price}-${comp.title}-${index}`} comp={comp} />
+              ))}
+            </div>
+          </>
         ) : null}
       </div>
     </div>

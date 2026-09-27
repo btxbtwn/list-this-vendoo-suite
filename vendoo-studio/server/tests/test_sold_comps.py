@@ -8,13 +8,18 @@ from vendoo_studio.services.sold_comps import (
     SoldComp,
     SoldCompsReport,
     comps_confident,
-    comps_from_chatgpt,
-    comps_from_web_results,
+    comps_from_model_answer,
+    listings_from_web_results,
+    merge_reports,
     comps_usable,
     format_sold_comps,
     parse_sold_comps,
     research_note,
 )
+
+
+def sold_from_web_results(results, **kwargs):
+    return listings_from_web_results(results, **kwargs)[0]
 
 
 LISTING = {
@@ -39,7 +44,7 @@ SEARCH_PAGE = {
 
 class WebResultFilterTest(unittest.TestCase):
     def test_keeps_listing_urls_with_sold_prices(self):
-        comps = comps_from_web_results([LISTING, HOWTO, SEARCH_PAGE])
+        comps = sold_from_web_results([LISTING, HOWTO, SEARCH_PAGE])
         self.assertEqual(len(comps), 1)
         self.assertEqual(comps[0].price, 22)
         self.assertEqual(comps[0].marketplace, "eBay")
@@ -47,13 +52,13 @@ class WebResultFilterTest(unittest.TestCase):
         self.assertEqual(comps[0].condition, "Good")
 
     def test_drops_listings_without_prices(self):
-        comps = comps_from_web_results([
+        comps = sold_from_web_results([
             {"title": "Levi's shorts", "url": "https://www.ebay.com/itm/9", "description": "Great condition"},
         ])
         self.assertEqual(comps, [])
 
     def test_drops_active_listing_without_sold_evidence(self):
-        comps = comps_from_web_results([{
+        comps = sold_from_web_results([{
             "title": "Levi's 511 Slim Shorts",
             "url": "https://www.ebay.com/itm/9",
             "description": "$22.00 Buy It Now",
@@ -63,7 +68,7 @@ class WebResultFilterTest(unittest.TestCase):
     def test_drops_negative_or_retail_sold_language(self):
         for description in ("Not sold. Asking $22.", "Sold out online. Retail price $22."):
             with self.subTest(description=description):
-                comps = comps_from_web_results([{
+                comps = sold_from_web_results([{
                     "title": "Levi's 511 Slim Shorts",
                     "url": "https://www.ebay.com/itm/9",
                     "description": description,
@@ -71,7 +76,7 @@ class WebResultFilterTest(unittest.TestCase):
                 self.assertEqual(comps, [])
 
     def test_ignores_was_price_and_keeps_the_remaining_sold_price(self):
-        comps = comps_from_web_results([{
+        comps = sold_from_web_results([{
             "title": "Levi's 511 Slim Shorts - Sold",
             "url": "https://www.ebay.com/itm/9",
             "description": "Was $60, now $22",
@@ -81,7 +86,7 @@ class WebResultFilterTest(unittest.TestCase):
     def test_drops_retail_price_copied_from_the_title(self):
         # The seller wrote the tag price into the title and the description.
         # The listing is still for sale; "items sold" is the seller's feedback.
-        comps = comps_from_web_results([{
+        comps = sold_from_web_results([{
             "title": "Breckenridge Womens Blue Fleece Holiday Sweatshirt Small NWT $44 | eBay",
             "url": "https://www.ebay.com/itm/204478063754",
             "description": (
@@ -96,7 +101,7 @@ class WebResultFilterTest(unittest.TestCase):
         # Brave's snippet of a live $3.99 listing: the seller card's "44K items
         # sold" is elided to "... sold", and the store banner's shipping amount
         # is the only dollar figure on it.
-        comps = comps_from_web_results([{
+        comps = sold_from_web_results([{
             "title": "Womens Forever 21 red crop top sz S | eBay",
             "url": "https://www.ebay.com/itm/404418932403",
             "description": (
@@ -118,7 +123,7 @@ class WebResultFilterTest(unittest.TestCase):
             "Item sold · +$4.99 Buyer Protection fee",
         ):
             with self.subTest(description=description):
-                comps = comps_from_web_results([{
+                comps = sold_from_web_results([{
                     "title": "Levi's 511 Slim Shorts",
                     "url": "https://www.ebay.com/itm/9",
                     "description": description,
@@ -126,7 +131,7 @@ class WebResultFilterTest(unittest.TestCase):
                 self.assertEqual(comps, [])
 
     def test_keeps_sold_price_listed_beside_shipping(self):
-        comps = comps_from_web_results([{
+        comps = sold_from_web_results([{
             "title": "Levi's 511 Slim Shorts",
             "url": "https://www.ebay.com/itm/9",
             "description": "Sold for $22.00 · Shipping: $7.99",
@@ -134,7 +139,7 @@ class WebResultFilterTest(unittest.TestCase):
         self.assertEqual([comp.price for comp in comps], [22])
 
     def test_keeps_selling_price_when_retail_is_also_listed(self):
-        comps = comps_from_web_results([{
+        comps = sold_from_web_results([{
             "title": "Breckenridge Womens Blue Fleece Holiday Sweatshirt Small NWT $44",
             "url": "https://www.ebay.com/itm/204478063754",
             "description": "Sold. US $18.00. Retail: $44.00. 6.3K items sold.",
@@ -142,7 +147,7 @@ class WebResultFilterTest(unittest.TestCase):
         self.assertEqual([comp.price for comp in comps], [18])
 
     def test_keeps_explicit_sold_price_when_other_prices_exist(self):
-        comps = comps_from_web_results([{
+        comps = sold_from_web_results([{
             "title": "Levi's 511 Slim Shorts - Sold",
             "url": "https://www.ebay.com/itm/9",
             "description": "Originally $60. Sold for $22.",
@@ -157,7 +162,7 @@ class WebResultFilterTest(unittest.TestCase):
             "Sold for CAD $40.",
         ):
             with self.subTest(description=description):
-                comps = comps_from_web_results([{
+                comps = sold_from_web_results([{
                     "title": "Levi's 511 Slim Shorts - Sold",
                     "url": "https://www.ebay.com/itm/9",
                     "description": description,
@@ -171,7 +176,7 @@ class WebResultFilterTest(unittest.TestCase):
             ("Sold for $1,250.", 1250),
         ):
             with self.subTest(description=description):
-                comps = comps_from_web_results([{
+                comps = sold_from_web_results([{
                     "title": "Levi's 511 Slim Shorts - Sold",
                     "url": "https://www.ebay.com/itm/9",
                     "description": description,
@@ -179,7 +184,7 @@ class WebResultFilterTest(unittest.TestCase):
                 self.assertEqual([comp.price for comp in comps], [price])
 
     def test_drops_wrong_brand(self):
-        comps = comps_from_web_results([{
+        comps = sold_from_web_results([{
             "title": "Wrangler Slim Shorts - Sold",
             "url": "https://www.ebay.com/itm/9",
             "description": "Sold for $22.",
@@ -189,27 +194,27 @@ class WebResultFilterTest(unittest.TestCase):
 
     def test_keeps_character_titled_listings_without_the_brand(self):
         names = ("Peanuts", "Snoopy and Woodstock")
-        kept = comps_from_web_results([{
+        kept = sold_from_web_results([{
             "title": "Snoopy Woodstock Women's XS Gray Tee",
             "url": "https://www.ebay.com/itm/10",
             "description": "Sold for $14.",
         }], expected_names=names)
         self.assertEqual([comp.price for comp in kept], [14])
-        dropped = comps_from_web_results([{
+        dropped = sold_from_web_results([{
             "title": "Woodstock 1969 Festival Tee",
             "url": "https://www.ebay.com/itm/11",
             "description": "Sold for $30.",
         }], expected_names=names)
         self.assertEqual(dropped, [])
 
-class ChatGPTParseTest(unittest.TestCase):
+class ModelAnswerParseTest(unittest.TestCase):
     def test_reads_json_comps(self):
         answer = """```json
 {"market":"$18-$25","comps":[
   {"title":"Levi's 511 Slim Shorts","price":22,"marketplace":"eBay","condition":"Good","url":"https://www.ebay.com/itm/1"}
 ]}
 ```"""
-        market, comps = comps_from_chatgpt(answer, [])
+        market, comps, _live = comps_from_model_answer(answer, [])
         self.assertEqual(market, "$18–$25")
         self.assertEqual(comps[0].price, 22)
         self.assertEqual(comps[0].url, "https://www.ebay.com/itm/1")
@@ -220,26 +225,26 @@ class ChatGPTParseTest(unittest.TestCase):
             "1. $18 Poshmark Levi's slim shorts Good\n"
             "   https://poshmark.com/listing/abc\n"
         )
-        market, comps = comps_from_chatgpt(answer, [])
+        market, comps, _live = comps_from_model_answer(answer, [])
         self.assertEqual(market, "$18–$25")
         self.assertEqual(len(comps), 1)
         self.assertEqual(comps[0].title, "Levi's slim shorts")
 
     def test_merges_listing_sources_and_drops_guides(self):
         answer = '{"market":"","comps":[]}'
-        market, comps = comps_from_chatgpt(answer, [LISTING, HOWTO])
+        market, comps, _live = comps_from_model_answer(answer, [LISTING, HOWTO])
         self.assertEqual(len(comps), 1)
         self.assertEqual(comps[0].price, 22)
         self.assertEqual(market, "$22")
 
     def test_does_not_invent_comps_from_a_price_mention(self):
-        market, comps = comps_from_chatgpt("Typical sold price $20 on eBay.", [])
+        market, comps, _live = comps_from_model_answer("Typical sold price $20 on eBay.", [])
         self.assertEqual(comps, [])
         self.assertEqual(market, "")
 
     def test_drops_model_comp_without_listing_url(self):
         answer = '{"market":"$20-$25","comps":[{"title":"Levi shorts","price":22,"marketplace":"eBay"}]}'
-        _market, comps = comps_from_chatgpt(answer, [])
+        _market, comps, _live = comps_from_model_answer(answer, [])
         self.assertEqual(comps, [])
 
     def test_listing_url_is_authoritative_for_marketplace(self):
@@ -247,7 +252,7 @@ class ChatGPTParseTest(unittest.TestCase):
             '{"market":"$22","comps":[{"title":"Levi shorts","price":22,'
             '"marketplace":"Etsy","url":"https://www.ebay.com/itm/1"}]}'
         )
-        _market, comps = comps_from_chatgpt(answer, [])
+        _market, comps, _live = comps_from_model_answer(answer, [])
         self.assertEqual(comps[0].marketplace, "eBay")
 
 
@@ -281,7 +286,7 @@ class FormatParseTest(unittest.TestCase):
             }
             for index in range(MAX_COMPS + 6)
         ]
-        comps = comps_from_web_results(results)
+        comps = sold_from_web_results(results)
         self.assertEqual(len(comps), MAX_COMPS)
         text = format_sold_comps(SoldCompsReport(query="q", source="Brave Search", comps=comps))
         parsed = parse_sold_comps(text)
@@ -340,6 +345,65 @@ class FormatParseTest(unittest.TestCase):
         self.assertIn("Typical sold-price range", parsed.note)
         self.assertFalse(parsed.comps)
         self.assertFalse(comps_usable(text))
+
+
+class LiveListingTest(unittest.TestCase):
+    def test_priced_active_listing_is_live(self):
+        sold, live = listings_from_web_results([{
+            "title": "Levi's 511 Slim Shorts",
+            "url": "https://www.ebay.com/itm/9",
+            "description": "US $24.00 · Buy It Now · Free shipping",
+        }])
+        self.assertEqual(sold, [])
+        self.assertEqual([(comp.price, comp.url) for comp in live], [(24, "https://www.ebay.com/itm/9")])
+
+    def test_active_listing_without_one_clear_price_is_dropped(self):
+        sold, live = listings_from_web_results([{
+            "title": "Levi's 511 Slim Shorts",
+            "url": "https://www.ebay.com/itm/9",
+            "description": "$24.00 or Best Offer · was $40 · 2 for $30",
+        }])
+        self.assertEqual((sold, live), ([], []))
+
+    def test_model_live_entries_never_include_a_sold_url(self):
+        answer = (
+            '{"comps":[{"title":"Levi\'s 511","price":22,"url":"https://www.ebay.com/itm/1"}],'
+            '"live":[{"title":"Levi\'s 511","price":30,"url":"https://www.ebay.com/itm/1"},'
+            '{"title":"Levi\'s Slim","price":28,"url":"https://poshmark.com/listing/2"}]}'
+        )
+        _market, comps, live = comps_from_model_answer(answer, [])
+        self.assertEqual([comp.url for comp in comps], ["https://www.ebay.com/itm/1"])
+        self.assertEqual([comp.url for comp in live], ["https://poshmark.com/listing/2"])
+
+    def test_merge_dedupes_across_sources(self):
+        shared = SoldComp(price=22, marketplace="eBay", title="Levi's 511", url="https://www.ebay.com/itm/1")
+        merged = merge_reports("q", [
+            SoldCompsReport(query="q", source="ChatGPT", comps=[shared]),
+            SoldCompsReport(
+                query="q",
+                source="Cursor",
+                comps=[shared, SoldComp(price=19, marketplace="Poshmark", title="Levi's", url="https://poshmark.com/listing/2")],
+                live=[SoldComp(price=30, marketplace="eBay", title="Levi's 511", url="https://www.ebay.com/itm/1")],
+            ),
+        ])
+        self.assertEqual(merged.source, "ChatGPT + Cursor")
+        self.assertEqual([comp.price for comp in merged.comps], [22, 19])
+        self.assertEqual(merged.live, [])
+        self.assertEqual(merged.market, "$19–$22")
+
+    def test_live_listings_round_trip_and_do_not_count_as_comps(self):
+        text = format_sold_comps(SoldCompsReport(
+            query="q",
+            source="Brave",
+            live=[SoldComp(price=4, marketplace="eBay", title="Forever 21 crop top", url="https://www.ebay.com/itm/9")],
+        ))
+        self.assertIn("No sold listings found", text)
+        self.assertIn("do not price from these", text)
+        report = parse_sold_comps(text)
+        self.assertEqual(report.comps, [])
+        self.assertEqual([(comp.price, comp.url) for comp in report.live], [(4, "https://www.ebay.com/itm/9")])
+        self.assertFalse(comps_usable(text))
+        self.assertIn("No sold listings found", report.note)
 
 
 class ResearchNoteTest(unittest.TestCase):

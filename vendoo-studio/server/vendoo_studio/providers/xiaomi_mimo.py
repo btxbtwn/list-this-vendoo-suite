@@ -158,6 +158,40 @@ def chunk_text(payload: dict) -> str:
     return ""
 
 
+def chunk_citations(payload: dict) -> list[dict]:
+    """Web search sources in a chat-completion payload, as ``{url, title, description}``.
+
+    MiMo returns every source in the first streamed packet as ``url_citation``
+    annotations on the delta (or the message, when not streaming).
+    """
+    choices = payload.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        return []
+    found: list[dict] = []
+    for source in (choices[0].get("delta") or {}, choices[0].get("message") or {}):
+        annotations = source.get("annotations") if isinstance(source, dict) else None
+        for item in annotations if isinstance(annotations, list) else []:
+            if not isinstance(item, dict) or item.get("type") != "url_citation":
+                continue
+            url = str(item.get("url") or "")
+            if url.startswith("http"):
+                found.append({
+                    "url": url,
+                    "title": str(item.get("title") or ""),
+                    "description": str(item.get("summary") or ""),
+                })
+    return found
+
+
+# Native web search is a paid plugin, switched on in the MiMo console.
+WEB_SEARCH_TOOL = {
+    "type": "web_search",
+    "force_search": True,
+    "max_keyword": 5,
+    "user_location": {"type": "approximate", "country": "United States"},
+}
+
+
 class MiMoProvider:
     name = "xiaomi-mimo"
     vision_model = "mimo-v2.5"
@@ -348,6 +382,48 @@ class MiMoProvider:
                     text = chunk_text(payload)
                     if text:
                         yield StreamChunk(text, "content")
+
+    async def web_search(self, messages: list[dict]) -> dict:
+        """Run ``messages`` with MiMo's web search tool: ``{"answer", "sources"}``."""
+        from vendoo_studio.services import live_trace
+
+        answer = ""
+        sources: list[dict] = []
+        async with httpx.AsyncClient(timeout=180) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json={
+                    "model": self.listing_model,
+                    "messages": messages,
+                    "max_tokens": 8192,
+                    "temperature": 0.2,
+                    "stream": True,
+                    "tools": [WEB_SEARCH_TOOL],
+                },
+            ) as resp:
+                if resp.status_code >= 400:
+                    await resp.aread()
+                    raise RuntimeError(_mimo_http_error(resp))
+                async for line in resp.aiter_lines():
+                    data_str = line[5:].strip() if line.startswith("data:") else line.strip()
+                    if not data_str:
+                        continue
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        payload = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    citations = chunk_citations(payload)
+                    if citations:
+                        sources.extend(citations)
+                        live_trace.emit("step", f"MiMo searched the web ({len(sources)} pages)")
+                    answer += chunk_text(payload)
+        if not answer.strip() and not sources:
+            raise RuntimeError("MiMo web search returned no results")
+        return {"answer": answer.strip(), "sources": sources}
 
     async def vision_chat(self, messages: list[dict]):
         """Chat whose user turns carry photos; the pro listing model is text-only."""
