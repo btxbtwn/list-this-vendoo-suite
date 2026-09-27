@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import threading
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,15 @@ WEB_SEARCH_PREAMBLE = (
 )
 # The only built-in tools a comps search may use.
 WEB_TOOLS = ("webSearch", "webFetch")
+# Cursor keeps searching well past any budget the prompt asks for, and a run
+# stopped from outside returns nothing. So the search is stopped here and the
+# same agent, which remembers what it found, is asked to answer at once.
+# Leaves room inside comp_research's MODEL_SEARCH_TIMEOUT_SEC for that answer.
+WEB_SEARCH_WRAP_UP_SEC = 55.0
+WEB_SEARCH_WRAP_UP = (
+    "Stop searching now. Reply immediately with the JSON of every sold comp and live "
+    "listing you have already found, in the required shape. Do not search again."
+)
 _STREAM_DONE = object()
 # A Cursor run that sends nothing for this long has stalled. The SDK waits on
 # it forever, and generation's field fill sat behind one with the listing busy.
@@ -317,6 +327,7 @@ class CursorProvider:
             tools=WEB_TOOLS,
             on_thinking=on_thinking,
             preamble=WEB_SEARCH_PREAMBLE,
+            wrap_up=(WEB_SEARCH_WRAP_UP_SEC, WEB_SEARCH_WRAP_UP),
         ):
             answer += chunk
         return {"answer": answer.strip(), "sources": []}
@@ -329,6 +340,7 @@ class CursorProvider:
         model: str | None = None,
         tools: tuple[str, ...] | None = None,
         on_thinking: Callable[[_Thinking], None] | None = None,
+        wrap_up: tuple[float, str] | None = None,
         preamble: str = TEXT_ONLY_PREAMBLE,
     ):
         from cursor_sdk import (
@@ -363,10 +375,11 @@ class CursorProvider:
                             api_key=self.api_key,
                             local=LocalAgentOptions(cwd=scratch, setting_sources=[]),
                         ) as agent:
-                            run = agent.send(message)
-                            handles["run"] = run
-                            if stream or on_thinking is not None:
+                            def drain(run) -> bool:
+                                """Relay thinking and (when streaming) text; True if text went out."""
                                 yielded = False
+                                if not stream and on_thinking is None:
+                                    return yielded
                                 for sdk_message in run.stream():
                                     kind = getattr(sdk_message, "type", "")
                                     if kind == "thinking" and on_thinking is not None:
@@ -381,17 +394,38 @@ class CursorProvider:
                                             if chunk:
                                                 yielded = True
                                                 _emit(chunk)
-                            if stream:
+                                return yielded
+
+                            run = agent.send(message)
+                            handles["run"] = run
+                            wrapped = threading.Event()
+                            timer = None
+                            if wrap_up is not None:
+                                def _stop_searching() -> None:
+                                    wrapped.set()
+                                    with contextlib.suppress(Exception):
+                                        run.cancel()
+
+                                timer = threading.Timer(wrap_up[0], _stop_searching)
+                                timer.daemon = True
+                                timer.start()
+                            try:
+                                yielded = drain(run)
                                 result = run.wait()
-                                if result.status == "error":
-                                    raise RuntimeError(f"Cursor run failed: {result.id}")
+                            finally:
+                                if timer is not None:
+                                    timer.cancel()
+                            if wrap_up is not None and wrapped.is_set() and result.status == "cancelled":
+                                run = agent.send(UserMessage(text=wrap_up[1]))
+                                handles["run"] = run
+                                yielded = drain(run)
+                                result = run.wait()
+                            if result.status == "error":
+                                raise RuntimeError(f"Cursor run failed: {result.id}")
+                            if stream:
                                 if not yielded and result.result:
                                     _emit(result.result)
                                 return
-
-                            result = run.wait()
-                            if result.status == "error":
-                                raise RuntimeError(f"Cursor run failed: {result.id}")
                             text = (result.result or "").strip()
                             if not text:
                                 raise RuntimeError("Cursor returned an empty listing response")

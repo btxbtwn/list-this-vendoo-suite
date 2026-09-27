@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.116 — 2026-09-27
+
+- Cursor's sold comps search no longer times out empty. After about a minute Studio stops its searching and asks it for what it has already found, so its listings show up instead of "timed out".
+
 ## 0.1.115 — 2026-09-27
 
 - Suggestions stop showing "Fix listing fields" for a listing once it's been fixed through chat, repair, regenerate or a Vendoo sync, not only through the editor.
