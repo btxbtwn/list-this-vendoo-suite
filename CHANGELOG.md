@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.109 — 2026-09-27
+
+- Send to Vendoo and Update Vendoo no longer get stuck when the model stops answering while it fills category fields. After two minutes the listing goes to Vendoo with the fields that were filled, and the ones still empty are listed so you can fill them.
+
 ## 0.1.108 — 2026-09-27
 
 - Sold comps no longer treat a retail price in the title as the sale price. A listing titled "$44" that is actually $18 is not shown as a $44 sale, and a seller's "items sold" count is not treated as that listing having sold.
