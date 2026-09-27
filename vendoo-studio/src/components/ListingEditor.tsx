@@ -872,6 +872,26 @@ export function sendToVendooEnabled(canSend: boolean, generating: boolean, pendi
   return canSend && !generating && !pending;
 }
 
+const ACTIVE_SEND_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
+
+/** Prefer a job that is still running over a newer finished one on the same listing. */
+export function preferredSendJob<T extends { status?: string | null }>(jobs: T[]): T | undefined {
+  return jobs.find((job) => ACTIVE_SEND_STATUSES.has(String(job.status || ""))) ?? jobs[0];
+}
+
+/**
+ * A second click while this listing's send is already on screen is not another
+ * Chrome job. The progress card is the status; the 409 is noise.
+ */
+export function suppressOwnSendConflict(message: string | null | undefined, ownSendVisible: boolean): string {
+  const text = String(message || "").trim();
+  if (!text || !ownSendVisible) return text;
+  if (/already queued or sending/i.test(text) || /busy with another Vendoo job/i.test(text) || /Chrome is busy with "/i.test(text)) {
+    return "";
+  }
+  return text;
+}
+
 function SendToVendooButton({
   convId,
   canSend,
@@ -900,6 +920,7 @@ function SendToVendooButton({
 }) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
+  const sendLock = React.useRef(false);
   const bound = Boolean(vendooItemId);
 
   // Vendoo's dropdown lists ride along in the fix prompts, so chat repairs a
@@ -1063,8 +1084,10 @@ function SendToVendooButton({
     onError: (err: Error) => setError(err.message || "Failed to cancel"),
   });
 
-  const existingJob = jobs?.find(
-    (j) => j.conversation_id === convId && j.status !== "cancelled" && j.status !== "imported",
+  const existingJob = preferredSendJob(
+    (jobs ?? []).filter(
+      (j) => j.conversation_id === convId && j.status !== "cancelled" && j.status !== "imported",
+    ),
   );
   const isSchemaProbe = existingJob?.mode === "schema_probe";
   const probeActive = Boolean(
@@ -1085,6 +1108,7 @@ function SendToVendooButton({
     && ["queued", "awaiting_extension", "dispatched"].includes(String(existingJob.status || "")),
   );
   const sendStep = useSendStep(step, apiCreateActive);
+  const shownSendError = suppressOwnSendConflict(error, apiCreateActive);
   const extensionConnected = extStatus?.connected ?? false;
   const uniqueBlockers = React.useMemo(() => {
     const seen = new Set<string>();
@@ -1114,6 +1138,7 @@ function SendToVendooButton({
         : "Writes changed fields onto the linked Vendoo draft. Nothing is published.";
 
   const startSend = () => {
+    if (sendLock.current || sendMutation.isPending) return;
     if (generating) {
       setError("Wait for generation to finish before sending.");
       return;
@@ -1122,8 +1147,13 @@ function SendToVendooButton({
       setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
       return;
     }
+    sendLock.current = true;
     setError(null);
-    sendMutation.mutate();
+    sendMutation.mutate(undefined, {
+      onSettled: () => {
+        sendLock.current = false;
+      },
+    });
   };
 
   if ((probeActive || apiCreateActive || formFillActive) && existingJob) {
@@ -1182,17 +1212,17 @@ function SendToVendooButton({
             emptyFieldsPrompt={fillEmptyPrompt}
           />
         )}
-        {error && (
+        {shownSendError && (
           <CopyableLlmError
             className="job-card-detail"
-            text={error}
-            prompt={jobErrorPrompt(error, listingTitle, null, dropdownOptions?.forms)}
+            text={shownSendError}
+            prompt={jobErrorPrompt(shownSendError, listingTitle, null, dropdownOptions?.forms)}
             onAskChat={onAskChat}
             emptyFieldsCount={emptyFieldsCount}
             emptyFieldsPrompt={fillEmptyPrompt}
           />
         )}
-        {!existingJob.last_error && !error && (
+        {!existingJob.last_error && !shownSendError && (
           // No error to show, but empty fields still deserve their fill button.
           <CopyableLlmError
             className="job-card-detail"

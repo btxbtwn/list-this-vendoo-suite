@@ -99,6 +99,46 @@ def _http_error(exc: Exception) -> HTTPException:
     return HTTPException(500, str(exc))
 
 
+def _reject_if_chrome_busy(db: Session, conv_id: str) -> None:
+    """Block a second send while Chrome is actually in use.
+
+    A dead API send is failed first, so it cannot sit on ``dispatched`` and
+    report Chrome busy when nothing is running. This listing's own live send
+    is not "another job".
+    """
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.services.api_job_lock import release_orphaned_api_jobs
+
+    release_orphaned_api_jobs(db)
+    job_repo = JobRepo(db)
+    if any(job.status in ACTIVE_JOB_STATUSES for job in job_repo.list_by_conversation(conv_id)):
+        raise HTTPException(409, "This listing is already queued or sending to Vendoo.")
+    running = [job for job in job_repo.get_running() if job.conversation_id != conv_id]
+    if not running:
+        return
+    other = running[0]
+    snapshot = other.listing_snapshot if isinstance(other.listing_snapshot, dict) else {}
+    title = str(snapshot.get("title") or "").strip()
+    if title:
+        raise HTTPException(
+            409,
+            f'Chrome is busy with "{title}". Try again when it finishes, or cancel that send.',
+        )
+    raise HTTPException(409, "Chrome is busy with another Vendoo job. Try again when it finishes.")
+
+
+def _finish_api_send(db: Session, job_id: str) -> None:
+    from vendoo_studio.services.api_job_lock import (
+        abandon_api_job_if_still_running,
+        release_api_job,
+    )
+
+    try:
+        abandon_api_job_if_still_running(db, job_id)
+    finally:
+        release_api_job(job_id)
+
+
 def _known_item_ids(db: Session) -> list[str]:
     from vendoo_studio.services.vendoo_import import vendoo_binding
 
@@ -395,25 +435,11 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
     The job is held in ``dispatched`` while it runs (same as first Send) so the
     editor can show step progress instead of a silent wait on the button.
     """
-    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.services.api_job_lock import claim_api_job, start_gate
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.listing_generate import latest_photo_analysis
     from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
-    from vendoo_studio.services.vendoo_api import (
-        LISTINGS_KEY,
-        apply_update_all,
-        build_vendoo_item,
-        changed_fields,
-        force_condition_updates,
-    )
-    from vendoo_studio.services.vendoo_create import prepare_listing_for_vendoo, run_ops
-    from vendoo_studio.services.vendoo_import import (
-        merge_notes,
-        parse_notes,
-        vendoo_binding,
-        vendoo_relistable_marketplaces,
-    )
-    from vendoo_studio.services.vendoo_watch import mark_synced
+    from vendoo_studio.services.vendoo_import import vendoo_binding
 
     conv_repo = ConversationRepo(db)
     conv = conv_repo.get(conv_id)
@@ -427,22 +453,45 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "No listing to save.")
 
     job_repo = JobRepo(db)
-    if job_repo.get_running():
-        raise HTTPException(409, "Chrome is busy with another Vendoo job. Try again when it finishes.")
-    if any(job.status in ACTIVE_JOB_STATUSES for job in job_repo.list_by_conversation(conv_id)):
-        raise HTTPException(409, "This listing is already queued or sending to Vendoo.")
-
     snapshot = prepare_listing_snapshot(db, conv, revisions[0].listing_json)
     provider = get_listing_provider() if provider_is_configured() else None
     evidence = latest_photo_analysis(conv_repo.get_messages(conv_id)) or str(conv.notes or "")
-    job = job_repo.create(
-        conv_id=conv_id,
-        approved_revision_id=revisions[0].id,
-        listing_snapshot=snapshot,
-        vendoo_item_id=item_id,
-        status="dispatched",
-        current_step=SAVE_STEP,
+    with start_gate():
+        _reject_if_chrome_busy(db, conv_id)
+        job = job_repo.create(
+            conv_id=conv_id,
+            approved_revision_id=revisions[0].id,
+            listing_snapshot=snapshot,
+            vendoo_item_id=item_id,
+            status="dispatched",
+            current_step=SAVE_STEP,
+        )
+        claim_api_job(job.id)
+    try:
+        return await _save_claimed_draft(
+            db, conv, conv_id, item_id, revisions, snapshot, provider, evidence, job, job_repo,
+        )
+    finally:
+        _finish_api_send(db, job.id)
+
+
+async def _save_claimed_draft(
+    db, conv, conv_id, item_id, revisions, snapshot, provider, evidence, job, job_repo,
+):
+    from vendoo_studio.services.vendoo_api import (
+        LISTINGS_KEY,
+        apply_update_all,
+        build_vendoo_item,
+        changed_fields,
+        force_condition_updates,
     )
+    from vendoo_studio.services.vendoo_create import prepare_listing_for_vendoo, run_ops
+    from vendoo_studio.services.vendoo_import import (
+        merge_notes,
+        parse_notes,
+        vendoo_relistable_marketplaces,
+    )
+    from vendoo_studio.services.vendoo_watch import mark_synced
 
     def mark(step: str) -> None:
         _mark_vendoo_api_step(job, step)
@@ -823,7 +872,7 @@ async def category_specifics(body: SpecificsRequest):
 @router.post("/api/conversations/{conv_id}/vendoo-api/create", response_model=CreateResponse)
 async def create(conv_id: str, db: Session = Depends(get_db)):
     """Create this conversation's latest listing as a Vendoo draft."""
-    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.services.api_job_lock import claim_api_job, start_gate
     from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.vendoo_create import create_item
     from vendoo_studio.services.listing_generate import latest_photo_analysis
@@ -845,11 +894,6 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "Add at least one photo first.")
 
     job_repo = JobRepo(db)
-    if job_repo.get_running():
-        raise HTTPException(409, "Chrome is busy with another Vendoo job. Try again when it finishes.")
-    if any(job.status in ACTIVE_JOB_STATUSES for job in job_repo.list_by_conversation(conv_id)):
-        raise HTTPException(409, "This listing is already queued or sending to Vendoo.")
-
     snapshot = prepare_listing_snapshot(db, conv, revisions[0].listing_json)
     # The model answers the category's fields before the item goes up, so the
     # draft is created complete instead of bare.
@@ -858,53 +902,59 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
     # the conversation, so reuse it rather than paying for it again. Seller
     # notes stand in when there is none.
     evidence = latest_photo_analysis(conv_repo.get_messages(conv_id)) or str(conv.notes or "")
-    job = job_repo.create(
-        conv_id=conv_id,
-        approved_revision_id=revisions[0].id,
-        listing_snapshot=snapshot,
-        status="dispatched",
-        current_step=CREATE_STEP,
-    )
+    with start_gate():
+        _reject_if_chrome_busy(db, conv_id)
+        job = job_repo.create(
+            conv_id=conv_id,
+            approved_revision_id=revisions[0].id,
+            listing_snapshot=snapshot,
+            status="dispatched",
+            current_step=CREATE_STEP,
+        )
+        claim_api_job(job.id)
     try:
-        out = await create_item(job, snapshot, photos, provider=provider, evidence=evidence)
-    except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+        try:
+            out = await create_item(job, snapshot, photos, provider=provider, evidence=evidence)
+        except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
+            job = job_repo.get(job.id) or job
+            if str(getattr(job, "status", "") or "") in {"cancelled", "failed"} or "cancelled" in str(exc).lower():
+                raise HTTPException(409, str(exc) or "Send was cancelled") from exc
+            job_repo.update_status(job.id, "failed", CREATE_STEP, error=str(exc))
+            job_repo.add_event(job.id, "vendoo_api_create_failed", CREATE_STEP, {"error": str(exc)})
+            raise _http_error(exc) from exc
+
         job = job_repo.get(job.id) or job
-        if str(getattr(job, "status", "") or "") in {"cancelled", "failed"} or "cancelled" in str(exc).lower():
-            raise HTTPException(409, str(exc) or "Send was cancelled") from exc
-        job_repo.update_status(job.id, "failed", CREATE_STEP, error=str(exc))
-        job_repo.add_event(job.id, "vendoo_api_create_failed", CREATE_STEP, {"error": str(exc)})
-        raise _http_error(exc) from exc
+        if str(getattr(job, "status", "") or "") == "cancelled":
+            # Draft may already exist on Vendoo; do not bind or flip the cancelled job.
+            raise HTTPException(409, "Send was cancelled")
 
-    job = job_repo.get(job.id) or job
-    if str(getattr(job, "status", "") or "") == "cancelled":
-        # Draft may already exist on Vendoo; do not bind or flip the cancelled job.
-        raise HTTPException(409, "Send was cancelled")
+        conv.notes = merge_notes(conv.notes, {"vendooItemId": out["item_id"], "vendooUrl": out["url"]})
+        db.commit()
+        job_repo.update_status(
+            job.id, "completed", CREATED_STEP, vendoo_item_id=out["item_id"], vendoo_url=out["url"]
+        )
+        job_repo.add_event(job.id, "vendoo_api_created", CREATED_STEP, {
+            "item_id": out["item_id"],
+            "unresolved": out["unresolved"],
+            "unfilled": out.get("unfilled") or [],
+            "diff": out["diff"],
+        })
+        if out.get("stored"):
+            job_repo.save_vendoo_draft(job.id, item=out["stored"], item_id=out["item_id"], url=out["url"], source="api")
+            # The draft was built from this revision, so the two start out level —
+            # otherwise a brand-new item reads as edited-but-unsent straight away.
+            from vendoo_studio.services.vendoo_watch import mark_synced
 
-    conv.notes = merge_notes(conv.notes, {"vendooItemId": out["item_id"], "vendooUrl": out["url"]})
-    db.commit()
-    job_repo.update_status(
-        job.id, "completed", CREATED_STEP, vendoo_item_id=out["item_id"], vendoo_url=out["url"]
-    )
-    job_repo.add_event(job.id, "vendoo_api_created", CREATED_STEP, {
-        "item_id": out["item_id"],
-        "unresolved": out["unresolved"],
-        "unfilled": out.get("unfilled") or [],
-        "diff": out["diff"],
-    })
-    if out.get("stored"):
-        job_repo.save_vendoo_draft(job.id, item=out["stored"], item_id=out["item_id"], url=out["url"], source="api")
-        # The draft was built from this revision, so the two start out level —
-        # otherwise a brand-new item reads as edited-but-unsent straight away.
-        from vendoo_studio.services.vendoo_watch import mark_synced
-
-        revision = ListingRepo(db).get_revisions(conv_id)
-        mark_synced(db, conv_id, out["stored"], revision[0].id if revision else None)
-    return CreateResponse(
-        ok=True,
-        job_id=job.id,
-        item_id=out["item_id"],
-        url=out["url"],
-        unresolved=out["unresolved"],
-        unfilled=out.get("unfilled") or [],
-        diff=out["diff"],
-    )
+            revision = ListingRepo(db).get_revisions(conv_id)
+            mark_synced(db, conv_id, out["stored"], revision[0].id if revision else None)
+        return CreateResponse(
+            ok=True,
+            job_id=job.id,
+            item_id=out["item_id"],
+            url=out["url"],
+            unresolved=out["unresolved"],
+            unfilled=out.get("unfilled") or [],
+            diff=out["diff"],
+        )
+    finally:
+        _finish_api_send(db, job.id)

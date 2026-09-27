@@ -97,6 +97,12 @@ def ensure_draft_job(body: EnsureDraftJobRequest, db: Session = Depends(get_db))
 
 @router.get("", response_model=list[JobResponse])
 def list_jobs(conversation_id: str | None = None, db: Session = Depends(get_db)):
+    # A send that died still occupies ``dispatched`` until something looks.
+    # The editor polls this, so the stuck "Filling marketplace fields" card
+    # clears without a Chrome reconnect.
+    from vendoo_studio.services.api_job_lock import release_orphaned_api_jobs
+
+    release_orphaned_api_jobs(db)
     repo = JobRepo(db)
     if conversation_id:
         conv = ConversationRepo(db).get(conversation_id)

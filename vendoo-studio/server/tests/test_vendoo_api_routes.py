@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
+from concurrent.futures import CancelledError
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
+
+from sqlalchemy import update
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -11,6 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
+from vendoo_studio.models.job import Job
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
@@ -139,6 +145,81 @@ class CreateRouteTest(_RouteTest):
         res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
         self.assertEqual(res.status_code, 409)
         self.assertIn("busy", res.json()["detail"])
+        self.assertIn("Levi's 501", res.json()["detail"])
+
+    def _age(self, job, *, minutes: int = 10) -> None:
+        self.db.execute(
+            update(Job).where(Job.id == job.id).values(
+                updated_at=datetime.now(UTC) - timedelta(minutes=minutes),
+            )
+        )
+        self.db.commit()
+        self.db.expire_all()
+
+    def test_a_dead_send_does_not_count_as_another_job(self):
+        other = ConversationRepo(self.db).create(title="Other")
+        rev = ListingRepo(self.db).save_revision(other.id, LISTING, source="model")
+        stale = JobRepo(self.db).create(
+            other.id, rev.id, {**LISTING, "title": "Old tee"},
+            status="dispatched", current_step="vendoo_api_fields",
+        )
+        self._age(stale)
+
+        async def fake_create(job, listing, photos, *, provider=None, evidence=""):
+            return CREATED
+
+        with patch("vendoo_studio.services.vendoo_create.create_item", fake_create):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.db.expire_all()
+        self.assertEqual(JobRepo(self.db).get(stale.id).status, "failed")
+
+    def test_this_listings_live_send_is_not_reported_as_another_job(self):
+        from vendoo_studio.services.api_job_lock import claim_api_job, release_api_job
+
+        rev = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        job = JobRepo(self.db).create(
+            self.conv.id, rev.id, LISTING, status="dispatched", current_step="vendoo_api_fields",
+        )
+        claim_api_job(job.id)
+        try:
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+        finally:
+            release_api_job(job.id)
+        self.assertEqual(res.status_code, 409)
+        self.assertIn("already queued or sending", res.json()["detail"])
+        self.assertNotIn("another Vendoo job", res.json()["detail"])
+
+    def test_a_send_that_just_started_still_blocks_a_second_one(self):
+        rev = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        JobRepo(self.db).create(
+            self.conv.id, rev.id, LISTING, status="dispatched", current_step="vendoo_api_fields",
+        )
+        res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+        self.assertEqual(res.status_code, 409)
+        self.assertIn("already queued or sending", res.json()["detail"])
+
+    def test_job_list_drops_a_dead_send_so_the_card_can_clear(self):
+        rev = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        stale = JobRepo(self.db).create(
+            self.conv.id, rev.id, LISTING, status="dispatched", current_step="vendoo_api_fields",
+        )
+        self._age(stale)
+        res = self.client.get("/api/jobs", params={"conversation_id": self.conv.id})
+        self.assertEqual(res.status_code, 200, res.text)
+        match = next(row for row in res.json() if row["id"] == stale.id)
+        self.assertEqual(match["status"], "failed")
+
+    def test_a_cancelled_send_does_not_stay_dispatched(self):
+        async def fake_create(job, listing, photos, *, provider=None, evidence=""):
+            raise asyncio.CancelledError()
+
+        with patch("vendoo_studio.services.vendoo_create.create_item", fake_create):
+            with self.assertRaises(CancelledError):
+                self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+        self.db.expire_all()
+        jobs = JobRepo(self.db).list_by_conversation(self.conv.id)
+        self.assertEqual([job.status for job in jobs], ["failed"])
 
 
 class PullRouteTest(_RouteTest):
