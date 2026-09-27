@@ -215,13 +215,21 @@ def apply_pull(
     source: str = "vendoo_sync",
 ) -> str | None:
     """Save Vendoo's version as a revision and record that we are in step."""
+    from vendoo_studio.models.validation import normalize_listing_dropdowns
+    from vendoo_studio.services.listing_generate import align_size_fields
     from vendoo_studio.services.vendoo_import import listing_from_vendoo
 
+    # Saved in the shape reading the listing leaves it in. Otherwise the first
+    # read after a pull saves a normalizing revision on top, and Vendoo's own
+    # copy shows as an unsent edit.
+    listing = listing_from_vendoo(item, None)
+    align_size_fields(listing)
+    normalize_listing_dropdowns(listing)
     listing_repo = ListingRepo(db)
     revisions = listing_repo.get_revisions(conv_id)
     revision = listing_repo.save_revision(
         conv_id,
-        listing_from_vendoo(item, None),
+        listing,
         source=source,
         parent_revision_id=revisions[0].id if revisions else None,
     )

@@ -7,7 +7,10 @@ copy an unsent edit the moment it landed.
 """
 from __future__ import annotations
 
+import asyncio
+import copy
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -20,6 +23,9 @@ from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.vendoo_import import merge_notes
+from vendoo_studio.services.vendoo_watch import sync_conversation
+
+from test_vendoo_import import VENDOO_ITEM
 
 LISTING = {"title": "Levi's 501", "description": "Classic fit.", "price": 48}
 
@@ -82,6 +88,22 @@ class UnsentEditsTest(unittest.TestCase):
         rows = self.client.get("/api/conversations").json()
         row = next(item for item in rows if item["id"] == self.conv.id)
         self.assertTrue(row["unsent_edits"])
+
+    def test_opening_a_pulled_listing_is_not_an_unsent_edit(self):
+        """Reading the listing normalizes it; Vendoo's copy must already be in that shape."""
+        self.mark_synced_on(self.revision.id)
+        item = {**copy.deepcopy(VENDOO_ITEM), "itemID": "itm1", "dateLastModified": 2000}
+
+        async def fake_run_ops(job, ops):
+            return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": item}]}
+
+        with mock.patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops):
+            result = asyncio.run(sync_conversation(self.db, self.conv.id))
+        self.assertEqual(result["action"], "pull")
+        res = self.client.get(f"/api/conversations/{self.conv.id}/listing")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["current_revision_id"], result["revision_id"])
+        self.assertFalse(self.flag())
 
 
 if __name__ == "__main__":

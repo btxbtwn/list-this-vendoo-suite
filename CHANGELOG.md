@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.122 — 2026-09-27
+
+- A listing no longer shows **Unsent edits** just because Studio pulled Vendoo's copy and you opened it. The chip now means you changed something that Vendoo doesn't have yet.
+
 ## 0.1.121 — 2026-09-27
 
 - Sold comps no longer take a price from a listing's title. A seller who writes "$58" in the title of a top now selling for $23.20 used to show up as a $58 sale; a price written in the title is now ignored.
