@@ -1,16 +1,17 @@
 import type { SourcingCart, SourcingLot, SourcingSnapshot } from "../api/types";
 
-/** Box grades in the words a buyer would use. */
-export const CONDITION_LABELS: Record<string, string> = {
-  good: "Good condition",
-  mixed: "Mixed condition",
-  recycle: "Needs some fixing",
-  a: "Grade A",
-  ab: "Grade A/B",
-  b: "Grade B, some flaws",
-  bc: "Grade B/C, flaws",
-  c: "Grade C, needs fixing",
+/**
+ * Each store's own name for a box's grade. Raghouse sells "Recycle", "Recycle & Good"
+ * and plain lots; TVF grades A to C and says nothing on a plain lot.
+ */
+export const GRADE_LABELS: Record<string, Record<string, string>> = {
+  raghouse: { good: "Good", mixed: "Recycle & Good", recycle: "Recycle" },
+  tvf: { a: "A Grade", ab: "A/B Grade", b: "B Grade", bc: "B/C Grade", c: "C Grade" },
 };
+
+export function gradeLabel(lot: SourcingLot): string | null {
+  return GRADE_LABELS[lot.store]?.[lot.grade] ?? null;
+}
 
 export const REFRESH_HOURS = 6;
 
@@ -34,9 +35,10 @@ export function boxCount(count: number): string {
   return count === 1 ? "1 box" : `${count} boxes`;
 }
 
-/** "69 pieces", or "about 150 pieces" when the store sold it by weight. */
+/** The count the way each store writes it: Raghouse "69 pcs", TVF "10 Pieces"; ~ when estimated. */
 export function piecesLabel(lot: SourcingLot): string {
-  return `${lot.pcs_estimated ? "about " : ""}${lot.pcs} pieces`;
+  const unit = lot.store === "tvf" ? "Pieces" : "pcs";
+  return `${lot.pcs_estimated ? "~" : ""}${lot.pcs} ${unit}`;
 }
 
 /** The one line under a box's name that says why it is worth having. */
@@ -44,9 +46,9 @@ export function lotReason(lot: SourcingLot, withStore = false): string {
   const parts = [
     withStore ? storeName(lot.store) : null,
     piecesLabel(lot),
-    CONDITION_LABELS[lot.grade] ?? lot.grade,
+    gradeLabel(lot),
     lot.resale_per_pc != null ? `sells for about $${Math.round(lot.resale_per_pc)} each` : null,
-    lot.vip ? "VIP members only" : null,
+    lot.vip ? "VIP only" : null,
   ];
   return parts.filter(Boolean).join(" · ");
 }

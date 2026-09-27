@@ -4,6 +4,7 @@ import {
   cartTotal,
   clockTime,
   freeShippingGap,
+  gradeLabel,
   isZip,
   lotReason,
   moneyBack,
@@ -79,15 +80,26 @@ describe("money", () => {
 });
 
 describe("box wording", () => {
-  it("says about when the piece count is estimated from weight", () => {
-    expect(piecesLabel(lot())).toBe("69 pieces");
-    expect(piecesLabel(lot({ pcs: 150, pcs_estimated: true }))).toBe("about 150 pieces");
+  it("counts pieces the way each store does, with ~ when estimated", () => {
+    expect(piecesLabel(lot())).toBe("69 pcs");
+    expect(piecesLabel(lot({ store: "tvf", pcs: 10 }))).toBe("10 Pieces");
+    expect(piecesLabel(lot({ store: "tvf", pcs: 150, pcs_estimated: true }))).toBe("~150 Pieces");
   });
 
-  it("explains a box in plain words", () => {
-    expect(lotReason(lot())).toBe("69 pieces · Good condition · sells for about $14 each");
-    expect(lotReason(lot({ grade: "recycle", resale_per_pc: null, vip: true, store: "raghouse" }), true)).toBe(
-      "Raghouse · 69 pieces · Needs some fixing · VIP members only",
+  it("names grades in each store's words", () => {
+    expect(gradeLabel(lot({ grade: "recycle" }))).toBe("Recycle");
+    expect(gradeLabel(lot({ grade: "mixed" }))).toBe("Recycle & Good");
+    expect(gradeLabel(lot({ store: "tvf", grade: "bc" }))).toBe("B/C Grade");
+    expect(gradeLabel(lot({ store: "tvf", grade: "good" }))).toBeNull();
+  });
+
+  it("explains a box in one line", () => {
+    expect(lotReason(lot())).toBe("69 pcs · Good · sells for about $14 each");
+    expect(lotReason(lot({ grade: "recycle", resale_per_pc: null, vip: true }), true)).toBe(
+      "Raghouse · 69 pcs · Recycle · VIP only",
+    );
+    expect(lotReason(lot({ store: "tvf", pcs: 10, resale_per_pc: null }), true)).toBe(
+      "Thrift Vintage Fashion · 10 Pieces",
     );
   });
 });

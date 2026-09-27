@@ -375,9 +375,9 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
           checks again every two weeks.
         </li>
         <li>
-          Profit assumes about {Math.round(a.sell_through * 100)}% of the good pieces sell (more for boxes that sell
-          out fast), minus {Math.round(a.fees * 100)}% marketplace fees and the box's cost with shipping. Boxes that
-          need fixing count fewer good pieces.
+          Profit assumes about {Math.round(a.sell_through * 100)}% of the sellable pieces sell (more for boxes that
+          sell out fast), minus {Math.round(a.fees * 100)}% marketplace fees and the box's cost with shipping. Recycle
+          lots count 60% of their pcs as sellable, Recycle &amp; Good 75%, B Grade 60%, C Grade 50% and every other lot 90%.
         </li>
         <li>It picks the best boxes that should at least double your money, one of each kind, up to your budget.</li>
         <li>
