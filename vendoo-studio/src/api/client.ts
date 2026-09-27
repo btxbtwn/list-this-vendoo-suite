@@ -33,6 +33,8 @@ import type {
   SuggestionsResponse,
   AnalyticsRange,
   InventoryAnalytics,
+  SourcingPrefs,
+  SourcingState,
 } from "./types";
 import { readSse } from "./sse";
 
@@ -151,6 +153,16 @@ export const api = {
   },
   analytics: {
     get: (range: AnalyticsRange) => request<InventoryAnalytics>(`/analytics?range=${range}`),
+  },
+  sourcing: {
+    get: () => request<SourcingState>("/sourcing"),
+    refresh: () => request<SourcingState>("/sourcing/refresh", { method: "POST" }),
+    savePrefs: (prefs: Partial<SourcingPrefs>) =>
+      request<SourcingState>("/sourcing/prefs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prefs),
+      }),
   },
   vendooApi: {
     listingFields: (convId: string) =>

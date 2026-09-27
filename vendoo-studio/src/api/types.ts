@@ -465,3 +465,74 @@ export interface DatabaseReport {
   ok?: boolean;
   pruned?: { vendoo_drafts: number; duplicate_events: number; deleted: number };
 }
+
+export interface SourcingLot {
+  store: string;
+  variant_id: number;
+  title: string;
+  url: string;
+  price: number;
+  compare_at: number | null;
+  pcs: number;
+  pcs_estimated: boolean;
+  grade: string;
+  lbs: number;
+  lbs_estimated: boolean;
+  vip: boolean;
+  listed: string | null;
+  seller_resale: number | null;
+  theme: string;
+  ship_est: number;
+  usable_pcs: number;
+  demand: number;
+  trend_hits: string[];
+  landed: number;
+  cog_per_pc: number;
+  cog_per_usable_pc: number;
+  resale_per_pc: number | null;
+  sell_through: number;
+  expected_revenue: number | null;
+  expected_profit: number | null;
+  roi: number | null;
+  score: number;
+  evidence: string[];
+}
+
+export interface SourcingCart {
+  store: string;
+  name: string;
+  subtotal: number;
+  shipping: number;
+  free_shipping: boolean;
+  free_shipping_over: number | null;
+  cart_url: string;
+  lots: SourcingLot[];
+}
+
+export interface SourcingSnapshot {
+  updated_at: string;
+  destination_zip: string;
+  stores: Record<string, { name: string; error: string | null; sellout: number | null; zone: number | null }>;
+  research: boolean;
+  priced_themes: number;
+  shipping: { residential_surcharge: number; fuel_surcharge_pct: number; fuel_surcharge_as_of: string };
+  assumptions: { sell_through: number; fees: number; grade_yield: Record<string, number> };
+  buy_list: { budget: number; total: number; expected_profit: number; carts: SourcingCart[] };
+  lots: SourcingLot[];
+}
+
+export interface SourcingPrefs {
+  budget: number;
+  min_roi: number;
+  raghouse_vip: boolean;
+  zip: string;
+  recent_zips: string[];
+}
+
+export interface SourcingState {
+  refreshing: boolean;
+  research_available: boolean;
+  prefs: SourcingPrefs;
+  trend: { terms: string[]; updated_at: string | null; source: string | null };
+  snapshot: SourcingSnapshot | null;
+}

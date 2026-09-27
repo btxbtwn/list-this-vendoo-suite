@@ -9,7 +9,7 @@ import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
 import { SetupChecklist } from "../components/SetupChecklist";
 import { BrowserPreview } from "../components/BrowserPreview";
-import { AnalyticsIcon, BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
+import { AnalyticsIcon, BackIcon, SourcingIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
 import {
   DEFAULT_SETTINGS_SECTION,
   SETTINGS_SECTION_LABELS,
@@ -47,6 +47,9 @@ const SettingsPage = lazy(() =>
 );
 const AnalyticsPage = lazy(() =>
   import("../components/AnalyticsPage").then((module) => ({ default: module.AnalyticsPage })),
+);
+const SourcingPage = lazy(() =>
+  import("../components/SourcingPage").then((module) => ({ default: module.SourcingPage })),
 );
 const FirstRunGuide = lazy(() =>
   import("../components/FirstRunGuide").then((module) => ({ default: module.FirstRunGuide })),
@@ -201,7 +204,9 @@ export function App() {
     ? SETTINGS_SECTION_LABELS[settingsSection]
     : activeView === "analytics"
       ? "Analytics"
-      : String(selectedListing?.title || "Vendoo Studio");
+      : activeView === "sourcing"
+        ? "Sourcing"
+        : String(selectedListing?.title || "Vendoo Studio");
   const crumbs = workspaceCrumbs(
     activeView,
     SETTINGS_SECTION_LABELS[settingsSection],
@@ -229,15 +234,25 @@ export function App() {
     closeMobileSidebar();
   };
 
-  const openAnalytics = () => {
+  // Analytics and Sourcing are toggles: pressing the open one goes back to listings.
+  const togglePage = (view: "analytics" | "sourcing") => {
     setMobilePane("workspace");
-    if (activeView === "analytics") {
+    if (activeView === view) {
       setActiveView("listings");
       return;
     }
-    setActiveView("analytics");
+    setActiveView(view);
     closeMobileSidebar();
   };
+  const openAnalytics = () => togglePage("analytics");
+  const openProviders = () => {
+    setSettingsSection("providers");
+    setSettingsTargetId(null);
+    setActiveView("settings");
+    setMobilePane("workspace");
+    closeMobileSidebar();
+  };
+  const openSourcing = () => togglePage("sourcing");
 
   const openListing = (id: string) => {
     setSelectedConvId(id);
@@ -545,6 +560,7 @@ export function App() {
             onDelete={(id) => deleteConv.mutate(id)}
             onOpenSettings={openSettings}
             onOpenAnalytics={openAnalytics}
+            onOpenSourcing={openSourcing}
             onCloseSettings={closeSettings}
             onSettingsSectionChange={handleSettingsSectionChange}
             onSettingsSearchResult={handleSettingsSearchResult}
@@ -583,7 +599,7 @@ export function App() {
                   closeSettings();
                   return;
                 }
-                if (activeView === "analytics") {
+                if (activeView === "analytics" || activeView === "sourcing") {
                   setActiveView("listings");
                   setMobileSidebarOpen(true);
                   return;
@@ -630,6 +646,15 @@ export function App() {
                 <button
                   type="button"
                   className="sidebar-icon-btn mobile-workspace-settings"
+                  title="Sourcing"
+                  aria-label="Sourcing"
+                  onClick={openSourcing}
+                >
+                  <SourcingIcon />
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-icon-btn mobile-workspace-settings"
                   title="Analytics"
                   aria-label="Analytics"
                   onClick={openAnalytics}
@@ -662,6 +687,10 @@ export function App() {
               ) : activeView === "analytics" ? (
                 <Suspense fallback={null}>
                   <AnalyticsPage onOpenListing={openListing} />
+                </Suspense>
+              ) : activeView === "sourcing" ? (
+                <Suspense fallback={null}>
+                  <SourcingPage onOpenProviders={openProviders} />
                 </Suspense>
               ) : selectedConvId ? (
                 <div className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>

@@ -46,7 +46,7 @@ Use `--content docs` for specs/skills prose, `--content config` for JSON/YAML/TO
 
 ## Repository Structure
 
-- **`skills/`** — Agent skills for listing generation (`list-this`).
+- **`skills/`** — Agent skills for listing generation (`list-this`) and sourcing (`box-scout`).
 - **`vendoo-extension/`** — Chrome MV3 extension that consumes listing JSON and fills marketplace forms. Content scripts under `content-scripts/` handle Vendoo, eBay, Poshmark, Mercari, Depop, and Etsy. `background.js` routes messages and loads the worker modules in `background/`; `popup.html`/`popup.js` provide the manual paste-and-fill UI. Node unit tests live in `tests/`.
 - **`vendoo-studio/`** — React + TypeScript frontend (`src/`) and FastAPI Python backend (`server/vendoo_studio/`). Frontend API clients live under `src/api/`. Backend routes live under `server/vendoo_studio/routes/`; domain behavior lives in `server/vendoo_studio/services/` and `server/vendoo_studio/repositories/`.
 

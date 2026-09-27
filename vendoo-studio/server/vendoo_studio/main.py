@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, frontend_dist_dir
 from vendoo_studio.database import init_db
 from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop, imports
-from vendoo_studio.routes import analytics, backups, browser, catalog, changelog, vendoo_api, suggestions
+from vendoo_studio.routes import analytics, backups, browser, catalog, changelog, sourcing, vendoo_api, suggestions
 from vendoo_studio.version import app_version
 
 
@@ -38,6 +38,11 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     try:
+        from vendoo_studio.services.box_scout import start_sourcing_timer
+        start_sourcing_timer()
+    except Exception:
+        pass
+    try:
         from vendoo_studio.database import SessionLocal
         from vendoo_studio.services.maintenance import prune_event_bloat
         import logging
@@ -61,6 +66,11 @@ async def lifespan(app: FastAPI):
     try:
         from vendoo_studio.services.backups import stop_snapshot_timer
         stop_snapshot_timer()
+    except Exception:
+        pass
+    try:
+        from vendoo_studio.services.box_scout import stop_sourcing_timer
+        stop_sourcing_timer()
     except Exception:
         pass
     # Last thing before the process goes: pruning frees pages inside the file,
@@ -99,6 +109,7 @@ app.include_router(chat.router)
 app.include_router(catalog.router)
 app.include_router(suggestions.router)
 app.include_router(analytics.router)
+app.include_router(sourcing.router)
 app.include_router(browser.router)
 app.include_router(vendoo_api.router)
 app.include_router(backups.router)
