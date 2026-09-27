@@ -2,6 +2,7 @@ import type {
   BackupSnapshot,
   BackupsStatus,
   Conversation,
+  ConversationSummary,
   DatabaseReport,
   DeleteConversationResult,
   FillLogReport,
@@ -206,7 +207,7 @@ export const api = {
     }>("/status"),
 
   conversations: {
-    list: () => request<Conversation[]>("/conversations"),
+    list: () => request<ConversationSummary[]>("/conversations"),
     get: (id: string) => request<Conversation>(`/conversations/${id}`),
     create: (body?: { title?: string; notes?: string }) =>
       request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(body || {}) }),

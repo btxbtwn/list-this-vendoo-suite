@@ -75,6 +75,17 @@ class ConversationStatusTest(unittest.TestCase):
         self.assertEqual(row["status"], "sold")
         self.assertEqual(row["vendoo_status"], "sold")
 
+    def test_inventory_rows_leave_notes_to_the_open_listing(self):
+        """The sidebar polls every row; the notes blob is fetched per listing."""
+        conv = ConversationRepo(self.db).create(
+            title="Tee", notes='{"sellerNotes": "long seller notes", "vendooLabels": "Women"}',
+        )
+
+        row = next(item for item in self.client.get("/api/conversations").json() if item["id"] == conv.id)
+        self.assertNotIn("notes", row)
+        self.assertEqual(row["vendoo_labels"], ["Women"])
+        self.assertIn("long seller notes", self.client.get(f"/api/conversations/{conv.id}").json()["notes"])
+
 
 if __name__ == "__main__":
     unittest.main()

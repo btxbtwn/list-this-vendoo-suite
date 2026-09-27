@@ -2,10 +2,11 @@
 
 export type ListingData = Record<string, unknown>;
 
-export interface Conversation {
+/** One inventory row. Notes stay on the full Conversation: the sidebar polls
+ * every row, and only the open listing reads them. */
+export interface ConversationSummary {
   id: string;
   title: string | null;
-  notes: string | null;
   status: string;
   settled_at?: string | null;
   unsettled_at?: string | null;
@@ -38,6 +39,10 @@ export interface Conversation {
   vendoo_relist_pending?: string[];
   /** Edited here since Studio and Vendoo were last level: Update Vendoo is owed. */
   unsent_edits?: boolean;
+}
+
+export interface Conversation extends ConversationSummary {
+  notes: string | null;
 }
 
 export interface Message {

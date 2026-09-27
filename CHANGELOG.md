@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.105 — 2026-09-27
+
+- Opening a listing no longer sits on "Loading..." while Studio is busy. The inventory list is about half the size it was and refreshes every 10 seconds instead of every 2 when no Vendoo send is running.
+
 ## 0.1.104 — 2026-09-27
 
 - Regenerate finishes instead of sitting on "Clearing chat and generated fields…". A category-index rebuild no longer freezes Studio, and listings already sent to Vendoo clear.
