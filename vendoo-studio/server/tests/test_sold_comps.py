@@ -231,6 +231,34 @@ class WebResultFilterTest(unittest.TestCase):
         }], expected_names=names)
         self.assertEqual(dropped, [])
 
+    def test_active_listing_sale_counts_are_not_sold_evidence(self):
+        # A multi-quantity Buy It Now still for sale; $11.17 is an installment.
+        results = [{
+            "title": "Outdoor Ventures Men's Rain Jacket Waterproof Lightweight Medium, Black | eBay",
+            "url": "https://ebay.com/itm/127903338298",
+            "description": (
+                "or 4 interest-free payments of $11.17 available with Learn more · "
+                "Condition: New with tags · Quantity: Last one1 sold · Buy It Now"
+            ),
+            "extra_snippets": ["1 has already sold. Breathe easy. Returns accepted."],
+        }, {
+            "title": "Men's Winter Skiing Jacket Windproof Waterproof Hooded Coat | eBay",
+            "url": "https://www.ebay.com/itm/800307310656",
+            "description": "Winter Ski Jacket, Perfect for Outdoor Sports.",
+            "extra_snippets": ["2 have already sold. US $5.50 Standard Shipping."],
+        }]
+        comps, live = listings_from_web_results(results)
+        self.assertEqual(comps, [])
+        self.assertEqual([comp.price for comp in live], [])
+
+    def test_name_words_scattered_in_snippets_do_not_match(self):
+        comps = sold_from_web_results([{
+            "title": "Men's Winter Skiing Jacket Windproof Hooded Coat - Sold",
+            "url": "https://www.ebay.com/itm/800307310656",
+            "description": "Sold for $22. Perfect for Outdoor Sports.",
+        }], expected_names=("outdoor jacket",))
+        self.assertEqual(comps, [])
+
 class ModelAnswerParseTest(unittest.TestCase):
     def test_reads_json_comps(self):
         answer = """```json

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.128 — 2026-09-27
+
+- Sold comps no longer include listings that are still for sale. A "1 sold" count on a multi-quantity listing, an installment amount ("4 payments of $11.17") or a shipping charge ("$5.50 Standard Shipping") is no longer read as a sale, and a brand only matches when its words are in the listing's own title.
+
 ## 0.1.127 — 2026-09-27
 
 - **Regenerate** no longer starts a sold comps search on its own. Click **Search sold comps** in the price dialog when you want one.
