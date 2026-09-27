@@ -8,7 +8,7 @@ Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
 ## 0.1.101 — 2026-09-27
 
-- Listings open faster. Studio now asks Vendoo about every marketplace's fields at once and stops waiting after 10 seconds, instead of checking one marketplace at a time for up to four minutes each.
+- Update Vendoo and Relist now move the Vendoo form's "Last Saved" date, the way saving in Vendoo does, so you can see the update landed instead of the form still reading the last save made in Vendoo
 
 ## 0.1.100 — 2026-09-27
 

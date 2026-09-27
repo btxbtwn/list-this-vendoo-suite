@@ -483,6 +483,13 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         form_updates = force_condition_updates(
             desired, {k: v for k, v in updates.items() if k.startswith(f"{LISTINGS_KEY}.")}
         )
+        if updates:
+            # Vendoo's own save stamps the item in epoch milliseconds, and its
+            # form's "Last Saved" reads that stamp. Without it the form still
+            # dates itself to the last save made in Vendoo. It is not an edit,
+            # so it stays out of ``updates`` and the relist reminder.
+            desired["dateLastModified"] = int(datetime.now(UTC).timestamp() * 1000)
+            general_updates["dateLastModified"] = desired["dateLastModified"]
         mark(PATCH_STEP)
         for batch in (general_updates, form_updates):
             if batch:
