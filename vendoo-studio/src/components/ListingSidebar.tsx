@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { hasOpenJob, INVENTORY_BUSY_POLL_MS, INVENTORY_IDLE_POLL_MS } from "../api/polling";
 import { UpdateButton } from "./UpdateButton";
 import { VendooImportButton } from "./VendooImportButton";
 import {
@@ -341,7 +342,7 @@ export function ListingSidebar({
   const { data: jobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: () => api.jobs.list(),
-    refetchInterval: 2000,
+    refetchInterval: (query) => (hasOpenJob(query.state.data) ? INVENTORY_BUSY_POLL_MS : INVENTORY_IDLE_POLL_MS),
   });
   const jobIdByConversation = useMemo(() => {
     const map = new Map<string, string>();

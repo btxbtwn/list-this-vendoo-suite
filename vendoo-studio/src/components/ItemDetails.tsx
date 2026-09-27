@@ -91,16 +91,6 @@ function rememberLabels(
     });
 }
 
-function labelsFromNotes(notes: string | null | undefined): string[] {
-  if (!notes) return [];
-  try {
-    const parsed = JSON.parse(notes);
-    return splitLabels(String(parsed.vendooLabels || ""));
-  } catch {
-    return [];
-  }
-}
-
 const DEFAULTS: ItemDetailsData = {
   sellerNotes: "",
   knownFlaws: "",
@@ -218,7 +208,7 @@ export function ItemDetails({ convId }: Props) {
     for (const label of [
       ...(uiPrefs?.recent_vendoo_labels || []),
       ...readLegacyStoredLabels(),
-      ...(conversations || []).flatMap((item: { notes?: string | null }) => labelsFromNotes(item.notes)),
+      ...(conversations || []).flatMap((item) => item.vendoo_labels || []),
     ]) {
       const key = label.toLowerCase();
       if (seen.has(key)) continue;

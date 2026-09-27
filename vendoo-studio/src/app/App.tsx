@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { INVENTORY_BUSY_POLL_MS, INVENTORY_IDLE_POLL_MS } from "../api/polling";
 import type { BrowserField } from "../api/client";
 import { BuildVersion } from "../components/BuildVersion";
 import { ExtensionStatus } from "../components/ExtensionStatus";
@@ -103,20 +104,26 @@ export function App() {
     ...(detailWidth ? { "--detail-width": `${detailWidth}px` } : {}),
   } as CSSProperties;
 
+  const { data: status } = useQuery({
+    queryKey: ["status"],
+    queryFn: api.status,
+    refetchInterval: 4000,
+  });
+  // Re-reading the whole inventory is the heaviest request Studio makes, so it
+  // only runs fast while a Vendoo send is moving rows. Studio's own edits
+  // invalidate it; the slow pass picks up Vendoo's background syncs.
   const { data: conversations } = useQuery({
     queryKey: ["conversations"],
     queryFn: api.conversations.list,
-    refetchInterval: 2000,
+    refetchInterval: (query) =>
+      status?.active_job_id || query.state.data?.some((c) => c.status === "listing")
+        ? INVENTORY_BUSY_POLL_MS
+        : INVENTORY_IDLE_POLL_MS,
   });
   const { data: jobs } = useQuery({
     queryKey: selectedConvId ? ["jobs", selectedConvId] : ["jobs"],
     queryFn: () => api.jobs.list(selectedConvId || undefined),
     refetchInterval: 2000,
-  });
-  const { data: status } = useQuery({
-    queryKey: ["status"],
-    queryFn: api.status,
-    refetchInterval: 4000,
   });
 
   // Bound listings can change tab in Vendoo while the sidebar is open. A quiet
