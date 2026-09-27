@@ -282,8 +282,10 @@ export const api = {
     revisions: (convId: string) => request<ListingRevision[]>(`/conversations/${convId}/revisions`),
     restore: (convId: string, revisionId: string) =>
       request<RevisionRestoreResult>(`/conversations/${convId}/revisions/${revisionId}/restore`, { method: "POST" }),
-    priceDropPreview: (convId: string) =>
-      request<PriceDropPreview>(`/conversations/${convId}/price-drop/preview`, { method: "POST" }),
+    priceDropPreview: (convId: string, { comps }: { comps: boolean }) =>
+      request<PriceDropPreview>(`/conversations/${convId}/price-drop/preview?comps=${comps}`, {
+        method: "POST",
+      }),
     applyPriceDrop: (
       convId: string,
       body: { price: number; percent?: number | null; mode: "percent" | "comps" | "custom" },
