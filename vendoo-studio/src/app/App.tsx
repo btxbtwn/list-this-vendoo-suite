@@ -8,7 +8,7 @@ import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
 import { SetupChecklist } from "../components/SetupChecklist";
 import { BrowserPreview } from "../components/BrowserPreview";
-import { BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
+import { AnalyticsIcon, BackIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
 import {
   DEFAULT_SETTINGS_SECTION,
   SETTINGS_SECTION_LABELS,
@@ -21,7 +21,7 @@ import { BulkUploadDialog } from "../components/BulkUploadDialog";
 import { ToastHost } from "../components/ToastHost";
 import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
 import { WorkspaceTopbar, stopTitlebarDrag } from "../components/WorkspaceTopbar";
-import { workspaceCrumbs } from "../components/workspaceCrumbs";
+import { workspaceCrumbs, type WorkspaceView } from "../components/workspaceCrumbs";
 import { SuggestionsPanel } from "../components/SuggestionsPanel";
 import { ListingBrowserButton, ListingReviewActions } from "../components/ListingReviewActions";
 import type { ListingReviewTab } from "../components/ListingReviewTabs";
@@ -43,6 +43,9 @@ const ListingEditor = lazy(() =>
 );
 const SettingsPage = lazy(() =>
   import("../components/SettingsPage").then((module) => ({ default: module.SettingsPage })),
+);
+const AnalyticsPage = lazy(() =>
+  import("../components/AnalyticsPage").then((module) => ({ default: module.AnalyticsPage })),
 );
 const FirstRunGuide = lazy(() =>
   import("../components/FirstRunGuide").then((module) => ({ default: module.FirstRunGuide })),
@@ -75,7 +78,7 @@ export function App() {
     const listingId = new URLSearchParams(window.location.search).get("listing");
     return listingId || null;
   });
-  const [activeView, setActiveView] = useState<"listings" | "settings">("listings");
+  const [activeView, setActiveView] = useState<WorkspaceView>("listings");
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(DEFAULT_SETTINGS_SECTION);
   const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"workspace" | "editor" | "browser">("workspace");
@@ -189,11 +192,13 @@ export function App() {
   const selectedListing = conversations?.find((listing: { id: string }) => listing.id === selectedConvId);
   const workspaceTitle = activeView === "settings"
     ? SETTINGS_SECTION_LABELS[settingsSection]
-    : String(selectedListing?.title || "Vendoo Studio");
+    : activeView === "analytics"
+      ? "Analytics"
+      : String(selectedListing?.title || "Vendoo Studio");
   const crumbs = workspaceCrumbs(
     activeView,
     SETTINGS_SECTION_LABELS[settingsSection],
-    activeView === "settings" ? null : selectedListing,
+    activeView === "listings" ? selectedListing : null,
   );
   // The sidebar overlays the workspace on mobile and the editor is its own pane
   // there, so the desktop collapse states only apply to the desktop layout.
@@ -214,6 +219,23 @@ export function App() {
   const closeSettings = () => {
     setActiveView("listings");
     setSettingsTargetId(null);
+    closeMobileSidebar();
+  };
+
+  const openAnalytics = () => {
+    setMobilePane("workspace");
+    if (activeView === "analytics") {
+      setActiveView("listings");
+      return;
+    }
+    setActiveView("analytics");
+    closeMobileSidebar();
+  };
+
+  const openListing = (id: string) => {
+    setSelectedConvId(id);
+    setActiveView("listings");
+    setMobilePane("workspace");
     closeMobileSidebar();
   };
 
@@ -317,7 +339,7 @@ export function App() {
   }, [isMobile, mobileSidebarOpen]);
 
   useEffect(() => {
-    if (activeView !== "settings") return;
+    if (activeView === "listings") return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || isConfirmDialogOpen()) return;
       if (isMobile && mobileSidebarOpen) return;
@@ -328,7 +350,8 @@ export function App() {
       ) {
         return;
       }
-      closeSettings();
+      if (activeView === "settings") closeSettings();
+      else setActiveView("listings");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -422,7 +445,7 @@ export function App() {
         setSelectedConvId(convId);
         setMobileSidebarOpen(false);
       }
-      if (created || activeView === "settings") {
+      if (created || activeView !== "listings") {
         setActiveView("listings");
         setMobilePane("workspace");
       }
@@ -465,7 +488,7 @@ export function App() {
         crumbs={crumbs}
         sidebarOpen={!sidebarHidden}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-        detailOpen={activeView === "settings" ? null : !detailHidden}
+        detailOpen={activeView === "listings" ? !detailHidden : null}
         onToggleDetail={() => setDetailCollapsed(!detailCollapsed)}
         reviewTab={
           activeView === "listings" && selectedConvId && !detailHidden
@@ -510,10 +533,11 @@ export function App() {
             mobileOpen={!isMobile || mobileSidebarOpen}
             listingQuery={listingQuery}
             onSearchQueryChange={handleListingSearch}
-            onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
+            onSelect={openListing}
             onCreate={createListing}
             onDelete={(id) => deleteConv.mutate(id)}
             onOpenSettings={openSettings}
+            onOpenAnalytics={openAnalytics}
             onCloseSettings={closeSettings}
             onSettingsSectionChange={handleSettingsSectionChange}
             onSettingsSearchResult={handleSettingsSearchResult}
@@ -550,6 +574,11 @@ export function App() {
                     return;
                   }
                   closeSettings();
+                  return;
+                }
+                if (activeView === "analytics") {
+                  setActiveView("listings");
+                  setMobileSidebarOpen(true);
                   return;
                 }
                 setMobileSidebarOpen(true);
@@ -594,6 +623,15 @@ export function App() {
                 <button
                   type="button"
                   className="sidebar-icon-btn mobile-workspace-settings"
+                  title="Analytics"
+                  aria-label="Analytics"
+                  onClick={openAnalytics}
+                >
+                  <AnalyticsIcon />
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-icon-btn mobile-workspace-settings"
                   title="Settings"
                   aria-label="Settings"
                   onClick={openSettings}
@@ -613,6 +651,10 @@ export function App() {
                     onTargetHandled={() => setSettingsTargetId(null)}
                     onOpenSetupGuide={() => setSetupGuideOpen(true)}
                   />
+                </Suspense>
+              ) : activeView === "analytics" ? (
+                <Suspense fallback={null}>
+                  <AnalyticsPage onOpenListing={openListing} />
                 </Suspense>
               ) : selectedConvId ? (
                 <div className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
@@ -664,7 +706,7 @@ export function App() {
                   <SuggestionsPanel
                     variant="workspace"
                     selectedConvId={selectedConvId}
-                    onSelect={(id) => { setSelectedConvId(id); setActiveView("listings"); setMobilePane("workspace"); closeMobileSidebar(); }}
+                    onSelect={openListing}
                   />
                   <button
                     type="button"
@@ -680,7 +722,7 @@ export function App() {
               )}
             </main>
 
-            {activeView !== "settings" && !detailHidden && (
+            {activeView === "listings" && !detailHidden && (
               <PanelResizeHandle
                 label="Resize listing editor"
                 panel="after"
@@ -691,7 +733,7 @@ export function App() {
                 {...DETAIL_WIDTH}
               />
             )}
-            {activeView !== "settings" && !detailHidden && (
+            {activeView === "listings" && !detailHidden && (
               <aside id="listing-inspector" className="panel detail-panel">
                 {selectedConvId ? (
                   <Suspense fallback={null}>

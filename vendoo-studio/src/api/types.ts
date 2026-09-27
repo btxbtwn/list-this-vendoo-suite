@@ -341,6 +341,68 @@ export interface SuggestionsResponse {
   suggestions: Suggestion[];
 }
 
+export type AnalyticsRange = "30d" | "90d" | "12m" | "all";
+
+export interface AnalyticsInventory {
+  active: number;
+  draft: number;
+  sold: number;
+  failed: number;
+  working: number;
+  asking_value: number;
+}
+
+export interface AnalyticsSales {
+  count: number;
+  revenue: number;
+  profit: number | null;
+  profit_known: number;
+  average_price: number | null;
+  median_days: number | null;
+}
+
+export interface AnalyticsPeriod {
+  label: string;
+  count: number;
+  revenue: number;
+}
+
+export interface AnalyticsGroup {
+  id: string;
+  label: string;
+  count: number;
+  revenue: number;
+}
+
+export interface AnalyticsAging {
+  label: string;
+  count: number;
+  asking_value: number;
+}
+
+export interface AnalyticsSale {
+  conversation_id: string;
+  title: string;
+  price: number;
+  marketplace: string;
+  sold_at: string | null;
+  days_listed: number | null;
+}
+
+export interface InventoryAnalytics {
+  range: AnalyticsRange;
+  undated_sales: number;
+  periods_truncated: boolean;
+  inventory: AnalyticsInventory;
+  sales: AnalyticsSales;
+  periods: AnalyticsPeriod[];
+  marketplaces: AnalyticsGroup[];
+  categories: AnalyticsGroup[];
+  brands: AnalyticsGroup[];
+  aging: AnalyticsAging[];
+  recent: AnalyticsSale[];
+}
+
 export interface BackupSnapshot {
   path: string;
   name: string;
