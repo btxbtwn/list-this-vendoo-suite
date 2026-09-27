@@ -28,13 +28,22 @@ EMPTY_NOTE = (
     "No sold listings found. Use an estimated baseline and note pricing uncertainty in the description."
 )
 
-_PRICE_RE = re.compile(r"\$\s*(\d{1,4}(?:\.\d{1,2})?)")
+# A US dollar sign. eBay and Brave show foreign listings as "HK$1990",
+# "NT$ 890", "AU $25.00" or "CAD $40"; read as dollars those are 10-60x off, so
+# a "$" glued to letters (other than "US$") or after a foreign code is not one.
+_USD = (
+    r"(?-i:(?:(?<=US)|(?<![A-Za-z]))"
+    r"(?<!\b[ACR] )(?<!\b(?:AU|CA|NZ|HK|NT|MX|SG) )(?<!\b(?:AUD|CAD|NZD|HKD|MXN|SGD|TWD) )"
+    r"\$)"
+)
+_AMOUNT = r"(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{1,4}(?:\.\d{1,2})?)(?!\d|,\d)"
+_PRICE_RE = re.compile(_USD + r"\s*" + _AMOUNT)
 _SOLD_FOR_RE = re.compile(
-    r"sold(?:\s+(?:for|at))?\s*:?\s*\$\s*(\d{1,4}(?:\.\d{1,2})?)",
+    r"sold(?:\s+(?:for|at))?\s*:?\s*(?:US\s?)?" + _USD + r"\s*" + _AMOUNT,
     re.I,
 )
 _PRICE_BEFORE_SOLD_RE = re.compile(
-    r"\$\s*(\d{1,4}(?:\.\d{1,2})?)\s*(?:[-–—|·,:]\s*)?(?:sold|completed|ended)\b",
+    _USD + r"\s*" + _AMOUNT + r"\s*(?:[-–—|·,:]\s*)?(?:sold|completed|ended)\b",
     re.I,
 )
 _SOLD_EVIDENCE_RE = re.compile(
@@ -43,7 +52,7 @@ _SOLD_EVIDENCE_RE = re.compile(
 )
 _NOT_SOLD_RE = re.compile(r"\b(?:not sold|has(?:n't| not) sold|unsold|sold out)\b", re.I)
 _RANGE_RE = re.compile(
-    r"\$\s*(\d{1,4}(?:\.\d{1,2})?)\s*(?:[-–—]|to)\s*\$?\s*(\d{1,4}(?:\.\d{1,2})?)",
+    _USD + r"\s*" + _AMOUNT + r"\s*(?:[-–—]|to)\s*(?:" + _USD + r")?\s*" + _AMOUNT,
     re.I,
 )
 _URL_RE = re.compile(r"https?://[^\s)\]>\"']+")
@@ -130,6 +139,10 @@ def format_price(value: float) -> str:
     return f"${value:.2f}"
 
 
+def _amount(raw: str) -> float:
+    return float(raw.replace(",", ""))
+
+
 def extract_price(text: str | None) -> float | None:
     blob = text or ""
     sold = _SOLD_FOR_RE.search(blob)
@@ -140,7 +153,7 @@ def extract_price(text: str | None) -> float | None:
     if raw is None:
         return None
     try:
-        price = float(raw)
+        price = _amount(raw)
     except ValueError:
         return None
     if price < 1 or price > 9999:
@@ -161,7 +174,7 @@ def extract_sold_price(text: str | None) -> float | None:
     sold = _SOLD_FOR_RE.search(blob) or _PRICE_BEFORE_SOLD_RE.search(blob)
     if sold:
         return extract_price(f"${sold.group(1)}")
-    prices = {float(match.group(1)) for match in _PRICE_RE.finditer(blob)}
+    prices = {_amount(match.group(1)) for match in _PRICE_RE.finditer(blob)}
     if len(prices) != 1:
         return None
     return prices.pop()
@@ -171,7 +184,7 @@ def market_range(text: str | None = None, comps: list[SoldComp] | None = None) -
     blob = text or ""
     match = _RANGE_RE.search(blob)
     if match:
-        lo, hi = float(match.group(1)), float(match.group(2))
+        lo, hi = _amount(match.group(1)), _amount(match.group(2))
         if lo > hi:
             lo, hi = hi, lo
         return f"{format_price(lo)}–{format_price(hi)}"

@@ -86,6 +86,35 @@ class WebResultFilterTest(unittest.TestCase):
         }])
         self.assertEqual([comp.price for comp in comps], [22])
 
+    def test_drops_foreign_dollar_prices(self):
+        for description in (
+            "Sold for HK$1990.",
+            "NT$1990 · Sold",
+            "Sold for AU $19.90.",
+            "Sold for CAD $40.",
+        ):
+            with self.subTest(description=description):
+                comps = comps_from_web_results([{
+                    "title": "Levi's 511 Slim Shorts - Sold",
+                    "url": "https://www.ebay.com/itm/9",
+                    "description": description,
+                }])
+                self.assertEqual(comps, [])
+
+    def test_reads_us_dollar_and_thousands_prices(self):
+        for description, price in (
+            ("Sold for US $19.90, great shape.", 19.9),
+            ("Sold for US$22.", 22),
+            ("Sold for $1,250.", 1250),
+        ):
+            with self.subTest(description=description):
+                comps = comps_from_web_results([{
+                    "title": "Levi's 511 Slim Shorts - Sold",
+                    "url": "https://www.ebay.com/itm/9",
+                    "description": description,
+                }])
+                self.assertEqual([comp.price for comp in comps], [price])
+
     def test_drops_wrong_brand(self):
         comps = comps_from_web_results([{
             "title": "Wrangler Slim Shorts - Sold",
