@@ -265,6 +265,19 @@ export interface ProviderTestResult {
   error?: string;
 }
 
+/** One redacted Vendoo HTTP call. Query strings, tokens, and bodies are absent. */
+export interface VendooApiLogEntry {
+  id: number;
+  at: string;
+  method: string;
+  host: string;
+  path: string;
+  status: number | null;
+  duration_ms: number;
+  ok: boolean;
+  error: string | null;
+}
+
 export interface FillLogEntry {
   id: string;
   step: string;

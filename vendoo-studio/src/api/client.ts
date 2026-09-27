@@ -22,6 +22,7 @@ import type {
   PriceDropPreview,
   ProviderStatus,
   ProviderTestResult,
+  VendooApiLogEntry,
   ChatGPTPendingLogin,
   RevisionRestoreResult,
   ValidationResult,
@@ -629,6 +630,8 @@ export const api = {
         error: string | null;
         funnel: boolean;
       }>("/settings/tailscale/disable", { method: "POST" }),
+    vendooApiLogs: () => request<{ entries: VendooApiLogEntry[] }>("/settings/vendoo-api-logs"),
+    clearVendooApiLogs: () => request<{ ok: boolean }>("/settings/vendoo-api-logs", { method: "DELETE" }),
   },
 
   extension: {

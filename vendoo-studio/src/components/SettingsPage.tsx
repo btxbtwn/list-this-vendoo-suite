@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { ListingProviderId } from "../api/types";
+import type { ListingProviderId, VendooApiLogEntry } from "../api/types";
 import { backupSummary, formatBytes } from "./backupSummary";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
@@ -1687,6 +1687,82 @@ function TailscaleStatusDetails({
   );
 }
 
+function formatLogTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function logTarget(entry: VendooApiLogEntry): string {
+  return `${entry.host}${entry.path}`;
+}
+
+function LogsPanel() {
+  const queryClient = useQueryClient();
+  const { data, error } = useQuery({
+    queryKey: ["vendoo-api-logs"],
+    queryFn: api.settings.vendooApiLogs,
+    refetchInterval: () => (document.hidden ? false : 1000),
+  });
+  const clear = useMutation({
+    mutationFn: api.settings.clearVendooApiLogs,
+    onSuccess: () => queryClient.setQueryData(["vendoo-api-logs"], { entries: [] }),
+  });
+  const entries = data?.entries ?? [];
+  return (
+    <SettingsSection id="logs" title="Vendoo API">
+      <SettingsRow
+        id="vendoo-api-logs"
+        title="Live requests"
+        description="Calls the extension makes to Vendoo while Studio is open. Query strings, tokens, and request bodies stay off this page. The list clears when Studio restarts."
+        status={entries.length ? `${entries.length} ${entries.length === 1 ? "call" : "calls"}` : undefined}
+        control={
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            disabled={!entries.length || clear.isPending}
+            onClick={() => clear.mutate()}
+          >
+            Clear
+          </button>
+        }
+      >
+        {error ? <p className="settings-row-desc text-error" role="alert">{error.message}</p> : null}
+        {entries.length === 0 ? (
+          <p className="settings-row-desc settings-api-log-empty">
+            No Vendoo calls yet. Create, update, or open a listing and requests will show up here.
+          </p>
+        ) : (
+          <div className="settings-api-log">
+            <table className="settings-api-log-table" aria-label="Vendoo API calls">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Duration</th>
+                  <th scope="col">Request</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={entry.id} className={entry.ok ? undefined : "is-failed"}>
+                    <td>{formatLogTime(entry.at)}</td>
+                    <td>{entry.method}</td>
+                    <td>{entry.status ?? entry.error ?? ""}</td>
+                    <td>{entry.duration_ms} ms</td>
+                    <td className="settings-api-log-path">{logTarget(entry)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SettingsRow>
+    </SettingsSection>
+  );
+}
+
 function scrollToSettingsTarget(targetId: string) {
   const target = document.getElementById(targetId);
   if (!target) return false;
@@ -1732,6 +1808,7 @@ export function SettingsPage({
         {section === "providers" ? <ProvidersPanel /> : null}
         {section === "connections" ? <ConnectionsPanel /> : null}
         {section === "data" ? <DataPanel /> : null}
+        {section === "logs" ? <LogsPanel /> : null}
       </div>
     </div>
   );

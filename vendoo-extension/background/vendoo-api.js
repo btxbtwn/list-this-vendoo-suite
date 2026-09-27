@@ -229,19 +229,29 @@ async function readVendooSession() {
 
 async function refreshVendooToken(session) {
   if (!session.refresh_token || !session.api_key) return session;
-  const res = await fetch(`${VENDOO_TOKEN_REFRESH_URL}?key=${encodeURIComponent(session.api_key)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: session.refresh_token }),
-  });
-  if (!res.ok) throw new Error(`Vendoo session refresh returned ${res.status}`);
-  const data = await res.json();
-  return {
-    ...session,
-    access_token: data.id_token,
-    refresh_token: data.refresh_token || session.refresh_token,
-    expiration_time: Date.now() + Number(data.expires_in || 3600) * 1000,
-  };
+  const url = `${VENDOO_TOKEN_REFRESH_URL}?key=${encodeURIComponent(session.api_key)}`;
+  const started = Date.now();
+  let status = null;
+  let ok = false;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: session.refresh_token }),
+    });
+    status = res.status;
+    ok = res.ok;
+    if (!res.ok) throw new Error(`Vendoo session refresh returned ${res.status}`);
+    const data = await res.json();
+    return {
+      ...session,
+      access_token: data.id_token,
+      refresh_token: data.refresh_token || session.refresh_token,
+      expiration_time: Date.now() + Number(data.expires_in || 3600) * 1000,
+    };
+  } finally {
+    noteVendooApiCall({ method: 'POST', url, status, ok, durationMs: Date.now() - started });
+  }
 }
 
 function tokenIsFresh(session) {
@@ -276,9 +286,50 @@ async function freshVendooSession() {
   return cacheVendooSession(session);
 }
 
+// A request line for Settings → Logs. Query strings carry API keys and signed
+// upload URLs, so only the host and path are kept. Bodies and tokens never are.
+function vendooApiLogEntry({ method, url, status, ok, durationMs, at } = {}) {
+  let host = '';
+  let path = '/';
+  try {
+    const parsed = new URL(String(url || ''));
+    host = String(parsed.host || '').slice(0, 120);
+    path = String(parsed.pathname || '/').slice(0, 300) || '/';
+  } catch (err) {
+    host = '';
+    path = '/';
+  }
+  const verb = String(method || 'GET').toUpperCase().slice(0, 8);
+  const code = Number.isFinite(status) ? status : null;
+  let error = null;
+  if (!ok) error = code == null ? 'timed out' : `HTTP ${code}`;
+  return {
+    at: at || new Date().toISOString(),
+    method: verb,
+    host,
+    path,
+    status: code,
+    duration_ms: Math.max(0, Math.round(Number(durationMs) || 0)),
+    ok: Boolean(ok),
+    error,
+  };
+}
+
+function noteVendooApiCall(fields) {
+  if (typeof recordVendooApiLog !== 'function') return;
+  try {
+    recordVendooApiLog(vendooApiLogEntry(fields));
+  } catch (err) {
+    /* a log line must never fail the Vendoo call it describes */
+  }
+}
+
 async function vendooFetch(url, { method = 'GET', token, json, body, headers = {}, responseType = 'json', timeoutMs } = {}) {
   const controller = new AbortController();
+  const started = Date.now();
   const timer = setTimeout(() => controller.abort(), timeoutMs || VENDOO_REQUEST_TIMEOUT_MS);
+  let status = null;
+  let ok = false;
   try {
     const res = await fetch(url, {
       method,
@@ -292,6 +343,8 @@ async function vendooFetch(url, { method = 'GET', token, json, body, headers = {
       },
       body: json !== undefined ? JSON.stringify(json) : body,
     });
+    status = res.status;
+    ok = res.ok;
     let data = null;
     if (responseType === 'json') {
       const text = await res.text();
@@ -300,6 +353,7 @@ async function vendooFetch(url, { method = 'GET', token, json, body, headers = {
     return { ok: res.ok, status: res.status, data };
   } finally {
     clearTimeout(timer);
+    noteVendooApiCall({ method, url, status, ok, durationMs: Date.now() - started });
   }
 }
 
