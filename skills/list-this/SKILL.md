@@ -306,6 +306,8 @@ When made: {when_made}
 ### PRICING Formula
 ```
 Listing Price = Market comp × 1.35 (round to nearest dollar)
+Ceiling       = median asking price of 3+ similar live listings; price at or
+                below it unless the item is clearly better (NWT, condition, size)
 Auto-accept   = Listing Price - $2
 Minimum       = Listing Price - $4
 ```

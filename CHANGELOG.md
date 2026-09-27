@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.119 — 2026-09-27
+
+- Similar listings still for sale now cap your price. When three or more are live, the new listing is priced at or below their median asking price unless yours is clearly better, and price-drop suggestions follow the same cap. That still works when only one or two sold listings turned up.
+
 ## 0.1.118 — 2026-09-27
 
 - New Sourcing page (the box icon beside Analytics) keeps a buy list of wholesale clothing boxes ready. Every 6 hours Studio checks Raghouse and Thrift Vintage Fashion, looks up what the pieces resell for with your listing AI's web search, and picks the boxes expected to at least double your money within your budget. Each store gets an Open cart button with the boxes already in it; you check the cart and pay. Studio never buys anything.

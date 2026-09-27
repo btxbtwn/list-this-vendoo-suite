@@ -21,6 +21,8 @@ from vendoo_studio.services.sold_comps import (
     MIN_CONFIDENT_COMPS,
     SoldCompsReport,
     extract_price,
+    format_price,
+    live_ceiling,
     parse_sold_comps,
     trim_outliers,
 )
@@ -229,12 +231,14 @@ def market_midpoint(report: SoldCompsReport | None) -> float | None:
 
 
 def comps_formula_price(comps_text: str | None) -> tuple[float | None, int | None, SoldCompsReport | None]:
-    """Market midpoint and listing target (market × 1.35, whole dollars)."""
+    """Market midpoint and listing target: market × 1.35, capped at the live asking median."""
     report = parse_sold_comps(comps_text)
     market = market_midpoint(report)
-    if market is None:
-        return None, None, report
-    return market, whole_dollars(market * 1.35), report
+    targets = [whole_dollars(market * 1.35)] if market is not None else []
+    ceiling = live_ceiling(report)
+    if ceiling is not None:
+        targets.append(floor_dollars(ceiling))
+    return market, min(targets) if targets else None, report
 
 
 def apply_price_to_listing(listing: dict, new_price: float) -> dict:
@@ -324,9 +328,16 @@ def build_preview(
         # The default-percent reason described a price comps just replaced, so
         # only a history-derived reason is worth keeping in front of this one.
         prefix = f"{reason} " if history else ""
-        comps_reason = (
-            f"Live comps target ${comps_target} (market × 1.35) — using that as the suggestion."
-        )
+        ceiling = live_ceiling(report)
+        if ceiling is not None and comps_target == floor_dollars(ceiling):
+            comps_reason = (
+                f"Similar listings for sale ask a median of {format_price(ceiling)} — "
+                f"suggesting ${comps_target} to match them."
+            )
+        else:
+            comps_reason = (
+                f"Live comps target ${comps_target} (market × 1.35) — using that as the suggestion."
+            )
         reason = f"{prefix}{comps_reason}"
     # The standard step is what is left when nothing else spoke: say which
     # source went quiet, since "standard" alone reads as an unexplained number.

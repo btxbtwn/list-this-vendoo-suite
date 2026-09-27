@@ -12,6 +12,7 @@ from vendoo_studio.services.sold_comps import (
     listings_from_web_results,
     merge_reports,
     comps_usable,
+    live_ceiling,
     format_sold_comps,
     parse_sold_comps,
     research_note,
@@ -398,12 +399,43 @@ class LiveListingTest(unittest.TestCase):
             live=[SoldComp(price=4, marketplace="eBay", title="Forever 21 crop top", url="https://www.ebay.com/itm/9")],
         ))
         self.assertIn("No sold listings found", text)
-        self.assertIn("do not price from these", text)
+        self.assertIn("asking prices, not sales", text)
+        # One asking price is a hope, not a market: no ceiling.
+        self.assertNotIn("Live asking median", text)
         report = parse_sold_comps(text)
         self.assertEqual(report.comps, [])
         self.assertEqual([(comp.price, comp.url) for comp in report.live], [(4, "https://www.ebay.com/itm/9")])
         self.assertFalse(comps_usable(text))
         self.assertIn("No sold listings found", report.note)
+
+    def test_three_live_listings_state_a_ceiling_that_round_trips(self):
+        live = [
+            SoldComp(price=12, marketplace="Poshmark", title="Paper Crane crop top", url="https://poshmark.com/listing/1"),
+            SoldComp(price=23, marketplace="Poshmark", title="Paper Crane bustier", url="https://poshmark.com/listing/2"),
+            SoldComp(price=3, marketplace="Depop", title="Paper Crane crop", url="https://www.depop.com/products/3"),
+        ]
+        comps = [SoldComp(price=12, marketplace="Poshmark", title="Paper Crane smocked top", url="https://poshmark.com/listing/4")]
+        text = format_sold_comps(SoldCompsReport(query="q", source="Cursor", comps=comps, live=live))
+        self.assertIn("Live asking median $12 — list at or below it", text)
+        report = parse_sold_comps(text)
+        self.assertEqual(len(report.live), 3)
+        self.assertEqual(len(report.comps), 1)
+        self.assertEqual(live_ceiling(report), 12.0)
+
+    def test_blocks_with_the_old_live_header_still_parse(self):
+        text = (
+            "Sold comps:\n"
+            "Query: q\n"
+            "Source: Brave\n"
+            "No sold listings found.\n"
+            "\n"
+            "Live listings (for sale now — asking prices, not sales; do not price from these):\n"
+            "- $4 · eBay · Forever 21 crop top\n"
+            "  https://www.ebay.com/itm/9\n"
+        )
+        report = parse_sold_comps(text)
+        self.assertEqual(report.comps, [])
+        self.assertEqual([comp.price for comp in report.live], [4])
 
 
 class ResearchNoteTest(unittest.TestCase):
