@@ -98,6 +98,29 @@ class WebResultFilterTest(unittest.TestCase):
         }])
         self.assertEqual(comps, [])
 
+    def test_price_in_the_title_is_never_the_listing_price(self):
+        # A live $23.20 listing titled with its original $58 price. The
+        # snippet repeats the title, and eBay's "sold" wording reads as a sale.
+        result = {
+            "title": "Topshop Womens Spread Collar Button Front Puff Long Sleeve Denim Top Blk Sz6 $58 | eBay",
+            "url": "https://www.ebay.com/itm/257262098240",
+            "description": (
+                "Topshop Womens Spread Collar Button Front Puff Long Sleeve Denim Top Blk Sz6 $58. "
+                "3 sold. Free shipping."
+            ),
+        }
+        comps, live = listings_from_web_results([result])
+        self.assertEqual(comps, [])
+        self.assertEqual(live, [])
+
+    def test_keeps_sold_price_that_differs_from_the_title_price(self):
+        comps = sold_from_web_results([{
+            "title": "Topshop Denim Top Blk Sz6 $58 | eBay",
+            "url": "https://www.ebay.com/itm/257262098240",
+            "description": "Sold for $23.20.",
+        }])
+        self.assertEqual([comp.price for comp in comps], [23.2])
+
     def test_drops_active_listing_with_elided_seller_count_and_shipping_banner(self):
         # Brave's snippet of a live $3.99 listing: the seller card's "44K items
         # sold" is elided to "... sold", and the store banner's shipping amount
@@ -247,6 +270,17 @@ class ModelAnswerParseTest(unittest.TestCase):
         answer = '{"market":"$20-$25","comps":[{"title":"Levi shorts","price":22,"marketplace":"eBay"}]}'
         _market, comps, _live = comps_from_model_answer(answer, [])
         self.assertEqual(comps, [])
+
+    def test_drops_model_comp_priced_from_its_title(self):
+        answer = (
+            '{"market":"$58","comps":[{"title":"Topshop Denim Top Blk Sz6 $58","price":58,'
+            '"marketplace":"eBay","url":"https://www.ebay.com/itm/257262098240"}],'
+            '"live":[{"title":"Topshop Denim Top Blk Sz6 $58","price":"$58",'
+            '"url":"https://www.ebay.com/itm/257262098241"}]}'
+        )
+        _market, comps, live = comps_from_model_answer(answer, [])
+        self.assertEqual(comps, [])
+        self.assertEqual(live, [])
 
     def test_listing_url_is_authoritative_for_marketplace(self):
         answer = (

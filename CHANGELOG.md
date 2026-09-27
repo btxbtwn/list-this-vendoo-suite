@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.121 — 2026-09-27
+
+- Sold comps no longer take a price from a listing's title. A seller who writes "$58" in the title of a top now selling for $23.20 used to show up as a $58 sale; a price written in the title is now ignored.
+
 ## 0.1.120 — 2026-09-27
 
 - The Sourcing page can reach Raghouse and Thrift Vintage Fashion again. The Mac app was rejecting their security certificates, so every update came back with no boxes.

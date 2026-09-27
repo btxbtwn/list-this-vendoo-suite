@@ -227,6 +227,21 @@ def _non_sale_prices(blob: str) -> set[float]:
     return found
 
 
+def title_prices(title: str | None) -> set[float]:
+    """Dollar amounts written into a listing title.
+
+    Sellers title items "Blk Sz6 $58" with the tag or original price; the
+    listing sells or asks for something else, so a title amount is never the price.
+    """
+    found: set[float] = set()
+    for match in _PRICE_RE.finditer(title or ""):
+        try:
+            found.add(_amount(match.group(1)))
+        except ValueError:
+            continue
+    return found
+
+
 def _usable_price(raw: str, ignored: set[float]) -> float | None:
     try:
         price = _amount(raw)
@@ -237,20 +252,21 @@ def _usable_price(raw: str, ignored: set[float]) -> float | None:
     return price
 
 
-def extract_sold_price(text: str | None) -> float | None:
+def extract_sold_price(text: str | None, ignore: set[float] | None = None) -> float | None:
     """Return a price only when the result explicitly says it sold.
 
     Search snippets often contain both an original/list price and a current
     price. A retail or "was" amount is not the sold price, and a seller's
     "items sold" count is not evidence this listing sold. Without an explicit
     sold-price association, multiple amounts are ambiguous and are safer to
-    discard than to price a listing from.
+    discard than to price a listing from. ``ignore`` holds amounts known not
+    to be the price, such as the ones in the listing title.
     """
     blob = text or ""
     evidence = _SELLER_SOLD_COUNT_RE.sub(" ", blob)
     if _NOT_SOLD_RE.search(blob) or not _SOLD_EVIDENCE_RE.search(evidence):
         return None
-    ignored = _non_sale_prices(blob)
+    ignored = _non_sale_prices(blob) | (ignore or set())
     sold = _SOLD_FOR_RE.search(blob) or _PRICE_BEFORE_SOLD_RE.search(blob)
     if sold:
         price = _usable_price(sold.group(1), ignored)
@@ -266,7 +282,7 @@ def extract_sold_price(text: str | None) -> float | None:
     return prices.pop()
 
 
-def extract_live_price(text: str | None) -> float | None:
+def extract_live_price(text: str | None, ignore: set[float] | None = None) -> float | None:
     """The asking price of a listing still for sale, when the result shows one.
 
     Anything that reads as sold belongs to extract_sold_price. Several amounts
@@ -276,7 +292,7 @@ def extract_live_price(text: str | None) -> float | None:
     evidence = _SELLER_SOLD_COUNT_RE.sub(" ", blob)
     if _SOLD_EVIDENCE_RE.search(evidence) and not _NOT_SOLD_RE.search(blob):
         return None
-    ignored = _non_sale_prices(blob)
+    ignored = _non_sale_prices(blob) | (ignore or set())
     prices = {
         price
         for match in _PRICE_RE.finditer(blob)
@@ -472,11 +488,12 @@ def listings_from_web_results(
             continue
         marketplace = marketplace_from_url(url) or marketplace_from_text(blob)
         condition = extract_condition(blob)
-        sold = extract_sold_price(blob)
+        in_title = title_prices(title)
+        sold = extract_sold_price(blob, in_title)
         if sold is not None:
             comps.append(_comp(sold, marketplace, title, url, condition))
             continue
-        live.append(_comp(extract_live_price(blob), marketplace, title, url, condition))
+        live.append(_comp(extract_live_price(blob, in_title), marketplace, title, url, condition))
     kept = _dedupe([comp for comp in comps if comp])
     return kept, _dedupe_live([comp for comp in live if comp], kept)
 
@@ -518,7 +535,11 @@ def _comp_from_dict(raw: object) -> SoldComp | None:
     if isinstance(price, (int, float)):
         amount = float(price) if price >= 1 else None
     else:
-        amount = extract_price(str(price or "")) or extract_price(title)
+        amount = extract_price(str(price or ""))
+    # A model that reports the amount printed in the title copied it from
+    # there rather than from the listing's price.
+    if amount in title_prices(title):
+        return None
     return _comp(amount, marketplace, title, url, condition)
 
 
@@ -598,8 +619,8 @@ def comps_from_model_answer(
         market = str(payload.get("market") or payload.get("market_range") or "").strip()
         comps = _comps_from_payload(payload.get("comps"), expected_names)
         live = _comps_from_payload(payload.get("live"), expected_names)
-    if not comps:
-        comps = list(comps_from_markdown(answer))
+    else:
+        comps = comps_from_markdown(answer)
     source_comps, source_live = listings_from_web_results(
         [source for source in sources or [] if isinstance(source, dict)],
         expected_names=expected_names,
