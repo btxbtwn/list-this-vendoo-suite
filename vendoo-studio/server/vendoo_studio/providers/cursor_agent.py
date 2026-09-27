@@ -25,6 +25,9 @@ TEXT_ONLY_PREAMBLE = (
     "When asked for JSON, return only valid JSON with no markdown fences."
 )
 _STREAM_DONE = object()
+# A Cursor run that sends nothing for this long has stalled. The SDK waits on
+# it forever, and generation's field fill sat behind one with the listing busy.
+IDLE_TIMEOUT_SEC = 300.0
 
 
 def normalize_cursor_api_key(raw: str) -> str:
@@ -294,16 +297,20 @@ class CursorProvider:
         def _emit(item: object) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, item)
 
+        handles: dict[str, object] = {}
+
         def _worker() -> None:
             try:
                 with _patched_bridge_env():
                     with Client.launch_bridge(workspace=scratch) as client:
+                        handles["client"] = client
                         with client.agents.create(
                             model=selected,
                             api_key=self.api_key,
                             local=LocalAgentOptions(cwd=scratch, setting_sources=[]),
                         ) as agent:
                             run = agent.send(message)
+                            handles["run"] = run
                             if stream:
                                 yielded = False
                                 for chunk in run.iter_text():
@@ -331,17 +338,39 @@ class CursorProvider:
             finally:
                 _emit(_STREAM_DONE)
 
+        def _abort() -> None:
+            # Cancelling the run and closing the bridge ends the worker's
+            # blocking wait, so the thread exits instead of outliving the caller.
+            run = handles.get("run")
+            client = handles.get("client")
+            with contextlib.suppress(Exception):
+                if run is not None:
+                    run.cancel()
+            with contextlib.suppress(Exception):
+                if client is not None:
+                    client.close()
+
         worker_task = asyncio.create_task(asyncio.to_thread(_worker))
+        finished = False
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=IDLE_TIMEOUT_SEC)
+                except TimeoutError:
+                    raise RuntimeError(
+                        f"Cursor stopped responding for {int(IDLE_TIMEOUT_SEC // 60)} minutes. Retry."
+                    ) from None
                 if item is _STREAM_DONE:
+                    finished = True
                     break
                 if isinstance(item, BaseException):
+                    finished = True
                     raise item
                 yield item  # type: ignore[misc]
         finally:
-            await worker_task
+            if not finished:
+                await asyncio.shield(asyncio.to_thread(_abort))
+            await asyncio.shield(worker_task)
 
     def _parse_json_response(self, content: str) -> dict:
         try:

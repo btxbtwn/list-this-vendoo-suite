@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -114,6 +115,44 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("".join(chunks), "Hello world")
         fake_agent.send.assert_called_once()
+
+    async def test_stalled_run_times_out_and_closes_the_bridge(self):
+        provider = CursorProvider(api_key="cursor_test")
+        closed = threading.Event()
+
+        class StalledRun:
+            id = "run-stalled"
+            cancel = MagicMock()
+
+            def wait(self):
+                # Blocks like the SDK does until the bridge goes away.
+                closed.wait(5)
+                raise RuntimeError("bridge closed")
+
+        fake_agent = MagicMock()
+        fake_agent.send = MagicMock(return_value=StalledRun())
+        fake_agent.__enter__ = MagicMock(return_value=fake_agent)
+        fake_agent.__exit__ = MagicMock(return_value=None)
+
+        fake_client = MagicMock()
+        fake_client.agents.create = MagicMock(return_value=fake_agent)
+        fake_client.__enter__ = MagicMock(return_value=fake_client)
+        fake_client.__exit__ = MagicMock(return_value=None)
+        fake_client.close = MagicMock(side_effect=lambda: closed.set())
+
+        with (
+            patch("cursor_sdk.Client.launch_bridge", return_value=fake_client),
+            patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
+            patch("vendoo_studio.providers.cursor_agent.IDLE_TIMEOUT_SEC", 0.2),
+        ):
+            scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
+            with self.assertRaisesRegex(RuntimeError, "stopped responding"):
+                async for _chunk in provider.chat([{"role": "user", "content": "Hi"}], stream=False):
+                    pass
+
+        StalledRun.cancel.assert_called_once()
+        fake_client.close.assert_called_once()
+        self.assertTrue(closed.is_set())
 
     async def test_connection_lists_models(self):
         provider = CursorProvider(api_key="cursor_test")

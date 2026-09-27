@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.107 — 2026-09-27
+
+- A listing no longer stays busy after "Listing generated." when Cursor stops answering. Studio gives up after 5 minutes of silence and frees the listing, and Stop now ends a stalled Cursor request right away.
+
 ## 0.1.106 — 2026-09-27
 
 - Send no longer says Chrome is busy when nothing else is running. A send that already stopped, or this listing's own send, no longer blocks the next one.
