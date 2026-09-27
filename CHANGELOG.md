@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.98 — 2026-09-27
+
+- The marketplace links on a listing are now logos, so the line under the title no longer wraps
+
 ## 0.1.97 — 2026-09-27
 
 - Each listing now links straight to its live eBay, Poshmark, Mercari and other marketplace pages, next to the Vendoo link. Links show up after the next Vendoo sync.
