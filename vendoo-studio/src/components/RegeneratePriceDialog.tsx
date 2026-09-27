@@ -107,15 +107,19 @@ export function RegeneratePriceDialog({
   const queryClient = useQueryClient();
 
   // History and sell-through answer at once; sold comps are a web search by
-  // the listing model that can take minutes, so they stream in on top
-  // instead of holding the whole dialog.
+  // the listing model that can take minutes, so they run only when the seller
+  // asks and stream in on top instead of holding the whole dialog.
   const previewQuery = useQuery({
     queryKey: ["price-drop-preview", convId],
     queryFn: () => api.listings.priceDropPreview(convId),
     enabled: open,
     staleTime: 30_000,
   });
-  const comps = usePriceDropComps(convId, open && Boolean(previewQuery.data?.comps.available));
+  const [compsRequested, setCompsRequested] = useState(false);
+  const comps = usePriceDropComps(
+    convId,
+    open && compsRequested && Boolean(previewQuery.data?.comps.available),
+  );
   const preview = comps.preview ?? previewQuery.data;
 
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -143,6 +147,7 @@ export function RegeneratePriceDialog({
 
   useEffect(() => {
     if (!open) {
+      setCompsRequested(false);
       setSelection(null);
       setCustomText("");
       setPicked(false);
@@ -364,6 +369,17 @@ export function RegeneratePriceDialog({
                 </p>
               ) : comps.error ? (
                 <p className="price-drop-status is-error">{comps.error}</p>
+              ) : !compsRequested ? (
+                <div className="price-drop-section">
+                  <div className="price-drop-section-title">Live comps</div>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={() => setCompsRequested(true)}
+                  >
+                    Search sold comps
+                  </button>
+                </div>
               ) : null}
 
               {comps.sources.length ? (
