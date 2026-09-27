@@ -1,6 +1,7 @@
 """Semantic search over local Vendoo catalog, skill rules, and fill helpers via Semble."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -21,6 +22,12 @@ log = logging.getLogger("vendoo_studio.catalog_index")
 SEARCH_KINDS = frozenset({"category", "schema", "option", "skill", "fill", "all"})
 
 _INDEX_LOCK = threading.RLock()
+# Serializes the slow materialize + tokenize. Not the same lock readers take:
+# a category sync rebuilds tens of thousands of docs, and holding the reader
+# lock across that freezes the event loop (Regenerate sits on "Clearing…").
+_REBUILD_LOCK = threading.Lock()
+_rebuild_gate = threading.Lock()
+_rebuild_running = False
 _INDEX = None
 _INDEX_FINGERPRINT: str | None = None
 _STALE = False
@@ -387,45 +394,100 @@ def _load_semble_index(docs: Path):
     return SembleIndex.from_path(str(docs), content=ContentType.DOCS)
 
 
-def rebuild_catalog_index(db: Session) -> dict[str, Any]:
-    """Export catalog/skill/fill docs and rebuild the Semble index."""
+def _index_needs_rebuild(fp_text: str) -> bool:
+    """Caller holds ``_INDEX_LOCK``."""
+    meta = catalog_meta_path()
+    cached = meta.read_text(encoding="utf-8") if meta.is_file() else None
+    return _STALE or _INDEX is None or _INDEX_FINGERPRINT != fp_text or cached != fp_text
+
+
+def _publish_index(index, fp_text: str) -> None:
     global _INDEX, _INDEX_FINGERPRINT, _STALE
-    fp = fingerprint(db)
     with _INDEX_LOCK:
-        docs = materialize_catalog_docs(db)
-        if any(path.suffix == ".md" for path in docs.rglob("*.md")):
-            try:
-                _INDEX = _load_semble_index(docs)
-            except Exception:
-                log.exception("failed to open Semble catalog index; using lexical fallback")
-                _INDEX = None
-        else:
-            _INDEX = None
-        _INDEX_FINGERPRINT = json.dumps(fp, sort_keys=True)
+        _INDEX = index
+        _INDEX_FINGERPRINT = fp_text
         _STALE = False
         catalog_meta_path().parent.mkdir(parents=True, exist_ok=True)
-        catalog_meta_path().write_text(_INDEX_FINGERPRINT, encoding="utf-8")
-        counts = {
-            name: sum(1 for _ in (docs / name).rglob("*.md")) if (docs / name).exists() else 0
-            for name in ("categories", "schemas", "options", "skills", "fill")
-        }
+        catalog_meta_path().write_text(fp_text, encoding="utf-8")
+
+
+def _rebuild_unlocked(db: Session) -> dict[str, Any]:
+    """Materialize and tokenize without holding the reader lock.
+
+    Caller holds ``_REBUILD_LOCK``. Publishing the finished index is the only
+    moment readers wait, and that wait is a pointer swap.
+    """
+    fp = fingerprint(db)
+    docs = materialize_catalog_docs(db)
+    index = None
+    if any(path.suffix == ".md" for path in docs.rglob("*.md")):
+        try:
+            index = _load_semble_index(docs)
+        except Exception:
+            log.exception("failed to open Semble catalog index; using lexical fallback")
+            index = None
+    fp_text = json.dumps(fp, sort_keys=True)
+    _publish_index(index, fp_text)
+    counts = {
+        name: sum(1 for _ in (docs / name).rglob("*.md")) if (docs / name).exists() else 0
+        for name in ("categories", "schemas", "options", "skills", "fill")
+    }
     log.info("catalog index rebuilt: %s", counts)
     return {"ok": True, "fingerprint": fp, "docs": str(docs), "counts": counts}
 
 
+def rebuild_catalog_index(db: Session) -> dict[str, Any]:
+    """Export catalog/skill/fill docs and rebuild the Semble index."""
+    with _REBUILD_LOCK:
+        return _rebuild_unlocked(db)
+
+
+def _kick_rebuild() -> None:
+    """Rebuild on a daemon thread so the event loop can keep serving requests."""
+    global _rebuild_running
+    with _rebuild_gate:
+        if _rebuild_running:
+            return
+        _rebuild_running = True
+
+    def run() -> None:
+        global _rebuild_running
+        try:
+            from vendoo_studio.database import SessionLocal
+
+            with SessionLocal() as session:
+                rebuild_catalog_index(session)
+        except Exception:
+            log.exception("catalog index rebuild failed")
+        finally:
+            with _rebuild_gate:
+                _rebuild_running = False
+
+    threading.Thread(target=run, name="catalog-index-rebuild", daemon=True).start()
+
+
 def ensure_catalog_index(db: Session) -> dict[str, Any]:
-    """Rebuild only when fingerprint is stale or the in-memory index is missing."""
-    global _INDEX, _INDEX_FINGERPRINT, _STALE
-    fp = json.dumps(fingerprint(db), sort_keys=True)
-    meta = catalog_meta_path()
+    """Rebuild only when fingerprint is stale or the in-memory index is missing.
+
+    On the event loop this never waits. Category sync tokenizes every leaf;
+    blocking here froze Regenerate on "Clearing chat and generated fields…"
+    for as long as that build took. Search uses the previous index, or the
+    lexical fallback, until the background rebuild publishes.
+    """
+    fp = fingerprint(db)
+    fp_text = json.dumps(fp, sort_keys=True)
     with _INDEX_LOCK:
-        cached = meta.read_text(encoding="utf-8") if meta.is_file() else None
-        needs = _STALE or _INDEX is None or _INDEX_FINGERPRINT != fp or cached != fp
+        needs = _index_needs_rebuild(fp_text)
     if not needs:
-        return {"ok": True, "rebuilt": False, "fingerprint": json.loads(fp)}
-    result = rebuild_catalog_index(db)
-    result["rebuilt"] = True
-    return result
+        return {"ok": True, "rebuilt": False, "fingerprint": fp}
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        result = rebuild_catalog_index(db)
+        result["rebuilt"] = True
+        return result
+    _kick_rebuild()
+    return {"ok": True, "rebuilt": False, "fingerprint": fp}
 
 
 def _parse_doc(content: str) -> dict[str, str]:
