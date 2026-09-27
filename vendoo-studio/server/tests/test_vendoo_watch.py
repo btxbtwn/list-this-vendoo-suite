@@ -300,6 +300,31 @@ class SyncConversationTest(unittest.TestCase):
         self.assertEqual(notes[SYNCED_REVISION], self.rev.id)
         self.assertFalse(sync_status(self.db, self.conv.id)["conflict"])
 
+    def test_second_check_answers_at_once_while_one_waits_on_chrome(self):
+        calls = 0
+
+        async def run():
+            chrome_answered = asyncio.Event()
+
+            async def slow_run_ops(job, ops):
+                nonlocal calls
+                calls += 1
+                await chrome_answered.wait()
+                item = {"itemID": "itm1", "dateLastModified": 1000, "generalDetails": {"title": "Tee"}}
+                return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": item}]}
+
+            with mock.patch("vendoo_studio.services.vendoo_create.run_ops", slow_run_ops):
+                first = asyncio.create_task(sync_conversation(self.db, self.conv.id))
+                await asyncio.sleep(0)
+                second = await asyncio.wait_for(sync_conversation(self.db, self.conv.id), timeout=1)
+                chrome_answered.set()
+                return await first, second
+
+        first, second = asyncio.run(run())
+        self.assertEqual(second, {"action": "none", "reason": "already checking"})
+        self.assertEqual(first["action"], "none")
+        self.assertEqual(calls, 1)
+
     def test_up_to_date_still_stamps_the_check(self):
         result = self.sync(stamp=1000)
         self.assertEqual(result["action"], "none")

@@ -332,6 +332,10 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
     from vendoo_studio.services.vendoo_import import parse_notes, vendoo_binding
 
     lock = _locks.setdefault(conv_id, asyncio.Lock())
+    # A check already waiting on Chrome answers for this one too. Queueing
+    # behind it would hold another of the webview's six connections open.
+    if lock.locked():
+        return {"action": "none", "reason": "already checking"}
     async with lock:
         conv = ConversationRepo(db).get(conv_id)
         item_id = vendoo_binding(conv.notes if conv else None).get("vendooItemId")

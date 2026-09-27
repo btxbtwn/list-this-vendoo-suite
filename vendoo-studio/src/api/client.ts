@@ -172,7 +172,7 @@ export const api = {
       request<{ ok: boolean }>(
         `/conversations/${convId}/vendoo-api/relist-done`, { method: "POST" },
       ),
-    sync: (convId: string) =>
+    sync: (convId: string, signal?: AbortSignal) =>
       request<{
         ok: boolean;
         action: "pull" | "label" | "none" | "unavailable";
@@ -181,7 +181,7 @@ export const api = {
         revision_id?: string;
         vendoo_status?: string;
       }>(
-        `/conversations/${convId}/vendoo-api/sync`, { method: "POST" },
+        `/conversations/${convId}/vendoo-api/sync`, { method: "POST", signal },
       ),
     syncStatus: (convId: string) =>
       request<VendooSyncStatus>(`/conversations/${convId}/vendoo-api/sync`),
@@ -315,13 +315,16 @@ export const api = {
       request<Record<string, Record<string, unknown>>>(
         `/jobs/marketplace-statuses?job_ids=${encodeURIComponent(ids.join(","))}`,
       ),
-    vendooItem: (id: string, opts?: { refresh?: boolean; cacheOnly?: boolean; resolvePhotos?: boolean }) => {
+    vendooItem: (
+      id: string,
+      opts?: { refresh?: boolean; cacheOnly?: boolean; resolvePhotos?: boolean; signal?: AbortSignal },
+    ) => {
       const params = new URLSearchParams();
       if (opts?.refresh) params.set("refresh", "true");
       if (opts?.cacheOnly) params.set("cache_only", "true");
       if (opts?.resolvePhotos) params.set("resolve_photos", "true");
       const query = params.toString();
-      return request<VendooItemResult>(`/jobs/${id}/vendoo-item${query ? `?${query}` : ""}`, { method: "POST" });
+      return request<VendooItemResult>(`/jobs/${id}/vendoo-item${query ? `?${query}` : ""}`, { method: "POST", signal: opts?.signal });
     },
     resolveCategory: (id: string, query?: string) =>
       request<{ ok: boolean; query?: string; path?: string; matches?: { text?: string; path?: string; score?: number }[]; error?: string }>(

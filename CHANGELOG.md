@@ -6,9 +6,13 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.109 — 2026-09-27
+## 0.1.110 — 2026-09-27
 
 - Send to Vendoo and Update Vendoo no longer get stuck when the model stops answering while it fills category fields. After two minutes the listing goes to Vendoo with the fields that were filled, and the ones still empty are listed so you can fill them.
+
+## 0.1.109 — 2026-09-27
+
+- Open listing no longer sticks on "Opening…". Studio stopped stacking up Vendoo checks every time you opened a listing or came back to the window, which could leave Open listing and other actions waiting behind them while Chrome was slow.
 
 ## 0.1.108 — 2026-09-27
 

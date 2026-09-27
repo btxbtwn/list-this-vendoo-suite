@@ -951,7 +951,7 @@ function SendToVendooButton({
   // Same draft + fill-log cache as Fields, so one Ask chat counts the full schema.
   const { data: draft } = useQuery({
     queryKey: vendooItemQueryKey(listingJobId || ""),
-    queryFn: () => api.jobs.vendooItem(listingJobId!, { refresh: true }),
+    queryFn: ({ signal }) => api.jobs.vendooItem(listingJobId!, { refresh: true, signal }),
     enabled: Boolean(listingJobId && hasDraft && chromeConnected),
     staleTime: VENDOO_ITEM_STALE_MS,
     retry: 1,
