@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.94 — 2026-09-27
+
+- Analytics shows what sold, what's still listed, and how long it took
+
 ## 0.1.93 — 2026-09-26
 
 - Men's pants and jeans size as the waist (34) instead of 34x34, so the size dropdown fills

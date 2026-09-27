@@ -28,6 +28,8 @@ import type {
   VendooItemResult,
   MarketplaceForm,
   SuggestionsResponse,
+  AnalyticsRange,
+  InventoryAnalytics,
 } from "./types";
 
 const BASE = "/api";
@@ -142,6 +144,9 @@ export const api = {
   },
   suggestions: {
     list: () => request<SuggestionsResponse>("/suggestions"),
+  },
+  analytics: {
+    get: (range: AnalyticsRange) => request<InventoryAnalytics>(`/analytics?range=${range}`),
   },
   vendooApi: {
     listingFields: (convId: string) =>
