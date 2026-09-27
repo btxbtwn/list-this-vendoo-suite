@@ -195,8 +195,8 @@ function BuyList({
         <div className="sourcing-empty">
           <div className="sourcing-empty-title">One step before Studio can pick boxes</div>
           <p>
-            Studio asks an AI to look up what each kind of box resells for. Connect ChatGPT, Cursor or MiMo and
-            your list fills in on the next update.
+            Studio asks your listing AI to look up what each kind of box resells for. Connect ChatGPT, Cursor or
+            MiMo and your list fills in on the next update.
           </p>
           <button type="button" className="btn btn-primary btn-sm" onClick={onOpenProviders}>
             Connect an AI

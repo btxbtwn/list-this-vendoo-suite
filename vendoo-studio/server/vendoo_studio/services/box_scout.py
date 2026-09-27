@@ -2,7 +2,7 @@
 
 Every few hours Studio crawls Raghouse and Thrift Vintage Fashion, refreshes the
 trending words once a week and the resale price of each promising theme once a
-fortnight with the connected models' web search, and picks the boxes worth buying
+fortnight with the listing model's web search (the same one sold comps use), and picks the boxes worth buying
 within the seller's budget. The crawl, scoring and buy list live in the box-scout
 skill's script, loaded from the skills directory, so Studio and the skill agree.
 
@@ -172,25 +172,27 @@ def _json_object(text: str) -> dict | None:
 
 
 def research_available() -> bool:
-    from vendoo_studio.services.comp_research import model_searches
+    from vendoo_studio.services.comp_research import model_search
 
-    return bool(model_searches())
+    return model_search() is not None
 
 
 async def _ask(system: str, user: str, key: str) -> tuple[dict | None, str | None]:
-    """Ask each connected model in turn until one answers with JSON holding `key`."""
-    from vendoo_studio.services.comp_research import model_searches
+    """Ask the listing model, with web search, for JSON holding `key`."""
+    from vendoo_studio.services.comp_research import model_search
 
+    search = model_search()
+    if search is None:
+        return None, None
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    for search in model_searches():
-        try:
-            result = await asyncio.wait_for(search.search(messages), timeout=MODEL_TIMEOUT_SEC)
-        except Exception as exc:  # a model failing must not stop the next one
-            log.warning("%s web search for sourcing failed: %s", search.label, exc)
-            continue
-        payload = _json_object(str(result.get("answer") or ""))
-        if payload and isinstance(payload.get(key), list):
-            return payload, search.label
+    try:
+        result = await asyncio.wait_for(search.search(messages), timeout=MODEL_TIMEOUT_SEC)
+    except Exception as exc:  # a failed lookup is retried on the next refresh
+        log.warning("%s web search for sourcing failed: %s", search.label, exc)
+        return None, None
+    payload = _json_object(str(result.get("answer") or ""))
+    if payload and isinstance(payload.get(key), list):
+        return payload, search.label
     return None, None
 
 

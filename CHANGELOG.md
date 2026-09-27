@@ -8,7 +8,7 @@ Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
 ## 0.1.118 — 2026-09-27
 
-- New Sourcing page (the box icon beside Analytics) keeps a buy list of wholesale clothing boxes ready. Every 6 hours Studio checks Raghouse and Thrift Vintage Fashion, looks up what the pieces resell for with your connected ChatGPT, Cursor or MiMo, and picks the boxes expected to at least double your money within your budget. Each store gets an Open cart button with the boxes already in it; you check the cart and pay. Studio never buys anything.
+- New Sourcing page (the box icon beside Analytics) keeps a buy list of wholesale clothing boxes ready. Every 6 hours Studio checks Raghouse and Thrift Vintage Fashion, looks up what the pieces resell for with your listing AI's web search, and picks the boxes expected to at least double your money within your budget. Each store gets an Open cart button with the boxes already in it; you check the cart and pay. Studio never buys anything.
 - Set the ZIP the boxes ship to, and switch back to a recent ZIP in one tap. Shipping is estimated from each store's warehouse to that ZIP.
 
 ## 0.1.117 — 2026-09-27

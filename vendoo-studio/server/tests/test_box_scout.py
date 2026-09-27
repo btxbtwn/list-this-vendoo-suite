@@ -152,8 +152,8 @@ class RefreshTest(unittest.TestCase):
         mock.patch.dict(box_scout._catalogs, clear=True).start()
         self.addCleanup(mock.patch.stopall)
 
-    def _models(self, *searches):
-        return mock.patch("vendoo_studio.services.comp_research.model_searches", return_value=list(searches))
+    def _models(self, search=None):
+        return mock.patch("vendoo_studio.services.comp_research.model_search", return_value=search)
 
     def test_researches_trends_and_prices_then_builds_the_buy_list(self):
         prices = json.dumps({"prices": [
@@ -259,7 +259,7 @@ class SourcingRouteTest(unittest.TestCase):
         with mock.patch.object(box_scout.scout(), "fetch_catalog", side_effect=lambda store: CATALOGS[store]), \
                 mock.patch.object(box_scout.scout(), "fetch_zone_chart", side_effect=ZONE_CHARTS.__getitem__), \
                 mock.patch.dict(box_scout._catalogs, clear=True), \
-                mock.patch("vendoo_studio.services.comp_research.model_searches", return_value=[]):
+                mock.patch("vendoo_studio.services.comp_research.model_search", return_value=None):
             box_scout.refresh()
         body = self.client.get("/api/sourcing").json()
         self.assertEqual(body["snapshot"]["destination_zip"], "70115")
