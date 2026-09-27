@@ -360,6 +360,37 @@ class SaveRouteTest(_RouteTest):
         self.assertIn("generalDetails.title", writes[0])
         self.assertIn("listings.ebay.overrides.title", writes[1])
 
+    def test_the_write_stamps_last_saved_like_vendoos_own_save(self):
+        """Vendoo's "Last Saved" reads the item's dateLastModified."""
+        self.bind()
+        updates: dict = {}
+
+        async def fake_run_ops(job, ops):
+            if ops[0]["op"] == "get_item":
+                return {"ok": True, "results": [{"op": "get_item", "item": {
+                    "itemID": "itm1", "dateLastModified": 1000, "generalDetails": {"title": "Old"},
+                }}]}
+            updates.update(ops[0]["updates"])
+            return {"ok": True, "results": [{"op": "update_item", "ok": True}]}
+
+        async def fake_prepare(job, listing, **kwargs):
+            return listing, {}, None, [], []
+
+        with (
+            patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops),
+            patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", fake_prepare),
+            patch(
+                "vendoo_studio.services.vendoo_api.build_vendoo_item",
+                lambda *a, **k: ({"generalDetails": {"title": "New"}}, []),
+            ),
+        ):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertGreater(updates["dateLastModified"], 1000)
+        self.assertEqual(res.json()["updated"], ["generalDetails.title"])
+        notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
+        self.assertEqual(notes["vendooSyncedAt"], str(updates["dateLastModified"]))
+
     def test_save_runs_as_a_dispatched_job_the_editor_can_poll(self):
         """Update must leave a job trail like first Send, or the button stays idle."""
         self.bind()
