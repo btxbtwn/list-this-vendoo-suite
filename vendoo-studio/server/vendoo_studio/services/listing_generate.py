@@ -63,7 +63,9 @@ def format_photo_analysis(evidence: dict) -> str:
     parts = ["Photo analysis:"]
     # department before category: the trees split on it, and a reader — human or
     # model — should see who the item is for before what it is.
-    for field_key in ("brand", "size", "color", "material", "style", "department", "category", "condition"):
+    for field_key in (
+        "brand", "size", "color", "material", "style", "graphic", "department", "category", "condition",
+    ):
         fd = evidence.get(field_key)
         value = _evidence_value(fd)
         if not value:

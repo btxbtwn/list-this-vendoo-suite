@@ -302,24 +302,40 @@ def _normalized_identity(text: str | None) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
 
 
-def _matches_brand(text: str, expected_brand: str) -> bool:
-    expected = _normalized_identity(expected_brand)
+_NAME_FILLER = {"and", "the", "with", "for"}
+
+
+def _matches_name(candidate: str, name: str) -> bool:
+    expected = _normalized_identity(name)
     if not expected or expected in {"unbranded", "unknown", "other"}:
         return True
-    candidate = _normalized_identity(text)
     if expected in candidate:
         return True
     # Apostrophes and punctuation are inconsistently preserved in marketplace
     # titles ("Levi's" vs "Levis"). Compare compact forms for real brand
     # names, but not very short names where substring matches are noisy.
     compact_expected = expected.replace(" ", "")
-    return len(compact_expected) > 3 and compact_expected in candidate.replace(" ", "")
+    if len(compact_expected) > 3 and compact_expected in candidate.replace(" ", ""):
+        return True
+    # "Snoopy and Woodstock" is titled "Snoopy Woodstock Tee": every
+    # meaningful word has to be there, in any order.
+    words = [word for word in expected.split() if len(word) > 2 and word not in _NAME_FILLER]
+    return len(words) > 1 and all(word in candidate.split() for word in words)
+
+
+def _matches_names(text: str, expected_names: tuple[str, ...]) -> bool:
+    """True when the text mentions any expected name, or none were given."""
+    names = [name for name in expected_names if name.strip()]
+    if not names:
+        return True
+    candidate = _normalized_identity(text)
+    return any(_matches_name(candidate, name) for name in names)
 
 
 def comps_from_web_results(
     results: list[dict] | None,
     *,
-    expected_brand: str = "",
+    expected_names: tuple[str, ...] = (),
 ) -> list[SoldComp]:
     comps: list[SoldComp] = []
     for item in results or []:
@@ -334,7 +350,7 @@ def comps_from_web_results(
         if isinstance(extras, list):
             snippets.extend(str(snippet) for snippet in extras)
         blob = " ".join([title, *snippets])
-        if not _matches_brand(blob, expected_brand):
+        if not _matches_names(blob, expected_names):
             continue
         comps.append(
             _comp(
@@ -440,7 +456,7 @@ def comps_from_chatgpt(
     answer: str | None,
     sources: list[dict] | None = None,
     *,
-    expected_brand: str = "",
+    expected_names: tuple[str, ...] = (),
 ) -> tuple[str, list[SoldComp]]:
     comps: list[SoldComp] = []
     market = ""
@@ -453,7 +469,7 @@ def comps_from_chatgpt(
                 comp
                 for item in raw_comps
                 if (comp := _comp_from_dict(item))
-                and _matches_brand(comp.title, expected_brand)
+                and _matches_names(comp.title, expected_names)
             )
     if not any(comps):
         comps = list(comps_from_markdown(answer))
@@ -461,7 +477,7 @@ def comps_from_chatgpt(
         comps = [comp for comp in comps if comp]
     for source in sources or []:
         if isinstance(source, dict):
-            comps.extend(comps_from_web_results([source], expected_brand=expected_brand))
+            comps.extend(comps_from_web_results([source], expected_names=expected_names))
     comps = _dedupe(comps)
     return market_range(market or (answer or ""), comps), comps
 

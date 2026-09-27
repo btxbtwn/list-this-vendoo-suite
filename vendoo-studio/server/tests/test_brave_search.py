@@ -8,6 +8,7 @@ from vendoo_studio.services.brave_search import (
     MARKETPLACE_SITES,
     brave_sold_queries,
     brave_sold_query,
+    comp_identities,
     search_all,
     fields_from_analysis,
     format_comp_results,
@@ -55,24 +56,62 @@ class CompQueryTest(unittest.TestCase):
     def test_fields_from_analysis_text(self):
         text = (
             "Photo analysis:\n- brand: Levi's (source: tag)\n- style: Slim shorts\n"
-            "- size: 33\n- material: Cotton\n- department: Men"
+            "- size: 33\n- material: Cotton\n- graphic: Red Tab logo\n- department: Men"
         )
         fields = fields_from_analysis(text)
         self.assertEqual(fields["brand"], "Levi's")
         self.assertEqual(fields["style"], "Slim shorts")
         self.assertEqual(fields["material"], "Cotton")
         self.assertEqual(fields["department"], "Men")
+        self.assertEqual(fields["graphic"], "Red Tab logo")
 
-    def test_query_includes_visible_details_for_precision(self):
+    def test_query_reads_like_a_listing_title(self):
         query = sold_comps_query({
             "brand": "Patagonia",
             "category": "Jackets",
             "style": "Nano Puff",
             "size": "M",
             "color": "Blue",
+            "material": "Polyester",
             "department": "Men",
         })
-        self.assertEqual(query, "Patagonia Nano Puff Jackets M Blue Men sold comps")
+        self.assertEqual(query, "Patagonia Nano Puff Jackets men's M sold comps")
+
+    def test_long_analysis_values_stay_out_of_the_query(self):
+        # The fields photo analysis produced for a Peanuts tee that found no comps.
+        fields = {
+            "brand": "Peanuts",
+            "style": "Short-sleeve graphic t-shirt with scoop neck and side hem slit",
+            "graphic": "Snoopy and Woodstock",
+            "category": "T-shirt",
+            "size": "XS",
+            "color": "Charcoal heather gray",
+            "material": "65% polyester, 35% cotton",
+            "department": "Women",
+        }
+        self.assertEqual(
+            sold_comps_query(fields),
+            "Peanuts Snoopy and Woodstock T-shirt women's XS sold comps",
+        )
+        queries = brave_sold_queries(fields)
+        self.assertTrue(queries[0].startswith("Peanuts Snoopy and Woodstock T-shirt women's XS sold ("))
+        # A looser query drops department and size for when that size never sold.
+        self.assertTrue(queries[-1].startswith("Peanuts Snoopy and Woodstock T-shirt sold ("))
+        for query in queries:
+            self.assertNotIn("scoop", query)
+            self.assertNotIn("polyester", query)
+
+    def test_category_is_not_repeated_inside_a_longer_word(self):
+        query = sold_comps_query({"brand": "Topshop", "category": "Tops"})
+        self.assertEqual(query, "Topshop Tops sold comps")
+
+    def test_comp_identities_accept_the_graphic(self):
+        self.assertEqual(
+            comp_identities({"brand": "Peanuts", "graphic": "Snoopy and Woodstock"}),
+            ("Peanuts", "Snoopy and Woodstock"),
+        )
+        self.assertEqual(comp_identities({"brand": "Levi's"}), ("Levi's",))
+        self.assertEqual(comp_identities({"graphic": "Snoopy"}), ())
 
 
 class CompQueryFanOutTest(unittest.TestCase):
@@ -88,11 +127,11 @@ class CompQueryFanOutTest(unittest.TestCase):
             self.assertIn("Levi's", query)
             self.assertIn("sold", query)
 
-    def test_style_adds_a_second_wording(self):
+    def test_short_style_joins_the_query(self):
         queries = brave_sold_queries(
             {"brand": "Nike", "category": "Tops > T-Shirts", "style": "Graphic Tee"}
         )
-        self.assertTrue(any("Graphic Tee" in query for query in queries))
+        self.assertTrue(all("Nike Graphic Tee T-Shirts" in query for query in queries))
 
     def test_no_queries_without_brand_or_item(self):
         self.assertEqual(brave_sold_queries({"size": "M"}), [])

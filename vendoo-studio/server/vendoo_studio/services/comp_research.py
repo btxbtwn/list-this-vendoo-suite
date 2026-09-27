@@ -5,6 +5,7 @@ import logging
 
 from vendoo_studio.services.brave_search import (
     brave_sold_queries,
+    comp_identities,
     item_fields,
     research_brave_comps,
     sold_comps_query,
@@ -65,9 +66,9 @@ def format_chatgpt_comps(
     answer: str,
     sources: list[dict],
     *,
-    expected_brand: str = "",
+    expected_names: tuple[str, ...] = (),
 ) -> str:
-    market, comps = comps_from_chatgpt(answer, sources, expected_brand=expected_brand)
+    market, comps = comps_from_chatgpt(answer, sources, expected_names=expected_names)
     return format_sold_comps(
         SoldCompsReport(
             query=query,
@@ -79,7 +80,7 @@ def format_chatgpt_comps(
     )
 
 
-async def research_chatgpt_comps(query: str, *, expected_brand: str = "") -> str:
+async def research_chatgpt_comps(query: str, *, expected_names: tuple[str, ...] = ()) -> str:
     from vendoo_studio.providers.chatgpt_codex import ChatGPTCodexProvider
 
     result = await ChatGPTCodexProvider().web_search(query)
@@ -89,7 +90,7 @@ async def research_chatgpt_comps(query: str, *, expected_brand: str = "") -> str
         query,
         answer,
         [item for item in sources if isinstance(item, dict)],
-        expected_brand=expected_brand,
+        expected_names=expected_names,
     )
 
 
@@ -101,16 +102,16 @@ async def _research_sold_comps(analysis_text: str | None, evidence: dict | None 
         return _comps_note("", "photo analysis", COMPS_THIN_IDENTITY_NOTE)
 
     tasks: dict[str, asyncio.Task] = {}
-    expected_brand = fields.get("brand", "")
+    expected_names = comp_identities(fields)
     if chatgpt_signed_in():
         tasks["chatgpt"] = asyncio.create_task(
-            research_chatgpt_comps(query, expected_brand=expected_brand)
+            research_chatgpt_comps(query, expected_names=expected_names)
         )
     if get_brave_api_key():
         tasks["brave"] = asyncio.create_task(
             research_brave_comps(
                 brave_sold_queries(fields) or [query],
-                expected_brand=expected_brand,
+                expected_names=expected_names,
             )
         )
     if not tasks:

@@ -120,9 +120,24 @@ class WebResultFilterTest(unittest.TestCase):
             "title": "Wrangler Slim Shorts - Sold",
             "url": "https://www.ebay.com/itm/9",
             "description": "Sold for $22.",
-        }], expected_brand="Levi's")
+        }], expected_names=("Levi's",))
         self.assertEqual(comps, [])
 
+
+    def test_keeps_character_titled_listings_without_the_brand(self):
+        names = ("Peanuts", "Snoopy and Woodstock")
+        kept = comps_from_web_results([{
+            "title": "Snoopy Woodstock Women's XS Gray Tee",
+            "url": "https://www.ebay.com/itm/10",
+            "description": "Sold for $14.",
+        }], expected_names=names)
+        self.assertEqual([comp.price for comp in kept], [14])
+        dropped = comps_from_web_results([{
+            "title": "Woodstock 1969 Festival Tee",
+            "url": "https://www.ebay.com/itm/11",
+            "description": "Sold for $30.",
+        }], expected_names=names)
+        self.assertEqual(dropped, [])
 
 class ChatGPTParseTest(unittest.TestCase):
     def test_reads_json_comps(self):
