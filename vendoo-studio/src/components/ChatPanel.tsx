@@ -23,6 +23,13 @@ import { parseThinkingTodos, type ThinkingTodo } from "./thinkingTodos";
 import { coalesceSseEvents, type SseParts } from "./sseCoalesce";
 import { stableStreamingText } from "./streamingText";
 import { WorkingDuration } from "./WorkingDuration";
+import {
+  appendLiveTrace,
+  currentPhaseIndex,
+  settledPhaseText,
+  thoughtPreview,
+  type LiveTraceEntry,
+} from "./liveTrace";
 
 interface Props {
   convId: string;
@@ -98,26 +105,73 @@ function BrainIcon() {
   );
 }
 
-function ThinkingTrace({ text }: { text: string }) {
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+function PhaseIcon({ live }: { live: boolean }) {
+  return live ? (
+    <svg className="live-phase-spinner" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <path d="M12 3a9 9 0 1 0 9 9" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12 2.5 2.5 4.5-5" />
+    </svg>
+  );
+}
+
+/** Label with T3 Code's moving highlight while its work is still running. */
+function ShimmerLabel({ text, live }: { text: string; live: boolean }) {
+  return (
+    <span className="thinking-label">
+      <span>{text}</span>
+      {live ? <span className="activity-shimmer" aria-hidden="true"><span>{text}</span></span> : null}
+    </span>
+  );
+}
+
+function LiveActivityRow({ icon, label, live }: { icon: React.ReactNode; label: string; live: boolean }) {
+  return (
+    <div className={`live-activity-row${live ? " is-live" : ""}`} title={label}>
+      <span className="thinking-icon">{icon}</span>
+      <ShimmerLabel text={label} live={live} />
+    </div>
+  );
+}
+
+/** A reasoning block. Collapsed, its header follows the newest line so you can watch it think. */
+function LiveThought({ text, live }: { text: string; live: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (expanded && live && body) body.scrollTop = body.scrollHeight;
+  }, [expanded, live, text]);
+  const label = live ? "Thinking" : "Thought";
+  const header = expanded ? label : thoughtPreview(text) || label;
   return (
     <div className="thinking-block">
       <button
         type="button"
         className="thinking-disclosure"
         aria-expanded={expanded}
+        aria-label={expanded ? label : `${label}: ${header}`}
         onClick={() => setExpanded((value) => !value)}
       >
         <span className="thinking-icon"><BrainIcon /></span>
-        <span className="thinking-label">
-          <span>Thinking</span>
-          <span className="activity-shimmer" aria-hidden="true"><span>Thinking</span></span>
-        </span>
+        <ShimmerLabel text={header} live={live} />
         <span className={`thinking-chevron${expanded ? " is-open" : ""}`} aria-hidden="true">›</span>
       </button>
       {expanded ? (
-        <div className="thinking-body">
-          <ThinkingStreamBody text={text} finished={false} />
+        <div ref={bodyRef} className="thinking-body">
+          <ThinkingStreamBody text={text} finished={!live} />
         </div>
       ) : null}
     </div>
@@ -372,6 +426,9 @@ function formatClientStreamError(
   return `Error: ${raw}`;
 }
 
+/** Events that only feed the live trace and never belong in the reply text. */
+const TRACE_ONLY_EVENTS = new Set(["step", "posted"]);
+
 type SseParseState = { eventType: string; parts: SseParts; dataLines: number };
 
 const SSE_FETCH: RequestInit = {
@@ -403,10 +460,12 @@ function applySseLine(
     return true;
   }
   // Data lines within one event are joined with newlines (the server splits multi-line text this way).
-  const text = state.dataLines++ > 0 ? `\n${chunk}` : chunk;
+  const continued = state.dataLines++ > 0;
+  const text = continued ? `\n${chunk}` : chunk;
+  state.parts.trace = appendLiveTrace(state.parts.trace, state.eventType, text, continued);
   if (state.eventType === "thinking") state.parts.thinking += text;
-  else if (state.eventType === "status") state.parts.status = state.dataLines > 1 ? state.parts.status + text : text;
-  else state.parts.content += text;
+  else if (state.eventType === "status") state.parts.status = continued ? state.parts.status + text : text;
+  else if (!TRACE_ONLY_EVENTS.has(state.eventType)) state.parts.content += text;
   onEvent(state.eventType, state.parts);
   return false;
 }
@@ -415,7 +474,7 @@ function consumeSseText(
   text: string,
   onEvent: (event: string, parts: SseParts) => void,
 ): { parts: SseParts; sawDone: boolean } {
-  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" }, dataLines: 0 };
+  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "", trace: [] }, dataLines: 0 };
   let sawDone = false;
   const batch = coalesceSseEvents(onEvent);
   try {
@@ -435,7 +494,7 @@ async function consumeSse(
   const decoder = new TextDecoder();
   let buffer = "";
   let sawDone = false;
-  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "" }, dataLines: 0 };
+  const state: SseParseState = { eventType: "message", parts: { content: "", thinking: "", status: "", trace: [] }, dataLines: 0 };
   const batch = coalesceSseEvents(onEvent);
   const emit = (event: string, parts: SseParts) => batch.push(event, parts);
   try {
@@ -486,7 +545,8 @@ type LiveStream = {
   generating: boolean;
   streamText: string;
   streamDisplayText: string;
-  streamThinking: string;
+  /** What the run has done so far, shown inline in the transcript. */
+  streamTrace: LiveTraceEntry[];
   streamStatus: string;
   thinkingStarted: boolean;
   failedAction: "generate" | "send" | null;
@@ -511,7 +571,7 @@ function emptyLive(): Omit<LiveStream, "listeners"> {
     generating: false,
     streamText: "",
     streamDisplayText: "",
-    streamThinking: "",
+    streamTrace: [],
     streamStatus: "",
     thinkingStarted: false,
     failedAction: null,
@@ -597,13 +657,14 @@ function patchLive(convId: string, patch: Partial<Omit<LiveStream, "listeners">>
 function applySseToLive(convId: string, event: string, parts: SseParts) {
   const live = getLive(convId);
   const previousDisplayText = live.streamDisplayText;
+  const traceChanged = parts.trace !== live.streamTrace;
+  live.streamTrace = parts.trace;
   if (event === "thinking" || event === "status") live.thinkingStarted = true;
-  if (event === "thinking") live.streamThinking = parts.thinking;
   if (event === "status") live.streamStatus = parts.status;
-  if (event !== "thinking" && event !== "status" && event !== "listing_updated") {
+  if (event !== "thinking" && event !== "status" && event !== "listing_updated" && !TRACE_ONLY_EVENTS.has(event)) {
     live.streamText = parts.content;
     live.streamDisplayText = stableStreamingText(parts.content);
-    if (live.streamDisplayText === previousDisplayText) return;
+    if (live.streamDisplayText === previousDisplayText && !traceChanged) return;
   }
   emitLive(convId);
 }
@@ -625,7 +686,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const [streaming, setStreaming] = useState(live.streaming);
   const [generating, setGenerating] = useState(live.generating);
   const [streamText, setStreamText] = useState(live.streamDisplayText);
-  const [streamThinking, setStreamThinking] = useState(live.streamThinking);
+  const [streamTrace, setStreamTrace] = useState(live.streamTrace);
   const [streamStatus, setStreamStatus] = useState(live.streamStatus);
   const [resetting, setResetting] = useState(live.resetting);
   const [workStartedAtMs, setWorkStartedAtMs] = useState(live.workStartedAtMs);
@@ -728,7 +789,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       setStreaming(next.streaming);
       setGenerating(next.generating);
       setStreamText(next.streamDisplayText);
-      setStreamThinking(next.streamThinking);
+      setStreamTrace(next.streamTrace);
       setStreamStatus(next.streamStatus);
       setResetting(next.resetting);
       setWorkStartedAtMs(next.workStartedAtMs);
@@ -756,7 +817,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       return;
     }
     scrollChatToBottom();
-  }, [messages, streamText, streamThinking, scrollChatToBottom]);
+  }, [messages, streamText, streamTrace, scrollChatToBottom]);
 
   const handleChatScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -788,7 +849,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       streaming: true,
       generating: url.endsWith("/generate") ? true : liveState.generating,
       streamText: "",
-      streamThinking: "",
+      streamTrace: [],
       streamStatus: initialStatus,
       thinkingStarted: Boolean(initialStatus),
       failedAction: null,
@@ -906,7 +967,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           const restore = getLive(convId).restoreInputOnAbort;
           patchLive(convId, {
             streamText: "",
-            streamThinking: "",
+            streamTrace: [],
             streamStatus: "",
             thinkingStarted: false,
             failedAction: null,
@@ -930,7 +991,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         });
         patchLive(convId, {
           streamText: assembled,
-          streamThinking: "",
+          streamTrace: [],
           streamStatus: "",
           failedAction: "generate",
         });
@@ -944,7 +1005,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
     if (stillMine() && !failed) {
       patchLive(convId, {
         streamText: "",
-        streamThinking: "",
+        streamTrace: [],
         streamStatus: "",
         thinkingStarted: false,
       });
@@ -987,7 +1048,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       streaming: true,
       generating: false,
       streamText: "",
-      streamThinking: "",
+      streamTrace: [],
       streamStatus: "",
       thinkingStarted: true,
       failedAction: null,
@@ -1027,7 +1088,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
         if (stillMine()) {
           patchLive(convId, {
             streamText: formatClientStreamError(err, { ...errorContext(), httpStatus: res.status }),
-            streamThinking: "",
+            streamTrace: [],
             streamStatus: "",
             failedAction: "send",
             streaming: false,
@@ -1048,7 +1109,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       if (stillMine() && !isStreamError(assembled)) {
         patchLive(convId, {
           streamText: "",
-          streamThinking: "",
+          streamTrace: [],
           streamStatus: "",
           thinkingStarted: false,
         });
@@ -1061,7 +1122,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           const restore = getLive(convId).restoreInputOnAbort;
           patchLive(convId, {
             streamText: "",
-            streamThinking: "",
+            streamTrace: [],
             streamStatus: "",
             thinkingStarted: false,
             failedAction: null,
@@ -1080,7 +1141,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       if (stillMine()) {
         patchLive(convId, {
           streamText: formatClientStreamError(e, errorContext()),
-          streamThinking: "",
+          streamTrace: [],
           streamStatus: "",
           failedAction: "send",
           streaming: false,
@@ -1200,7 +1261,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       userCancelled: true,
       restoreInputOnAbort: false,
       streamText: "",
-      streamThinking: "",
+      streamTrace: [],
       streamStatus: "",
       thinkingStarted: false,
       failedAction: null,
@@ -1291,33 +1352,47 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const activityDetail = localLabel
     ? activityItems.length > 1 ? `${localLabel} (+${activityItems.length - 1} more)` : localLabel
     : activityItems.join(" · ") || "Finishing up…";
-  // T3 Code keeps one live slot: "Working for Xs" plus optional detail — never a
-  // second "Thinking" row beside it. Todos render in the transcript without a
-  // competing status header.
-  const busyActivity = (() => {
-    if (stopping) {
-      return workStartedAtMs != null ? (
-        <>
-          Stopping —{" "}
-          <WorkingDuration startedAtMs={workStartedAtMs} className="chat-activity-duration" />
-          {activityDetail ? ` · ${activityDetail}` : null}
-        </>
-      ) : (
-        <>Stopping — {activityDetail}</>
-      );
+  // T3 Code's turn header: "Working for Xs" sits in the transcript above the
+  // turn's work, and what is running now is the shimmering row below it.
+  const workingHeader = stopping ? (
+    workStartedAtMs != null ? (
+      <>Stopping — <WorkingDuration startedAtMs={workStartedAtMs} className="chat-activity-duration" /></>
+    ) : "Stopping…"
+  ) : workStartedAtMs != null ? (
+    <>Working for <WorkingDuration startedAtMs={workStartedAtMs} className="chat-activity-duration" /></>
+  ) : "Working…";
+  const localLive = (streaming || generating) && !streamFailed;
+  const livePhase = currentPhaseIndex(streamTrace, localLive);
+  const postedIds = new Set(streamTrace.flatMap((entry) => (entry.kind === "posted" ? [entry.id] : [])));
+  // Before the first status lands, or while only server work runs, the
+  // header still needs a live row saying what is happening.
+  const tailLabel = busy && !resetting && livePhase < 0 && !showStreamBubble
+    ? localLive ? localLabel || activityDetail : activityDetail
+    : "";
+  const lastTraceIndex = streamTrace.length - 1;
+  function renderTraceEntry(entry: LiveTraceEntry, index: number) {
+    if (entry.kind === "posted") {
+      const message = messages?.find((m) => String(m.id) === entry.id);
+      return message ? renderMessage(message) : null;
     }
-    if (workStartedAtMs != null) {
-      return (
-        <>
-          Working for{" "}
-          <WorkingDuration startedAtMs={workStartedAtMs} className="chat-activity-duration" />
-          {activityDetail ? ` — ${activityDetail}` : null}
-        </>
-      );
+    if (entry.kind === "thought") {
+      return <LiveThought key={`thought-${index}`} text={entry.text} live={localLive && index === lastTraceIndex} />;
     }
-    // Background server work with no local stream clock yet.
-    return <>Working — {activityDetail}</>;
-  })();
+    if (entry.kind === "step") {
+      return <LiveActivityRow key={`step-${index}`} icon={<SearchIcon />} label={entry.text} live={false} />;
+    }
+    const live = index === livePhase;
+    // One moving highlight at a time: a live thought under this phase has it.
+    const thinkingNow = localLive && streamTrace[lastTraceIndex]?.kind === "thought";
+    return (
+      <LiveActivityRow
+        key={`phase-${index}`}
+        icon={<PhaseIcon live={live} />}
+        label={live ? entry.text : settledPhaseText(entry.text)}
+        live={live && !thinkingNow}
+      />
+    );
+  }
   const composerPlaceholder = busy
     ? "Queue a follow-up…"
     : browser
@@ -1357,7 +1432,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
       generating: false,
       streaming: false,
       streamText: "",
-      streamThinking: "",
+      streamTrace: [],
       streamStatus: "",
       thinkingStarted: false,
     });
@@ -1429,7 +1504,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           </div>
         )}
 
-        {messages?.map(renderMessage)}
+        {messages?.filter((m) => !postedIds.has(String(m.id))).map(renderMessage)}
 
         {resetting && (
           <div className="thinking-block">
@@ -1437,8 +1512,12 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
           </div>
         )}
 
-        {(streaming || generating) && !streamFailed && streamThinking.trim() ? (
-          <ThinkingTrace text={streamThinking} />
+        {busy || streamTrace.length > 0 ? (
+          <div className="live-work" role="status" aria-live="polite">
+            {busy ? <div className="live-work-header">{workingHeader}</div> : null}
+            {streamTrace.map(renderTraceEntry)}
+            {tailLabel ? <LiveActivityRow icon={<PhaseIcon live />} label={tailLabel} live /> : null}
+          </div>
         ) : null}
 
         {showStreamBubble && (
@@ -1446,7 +1525,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
             <div className="msg msg-assistant">
               <ChatMarkdown text={streamVisible} isStreaming />
             </div>
-          ) : (
+          ) : livePhase >= 0 ? null : (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8 }}>
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-cobalt)", flexShrink: 0 }} />
               <span className="text-xs text-muted">UPDATING LISTING…</span>
@@ -1543,23 +1622,18 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
             </div>
           </div>
         )}
+
+        {hasMessages && !busy && !streamFailed && (
+          <div className="chat-activity is-done" role="status">
+            <span className="chat-activity-dot" aria-hidden="true" />
+            <span className="chat-activity-text">Done — nothing running</span>
+          </div>
+        )}
       </div>
 
       <CiteSelectionToolbar viewport={chatViewport} onCite={handleCite} />
 
       <div className="chat-composer">
-        {(busy || hasMessages) && (
-          <div
-            className={`chat-activity${busy ? " is-busy" : " is-done"}`}
-            role="status"
-            aria-live="polite"
-          >
-            <span className="chat-activity-dot" aria-hidden="true" />
-            <span className="chat-activity-text">
-              {busy ? busyActivity : "Done — nothing running"}
-            </span>
-          </div>
-        )}
         {browser && browser.fields.length > 0 && (
           <div className="chat-browser-fields" aria-label="Fields pointed at in the Vendoo browser">
             <div className="chat-browser-fields-head">

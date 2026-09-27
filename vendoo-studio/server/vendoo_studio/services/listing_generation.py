@@ -8,7 +8,7 @@ import time
 
 from vendoo_studio.database import SessionLocal
 from vendoo_studio.repositories.queries import ConversationRepo
-from vendoo_studio.services import activity
+from vendoo_studio.services import activity, live_trace
 from vendoo_studio.services.chat_prompts import (
     listing_generation_messages,
     load_skill_rules,
@@ -63,6 +63,9 @@ async def run_listing_generation(
     photo_count: int,
 ) -> None:
     """Analyze photos, pick categories, stream the listing, and save it."""
+    # Photo analysis and comps research report their reasoning and searches
+    # through this, so the chat can show them before their cards land.
+    live_trace.bind(lambda kind, text: run.publish(sse_event(kind, text)))
     run.publish(sse_event("status", "Analyzing photos…"))
     stream_db = SessionLocal()
     stream_repo = ConversationRepo(stream_db)
@@ -111,7 +114,10 @@ async def run_listing_generation(
                 raise PhotoAnalysisError(PHOTO_ANALYSIS_RETRY_MESSAGE) from exc
             prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
             still_current()
-            stream_repo.add_message(conv_id, "system", analysis_text, provider=vision_name, model=vision_model)
+            analysis_message = stream_repo.add_message(
+                conv_id, "system", analysis_text, provider=vision_name, model=vision_model,
+            )
+            run.publish(sse_event("posted", str(analysis_message.id)))
 
         if existing:
             prompt_analysis = analysis_with_photo_count(photo_count, analysis_text)
@@ -164,7 +170,10 @@ async def run_listing_generation(
             else:
                 source = "system"
             still_current()
-            stream_repo.add_message(conv_id, "system", comps_text, provider=source, model="web-search")
+            comps_message = stream_repo.add_message(
+                conv_id, "system", comps_text, provider=source, model="web-search",
+            )
+            run.publish(sse_event("posted", str(comps_message.id)))
 
         messages = listing_generation_messages(
             listing_rules,

@@ -17,6 +17,7 @@ from vendoo_studio.services.chatgpt_oauth import (
     account_id_from_tokens,
     refresh_chatgpt_tokens,
 )
+from vendoo_studio.services import live_trace
 from vendoo_studio.services.keychain import get_chatgpt_models
 from vendoo_studio.version import app_version
 
@@ -210,6 +211,15 @@ def web_search_answer(output: list[dict]) -> str:
     return "\n".join(parts).strip()
 
 
+def web_search_query(item: dict) -> str:
+    """The query a finished ``web_search_call`` item ran, or ''."""
+    if item.get("type") != "web_search_call":
+        return ""
+    action = item.get("action") if isinstance(item.get("action"), dict) else {}
+    query = action.get("query")
+    return query.strip() if isinstance(query, str) else ""
+
+
 def web_search_sources(output: list[dict]) -> list[dict]:
     sources: list[dict] = []
     seen: set[str] = set()
@@ -396,8 +406,14 @@ class ChatGPTCodexProvider:
         ]
         try:
             content = ""
-            async for chunk in self._complete(messages, model=self.vision_model):
-                content += chunk
+            async for chunk in self._stream(messages, self.vision_model):
+                kind, piece = unpack_stream_item(chunk)
+                if kind == "thinking":
+                    live_trace.emit("thinking", piece)
+                else:
+                    content += piece
+            if not content:
+                raise RuntimeError("ChatGPT returned an empty listing response")
             return self._parse_json_response(content)
         except Exception as e:
             return {"error": str(e), "evidence": {}}
@@ -587,7 +603,13 @@ class ChatGPTCodexProvider:
                 except json.JSONDecodeError:
                     continue
                 if isinstance(items, list):
-                    output.extend(item for item in items if isinstance(item, dict))
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        output.append(item)
+                        searched = web_search_query(item)
+                        if searched:
+                            live_trace.emit("step", f"Searched the web: {searched}")
         sources = web_search_sources(output)
         completed = web_search_answer(output)
         text = completed or answer.strip()

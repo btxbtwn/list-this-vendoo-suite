@@ -551,6 +551,62 @@ a.sold-comps-row:hover .sold-comps-title {
   padding: 0;
 }
 
+/* A run's work, inline in the transcript like T3 Code's working turn:
+   "Working for Xs", then one row per step, with the running one shimmering. */
+.live-work {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.live-work > .evidence-card,
+.live-work > .sold-comps-card {
+  margin-block: 6px;
+}
+
+.live-work-header {
+  min-height: 24px;
+  margin-bottom: 4px;
+  padding: 4px 4px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.625;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 0 2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+.live-activity-row .thinking-label {
+  text-overflow: ellipsis;
+}
+
+.live-phase-spinner {
+  animation: live-phase-spin 0.9s linear infinite;
+}
+
+@keyframes live-phase-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-phase-spinner {
+    animation: none;
+  }
+}
+
 .thinking-disclosure {
   display: flex;
   align-items: center;
@@ -630,10 +686,13 @@ a.sold-comps-row:hover .sold-comps-title {
   will-change: transform;
 }
 
+/* T3's counter layer spans the whole overlay so its -100% cancels the
+   overlay's +100% exactly; the padding lines the text up with the label. */
 .activity-shimmer > span {
   display: block;
-  width: calc(100% - 2 * var(--activity-focus-width));
-  margin-left: var(--activity-focus-width);
+  box-sizing: border-box;
+  width: 100%;
+  padding-inline: var(--activity-focus-width);
   animation: activity-focus-counter 2.2s linear infinite;
   will-change: transform;
 }
