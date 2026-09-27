@@ -171,7 +171,7 @@ async def learn_category_schemas_from_item(
     No-ops when there are no leaf ids, everything is already cached for the
     general path, or Chrome cannot answer. Never raises for the sync caller.
     """
-    from vendoo_studio.services.vendoo_create import fetch_listing_specifics
+    from vendoo_studio.services.vendoo_create import LOOKUP_TIMEOUT_SEC, fetch_listing_specifics
 
     seed = category_seed_from_vendoo_item(item)
     general_path = _text(seed.get("category_path"))
@@ -195,7 +195,9 @@ async def learn_category_schemas_from_item(
     # round-trip, or writers on the request path queue behind it.
     db.commit()
     try:
-        specs = await fetch_listing_specifics(SimpleNamespace(id=None), seed)
+        specs = await fetch_listing_specifics(
+            SimpleNamespace(id=None), seed, timeout=LOOKUP_TIMEOUT_SEC
+        )
     except Exception:  # noqa: BLE001 - sync must not fail over schema learning
         log.info("category schema learn fetch failed", exc_info=True)
         return {"learned": [], "reason": "fetch failed", "general_path": general_path}

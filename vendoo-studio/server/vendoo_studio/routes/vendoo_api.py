@@ -7,6 +7,7 @@ instead of picking it up.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import UTC, datetime
@@ -232,57 +233,6 @@ def _scraped_only_fields(
     return extra
 
 
-async def _fetch_specs(listing: dict, marketplace: str, category_id: str):
-    """Vendoo's schema for one leaf, fetched now when nothing is cached.
-
-    The cache fills on create/send and when a bound draft syncs from Vendoo, so
-    a listing whose category was picked elsewhere — or changed since — used to
-    show a form with the handful of fields some earlier leaf happened to teach
-    us. Asking Vendoo for this listing's own leaf is one round trip, and the
-    answer is stored, so the form is the one that category really renders.
-    """
-    from vendoo_studio.routes.extension import extension_manager
-    from vendoo_studio.services.category_fields import save_fields
-    from vendoo_studio.services.vendoo_create import mercari_fields, run_ops
-    from vendoo_studio.services.vendoo_specifics import normalize_specifics
-
-    if marketplace == "general" or not category_id:
-        return None
-    if marketplace == "mercari":
-        # Mercari's schema is a public static file, not an API answer.
-        specs = await mercari_fields(category_id)
-        if specs:
-            save_fields(marketplace, category_id, specs)
-        return specs or None
-    if not extension_manager.connected:
-        return None
-    objects = listing.get("marketplace_category_objects")
-    resolved = (objects or {}).get(marketplace) if isinstance(objects, dict) else None
-    resolved = resolved if isinstance(resolved, dict) else {}
-    try:
-        reply = await run_ops(SimpleNamespace(id=None), [{
-            "op": "category_specifics",
-            "category_id": category_id,
-            "marketplace_id": marketplace,
-            "path": [str(part) for part in (resolved.get("path") or []) if str(part or "").strip()],
-            "extras": resolved.get("extras") if isinstance(resolved.get("extras"), dict) else {},
-        }])
-    except Exception as exc:  # noqa: BLE001 - a missing schema is not fatal
-        log.info("No live %s schema for category %s: %s", marketplace, category_id, exc)
-        return None
-    hit = next(
-        (r for r in (reply.get("results") or []) if r.get("op") == "category_specifics"), {}
-    )
-    if not hit.get("ok"):
-        log.info("No live %s schema for category %s: %s", marketplace, category_id,
-                 hit.get("error") or "empty reply")
-        return None
-    specs = normalize_specifics(hit.get("specifics"))
-    if specs:
-        save_fields(marketplace, category_id, specs)
-    return specs or None
-
-
 # Keys Studio keeps in <marketplace>_specifics that no form ever renders.
 _NON_FORM_SPECIFIC_KEYS = frozenset({
     "categorypath", "categoryid", "categoryspecifics", "category",
@@ -335,8 +285,9 @@ async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
     whether it insists on it, whether it takes several values, and the exact
     options it accepts.
     """
-    from vendoo_studio.services.category_fields import listing_category_ids, load_fields
+    from vendoo_studio.services.category_fields import listing_category_ids
     from vendoo_studio.services.fill_log import listing_value_for_field
+    from vendoo_studio.services.vendoo_create import LOOKUP_TIMEOUT_SEC, fetch_leaf_specifics
 
     conv = ConversationRepo(db).get(conv_id)
     if not conv:
@@ -348,10 +299,22 @@ async def listing_fields(conv_id: str, db: Session = Depends(get_db)):
 
     static_forms = marketplace_dropdown_forms()
     out: list[dict] = []
-    for marketplace, category_id in sorted(listing_category_ids(listing).items()):
-        specs = load_fields(marketplace, category_id) or await _fetch_specs(
-            listing, marketplace, category_id
+    # A leaf nobody has fetched yet is asked for now, so the form is the one
+    # that category really renders; the answer is stored. All leaves go at
+    # once, and briefly: the app shows the marketplace's own controls until
+    # this answers, so a slow Chrome must not hold the listing open.
+    leaves = sorted(listing_category_ids(listing).items())
+    objects = listing.get("marketplace_category_objects")
+    objects = objects if isinstance(objects, dict) else {}
+    fetched = await asyncio.gather(*(
+        fetch_leaf_specifics(
+            SimpleNamespace(id=None), marketplace, category_id,
+            objects.get(marketplace) if isinstance(objects.get(marketplace), dict) else None,
+            timeout=LOOKUP_TIMEOUT_SEC,
         )
+        for marketplace, category_id in leaves
+    ))
+    for (marketplace, category_id), specs in zip(leaves, fetched, strict=True):
         static = static_forms.get(marketplace) or {}
         static_by_fold = {key.casefold(): values for key, values in static.items()}
         if not specs:

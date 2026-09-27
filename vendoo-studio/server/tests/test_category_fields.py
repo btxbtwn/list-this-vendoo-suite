@@ -317,7 +317,7 @@ class ListingFieldsRouteTest(unittest.TestCase):
             "rules": {"fieldOptions": {"minValues": 0, "maxValues": 1, "selectionMode": "SelectionOnly"}}}}
         saved: list[tuple] = []
 
-        async def fake_run_ops(job, ops):
+        async def fake_run_ops(job, ops, **_):
             saved.append(("op", ops[0]["marketplace_id"], ops[0]["category_id"]))
             return {"results": [{"op": "category_specifics", "ok": True, "specifics": raw}]}
 
@@ -341,6 +341,38 @@ class ListingFieldsRouteTest(unittest.TestCase):
         self.assertEqual(material["options"], ["Silk"])
         self.assertIn(("op", "depop", "77"), saved)
         self.assertIn(("saved", "depop", "77"), saved)
+
+    def test_uncached_leaves_are_asked_for_together_and_briefly(self):
+        """Opening a listing must not wait on Chrome once per marketplace."""
+        import asyncio
+
+        from vendoo_studio.services import category_fields as cf
+        from vendoo_studio.services import vendoo_create
+
+        in_flight = 0
+        peak = 0
+        timeouts: list[float] = []
+
+        async def fake_run_ops(job, ops, timeout):
+            nonlocal in_flight, peak
+            timeouts.append(timeout)
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return {"results": [{"op": "category_specifics", "ok": True, "specifics": {}}]}
+
+        with mock.patch.object(cf, "listing_category_ids",
+                               return_value={"depop": "77", "ebay": "53159", "etsy": "12"}), \
+                mock.patch.object(cf, "load_fields", return_value=None), \
+                mock.patch.object(vendoo_create, "run_ops", fake_run_ops), \
+                mock.patch("vendoo_studio.repositories.queries.ConversationRepo.get", return_value=object()), \
+                mock.patch("vendoo_studio.repositories.queries.ListingRepo.get_revisions", return_value=[]):
+            body = TestClient(app).get("/api/conversations/c1/vendoo-api/fields").json()
+
+        self.assertEqual([form["marketplace"] for form in body["forms"]], ["depop", "ebay", "etsy"])
+        self.assertEqual(peak, 3)
+        self.assertEqual(timeouts, [vendoo_create.LOOKUP_TIMEOUT_SEC] * 3)
 
     def test_a_value_no_form_names_still_gets_a_row(self):
         """Otherwise a rejected leftover key is invisible and cannot be cleared."""

@@ -134,7 +134,7 @@ class LearnFromSyncedItemTest(unittest.TestCase):
     def test_uncached_leaf_is_fetched_saved_and_remembered(self):
         saved: list[tuple[str, str]] = []
 
-        async def fake_fetch(job, listing):
+        async def fake_fetch(job, listing, **_):
             from vendoo_studio.services.category_fields import save_fields
 
             specs = normalize_specifics(RAW_EBAY)
