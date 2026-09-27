@@ -50,6 +50,20 @@ _SOLD_EVIDENCE_RE = re.compile(
     r"\b(?:sold(?:\s+(?:for|at|on))?|completed(?:\s+listing)?|item has sold|purchased)\b",
     re.I,
 )
+# Seller feedback ("6.3K items sold") and "sold by {seller}" appear on active
+# listings. They are not evidence that this listing sold.
+_SELLER_SOLD_COUNT_RE = re.compile(
+    r"\b(?:[\d,.]+[kmb]\+?\s+)?items\s+sold\b|\bsold\s+by\b",
+    re.I,
+)
+# The dollar amount in a title is often the tag the seller wants buyers to
+# notice ("NWT $44", "Retail: $44.00") while the listing itself is a lower price.
+_NON_SALE_PRICE_RE = re.compile(
+    r"\b(?:retail(?:\s+price)?|msrp|was|originally|original(?:\s+price)?|"
+    r"list\s+price|compare(?:\s+at)?)\b"
+    r"\s*[:\-]?\s*(?:US\s?)?" + _USD + r"\s*" + _AMOUNT,
+    re.I,
+)
 _NOT_SOLD_RE = re.compile(r"\b(?:not sold|has(?:n't| not) sold|unsold|sold out)\b", re.I)
 _RANGE_RE = re.compile(
     _USD + r"\s*" + _AMOUNT + r"\s*(?:[-–—]|to)\s*(?:" + _USD + r")?\s*" + _AMOUNT,
@@ -161,20 +175,51 @@ def extract_price(text: str | None) -> float | None:
     return price
 
 
+def _non_sale_prices(blob: str) -> set[float]:
+    """Dollar amounts labeled as retail, MSRP, original, or a previous price."""
+    found: set[float] = set()
+    for match in _NON_SALE_PRICE_RE.finditer(blob):
+        try:
+            found.add(_amount(match.group(1)))
+        except ValueError:
+            continue
+    return found
+
+
+def _usable_price(raw: str, ignored: set[float]) -> float | None:
+    try:
+        price = _amount(raw)
+    except ValueError:
+        return None
+    if price in ignored or price < 1 or price > 9999:
+        return None
+    return price
+
+
 def extract_sold_price(text: str | None) -> float | None:
     """Return a price only when the result explicitly says it sold.
 
     Search snippets often contain both an original/list price and a current
-    price. Without an explicit sold-price association, multiple amounts are
-    ambiguous and are safer to discard than to price a listing from.
+    price. A retail or "was" amount is not the sold price, and a seller's
+    "items sold" count is not evidence this listing sold. Without an explicit
+    sold-price association, multiple amounts are ambiguous and are safer to
+    discard than to price a listing from.
     """
     blob = text or ""
-    if _NOT_SOLD_RE.search(blob) or not _SOLD_EVIDENCE_RE.search(blob):
+    evidence = _SELLER_SOLD_COUNT_RE.sub(" ", blob)
+    if _NOT_SOLD_RE.search(blob) or not _SOLD_EVIDENCE_RE.search(evidence):
         return None
+    ignored = _non_sale_prices(blob)
     sold = _SOLD_FOR_RE.search(blob) or _PRICE_BEFORE_SOLD_RE.search(blob)
     if sold:
-        return extract_price(f"${sold.group(1)}")
-    prices = {_amount(match.group(1)) for match in _PRICE_RE.finditer(blob)}
+        price = _usable_price(sold.group(1), ignored)
+        if price is not None:
+            return price
+    prices = {
+        price
+        for match in _PRICE_RE.finditer(blob)
+        if (price := _usable_price(match.group(1), ignored)) is not None
+    }
     if len(prices) != 1:
         return None
     return prices.pop()
