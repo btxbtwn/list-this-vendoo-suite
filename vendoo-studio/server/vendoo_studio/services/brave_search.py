@@ -12,7 +12,7 @@ from vendoo_studio.services.keychain import get_brave_api_key
 log = logging.getLogger("vendoo_studio.brave_search")
 
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
-ITEM_FIELDS = ("brand", "category", "style", "size", "color", "material", "pattern", "department")
+ITEM_FIELDS = ("brand", "category", "style", "graphic", "size", "color", "material", "pattern", "department")
 MARKETPLACE_SITES = ("ebay.com", "poshmark.com", "mercari.com", "depop.com", "etsy.com")
 # Brave caps count at 20. One 8-result query across five sites usually came back
 # with one or two priced listing URLs; per-site queries spread the budget.
@@ -22,7 +22,7 @@ BRAVE_RESULT_COUNT = 20
 BRAVE_QUERY_STAGGER_SEC = 0.6
 BRAVE_RETRY_SEC = 1.5
 _ANALYSIS_FIELD_RE = re.compile(
-    r"^-\s*(brand|category|style|size|color|material|pattern|department):\s*(.+?)(?:\s+\(source:.*\))?$",
+    r"^-\s*(brand|category|style|graphic|size|color|material|pattern|department):\s*(.+?)(?:\s+\(source:.*\))?$",
     re.I | re.M,
 )
 
@@ -58,44 +58,52 @@ def item_fields(analysis_text: str | None, evidence: dict | None = None) -> dict
     return fields
 
 
+# A marketplace title is short: brand, what is printed on it, item type, who it
+# is for, size. Web search needs most query words to match, so a query built
+# from the whole photo analysis ("with scoop neck and side hem slit", "65%
+# polyester, 35% cotton") matches no listing at all. Longer values are dropped
+# rather than trimmed, since the first few words of a sentence are rarely the
+# ones a seller would type.
+MAX_STYLE_WORDS = 3
+MAX_GRAPHIC_WORDS = 4
+_DEPARTMENT_TERMS = {"women": "women's", "men": "men's", "girls": "girls", "boys": "boys", "baby": "baby"}
+
+
+def _short(value: str, max_words: int) -> str:
+    value = " ".join(value.split())
+    return value if value and len(value.split()) <= max_words else ""
+
+
+def _contains_words(text: str, words: str) -> bool:
+    return re.search(rf"\b{re.escape(words.lower())}\b", text.lower()) is not None
+
+
 def _query_core(fields: dict[str, str]) -> list[str]:
+    """Brand, printed graphic and item type: what identifies the item."""
     brand = fields.get("brand", "").strip()
+    graphic = _short(fields.get("graphic", ""), MAX_GRAPHIC_WORDS)
     # Category arrives as a taxonomy path ("Tops > T-Shirts"); search the leaf.
     category = fields.get("category", "").split(">")[-1].strip()
-    style = fields.get("style", "").strip()
-    parts = [brand]
-    if style:
-        parts.append(style)
-    if category and category.lower() != style.lower():
-        parts.append(category)
-    return [part for part in parts if part]
+    style = _short(fields.get("style", ""), MAX_STYLE_WORDS)
+    parts: list[str] = []
+    for part in (brand, graphic, style, category):
+        if part and not any(_contains_words(kept, part) for kept in parts):
+            parts.append(part)
+    return parts
 
 
 def _query_details(fields: dict[str, str]) -> list[str]:
-    """High-signal visible attributes that narrow generic brand/category searches."""
-    details: list[str] = []
-    for key in ("size", "color", "material", "pattern", "department"):
-        value = fields.get(key, "").strip()
-        if value and value.lower() not in {part.lower() for part in [*_query_core(fields), *details]}:
-            details.append(value)
-    return details
-
-
-def _query_alt(fields: dict[str, str]) -> str:
-    """Brand + style, when style says something the category leaf does not."""
-    brand = fields.get("brand", "").strip()
-    style = fields.get("style", "").strip()
-    leaf = (fields.get("category") or "").split(">")[-1].strip()
-    if not style or style.lower() == leaf.lower():
-        return ""
-    return " ".join(part for part in (brand, style) if part)
+    """Department and size, the two details sellers put in nearly every title."""
+    department = _DEPARTMENT_TERMS.get(fields.get("department", "").strip().lower(), "")
+    size = _short(fields.get("size", ""), 2)
+    return [part for part in (department, size) if part]
 
 
 def sold_comps_query(fields: dict[str, str]) -> str:
     parts = _query_core(fields)
     if not parts:
         return ""
-    return " ".join([*parts, *_query_details(fields), "sold comps"])[:400]
+    return " ".join([*parts, *_query_details(fields), "sold comps"])
 
 
 def _site_filter() -> str:
@@ -106,21 +114,37 @@ def brave_sold_query(fields: dict[str, str]) -> str:
     parts = _query_core(fields)
     if not parts:
         return ""
-    return f"{' '.join([*parts, *_query_details(fields)])} sold {_site_filter()}"[:400]
+    return f"{' '.join([*parts, *_query_details(fields)])} sold {_site_filter()}"
 
 
 def brave_sold_queries(fields: dict[str, str]) -> list[str]:
-    """The broad query first, then one per marketplace so no single site wins the page."""
+    """The broad query, one per marketplace, then a looser one without size.
+
+    The looser query is what finds comps when the exact size never sold.
+    """
     broad = brave_sold_query(fields)
     if not broad:
         return []
-    core = " ".join([*_query_core(fields), *_query_details(fields)])
+    core = " ".join(_query_core(fields))
+    tight = " ".join([core, *_query_details(fields)])
     queries = [broad]
-    queries.extend(f"{core} sold listing site:{site}" for site in MARKETPLACE_SITES)
-    alt = _query_alt(fields)
-    if alt:
-        queries.append(f"{alt} sold price {_site_filter()}")
-    return [query[:400] for query in queries]
+    queries.extend(f"{tight} sold listing site:{site}" for site in MARKETPLACE_SITES)
+    if tight != core:
+        queries.append(f"{core} sold {_site_filter()}")
+    return queries
+
+
+def comp_identities(fields: dict[str, str]) -> tuple[str, ...]:
+    """Names a comp must mention: the brand, or the licensed graphic on it.
+
+    Character and franchise tees are often titled by the character alone
+    ("Snoopy Woodstock tee") without the licensing brand ("Peanuts").
+    """
+    brand = fields.get("brand", "").strip()
+    graphic = _short(fields.get("graphic", ""), MAX_GRAPHIC_WORDS)
+    if not brand:
+        return ()
+    return (brand, graphic) if graphic else (brand,)
 
 
 def _brave_error(resp: httpx.Response) -> str:
@@ -146,7 +170,7 @@ def format_comp_results(
     results: list[dict],
     *,
     source: str = "Brave Search",
-    expected_brand: str = "",
+    expected_names: tuple[str, ...] = (),
 ) -> str:
     from vendoo_studio.services.sold_comps import SoldCompsReport, comps_from_web_results, format_sold_comps
 
@@ -154,7 +178,7 @@ def format_comp_results(
         SoldCompsReport(
             query=query,
             source=source,
-            comps=comps_from_web_results(results, expected_brand=expected_brand),
+            comps=comps_from_web_results(results, expected_names=expected_names),
         )
     )
 
@@ -237,7 +261,7 @@ async def search_all(queries: list[str], api_key: str) -> tuple[list[dict], list
     return results, errors
 
 
-async def research_brave_comps(queries: str | list[str], *, expected_brand: str = "") -> str:
+async def research_brave_comps(queries: str | list[str], *, expected_names: tuple[str, ...] = ()) -> str:
     api_key = get_brave_api_key()
     if not api_key:
         return ""
@@ -250,7 +274,7 @@ async def research_brave_comps(queries: str | list[str], *, expected_brand: str 
         results, errors = await search_all(query_list, api_key)
         if not results and errors:
             raise RuntimeError(errors[0])
-        return format_comp_results(query, results, expected_brand=expected_brand)
+        return format_comp_results(query, results, expected_names=expected_names)
     except Exception as exc:
         log.warning("Brave sold-comps search failed: %s", exc)
         from vendoo_studio.services.sold_comps import SoldCompsReport, format_sold_comps

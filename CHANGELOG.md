@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.100 — 2026-09-27
+
+- Sold comps search the way a buyer would, with brand, printed character, item type, department and size (e.g. "Peanuts Snoopy and Woodstock T-shirt women's XS") instead of the whole photo description, so graphic tees and other detailed items find comps again
+- Photo analysis now notes the character, band, team or logo printed on an item, and a comp titled only by that character ("Snoopy Woodstock tee") still counts
+
 ## 0.1.99 — 2026-09-27
 
 - Sold comps no longer read foreign prices like HK$1990 or AU $19.90 as US dollars, and $1,250 reads as $1,250 instead of $1

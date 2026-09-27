@@ -23,6 +23,7 @@ const FIELD_ORDER = [
   "color",
   "material",
   "style",
+  "graphic",
   "department",
   "category",
   "condition",

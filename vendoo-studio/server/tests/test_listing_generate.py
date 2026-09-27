@@ -190,8 +190,10 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         text = format_photo_analysis({
             "brand": {"value": "M&O Gold"},
             "size": {"value": "S", "source": "tag"},
+            "graphic": {"value": "Snoopy and Woodstock"},
         })
         self.assertIn("brand: M&O Gold", text)
+        self.assertIn("graphic: Snoopy and Woodstock", text)
         self.assertIn("source: tag", text)
 
     def test_format_photo_analysis_accepts_string_fields(self):
