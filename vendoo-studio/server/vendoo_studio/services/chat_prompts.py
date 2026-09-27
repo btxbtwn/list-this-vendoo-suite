@@ -132,7 +132,7 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
             )
             comps_text = await research_sold_comps(photo_analysis_text, evidence)
             if comps_text:
-                repo.add_message(conv_id, "system", comps_text, provider="brave", model="web-search")
+                repo.add_message(conv_id, "system", comps_text, provider="web-search", model="web-search")
         else:
             photo_analysis_text = analysis_with_photo_count(len(photos), existing_analysis)
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { PriceDropPreview } from "../api/types";
+import type { PriceDropCompsSource, PriceDropPreview } from "../api/types";
 import { addToast } from "../ui/toast";
 import { SoldCompsCard } from "./SoldCompsCard";
 
@@ -39,6 +39,57 @@ function defaultSelection(preview: PriceDropPreview): Selection {
   return { kind: "suggested", price: preview.suggested_price };
 }
 
+type CompsStream = {
+  sources: PriceDropCompsSource[];
+  step: string;
+  preview: PriceDropPreview | null;
+  running: boolean;
+  error: string;
+};
+
+const IDLE_COMPS: CompsStream = { sources: [], step: "", preview: null, running: false, error: "" };
+
+/** Sold comps stream in source by source; each update carries the preview they imply. */
+function usePriceDropComps(convId: string, enabled: boolean): CompsStream {
+  const [state, setState] = useState<CompsStream>(IDLE_COMPS);
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    // A fresh search starts from nothing; the previous open's comps are stale.
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) setState({ ...IDLE_COMPS, running: true });
+    });
+    api.listings
+      .priceDropComps(
+        convId,
+        {
+          onSource: (source) =>
+            setState((prev) => ({
+              ...prev,
+              sources: [...prev.sources.filter((item) => item.source !== source.source), source],
+            })),
+          onStep: (step) => setState((prev) => ({ ...prev, step })),
+          onPreview: (preview) => setState((prev) => ({ ...prev, preview })),
+        },
+        controller.signal,
+      )
+      .then(() => setState((prev) => ({ ...prev, running: false, step: "" })))
+      .catch((err: Error) => {
+        if (controller.signal.aborted) return;
+        setState((prev) => ({ ...prev, running: false, step: "", error: err.message || "Sold comps search failed." }));
+      });
+    return () => controller.abort();
+  }, [convId, enabled]);
+  return enabled ? state : IDLE_COMPS;
+}
+
+function sourceStatus(source: PriceDropCompsSource): string {
+  if (source.state === "searching") return "searching…";
+  if (source.state === "timeout") return "timed out";
+  if (source.state === "failed") return source.detail ? `failed — ${source.detail}` : "failed";
+  return `${source.sold} sold · ${source.live} live`;
+}
+
 /** Price-drop chooser shown when Regenerate is clicked on a priced listing. */
 export function RegeneratePriceDialog({
   convId,
@@ -55,23 +106,17 @@ export function RegeneratePriceDialog({
 }) {
   const queryClient = useQueryClient();
 
-  // History and sell-through answer at once; live comps are a web search that
-  // can take a minute and a half, so they load on top instead of holding the
-  // whole dialog.
+  // History and sell-through answer at once; sold comps are web searches by
+  // every connected model that can take minutes, so they stream in on top
+  // instead of holding the whole dialog.
   const previewQuery = useQuery({
-    queryKey: ["price-drop-preview", convId, "instant"],
-    queryFn: () => api.listings.priceDropPreview(convId, { comps: false }),
+    queryKey: ["price-drop-preview", convId],
+    queryFn: () => api.listings.priceDropPreview(convId),
     enabled: open,
     staleTime: 30_000,
   });
-  const compsQuery = useQuery({
-    queryKey: ["price-drop-preview", convId, "comps"],
-    queryFn: () => api.listings.priceDropPreview(convId, { comps: true }),
-    enabled: open && Boolean(previewQuery.data?.comps.available),
-    staleTime: 30_000,
-    retry: false,
-  });
-  const preview = compsQuery.data ?? previewQuery.data;
+  const comps = usePriceDropComps(convId, open && Boolean(previewQuery.data?.comps.available));
+  const preview = comps.preview ?? previewQuery.data;
 
   const [selection, setSelection] = useState<Selection | null>(null);
   const [customText, setCustomText] = useState("");
@@ -311,16 +356,26 @@ export function RegeneratePriceDialog({
                 </div>
               ) : !preview.comps.available ? (
                 <p className="price-drop-status">
-                  Sold comps need ChatGPT signed in or a Brave Search API key in Settings.
+                  Sold comps need ChatGPT, Cursor or MiMo connected, or a Brave Search API key in Settings.
                 </p>
-              ) : compsQuery.isFetching && !compsQuery.data ? (
+              ) : comps.running ? (
                 <p className="price-drop-status">
                   Researching sold comps… You can confirm now, or wait for the live comps target.
                 </p>
-              ) : compsQuery.isError ? (
-                <p className="price-drop-status is-error">
-                  {(compsQuery.error as Error).message || "Sold comps search failed."}
-                </p>
+              ) : comps.error ? (
+                <p className="price-drop-status is-error">{comps.error}</p>
+              ) : null}
+
+              {comps.sources.length ? (
+                <ul className="price-drop-sources" aria-live="polite">
+                  {comps.sources.map((source) => (
+                    <li key={source.source} className={`price-drop-source is-${source.state}`}>
+                      <span className="price-drop-source-name">{source.source}</span>
+                      <span className="price-drop-source-state">{sourceStatus(source)}</span>
+                    </li>
+                  ))}
+                  {comps.step ? <li className="price-drop-source-step">{comps.step}</li> : null}
+                </ul>
               ) : null}
 
               <div className="price-drop-section">

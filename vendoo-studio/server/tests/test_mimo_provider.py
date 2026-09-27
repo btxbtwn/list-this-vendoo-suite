@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import json
+
 import httpx
 
 from vendoo_studio.providers.xiaomi_mimo import (
@@ -112,3 +114,49 @@ class MiMoSettingsRouteTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MiMoWebSearchTest(unittest.IsolatedAsyncioTestCase):
+    async def test_sends_web_search_tool_and_reads_citations(self):
+        captured: dict = {}
+        chunks = [
+            {"choices": [{"delta": {"annotations": [
+                {"type": "url_citation", "url": "https://www.ebay.com/itm/1", "title": "Nike Tee | eBay", "summary": "Sold for $20"},
+                {"type": "other", "url": "https://example.com"},
+            ]}}]},
+            {"choices": [{"delta": {"content": '{"comps":'}}]},
+            {"choices": [{"delta": {"content": "[]}"}}]},
+        ]
+        body = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks) + "data: [DONE]\n\n"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["json"] = json.loads(request.content)
+            return httpx.Response(200, text=body)
+
+        real_client = httpx.AsyncClient
+        with patch(
+            "vendoo_studio.providers.xiaomi_mimo.httpx.AsyncClient",
+            side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs),
+        ):
+            result = await MiMoProvider(api_key="sk-test").web_search([{"role": "user", "content": "Nike tee"}])
+
+        self.assertEqual(captured["json"]["tools"][0]["type"], "web_search")
+        self.assertTrue(captured["json"]["tools"][0]["force_search"])
+        self.assertTrue(captured["json"]["stream"])
+        self.assertEqual(result["answer"], '{"comps":[]}')
+        self.assertEqual(
+            result["sources"],
+            [{"url": "https://www.ebay.com/itm/1", "title": "Nike Tee | eBay", "description": "Sold for $20"}],
+        )
+
+    async def test_plugin_error_is_raised(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(403, json={"error": {"message": "Web Search plugin is not enabled"}})
+
+        real_client = httpx.AsyncClient
+        with patch(
+            "vendoo_studio.providers.xiaomi_mimo.httpx.AsyncClient",
+            side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "plugin is not enabled"):
+                await MiMoProvider(api_key="sk-test").web_search([{"role": "user", "content": "Nike tee"}])

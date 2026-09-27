@@ -91,7 +91,7 @@ class ChatGPTTraceTest(unittest.TestCase):
         _, events = _traced(
             lambda: provider._web_search_once([], tools=[], tool_choice="required")
         )
-        self.assertEqual(events, [("step", "Searched the web: levis 501 sold ebay")])
+        self.assertEqual(events, [("step", "ChatGPT searched: levis 501 sold ebay")])
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import httpx
 
 from vendoo_studio.services import live_trace
 from vendoo_studio.services.keychain import get_brave_api_key
+from vendoo_studio.services.sold_comps import SoldCompsReport, listings_from_web_results
 
 log = logging.getLogger("vendoo_studio.brave_search")
 
@@ -165,22 +166,15 @@ def _brave_error(resp: httpx.Response) -> str:
     return f"Brave HTTP {resp.status_code}: {text}" if text else f"Brave HTTP {resp.status_code}"
 
 
-def format_comp_results(
+def comp_report(
     query: str,
     results: list[dict],
     *,
-    source: str = "Brave Search",
+    source: str = "Brave",
     expected_names: tuple[str, ...] = (),
-) -> str:
-    from vendoo_studio.services.sold_comps import SoldCompsReport, comps_from_web_results, format_sold_comps
-
-    return format_sold_comps(
-        SoldCompsReport(
-            query=query,
-            source=source,
-            comps=comps_from_web_results(results, expected_names=expected_names),
-        )
-    )
+) -> SoldCompsReport:
+    comps, live = listings_from_web_results(results, expected_names=expected_names)
+    return SoldCompsReport(query=query, source=source, comps=comps, live=live)
 
 
 async def search_web(query: str, api_key: str, *, count: int = 8) -> list[dict]:
@@ -261,28 +255,18 @@ async def search_all(queries: list[str], api_key: str) -> tuple[list[dict], list
     return results, errors
 
 
-async def research_brave_comps(queries: str | list[str], *, expected_names: tuple[str, ...] = ()) -> str:
+async def research_brave_report(
+    queries: str | list[str], *, expected_names: tuple[str, ...] = ()
+) -> SoldCompsReport:
+    """Sold comps and live listings from Brave. Raises when no query got through."""
     api_key = get_brave_api_key()
     if not api_key:
-        return ""
+        raise RuntimeError("Add a Brave Search API key in Settings.")
     query_list = [queries] if isinstance(queries, str) else list(queries)
     query_list = [query for query in query_list if query]
     if not query_list:
-        return ""
-    query = query_list[0]
-    try:
-        results, errors = await search_all(query_list, api_key)
-        if not results and errors:
-            raise RuntimeError(errors[0])
-        return format_comp_results(query, results, expected_names=expected_names)
-    except Exception as exc:
-        log.warning("Brave sold-comps search failed: %s", exc)
-        from vendoo_studio.services.sold_comps import SoldCompsReport, format_sold_comps
-
-        return format_sold_comps(
-            SoldCompsReport(
-                query=query,
-                source="Brave Search",
-                note=f"Search failed ({exc}). Use an estimated baseline and note pricing uncertainty in the description.",
-            )
-        )
+        raise RuntimeError("No Brave query to run.")
+    results, errors = await search_all(query_list, api_key)
+    if not results and errors:
+        raise RuntimeError(errors[0])
+    return comp_report(query_list[0], results, expected_names=expected_names)

@@ -149,6 +149,48 @@
   color: var(--color-danger, #c44);
 }
 
+.price-drop-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.price-drop-source {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.price-drop-source-name {
+  flex: 0 0 64px;
+  font-weight: 600;
+}
+
+.price-drop-source-state {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price-drop-source.is-failed .price-drop-source-state,
+.price-drop-source.is-timeout .price-drop-source-state {
+  color: var(--color-danger, #c44);
+}
+
+.price-drop-source-step {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .price-drop-section {
   display: flex;
   flex-direction: column;

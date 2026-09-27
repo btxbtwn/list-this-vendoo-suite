@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from vendoo_studio.database import SessionLocal
 from vendoo_studio.main import app
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
+from vendoo_studio.services import live_trace
+from vendoo_studio.services.comp_research import CompsEvent
 from vendoo_studio.services.price_drop import PRICE_DROP_SOURCE
 
 
@@ -34,10 +37,7 @@ class PriceDropRouteTest(unittest.TestCase):
         self.db.close()
 
     def test_preview_and_apply(self):
-        with (
-            patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()),
-        ):
+        with patch("vendoo_studio.services.price_drop.comps_search_available", return_value=False):
             preview = self.client.post(f"/api/conversations/{self.conv.id}/price-drop/preview")
         self.assertEqual(preview.status_code, 200, preview.text)
         body = preview.json()
@@ -60,17 +60,46 @@ class PriceDropRouteTest(unittest.TestCase):
         listing = self.client.get(f"/api/conversations/{self.conv.id}/listing")
         self.assertEqual(listing.json()["listing"]["price"], 41)
 
-    def test_preview_without_comps_skips_the_web_search(self):
+    def test_comps_stream_reports_sources_then_the_preview(self):
+        comps = (
+            "Sold comps:\n"
+            "Query: Nike T-Shirts sold comps\n"
+            "Source: ChatGPT + Cursor\n"
+            "\n"
+            "- $20 · eBay · Nike Tee\n"
+            "  https://www.ebay.com/itm/1\n"
+            "- $18 · Poshmark · Nike Tee\n"
+            "  https://poshmark.com/listing/2\n"
+            "- $22 · Mercari · Nike Tee\n"
+            "  https://www.mercari.com/item/3\n"
+        )
+
+        async def fake_stream(_analysis, evidence):
+            self.assertEqual(evidence["brand"], "Nike")
+            live_trace.emit("step", "Cursor searched: nike tee sold")
+            yield CompsEvent("source", source="Cursor", state="searching")
+            yield CompsEvent("source", source="Cursor", state="done", sold=3, live=0)
+            yield CompsEvent("done", text=comps)
+
         with (
             patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True),
-            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()) as research,
+            patch("vendoo_studio.services.comp_research.stream_sold_comps", new=fake_stream),
         ):
-            preview = self.client.post(
-                f"/api/conversations/{self.conv.id}/price-drop/preview?comps=false"
-            )
-        self.assertEqual(preview.status_code, 200, preview.text)
-        research.assert_not_called()
-        self.assertTrue(preview.json()["comps"]["available"])
+            res = self.client.post(f"/api/conversations/{self.conv.id}/price-drop/comps")
+        self.assertEqual(res.status_code, 200, res.text)
+        events = [
+            (block.split("\n", 1)[0].removeprefix("event: "), block.split("data: ", 1)[1])
+            for block in res.text.strip().split("\n\n")
+            if block.startswith("event:")
+        ]
+        self.assertEqual(events[0], ("step", "Cursor searched: nike tee sold"))
+        self.assertEqual(json.loads(events[1][1])["state"], "searching")
+        self.assertEqual(json.loads(events[2][1])["sold"], 3)
+        preview = json.loads(events[-1][1])
+        self.assertEqual(events[-1][0], "preview")
+        self.assertEqual(preview["comps"]["target_price"], 27)
+        self.assertEqual(preview["suggested_mode"], "comps")
+        self.assertTrue(res.text.rstrip().endswith("data: [DONE]"))
 
     def test_rejects_raise_or_missing_price(self):
         bad = self.client.post(

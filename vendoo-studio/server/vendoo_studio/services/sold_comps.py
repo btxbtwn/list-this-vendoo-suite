@@ -27,6 +27,10 @@ THIN_INSTRUCTION = (
 EMPTY_NOTE = (
     "No sold listings found. Use an estimated baseline and note pricing uncertainty in the description."
 )
+# Listings still for sale show what this item competes with. An asking price is
+# what a seller hopes for, not what the market paid, so they never set a price.
+LIVE_HEADER = "Live listings (for sale now — asking prices, not sales; do not price from these):"
+MAX_LIVE = 8
 
 # A US dollar sign. eBay and Brave show foreign listings as "HK$1990",
 # "NT$ 890", "AU $25.00" or "CAD $40"; read as dollars those are 10-60x off, so
@@ -133,6 +137,7 @@ class SoldCompsReport:
     comps: list[SoldComp] = field(default_factory=list)
     market: str = ""
     note: str = ""
+    live: list[SoldComp] = field(default_factory=list)
 
 
 def trim_outliers(prices: list[float]) -> list[float]:
@@ -227,6 +232,27 @@ def extract_sold_price(text: str | None) -> float | None:
         price = _usable_price(sold.group(1), ignored)
         if price is not None:
             return price
+    prices = {
+        price
+        for match in _PRICE_RE.finditer(blob)
+        if (price := _usable_price(match.group(1), ignored)) is not None
+    }
+    if len(prices) != 1:
+        return None
+    return prices.pop()
+
+
+def extract_live_price(text: str | None) -> float | None:
+    """The asking price of a listing still for sale, when the result shows one.
+
+    Anything that reads as sold belongs to extract_sold_price. Several amounts
+    (a price, a markdown, a bundle offer) are ambiguous, so they are skipped.
+    """
+    blob = text or ""
+    evidence = _SELLER_SOLD_COUNT_RE.sub(" ", blob)
+    if _SOLD_EVIDENCE_RE.search(evidence) and not _NOT_SOLD_RE.search(blob):
+        return None
+    ignored = _non_sale_prices(blob)
     prices = {
         price
         for match in _PRICE_RE.finditer(blob)
@@ -341,18 +367,27 @@ def _comp(
     )
 
 
-def _dedupe(comps: list[SoldComp]) -> list[SoldComp]:
-    seen: set[str] = set()
+def _comp_key(comp: SoldComp) -> str:
+    return comp.url.lower() if comp.url else f"{comp.marketplace}|{comp.price}|{comp.title.lower()}"
+
+
+def _dedupe(comps: list[SoldComp], limit: int = MAX_COMPS, exclude: set[str] | None = None) -> list[SoldComp]:
+    seen: set[str] = set(exclude or ())
     unique: list[SoldComp] = []
     for comp in comps:
-        key = comp.url.lower() if comp.url else f"{comp.marketplace}|{comp.price}|{comp.title.lower()}"
+        key = _comp_key(comp)
         if key in seen:
             continue
         seen.add(key)
         unique.append(comp)
-        if len(unique) == MAX_COMPS:
+        if len(unique) == limit:
             break
     return unique
+
+
+def _dedupe_live(live: list[SoldComp], comps: list[SoldComp]) -> list[SoldComp]:
+    """Live listings, minus any that also turned up as sold."""
+    return _dedupe(live, MAX_LIVE, exclude={_comp_key(comp) for comp in comps})
 
 
 def _normalized_identity(text: str | None) -> str:
@@ -389,12 +424,14 @@ def _matches_names(text: str, expected_names: tuple[str, ...]) -> bool:
     return any(_matches_name(candidate, name) for name in names)
 
 
-def comps_from_web_results(
+def listings_from_web_results(
     results: list[dict] | None,
     *,
     expected_names: tuple[str, ...] = (),
-) -> list[SoldComp]:
-    comps: list[SoldComp] = []
+) -> tuple[list[SoldComp], list[SoldComp]]:
+    """Sold comps and live listings from search results, each with its price."""
+    comps: list[SoldComp | None] = []
+    live: list[SoldComp | None] = []
     for item in results or []:
         if not isinstance(item, dict):
             continue
@@ -409,16 +446,15 @@ def comps_from_web_results(
         blob = " ".join([title, *snippets])
         if not _matches_names(blob, expected_names):
             continue
-        comps.append(
-            _comp(
-                extract_sold_price(blob),
-                marketplace_from_url(url) or marketplace_from_text(blob),
-                title,
-                url,
-                extract_condition(blob),
-            )
-        )
-    return _dedupe([comp for comp in comps if comp])
+        marketplace = marketplace_from_url(url) or marketplace_from_text(blob)
+        condition = extract_condition(blob)
+        sold = extract_sold_price(blob)
+        if sold is not None:
+            comps.append(_comp(sold, marketplace, title, url, condition))
+            continue
+        live.append(_comp(extract_live_price(blob), marketplace, title, url, condition))
+    kept = _dedupe([comp for comp in comps if comp])
+    return kept, _dedupe_live([comp for comp in live if comp], kept)
 
 
 def _extract_json(text: str | None) -> dict | None:
@@ -509,34 +545,76 @@ def research_note(answer: str | None) -> str:
     return remainder or blob
 
 
-def comps_from_chatgpt(
+def _comps_from_payload(raw: object, expected_names: tuple[str, ...]) -> list[SoldComp]:
+    if not isinstance(raw, list):
+        return []
+    return [
+        comp
+        for item in raw
+        if (comp := _comp_from_dict(item)) and _matches_names(comp.title, expected_names)
+    ]
+
+
+def comps_from_model_answer(
     answer: str | None,
     sources: list[dict] | None = None,
     *,
     expected_names: tuple[str, ...] = (),
-) -> tuple[str, list[SoldComp]]:
-    comps: list[SoldComp] = []
+) -> tuple[str, list[SoldComp], list[SoldComp]]:
+    """Market range, sold comps and live listings from a model's web search.
+
+    The model's JSON is read first; the search results it cited are then run
+    through the same checks as Brave results, so a listing it skipped still counts.
+    """
     market = ""
+    comps: list[SoldComp] = []
+    live: list[SoldComp] = []
     payload = _extract_json(answer)
     if payload:
         market = str(payload.get("market") or payload.get("market_range") or "").strip()
-        raw_comps = payload.get("comps")
-        if isinstance(raw_comps, list):
-            comps.extend(
-                comp
-                for item in raw_comps
-                if (comp := _comp_from_dict(item))
-                and _matches_names(comp.title, expected_names)
-            )
-    if not any(comps):
+        comps = _comps_from_payload(payload.get("comps"), expected_names)
+        live = _comps_from_payload(payload.get("live"), expected_names)
+    if not comps:
         comps = list(comps_from_markdown(answer))
-    else:
-        comps = [comp for comp in comps if comp]
-    for source in sources or []:
-        if isinstance(source, dict):
-            comps.extend(comps_from_web_results([source], expected_names=expected_names))
-    comps = _dedupe(comps)
-    return market_range(market or (answer or ""), comps), comps
+    source_comps, source_live = listings_from_web_results(
+        [source for source in sources or [] if isinstance(source, dict)],
+        expected_names=expected_names,
+    )
+    comps = _dedupe([*comps, *source_comps])
+    live = _dedupe_live([*live, *source_live], comps)
+    return market_range(market or (answer or ""), comps), comps, live
+
+
+def merge_reports(query: str, reports: list[SoldCompsReport]) -> SoldCompsReport:
+    """One report from every source that answered, duplicates removed by URL."""
+    comps = _dedupe([comp for report in reports for comp in report.comps])
+    live = _dedupe_live([comp for report in reports for comp in report.live], comps)
+    sources = [report.source for report in reports if report.source]
+    market = market_range(comps=comps) if comps else next(
+        (report.market for report in reports if report.market), ""
+    )
+    note = "" if comps else next((report.note for report in reports if report.note), "")
+    return SoldCompsReport(
+        query=query,
+        source=" + ".join(dict.fromkeys(sources)),
+        comps=comps,
+        market=market,
+        note=note,
+        live=live,
+    )
+
+
+def _comp_lines(comps: list[SoldComp]) -> list[str]:
+    lines: list[str] = []
+    for comp in comps:
+        parts = [format_price(comp.price), comp.marketplace]
+        if comp.condition:
+            parts.append(comp.condition)
+        parts.append(comp.title)
+        lines.append("- " + " · ".join(parts))
+        if comp.url:
+            lines.append(f"  {comp.url}")
+    return lines
 
 
 def format_sold_comps(report: SoldCompsReport) -> str:
@@ -546,18 +624,15 @@ def format_sold_comps(report: SoldCompsReport) -> str:
         lines.append(f"Market: {market}")
     if report.comps:
         lines.append("")
-        for comp in report.comps[:MAX_COMPS]:
-            parts = [format_price(comp.price), comp.marketplace]
-            if comp.condition:
-                parts.append(comp.condition)
-            parts.append(comp.title)
-            lines.append("- " + " · ".join(parts))
-            if comp.url:
-                lines.append(f"  {comp.url}")
+        lines.extend(_comp_lines(report.comps[:MAX_COMPS]))
         lines.append("")
         lines.append(comps_instruction(len(report.comps)))
-        return "\n".join(lines)
-    lines.append(report.note or EMPTY_NOTE)
+    else:
+        lines.append(report.note or EMPTY_NOTE)
+    if report.live:
+        lines.append("")
+        lines.append(LIVE_HEADER)
+        lines.extend(_comp_lines(report.live[:MAX_LIVE]))
     return "\n".join(lines)
 
 
@@ -570,10 +645,18 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
     market = ""
     note_lines: list[str] = []
     comps: list[SoldComp] = []
+    live: list[SoldComp] = []
+    target = comps
     pending: SoldComp | None = None
     for raw in blob.splitlines()[1:]:
         line = raw.rstrip()
         stripped = line.strip()
+        if stripped == LIVE_HEADER:
+            if pending:
+                target.append(pending)
+                pending = None
+            target = live
+            continue
         if stripped.startswith("Query:"):
             query = stripped[6:].strip()
             continue
@@ -594,14 +677,14 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
                     url=stripped,
                     condition=pending.condition,
                 )
-                comps.append(pending)
+                target.append(pending)
                 pending = None
-            elif not comps and not pending:
+            elif not comps and not pending and target is comps:
                 note_lines.append(stripped)
             continue
         if stripped.startswith("- $") or stripped.startswith("-$"):
             if pending:
-                comps.append(pending)
+                target.append(pending)
                 pending = None
             body = stripped.lstrip("- ").strip()
             parts = [part.strip() for part in body.split(" · ") if part.strip()]
@@ -615,11 +698,11 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
                 condition, title = parts[2], " · ".join(parts[3:])
             pending = _comp(price, marketplace, title, condition=condition)
             continue
-        if not comps and not pending:
+        if not comps and not pending and target is comps:
             if stripped or note_lines:
                 note_lines.append(line)
     if pending:
-        comps.append(pending)
+        target.append(pending)
     note = "\n".join(note_lines).strip()
     if not market:
         market = market_range(note)
@@ -629,6 +712,7 @@ def parse_sold_comps(text: str | None) -> SoldCompsReport | None:
         comps=_dedupe([comp for comp in comps if comp]),
         market=market,
         note=note,
+        live=_dedupe([comp for comp in live if comp], MAX_LIVE),
     )
 
 

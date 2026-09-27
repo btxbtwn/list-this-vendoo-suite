@@ -6,13 +6,33 @@ import shutil
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from vendoo_studio.services import live_trace
 from vendoo_studio.providers.cursor_agent import (
     CursorProvider,
     _flatten_messages,
     uvloop_safe_subprocess_env,
 )
+
+
+def assistant(text: str) -> SimpleNamespace:
+    return SimpleNamespace(type="assistant", message=SimpleNamespace(content=[SimpleNamespace(text=text)]))
+
+
+def fake_bridge(run) -> tuple[MagicMock, MagicMock]:
+    fake_agent = MagicMock()
+    fake_agent.send = MagicMock(return_value=run)
+    fake_agent.__enter__ = MagicMock(return_value=fake_agent)
+    fake_agent.__exit__ = MagicMock(return_value=None)
+    fake_agents = MagicMock()
+    fake_agents.create = MagicMock(return_value=fake_agent)
+    fake_client = MagicMock()
+    fake_client.agents = fake_agents
+    fake_client.__enter__ = MagicMock(return_value=fake_client)
+    fake_client.__exit__ = MagicMock(return_value=None)
+    return fake_client, fake_agents
 
 
 class FlattenMessagesTest(unittest.TestCase):
@@ -84,9 +104,9 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
             def __init__(self):
                 self.id = "run-1"
 
-            def iter_text(self):
-                yield "Hello"
-                yield " world"
+            def stream(self):
+                for text in ("Hello", " world"):
+                    yield assistant(text)
 
             def wait(self):
                 return MagicMock(status="finished", result="Hello world", id=self.id)
@@ -115,6 +135,39 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("".join(chunks), "Hello world")
         fake_agent.send.assert_called_once()
+
+    async def test_web_search_allows_only_web_tools_and_streams_its_thinking(self):
+        provider = CursorProvider(api_key="cursor_test")
+        answer = '{"comps":[{"title":"Nike Tee","price":20,"url":"https://www.ebay.com/itm/1"}]}'
+
+        class FakeRun:
+            id = "run-2"
+
+            def stream(self):
+                yield SimpleNamespace(type="thinking", text="Searching eBay for", thinking_duration_ms=None)
+                yield SimpleNamespace(type="thinking", text=" sold Nike tees.", thinking_duration_ms=None)
+                yield SimpleNamespace(type="thinking", text="", thinking_duration_ms=4)
+                yield assistant("Checking listings…")
+
+            def wait(self):
+                return MagicMock(status="finished", result=answer, id=self.id)
+
+        fake_client, fake_agents = fake_bridge(FakeRun())
+        steps: list[tuple[str, str]] = []
+        live_trace.bind(lambda kind, text: steps.append((kind, text)))
+        try:
+            with (
+                patch("cursor_sdk.Client.launch_bridge", return_value=fake_client),
+                patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
+            ):
+                scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
+                result = await provider.web_search([{"role": "user", "content": "Nike tee sold comps"}])
+        finally:
+            live_trace.bind(None)
+
+        self.assertEqual(result, {"answer": answer, "sources": []})
+        self.assertEqual(fake_agents.create.call_args.args[0], {"tools": ["webSearch", "webFetch"]})
+        self.assertEqual(steps, [("step", "Cursor: Searching eBay for sold Nike tees.")])
 
     async def test_stalled_run_times_out_and_closes_the_bridge(self):
         provider = CursorProvider(api_key="cursor_test")
