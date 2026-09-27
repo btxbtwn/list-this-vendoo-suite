@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.120 — 2026-09-27
+
+- The Sourcing page can reach Raghouse and Thrift Vintage Fashion again. The Mac app was rejecting their security certificates, so every update came back with no boxes.
+
 ## 0.1.119 — 2026-09-27
 
 - Similar listings still for sale now cap your price. When three or more are live, the new listing is priced at or below their median asking price unless yours is clearly better, and price-drop suggestions follow the same cap. That still works when only one or two sold listings turned up.
