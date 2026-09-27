@@ -1,0 +1,122 @@
+.sourcing-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.sourcing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sourcing-field .input {
+  width: 100%;
+}
+
+.sourcing-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.sourcing-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.sourcing-boxes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sourcing-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 3.5rem;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.sourcing-box:hover .sourcing-box-title {
+  color: var(--color-cobalt);
+}
+
+.sourcing-box-main,
+.sourcing-box-cost {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sourcing-box-cost {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.sourcing-box-title,
+.sourcing-box-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourcing-box-meta {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sourcing-box-trend {
+  color: var(--color-cobalt);
+}
+
+.sourcing-box-value,
+.sourcing-box-demand {
+  font-variant-numeric: tabular-nums;
+}
+
+.sourcing-box-demand {
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.sourcing-box-demand.is-hot {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.sourcing-footnote {
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  .sourcing-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sourcing-field-wide {
+    grid-column: 1 / -1;
+  }
+
+  .sourcing-box {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .sourcing-box-demand {
+    display: none;
+  }
+}

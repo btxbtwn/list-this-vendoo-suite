@@ -51,6 +51,7 @@ datas = [
     # the bundle beside the package rather than only inside the archive.
     *tree(STUDIO / "server" / "vendoo_studio" / "migrations", "vendoo_studio/migrations"),
     *tree(REPO / "skills" / "list-this", "skills/list-this"),
+    *tree(REPO / "skills" / "raghouse-box-scout", "skills/raghouse-box-scout"),
     *tree(REPO / "vendoo-extension", "vendoo-extension"),
     *collect_data_files("webview"),
 ]

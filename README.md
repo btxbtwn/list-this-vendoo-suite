@@ -37,6 +37,7 @@ Requirements: macOS, Python 3.12+, Node.js 20+, Google Chrome.
 | `vendoo-studio/` | List This Studio (FastAPI + React). See `vendoo-studio/README.md`. |
 | `vendoo-extension/` | Chrome MV3 extension. **Connect Chrome** opens everyday Chrome; load this folder unpacked there once. |
 | `skills/list-this/` | Canonical listing rules used by Studio. |
+| `skills/raghouse-box-scout/` | Agent skill that ranks raghouse.com clothing boxes by landed cost and demand. |
 
 ## Manual extension fallback
 

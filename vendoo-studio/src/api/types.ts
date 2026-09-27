@@ -465,3 +465,40 @@ export interface DatabaseReport {
   ok?: boolean;
   pruned?: { vendoo_drafts: number; duplicate_events: number; deleted: number };
 }
+
+export interface ScoutShipping {
+  destination_zip: string;
+  zone: number;
+  residential_surcharge: number;
+  fuel_surcharge_pct: number;
+  fuel_surcharge_as_of: string;
+  ship_factor: number;
+}
+
+export interface ScoutBox {
+  title: string;
+  url: string;
+  price: number;
+  compare_at: number | null;
+  pcs: number;
+  grade: "good" | "mixed" | "recycle";
+  lbs: number;
+  ship_est: number;
+  landed: number;
+  cog_per_pc: number;
+  cog_per_usable_pc: number;
+  demand: number;
+  trend_hits: string[];
+  vip: boolean;
+  lot_date: string | null;
+  score: number;
+}
+
+export interface ScoutResponse {
+  fetched_at: string;
+  baseline_sellout: number;
+  sellout_days: number;
+  matched: number;
+  shipping: ScoutShipping;
+  boxes: ScoutBox[];
+}

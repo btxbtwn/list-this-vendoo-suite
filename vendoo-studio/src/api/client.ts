@@ -33,6 +33,7 @@ import type {
   SuggestionsResponse,
   AnalyticsRange,
   InventoryAnalytics,
+  ScoutResponse,
 } from "./types";
 import { readSse } from "./sse";
 
@@ -151,6 +152,9 @@ export const api = {
   },
   analytics: {
     get: (range: AnalyticsRange) => request<InventoryAnalytics>(`/analytics?range=${range}`),
+  },
+  sourcing: {
+    raghouse: (query: string) => request<ScoutResponse>(`/sourcing/raghouse?${query}`),
   },
   vendooApi: {
     listingFields: (convId: string) =>

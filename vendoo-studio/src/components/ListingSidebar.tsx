@@ -109,6 +109,7 @@ interface Props {
   onDelete: (id: string, title: string) => void;
   onOpenSettings: () => void;
   onOpenAnalytics: () => void;
+  onOpenSourcing: () => void;
   onCloseSettings: () => void;
   onSettingsSectionChange: (section: SettingsSectionId) => void;
   onSettingsSearchResult: (item: SettingsSearchItem) => void;
@@ -152,6 +153,19 @@ export function AnalyticsIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M4 19V10M10 19V5M16 19v-6M21 19H3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function SourcingIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M21 8l-9-5-9 5v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -294,6 +308,7 @@ export function ListingSidebar({
   onDelete,
   onOpenSettings,
   onOpenAnalytics,
+  onOpenSourcing,
   onCloseSettings,
   onSettingsSectionChange,
   onSettingsSearchResult,
@@ -799,6 +814,16 @@ export function ListingSidebar({
             </button>
           ) : (
             <>
+              <button
+                type="button"
+                className={`sidebar-icon-btn${activeView === "sourcing" ? " selected" : ""}`}
+                title="Sourcing"
+                aria-label="Sourcing"
+                aria-pressed={activeView === "sourcing"}
+                onClick={onOpenSourcing}
+              >
+                <SourcingIcon />
+              </button>
               <button
                 type="button"
                 className={`sidebar-icon-btn${activeView === "analytics" ? " selected" : ""}`}
