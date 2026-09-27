@@ -246,13 +246,20 @@ function SettingsSectionIcon({ section }: { section: SettingsSectionId }) {
       </svg>
     );
   }
-  if (section === "integrations") {
+  if (section === "listings") {
     return (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
-        <rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
-        <rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
-        <path d="M14 17.5h7M17.5 14v7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.42l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+        <circle cx="7.5" cy="7.5" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (section === "data") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <ellipse cx="12" cy="5" rx="9" ry="3" stroke="currentColor" strokeWidth="1.75" />
+        <path d="M3 5v14a9 3 0 0 0 18 0V5" stroke="currentColor" strokeWidth="1.75" />
+        <path d="M3 12a9 3 0 0 0 18 0" stroke="currentColor" strokeWidth="1.75" />
       </svg>
     );
   }
@@ -832,7 +839,7 @@ function liveStatusClass(status?: string): string {
   return "";
 }
 
-/** Live Vendoo status per marketplace, limited to `visible` (Settings → Marketplaces) when given. */
+/** Live Vendoo status per marketplace, limited to `visible` (Settings → Listings → Marketplaces) when given. */
 function marketplaceStatusesFromDraft(
   draft: Record<string, unknown> | undefined | null,
   visible?: Set<string>,

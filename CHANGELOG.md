@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.103 — 2026-09-27
+
+- Settings is split into General, Listings, Providers, Connections and Data. Marketplaces, shipping, hidden fields and formulas are under Listings; backups, the data folder and the database are under Data; Brave Search is with the other providers.
+
 ## 0.1.102 — 2026-09-27
 
 - Listings open faster. Studio now asks Vendoo about every marketplace's fields at once and stops waiting after 10 seconds, instead of checking one marketplace at a time for up to four minutes each.

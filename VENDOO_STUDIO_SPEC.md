@@ -187,7 +187,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Avoid generic dashboard cards and excessive rounded containers.
 - Persistent status bar for extension and validation state.
 - Fully usable desktop and mobile layouts.
-- Settings → Connections → Tailscale HTTPS enables private Tailscale Serve to the loopback Studio (same process/data as the Mac UI). Copy the HTTPS link for phone browsers on the Tailnet. No native mobile app; Funnel stays off.
+- Settings → Connections → Remote access enables private Tailscale Serve to the loopback Studio (same process/data as the Mac UI). Copy the HTTPS link for phone browsers on the Tailnet. No native mobile app; Funnel stays off.
 
 ### Listing Library
 
@@ -797,7 +797,7 @@ Use a Native Messaging host only if browser-based file assignment is tested and 
 ## 15. Security Requirements
 
 - Bind only to `127.0.0.1`.
-- Optional private Tailscale Serve (Settings → Connections → Tailscale HTTPS) may proxy HTTPS from the Tailnet to that loopback port. Do not enable Tailscale Funnel. Do not bind Studio to `0.0.0.0`.
+- Optional private Tailscale Serve (Settings → Connections → Remote access) may proxy HTTPS from the Tailnet to that loopback port. Do not enable Tailscale Funnel. Do not bind Studio to `0.0.0.0`.
 - Store MiMo and Cursor API keys in macOS Keychain.
 - Cursor Listing AI uses the official `cursor-sdk` local agent against an empty scratch workspace under Studio user data (never the product repo). Model default: `composer-2.5`.
 - Redact authorization headers and secrets from logs.
