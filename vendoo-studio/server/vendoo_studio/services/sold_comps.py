@@ -65,9 +65,13 @@ _SOLD_EVIDENCE_RE = re.compile(
 # Seller feedback ("6.3K items sold") and "sold by {seller}" appear on active
 # listings. They are not evidence that this listing sold. Brave elides the count
 # from the seller card, leaving "... sold · Joined Sep 2020".
+# A multi-quantity listing still for sale counts its sales ("Last one1 sold",
+# "2 have already sold"); that says nothing about whether it is still listed.
 _SELLER_SOLD_COUNT_RE = re.compile(
     r"\b(?:[\d,.]+[kmb]\+?\s+)?items\s+sold\b|\bsold\s+by\b|"
-    r"(?:\.\.\.|…)\s*sold\b|\bsold\s*[·•|]\s*joined\b",
+    r"(?:\.\.\.|…)\s*sold\b|\bsold\s*[·•|]\s*joined\b|"
+    r"(?<![\d,.$])\d[\d,]*(?-i:\s+sold)\b(?!\s+(?:for|at|on)\b)|"
+    r"\b(?:has|have)\s+already\s+sold\b",
     re.I,
 )
 # The dollar amount in a title is often the tag the seller wants buyers to
@@ -78,12 +82,15 @@ _NON_SALE_PRICE_RE = re.compile(
     r"\s*[:\-]?\s*(?:US\s?)?" + _USD + r"\s*" + _AMOUNT,
     re.I,
 )
-# Shipping and fees ("$15 combined shipping", "Shipping: $7.99", "+$0.46 Buyer
-# Protection fee") sit beside the price on listing pages and store banners.
+# Shipping and fees ("$15 combined shipping", "US $5.50 Standard Shipping",
+# "Shipping: $7.99", "+$0.46 Buyer Protection fee") and installments ("4
+# interest-free payments of $11.17") sit beside the price on listing pages.
 _SHIPPING_PRICE_RE = re.compile(
-    r"(?:\bshipping(?:\s+(?:cost|fee|is|of|for))?\s*[:\-]?\s*(?:US\s?)?|\+\s*)"
+    r"(?:\bshipping(?:\s+(?:cost|fee|is|of|for))?\s*[:\-]?\s*(?:US\s?)?|\+\s*|"
+    r"\bpayments?\s+of\s+(?:US\s?)?)"
     + _USD + r"\s*" + _AMOUNT
-    + r"|" + _USD + r"\s*" + _AMOUNT + r"\s+(?:combined\s+)?shipping\b",
+    + r"|" + _USD + r"\s*" + _AMOUNT
+    + r"\s+(?:(?:combined|standard|economy|expedited|flat)\s+)?shipping\b",
     re.I,
 )
 _NOT_SOLD_RE = re.compile(r"\b(?:not sold|has(?:n't| not) sold|unsold|sold out)\b", re.I)
@@ -437,7 +444,7 @@ def _normalized_identity(text: str | None) -> str:
 _NAME_FILLER = {"and", "the", "with", "for"}
 
 
-def _matches_name(candidate: str, name: str) -> bool:
+def _matches_name(candidate: str, name: str, title: str) -> bool:
     expected = _normalized_identity(name)
     if not expected or expected in {"unbranded", "unknown", "other"}:
         return True
@@ -450,18 +457,24 @@ def _matches_name(candidate: str, name: str) -> bool:
     if len(compact_expected) > 3 and compact_expected in candidate.replace(" ", ""):
         return True
     # "Snoopy and Woodstock" is titled "Snoopy Woodstock Tee": every
-    # meaningful word has to be there, in any order.
+    # meaningful word has to be there, in any order. Only the title counts: a
+    # page's snippets carry related items and seller blurbs, where scattered
+    # words like "outdoor" and "jacket" turn up on any listing.
     words = [word for word in expected.split() if len(word) > 2 and word not in _NAME_FILLER]
-    return len(words) > 1 and all(word in candidate.split() for word in words)
+    return len(words) > 1 and all(word in title.split() for word in words)
 
 
-def _matches_names(text: str, expected_names: tuple[str, ...]) -> bool:
-    """True when the text mentions any expected name, or none were given."""
+def _matches_names(text: str, expected_names: tuple[str, ...], title: str | None = None) -> bool:
+    """True when the text mentions any expected name, or none were given.
+
+    ``title`` is the listing's own title when ``text`` also carries snippets.
+    """
     names = [name for name in expected_names if name.strip()]
     if not names:
         return True
     candidate = _normalized_identity(text)
-    return any(_matches_name(candidate, name) for name in names)
+    title_words = candidate if title is None else _normalized_identity(title)
+    return any(_matches_name(candidate, name, title_words) for name in names)
 
 
 def listings_from_web_results(
@@ -484,7 +497,7 @@ def listings_from_web_results(
         if isinstance(extras, list):
             snippets.extend(str(snippet) for snippet in extras)
         blob = " ".join([title, *snippets])
-        if not _matches_names(blob, expected_names):
+        if not _matches_names(blob, expected_names, title):
             continue
         marketplace = marketplace_from_url(url) or marketplace_from_text(blob)
         condition = extract_condition(blob)
