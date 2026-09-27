@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.101 — 2026-09-27
+
+- Update Vendoo and Relist now move the Vendoo form's "Last Saved" date, the way saving in Vendoo does, so you can see the update landed instead of the form still reading the last save made in Vendoo
+
 ## 0.1.100 — 2026-09-27
 
 - Sold comps search the way a buyer would, with brand, printed character, item type, department and size (e.g. "Peanuts Snoopy and Woodstock T-shirt women's XS") instead of the whole photo description, so graphic tees and other detailed items find comps again
