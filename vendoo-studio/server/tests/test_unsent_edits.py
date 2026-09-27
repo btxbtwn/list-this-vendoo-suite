@@ -89,6 +89,20 @@ class UnsentEditsTest(unittest.TestCase):
         row = next(item for item in rows if item["id"] == self.conv.id)
         self.assertTrue(row["unsent_edits"])
 
+    def test_a_revision_that_only_normalizes_is_not_an_unsent_edit(self):
+        """Listings saved before pulls were normalized carry such a revision on top."""
+        pulled = ListingRepo(self.db).save_revision(
+            self.conv.id, {**LISTING, "size": "M", "brand": "Levi's"}, source="vendoo_sync",
+        )
+        self.mark_synced_on(pulled.id)
+        ListingRepo(self.db).save_revision(
+            self.conv.id, {**LISTING, "size": "M", "brand": "Levi's", "title": "Levi's M 501"},
+            source="dropdown_normalize",
+        )
+        self.assertFalse(self.flag())
+        rows = self.client.get("/api/conversations").json()
+        self.assertFalse(next(item for item in rows if item["id"] == self.conv.id)["unsent_edits"])
+
     def test_opening_a_pulled_listing_is_not_an_unsent_edit(self):
         """Reading the listing normalizes it; Vendoo's copy must already be in that shape."""
         self.mark_synced_on(self.revision.id)

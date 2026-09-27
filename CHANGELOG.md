@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.124 — 2026-09-27
+
+- **Unsent edits** now clears on listings that got stuck with it even though nothing was changed. Studio compares what the listing says with what Vendoo last had, so tidying sizes and dropdowns no longer counts as an edit.
+
 ## 0.1.123 — 2026-09-27
 
 - The Sourcing page really does reach Raghouse and Thrift Vintage Fashion now. The last fix only covered part of the app, so the stores' certificates were still being rejected.

@@ -11,6 +11,7 @@ from vendoo_studio.database import get_db
 from vendoo_studio.repositories.queries import (
     BUSY_LISTING_STATUSES,
     ConversationRepo,
+    ListingRepo,
 )
 from vendoo_studio.models.conversation import utcnow
 from vendoo_studio.services.listing_delete import ListingBusy, delete_listing, wipe_contents
@@ -118,11 +119,13 @@ def list_conversations(db: Session = Depends(get_db)):
     covers = repo.cover_photo_ids()
     facets = repo.listing_facets()
     revisions = repo.current_revision_ids()
+    conversations = repo.list_all()
+    unsent = _unsent_edits(db, conversations, revisions)
     return [
         _conv_response(c, _extras(
-            _cover_photo_url(covers.get(c.id)), facets.get(c.id), revisions.get(c.id),
+            _cover_photo_url(covers.get(c.id)), facets.get(c.id), revisions.get(c.id), c.id in unsent,
         ))
-        for c in repo.list_all()
+        for c in conversations
     ]
 
 
@@ -525,6 +528,7 @@ def _extras(
     cover_photo_url: str | None,
     facet: dict | None,
     revision_id: str | None = None,
+    unsent_edits: bool = False,
 ) -> dict:
     """The per-row fields the sidebar needs alongside the conversation itself."""
     return {
@@ -532,30 +536,47 @@ def _extras(
         "sku": (facet or {}).get("sku"),
         "price": (facet or {}).get("price"),
         "current_revision_id": revision_id,
+        "unsent_edits": unsent_edits,
     }
 
 
 def _extras_for(db: Session, conv_id: str) -> dict:
     repo = ConversationRepo(db)
+    conv = repo.get(conv_id)
+    revision_id = repo.current_revision_id(conv_id)
+    unsent = _unsent_edits(db, [conv] if conv else [], {conv_id: revision_id} if revision_id else {})
     return _extras(
         _cover_photo_url(repo.cover_photo_id(conv_id)),
         repo.listing_facet(conv_id),
-        repo.current_revision_id(conv_id),
+        revision_id,
+        conv_id in unsent,
     )
 
 
-def _unsent_edits(notes: dict, revision_id: str | None) -> bool:
-    """True when the listing moved on after Studio and Vendoo were last level.
+def _unsent_edits(db: Session, conversations: list, revisions: dict[str, str]) -> set[str]:
+    """Conversations whose listing moved on after Studio and Vendoo were last level.
 
     Read from the sync machinery's own marker rather than from revision
     timestamps: a pull writes a revision too, and dating the comparison would
-    call Vendoo's own copy an unsent edit the moment it arrived. An unbound
-    listing has nothing to be ahead of.
+    call Vendoo's own copy an unsent edit the moment it arrived. A differing
+    revision only counts when its content differs too, so a revision that
+    just normalized Vendoo's copy is not an edit. An unbound listing has
+    nothing to be ahead of.
     """
-    synced = str(notes.get("vendooSyncedRevision") or "")
-    if not revision_id or not synced:
-        return False
-    return revision_id != synced
+    from vendoo_studio.services.vendoo_import import parse_notes
+    from vendoo_studio.services.vendoo_watch import SYNCED_REVISION, listings_match
+
+    pairs: dict[str, tuple[str, str]] = {}
+    for conv in conversations:
+        current = revisions.get(conv.id)
+        synced = str(parse_notes(conv.notes).get(SYNCED_REVISION) or "")
+        if current and synced and current != synced:
+            pairs[conv.id] = (current, synced)
+    bodies = ListingRepo(db).revision_bodies({rev for pair in pairs.values() for rev in pair})
+    return {
+        conv_id for conv_id, (current, synced) in pairs.items()
+        if not listings_match(bodies.get(current), bodies.get(synced))
+    }
 
 
 def _relist_pending(notes: dict) -> list[str]:
@@ -633,7 +654,7 @@ def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
         vendoo_labels=raw_labels,
         vendoo_marketplaces=[str(m) for m in marketplaces] if isinstance(marketplaces, list) else [],
         vendoo_listing_urls=_listing_urls(notes),
-        unsent_edits=_unsent_edits(notes, row.get("current_revision_id")),
+        unsent_edits=bool(row.get("unsent_edits")),
         **_vendoo_dates(notes),
     )
 

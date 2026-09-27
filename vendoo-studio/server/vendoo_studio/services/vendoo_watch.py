@@ -18,6 +18,7 @@ stamps the conversation so the editor can show when it last checked.
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -51,6 +52,7 @@ __all__ = [
     "cache_pulled_item",
     "refresh_inventory_label",
     "item_content_fingerprint",
+    "listings_match",
     "SYNCED_AT",
     "SYNCED_REVISION",
     "CHECKED_AT",
@@ -84,6 +86,26 @@ def listing_content_fingerprint(listing: dict[str, Any] | None) -> str:
     return _hash_payload(listing or {})
 
 
+def listings_match(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
+    """Same listing once both are in the shape reading a listing leaves them in.
+
+    Reading normalizes sizes and dropdowns and saves the result as a revision,
+    so two revisions can differ only in that shape. Neither is an edit.
+    """
+    from vendoo_studio.models.validation import normalize_listing_dropdowns
+    from vendoo_studio.services.listing_generate import align_size_fields
+
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    shaped = []
+    for listing in (a, b):
+        listing = copy.deepcopy(listing)
+        align_size_fields(listing)
+        normalize_listing_dropdowns(listing)
+        shaped.append(listing_content_fingerprint(listing))
+    return shaped[0] == shaped[1]
+
+
 def item_content_fingerprint(item: dict[str, Any] | None) -> str:
     """Hash of the form content Studio would pull from this Vendoo item.
 
@@ -103,15 +125,18 @@ def item_content_fingerprint(item: dict[str, Any] | None) -> str:
 
 
 def studio_has_unpushed_edits(db: Session, conv_id: str) -> bool:
-    """True when Studio's current revision is ahead of the last synced one."""
+    """True when Studio's current listing differs from the last synced one."""
     from vendoo_studio.services.vendoo_import import parse_notes
 
     conv = ConversationRepo(db).get(conv_id)
     notes = parse_notes(conv.notes if conv else None)
-    revisions = ListingRepo(db).get_revisions(conv_id)
-    local_revision = revisions[0].id if revisions else None
-    synced_revision = str(notes.get(SYNCED_REVISION) or "")
-    return bool(local_revision and synced_revision and local_revision != synced_revision)
+    local_revision = ListingRepo(db).get_current(conv_id)
+    local_id = local_revision.current_revision_id if local_revision else None
+    synced_id = str(notes.get(SYNCED_REVISION) or "")
+    if not local_id or not synced_id or local_id == synced_id:
+        return False
+    bodies = ListingRepo(db).revision_bodies({local_id, synced_id})
+    return not listings_match(bodies.get(local_id), bodies.get(synced_id))
 
 
 def _vendoo_content_unchanged(db: Session, conv_id: str, item: dict[str, Any], notes: dict[str, Any]) -> bool:
