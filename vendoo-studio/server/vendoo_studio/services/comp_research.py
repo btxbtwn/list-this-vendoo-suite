@@ -205,7 +205,14 @@ async def _stream_sold_comps(fields: dict[str, str]) -> AsyncIterator[CompsEvent
         yield CompsEvent("done", text=comps_setup_note())
         return
 
-    reports: list[SoldCompsReport] = []
+    # Keyed by source and merged in a fixed order, so the label and the comps
+    # do not depend on which search happened to finish first.
+    reports: dict[str, SoldCompsReport] = {}
+    order = [search.label for search in searches] + ["Brave"]
+
+    def merged() -> SoldCompsReport:
+        return merge_reports(query, [reports[label] for label in order if label in reports])
+
     errors: list[str] = []
     tasks = {
         asyncio.create_task(_run_model_search(search, query, expected_names)): search.label
@@ -237,13 +244,13 @@ async def _stream_sold_comps(fields: dict[str, str]) -> AsyncIterator[CompsEvent
                     live_trace.emit("step", f"{label} web search failed")
                     yield CompsEvent("source", source=label, state="failed", detail=str(exc))
                     continue
-                reports.append(report)
+                reports[label] = report
                 live_trace.emit("step", f"{label} found {_found(report)}")
                 yield CompsEvent(
                     "source", source=label, state="done",
                     sold=len(report.comps), live=len(report.live),
                 )
-                yield CompsEvent("report", text=format_sold_comps(merge_reports(query, reports)))
+                yield CompsEvent("report", text=format_sold_comps(merged()))
     finally:
         for task in pending:
             task.cancel()
@@ -253,8 +260,7 @@ async def _stream_sold_comps(fields: dict[str, str]) -> AsyncIterator[CompsEvent
         live_trace.emit("step", f"{label} web search timed out")
         yield CompsEvent("source", source=label, state="timeout")
 
-    merged = merge_reports(query, reports)
-    if brave_key and len(merged.comps) < MIN_CONFIDENT_COMPS:
+    if brave_key and len(merged().comps) < MIN_CONFIDENT_COMPS:
         yield CompsEvent("source", source="Brave", state="searching")
         try:
             brave = await research_brave_report(
@@ -266,12 +272,11 @@ async def _stream_sold_comps(fields: dict[str, str]) -> AsyncIterator[CompsEvent
             errors.append(f"Brave: {exc}")
             yield CompsEvent("source", source="Brave", state="failed", detail=str(exc))
         else:
-            reports.append(brave)
+            reports["Brave"] = brave
             yield CompsEvent(
                 "source", source="Brave", state="done",
                 sold=len(brave.comps), live=len(brave.live),
             )
-            merged = merge_reports(query, reports)
 
     if not reports:
         note = COMPS_FAILED_NOTE
@@ -279,7 +284,7 @@ async def _stream_sold_comps(fields: dict[str, str]) -> AsyncIterator[CompsEvent
             note = f"{note} ({'; '.join(errors)})"
         yield CompsEvent("done", text=_comps_note(query, "web search", note))
         return
-    yield CompsEvent("done", text=format_sold_comps(merged))
+    yield CompsEvent("done", text=format_sold_comps(merged()))
 
 
 async def stream_sold_comps(

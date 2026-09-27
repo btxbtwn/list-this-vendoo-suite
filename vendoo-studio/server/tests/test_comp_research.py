@@ -207,7 +207,7 @@ class ResearchTest(unittest.IsolatedAsyncioTestCase):
             ModelSearch("ChatGPT", searcher(listing_json(
                 (22, "511 Slim Shorts", "https://www.ebay.com/itm/1"),
                 (19, "Slim Shorts", "https://poshmark.com/listing/2"),
-            ), calls=chatgpt_calls)),
+            ), calls=chatgpt_calls, delay=0.05)),
             ModelSearch("Cursor", searcher(listing_json(
                 (22, "511 Slim Shorts", "https://www.ebay.com/itm/1"),
                 (25, "511 Shorts", "https://www.mercari.com/us/item/m3"),
