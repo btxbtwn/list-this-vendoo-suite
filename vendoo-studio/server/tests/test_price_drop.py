@@ -220,6 +220,19 @@ class BuildPreviewTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(preview["prices_by_percent"]["10"], 43)
         self.assertFalse(preview["comps"]["available"])
 
+    async def test_preview_can_skip_comps_when_they_are_available(self):
+        listing = {"price": 48, "brand": "Nike", "category_path": "Tops > T-Shirts"}
+        revisions = [_rev(48, "generation", rev_id="r1")]
+        with (
+            patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True),
+            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()) as research,
+        ):
+            preview = await build_preview(listing, revisions, run_comps=False)
+        research.assert_not_called()
+        self.assertEqual(preview["suggested_price"], 43)
+        self.assertTrue(preview["comps"]["available"])
+        self.assertEqual(preview["comps"]["text"], "")
+
     async def test_preview_prefers_deeper_comps_target(self):
         listing = {"price": 48, "brand": "Nike", "category_path": "Tops > T-Shirts"}
         revisions = [_rev(48, "generation", rev_id="r1")]

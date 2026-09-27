@@ -60,6 +60,18 @@ class PriceDropRouteTest(unittest.TestCase):
         listing = self.client.get(f"/api/conversations/{self.conv.id}/listing")
         self.assertEqual(listing.json()["listing"]["price"], 41)
 
+    def test_preview_without_comps_skips_the_web_search(self):
+        with (
+            patch("vendoo_studio.services.price_drop.comps_search_available", return_value=True),
+            patch("vendoo_studio.services.price_drop.research_sold_comps", new=AsyncMock()) as research,
+        ):
+            preview = self.client.post(
+                f"/api/conversations/{self.conv.id}/price-drop/preview?comps=false"
+            )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        research.assert_not_called()
+        self.assertTrue(preview.json()["comps"]["available"])
+
     def test_rejects_raise_or_missing_price(self):
         bad = self.client.post(
             f"/api/conversations/{self.conv.id}/price-drop",
