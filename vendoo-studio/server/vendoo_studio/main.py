@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-import truststore
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -13,11 +12,6 @@ from vendoo_studio.database import init_db
 from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop, imports
 from vendoo_studio.routes import analytics, backups, browser, catalog, changelog, sourcing, vendoo_api, suggestions
 from vendoo_studio.version import app_version
-
-# The packaged app's Python has no CA bundle of its own, so stdlib HTTPS (the
-# box-scout crawl, for one) failed certificate checks. Verify against the
-# system trust store (the macOS Keychain) instead.
-truststore.inject_into_ssl()
 
 
 @asynccontextmanager
