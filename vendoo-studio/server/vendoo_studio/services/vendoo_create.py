@@ -13,6 +13,7 @@ reviews in Vendoo, which keeps the AGENTS.md invariant intact.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -508,24 +509,23 @@ async def mercari_fields(category_id: str) -> dict[str, FieldSpec]:
     return mercari_specifics(master, category_id)
 
 
-async def fetch_listing_specifics(job, listing: dict[str, Any]) -> dict[str, dict[str, FieldSpec]]:
+async def fetch_listing_specifics(
+    job, listing: dict[str, Any], *, timeout: float = REQUEST_TIMEOUT_SEC
+) -> dict[str, dict[str, FieldSpec]]:
     """Vendoo's own field schema for every leaf this listing resolved.
 
     This is the call each marketplace form makes as soon as a category is
     picked, and it is the only authority on which fields that category has,
     which are required, which hold a list and which coded option ids are
-    legal. One request per marketplace: the extension stops a batch at its
-    first failure, and some marketplaces have no schema to serve.
+    legal. One request per marketplace, all in flight at once: the extension
+    stops a batch at its first failure, and some marketplaces have no schema
+    to serve.
 
     Answers are cached per leaf, so a category only costs one round trip ever.
     A marketplace that cannot answer is simply left out — ``build_vendoo_item``
     then falls back to what the seller's own items taught us.
     """
-    from vendoo_studio.services.category_fields import (
-        listing_category_ids,
-        load_fields,
-        save_fields,
-    )
+    from vendoo_studio.services.category_fields import listing_category_ids
 
     objects = listing.get("marketplace_category_objects")
     objects = objects if isinstance(objects, dict) else {}
@@ -544,46 +544,61 @@ async def fetch_listing_specifics(job, listing: dict[str, Any]) -> dict[str, dic
     for marketplace, category_id in listing_category_ids(listing).items():
         leaves.setdefault(marketplace, (category_id, {}))
 
-    out: dict[str, dict[str, FieldSpec]] = {}
-    for marketplace, (category_id, resolved) in leaves.items():
-        if marketplace == "general" or not category_id:
-            continue
-        cached = load_fields(marketplace, category_id)
-        if cached:
-            out[marketplace] = cached
-            continue
-        if marketplace == "mercari":
-            # Mercari's schema is a public static file, not an API answer.
-            specs = await mercari_fields(category_id)
-            if specs:
-                out[marketplace] = specs
-                save_fields(marketplace, category_id, specs)
-            continue
-        op = {
-            "op": "category_specifics",
-            "category_id": category_id,
-            "marketplace_id": marketplace,
-            "path": [str(part) for part in (resolved.get("path") or []) if str(part or "").strip()],
-            "extras": resolved.get("extras") if isinstance(resolved.get("extras"), dict) else {},
-        }
-        try:
-            reply = await browser_bridge.request(
-                job, "job.vendoo_api", {"ops": [op]}, timeout=REQUEST_TIMEOUT_SEC
-            )
-        except BrowserBridgeError as exc:
-            log.info("No %s category schema: %s", marketplace, exc)
-            continue
-        hit = next(
-            (r for r in (reply.get("results") or []) if r.get("op") == "category_specifics"), {}
-        )
-        if not hit.get("ok"):
-            log.info("No %s category schema: %s", marketplace, hit.get("error") or "empty reply")
-            continue
-        specs = normalize_specifics(hit.get("specifics"))
+    found = await asyncio.gather(*(
+        fetch_leaf_specifics(job, marketplace, category_id, resolved, timeout=timeout)
+        for marketplace, (category_id, resolved) in leaves.items()
+    ))
+    return {marketplace: specs for marketplace, specs in zip(leaves, found, strict=True) if specs}
+
+
+async def fetch_leaf_specifics(
+    job,
+    marketplace: str,
+    category_id: str,
+    resolved: dict[str, Any] | None = None,
+    *,
+    timeout: float = REQUEST_TIMEOUT_SEC,
+) -> dict[str, FieldSpec]:
+    """Vendoo's schema for one marketplace leaf: cached, else asked for and stored.
+
+    Empty when the leaf has no schema or Chrome cannot answer in ``timeout``.
+    """
+    from vendoo_studio.services.category_fields import load_fields, save_fields
+
+    if not category_id:
+        return {}
+    cached = load_fields(marketplace, category_id)
+    if cached or marketplace == "general":
+        return cached or {}
+    if marketplace == "mercari":
+        # Mercari's schema is a public static file, not an API answer.
+        specs = await mercari_fields(category_id)
         if specs:
-            out[marketplace] = specs
             save_fields(marketplace, category_id, specs)
-    return out
+        return specs
+    resolved = resolved or {}
+    op = {
+        "op": "category_specifics",
+        "category_id": category_id,
+        "marketplace_id": marketplace,
+        "path": [str(part) for part in (resolved.get("path") or []) if str(part or "").strip()],
+        "extras": resolved.get("extras") if isinstance(resolved.get("extras"), dict) else {},
+    }
+    try:
+        reply = await run_ops(job, [op], timeout=timeout)
+    except (BrowserBridgeError, VendooCreateError) as exc:
+        log.info("No %s category schema: %s", marketplace, exc)
+        return {}
+    hit = next(
+        (r for r in (reply.get("results") or []) if r.get("op") == "category_specifics"), {}
+    )
+    if not hit.get("ok"):
+        log.info("No %s category schema: %s", marketplace, hit.get("error") or "empty reply")
+        return {}
+    specs = normalize_specifics(hit.get("specifics"))
+    if specs:
+        save_fields(marketplace, category_id, specs)
+    return specs
 
 
 # --------------------------------------------------------------------------
