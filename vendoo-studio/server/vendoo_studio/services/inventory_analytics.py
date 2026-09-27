@@ -48,6 +48,17 @@ class AnalyticsItem:
     listed_at: datetime | None
     marketplace: str
     days_listed: int | None
+    fees: float | None = None
+    shipping_cost: float = 0.0
+    shipping_credit: float = 0.0
+
+    @property
+    def profit(self) -> float:
+        """Vendoo's net profit: sold price plus shipping paid, less the rest."""
+        return (
+            self.sold_price + self.shipping_credit
+            - self.cost - (self.fees or 0.0) - self.shipping_cost
+        )
 
 
 def inventory_analytics(
@@ -112,7 +123,7 @@ def load_rows(db) -> list[AnalyticsItem]:
             title=(str(title or "").strip() or "Untitled listing"),
             status=effective,
             price=asking,
-            cost=_number(cost),
+            cost=_number(sale.get("cost")) or _number(cost),
             brand=str(brand or "").strip(),
             category=_category_label(category),
             sold_price=sold_price,
@@ -120,6 +131,9 @@ def load_rows(db) -> list[AnalyticsItem]:
             listed_at=_parse_moment(listed_text),
             marketplace=_marketplace(sale, dates, notes, VENDOO_MARKETPLACE_ALIASES),
             days_listed=_days_between(listed_text, sold_text),
+            fees=_amount(sale.get("fees")),
+            shipping_cost=_amount(sale.get("shippingCost")) or 0.0,
+            shipping_credit=_amount(sale.get("shippingCredit")) or 0.0,
         ))
     return rows
 
@@ -158,8 +172,9 @@ def summarize(
         "sales": {
             "count": len(sales),
             "revenue": _money(revenue),
-            "profit": _money(sum(item.sold_price - item.cost for item in profit_rows)) if profit_rows else None,
+            "profit": _money(sum(item.profit for item in profit_rows)) if profit_rows else None,
             "profit_known": len(profit_rows),
+            "fees_known": sum(1 for item in profit_rows if item.fees is not None),
             "average_price": _money(revenue / len(sales)) if sales else None,
             "median_days": _median_days(days),
         },
@@ -418,6 +433,19 @@ def _number(value: Any) -> float:
         return 0.0
     if amount != amount or amount <= 0:
         return 0.0
+    return amount
+
+
+def _amount(value: Any) -> float | None:
+    """A recorded sale amount, where zero is a real figure and absent is None."""
+    if value is None or value == "":
+        return None
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return None
+    if amount != amount or amount < 0:
+        return None
     return amount
 
 
