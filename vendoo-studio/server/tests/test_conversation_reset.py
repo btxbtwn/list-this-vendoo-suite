@@ -225,8 +225,8 @@ class ConversationResetTest(unittest.TestCase):
     def test_reset_does_not_wait_out_a_silent_chrome_for_label_names(self):
         """A Chrome that never answers list_labels must not stall Regenerate.
 
-        The label catalog only prettifies carried-over labels, so it gets the
-        short lookup budget rather than the 4-minute form-fill one.
+        The label catalog only prettifies carried-over labels, so reset reads
+        the cached catalog and never asks Chrome.
         """
         from vendoo_studio.services import vendoo_label_catalog
 
