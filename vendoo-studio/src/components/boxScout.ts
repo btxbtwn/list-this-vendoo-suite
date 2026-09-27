@@ -1,64 +1,62 @@
-/** Filters for the raghouse box scout, and the presets the Sourcing page offers. */
-export interface ScoutFilters {
-  trend: string;
-  minPcs: number;
-  targetCog: number;
-  maxCog: number;
-  maxPrice: number;
-  includeVip: boolean;
-}
+import type { SourcingCart, SourcingLot, SourcingSnapshot } from "../api/types";
 
-export type ScoutPresetId = "everyday" | "higher-value";
-
-// Tees and tops land well under $2 a usable piece; jackets, fleece and sweaters
-// cost more per piece and resell for more, so they need their own caps.
-export const SCOUT_PRESETS: { id: ScoutPresetId; label: string; filters: Pick<ScoutFilters, "minPcs" | "targetCog" | "maxCog"> }[] = [
-  { id: "everyday", label: "Tees & tops", filters: { minPcs: 20, targetCog: 2, maxCog: 4 } },
-  { id: "higher-value", label: "Jackets & sweaters", filters: { minPcs: 12, targetCog: 4, maxCog: 8 } },
-];
-
-export const DEFAULT_SCOUT_FILTERS: ScoutFilters = {
-  trend: "",
-  ...SCOUT_PRESETS[0].filters,
-  maxPrice: 0,
-  includeVip: true,
-};
-
-export function scoutQuery(filters: ScoutFilters, refresh = false): string {
-  const params = new URLSearchParams({
-    min_pcs: String(filters.minPcs),
-    target_cog: String(filters.targetCog),
-    max_cog: String(filters.maxCog),
-    include_vip: String(filters.includeVip),
-  });
-  const trend = normalizeTrend(filters.trend);
-  if (trend) params.set("trend", trend);
-  if (filters.maxPrice > 0) params.set("max_price", String(filters.maxPrice));
-  if (refresh) params.set("refresh", "true");
-  return params.toString();
-}
-
-/** "Carhartt,  y2k ,,Band" -> "carhartt, y2k, band", so equal lists share a cache entry. */
-export function normalizeTrend(text: string): string {
-  return text
-    .split(",")
-    .map((term) => term.trim().toLowerCase())
-    .filter(Boolean)
-    .join(", ");
-}
-
-export function activePreset(filters: ScoutFilters): ScoutPresetId | null {
-  const match = SCOUT_PRESETS.find(
-    (preset) =>
-      preset.filters.minPcs === filters.minPcs &&
-      preset.filters.targetCog === filters.targetCog &&
-      preset.filters.maxCog === filters.maxCog,
-  );
-  return match?.id ?? null;
-}
-
-export const GRADE_LABELS: Record<"good" | "mixed" | "recycle", string> = {
+export const GRADE_LABELS: Record<string, string> = {
   good: "Good",
   mixed: "Recycle & Good",
   recycle: "Recycle",
+  a: "A grade",
+  ab: "A/B grade",
+  b: "B grade",
+  bc: "B/C grade",
+  c: "C grade",
 };
+
+export function formatRoi(roi: number): string {
+  return `${Math.round(roi * 100)}%`;
+}
+
+/** What is left to spend at a store before its free shipping starts, or null. */
+export function freeShippingGap(cart: SourcingCart): number | null {
+  if (cart.free_shipping || cart.free_shipping_over == null) return null;
+  return Math.max(0, Math.ceil(cart.free_shipping_over - cart.subtotal));
+}
+
+export function lotCount(count: number): string {
+  return count === 1 ? "1 box" : `${count} boxes`;
+}
+
+/** The best ranked lot of each theme the buy list did not already take. */
+export function otherLots(snapshot: SourcingSnapshot, limit = 20): SourcingLot[] {
+  const seen = new Set(snapshot.buy_list.carts.flatMap((cart) => cart.lots.map((lot) => lot.theme)));
+  const lots: SourcingLot[] = [];
+  for (const lot of snapshot.lots) {
+    if (seen.has(lot.theme)) continue;
+    seen.add(lot.theme);
+    lots.push(lot);
+    if (lots.length === limit) break;
+  }
+  return lots;
+}
+
+/** "Good · 69 pcs · 28 lb", with ~ on counts and weights the store did not state. */
+export function lotMeta(lot: SourcingLot): string {
+  const parts = [
+    GRADE_LABELS[lot.grade] ?? lot.grade,
+    `${lot.pcs_estimated ? "~" : ""}${lot.pcs} pcs`,
+    `${lot.lbs_estimated ? "~" : ""}${Math.round(lot.lbs)} lb`,
+  ];
+  if (lot.vip) parts.push("VIP only");
+  return parts.join(" · ");
+}
+
+export function whenChecked(iso: string, now = new Date()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (date.toDateString() === now.toDateString()) return `today ${time}`;
+  return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
+}
+
+export function isZip(text: string): boolean {
+  return /^\d{5}$/.test(text.trim());
+}

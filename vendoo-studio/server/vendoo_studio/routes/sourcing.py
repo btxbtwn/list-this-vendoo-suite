@@ -1,74 +1,153 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
-from vendoo_studio.services.box_scout import ScoutUnavailable, scout_boxes
+from vendoo_studio.services import box_scout
 
 router = APIRouter(prefix="/api/sourcing", tags=["sourcing"])
 
 
-class ScoutShipping(BaseModel):
-    destination_zip: str
-    zone: int
-    residential_surcharge: float
-    fuel_surcharge_pct: float
-    fuel_surcharge_as_of: str
-    ship_factor: float
-
-
-class ScoutBox(BaseModel):
+class SourcingLot(BaseModel):
+    store: str
+    variant_id: int
     title: str
     url: str
     price: float
     compare_at: float | None
     pcs: int
+    pcs_estimated: bool
     grade: str
     lbs: float
+    lbs_estimated: bool
+    vip: bool
+    listed: str | None
+    seller_resale: float | None
+    theme: str
     ship_est: float
+    usable_pcs: float
+    demand: float
+    trend_hits: list[str]
     landed: float
     cog_per_pc: float
     cog_per_usable_pc: float
-    demand: float
-    trend_hits: list[str]
-    vip: bool
-    lot_date: str | None
+    resale_per_pc: float | None
+    sell_through: float
+    expected_revenue: float | None
+    expected_profit: float | None
+    roi: float | None
     score: float
+    evidence: list[str] = []
 
 
-class ScoutResponse(BaseModel):
-    fetched_at: str
-    baseline_sellout: float
-    sellout_days: int
-    matched: int
-    shipping: ScoutShipping
-    boxes: list[ScoutBox]
+class SourcingCart(BaseModel):
+    store: str
+    name: str
+    subtotal: float
+    shipping: float
+    free_shipping: bool
+    free_shipping_over: float | None
+    cart_url: str
+    lots: list[SourcingLot]
 
 
-@router.get("/raghouse", response_model=ScoutResponse)
-def get_raghouse_boxes(
-    trend: str = "",
-    min_pcs: int = Query(20, ge=1),
-    max_pcs: int = Query(0, ge=0),
-    target_cog: float = Query(2.0, gt=0),
-    max_cog: float = Query(4.0, gt=0),
-    max_price: float = Query(0, ge=0),
-    include_vip: bool = True,
-    limit: int = Query(50, ge=1, le=500),
-    refresh: bool = False,
-):
+class SourcingBuyList(BaseModel):
+    budget: float
+    total: float
+    expected_profit: float
+    carts: list[SourcingCart]
+
+
+class SourcingStore(BaseModel):
+    name: str
+    error: str | None
+    sellout: float | None
+    zone: int | None
+
+
+class SourcingShipping(BaseModel):
+    residential_surcharge: float
+    fuel_surcharge_pct: float
+    fuel_surcharge_as_of: str
+
+
+class SourcingAssumptions(BaseModel):
+    sell_through: float
+    fees: float
+    grade_yield: dict[str, float]
+
+
+class SourcingSnapshot(BaseModel):
+    updated_at: str
+    destination_zip: str
+    stores: dict[str, SourcingStore]
+    research: bool
+    priced_themes: int
+    shipping: SourcingShipping
+    assumptions: SourcingAssumptions
+    buy_list: SourcingBuyList
+    lots: list[SourcingLot]
+
+
+class SourcingPrefs(BaseModel):
+    budget: float
+    min_roi: float
+    raghouse_vip: bool
+    zip: str
+    recent_zips: list[str]
+
+
+class SourcingTrend(BaseModel):
+    terms: list[str]
+    updated_at: str | None
+    source: str | None
+
+
+class SourcingResponse(BaseModel):
+    refreshing: bool
+    research_available: bool
+    prefs: SourcingPrefs
+    trend: SourcingTrend
+    snapshot: SourcingSnapshot | None
+
+
+class SourcingPrefsUpdate(BaseModel):
+    budget: float | None = Field(None, gt=0)
+    min_roi: float | None = Field(None, ge=0)
+    raghouse_vip: bool | None = None
+    zip: str | None = Field(None, pattern=r"^\d{5}$")
+
+
+def _response() -> SourcingResponse:
+    state = box_scout.read_state()
+    return SourcingResponse(
+        refreshing=box_scout.refreshing(),
+        research_available=box_scout.research_available(),
+        prefs=SourcingPrefs.model_validate(state["prefs"]),
+        trend=SourcingTrend.model_validate(state["trend"]),
+        snapshot=SourcingSnapshot.model_validate(state["snapshot"]) if state["snapshot"] else None,
+    )
+
+
+@router.get("", response_model=SourcingResponse)
+def get_sourcing():
+    if box_scout.refresh_is_due():
+        box_scout.refresh_in_background()
+    return _response()
+
+
+@router.post("/refresh", response_model=SourcingResponse)
+def refresh_sourcing():
+    box_scout.refresh_in_background()
+    return _response()
+
+
+@router.put("/prefs", response_model=SourcingResponse)
+def update_sourcing_prefs(update: SourcingPrefsUpdate):
     try:
-        payload = scout_boxes(
-            trend=trend,
-            min_pcs=min_pcs,
-            max_pcs=max_pcs,
-            target_cog=target_cog,
-            max_cog=max_cog,
-            max_price=max_price,
-            include_vip=include_vip,
-            limit=limit,
-            refresh=refresh,
-        )
-    except ScoutUnavailable as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return ScoutResponse.model_validate(payload)
+        box_scout.set_prefs(**update.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Only prices change, so reuse the last crawl rather than asking the stores again.
+    box_scout.refresh_in_background(recrawl=False)
+    return _response()
