@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from concurrent.futures import CancelledError
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -214,7 +215,7 @@ class CreateRouteTest(_RouteTest):
             raise asyncio.CancelledError()
 
         with patch("vendoo_studio.services.vendoo_create.create_item", fake_create):
-            with self.assertRaises(BaseException):
+            with self.assertRaises(CancelledError):
                 self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
         self.db.expire_all()
         jobs = JobRepo(self.db).list_by_conversation(self.conv.id)
