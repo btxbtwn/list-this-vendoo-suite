@@ -250,8 +250,12 @@ def _current_listing(conv_id: str, db: Session) -> tuple[dict, list]:
 
 
 @router.post("/api/conversations/{conv_id}/price-drop/preview")
-async def preview_price_drop(conv_id: str, db: Session = Depends(get_db)):
-    """Live comps + history-aware suggestion. Does not change the listing."""
+async def preview_price_drop(conv_id: str, comps: bool = True, db: Session = Depends(get_db)):
+    """Live comps + history-aware suggestion. Does not change the listing.
+
+    ``comps=false`` skips the web search, which can take a minute and a half,
+    so the dialog can offer the history and sell-through suggestion at once.
+    """
     from vendoo_studio.services.listing_generate import latest_photo_analysis
 
     from vendoo_studio.services.sell_through import collect_outcomes, listing_age_days
@@ -265,6 +269,7 @@ async def preview_price_drop(conv_id: str, db: Session = Depends(get_db)):
             listing,
             revisions,
             analysis_text=analysis,
+            run_comps=comps,
             sold_outcomes=collect_outcomes(db),
             age_days=listing_age_days(conv.notes if conv else None),
         )

@@ -55,15 +55,34 @@ export function RegeneratePriceDialog({
 }) {
   const queryClient = useQueryClient();
 
+  // History and sell-through answer at once; live comps are a web search that
+  // can take a minute and a half, so they load on top instead of holding the
+  // whole dialog.
   const previewQuery = useQuery({
-    queryKey: ["price-drop-preview", convId],
-    queryFn: () => api.listings.priceDropPreview(convId),
+    queryKey: ["price-drop-preview", convId, "instant"],
+    queryFn: () => api.listings.priceDropPreview(convId, { comps: false }),
     enabled: open,
     staleTime: 30_000,
   });
+  const compsQuery = useQuery({
+    queryKey: ["price-drop-preview", convId, "comps"],
+    queryFn: () => api.listings.priceDropPreview(convId, { comps: true }),
+    enabled: open && Boolean(previewQuery.data?.comps.available),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const preview = compsQuery.data ?? previewQuery.data;
 
   const [selection, setSelection] = useState<Selection | null>(null);
   const [customText, setCustomText] = useState("");
+  // Once the seller picks a price, comps arriving must not move it.
+  const [picked, setPicked] = useState(false);
+
+  const choose = (next: Selection, text = String(next.price)) => {
+    setSelection(next);
+    setCustomText(text);
+    setPicked(true);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -81,20 +100,19 @@ export function RegeneratePriceDialog({
     if (!open) {
       setSelection(null);
       setCustomText("");
+      setPicked(false);
       return;
     }
-    if (!previewQuery.data) return;
-    const next = defaultSelection(previewQuery.data);
+    if (!preview || picked) return;
+    const next = defaultSelection(preview);
     setSelection(next);
     setCustomText(String(next.price));
-  }, [open, previewQuery.data]);
+  }, [open, preview, picked]);
 
   const otherCuts = useMemo(
     () =>
-      (previewQuery.data?.drop_options || []).filter(
-        (option) => option.price !== previewQuery.data?.suggested_price,
-      ),
-    [previewQuery.data],
+      (preview?.drop_options || []).filter((option) => option.price !== preview?.suggested_price),
+    [preview],
   );
 
   const selectedPrice = useMemo(() => {
@@ -108,22 +126,22 @@ export function RegeneratePriceDialog({
 
   const apply = useMutation({
     mutationFn: async () => {
-      if (selectedPrice == null || !previewQuery.data) {
+      if (selectedPrice == null || !preview) {
         throw new Error("Choose a price first.");
       }
       // Typing the current price back in is a rewrite at today's price, not an
       // error: there is nothing to record, so skip straight to the rewrite.
-      if (selectedPrice >= previewQuery.data.current_price) return null;
+      if (selectedPrice >= preview.current_price) return null;
       const percent =
         selection?.kind === "percent"
           ? selection.percent
-          : Math.round((1 - selectedPrice / previewQuery.data.current_price) * 1000) / 10;
+          : Math.round((1 - selectedPrice / preview.current_price) * 1000) / 10;
       const mode =
         selection?.kind === "comps"
           ? "comps"
           : selection?.kind === "percent"
             ? "percent"
-            : selection?.kind === "suggested" && previewQuery.data.suggested_mode === "comps"
+            : selection?.kind === "suggested" && preview.suggested_mode === "comps"
               ? "comps"
               : selection?.kind === "suggested"
                 ? "percent"
@@ -157,7 +175,6 @@ export function RegeneratePriceDialog({
 
   if (!open) return null;
 
-  const preview = previewQuery.data;
   const belowComps =
     preview?.comps.target_price != null &&
     selectedPrice != null &&
@@ -191,7 +208,7 @@ export function RegeneratePriceDialog({
 
         <div className="price-drop-body">
           {previewQuery.isLoading ? (
-            <p className="price-drop-status">Researching sold comps…</p>
+            <p className="price-drop-status">Loading price history…</p>
           ) : previewQuery.isError ? (
             <p className="price-drop-status is-error">
               {(previewQuery.error as Error).message || "Could not load a price suggestion."}
@@ -221,10 +238,7 @@ export function RegeneratePriceDialog({
                 <button
                   type="button"
                   className={`price-drop-chip price-drop-chip-wide${selection?.kind === "suggested" ? " is-active" : ""}`}
-                  onClick={() => {
-                    setSelection({ kind: "suggested", price: preview.suggested_price });
-                    setCustomText(String(preview.suggested_price));
-                  }}
+                  onClick={() => choose({ kind: "suggested", price: preview.suggested_price })}
                 >
                   {money(preview.suggested_price)} · −{percentLabel(preview.suggested_effective_percent)}%
                   <span className="price-drop-chip-note">{preview.suggested_reason}</span>
@@ -262,14 +276,13 @@ export function RegeneratePriceDialog({
                           key={option.price}
                           type="button"
                           className={`price-drop-chip${active ? " is-active" : ""}`}
-                          onClick={() => {
-                            setSelection({
+                          onClick={() =>
+                            choose({
                               kind: "percent",
                               percent: option.effective_percent,
                               price: option.price,
-                            });
-                            setCustomText(String(option.price));
-                          }}
+                            })
+                          }
                         >
                           {money(option.price)} · −{percentLabel(option.effective_percent)}%
                         </button>
@@ -285,11 +298,7 @@ export function RegeneratePriceDialog({
                   <button
                     type="button"
                     className={`price-drop-chip price-drop-chip-wide${selection?.kind === "comps" ? " is-active" : ""}`}
-                    onClick={() => {
-                      const price = preview.comps.target_price!;
-                      setSelection({ kind: "comps", price });
-                      setCustomText(String(price));
-                    }}
+                    onClick={() => choose({ kind: "comps", price: preview.comps.target_price! })}
                   >
                     Comps target {money(preview.comps.target_price)} · −
                     {percentLabel(
@@ -304,6 +313,14 @@ export function RegeneratePriceDialog({
                 <p className="price-drop-status">
                   Sold comps need ChatGPT signed in or a Brave Search API key in Settings.
                 </p>
+              ) : compsQuery.isFetching && !compsQuery.data ? (
+                <p className="price-drop-status">
+                  Researching sold comps… You can confirm now, or wait for the live comps target.
+                </p>
+              ) : compsQuery.isError ? (
+                <p className="price-drop-status is-error">
+                  {(compsQuery.error as Error).message || "Sold comps search failed."}
+                </p>
               ) : null}
 
               <div className="price-drop-section">
@@ -317,10 +334,12 @@ export function RegeneratePriceDialog({
                   min={1}
                   step={1}
                   value={customText}
-                  onChange={(event) => {
-                    setCustomText(event.target.value);
-                    setSelection({ kind: "custom", price: Number(event.target.value) || 0 });
-                  }}
+                  onChange={(event) =>
+                    choose(
+                      { kind: "custom", price: Number(event.target.value) || 0 },
+                      event.target.value,
+                    )
+                  }
                 />
                 {belowComps ? (
                   <p className="price-drop-status">
@@ -355,7 +374,7 @@ export function RegeneratePriceDialog({
           <button
             type="button"
             className="btn btn-danger"
-            disabled={apply.isPending || previewQuery.isLoading || !preview || selectedPrice == null}
+            disabled={apply.isPending || !preview || selectedPrice == null}
             onClick={() => apply.mutate()}
           >
             {apply.isPending ? "Saving…" : "Confirm"}
