@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.115 — 2026-09-27
+
+- Suggestions stop showing "Fix listing fields" for a listing once it's been fixed through chat, repair, regenerate or a Vendoo sync, not only through the editor.
+
 ## 0.1.114 — 2026-09-27
 
 - Settings has a Logs page that shows live API calls between Studio and Vendoo. Tokens and request bodies stay off the page.

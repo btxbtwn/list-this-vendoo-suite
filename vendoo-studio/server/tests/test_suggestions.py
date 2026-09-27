@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -13,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from vendoo_studio.database import Base, load_models
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
+from vendoo_studio.models.listing_values import ValidationResult
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.suggestions import list_suggestions
 
@@ -83,6 +85,20 @@ class SuggestionsTest(unittest.TestCase):
         listing.validation_status = "error"
         self.db.commit()
         self.assertEqual(self._by_title("Broken active")["kind"], "fix_validation")
+
+    def test_fixed_listing_drops_stale_validation_flag(self):
+        conv = self.convs.create(title="Fixed draft")
+        self.listings.save_revision(conv.id, {"title": "Fixed draft", "price": 18}, "user_form")
+        listing = self.listings.get_current(conv.id)
+        listing.validation_status = "error"
+        self.db.commit()
+        with patch(
+            "vendoo_studio.services.suggestions.validate_listing",
+            return_value=ValidationResult(valid=True),
+        ):
+            card = self._by_title("Fixed draft")
+        self.assertEqual(card["kind"], "ready_to_review")
+        self.assertEqual(self.listings.get_current(conv.id).validation_status, "valid")
 
     def test_stale_starts_at_thirty_days_and_older_ranks_first(self):
         thirty = self.convs.create(title="Thirty")
