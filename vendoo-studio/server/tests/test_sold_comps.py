@@ -92,6 +92,47 @@ class WebResultFilterTest(unittest.TestCase):
         }])
         self.assertEqual(comps, [])
 
+    def test_drops_active_listing_with_elided_seller_count_and_shipping_banner(self):
+        # Brave's snippet of a live $3.99 listing: the seller card's "44K items
+        # sold" is elided to "... sold", and the store banner's shipping amount
+        # is the only dollar figure on it.
+        comps = comps_from_web_results([{
+            "title": "Womens Forever 21 red crop top sz S | eBay",
+            "url": "https://www.ebay.com/itm/404418932403",
+            "description": (
+                "FOREVER 21 · Fit · Regular · ... sold · Joined Sep 2020 · Usually responds "
+                "within 24 hours · Over 3,000 items in store with items being listed everyday!!!"
+            ),
+            "extra_snippets": [
+                "99.4% positive feedback•44K items sold · Joined Sep 2020 · when you add 2 or more "
+                "items to your checkout cart you get 50% off on all items with $15 shipping at the "
+                "CHECKOUT CART!!!"
+            ],
+        }])
+        self.assertEqual(comps, [])
+
+    def test_shipping_and_fees_are_not_the_sold_price(self):
+        for description in (
+            "Sold. $15 combined shipping of up to 40 items.",
+            "Item sold. Shipping: $7.99",
+            "Item sold · +$4.99 Buyer Protection fee",
+        ):
+            with self.subTest(description=description):
+                comps = comps_from_web_results([{
+                    "title": "Levi's 511 Slim Shorts",
+                    "url": "https://www.ebay.com/itm/9",
+                    "description": description,
+                }])
+                self.assertEqual(comps, [])
+
+    def test_keeps_sold_price_listed_beside_shipping(self):
+        comps = comps_from_web_results([{
+            "title": "Levi's 511 Slim Shorts",
+            "url": "https://www.ebay.com/itm/9",
+            "description": "Sold for $22.00 · Shipping: $7.99",
+        }])
+        self.assertEqual([comp.price for comp in comps], [22])
+
     def test_keeps_selling_price_when_retail_is_also_listed(self):
         comps = comps_from_web_results([{
             "title": "Breckenridge Womens Blue Fleece Holiday Sweatshirt Small NWT $44",

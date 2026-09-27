@@ -51,9 +51,11 @@ _SOLD_EVIDENCE_RE = re.compile(
     re.I,
 )
 # Seller feedback ("6.3K items sold") and "sold by {seller}" appear on active
-# listings. They are not evidence that this listing sold.
+# listings. They are not evidence that this listing sold. Brave elides the count
+# from the seller card, leaving "... sold · Joined Sep 2020".
 _SELLER_SOLD_COUNT_RE = re.compile(
-    r"\b(?:[\d,.]+[kmb]\+?\s+)?items\s+sold\b|\bsold\s+by\b",
+    r"\b(?:[\d,.]+[kmb]\+?\s+)?items\s+sold\b|\bsold\s+by\b|"
+    r"(?:\.\.\.|…)\s*sold\b|\bsold\s*[·•|]\s*joined\b",
     re.I,
 )
 # The dollar amount in a title is often the tag the seller wants buyers to
@@ -62,6 +64,14 @@ _NON_SALE_PRICE_RE = re.compile(
     r"\b(?:retail(?:\s+price)?|msrp|was|originally|original(?:\s+price)?|"
     r"list\s+price|compare(?:\s+at)?)\b"
     r"\s*[:\-]?\s*(?:US\s?)?" + _USD + r"\s*" + _AMOUNT,
+    re.I,
+)
+# Shipping and fees ("$15 combined shipping", "Shipping: $7.99", "+$0.46 Buyer
+# Protection fee") sit beside the price on listing pages and store banners.
+_SHIPPING_PRICE_RE = re.compile(
+    r"(?:\bshipping(?:\s+(?:cost|fee|is|of|for))?\s*[:\-]?\s*(?:US\s?)?|\+\s*)"
+    + _USD + r"\s*" + _AMOUNT
+    + r"|" + _USD + r"\s*" + _AMOUNT + r"\s+(?:combined\s+)?shipping\b",
     re.I,
 )
 _NOT_SOLD_RE = re.compile(r"\b(?:not sold|has(?:n't| not) sold|unsold|sold out)\b", re.I)
@@ -176,13 +186,15 @@ def extract_price(text: str | None) -> float | None:
 
 
 def _non_sale_prices(blob: str) -> set[float]:
-    """Dollar amounts labeled as retail, MSRP, original, or a previous price."""
+    """Dollar amounts labeled as retail, MSRP, a previous price, shipping, or a fee."""
     found: set[float] = set()
-    for match in _NON_SALE_PRICE_RE.finditer(blob):
-        try:
-            found.add(_amount(match.group(1)))
-        except ValueError:
-            continue
+    for pattern in (_NON_SALE_PRICE_RE, _SHIPPING_PRICE_RE):
+        for match in pattern.finditer(blob):
+            raw = match.group(1) or match.group(2)
+            try:
+                found.add(_amount(raw))
+            except ValueError:
+                continue
     return found
 
 
