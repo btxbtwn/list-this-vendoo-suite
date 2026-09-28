@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import {
+  bulkRegenerateToast,
+  bulkRegenerateWarning,
+  listingCanRegenerate,
+  toggleListingSelection,
+} from "../bulkRegenerate";
+import { confirmDialog, isConfirmDialogOpen } from "../ui/confirmDialog";
+import { addToast } from "../ui/toast";
 import { hasOpenJob, INVENTORY_BUSY_POLL_MS, INVENTORY_IDLE_POLL_MS } from "../api/polling";
 import { UpdateButton } from "./UpdateButton";
 import { VendooImportButton } from "./VendooImportButton";
@@ -17,6 +25,7 @@ import { ListingFilters } from "./ListingFilters";
 import { SuggestionsPanel } from "./SuggestionsPanel";
 import { marketplacesNeedingRelist, relistStage } from "./relistStatus";
 import { marketplaceName } from "./marketplaceNames";
+import { useBulkRegenerate } from "./useBulkRegenerate";
 import { stopTitlebarDrag } from "./WorkspaceTopbar";
 import type { WorkspaceView } from "./workspaceCrumbs";
 import {
@@ -136,6 +145,25 @@ export function ComposeIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M12 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M18.375 2.625a2.121 2.121 0 013 3L8.5 18.5 4 20l1.5-4.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function RegenerateIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M21 3v5h-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 21v-5h5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SelectCheck() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3 8.5l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -320,7 +348,14 @@ export function ListingSidebar({
   const [settingsQuery, setSettingsQuery] = useState("");
   const [filters, setFilters] = useState<Filters>(DEFAULT_LISTING_FILTERS);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
+  const [selecting, setSelecting] = useState(false);
+  const [pickedIds, setPickedIds] = useState<Set<string>>(() => new Set());
+  const [bulkTitles, setBulkTitles] = useState<Map<string, string>>(() => new Map());
   const settingsSearchRef = useRef<HTMLInputElement>(null);
+  const selectionAnchor = useRef<string | null>(null);
+  const bulk = useBulkRegenerate(
+    (id) => activeView === "listings" && selectedConvId === id,
+  );
   const migratedSettledRef = useRef(false);
   const settingsMode = activeView === "settings";
 
@@ -387,6 +422,85 @@ export function ListingSidebar({
       settledListings: sortListings(settled, filters.sort),
     };
   }, [conversations, filters, needle]);
+
+  const eligibleIds = useMemo(
+    () => activeListings.filter((listing) => listingCanRegenerate(listing)).map((listing) => listing.id),
+    [activeListings],
+  );
+  const selectedIds = useMemo(() => {
+    if (pickedIds.size === 0) return pickedIds;
+    const eligible = new Set(eligibleIds);
+    let changed = false;
+    const next = new Set<string>();
+    for (const id of pickedIds) {
+      if (eligible.has(id)) next.add(id);
+      else changed = true;
+    }
+    return changed ? next : pickedIds;
+  }, [eligibleIds, pickedIds]);
+
+  useEffect(() => {
+    if (!selecting || bulk.running) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || isConfirmDialogOpen()) return;
+      setSelecting(false);
+      setPickedIds(new Set());
+      selectionAnchor.current = null;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selecting, bulk.running]);
+
+  const exitSelecting = useCallback(() => {
+    setSelecting(false);
+    setPickedIds(new Set());
+    selectionAnchor.current = null;
+  }, []);
+
+  const toggleSelect = useCallback((id: string, shift: boolean) => {
+    setPickedIds((prev) => {
+      const eligible = new Set(eligibleIds);
+      const visible = new Set<string>();
+      for (const picked of prev) {
+        if (eligible.has(picked)) visible.add(picked);
+      }
+      const next = toggleListingSelection(visible, id, eligibleIds, shift, selectionAnchor.current);
+      selectionAnchor.current = next.anchorId;
+      return next.selected;
+    });
+  }, [eligibleIds]);
+
+  const toggleSelectAll = useCallback(() => {
+    setPickedIds((prev) => {
+      const allSelected = eligibleIds.length > 0 && eligibleIds.every((id) => prev.has(id));
+      selectionAnchor.current = null;
+      return allSelected ? new Set() : new Set(eligibleIds);
+    });
+  }, [eligibleIds]);
+
+  const regenerateSelected = useCallback(async () => {
+    const ids = eligibleIds.filter((id) => selectedIds.has(id));
+    if (!ids.length || bulk.running) return;
+    const confirmed = await confirmDialog(bulkRegenerateWarning(ids.length), {
+      variant: "destructive",
+      confirmLabel: "Rewrite",
+    });
+    if (!confirmed) return;
+    setBulkTitles(new Map(ids.map((id) => {
+      const listing = activeListings.find((item) => item.id === id);
+      return [id, listing?.title || "Untitled"];
+    })));
+    const result = await bulk.start(ids);
+    if (!result) return;
+    if (result.failed.length === 0) {
+      exitSelecting();
+    } else {
+      const failed = new Set(result.failed.map((item) => item.id));
+      setPickedIds(failed);
+      selectionAnchor.current = null;
+    }
+    addToast(bulkRegenerateToast(result));
+  }, [activeListings, bulk, eligibleIds, exitSelecting, selectedIds]);
 
   const visibleSettled = useMemo(() => {
     const visible = settledListings.slice(0, settledVisibleCount);
@@ -703,6 +817,20 @@ export function ListingSidebar({
             >
               <ComposeIcon />
             </button>
+            <button
+              type="button"
+              className={`sidebar-icon-btn${selecting ? " selected" : ""}`}
+              title="Regenerate listings"
+              aria-label="Regenerate listings"
+              aria-pressed={selecting}
+              onClick={() => {
+                if (bulk.running) return;
+                if (selecting) exitSelecting();
+                else setSelecting(true);
+              }}
+            >
+              <RegenerateIcon />
+            </button>
           </div>
 
           <SuggestionsPanel
@@ -737,6 +865,11 @@ export function ListingSidebar({
                 jobId={jobIdByConversation.get(listing.id)}
                 statusDraft={statusDraftFor(listing.id)}
                 visibleMarketplaces={visibleMarketplaces}
+                selecting={selecting}
+                checked={selectedIds.has(listing.id)}
+                canSelect={listingCanRegenerate(listing)}
+                selectLocked={bulk.running}
+                onToggleSelect={toggleSelect}
                 onSelect={onSelect}
                 onDelete={onDelete}
                 onSettle={(id) => settleListing.mutate(id)}
@@ -795,6 +928,41 @@ export function ListingSidebar({
             )}
           </div>
         </>
+      )}
+
+      {!settingsMode && selecting && (
+        <div className="sidebar-bulk-bar" role="region" aria-label="Regenerate listings">
+          <p className="sidebar-bulk-count">{bulkStatusLabel(bulk.run, bulkTitles, selectedIds.size, eligibleIds.length)}</p>
+          <div className="sidebar-bulk-actions">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={bulk.running || eligibleIds.length === 0}
+              onClick={toggleSelectAll}
+            >
+              {eligibleIds.length > 0 && eligibleIds.every((id) => selectedIds.has(id)) ? "None" : "All"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              disabled={bulk.running || selectedIds.size === 0}
+              onClick={() => { void regenerateSelected(); }}
+            >
+              Regenerate
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={Boolean(bulk.run?.cancelRequested)}
+              onClick={() => {
+                if (bulk.running) bulk.cancel();
+                else exitSelecting();
+              }}
+            >
+              {bulk.running ? (bulk.run?.cancelRequested ? "Finishing…" : "Stop after this") : "Cancel"}
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="sidebar-footer">
@@ -963,6 +1131,23 @@ function statusOrderIndex(id: string): number {
   return index === -1 ? MARKETPLACE_STATUS_ORDER.length : index;
 }
 
+function bulkStatusLabel(
+  run: { id: string; index: number; total: number; phase: string; cancelRequested: boolean } | null,
+  titles: Map<string, string>,
+  selectedCount: number,
+  eligibleCount: number,
+): string {
+  if (run) {
+    const title = titles.get(run.id) || "listing";
+    const place = `${run.index + 1} of ${run.total}`;
+    if (run.cancelRequested) return `Finishing ${title}…`;
+    if (run.phase === "finishing") return `Finishing fields on ${title} (${place})`;
+    return `Rewriting ${title} (${place})`;
+  }
+  if (eligibleCount === 0) return "No listings with photos to rewrite";
+  return `${selectedCount} selected`;
+}
+
 function ListingRow({
   listing,
   selected,
@@ -972,6 +1157,11 @@ function ListingRow({
   jobId,
   statusDraft,
   visibleMarketplaces,
+  selecting = false,
+  checked = false,
+  canSelect = false,
+  selectLocked = false,
+  onToggleSelect,
   onSelect,
   onDelete,
   onSettle,
@@ -985,6 +1175,11 @@ function ListingRow({
   jobId?: string;
   statusDraft?: Record<string, unknown>;
   visibleMarketplaces?: Set<string>;
+  selecting?: boolean;
+  checked?: boolean;
+  canSelect?: boolean;
+  selectLocked?: boolean;
+  onToggleSelect?: (id: string, shift: boolean) => void;
   onSelect: (id: string) => void;
   onDelete: (id: string, title: string) => void;
   onSettle?: (id: string) => void;
@@ -1151,7 +1346,7 @@ function ListingRow({
 
   return (
     <div
-      className="nav-item"
+      className={`nav-item${selecting ? " is-selecting" : ""}`}
       ref={itemRef}
       onMouseEnter={openHover}
       onMouseLeave={closeHover}
@@ -1166,6 +1361,24 @@ function ListingRow({
           if (!renaming) onSelect(listing.id);
         }}
       >
+        {selecting ? (
+          <button
+            type="button"
+            role="checkbox"
+            className={`nav-select${checked ? " is-checked" : ""}`}
+            aria-checked={checked}
+            aria-label={`${checked ? "Deselect" : "Select"} ${title}`}
+            disabled={!canSelect || selectLocked}
+            title={canSelect ? "Include in regenerate" : "Add photos before regenerating"}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (!canSelect || selectLocked) return;
+              onToggleSelect?.(listing.id, event.shiftKey);
+            }}
+          >
+            {checked ? <SelectCheck /> : null}
+          </button>
+        ) : null}
         <div className="nav-thumb" aria-hidden="true">
           {coverUrl ? (
             <img className="nav-thumb-img" src={coverUrl} alt="" loading="lazy" draggable={false} />

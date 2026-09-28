@@ -614,6 +614,49 @@ export function isChatResetting(convId: string): boolean {
   return getLive(convId).resetting;
 }
 
+/** True while this listing's chat is wiping, streaming, or waiting to generate. */
+export function chatIsBusy(convId: string): boolean {
+  const live = getLive(convId);
+  return live.streaming || live.generating || live.resetting;
+}
+
+/** The open chat is attached to this run, so bulk regenerate must leave it alone. */
+export function chatOwnsGeneration(convId: string): boolean {
+  const live = getLive(convId);
+  return Boolean(live.controller) || live.streaming;
+}
+
+/**
+ * A background rewrite has started. The open chat attaches with resume
+ * (`startQueued` stays false) instead of posting a second generate.
+ */
+export function markChatGenerating(convId: string) {
+  if (chatOwnsGeneration(convId)) return;
+  patchLive(convId, {
+    generating: true,
+    startQueued: false,
+    resetting: false,
+    userCancelled: false,
+    streamStatus: getLive(convId).streamStatus || "Analyzing photos…",
+  });
+}
+
+/** Drop a background generating flag the chat never took over. */
+export function clearChatGenerating(convId: string) {
+  if (chatOwnsGeneration(convId)) return;
+  patchLive(convId, {
+    generating: false,
+    streaming: false,
+    startQueued: false,
+    resetting: false,
+    streamStatus: "",
+    streamText: "",
+    streamDisplayText: "",
+    streamTrace: [],
+    thinkingStarted: false,
+  });
+}
+
 /** Start a generate for this listing; a mounted ChatPanel picks it up and streams it. */
 export function queueChatGenerate(convId: string) {
   resetChatLive(convId);

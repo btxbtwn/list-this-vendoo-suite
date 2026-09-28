@@ -22,7 +22,7 @@ const REGENERATE_WARNING = [
   "Chat and every generated field are discarded, then the listing is written again from your photos and item details. Measurements, flaws, COG, labels and notes are kept. Vendoo is unchanged until you send again.",
 ].join("\n");
 
-async function refreshAfterReset(queryClient: QueryClient, convId: string) {
+export async function refreshAfterReset(queryClient: QueryClient, convId: string) {
   queryClient.invalidateQueries({ queryKey: ["conversations"] });
   queryClient.invalidateQueries({ queryKey: ["jobs"] });
   queryClient.invalidateQueries({ queryKey: ["fill-log"] });
