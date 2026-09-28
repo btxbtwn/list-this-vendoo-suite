@@ -34,10 +34,20 @@ export function SuggestionsPanel({
   variant,
   selectedConvId,
   onSelect,
+  selecting = false,
+  selectedIds,
+  selectLocked = false,
+  canSelect,
+  onToggleSelect,
 }: {
   variant: "workspace" | "sidebar";
   selectedConvId?: string | null;
   onSelect: (conversationId: string) => void;
+  selecting?: boolean;
+  selectedIds?: ReadonlySet<string>;
+  selectLocked?: boolean;
+  canSelect?: (suggestion: Suggestion) => boolean;
+  onToggleSelect?: (id: string, shift: boolean) => void;
 }) {
   const { data, isFetched } = useQuery({
     queryKey: ["suggestions"],
@@ -73,6 +83,11 @@ export function SuggestionsPanel({
                 suggestion={item}
                 selected={selectedConvId === item.conversation_id}
                 compact
+                selecting={selecting}
+                checked={Boolean(selectedIds?.has(item.conversation_id))}
+                canSelect={canSelect ? canSelect(item) : true}
+                selectLocked={selectLocked}
+                onToggleSelect={onToggleSelect}
                 onSelect={onSelect}
               />
             ))}
@@ -101,25 +116,38 @@ export function SuggestionsPanel({
   );
 }
 
+function SuggestionCheck() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3 8.5l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function SuggestionRow({
   suggestion,
   selected,
   compact,
+  selecting = false,
+  checked = false,
+  canSelect = true,
+  selectLocked = false,
+  onToggleSelect,
   onSelect,
 }: {
   suggestion: Suggestion;
   selected: boolean;
   compact: boolean;
+  selecting?: boolean;
+  checked?: boolean;
+  canSelect?: boolean;
+  selectLocked?: boolean;
+  onToggleSelect?: (id: string, shift: boolean) => void;
   onSelect: (conversationId: string) => void;
 }) {
   const label = suggestionCaption(suggestion, compact);
-  return (
-    <button
-      type="button"
-      className={`suggestion-row${compact ? " is-compact" : ""}${selected ? " selected" : ""}`}
-      title={`${suggestionKindLabel(suggestion.kind)}. ${suggestion.reason}`}
-      onClick={() => onSelect(suggestion.conversation_id)}
-    >
+  const body = (
+    <>
       <div className="nav-thumb" aria-hidden="true">
         {suggestion.cover_photo_url ? (
           <img className="nav-thumb-img" src={suggestion.cover_photo_url} alt="" loading="lazy" draggable={false} />
@@ -142,6 +170,50 @@ function SuggestionRow({
           </>
         )}
       </div>
-    </button>
+    </>
+  );
+  const rowClass = `suggestion-row${compact ? " is-compact" : ""}${selected ? " selected" : ""}${selecting ? " is-selecting" : ""}`;
+  const title = `${suggestionKindLabel(suggestion.kind)}. ${suggestion.reason}`;
+
+  if (!selecting) {
+    return (
+      <button
+        type="button"
+        className={rowClass}
+        title={title}
+        onClick={() => onSelect(suggestion.conversation_id)}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <div className={rowClass}>
+      <button
+        type="button"
+        role="checkbox"
+        className={`nav-select${checked ? " is-checked" : ""}`}
+        aria-checked={checked}
+        aria-label={`${checked ? "Deselect" : "Select"} ${suggestion.title}`}
+        disabled={!canSelect || selectLocked}
+        title={canSelect ? "Include in regenerate" : "Add photos before regenerating"}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (!canSelect || selectLocked) return;
+          onToggleSelect?.(suggestion.conversation_id, event.shiftKey);
+        }}
+      >
+        {checked ? <SuggestionCheck /> : null}
+      </button>
+      <button
+        type="button"
+        className="suggestion-row-open"
+        title={title}
+        onClick={() => onSelect(suggestion.conversation_id)}
+      >
+        {body}
+      </button>
+    </div>
   );
 }
