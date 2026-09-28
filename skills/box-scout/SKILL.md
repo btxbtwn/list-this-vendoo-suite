@@ -51,7 +51,7 @@ For each theme, search sold listings from the last 90 days and estimate what one
 python3 skills/box-scout/scripts/scout.py --trend "..." --resale resale.json --budget 300
 ```
 For every in-stock lot the script computes:
-- **Ship est**: UPS Ground list rate for the lot's weight from the store's zone (Raghouse zone 6, TVF zone 5), plus the $6.50 residential surcharge and the fuel surcharge. Weights round up to the next pound. TVF lots with no weight are estimated from their piece count.
+- **Ship est**: the store's carrier list rate for the lot's weight and zone, plus that carrier's residential surcharge and fuel surcharge, times the store's `ship_factor`. Raghouse is FedEx Ground (zone 6 from Phoenix to 70115). TVF is UPS Ground (zone 5 from Hialeah to 70115). Weights round up to the next pound. TVF lots with no weight are estimated from their piece count. Raghouse's factor is order #83897: FedEx charged $33.95 on a 29 lb box whose list estimate was $65.96. TVF is still list price.
 - **Usable pieces**: pieces × the share a grade yields (90% plain, 75% Recycle & Good, 60% Recycle or B grade, down to 50% for C grade). Bales sold by the pound get a piece count from typical garment weights (3 tees, 1 sweatshirt or 0.6 jackets per pound), marked `~`.
 - **Demand**: how often lots with the same title words sold out, relative to that store's average. Raghouse counts the last 60 days; TVF restocks the same products, so all of its lots count.
 - **Expected profit** = resale per piece × usable pieces × sell-through × (1 − 20% fees) − landed cost. Sell-through is 50% at average demand, scaled by demand between 25% and 80%.
@@ -60,10 +60,10 @@ For every in-stock lot the script computes:
 The buy list takes the best ROI first, one lot per theme, at least 100% ROI (`--min-roi`), until the budget runs out. When the picks from TVF reach $200 their shipping drops to zero. Each store's cart link (`/cart/<variant>:1,...`) opens that store's cart with the picks in it.
 
 ### 5. Report
-Give the buy list: per store, the lots with pieces, landed cost, resale per piece, expected profit and ROI, the store subtotal and shipping, and the cart link. Then the next five candidates. Say that shipping is a list-price ceiling and that the profit rests on the resale prices you found.
+Give the buy list: per store, the lots with pieces, landed cost, resale per piece, expected profit and ROI, the store subtotal and shipping, and the cart link. Then the next five candidates. Raghouse shipping is FedEx, scaled to a real checkout. TVF shipping is still a UPS list-price ceiling. The profit rests on the resale prices you found.
 
 ## Shipping estimate
-`references/shipping.json` holds the UPS Ground daily rates for zones 2–8, 1–150 lb (UPS 2026 Daily Rates, updated September 7, 2026), the zone of each store to 70115 (from the USPS zone charts for origins 850 and 330), the residential and fuel surcharges, and a `ship_factor` per store. The stores quote discounted rates at checkout, so the real charge is usually lower. **When the seller reports a real checkout quote, set that store's `ship_factor` to quote ÷ estimate.** Update the fuel surcharge when it is more than a month old.
+`references/shipping.json` holds UPS Ground and FedEx Ground list rates for zones 2–8, 1–150 lb, the zone of each store (from the USPS zone chart; Phoenix 850 to 70115 is FedEx zone 6), each carrier's residential and fuel surcharges, and a `ship_factor` per store. Raghouse ships FedEx. TVF is estimated as UPS. The stores quote discounted rates at checkout, so the real charge is usually lower than list. **When the seller reports a real checkout quote, set that store's `ship_factor` to quote ÷ estimate.** Raghouse is already set from order #83897 ($33.95 ÷ $65.96 FedEx list). Update a carrier's fuel surcharge when it is more than a month old.
 
 ## Rules
 - **Never buy.** Do not check out, log in or create an account; a cart link only fills the cart, and the seller pays.

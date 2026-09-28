@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.132 — 2026-09-28
+
+- Raghouse shipping on the buy list is FedEx, scaled to a checkout you paid. A 29 lb box to 70115 was estimated at $64 and FedEx charged $33.95.
+
 ## 0.1.131 — 2026-09-28
 
 - After a bulk upload, Studio asks for measurements for the whole box on one screen. Each row shows that item's photos (use the arrows, or click to enlarge, to find the one with the tape). Type pit-to-pit, length and sleeve, or waist, rise, inseam and leg opening for pants, and press Tab or Enter to move to the next box. Leave a row blank, or choose **Continue without measurements**. Studio then generates every draft one by one and stops at a draft. Nothing is sent to Vendoo.

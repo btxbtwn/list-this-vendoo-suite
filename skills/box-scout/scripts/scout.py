@@ -193,24 +193,28 @@ def valid_zip(text: str) -> bool:
 
 
 def zone_for(chart: dict[str, int], dest_zip: str) -> int | None:
-    """The UPS Ground zone for a destination, or None outside the 48 contiguous states."""
+    """The ground zone for a destination, or None outside the 48 contiguous states."""
     if not valid_zip(dest_zip) or OUTSIDE_48.match(dest_zip):
         return None
     zone = chart.get(dest_zip[:3])
-    # Zone 1 is local delivery; UPS Ground's table starts at zone 2.
+    # Zone 1 is local delivery; the Ground tables start at zone 2.
     return None if zone is None or zone > 8 else max(zone, 2)
 
 
 def ship_estimate(lbs: float, cfg: dict, store: str, zone: int) -> float | None:
     if lbs <= 0:
         return None
-    rates = cfg["ups_ground_by_zone"][str(zone)]
+    store_cfg = cfg["stores"][store]
+    carrier = store_cfg.get("carrier", "ups")
+    rates = cfg[f"{carrier}_ground_by_zone"][str(zone)]
     billable = math.ceil(lbs)
     if billable > len(rates):
         return None
-    base = rates[billable - 1] + cfg["residential_surcharge"]
-    fuel = 1 + cfg["fuel_surcharge_pct"] / 100
-    return round(base * fuel * cfg["stores"][store]["ship_factor"], 2)
+    residential = store_cfg.get("residential_surcharge", cfg["residential_surcharge"])
+    fuel_pct = store_cfg.get("fuel_surcharge_pct", cfg["fuel_surcharge_pct"])
+    base = rates[billable - 1] + residential
+    fuel = 1 + fuel_pct / 100
+    return round(base * fuel * store_cfg["ship_factor"], 2)
 
 
 # --- Store adapters: each returns one dict per buyable lot, in stock or not ---------
