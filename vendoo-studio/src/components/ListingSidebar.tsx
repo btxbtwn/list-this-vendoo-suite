@@ -26,7 +26,7 @@ import { ListingFilters } from "./ListingFilters";
 import { SuggestionsPanel } from "./SuggestionsPanel";
 import { marketplacesNeedingRelist, relistStage } from "./relistStatus";
 import { marketplaceName } from "./marketplaceNames";
-import { useBulkRegenerate } from "./useBulkRegenerate";
+import type { BulkRegenerate, BulkRegenerateRun } from "./useBulkRegenerate";
 import { stopTitlebarDrag } from "./WorkspaceTopbar";
 import type { WorkspaceView } from "./workspaceCrumbs";
 import type { Suggestion } from "../api/types";
@@ -125,6 +125,8 @@ interface Props {
   onCloseSettings: () => void;
   onSettingsSectionChange: (section: SettingsSectionId) => void;
   onSettingsSearchResult: (item: SettingsSearchItem) => void;
+  /** The bulk Regenerate / Generate run, owned by App so it outlives the sidebar. */
+  bulk: BulkRegenerate;
 }
 
 export function HamburgerIcon() {
@@ -332,6 +334,7 @@ export function ListingSidebar({
   onCloseSettings,
   onSettingsSectionChange,
   onSettingsSearchResult,
+  bulk,
 }: Props) {
   const queryClient = useQueryClient();
   const legacySettled = readLegacySettledExpanded();
@@ -342,12 +345,8 @@ export function ListingSidebar({
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const [selecting, setSelecting] = useState(false);
   const [pickedIds, setPickedIds] = useState<Set<string>>(() => new Set());
-  const [bulkTitles, setBulkTitles] = useState<Map<string, string>>(() => new Map());
   const settingsSearchRef = useRef<HTMLInputElement>(null);
   const selectionAnchor = useRef<string | null>(null);
-  const bulk = useBulkRegenerate(
-    (id) => activeView === "listings" && selectedConvId === id,
-  );
   const migratedSettledRef = useRef(false);
   const settingsMode = activeView === "settings";
 
@@ -499,12 +498,12 @@ export function ListingSidebar({
       confirmLabel: "Rewrite",
     });
     if (!confirmed) return;
-    setBulkTitles(new Map(ids.map((id) => {
+    const titles = new Map(ids.map((id) => {
       const listing = listingsById.get(id);
       const suggestion = suggestions.find((item) => item.conversation_id === id);
       return [id, listing?.title || suggestion?.title || "Untitled"];
-    })));
-    const result = await bulk.start(ids);
+    }));
+    const result = await bulk.start(ids, titles);
     if (!result) return;
     if (result.failed.length === 0) {
       exitSelecting();
@@ -949,9 +948,9 @@ export function ListingSidebar({
         </>
       )}
 
-      {!settingsMode && selecting && (
+      {!settingsMode && (selecting || bulk.running) && (
         <div className="sidebar-bulk-bar" role="region" aria-label="Regenerate listings">
-          <p className="sidebar-bulk-count">{bulkStatusLabel(bulk.run, bulkTitles, selectedIds.size, eligibleIds.length)}</p>
+          <p className="sidebar-bulk-count">{bulkStatusLabel(bulk.run, selectedIds.size, eligibleIds.length)}</p>
           <div className="sidebar-bulk-actions">
             <button
               type="button"
@@ -1151,17 +1150,16 @@ function statusOrderIndex(id: string): number {
 }
 
 function bulkStatusLabel(
-  run: { id: string; index: number; total: number; phase: string; cancelRequested: boolean } | null,
-  titles: Map<string, string>,
+  run: BulkRegenerateRun | null,
   selectedCount: number,
   eligibleCount: number,
 ): string {
   if (run) {
-    const title = titles.get(run.id) || "listing";
+    const { title } = run;
     const place = `${run.index + 1} of ${run.total}`;
     if (run.cancelRequested) return `Finishing ${title}…`;
     if (run.phase === "finishing") return `Finishing fields on ${title} (${place})`;
-    return `Rewriting ${title} (${place})`;
+    return `${run.mode === "generate" ? "Generating" : "Rewriting"} ${title} (${place})`;
   }
   if (eligibleCount === 0) return "No listings with photos to rewrite";
   return `${selectedCount} selected`;

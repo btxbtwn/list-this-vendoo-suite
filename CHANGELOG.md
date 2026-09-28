@@ -6,6 +6,12 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.131 — 2026-09-28
+
+- After a bulk upload, Studio asks for measurements for the whole box on one screen. Each row shows that item's photos (use the arrows, or click to enlarge, to find the one with the tape). Type pit-to-pit, length and sleeve, or waist, rise, inseam and leg opening for pants, and press Tab or Enter to move to the next box. Leave a row blank, or choose **Continue without measurements**. Studio then generates every draft one by one and stops at a draft. Nothing is sent to Vendoo.
+- Folders named jeans, pants or shorts start as Pants on the measurements screen.
+- A bulk Regenerate keeps going when you collapse the sidebar.
+
 ## 0.1.130 — 2026-09-27
 
 - The sidebar control for rewriting several listings is now **Select**. Check the ones you want in Suggestions or in the list, and Studio rewrites them one by one. Measurements, flaws, cost, labels, notes, and the price stay. Nothing changes on Vendoo until you send.

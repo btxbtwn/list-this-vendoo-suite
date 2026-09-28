@@ -47,6 +47,7 @@ import {
 } from "./fillLogForms";
 import { ListingBrowserButton, ListingReviewActions } from "./ListingReviewActions";
 import { ListingReviewTabs, type ListingReviewTab } from "./ListingReviewTabs";
+import type { BulkListingUploadResult } from "../bulkPhotoUpload";
 
 interface Props {
   convId: string;
@@ -57,7 +58,7 @@ interface Props {
   browserOpen?: boolean;
   reviewTab: ListingReviewTab;
   onReviewTabChange: (tab: ListingReviewTab) => void;
-  onBulkListingsCreated?: (convIds: string[]) => void;
+  onBulkListingsCreated?: (listings: BulkListingUploadResult[]) => void;
 }
 
 interface EditorField {

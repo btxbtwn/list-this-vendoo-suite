@@ -3,44 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { addLabel, removeLabel, splitLabels } from "./itemLabels";
 import { historyRows } from "./vendooHistory";
+import { GARMENTS, type Garment, type Measurements } from "./garmentMeasurements";
 
 interface Props {
   convId: string;
 }
-
-type Garment = "top" | "pants";
-
-interface MeasurementField {
-  key: string;
-  label: string;
-  placeholder: string;
-}
-
-// Keys and labels mirror GARMENT_MEASUREMENTS in server listing_generate.py.
-const GARMENTS: { id: Garment; label: string; fields: MeasurementField[] }[] = [
-  {
-    id: "top",
-    label: "Top",
-    fields: [
-      { key: "pitToPit", label: "Pit to Pit", placeholder: "22.5" },
-      { key: "length", label: "Length", placeholder: "27" },
-      { key: "sleeve", label: "Sleeve", placeholder: "9" },
-    ],
-  },
-  // Pants cover shorts too: same waist, rise, inseam and leg opening.
-  {
-    id: "pants",
-    label: "Pants",
-    fields: [
-      { key: "waist", label: "Waist", placeholder: "16" },
-      { key: "rise", label: "Rise", placeholder: "11" },
-      { key: "inseam", label: "Inseam", placeholder: "30" },
-      { key: "legOpening", label: "Leg Opening", placeholder: "8" },
-    ],
-  },
-];
-
-type Measurements = Record<Garment, Record<string, string>>;
 
 interface ItemDetailsData {
   sellerNotes: string;
