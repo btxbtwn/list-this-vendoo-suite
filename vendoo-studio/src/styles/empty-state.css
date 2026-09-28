@@ -108,6 +108,24 @@
   white-space: nowrap;
 }
 
+.suggestion-row.is-selecting {
+  cursor: default;
+}
+
+.suggestion-row-open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .setup-checklist {
   gap: 16px;
 }

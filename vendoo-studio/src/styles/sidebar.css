@@ -153,6 +153,34 @@ html.desktop-app .editor-header {
   color: var(--color-text);
 }
 
+.sidebar-select-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  outline: none;
+}
+
+.sidebar-select-btn:hover:not(:disabled) {
+  background: var(--color-ink-hover);
+  color: var(--color-text);
+}
+
+.sidebar-select-btn.selected {
+  background: var(--color-ink-raised);
+  color: var(--color-text);
+}
+
+.sidebar-select-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-cobalt);
+}
+
 .sidebar-icon-btn:focus-visible {
   box-shadow: 0 0 0 2px var(--color-cobalt);
 }
