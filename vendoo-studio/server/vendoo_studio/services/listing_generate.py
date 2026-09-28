@@ -768,7 +768,7 @@ def _preserve_formula_copy(original: dict, updated: dict, blockers: list[dict]) 
     return out
 
 
-# Keys and labels mirror GARMENTS in src/components/ItemDetails.tsx. Pants cover
+# Keys and labels mirror GARMENTS in src/components/garmentMeasurements.ts. Pants cover
 # shorts too, since both take the same measurements.
 GARMENT_MEASUREMENTS: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {
     "top": ("Top", (("pitToPit", "Pit to pit"), ("length", "Length"), ("sleeve", "Sleeve"))),

@@ -40,6 +40,21 @@ describe("bulkRegenerateWarning", () => {
 });
 
 describe("bulkRegenerateToast", () => {
+  it("says generated for fresh drafts from a bulk upload", () => {
+    expect(bulkRegenerateToast({
+      completed: ["a", "b", "c"],
+      failed: [],
+      skipped: [],
+      cancelled: false,
+    }, "generate").title).toBe("Generated 3 listings");
+    expect(bulkRegenerateToast({
+      completed: ["a"],
+      failed: [{ id: "b", message: "model busy" }],
+      skipped: [],
+      cancelled: false,
+    }, "generate").title).toBe("Generated 1 listing. 1 could not be generated.");
+  });
+
   it("reports a full rewrite, a partial failure, and a stop", () => {
     expect(bulkRegenerateToast({
       completed: ["a", "b"],

@@ -54,44 +54,53 @@ export function listingCanRegenerate(listing: {
   return Boolean(listing.cover_photo_url) && !listing.settled_at;
 }
 
-export function bulkRegenerateToast(result: BulkRegenerateResult): {
+/** Rewrite wipes and redoes listings; generate writes fresh drafts from a bulk upload. */
+export type BulkRunMode = "rewrite" | "generate";
+
+const MODE_WORDS: Record<BulkRunMode, { verb: string; past: string; ing: string; done: string; noun: string }> = {
+  rewrite: { verb: "rewrite", past: "Rewrote", ing: "rewriting", done: "rewritten", noun: "rewrite" },
+  generate: { verb: "generate", past: "Generated", ing: "generating", done: "generated", noun: "draft" },
+};
+
+export function bulkRegenerateToast(result: BulkRegenerateResult, mode: BulkRunMode = "rewrite"): {
   type: "success" | "warning" | "error";
   title: string;
   description?: string;
 } {
-  const rewritten = result.completed.length;
+  const words = MODE_WORDS[mode];
+  const written = result.completed.length;
   const failed = result.failed.length;
-  const listingWord = rewritten === 1 ? "listing" : "listings";
+  const listingWord = written === 1 ? "listing" : "listings";
   const failure = result.failed[0]?.message;
   const skipped = result.skipped.length
-    ? `${result.skipped.length} stopped before the rewrite.`
+    ? `${result.skipped.length} stopped before the ${words.noun}.`
     : undefined;
   if (result.cancelled) {
     return {
       type: "warning",
-      title: rewritten
-        ? `Stopped after rewriting ${rewritten} ${listingWord}`
-        : "Stopped before a rewrite finished",
+      title: written
+        ? `Stopped after ${words.ing} ${written} ${listingWord}`
+        : `Stopped before a ${words.noun} finished`,
       description: failure || skipped,
     };
   }
-  if (failed && rewritten) {
+  if (failed && written) {
     return {
       type: "warning",
-      title: `Rewrote ${rewritten} ${listingWord}. ${failed} could not be rewritten.`,
+      title: `${words.past} ${written} ${listingWord}. ${failed} could not be ${words.done}.`,
       description: failure,
     };
   }
   if (failed) {
     return {
       type: "error",
-      title: failed === 1 ? "Could not rewrite that listing" : `Could not rewrite ${failed} listings`,
+      title: failed === 1 ? `Could not ${words.verb} that listing` : `Could not ${words.verb} ${failed} listings`,
       description: failure,
     };
   }
   return {
     type: "success",
-    title: rewritten === 1 ? "Rewrote 1 listing" : `Rewrote ${rewritten} listings`,
+    title: `${words.past} ${written} ${listingWord}`,
     description: skipped,
   };
 }

@@ -8,6 +8,7 @@ import { addToast } from "../ui/toast";
 import { BulkUploadDialog } from "./BulkUploadDialog";
 import {
   createBulkPhotoListings,
+  type BulkListingUploadResult,
   type BulkUploadDefaults,
 } from "../bulkPhotoUpload";
 
@@ -16,7 +17,7 @@ const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
 interface Props {
   convId: string;
   /** When a folder pick expands into several item folders, App can focus the first draft. */
-  onBulkListingsCreated?: (convIds: string[]) => void;
+  onBulkListingsCreated?: (listings: BulkListingUploadResult[]) => void;
 }
 
 function moveItem<T>(items: T[], from: number, to: number): T[] {
@@ -208,7 +209,7 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
           queryClient.invalidateQueries({ queryKey: ["photos", id] })
         )));
         queryClient.invalidateQueries({ queryKey: ["conversations"] });
-        onBulkListingsCreated?.(createdIds);
+        onBulkListingsCreated?.(listings);
         const title = `Started ${createdIds.length} listings`;
         const description = `Added ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} from separate folders.`;
         if (errors.length) {

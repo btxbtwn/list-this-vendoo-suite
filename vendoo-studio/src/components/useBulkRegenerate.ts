@@ -6,6 +6,7 @@ import {
   runBulkRegenerate,
   type BulkRegenerateProgress,
   type BulkRegenerateResult,
+  type BulkRunMode,
 } from "../bulkRegenerate";
 import { refreshAfterReset } from "./ClearListingButton";
 import {
@@ -19,10 +20,16 @@ import {
 
 export type BulkRegenerateRun = BulkRegenerateProgress & {
   cancelRequested: boolean;
+  mode: BulkRunMode;
+  /** The listing being worked on, as the seller named it. */
+  title: string;
 };
 
+export type BulkRegenerate = ReturnType<typeof useBulkRegenerate>;
+
 /**
- * Rewrites the given listings one at a time. The open chat hears about the
+ * Rewrites the given listings one at a time, or generates fresh drafts the
+ * same way. Lives in App, so collapsing the sidebar does not drop a run. The open chat hears about the
  * run after the server has registered it, and attaches to that same stream.
  */
 export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
@@ -35,21 +42,30 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
   const runningRef = useRef(false);
   const [run, setRun] = useState<BulkRegenerateRun | null>(null);
 
-  async function start(ids: string[]): Promise<BulkRegenerateResult | null> {
+  async function start(
+    ids: string[],
+    titles: ReadonlyMap<string, string>,
+    mode: BulkRunMode = "rewrite",
+  ): Promise<BulkRegenerateResult | null> {
     if (runningRef.current || ids.length === 0) return null;
     runningRef.current = true;
     cancelRef.current = false;
     const marked = new Set<string>();
+    const titleOf = (id: string) => titles.get(id) || "listing";
     setRun({
       index: 0,
       total: ids.length,
       id: ids[0] || "",
       phase: "resetting",
       cancelRequested: false,
+      mode,
+      title: titleOf(ids[0] || ""),
     });
     try {
       return await runBulkRegenerate(ids, {
         async reset(id) {
+          // A fresh draft has no chat or generated fields to wipe.
+          if (mode === "generate") return;
           const showWipe = chatOpenRef.current(id);
           resetChatLive(id);
           if (showWipe) {
@@ -106,7 +122,7 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
       }, {
         cancelled: () => cancelRef.current,
         onProgress: (progress) => {
-          setRun({ ...progress, cancelRequested: cancelRef.current });
+          setRun({ ...progress, cancelRequested: cancelRef.current, mode, title: titleOf(progress.id) });
         },
       });
     } finally {

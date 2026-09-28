@@ -19,6 +19,9 @@ import {
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { PhotoDropOverlay } from "../components/PhotoDropOverlay";
 import { BulkUploadDialog } from "../components/BulkUploadDialog";
+import { BulkMeasurementsDialog, type BulkMeasureListing } from "../components/BulkMeasurementsDialog";
+import { useBulkRegenerate } from "../components/useBulkRegenerate";
+import { bulkRegenerateToast } from "../bulkRegenerate";
 import { ToastHost } from "../components/ToastHost";
 import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
 import { WorkspaceTopbar, stopTitlebarDrag } from "../components/WorkspaceTopbar";
@@ -35,6 +38,7 @@ import {
 } from "../photoDrop";
 import {
   createBulkPhotoListings,
+  type BulkListingUploadResult,
   type BulkUploadDefaults,
 } from "../bulkPhotoUpload";
 import { ThemeSync } from "../components/ThemeSync";
@@ -96,6 +100,7 @@ export function App() {
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const [browserExpanded, setBrowserExpanded] = useState(false);
   const [pendingBulkFiles, setPendingBulkFiles] = useState<File[] | null>(null);
+  const [measureListings, setMeasureListings] = useState<BulkMeasureListing[] | null>(null);
   const wasPreviewOpen = useRef(false);
   const mainPanelRef = useRef<HTMLElement>(null);
   const [sidebarWidth, setSidebarWidth] = usePanelWidth("sidebar");
@@ -402,6 +407,32 @@ export function App() {
     return true;
   };
 
+  const bulk = useBulkRegenerate((id) => activeView === "listings" && selectedConvId === id);
+
+  // A bulk upload asks for measurements next, then generates every draft.
+  const askForMeasurements = (listings: BulkListingUploadResult[]) => {
+    const withPhotos = listings
+      .filter((listing) => listing.count > 0)
+      .map((listing) => ({ convId: listing.convId, title: listingTitleForFolder(listing.folder) }));
+    if (withPhotos.length) setMeasureListings(withPhotos);
+  };
+
+  const generateBatch = async (listings: BulkMeasureListing[]) => {
+    setMeasureListings(null);
+    if (bulk.running) {
+      addToast({
+        type: "warning",
+        title: "Studio is already working through a batch",
+        description: "Generate these from the sidebar's Regenerate button when it finishes.",
+      });
+      return;
+    }
+    const ids = listings.map((listing) => listing.convId);
+    const titles = new Map(listings.map((listing) => [listing.convId, listing.title]));
+    const result = await bulk.start(ids, titles, "generate");
+    if (result) addToast(bulkRegenerateToast(result, "generate"));
+  };
+
   // Photos dropped anywhere in the window land on the open listing; with no
   // listing open the drop starts one, the same as "New listing" then Add Photos.
   // Multiple folders (Finder multi-select or a parent of item folders) each
@@ -453,6 +484,7 @@ export function App() {
         const errors = result.listings.flatMap((row) => row.errors);
         const title = `Started ${result.listings.length} listings`;
         const description = `Added ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} from separate folders.`;
+        askForMeasurements(result.listings);
         if (errors.length) {
           addToast({ type: "error", title, description: errors.join("; ") });
           return;
@@ -564,6 +596,7 @@ export function App() {
             onCloseSettings={closeSettings}
             onSettingsSectionChange={handleSettingsSectionChange}
             onSettingsSearchResult={handleSettingsSearchResult}
+            bulk={bulk}
           />
         )}
         {sidebarHidden ? null : (
@@ -789,8 +822,9 @@ export function App() {
                         setQueuedChatMessage(null);
                         setWorkspaceNonce((value) => value + 1);
                       }}
-                      onBulkListingsCreated={(convIds) => {
-                        const first = convIds[0];
+                      onBulkListingsCreated={(listings) => {
+                        askForMeasurements(listings);
+                        const first = listings[0]?.convId;
                         if (!first) return;
                         setSelectedConvId(first);
                         setActiveView("listings");
@@ -879,6 +913,13 @@ export function App() {
             setPendingBulkFiles(null);
             dropPhotos.mutate({ files, bulkDefaults });
           }}
+        />
+      ) : null}
+      {measureListings ? (
+        <BulkMeasurementsDialog
+          listings={measureListings}
+          onClose={() => setMeasureListings(null)}
+          onGenerate={(listings) => { void generateBatch(listings); }}
         />
       ) : null}
       <ThemeSync />
