@@ -5,6 +5,7 @@ import {
   bulkRegenerateToast,
   bulkRegenerateWarning,
   listingCanRegenerate,
+  mergeRegenerateIds,
   toggleListingSelection,
 } from "../bulkRegenerate";
 import { confirmDialog, isConfirmDialogOpen } from "../ui/confirmDialog";
@@ -28,6 +29,7 @@ import { marketplaceName } from "./marketplaceNames";
 import { useBulkRegenerate } from "./useBulkRegenerate";
 import { stopTitlebarDrag } from "./WorkspaceTopbar";
 import type { WorkspaceView } from "./workspaceCrumbs";
+import type { Suggestion } from "../api/types";
 import {
   DEFAULT_LISTING_FILTERS,
   filterListings,
@@ -60,6 +62,7 @@ const STATUS_HINTS: Record<string, string> = {
   listing: "Studio is sending this listing to Vendoo",
 };
 const HOVER_STATUS_DELAY_MS = 280;
+const NO_SUGGESTIONS: Suggestion[] = [];
 const MARKETPLACE_STATUS_ORDER = [
   "general",
   "ebay",
@@ -145,17 +148,6 @@ export function ComposeIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M12 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M18.375 2.625a2.121 2.121 0 013 3L8.5 18.5 4 20l1.5-4.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function RegenerateIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M21 3v5h-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 21v-5h5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -423,9 +415,30 @@ export function ListingSidebar({
     };
   }, [conversations, filters, needle]);
 
-  const eligibleIds = useMemo(
+  const listingEligibleIds = useMemo(
     () => activeListings.filter((listing) => listingCanRegenerate(listing)).map((listing) => listing.id),
     [activeListings],
+  );
+  const { data: suggestionData } = useQuery({
+    queryKey: ["suggestions"],
+    queryFn: api.suggestions.list,
+  });
+  const suggestions = suggestionData?.suggestions ?? NO_SUGGESTIONS;
+  const listingsById = useMemo(
+    () => new Map((conversations || []).map((listing) => [listing.id, listing])),
+    [conversations],
+  );
+  const suggestionEligibleIds = useMemo(
+    () => suggestions.filter((suggestion) => {
+      const listing = listingsById.get(suggestion.conversation_id);
+      if (listing) return listingCanRegenerate(listing);
+      return Boolean(suggestion.cover_photo_url);
+    }).map((suggestion) => suggestion.conversation_id),
+    [listingsById, suggestions],
+  );
+  const eligibleIds = useMemo(
+    () => mergeRegenerateIds(suggestionEligibleIds, listingEligibleIds),
+    [listingEligibleIds, suggestionEligibleIds],
   );
   const selectedIds = useMemo(() => {
     if (pickedIds.size === 0) return pickedIds;
@@ -457,14 +470,14 @@ export function ListingSidebar({
     selectionAnchor.current = null;
   }, []);
 
-  const toggleSelect = useCallback((id: string, shift: boolean) => {
+  const toggleSelect = useCallback((id: string, shift: boolean, orderedIds: readonly string[]) => {
     setPickedIds((prev) => {
       const eligible = new Set(eligibleIds);
       const visible = new Set<string>();
       for (const picked of prev) {
         if (eligible.has(picked)) visible.add(picked);
       }
-      const next = toggleListingSelection(visible, id, eligibleIds, shift, selectionAnchor.current);
+      const next = toggleListingSelection(visible, id, orderedIds, shift, selectionAnchor.current);
       selectionAnchor.current = next.anchorId;
       return next.selected;
     });
@@ -487,8 +500,9 @@ export function ListingSidebar({
     });
     if (!confirmed) return;
     setBulkTitles(new Map(ids.map((id) => {
-      const listing = activeListings.find((item) => item.id === id);
-      return [id, listing?.title || "Untitled"];
+      const listing = listingsById.get(id);
+      const suggestion = suggestions.find((item) => item.conversation_id === id);
+      return [id, listing?.title || suggestion?.title || "Untitled"];
     })));
     const result = await bulk.start(ids);
     if (!result) return;
@@ -500,7 +514,7 @@ export function ListingSidebar({
       selectionAnchor.current = null;
     }
     addToast(bulkRegenerateToast(result));
-  }, [activeListings, bulk, eligibleIds, exitSelecting, selectedIds]);
+  }, [bulk, eligibleIds, exitSelecting, listingsById, selectedIds, suggestions]);
 
   const visibleSettled = useMemo(() => {
     const visible = settledListings.slice(0, settledVisibleCount);
@@ -819,9 +833,9 @@ export function ListingSidebar({
             </button>
             <button
               type="button"
-              className={`sidebar-icon-btn${selecting ? " selected" : ""}`}
-              title="Regenerate listings"
-              aria-label="Regenerate listings"
+              className={`sidebar-select-btn${selecting ? " selected" : ""}`}
+              title={selecting ? "Stop selecting" : "Select listings to regenerate"}
+              aria-label={selecting ? "Stop selecting" : "Select listings to regenerate"}
               aria-pressed={selecting}
               onClick={() => {
                 if (bulk.running) return;
@@ -829,7 +843,7 @@ export function ListingSidebar({
                 else setSelecting(true);
               }}
             >
-              <RegenerateIcon />
+              Select
             </button>
           </div>
 
@@ -837,6 +851,11 @@ export function ListingSidebar({
             variant="sidebar"
             selectedConvId={selectedConvId}
             onSelect={onSelect}
+            selecting={selecting}
+            selectedIds={selectedIds}
+            selectLocked={bulk.running}
+            canSelect={(suggestion) => suggestionEligibleIds.includes(suggestion.conversation_id)}
+            onToggleSelect={(id, shift) => toggleSelect(id, shift, suggestionEligibleIds)}
           />
 
           <ListingFilters
@@ -869,7 +888,7 @@ export function ListingSidebar({
                 checked={selectedIds.has(listing.id)}
                 canSelect={listingCanRegenerate(listing)}
                 selectLocked={bulk.running}
-                onToggleSelect={toggleSelect}
+                onToggleSelect={(id, shift) => toggleSelect(id, shift, listingEligibleIds)}
                 onSelect={onSelect}
                 onDelete={onDelete}
                 onSettle={(id) => settleListing.mutate(id)}

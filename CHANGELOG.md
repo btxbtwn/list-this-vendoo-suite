@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.130 — 2026-09-27
+
+- The sidebar control for rewriting several listings is now **Select**. Check the ones you want in Suggestions or in the list, and Studio rewrites them one by one. Measurements, flaws, cost, labels, notes, and the price stay. Nothing changes on Vendoo until you send.
+
 ## 0.1.129 — 2026-09-27
 
 - You can rewrite several listings at once. In the sidebar, choose **Regenerate**, check the listings, and Studio rewrites them one by one from their photos and item details. Measurements, flaws, cost, labels, notes, and the price stay. Nothing changes on Vendoo until you send.

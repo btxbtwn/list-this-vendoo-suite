@@ -54,6 +54,21 @@ export function listingCanRegenerate(listing: {
   return Boolean(listing.cover_photo_url) && !listing.settled_at;
 }
 
+/** Suggestions come first, then the rest of the list, with each listing once. */
+export function mergeRegenerateIds(
+  suggestionIds: readonly string[],
+  listingIds: readonly string[],
+): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const id of [...suggestionIds, ...listingIds]) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 export function bulkRegenerateToast(result: BulkRegenerateResult): {
   type: "success" | "warning" | "error";
   title: string;

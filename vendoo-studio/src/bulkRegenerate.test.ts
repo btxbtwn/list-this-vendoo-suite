@@ -4,6 +4,7 @@ import {
   bulkRegenerateWarning,
   followListingGeneration,
   listingCanRegenerate,
+  mergeRegenerateIds,
   parseGenerationSse,
   runBulkRegenerate,
   toggleListingSelection,
@@ -28,6 +29,12 @@ describe("listingCanRegenerate", () => {
     expect(listingCanRegenerate({ cover_photo_url: "/api/photos/1", settled_at: null })).toBe(true);
     expect(listingCanRegenerate({ cover_photo_url: null, settled_at: null })).toBe(false);
     expect(listingCanRegenerate({ cover_photo_url: "/api/photos/1", settled_at: "2026-09-01" })).toBe(false);
+  });
+});
+
+describe("mergeRegenerateIds", () => {
+  it("keeps suggestion listings first and drops duplicates", () => {
+    expect(mergeRegenerateIds(["s1", "s2"], ["a", "s1", "b"])).toEqual(["s1", "s2", "a", "b"]);
   });
 });
 
