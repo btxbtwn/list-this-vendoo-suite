@@ -98,10 +98,18 @@ class ScoutScriptTest(unittest.TestCase):
 
     def test_shipping_uses_each_stores_zone_and_whole_pounds(self):
         lots = {lot["title"]: lot for lot in self._lots()}
-        # Raghouse, zone 6: 12701 g bills as 29 lb, ($44.23 + $6.50) x 1.26 fuel.
-        self.assertEqual(lots["Cartoon T-Shirts 60 pcs"]["ship_est"], 63.92)
+        # Raghouse ships FedEx. Zone 6, 12701 g bills as 29 lb.
+        # ($44.68 + $6.45 residential) x 1.29 fuel x 0.5147, order #83897.
+        self.assertEqual(lots["Cartoon T-Shirts 60 pcs"]["ship_est"], 33.95)
         # TVF, zone 5: 2722 g bills as 7 lb, ($19.26 + $6.50) x 1.26.
         self.assertEqual(lots["Wholesale Vintage Graphic T-Shirts (10 Pieces) · A Grade"]["ship_est"], 32.46)
+
+    def test_raghouse_shipping_matches_the_light_jackets_checkout(self):
+        # Order #83897: Light Jackets Unsorted 26 pcs, 13154 g, $49 box, $33.95 shipping to 70115.
+        grams = 13154
+        est = self.s.ship_estimate(grams / 453.59237, self.cfg, "raghouse", 6)
+        self.assertEqual(est, 33.95)
+        self.assertEqual(round(49 + est), 83)
 
     def test_zone_for_a_destination(self):
         chart = ZONE_CHARTS["850"]
@@ -115,9 +123,11 @@ class ScoutScriptTest(unittest.TestCase):
         rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), resale)[1]
         plan = self.s.buy_list(rows, self.cfg, budget=150, min_roi=0.5)
         picked = [lot["title"] for cart in plan["carts"] for lot in cart["lots"]]
-        self.assertEqual(picked, ["Recycle Cartoon T-Shirts 70 pcs"])  # the dearer cartoon lot shares its theme
+        # The $60 cartoon lot shares a theme with the recycle lot, so it stays off the list.
+        # Lower Raghouse shipping leaves room for the blank tees inside $150.
+        self.assertEqual(picked, ["Recycle Cartoon T-Shirts 70 pcs", "Plain Blank Tees 80 pcs"])
         self.assertLessEqual(plan["total"], 150)
-        self.assertEqual(plan["carts"][0]["cart_url"], "https://raghouse.com/cart/2:1")
+        self.assertEqual(plan["carts"][0]["cart_url"], "https://raghouse.com/cart/2:1,4:1")
 
     def test_free_shipping_once_a_store_order_clears_its_threshold(self):
         resale = {"men's flannel shirts": 12}
@@ -204,7 +214,7 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual(snapshot["destination_zip"], "10001")
         self.assertEqual({k: v["zone"] for k, v in snapshot["stores"].items()}, {"raghouse": 8, "tvf": 6})
         cartoon = next(lot for lot in snapshot["lots"] if lot["title"] == "Cartoon T-Shirts 60 pcs")
-        self.assertEqual(cartoon["ship_est"], 83.3)  # 29 lb, zone 8: ($59.61 + $6.50) x 1.26
+        self.assertEqual(cartoon["ship_est"], 44.04)  # FedEx 29 lb, zone 8: ($59.88 + $6.45) x 1.29 x 0.5147
         self.assertEqual(box_scout.read_state()["prefs"]["recent_zips"], ["10001", "70115"])
 
     def test_a_zip_outside_the_rate_table_is_refused(self):

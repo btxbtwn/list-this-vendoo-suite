@@ -364,7 +364,6 @@ function StoreProblems({ snapshot }: { snapshot: SourcingSnapshot }) {
 
 function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
   const a = snapshot.assumptions;
-  const s = snapshot.shipping;
   return (
     <details className="sourcing-more">
       <summary>How Studio picks boxes</summary>
@@ -381,9 +380,8 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
         </li>
         <li>It picks the best boxes that should at least double your money, one of each kind, up to your budget.</li>
         <li>
-          Shipping is estimated from each warehouse to {snapshot.destination_zip} at UPS Ground prices with a{" "}
-          {formatMoney(s.residential_surcharge)} home delivery fee and {s.fuel_surcharge_pct}% fuel. Stores usually
-          charge less.
+          Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip}, scaled to a checkout you
+          already paid. Thrift Vintage Fashion is a UPS Ground estimate, still at list price.
         </li>
         <li>Studio never buys. The cart buttons only fill a cart for you to check and pay.</li>
       </ul>
