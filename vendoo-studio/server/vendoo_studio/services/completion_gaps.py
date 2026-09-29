@@ -99,9 +99,19 @@ def values_equal(observed, expected: str) -> bool:
     if normalize(observed) == normalize(expected):
         return True
     try:
-        return float(observed) == float(expected)
+        left = float(observed)
+        right = float(expected)
     except (TypeError, ValueError):
         return False
+    if left != right:
+        return False
+    # Size 0 and size 00 are different apparel labels. Decimal padding still
+    # matches, so a price of 24 and 24.00 is the same value.
+    left_text = str(observed).strip()
+    right_text = str(expected).strip()
+    if re.fullmatch(r"-?\d+", left_text) and re.fullmatch(r"-?\d+", right_text):
+        return left_text == right_text
+    return True
 
 
 # Neither form accepts a free-text brand. Depop offers an "Other" option; Mercari
