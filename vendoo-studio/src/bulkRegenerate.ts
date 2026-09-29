@@ -1,7 +1,8 @@
 /**
  * Rewrite several listings from their photos and item details, one at a time.
  * Each listing uses the same reset as Regenerate (keep photos, measurements,
- * flaws, COG, labels and notes) and then the generate stream. The next listing
+ * flaws, COG, labels and notes) and then the generate stream. A confirmed
+ * price drop is saved first, so the rewrite reuses that price. The next listing
  * waits until this one's stream and leftover field fill have finished.
  */
 
@@ -9,7 +10,7 @@ export type BulkRegenerateProgress = {
   index: number;
   total: number;
   id: string;
-  phase: "resetting" | "generating" | "finishing";
+  phase: "dropping" | "resetting" | "generating" | "finishing";
 };
 
 export type BulkRegenerateFailure = {
@@ -25,7 +26,77 @@ export type BulkRegenerateResult = {
   cancelled: boolean;
 };
 
+/** Same cuts the single-listing dialog offers, applied to every priced listing. */
+export const BULK_DROP_PERCENTS = [10, 15, 20] as const;
+
+export type BulkDropPercent = (typeof BULK_DROP_PERCENTS)[number];
+
+export type BulkPriceChoice =
+  | { kind: "keep" }
+  | { kind: "percent"; percent: BulkDropPercent }
+  | { kind: "suggested" };
+
+export type BulkPriceDrop = {
+  price: number;
+  percent: number;
+  mode: "percent" | "comps" | "custom";
+};
+
+export type BulkPriceSuggestion = BulkPriceDrop;
+
+export type BulkRegenerateListing = {
+  id: string;
+  title: string;
+  price: number | null;
+};
+
+/**
+ * Whole dollars a stated cut lands on, rounded down.
+ * Matches ``price_after_percent``: 10% off $14 is $12, not $13.
+ */
+export function priceAfterPercent(current: number, percent: number): number {
+  if (!(current > 0) || !(percent > 0)) return 0;
+  return Math.max(1, Math.floor(current * (1 - percent / 100)));
+}
+
+export function effectiveDropPercent(current: number, price: number): number {
+  if (!(current > 0) || !(price > 0)) return 0;
+  return Math.round((1 - price / current) * 1000) / 10;
+}
+
+/** The drops to save before rewriting. Keep, and any price that would not fall, are omitted. */
+export function bulkPriceDrops(
+  listings: readonly Pick<BulkRegenerateListing, "id" | "price">[],
+  choice: BulkPriceChoice,
+  suggestions: ReadonlyMap<string, BulkPriceSuggestion | null> = new Map(),
+): Map<string, BulkPriceDrop> {
+  const drops = new Map<string, BulkPriceDrop>();
+  if (choice.kind === "keep") return drops;
+  for (const listing of listings) {
+    const current = listing.price;
+    if (current == null || !(current > 0)) continue;
+    if (choice.kind === "percent") {
+      const price = priceAfterPercent(current, choice.percent);
+      if (price >= current) continue;
+      drops.set(listing.id, {
+        price,
+        percent: effectiveDropPercent(current, price),
+        mode: "percent",
+      });
+      continue;
+    }
+    const suggested = suggestions.get(listing.id);
+    if (!suggested || !(suggested.price > 0) || suggested.price >= current) continue;
+    drops.set(listing.id, suggested);
+  }
+  return drops;
+}
+
 export type BulkRegenerateDeps = {
+  /** True when this listing should be marked down before the wipe. */
+  willDrop?(id: string): boolean;
+  /** Save the lower price. Rejecting skips the rewrite so the old price stays. */
+  drop?(id: string): Promise<void>;
   reset(id: string): Promise<void>;
   /** False when Stop dropped the wipe and this listing should stay cleared. */
   accepted(id: string): boolean;
@@ -173,6 +244,17 @@ export async function runBulkRegenerate(
     }
     const id = ids[index]!;
     const progress = { index, total: ids.length, id };
+    if (deps.willDrop?.(id)) {
+      control.onProgress?.({ ...progress, phase: "dropping" });
+      try {
+        await deps.drop?.(id);
+      } catch (err) {
+        result.failed.push({ id, message: errorText(err) });
+        continue;
+      }
+      // The price is already the new one. Cancel still rewrites this listing
+      // so the draft is written at the dropped price.
+    }
     control.onProgress?.({ ...progress, phase: "resetting" });
     try {
       await deps.reset(id);

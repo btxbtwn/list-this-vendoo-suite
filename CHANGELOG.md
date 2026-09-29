@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.135 — 2026-09-29
+
+- When you regenerate several listings, you can drop the price first. Keep the current prices, take 10%, 15%, or 20% off each, or use each listing's own suggestion. The rewrite uses the new price. Nothing changes on Vendoo until you send.
+
 ## 0.1.134 — 2026-09-29
 
 - A men's T-shirt category that came back stuck together, without the > between each level, is saved as the real men's T-shirts path.

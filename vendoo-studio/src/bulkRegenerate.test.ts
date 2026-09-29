@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  bulkPriceDrops,
   bulkRegenerateToast,
   bulkRegenerateWarning,
+  effectiveDropPercent,
   followListingGeneration,
   listingCanRegenerate,
   mergeRegenerateIds,
   parseGenerationSse,
+  priceAfterPercent,
   runBulkRegenerate,
   toggleListingSelection,
   type BulkRegenerateDeps,
@@ -106,6 +109,41 @@ describe("toggleListingSelection", () => {
   });
 });
 
+describe("bulkPriceDrops", () => {
+  const listings = [
+    { id: "priced", price: 40 },
+    { id: "small", price: 14 },
+    { id: "bare", price: null },
+  ];
+
+  it("keeps every price when that is the choice", () => {
+    expect(bulkPriceDrops(listings, { kind: "keep" }).size).toBe(0);
+  });
+
+  it("marks each priced listing down by the same percent, rounded down", () => {
+    expect(priceAfterPercent(14, 10)).toBe(12);
+    expect(effectiveDropPercent(14, 12)).toBe(14.3);
+    const drops = bulkPriceDrops(listings, { kind: "percent", percent: 10 });
+    expect(drops.get("priced")).toEqual({ price: 36, percent: 10, mode: "percent" });
+    expect(drops.get("small")).toEqual({ price: 12, percent: 14.3, mode: "percent" });
+    expect(drops.has("bare")).toBe(false);
+  });
+
+  it("skips a cut that cannot move a whole-dollar price", () => {
+    expect(bulkPriceDrops([{ id: "one", price: 1 }], { kind: "percent", percent: 10 }).size).toBe(0);
+  });
+
+  it("uses each listing's own suggestion and skips one that would not fall", () => {
+    const suggestions = new Map([
+      ["priced", { price: 33, percent: 17.5, mode: "percent" as const }],
+      ["small", { price: 14, percent: 0, mode: "comps" as const }],
+    ]);
+    const drops = bulkPriceDrops(listings, { kind: "suggested" }, suggestions);
+    expect([...drops.keys()]).toEqual(["priced"]);
+    expect(drops.get("priced")?.price).toBe(33);
+  });
+});
+
 describe("runBulkRegenerate", () => {
   it("rewrites listings one at a time and waits for field fill", async () => {
     const order: string[] = [];
@@ -166,6 +204,49 @@ describe("runBulkRegenerate", () => {
     }), { cancelled: () => cancel });
 
     expect(generated).toEqual(["a"]);
+    expect(result.completed).toEqual(["a"]);
+    expect(result.cancelled).toBe(true);
+  });
+
+  it("drops the price before the rewrite and skips a listing whose drop fails", async () => {
+    const order: string[] = [];
+    const result = await runBulkRegenerate(["a", "b"], deps({
+      willDrop: () => true,
+      drop: async (id) => {
+        order.push(`drop:${id}`);
+        if (id === "a") throw new Error("price unchanged");
+      },
+      reset: async (id) => {
+        order.push(`reset:${id}`);
+      },
+      generate: async (id) => {
+        order.push(`generate:${id}`);
+      },
+    }), { cancelled: () => false });
+
+    expect(order).toEqual(["drop:a", "drop:b", "reset:b", "generate:b"]);
+    expect(result.failed).toEqual([{ id: "a", message: "price unchanged" }]);
+    expect(result.completed).toEqual(["b"]);
+  });
+
+  it("still rewrites a listing whose price already dropped when cancel lands", async () => {
+    let cancel = false;
+    const order: string[] = [];
+    const result = await runBulkRegenerate(["a", "b"], deps({
+      willDrop: (id) => id === "a",
+      drop: async (id) => {
+        order.push(`drop:${id}`);
+        cancel = true;
+      },
+      reset: async (id) => {
+        order.push(`reset:${id}`);
+      },
+      generate: async (id) => {
+        order.push(`generate:${id}`);
+      },
+    }), { cancelled: () => cancel });
+
+    expect(order).toEqual(["drop:a", "reset:a", "generate:a"]);
     expect(result.completed).toEqual(["a"]);
     expect(result.cancelled).toBe(true);
   });

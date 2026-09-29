@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import {
   followListingGeneration,
   runBulkRegenerate,
+  type BulkPriceDrop,
   type BulkRegenerateProgress,
   type BulkRegenerateResult,
   type BulkRunMode,
@@ -46,23 +47,38 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
     ids: string[],
     titles: ReadonlyMap<string, string>,
     mode: BulkRunMode = "rewrite",
+    drops?: ReadonlyMap<string, BulkPriceDrop>,
   ): Promise<BulkRegenerateResult | null> {
     if (runningRef.current || ids.length === 0) return null;
     runningRef.current = true;
     cancelRef.current = false;
     const marked = new Set<string>();
+    const planned = mode === "rewrite" && drops && drops.size > 0 ? drops : undefined;
     const titleOf = (id: string) => titles.get(id) || "listing";
     setRun({
       index: 0,
       total: ids.length,
       id: ids[0] || "",
-      phase: "resetting",
+      phase: planned?.has(ids[0] || "") ? "dropping" : "resetting",
       cancelRequested: false,
       mode,
       title: titleOf(ids[0] || ""),
     });
     try {
       return await runBulkRegenerate(ids, {
+        willDrop: planned ? (id) => planned.has(id) : undefined,
+        async drop(id) {
+          const drop = planned?.get(id);
+          if (!drop) return;
+          await api.listings.applyPriceDrop(id, {
+            price: drop.price,
+            percent: drop.percent,
+            mode: drop.mode,
+          });
+          void queryClient.invalidateQueries({ queryKey: ["listing", id] });
+          void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+          void queryClient.invalidateQueries({ queryKey: ["price-drop-preview", id] });
+        },
         async reset(id) {
           // A fresh draft has no chat or generated fields to wipe.
           if (mode === "generate") return;
