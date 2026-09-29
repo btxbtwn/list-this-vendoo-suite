@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.134 — 2026-09-29
+
+- A men's T-shirt category that came back stuck together, without the > between each level, is saved as the real men's T-shirts path.
+
 ## 0.1.133 — 2026-09-29
 
 - Size 0 stays 0 on the marketplace forms. It no longer gets filled as 00.
