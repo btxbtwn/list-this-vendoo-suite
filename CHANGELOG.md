@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.133 — 2026-09-29
+
+- Size 0 stays 0 on the marketplace forms. It no longer gets filled as 00.
+
 ## 0.1.132 — 2026-09-28
 
 - Raghouse shipping on the buy list is FedEx, scaled to a checkout you paid. A 29 lb box to 70115 was estimated at $64 and FedEx charged $33.95.
