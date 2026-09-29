@@ -447,6 +447,41 @@ console.log(JSON.stringify({
         self.assertFalse(result["replace"])
         self.assertTrue(result["loose"])
 
+    def test_size_zero_is_not_already_set_when_the_form_shows_double_zero(self):
+        source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
+        start = source.index("  function normalizeComparableText")
+        end = source.index("  function isDropdownLike")
+        script = """
+function normalizeOptionValue(text) {
+  return String(text || '').replace(/[–—]/g, '-').replace(/[*?]+/g, '')
+    .replace(/[_/]+/g, ' ').replace(/-/g, ' ').replace(/\\s+/g, ' ').trim().toLowerCase();
+}
+function displayedFieldValue(el) { return el.shown || ''; }
+function shouldFillAsDropdown(el, fieldName) { return /size/i.test(fieldName); }
+function isMultiChipField() { return false; }
+function splitChipValues() { return []; }
+""" + source[start:end] + """
+const shownDouble = { shown: '00' };
+const shownSingle = { shown: '0' };
+console.log(JSON.stringify({
+  stuck: patchValueAlreadySet(shownDouble, '0', 'Size'),
+  exact: patchValueAlreadySet(shownSingle, '0', 'Size'),
+  price: fieldValuesEqual('24.00', '24'),
+  qualified: optionMatchesValue('0 (US)', '0', true),
+  double: optionMatchesValue('00', '0', false),
+  picked: preferredSizeOption(['00', '0 (US)', '2', '0'], '0'),
+  missing: preferredSizeOption(['00', '2', '4'], '0'),
+}));
+"""
+        result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+        self.assertFalse(result["stuck"])
+        self.assertTrue(result["exact"])
+        self.assertTrue(result["price"])
+        self.assertTrue(result["qualified"])
+        self.assertFalse(result["double"])
+        self.assertEqual(result["picked"], "0")
+        self.assertEqual(result["missing"], "")
+
     def test_fill_fields_path_no_longer_skips_all_filled_controls(self):
         source = (EXTENSION / "content-scripts" / "vendoo.js").read_text()
         self.assertIn("patchValueAlreadySet", source)

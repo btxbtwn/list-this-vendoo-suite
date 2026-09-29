@@ -1592,6 +1592,9 @@
       const cleanGot = got.replace(/[$,]/g, '');
       const cleanWant = want.replace(/[$,]/g, '');
       if (/^-?\d+(\.\d+)?$/.test(cleanGot) && /^-?\d+(\.\d+)?$/.test(cleanWant)) {
+          // Whole-number labels keep every digit: apparel size 0 is not size 00.
+          // Decimal padding still matches, so a price of 24 and 24.00 is the same.
+          if (/^-?\d+$/.test(cleanGot) && /^-?\d+$/.test(cleanWant)) return cleanGot === cleanWant;
           return Number(cleanGot) === Number(cleanWant);
       }
       return false;
@@ -1640,6 +1643,33 @@
       return { status: 'filled' };
   }
 
+  // The digits of one apparel size, when they stand alone. "2XL" and "00" are
+  // not the size "2" or "0"; "0 (US)" is size 0.
+  function standaloneSizeDigits(text) {
+      const runs = String(text || '').match(/\d+/g) || [];
+      if (runs.length !== 1) return '';
+      const token = runs[0];
+      return new RegExp(`(?:^|\\s)${token}(?:\\s|$)`).test(String(text || '')) ? token : '';
+  }
+
+  function numericSizeConflict(shown, wanted) {
+      const left = standaloneSizeDigits(normalizeOptionValue(shown));
+      const right = standaloneSizeDigits(normalizeOptionValue(wanted));
+      if (!left || !right) return false;
+      return left !== right && Number(left) === Number(right);
+  }
+
+  // Shortest label whose size digits are exactly `target` ("0", not "00").
+  function preferredSizeOption(labels, target) {
+      const want = String(target || '').trim().toLowerCase();
+      if (!/^\d+$/.test(want)) return '';
+      const hits = (labels || [])
+          .map((label) => String(label || '').trim())
+          .filter((label) => label && standaloneSizeDigits(label.toLowerCase()) === want);
+      hits.sort((a, b) => a.length - b.length || a.localeCompare(b));
+      return hits[0] || '';
+  }
+
   function optionMatchesValue(optionText, value, isStrict) {
       const got = normalizeOptionValue(optionText);
       const want = normalizeOptionValue(value);
@@ -1650,6 +1680,12 @@
           const sizeGot = got.split(' ')[0].replace(/\s+/g, '');
           if (sizeGot === sizeWant) return true;
       }
+      const gotDigits = standaloneSizeDigits(got);
+      const wantDigits = standaloneSizeDigits(want);
+      if (gotDigits && wantDigits && gotDigits !== wantDigits && Number(gotDigits) === Number(wantDigits)) {
+          return false;
+      }
+      if (gotDigits && wantDigits && gotDigits === wantDigits) return true;
       if (isStrict) return false;
       const shorter = got.length <= want.length ? got : want;
       const longer = got.length <= want.length ? want : got;
@@ -1991,6 +2027,9 @@
 
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
       await waitUntil(() => isVisibleElement(el), CONFIG.SLEEP_MEDIUM);
+      // A previous attempt can leave size 00 selected for a size 0. Clear that
+      // before searching so the menu can offer the single 0.
+      if (numericSizeConflict(displayedFieldValue(el), value)) await clearInput(el);
 
       if (el instanceof HTMLSelectElement) {
           const targetOption = Array.from(el.options).find((opt) =>
@@ -2048,7 +2087,7 @@
       const offered = uniqueStrings(openOptions.map((option) => option.text));
       if (dropdownLike && openOptions.length > 0 && !isMulti) {
           await closeOpenMenus();
-          if (el.value) await clearInput(el);
+          if (el.value || numericSizeConflict(displayedFieldValue(el), value)) await clearInput(el);
           return { ok: false, method: 'no_option', options: offered };
       }
       if (openOptions.length > 0) await closeOpenMenus();
@@ -7291,9 +7330,14 @@
       const candidates = Array.from(document.querySelectorAll(`${INSPECT_CLICKABLE_SELECTOR}, .MuiAutocomplete-option, .MuiMenuItem-root`))
           .filter((el) => !el.closest('#vendoo-debug-box') && isEffectivelyVisible(el))
           .map((el) => ({ el, text: clickableText(el).toLowerCase() }));
-      const match = candidates.find((item) => item.text === target)
-          || candidates.find((item) => item.text.startsWith(target))
-          || candidates.find((item) => item.text.includes(target));
+      // "0" must not click "00" just because the longer size starts with 0.
+      const numericTarget = /^\d+$/.test(target);
+      const numericLabel = numericTarget ? preferredSizeOption(candidates.map((item) => item.text), target) : '';
+      const match = numericTarget
+          ? (numericLabel ? candidates.find((item) => item.text === numericLabel.toLowerCase()) : null)
+          : (candidates.find((item) => item.text === target)
+              || candidates.find((item) => item.text.startsWith(target))
+              || candidates.find((item) => item.text.includes(target)));
       if (!match) return { ok: false, error: `Nothing labeled "${wanted}" is visible` };
       if (isDangerText(match.text)) return { ok: false, error: `Refused to press "${clickableText(match.el)}". Studio never publishes or deletes listings.` };
       match.el.scrollIntoView({ block: 'center', behavior: 'instant' });

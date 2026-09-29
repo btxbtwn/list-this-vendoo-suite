@@ -495,6 +495,17 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         gaps = review_fields(self.verification, {**self.listing, "condition": "Pre-Owned - Good"})
         self.assertEqual(gaps, [])
 
+    def test_size_zero_on_the_form_does_not_match_double_zero(self):
+        from vendoo_studio.services.completion_gaps import values_equal
+
+        self.assertFalse(values_equal("00", "0"))
+        self.assertFalse(values_equal("0", "00"))
+        self.assertTrue(values_equal("24.00", "24"))
+        self.assertTrue(values_equal("8", "8"))
+        self.verification["schema"]["poshmark"] = {"fields": [{"label": "Size", "value": "00"}]}
+        gaps = review_fields(self.verification, {**self.listing, "size": "0", "title": "White House Black Market 0 Sheer Check"})
+        self.assertTrue(any(gap["marketplace"] == "poshmark" and gap["field"] == "Size" for gap in gaps))
+
     def test_gap_already_has_value_and_prior_fill_skip_noop_refill(self):
         gap = {
             "marketplace": "ebay",

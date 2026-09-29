@@ -22,7 +22,7 @@ def _run(registry_options: dict, calls: list[dict]) -> list:
 
     helpers = "\n".join([
         _slice(text, "function normalizeOptionValue", "function normalizeComparableText"),
-        _slice(text, "function optionMatchesValue", "function isDropdownLike"),
+        _slice(text, "function standaloneSizeDigits", "function isDropdownLike"),
         _slice(text, "function uniqueStrings", "// Mercari's escape hatch"),
         _slice(text, "function normalizeFieldKey", "function selectorFor"),
     ])
@@ -218,6 +218,29 @@ class RegistryOptionCoercionTest(unittest.TestCase):
             {"marketplace": "depop", "field": "Brand", "value": "Nike", "static": "Nike"},
         ])
         self.assertEqual(result, ["Sportswear", "Energy Sportswear", "Other", "Nike"])
+
+    def test_size_zero_maps_to_zero_not_double_zero(self):
+        options = {"vendoo": {"size": ["00", "0", "2", "4", "6", "8"]}}
+        result = _values(options, [
+            {"marketplace": "general", "field": "Size", "value": "0"},
+            {"marketplace": "poshmark", "field": "Size", "value": "00"},
+            {"marketplace": "ebay", "field": "Size", "value": "0"},
+        ])
+        self.assertEqual(result, ["0", "00", "0"])
+
+    def test_size_zero_prefers_the_qualified_zero_over_double_zero(self):
+        options = {"vendoo": {"size": ["00", "0 (US)", "2"]}}
+        result = _values(options, [
+            {"marketplace": "general", "field": "Size", "value": "0"},
+        ])
+        self.assertEqual(result, ["0 (US)"])
+
+    def test_size_zero_is_not_rewritten_when_only_double_zero_is_offered(self):
+        options = {"vendoo": {"size": ["00", "2", "4"]}}
+        result = _values(options, [
+            {"marketplace": "general", "field": "Size", "value": "0"},
+        ])
+        self.assertEqual(result, ["0"])
 
 
 class SchemaProbeCapturesOptionsTest(unittest.TestCase):
