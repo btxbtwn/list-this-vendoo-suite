@@ -195,6 +195,20 @@ class CategoryMappingTest(unittest.TestCase):
         )
         self.assertEqual(mapped, MEN_TSHIRT_PATH)
 
+    def test_restores_separators_when_mens_tee_path_is_glued_together(self):
+        """'Shoes' in the Clothing, Shoes & Accessories root must not block a tee remap."""
+        glued = "Clothing, Shoes & AccessoriesMen's ClothingShirtsT-Shirts"
+        mapped = map_vendoo_category_path(
+            glued,
+            {
+                "title": "Hanes XL Casual Graphic Tee Black Regular",
+                "department": "Men",
+                "ebay_specifics": {"department": "Men", "type": "T-Shirt"},
+            },
+        )
+        self.assertEqual(mapped, MEN_TSHIRT_PATH)
+        self.assertIn(" > ", mapped)
+
     def test_mens_department_wins_over_womens_path(self):
         mapped = map_vendoo_category_path(
             WOMEN_TOPS_PATH,

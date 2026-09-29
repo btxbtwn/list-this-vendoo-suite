@@ -286,7 +286,10 @@ def map_vendoo_category_path(category: str, listing: dict | None = None) -> str:
     if not raw:
         return raw
 
-    if _NON_TOP_RE.search(_path_leaf(raw)):
+    # A path with no ">" is not a leaf yet. "Shoes" in the root
+    # "Clothing, Shoes & AccessoriesMen's ClothingShirtsT-Shirts" must not
+    # count as a shoes item, or a men's tee never gets its " > " separators.
+    if ">" in raw and _NON_TOP_RE.search(_path_leaf(raw)):
         return raw
 
     norms = CATEGORY_NORMALIZATIONS.get("general", {})
