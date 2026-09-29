@@ -7,6 +7,8 @@ import {
   listingCanRegenerate,
   mergeRegenerateIds,
   toggleListingSelection,
+  type BulkPriceDrop,
+  type BulkRegenerateListing,
 } from "../bulkRegenerate";
 import { confirmDialog, isConfirmDialogOpen } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
@@ -27,6 +29,7 @@ import { SuggestionsPanel } from "./SuggestionsPanel";
 import { marketplacesNeedingRelist, relistStage } from "./relistStatus";
 import { marketplaceName } from "./marketplaceNames";
 import type { BulkRegenerate, BulkRegenerateRun } from "./useBulkRegenerate";
+import { BulkRegeneratePriceDialog } from "./BulkRegeneratePriceDialog";
 import { stopTitlebarDrag } from "./WorkspaceTopbar";
 import type { WorkspaceView } from "./workspaceCrumbs";
 import type { Suggestion } from "../api/types";
@@ -344,6 +347,7 @@ export function ListingSidebar({
   const [filters, setFilters] = useState<Filters>(DEFAULT_LISTING_FILTERS);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const [selecting, setSelecting] = useState(false);
+  const [pricePrompt, setPricePrompt] = useState<BulkRegenerateListing[] | null>(null);
   const [pickedIds, setPickedIds] = useState<Set<string>>(() => new Set());
   const settingsSearchRef = useRef<HTMLInputElement>(null);
   const selectionAnchor = useRef<string | null>(null);
@@ -454,14 +458,14 @@ export function ListingSidebar({
   useEffect(() => {
     if (!selecting || bulk.running) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || isConfirmDialogOpen()) return;
+      if (event.key !== "Escape" || isConfirmDialogOpen() || pricePrompt) return;
       setSelecting(false);
       setPickedIds(new Set());
       selectionAnchor.current = null;
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selecting, bulk.running]);
+  }, [selecting, bulk.running, pricePrompt]);
 
   const exitSelecting = useCallback(() => {
     setSelecting(false);
@@ -490,20 +494,16 @@ export function ListingSidebar({
     });
   }, [eligibleIds]);
 
-  const regenerateSelected = useCallback(async () => {
-    const ids = eligibleIds.filter((id) => selectedIds.has(id));
-    if (!ids.length || bulk.running) return;
-    const confirmed = await confirmDialog(bulkRegenerateWarning(ids.length), {
-      variant: "destructive",
-      confirmLabel: "Rewrite",
-    });
-    if (!confirmed) return;
+  const finishRegenerate = useCallback(async (
+    ids: string[],
+    drops?: ReadonlyMap<string, BulkPriceDrop>,
+  ) => {
     const titles = new Map(ids.map((id) => {
       const listing = listingsById.get(id);
       const suggestion = suggestions.find((item) => item.conversation_id === id);
       return [id, listing?.title || suggestion?.title || "Untitled"];
     }));
-    const result = await bulk.start(ids, titles);
+    const result = await bulk.start(ids, titles, "rewrite", drops);
     if (!result) return;
     if (result.failed.length === 0) {
       exitSelecting();
@@ -513,7 +513,32 @@ export function ListingSidebar({
       selectionAnchor.current = null;
     }
     addToast(bulkRegenerateToast(result));
-  }, [bulk, eligibleIds, exitSelecting, listingsById, selectedIds, suggestions]);
+  }, [bulk, exitSelecting, listingsById, suggestions]);
+
+  const regenerateSelected = useCallback(async () => {
+    const ids = eligibleIds.filter((id) => selectedIds.has(id));
+    if (!ids.length || bulk.running) return;
+    const rows: BulkRegenerateListing[] = ids.map((id) => {
+      const listing = listingsById.get(id);
+      const suggestion = suggestions.find((item) => item.conversation_id === id);
+      const price = listing?.price;
+      return {
+        id,
+        title: listing?.title || suggestion?.title || "Untitled",
+        price: price != null && price > 0 ? price : null,
+      };
+    });
+    if (!rows.some((row) => row.price != null)) {
+      const confirmed = await confirmDialog(bulkRegenerateWarning(ids.length), {
+        variant: "destructive",
+        confirmLabel: "Rewrite",
+      });
+      if (!confirmed) return;
+      await finishRegenerate(ids);
+      return;
+    }
+    setPricePrompt(rows);
+  }, [bulk.running, eligibleIds, finishRegenerate, listingsById, selectedIds, suggestions]);
 
   const visibleSettled = useMemo(() => {
     const visible = settledListings.slice(0, settledVisibleCount);
@@ -1034,6 +1059,17 @@ export function ListingSidebar({
           <UpdateButton />
         </div>
       </div>
+      {pricePrompt ? (
+        <BulkRegeneratePriceDialog
+          listings={pricePrompt}
+          onClose={() => setPricePrompt(null)}
+          onConfirm={(drops) => {
+            const rows = pricePrompt;
+            setPricePrompt(null);
+            void finishRegenerate(rows.map((row) => row.id), drops);
+          }}
+        />
+      ) : null}
     </aside>
   );
 }
@@ -1158,6 +1194,7 @@ function bulkStatusLabel(
     const { title } = run;
     const place = `${run.index + 1} of ${run.total}`;
     if (run.cancelRequested) return `Finishing ${title}…`;
+    if (run.phase === "dropping") return `Dropping the price on ${title} (${place})`;
     if (run.phase === "finishing") return `Finishing fields on ${title} (${place})`;
     return `${run.mode === "generate" ? "Generating" : "Rewriting"} ${title} (${place})`;
   }
