@@ -437,6 +437,56 @@ class PackagedUpdateTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_download_retries_missing_asset_during_release_upload(self):
+        attempts = []
+
+        def respond(request):
+            attempts.append(request.url)
+            if len(attempts) < 3:
+                return httpx.Response(404)
+            return httpx.Response(200, content=b"complete archive")
+
+        destination = Path(self.tmp.name) / "retried.zip"
+        progress = []
+        with (
+            httpx.Client(transport=httpx.MockTransport(respond)) as client,
+            patch.object(packaged_updates.time, "sleep") as sleep,
+        ):
+            packaged_updates._download(client, "https://example.test/update.zip", destination, progress.append)
+        self.assertEqual(destination.read_bytes(), b"complete archive")
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 4])
+        self.assertEqual(progress[-1], packaged_updates.DOWNLOAD_PROGRESS_CEILING)
+
+    def test_download_stops_retrying_missing_asset_with_actionable_error(self):
+        requests = []
+
+        def respond(request):
+            requests.append(request)
+            return httpx.Response(404)
+
+        destination = Path(self.tmp.name) / "missing.zip"
+        with (
+            httpx.Client(transport=httpx.MockTransport(respond)) as client,
+            patch.object(packaged_updates.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(packaged_updates.PackagedUpdateError, "Wait a minute"):
+                packaged_updates._download(client, "https://example.test/update.zip", destination)
+        self.assertEqual(len(requests), packaged_updates.DOWNLOAD_ATTEMPTS)
+        self.assertEqual(sleep.call_count, packaged_updates.DOWNLOAD_ATTEMPTS - 1)
+        self.assertFalse(destination.exists())
+
+    def test_download_does_not_retry_other_http_errors(self):
+        destination = Path(self.tmp.name) / "forbidden.zip"
+        with (
+            httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(403))) as client,
+            patch.object(packaged_updates.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(httpx.HTTPStatusError):
+                packaged_updates._download(client, "https://example.test/update.zip", destination)
+        sleep.assert_not_called()
+        self.assertFalse(destination.exists())
+
     def test_replacer_clears_quarantine_before_relaunch(self):
         root = Path(self.tmp.name)
         app = root / "List This Studio.app"

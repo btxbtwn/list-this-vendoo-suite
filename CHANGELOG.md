@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.139 — 2026-09-30
+
+- Studio retries update downloads while a new Mac release is being uploaded. If the download remains unavailable, it tells you when to try again.
+
 ## 0.1.138 — 2026-09-29
 
 - Send and Update reuse marketplace fields prepared during generation, and new sends upload three photos at a time so you spend less time waiting.

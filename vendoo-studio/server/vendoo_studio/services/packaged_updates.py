@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zipfile
 from pathlib import Path
 
@@ -32,6 +33,7 @@ USER_AGENT = f"ListThisStudio/{app_version()}"
 DOWNLOAD_PROGRESS_FLOOR = 5.0
 DOWNLOAD_PROGRESS_CEILING = 90.0
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
+DOWNLOAD_ATTEMPTS = 5
 # Half-life for unknown Content-Length downloads (~25 MiB → ~63% of the band).
 UNKNOWN_SIZE_HALF_BYTES = 25 * 1024 * 1024
 
@@ -306,6 +308,29 @@ def unknown_size_download_progress(downloaded: int) -> float:
 
 
 def _download(
+    client: httpx.Client,
+    url: str,
+    destination: Path,
+    progress_callback=None,
+) -> None:
+    # Replacing the rolling release deletes its old asset before uploading the
+    # new one. Allow that short 404 window without retrying other HTTP errors.
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        try:
+            _download_once(client, url, destination, progress_callback)
+            return
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 404:
+                raise
+            if attempt == DOWNLOAD_ATTEMPTS - 1:
+                raise PackagedUpdateError(
+                    "The Mac update download is temporarily unavailable. "
+                    "Wait a minute, then click Download Update again."
+                ) from exc
+            time.sleep(2 ** (attempt + 1))
+
+
+def _download_once(
     client: httpx.Client,
     url: str,
     destination: Path,
