@@ -135,6 +135,15 @@ def brave_sold_queries(fields: dict[str, str]) -> list[str]:
     return queries
 
 
+def brave_active_queries(fields: dict[str, str]) -> list[str]:
+    """Search current competition separately from sold-item queries."""
+    core = " ".join(_query_core(fields))
+    if not core:
+        return []
+    tight = " ".join([core, *_query_details(fields)])
+    return [f"{tight} site:{site}" for site in MARKETPLACE_SITES]
+
+
 def comp_identities(fields: dict[str, str]) -> tuple[str, ...]:
     """Names a comp must mention: the brand, or the licensed graphic on it.
 

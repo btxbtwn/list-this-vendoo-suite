@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.136 — 2026-09-30
+
+- Listing generation searches sold items and active competition separately, looks for more evidence when results are thin, and avoids counting the same item twice or pricing from ended listings and unclear accepted offers.
+
 ## 0.1.135 — 2026-09-29
 
 - When you regenerate several listings, you can drop the price first. Keep the current prices, take 10%, 15%, or 20% off each, or use each listing's own suggestion. The rewrite uses the new price. Nothing changes on Vendoo until you send.

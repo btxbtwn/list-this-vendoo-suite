@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from vendoo_studio.services.brave_search import (
     BRAVE_SEARCH_URL,
     MARKETPLACE_SITES,
+    brave_active_queries,
     brave_sold_queries,
     brave_sold_query,
     comp_identities,
@@ -126,6 +127,13 @@ class CompQueryFanOutTest(unittest.TestCase):
         for query in queries:
             self.assertIn("Levi's", query)
             self.assertIn("sold", query)
+
+    def test_active_queries_target_each_site_without_sold_terms(self):
+        queries = brave_active_queries({"brand": "Nike", "category": "Shoes", "size": "10"})
+        self.assertEqual(len(queries), len(MARKETPLACE_SITES))
+        for site, query in zip(MARKETPLACE_SITES, queries, strict=True):
+            self.assertEqual(query, f"Nike Shoes 10 site:{site}")
+        self.assertEqual(brave_active_queries({"size": "M"}), [])
 
     def test_short_style_joins_the_query(self):
         queries = brave_sold_queries(
