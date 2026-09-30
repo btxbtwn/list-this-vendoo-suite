@@ -352,9 +352,17 @@ html.desktop-app .editor-header {
 
 .sidebar-footer-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
   width: 100%;
+}
+
+/* Let footer controls fit the narrowest sidebar without clipping Update. */
+.sidebar-footer-actions > .sidebar-icon-btn {
+  flex: 1 1 0;
+  min-width: 24px;
+  max-width: 32px;
 }
 
 .sidebar-back-btn {

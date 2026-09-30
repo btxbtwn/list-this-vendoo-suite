@@ -48,13 +48,10 @@ export function DuplicateVendooLinksButton({ onSelect }: { onSelect: (id: string
 
   return (
     <>
-      <button ref={trigger} type="button" className="sidebar-icon-btn"
+      <button ref={trigger} type="button" className="btn btn-sm btn-outline"
         title="Check duplicate Vendoo links" aria-label="Check duplicate Vendoo links"
         onClick={() => setOpen(true)}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.75" />
-          <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke="currentColor" strokeWidth="1.75" />
-        </svg>
+        Check duplicates
       </button>
       {open && createPortal(
         <div className="confirm-dialog" role="presentation">

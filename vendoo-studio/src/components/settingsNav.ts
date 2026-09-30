@@ -39,6 +39,13 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "general";
 
 export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
+    id: "duplicate-vendoo-links",
+    title: "Duplicate check",
+    section: "listings",
+    targetId: "duplicate-vendoo-links",
+    searchTerms: ["duplicate", "vendoo", "links", "same item"],
+  },
+  {
     id: "appearance",
     title: "Theme",
     section: "general",

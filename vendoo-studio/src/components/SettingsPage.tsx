@@ -6,6 +6,7 @@ import { backupSummary, formatBytes } from "./backupSummary";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
+import { DuplicateVendooLinksButton } from "./DuplicateVendooLinksButton";
 import { ChangelogDialog } from "./ChangelogDialog";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ProviderLogo, resolveProviderLogoId } from "./ProviderLogo";
@@ -782,13 +783,20 @@ function GeneralPanel({ onOpenSetupGuide }: { onOpenSetupGuide?: () => void }) {
   );
 }
 
-function ListingsPanel() {
+function ListingsPanel({ onOpenListing }: { onOpenListing: (id: string) => void }) {
   return (
     <>
       <MarketplacesSection />
       <PackageDimensionsSection />
       <HiddenFieldsSection />
       <ListingFormulasSection />
+      <SettingsSection id="duplicate-vendoo-links" title="Duplicate check">
+        <SettingsRow
+          title="Duplicate Vendoo links"
+          description="Find Studio listings that share the same Vendoo item and open each listing to review its link."
+          control={<DuplicateVendooLinksButton onSelect={onOpenListing} />}
+        />
+      </SettingsSection>
     </>
   );
 }
@@ -1786,7 +1794,9 @@ export function SettingsPage({
   targetId = null,
   onTargetHandled,
   onOpenSetupGuide,
+  onOpenListing,
 }: {
+  onOpenListing: (id: string) => void;
   section?: SettingsSectionId;
   targetId?: string | null;
   onTargetHandled?: () => void;
@@ -1804,7 +1814,7 @@ export function SettingsPage({
     <div className="settings-page" data-settings-page-scroll>
       <div className="settings-page-inner">
         {section === "general" ? <GeneralPanel onOpenSetupGuide={onOpenSetupGuide} /> : null}
-        {section === "listings" ? <ListingsPanel /> : null}
+        {section === "listings" ? <ListingsPanel onOpenListing={onOpenListing} /> : null}
         {section === "providers" ? <ProvidersPanel /> : null}
         {section === "connections" ? <ConnectionsPanel /> : null}
         {section === "data" ? <DataPanel /> : null}
