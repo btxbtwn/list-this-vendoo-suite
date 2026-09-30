@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.137 — 2026-09-30
+
+- Check for Studio listings that share a Vendoo link from the listings sidebar, open each one to review it, and prevent linking a Vendoo item already used by another listing.
+
 ## 0.1.136 — 2026-09-30
 
 - Listing generation searches sold items and active competition separately, looks for more evidence when results are thin, and avoids counting the same item twice or pricing from ended listings and unclear accepted offers.

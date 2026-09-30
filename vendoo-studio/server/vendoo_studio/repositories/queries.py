@@ -87,7 +87,9 @@ class ConversationRepo:
     def get(self, conv_id: str) -> Conversation | None:
         return self.db.query(Conversation).filter(Conversation.id == conv_id).first()
 
-    def find_by_vendoo_item_id(self, item_id: str) -> Conversation | None:
+    def find_by_vendoo_item_id(
+        self, item_id: str, *, exclude_conv_id: str | None = None,
+    ) -> Conversation | None:
         item_id = (item_id or "").strip()
         if not item_id:
             return None
@@ -99,9 +101,32 @@ class ConversationRepo:
             .all()
         )
         for conv in rows:
+            if conv.id == exclude_conv_id:
+                continue
             if vendoo_binding(conv.notes).get("vendooItemId") == item_id:
                 return conv
         return None
+
+    def duplicate_vendoo_links(self) -> list[dict[str, Any]]:
+        """Group listings that share a saved Vendoo item, including settled ones."""
+        from vendoo_studio.services.vendoo_import import vendoo_binding
+
+        groups: dict[str, list[dict[str, str]]] = {}
+        rows = self.db.query(Conversation.id, Conversation.title, Conversation.notes).order_by(
+            Conversation.created_at, Conversation.id,
+        ).all()
+        for conv_id, title, notes in rows:
+            item_id = vendoo_binding(notes).get("vendooItemId")
+            if item_id:
+                groups.setdefault(item_id, []).append({"id": conv_id, "title": title or "Untitled"})
+        return [
+            {
+                "vendoo_item_id": item_id,
+                "vendoo_url": f"https://web.vendoo.co/app/item/{item_id}",
+                "listings": listings,
+            }
+            for item_id, listings in sorted(groups.items()) if len(listings) > 1
+        ]
 
     def vendoo_bound_item_ids(self) -> dict[str, str]:
         """``{conversation id: Vendoo item id}`` for every listing bound to one."""

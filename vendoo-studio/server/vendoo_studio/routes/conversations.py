@@ -129,6 +129,22 @@ def list_conversations(db: Session = Depends(get_db)):
     ]
 
 
+class DuplicateVendooListing(BaseModel):
+    id: str
+    title: str
+
+
+class DuplicateVendooLink(BaseModel):
+    vendoo_item_id: str
+    vendoo_url: str
+    listings: list[DuplicateVendooListing]
+
+
+@router.get("/vendoo-link-duplicates", response_model=list[DuplicateVendooLink])
+def duplicate_vendoo_links(db: Session = Depends(get_db)):
+    return ConversationRepo(db).duplicate_vendoo_links()
+
+
 @router.get("/{conv_id}", response_model=ConversationResponse)
 def get_conversation(conv_id: str, db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
@@ -201,8 +217,8 @@ def link_vendoo_draft(conv_id: str, body: VendooLinkRequest, db: Session = Depen
 
     item_id = binding["vendooItemId"]
     item_url = binding["vendooUrl"]
-    other = repo.find_by_vendoo_item_id(item_id)
-    if other and other.id != conv_id:
+    other = repo.find_by_vendoo_item_id(item_id, exclude_conv_id=conv_id)
+    if other:
         title = other.title or "Untitled"
         raise HTTPException(
             409,

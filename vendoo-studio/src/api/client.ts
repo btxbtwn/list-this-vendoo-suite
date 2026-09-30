@@ -222,6 +222,11 @@ export const api = {
     }>("/status"),
 
   conversations: {
+    duplicateVendooLinks: () => request<{
+      vendoo_item_id: string;
+      vendoo_url: string;
+      listings: { id: string; title: string }[];
+    }[]>("/conversations/vendoo-link-duplicates"),
     list: () => request<ConversationSummary[]>("/conversations"),
     get: (id: string) => request<Conversation>(`/conversations/${id}`),
     create: (body?: { title?: string; notes?: string }) =>
