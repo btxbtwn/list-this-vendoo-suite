@@ -27,7 +27,7 @@ BULKY_EVENT_KEYS = ("item", "schema", "fill_log", "verification")
 SANITIZED_EVENT_TYPES = ("step_completed", "step_failed")
 # One row each: the newest progress is the only progress worth having, and the
 # stored review already carries every schema section read so far.
-UPSERT_EVENT_TYPES = ("progress", "completion_review")
+UPSERT_EVENT_TYPES = ("progress", "completion_review", "vendoo_api_checkpoint", "vendoo_api_timing")
 
 BUSY_LISTING_STATUSES = ("in_progress", "listing")
 # Vendoo's own inventory labels, plus the one state Vendoo has no name for.
@@ -681,6 +681,22 @@ class JobRepo:
             .order_by(JobEvent.sequence.desc())
             .first()
         )
+
+    def pending_vendoo_send(self, conv_id: str) -> dict | None:
+        """Reuse the reserved draft id after a failed or interrupted API send."""
+        event = (
+            self.db.query(JobEvent, Job.status)
+            .join(Job, Job.id == JobEvent.job_id)
+            .filter(
+                Job.conversation_id == conv_id,
+                JobEvent.event_type == "vendoo_api_checkpoint",
+            )
+            .order_by(Job.created_at.desc(), JobEvent.sequence.desc())
+            .first()
+        )
+        if not event or event[1] == "completed":
+            return None
+        return dict(event[0].payload) if isinstance(event[0].payload, dict) else None
 
     def latest_vendoo_drafts(self, job_ids: list[str]) -> dict[str, dict]:
         """Cached Vendoo status for many jobs at once.

@@ -24,6 +24,7 @@ from typing import Any
 from vendoo_studio.config import DATA_DIR, HOST, PORT
 from vendoo_studio.services import browser_bridge
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
+from vendoo_studio.services.vendoo_send import checkpoint, measure_stage, pending_send
 from vendoo_studio.services.specifics_fill import fill_listing_specifics, specifics_gaps
 from vendoo_studio.services.vendoo_specifics import (
     MERCARI_STATIC_URL,
@@ -39,6 +40,7 @@ from vendoo_studio.services.vendoo_api import (
     changed_fields,
     pick_mapped_category,
     diff_roundtrip,
+    diff_updates,
     hit_display_path,
     observe_item_schema,
     path_parts,
@@ -59,6 +61,7 @@ ITEM_READ_TIMEOUT_SEC = 45.0
 SCHEMA_FILE = "vendoo-item-schema.json"
 # Marketplaces whose category tree unlocks the rest of that form's fields.
 CATEGORY_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
+_specifics_requests: dict[tuple, asyncio.Task] = {}
 
 __all__ = ["BrowserBridgeError", "VendooCreateError", "create_item", "probe_schema", "load_schema"]
 
@@ -78,12 +81,15 @@ async def run_ops(
     job, ops: list[dict[str, Any]], *, timeout: float = REQUEST_TIMEOUT_SEC
 ) -> dict[str, Any]:
     """Send one ``job.vendoo_api`` message and return its reply."""
-    reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=timeout)
+    stage = "+".join(dict.fromkeys(op["op"] for op in ops))
+    with measure_stage(job, stage):
+        reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=timeout)
+        if not reply.get("ok"):
+            results = reply.get("results") or []
+            failed = next((r for r in results if not r.get("ok")), None)
+            message = (failed or {}).get("error") or reply.get("error") or "Vendoo API call failed"
+            raise VendooCreateError(str(message), results=results)
     results = reply.get("results") if isinstance(reply.get("results"), list) else []
-    if not reply.get("ok"):
-        failed = next((r for r in results if not r.get("ok")), None)
-        message = (failed or {}).get("error") or reply.get("error") or "Vendoo API call failed"
-        raise VendooCreateError(str(message), results=results)
     return reply
 
 
@@ -134,7 +140,7 @@ async def probe_schema(job, item_ids: list[str], *, reset: bool = False) -> dict
     ids = [str(item_id).strip() for item_id in item_ids if str(item_id or "").strip()]
     if not ids:
         raise VendooCreateError("Probe needs at least one Vendoo item id")
-    ops = [{"op": "get_item", "item_id": item_id, "throttle_ms": 250} for item_id in ids]
+    ops = [{"op": "get_item", "item_id": item_id} for item_id in ids]
     reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=REQUEST_TIMEOUT_SEC)
     results = reply.get("results") if isinstance(reply.get("results"), list) else []
     items = [r["item"] for r in results if r.get("ok") and isinstance(r.get("item"), dict)]
@@ -319,7 +325,6 @@ async def _hits_by_search(
             "text": path,
             # Vendoo's search API names the general tree ``vendoo``.
             "marketplace_id": "vendoo" if marketplace_id == "general" else marketplace_id,
-            "throttle_ms": 200,
         }
         for _, marketplace_id, path in searchable
     ]
@@ -382,7 +387,6 @@ async def _hits_by_mapping(
             "op": "category_map",
             "marketplace_id": key,
             "general_category": general,
-            "throttle_ms": 150,
         }
         for key, _marketplace_id, _path in targets
     ]
@@ -533,7 +537,7 @@ async def fetch_listing_specifics(
     stops a batch at its first failure, and some marketplaces have no schema
     to serve.
 
-    Answers are cached per leaf, so a category only costs one round trip ever.
+    Answers are cached per leaf for seven days; concurrent lookups share a request.
     A marketplace that cannot answer is simply left out — ``build_vendoo_item``
     then falls back to what the seller's own items taught us.
     """
@@ -571,6 +575,27 @@ async def fetch_leaf_specifics(
     *,
     timeout: float = REQUEST_TIMEOUT_SEC,
 ) -> dict[str, FieldSpec]:
+    """Share concurrent requests for the same leaf and lookup context."""
+    key = (asyncio.get_running_loop(), marketplace, category_id, json.dumps(resolved or {}, sort_keys=True))
+    task = _specifics_requests.get(key)
+    if task is None:
+        task = asyncio.create_task(_fetch_leaf_specifics(job, marketplace, category_id, resolved, timeout=timeout))
+        _specifics_requests[key] = task
+        task.add_done_callback(lambda _task: _specifics_requests.pop(key, None))
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    except TimeoutError:
+        return {}
+
+
+async def _fetch_leaf_specifics(
+    job,
+    marketplace: str,
+    category_id: str,
+    resolved: dict[str, Any] | None = None,
+    *,
+    timeout: float = REQUEST_TIMEOUT_SEC,
+) -> dict[str, FieldSpec]:
     """Vendoo's schema for one marketplace leaf: cached, else asked for and stored.
 
     Empty when the leaf has no schema or Chrome cannot answer in ``timeout``.
@@ -580,7 +605,7 @@ async def fetch_leaf_specifics(
     if not category_id:
         return {}
     cached = load_fields(marketplace, category_id)
-    if cached or marketplace == "general":
+    if cached is not None or marketplace == "general":
         return cached or {}
     if marketplace == "mercari":
         # Mercari's schema is a public static file, not an API answer.
@@ -608,8 +633,7 @@ async def fetch_leaf_specifics(
         log.info("No %s category schema: %s", marketplace, hit.get("error") or "empty reply")
         return {}
     specs = normalize_specifics(hit.get("specifics"))
-    if specs:
-        save_fields(marketplace, category_id, specs)
+    save_fields(marketplace, category_id, specs)
     return specs
 
 
@@ -873,15 +897,34 @@ async def create_item(
                 getattr(job, "last_error", None) or f"Send was {status}"
             )
 
-    listing, specifics, schema, category_unresolved, unfilled = await prepare_listing_for_vendoo(
-        job, listing, provider=provider, evidence=evidence, mark=mark,
-    )
+    previous = pending_send(job)
+    # Check the reserved id before doing work. Only an explicit 404 permits
+    # another create; an auth, network or server failure leaves it recoverable.
+    recovered = None
+    recovery_results: list[Any] = []
+    if previous:
+        recovery = await run_ops(job, [
+            {"op": "session", "expected_uid": previous["uid"]},
+            {"op": "get_item", "item_id": previous["item_id"], "allow_missing": True, "with_version": True},
+        ])
+        recovered = _result(recovery, "get_item").get("item")
+        recovery_results = recovery["results"]
+
+    with measure_stage(job, "prepare"):
+        listing, specifics, schema, category_unresolved, unfilled = await prepare_listing_for_vendoo(
+            job, listing, provider=provider, evidence=evidence, mark=mark,
+        )
 
     # Photos and the id first: the item body references both.
     mark("vendoo_api_photos")
-    prep = await run_ops(job, [{"op": "session"}, {"op": "new_item_id"}, {"op": "subscription"}, *_photo_ops(job, photos)])
+    prep_ops = [{"op": "session"}]
+    if previous:
+        prep_ops[0]["expected_uid"] = previous["uid"]
+    else:
+        prep_ops.append({"op": "new_item_id"})
+    prep = await run_ops(job, [*prep_ops, {"op": "subscription"}, *_photo_ops(job, photos)])
     uid = str(_result(prep, "session").get("uid") or "")
-    item_id = str(_result(prep, "new_item_id").get("item_id") or "")
+    item_id = str(previous["item_id"] if previous else _result(prep, "new_item_id").get("item_id") or "")
     subscription_version = _result(prep, "subscription").get("version")
     images = [r["image"] for r in prep["results"] if r.get("op") == "upload_photo" and r.get("image")]
     if not uid or not item_id:
@@ -893,13 +936,20 @@ async def create_item(
         listing, schema, images=images, user_id=uid, item_id=item_id, specifics=specifics
     )
     unresolved = [*category_unresolved, *unresolved]
+    checkpoint(job, uid, item_id)
 
     mark("vendoo_api_create")
-    created = await run_ops(job, [
-        {"op": "create_item", "item": item, "subscription_version": subscription_version},
-        {"op": "get_item", "item_id": item_id},
-    ])
-    stored = _result(created, "get_item").get("item")
+    if recovered is None:
+        created = await run_ops(job, [
+            {"op": "create_item", "item": item, "subscription_version": subscription_version},
+            {"op": "get_item", "item_id": item_id, "with_version": True},
+        ])
+        stored = _result(created, "get_item").get("item")
+    else:
+        created = {"results": []}
+        stored = recovered
+    if not isinstance(stored, dict) or not stored:
+        raise VendooCreateError("Vendoo did not return the saved draft; retry Send to recover it.")
     # createItem sometimes drops marketplace fields (Depop style tags, brand
     # overrides, Mercari No Brand). Push only those — not every account default
     # Vendoo filled in after create.
@@ -925,15 +975,42 @@ async def create_item(
             or ".marketplaceSpecifics.pricingFormat" in path
             or ".pricingFormatDetails.fixedPrice." in path
         }
+        if recovered is not None:
+            # A retry may approve newer copy. Reconcile it onto the same draft
+            # instead of making another item. Only Studio's form fields change.
+            from vendoo_studio.services.vendoo_api import apply_update_all
+
+            apply_update_all(stored, item, schema=schema)
+            fixes = changed_fields(stored, item)
+            if (stored.get("generalDetails") or {}).get("images") != images:
+                fixes["generalDetails.images"] = images
         if fixes:
             mark("vendoo_api_patch")
-            patched = await run_ops(job, [
-                {"op": "update_item", "item_id": item_id, "updates": fixes},
-                {"op": "get_item", "item_id": item_id},
-            ])
-            patch_results = patched["results"]
-            # Round-trip diff still uses the create get_item — the patch only
-            # repairs marketplace fields createItem dropped.
+            general = {k: v for k, v in fixes.items() if not k.startswith("listings.")}
+            forms = {k: v for k, v in fixes.items() if k.startswith("listings.")}
+            expected_version = stored.get("_studio_update_time")
+            if not expected_version:
+                raise VendooCreateError("Reload the Vendoo extension before retrying Send: the draft version is missing.")
+            for batch in (general, forms):
+                if not batch:
+                    continue
+                op = {"op": "update_item", "item_id": item_id, "updates": batch}
+                op["expected_update_time"] = expected_version
+                patched = await run_ops(job, [op])
+                patch_results.extend(patched["results"])
+                expected_version = _result(patched, "update_item").get("update_time")
+                if not expected_version:
+                    raise VendooCreateError("Vendoo did not return the draft version. Retry Send to recover it.")
+            mark("vendoo_api_verify")
+            patched = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+            patch_results.extend(patched["results"])
+            stored = _result(patched, "get_item").get("item")
+            remaining = diff_updates(fixes, stored if isinstance(stored, dict) else {})
+            if remaining:
+                raise VendooCreateError(
+                    "Vendoo did not retain repaired fields: " + ", ".join(row["field"] for row in remaining),
+                    results=patch_results,
+                )
     diff = diff_roundtrip(item, stored) if isinstance(stored, dict) else []
 
     return {
@@ -944,5 +1021,5 @@ async def create_item(
         "unresolved": [entry for entry in unresolved],
         "diff": diff,
         "stored": stored if isinstance(stored, dict) else None,
-        "results": [*prep["results"], *created["results"], *patch_results],
+        "results": [*recovery_results, *prep["results"], *created["results"], *patch_results],
     }

@@ -1122,6 +1122,8 @@ function SendToVendooButton({
       vendoo_api_fields: "Filling marketplace fields…",
       vendoo_api_photos: "Uploading photos to Vendoo…",
       vendoo_api_create: "Creating the Vendoo draft…",
+      vendoo_api_patch: "Saving marketplace fields…",
+      vendoo_api_verify: "Checking the saved Vendoo draft…",
     };
     const label = probeActive
       ? "Discovering fields"

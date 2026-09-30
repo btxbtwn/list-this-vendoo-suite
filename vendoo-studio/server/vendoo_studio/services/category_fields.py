@@ -11,6 +11,7 @@ optional fields a category unlocks — without going through Chrome.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from vendoo_studio.database import SessionLocal
@@ -22,6 +23,7 @@ from vendoo_studio.services.vendoo_specifics import (
 )
 
 log = logging.getLogger("vendoo_studio.category_fields")
+SCHEMA_MAX_AGE = timedelta(days=7)
 
 __all__ = ["load_fields", "save_fields", "cached_marketplaces", "load_rows",
            "listing_category_ids"]
@@ -37,7 +39,12 @@ def load_rows(marketplace: str, category_id: str) -> list[dict[str, Any]] | None
             .filter_by(marketplace=str(marketplace), category_id=str(category_id))
             .one_or_none()
         )
-        return list(row.fields or []) if row else None
+        if row is None or row.fetched_at is None:
+            return None
+        fetched_at = row.fetched_at.replace(tzinfo=UTC) if row.fetched_at.tzinfo is None else row.fetched_at
+        if datetime.now(UTC) - fetched_at > SCHEMA_MAX_AGE:
+            return None
+        return list(row.fields or [])
 
 
 def load_fields(marketplace: str, category_id: str) -> dict[str, FieldSpec] | None:
@@ -45,12 +52,12 @@ def load_fields(marketplace: str, category_id: str) -> dict[str, FieldSpec] | No
     if rows is None:
         return None
     specs = specs_from_rows(rows)
-    return specs or None
+    return specs
 
 
 def save_fields(marketplace: str, category_id: str, specs: dict[str, FieldSpec]) -> None:
     """Store one leaf's schema, replacing whatever was there."""
-    if not marketplace or not category_id or not specs:
+    if not marketplace or not category_id:
         return
     rows = specs_to_rows(specs)
     with SessionLocal() as db:
@@ -61,6 +68,8 @@ def save_fields(marketplace: str, category_id: str, specs: dict[str, FieldSpec])
         )
         if existing:
             existing.fields = rows
+            # Refresh even when the server returned an unchanged schema.
+            existing.fetched_at = datetime.now(UTC)
         else:
             db.add(CategoryFieldSchema(
                 marketplace=str(marketplace), category_id=str(category_id), fields=rows

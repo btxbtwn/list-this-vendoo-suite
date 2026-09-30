@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import json
 import unittest
 from concurrent.futures import CancelledError
@@ -34,6 +35,36 @@ CREATED = {
 }
 
 
+def persist_writes(callback):
+    """Simulate Vendoo retaining PATCHes for subsequent verification reads."""
+    updates = {}
+
+    async def call(job, ops, **kwargs):
+        reply = deepcopy(await callback(job, ops, **kwargs))
+        if reply.get("ok"):
+            for op in ops:
+                if op["op"] == "update_item":
+                    updates.update(deepcopy(op["updates"]))
+                    result = next((r for r in reply["results"] if r["op"] == "update_item"), None)
+                    if result is None:
+                        result = {"op": "update_item", "ok": True}
+                        reply["results"].append(result)
+                    result["update_time"] = "next-version"
+            for result in reply.get("results", []):
+                if result.get("op") == "get_item" and isinstance(result.get("item"), dict):
+                    if any(op.get("with_version") for op in ops if op["op"] == "get_item"):
+                        result["item"]["_studio_update_time"] = "initial-version"
+                    for path, value in updates.items():
+                        node = result["item"]
+                        parts = path.split(".")
+                        for part in parts[:-1]:
+                            node = node.setdefault(part, {})
+                        node[parts[-1]] = deepcopy(value)
+        return reply
+
+    return call
+
+
 class _RouteTest(unittest.TestCase):
     def setUp(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -56,6 +87,69 @@ class _RouteTest(unittest.TestCase):
 
 
 class CreateRouteTest(_RouteTest):
+    def test_disconnected_create_is_recovered_from_a_durable_checkpoint(self):
+        from vendoo_studio.services.browser_bridge import BrowserBridgeError
+
+        remote = {}
+        creates = []
+        reserved = []
+
+        async def prepare(_job, listing, **kwargs):
+            return listing, {}, None, [], []
+
+        async def request(_job, _message_type, payload, **kwargs):
+            results = []
+            for op in payload["ops"]:
+                name = op["op"]
+                row = {"op": name, "ok": True}
+                if name == "session":
+                    row["uid"] = "u1"
+                elif name == "new_item_id":
+                    row["item_id"] = "reservedDraft12345678"
+                    reserved.append(row["item_id"])
+                elif name == "subscription":
+                    row["version"] = "v2"
+                elif name == "upload_photo":
+                    row["image"] = {"version": 3, "id": "images/a.jpg"}
+                elif name == "create_item":
+                    remote.update(deepcopy(op["item"]))
+                    creates.append(op["item"]["itemID"])
+                    raise BrowserBridgeError("Chrome disconnected after saving")
+                elif name == "get_item":
+                    row["item"] = {**deepcopy(remote), "_studio_update_time": "initial-version"}
+                elif name == "update_item":
+                    row["update_time"] = "next-version"
+                    for path, value in op["updates"].items():
+                        node = remote
+                        parts = path.split(".")
+                        for part in parts[:-1]:
+                            node = node.setdefault(part, {})
+                        node[parts[-1]] = deepcopy(value)
+                else:
+                    self.fail(f"Unexpected operation {name}")
+                results.append(row)
+            return {"ok": True, "results": results}
+
+        with patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", prepare), \
+             patch("vendoo_studio.services.vendoo_create.browser_bridge.request", request):
+            first = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+            self.assertEqual(first.status_code, 400, first.text)
+            checkpoint = JobRepo(self.db).pending_vendoo_send(self.conv.id)
+            self.assertEqual(checkpoint, {"uid": "u1", "item_id": "reservedDraft12345678"})
+            self.db.expire_all()
+            second = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+            self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(creates, ["reservedDraft12345678"])
+        self.assertEqual(reserved, creates)
+        self.assertEqual(second.json()["item_id"], creates[0])
+        self.assertEqual(vendoo_binding(ConversationRepo(self.db).get(self.conv.id).notes)["vendooItemId"], creates[0])
+        jobs = JobRepo(self.db).list_by_conversation(self.conv.id)
+        self.assertEqual([job.status for job in jobs], ["completed", "failed"])
+        self.assertIsNone(JobRepo(self.db).pending_vendoo_send(self.conv.id))
+        timings = JobRepo(self.db).latest_event(jobs[0].id, "vendoo_api_timing").payload
+        self.assertTrue(timings["total"]["ok"])
+        self.assertEqual(timings["prepare"]["count"], 1)
+
     def test_create_remembers_preparation_for_the_next_update(self):
         prepared = {**LISTING, "category_id": "tops", "_vendoo_preparation": {"field_signature": "prepared"}}
         create = AsyncMock(return_value={**CREATED, "prepared_listing": prepared})
@@ -411,6 +505,30 @@ class SaveRouteTest(_RouteTest):
         conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1"})
         self.db.commit()
 
+    def test_dropped_updates_leave_the_job_failed_and_do_not_mark_synced(self):
+        self.bind()
+
+        async def ops(_job, calls, **kwargs):
+            return {"ok": True, "results": [{"op": calls[0]["op"], "ok": True,
+                    "item": {"itemID": "itm1", "_studio_update_time": "initial-version", "generalDetails": {"title": "Old"}},
+                    "update_time": "next-version"}]}
+
+        async def prepare(_job, listing, **kwargs):
+            return listing, {}, None, [], []
+
+        with patch("vendoo_studio.services.vendoo_create.run_ops", ops), \
+             patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", prepare), \
+             patch("vendoo_studio.services.vendoo_api.build_vendoo_item",
+                   return_value=({"generalDetails": {"title": "New"}}, [])):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
+        self.assertEqual(res.status_code, 502)
+        self.assertIn("generalDetails.title", res.json()["detail"])
+        self.assertEqual(JobRepo(self.db).list_by_conversation(self.conv.id)[0].status, "failed")
+        notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
+        self.assertNotIn("vendooSyncedRevision", notes)
+        timing = JobRepo(self.db).latest_event(JobRepo(self.db).list_by_conversation(self.conv.id)[0].id, "vendoo_api_timing")
+        self.assertFalse(timing.payload["total"]["ok"])
+
     def test_prepared_listing_uses_no_ai_on_save_or_copy_edit(self):
         from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
         from vendoo_studio.services.vendoo_create import prepare_listing_fields_for_vendoo
@@ -430,7 +548,7 @@ class SaveRouteTest(_RouteTest):
 
         with patch("vendoo_studio.services.vendoo_create.fetch_listing_specifics", AsyncMock(return_value=fields)), \
              patch("vendoo_studio.services.vendoo_create._mappable_marketplaces", return_value=()), \
-             patch("vendoo_studio.services.vendoo_create.run_ops", ops), \
+             patch("vendoo_studio.services.vendoo_create.run_ops", persist_writes(ops)), \
              patch("vendoo_studio.services.listing_field_gaps._request_missing_field_values", model), \
              patch("vendoo_studio.services.listing_provider.get_listing_provider", return_value=object()), \
              patch("vendoo_studio.services.listing_provider.provider_is_configured", return_value=True):
@@ -461,7 +579,7 @@ class SaveRouteTest(_RouteTest):
             }}]}
 
         with patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", prepare), \
-             patch("vendoo_studio.services.vendoo_create.run_ops", ops):
+             patch("vendoo_studio.services.vendoo_create.run_ops", persist_writes(ops)):
             res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
         self.assertEqual(res.status_code, 200, res.text)
         listing = ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json
@@ -478,7 +596,7 @@ class SaveRouteTest(_RouteTest):
             return listing, {}, None, [], []
 
         with (
-            patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops),
+            patch("vendoo_studio.services.vendoo_create.run_ops", persist_writes(fake_run_ops)),
             patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", fake_prepare),
             patch(
                 "vendoo_studio.services.vendoo_api.build_vendoo_item",
@@ -498,6 +616,7 @@ class SaveRouteTest(_RouteTest):
             "listings": {"ebay": {"marketplaceID": "ebay", "overrides": {"title": "Old"}}},
         }
         writes: list[list[str]] = []
+        versions: list[str] = []
 
         async def fake_run_ops(job, ops, **_kwargs):
             for op in ops:
@@ -505,16 +624,18 @@ class SaveRouteTest(_RouteTest):
                     return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": current}]}
                 if op["op"] == "update_item":
                     writes.append(sorted(op["updates"]))
+                    versions.append(op["expected_update_time"])
             return {"ok": True, "results": []}
 
         async def fake_prepare(job, listing, *, provider=None, evidence="", mark=None):
             return listing, {}, None, [], []
 
-        with patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops), \
+        with patch("vendoo_studio.services.vendoo_create.run_ops", persist_writes(fake_run_ops)), \
              patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", fake_prepare):
             res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(len(writes), 2)
+        self.assertEqual(versions, ["initial-version", "next-version"])
         self.assertTrue(all(path.startswith("generalDetails") or "." not in path for path in writes[0]))
         self.assertTrue(all(path.startswith("listings.") for path in writes[1]))
         self.assertIn("generalDetails.title", writes[0])
@@ -537,7 +658,7 @@ class SaveRouteTest(_RouteTest):
             return listing, {}, None, [], []
 
         with (
-            patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops),
+            patch("vendoo_studio.services.vendoo_create.run_ops", persist_writes(fake_run_ops)),
             patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", fake_prepare),
             patch(
                 "vendoo_studio.services.vendoo_api.build_vendoo_item",
@@ -576,7 +697,7 @@ class SaveRouteTest(_RouteTest):
             return {"ok": True, "results": [{"op": "update_item", "ok": True}]}
 
         with (
-            patch("vendoo_studio.services.vendoo_create.run_ops", fake_run_ops),
+            patch("vendoo_studio.services.vendoo_create.run_ops", persist_writes(fake_run_ops)),
             patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", fake_prepare),
             patch(
                 "vendoo_studio.services.vendoo_api.build_vendoo_item",

@@ -20,7 +20,12 @@ globalThis.findVisibleVendooTab = async () => ({ id: 7 });
 globalThis.openVisibleVendooWindow = async () => ({ tabId: 7 });
 globalThis.waitForTabComplete = async () => true;
 const closedTabs = [];
+const storage = {};
 globalThis.chrome = {
+  storage: { local: {
+    get: async (key) => ({ [key]: storage[key] }),
+    set: async (values) => Object.assign(storage, values),
+  } },
   scripting: { executeScript: async () => [{ result: session }] },
   // The executor closes crashed /item/ tabs before reading the session, so a
   // bare scripting stub is not enough to run it.

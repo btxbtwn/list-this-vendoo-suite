@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import json
 import tempfile
 import unittest
@@ -81,6 +82,7 @@ class FakeBridge:
         # {marketplace: [alternate, …]} the mapper returns beside its match.
         self.recommended = recommended
         self.sent = []
+        self.stored = {}
 
     async def request(self, job, message_type, payload=None, *, timeout=0):
         self.sent.append((message_type, payload))
@@ -99,17 +101,31 @@ class FakeBridge:
             results = []
             for op in ops:
                 if op.get("op") == "update_item":
-                    results.append({"op": "update_item", "ok": True, "item_id": op.get("item_id")})
+                    for path, value in op["updates"].items():
+                        node = self.stored
+                        parts = path.split(".")
+                        for part in parts[:-1]:
+                            node = node.setdefault(part, {})
+                        node[parts[-1]] = deepcopy(value)
+                    results.append({"op": "update_item", "ok": True, "item_id": op.get("item_id"), "update_time": "next-version"})
                 elif op.get("op") == "get_item":
                     results.append({
                         "op": "get_item", "ok": True,
                         "item_id": op.get("item_id"),
-                        "item": {"itemID": op.get("item_id")},
+                        "item": deepcopy(self.stored),
                     })
                 else:
                     raise AssertionError(f"unexpected op in update batch: {op.get('op')}")
             return {"ok": True, "results": results}
-        return self.replies.pop(0)
+        if not self.replies and ops and all(op["op"] == "get_item" for op in ops):
+            return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": deepcopy(self.stored)}]}
+        reply = self.replies.pop(0)
+        for result in reply.get("results", []):
+            if result.get("op") == "get_item" and isinstance(result.get("item"), dict):
+                if any(op.get("with_version") for op in ops if op["op"] == "get_item"):
+                    result["item"]["_studio_update_time"] = "initial-version"
+                self.stored = deepcopy(result["item"])
+        return reply
 
 
 class _TmpSchema(unittest.TestCase):
@@ -209,7 +225,85 @@ class CreateTest(_NoExtraMapping):
         self.assertEqual(item["userID"], "u1")
         self.assertEqual(item["generalDetails"]["condition"]["value"], "v_pre_owned_good")
         self.assertEqual([img["id"] for img in item["generalDetails"]["images"]], ["images/u1/a.jpg", "images/u1/b.png"])
-        self.assertEqual(create_ops[1], {"op": "get_item", "item_id": "NEWid1234567890abcde"})
+        self.assertEqual(create_ops[1], {"op": "get_item", "item_id": "NEWid1234567890abcde", "with_version": True})
+
+    def test_concurrent_schema_requests_share_one_remote_lookup(self):
+        async def exercise():
+            reply = specifics_reply({"Season": {"id": "Season", "display": "Season"}})
+            request = mock.AsyncMock(return_value=reply)
+            with mock.patch.object(category_fields, "load_fields", return_value=None), \
+                 mock.patch.object(category_fields, "save_fields"), \
+                 mock.patch.object(vendoo_create.browser_bridge, "request", request):
+                first, second = await asyncio.gather(
+                    vendoo_create.fetch_leaf_specifics(JOB, "ebay", "shared-leaf"),
+                    vendoo_create.fetch_leaf_specifics(JOB, "ebay", "shared-leaf"),
+                )
+            self.assertEqual(request.await_count, 1)
+            self.assertEqual(first, second)
+            self.assertIn("Season", first)
+        run(exercise())
+
+    def test_repairs_return_the_final_snapshot_and_verify_written_values(self):
+        fake = FakeBridge(self._replies())
+        with mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out = run(create_item(JOB, LISTING, PHOTOS))
+        self.assertEqual(out["stored"], fake.stored)
+        self.assertEqual(out["stored"]["listings"]["mercari"]["marketplaceSpecifics"]["smartPricing"], False)
+
+    def test_dropped_repairs_fail_instead_of_returning_a_stale_success(self):
+        fake = FakeBridge(self._replies())
+
+        async def request(*args, **kwargs):
+            reply = await fake.request(*args, **kwargs)
+            if args[2]["ops"][0]["op"] == "get_item":
+                reply["results"][-1]["item"]["listings"]["mercari"]["marketplaceSpecifics"]["smartPricing"] = True
+            return reply
+
+        with mock.patch.object(vendoo_create.browser_bridge, "request", request):
+            with self.assertRaisesRegex(VendooCreateError, "did not retain repaired fields"):
+                run(create_item(JOB, LISTING, PHOTOS))
+
+    def test_retry_reuses_the_reserved_id_when_the_previous_create_was_not_found(self):
+        replies = self._replies()
+        replies[0]["results"] = [r for r in replies[0]["results"] if r["op"] != "new_item_id"]
+        fake = FakeBridge([
+            {"ok": True, "results": [
+                {"op": "session", "ok": True, "uid": "u1"},
+                {"op": "get_item", "ok": True, "item": None},
+            ]}, *replies,
+        ])
+        with mock.patch.object(vendoo_create, "pending_send", return_value={"uid": "u1", "item_id": "NEWid1234567890abcde"}), \
+             mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out = run(create_item(JOB, LISTING, PHOTOS))
+        self.assertEqual(out["item_id"], "NEWid1234567890abcde")
+        self.assertEqual(every_op(fake, "new_item_id"), [])
+        self.assertEqual(fake.sent[0][1]["ops"][1]["allow_missing"], True)
+
+    def test_retry_recovers_an_existing_draft_without_creating_another(self):
+        replies = self._replies()
+        original = deepcopy(replies[1]["results"][1]["item"])
+        replies[0]["results"] = [r for r in replies[0]["results"] if r["op"] != "new_item_id"]
+        fake = FakeBridge([
+            {"ok": True, "results": [
+                {"op": "session", "ok": True, "uid": "u1"},
+                {"op": "get_item", "ok": True, "item": original},
+            ]}, replies[0],
+        ])
+        with mock.patch.object(vendoo_create, "pending_send", return_value={"uid": "u1", "item_id": original["itemID"]}), \
+             mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            out = run(create_item(JOB, {**LISTING, "title": "Updated approved title"}, PHOTOS))
+        self.assertEqual(every_op(fake, "create_item"), [])
+        self.assertEqual(out["stored"]["generalDetails"]["title"], "Updated approved title")
+        self.assertEqual(out["item_id"], original["itemID"])
+
+    def test_a_failed_recovery_read_never_creates_another_draft(self):
+        fake = FakeBridge([{"ok": False, "results": [{"op": "get_item", "ok": False, "error": "HTTP 503"}]}])
+        with mock.patch.object(vendoo_create, "pending_send", return_value={"uid": "u1", "item_id": "reserved"}), \
+             mock.patch.object(vendoo_create.browser_bridge, "request", fake.request):
+            with self.assertRaisesRegex(VendooCreateError, "503"):
+                run(create_item(JOB, LISTING, PHOTOS))
+        self.assertEqual(every_op(fake, "create_item"), [])
+        self.assertEqual(every_op(fake, "upload_photo"), [])
 
     def test_sends_label_ids_not_names(self):
         """Vendoo's label box only shows ids it finds in the seller's labels."""

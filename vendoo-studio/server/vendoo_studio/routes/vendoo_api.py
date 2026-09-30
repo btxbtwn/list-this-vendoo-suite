@@ -190,7 +190,7 @@ async def read_items(body: ItemsRequest):
     """
     from vendoo_studio.services.vendoo_create import run_ops
 
-    ops = [{"op": "get_item", "item_id": item_id, "throttle_ms": 250} for item_id in body.item_ids]
+    ops = [{"op": "get_item", "item_id": item_id} for item_id in body.item_ids]
     try:
         reply = await run_ops(SimpleNamespace(id=None), ops)
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
@@ -471,9 +471,12 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         )
         claim_api_job(job.id)
     try:
-        return await _save_claimed_draft(
-            db, conv, conv_id, item_id, revisions, snapshot, provider, evidence, job, job_repo,
-        )
+        from vendoo_studio.services.vendoo_send import measure_stage
+
+        with measure_stage(job, "total"):
+            return await _save_claimed_draft(
+                db, conv, conv_id, item_id, revisions, snapshot, provider, evidence, job, job_repo,
+            )
     finally:
         _finish_api_send(db, job.id)
 
@@ -487,6 +490,7 @@ async def _save_claimed_draft(
         apply_update_all,
         build_vendoo_item,
         changed_fields,
+        diff_updates,
         force_condition_updates,
     )
     from vendoo_studio.services.vendoo_create import prepare_listing_for_vendoo, run_ops
@@ -496,6 +500,7 @@ async def _save_claimed_draft(
         vendoo_relistable_marketplaces,
     )
     from vendoo_studio.services.vendoo_watch import mark_synced
+    from vendoo_studio.services.vendoo_send import measure_stage
 
     def mark(step: str) -> None:
         _mark_vendoo_api_step(job, step)
@@ -505,13 +510,14 @@ async def _save_claimed_draft(
     desired: dict = {}
     approved_labels = list(snapshot.get("labels") or [])
     try:
-        reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+        reply = await run_ops(job, [{"op": "get_item", "item_id": item_id, "with_version": True}])
         current = next(
             (r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None
         ) or {}
-        snapshot, specifics, schema, _unresolved, _unfilled = await prepare_listing_for_vendoo(
-            job, snapshot, provider=provider, evidence=evidence, mark=mark,
-        )
+        with measure_stage(job, "prepare"):
+            snapshot, specifics, schema, _unresolved, _unfilled = await prepare_listing_for_vendoo(
+                job, snapshot, provider=provider, evidence=evidence, mark=mark,
+            )
         # Keep the photos already on the draft — save never re-uploads them.
         current_images = (
             (current.get("generalDetails") or {}).get("images")
@@ -545,9 +551,31 @@ async def _save_claimed_draft(
             desired["dateLastModified"] = int(datetime.now(UTC).timestamp() * 1000)
             general_updates["dateLastModified"] = desired["dateLastModified"]
         mark(PATCH_STEP)
+        expected_version = current.get("_studio_update_time")
+        if not expected_version:
+            raise VendooCreateError("Reload the Vendoo extension before updating: the draft version is missing.")
         for batch in (general_updates, form_updates):
             if batch:
-                await run_ops(job, [{"op": "update_item", "item_id": item_id, "updates": batch}])
+                op = {"op": "update_item", "item_id": item_id, "updates": batch}
+                op["expected_update_time"] = expected_version
+                written = await run_ops(job, [op])
+                expected_version = next(
+                    (r.get("update_time") for r in written.get("results", []) if r.get("op") == "update_item"), None
+                )
+                if not expected_version:
+                    raise VendooCreateError("Vendoo did not return the saved draft version. Refresh before retrying Update.")
+        mark("vendoo_api_verify")
+        verified = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+        stored = next(
+            (r.get("item") for r in verified.get("results", []) if r.get("op") == "get_item"), None
+        )
+        if not isinstance(stored, dict) or not stored:
+            raise VendooCreateError("Vendoo did not return the saved draft. Retry Update to verify it.")
+        remaining = diff_updates({**general_updates, **form_updates}, stored)
+        if remaining:
+            raise VendooCreateError(
+                "Vendoo did not retain saved fields: " + ", ".join(row["field"] for row in remaining)
+            )
     except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
         job = job_repo.get(job.id) or job
         if str(getattr(job, "status", "") or "") in {"cancelled", "failed"} or "cancelled" in str(exc).lower():
@@ -577,17 +605,11 @@ async def _save_claimed_draft(
             "vendooRelistPending": sorted({*map(str, pending), *relist_needed}),
         })
         db.commit()
-    # Level with Vendoo on the revision that was just written. The stamp the
-    # item was *read* with is deliberately dropped: it predates this write, and
-    # keeping it would leave the next sync thinking Vendoo had moved on alone.
-    # Without one of its own, mark_synced stamps the moment of the write.
-    synced_item = {key: value for key, value in current.items() if key != "dateLastModified"}
-    if desired.get("dateLastModified"):
-        synced_item["dateLastModified"] = desired["dateLastModified"]
     synced_revision_id = save_prepared_revision(
         db, conv_id, {**snapshot, "labels": approved_labels}, revisions[0].id,
     )
-    mark_synced(db, conv_id, synced_item, synced_revision_id)
+    mark_synced(db, conv_id, stored, synced_revision_id)
+    job_repo.save_vendoo_draft(job.id, item=stored, item_id=item_id, source="api")
     job_repo.update_status(job.id, "completed", SAVED_STEP, vendoo_item_id=item_id)
     job_repo.add_event(job.id, "vendoo_api_saved", SAVED_STEP, {
         "item_id": item_id,
@@ -936,7 +958,10 @@ async def _create_claimed_draft(
 
     try:
         try:
-            out = await create_item(job, snapshot, photos, provider=provider, evidence=evidence)
+            from vendoo_studio.services.vendoo_send import measure_stage
+
+            with measure_stage(job, "total"):
+                out = await create_item(job, snapshot, photos, provider=provider, evidence=evidence)
         except Exception as exc:  # noqa: BLE001 - surfaced as HTTP
             job = job_repo.get(job.id) or job
             if str(getattr(job, "status", "") or "") in {"cancelled", "failed"} or "cancelled" in str(exc).lower():
@@ -970,7 +995,8 @@ async def _create_claimed_draft(
             # otherwise a brand-new item reads as edited-but-unsent straight away.
             from vendoo_studio.services.vendoo_watch import mark_synced
 
-            mark_synced(db, conv_id, out["stored"], synced_revision_id)
+            if not out["diff"]:
+                mark_synced(db, conv_id, out["stored"], synced_revision_id)
         return CreateResponse(
             ok=True,
             job_id=job.id,

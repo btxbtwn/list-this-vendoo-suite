@@ -27,6 +27,11 @@ const VENDOO_TOKEN_MIN_TTL_MS = 5 * 60 * 1000;
 const VENDOO_SESSION_KEY = 'vendoo_session';
 const VENDOO_REQUEST_TIMEOUT_MS = 60000;
 const VENDOO_PHOTO_CONCURRENCY = 3;
+const VENDOO_PHOTO_CACHE_LIMIT = 500;
+const VENDOO_PHOTO_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const vendooPhotoUploads = new Map();
+let vendooPhotoCacheWrite = Promise.resolve();
+let vendooSessionRequest = null;
 
 // Firestore auto-ids: 20 chars from this alphabet. Vendoo mints the item id
 // client-side with collection.doc().id before calling createItem.
@@ -234,15 +239,24 @@ async function refreshVendooToken(session) {
   const started = Date.now();
   let status = null;
   let ok = false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VENDOO_REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: session.refresh_token }),
     });
     status = res.status;
     ok = res.ok;
-    if (!res.ok) throw new Error(`Vendoo session refresh returned ${res.status}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const error = new Error(`Vendoo session refresh returned ${res.status}`);
+      error.invalidSession = ['TOKEN_EXPIRED', 'USER_DISABLED', 'USER_NOT_FOUND', 'INVALID_REFRESH_TOKEN']
+        .includes(data.error?.message);
+      throw error;
+    }
     const data = await res.json();
     return {
       ...session,
@@ -251,6 +265,7 @@ async function refreshVendooToken(session) {
       expiration_time: Date.now() + Number(data.expires_in || 3600) * 1000,
     };
   } finally {
+    clearTimeout(timer);
     noteVendooApiCall({ method: 'POST', url, status, ok, durationMs: Date.now() - started });
   }
 }
@@ -267,13 +282,14 @@ function tokenIsFresh(session) {
 // all run with no Vendoo tab anywhere. A tab is read only to bootstrap the
 // first session, or when the refresh token stops working — the seller having
 // signed out, or Firebase having revoked it.
-async function freshVendooSession() {
+async function loadFreshVendooSession() {
   const cached = await loadCachedVendooSession();
   if (tokenIsFresh(cached)) return cached;
   if (cached) {
     try {
       return await cacheVendooSession(await refreshVendooToken(cached));
     } catch (err) {
+      if (!err.invalidSession) throw err;
       // Refusing to refresh means this session is done; fall back to the page.
       await clearCachedVendooSession();
     }
@@ -285,6 +301,13 @@ async function freshVendooSession() {
   }
   if (!session.access_token) throw new Error('Vendoo session has no ID token; sign in to Vendoo again');
   return cacheVendooSession(session);
+}
+
+async function freshVendooSession() {
+  if (!vendooSessionRequest) {
+    vendooSessionRequest = loadFreshVendooSession().finally(() => { vendooSessionRequest = null; });
+  }
+  return vendooSessionRequest;
 }
 
 // A request line for Settings → Logs. Query strings carry API keys and signed
@@ -325,7 +348,28 @@ function noteVendooApiCall(fields) {
   }
 }
 
-async function vendooFetch(url, { method = 'GET', token, json, body, headers = {}, responseType = 'json', timeoutMs } = {}) {
+async function vendooFetch(url, options = {}) {
+  const safe = options.retrySafe === true || ['GET', 'HEAD'].includes(options.method || 'GET');
+  const deadline = Date.now() + (options.timeoutMs || VENDOO_REQUEST_TIMEOUT_MS);
+  for (let attempt = 0; ; attempt += 1) {
+    let result;
+    try {
+      result = await vendooFetchOnce(url, { ...options, timeoutMs: Math.max(1, deadline - Date.now()) });
+      if (!safe || ![408, 429, 500, 502, 503, 504].includes(result.status)) return result;
+    } catch (err) {
+      if (!safe || attempt >= 2 || Date.now() >= deadline) throw err;
+    }
+    if (attempt >= 2) return result;
+    const delay = result?.retryAfterMs ?? Math.floor(Math.random() * (500 * (2 ** attempt)));
+    if (delay >= deadline - Date.now()) {
+      if (result) return result;
+      throw new Error('Vendoo read timed out');
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+}
+
+async function vendooFetchOnce(url, { method = 'GET', token, json, body, headers = {}, responseType = 'json', timeoutMs } = {}) {
   const controller = new AbortController();
   const started = Date.now();
   const timer = setTimeout(() => controller.abort(), timeoutMs || VENDOO_REQUEST_TIMEOUT_MS);
@@ -350,8 +394,15 @@ async function vendooFetch(url, { method = 'GET', token, json, body, headers = {
     if (responseType === 'json') {
       const text = await res.text();
       try { data = JSON.parse(text); } catch (err) { data = text; }
+    } else if (responseType === 'blob') {
+      data = await res.blob();
     }
-    return { ok: res.ok, status: res.status, data };
+    const retryAfter = res.headers?.get('Retry-After');
+    const retryAfterMs = retryAfter == null ? null : (
+      /^\d+(?:\.\d+)?$/.test(retryAfter)
+        ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now())
+    );
+    return { ok: res.ok, status: res.status, data, retryAfterMs: Number.isFinite(retryAfterMs) ? retryAfterMs : null };
   } finally {
     clearTimeout(timer);
     noteVendooApiCall({ method, url, status, ok, durationMs: Date.now() - started });
@@ -369,13 +420,47 @@ function vendooError(prefix, result) {
 // the storage path. The item then references {version: 3, id: imagePath}.
 async function uploadVendooPhoto(session, photo) {
   const extension = String(photo.extension || 'jpg').toLowerCase();
+  const source = await vendooFetch(photo.url, { responseType: 'blob' });
+  if (!source.ok) throw new Error(`Fetching photo ${photo.id || ''} returned ${source.status}`);
+  const bytes = source.data;
+  const digest = await crypto.subtle.digest('SHA-256', await bytes.arrayBuffer());
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const cacheKey = `vendoo_photo_uploads:${session.uid}`;
+  const photoKey = `${hash}:${extension}`;
+  const flightKey = `${cacheKey}:${photoKey}`;
+  const stored = await chrome.storage.local.get(cacheKey);
+  const cached = stored?.[cacheKey]?.[photoKey];
+  const dimension = Number(photo.max_dimension) || 0;
+  if (cached?.image?.id && Date.now() - cached.at < VENDOO_PHOTO_CACHE_TTL_MS) {
+    return { ...cached.image, originalMaxDimension: dimension };
+  }
+  if (!vendooPhotoUploads.has(flightKey)) {
+    const upload = uploadVendooPhotoBytes(session, photo, bytes, extension).then(async (image) => {
+      // Serialize read/modify/write so concurrent uploads cannot erase one
+      // another. Cache only completed PUTs, bounded by count and age.
+      const write = vendooPhotoCacheWrite.catch(() => {}).then(async () => {
+        const latest = await chrome.storage.local.get(cacheKey);
+        const entries = { ...(latest?.[cacheKey] || {}), [photoKey]: { image, at: Date.now() } };
+        const retained = Object.entries(entries)
+          .filter(([, entry]) => Date.now() - entry.at < VENDOO_PHOTO_CACHE_TTL_MS)
+          .sort((a, b) => b[1].at - a[1].at)
+          .slice(0, VENDOO_PHOTO_CACHE_LIMIT);
+        await chrome.storage.local.set({ [cacheKey]: Object.fromEntries(retained) });
+      });
+      vendooPhotoCacheWrite = write;
+      await write;
+      return image;
+    }).finally(() => vendooPhotoUploads.delete(flightKey));
+    vendooPhotoUploads.set(flightKey, upload);
+  }
+  return { ...await vendooPhotoUploads.get(flightKey), originalMaxDimension: dimension };
+}
+
+async function uploadVendooPhotoBytes(session, photo, bytes, extension) {
   const slot = await vendooFetch(`${VENDOO_MSVC_BASE}/inventory/v1/images/url`, {
     method: 'POST', token: session.access_token, json: { fileExtension: extension },
   });
   if (!slot.ok || !slot.data?.url || !slot.data?.imagePath) throw new Error(vendooError('Vendoo image slot', slot));
-  const source = await fetch(photo.url);
-  if (!source.ok) throw new Error(`Fetching photo ${photo.id || photo.url} returned ${source.status}`);
-  const bytes = await source.blob();
   const put = await vendooFetch(slot.data.url, {
     method: 'PUT',
     body: bytes,
@@ -414,7 +499,19 @@ async function createVendooItem(session, item, subscriptionVersion) {
   return call.data?.result ?? call.data;
 }
 
-async function getVendooItem(session, itemId) {
+async function getVendooItem(session, itemId, { allowMissing = false, withVersion = false } = {}) {
+  let version = null;
+  if (withVersion) {
+    // Read the version before the API snapshot. A concurrent edit during
+    // either read then makes the subsequent conditional PATCH fail safely.
+    const doc = await vendooFetch(
+      `${VENDOO_FIRESTORE_BASE}/users/${encodeURIComponent(session.uid)}/items/${encodeURIComponent(itemId)}`,
+      { token: session.access_token },
+    );
+    if (allowMissing && doc.status === 404) return null;
+    if (!doc.ok || !doc.data?.updateTime) throw new Error(vendooError('Read draft version', doc));
+    version = doc.data.updateTime;
+  }
   const params = new URLSearchParams({
     useMarketplaceImages: 'true',
     isMultiQuantityItemsEnabled: 'true',
@@ -423,9 +520,11 @@ async function getVendooItem(session, itemId) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/item/${encodeURIComponent(itemId)}?${params}`, {
     token: session.access_token,
   });
+  if (allowMissing && res.status === 404) return null;
   if (!res.ok) throw new Error(vendooError(`GET /api/item/${itemId}`, res));
   const data = res.data;
-  return (data && (data.item || data.data)) || data;
+  const item = (data && (data.item || data.data)) || data;
+  return withVersion ? { ...item, _studio_update_time: version } : item;
 }
 
 // Every field one category leaf renders, for any marketplace. This is what
@@ -463,6 +562,7 @@ async function getVendooCategorySpecifics(session, call) {
 async function queryVendooSizes(session, call) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/rest/v1/size/query`, {
     method: 'POST',
+    retrySafe: true,
     token: session.access_token,
     json: { categoryId: call.category_id, marketplace: call.marketplace_id || 'vendoo' },
   });
@@ -657,6 +757,7 @@ async function updateVendooItem(session, call) {
 
   const params = new URLSearchParams();
   for (const path of paths) params.append('updateMask.fieldPaths', firestoreFieldPath(path));
+  if (call.expected_update_time) params.set('currentDocument.updateTime', call.expected_update_time);
   const url = `${VENDOO_FIRESTORE_BASE}/users/${encodeURIComponent(session.uid)}`
     + `/items/${encodeURIComponent(call.item_id)}?${params}`;
   const res = await vendooFetch(url, {
@@ -664,8 +765,11 @@ async function updateVendooItem(session, call) {
     token: session.access_token,
     json: { fields },
   });
+  if ([409, 412].includes(res.status) || res.data?.error?.status === 'FAILED_PRECONDITION') {
+    throw new Error('The Vendoo draft changed during this save. Refresh it and review your changes before trying again.');
+  }
   if (!res.ok) throw new Error(vendooError(`update ${call.item_id}`, res));
-  return { updated: paths };
+  return { updated: paths, update_time: res.data?.updateTime || null };
 }
 
 // An item's ``labels`` are ids into users/{uid}/labels, not names — the form
@@ -742,6 +846,7 @@ async function deleteVendooItem(session, call) {
 async function searchVendooCategory(session, call) {
   const res = await vendooFetch(`${VENDOO_API_BASE}/api/category/search`, {
     method: 'POST',
+    retrySafe: true,
     token: session.access_token,
     json: {
       text: call.text,
@@ -759,6 +864,29 @@ async function searchVendooCategory(session, call) {
   };
 }
 
+const VENDOO_READ_OPS = new Set([
+  'get_item', 'category_search', 'category_map', 'category_specifics', 'size_query',
+  'list_labels', 'list_items', 'subscription',
+]);
+const VENDOO_READ_CONCURRENCY = 3;
+
+async function runVendooRead(session, op) {
+  switch (op.op) {
+    case 'get_item':
+      return { item_id: op.item_id, item: await getVendooItem(session, op.item_id, {
+        allowMissing: op.allow_missing === true, withVersion: op.with_version === true,
+      }) };
+    case 'category_search': return searchVendooCategory(session, op);
+    case 'category_map': return { marketplace_id: op.marketplace_id, ...await mapVendooCategory(session, op) };
+    case 'category_specifics': return { category_id: op.category_id, ...await getVendooCategorySpecifics(session, op) };
+    case 'size_query': return { category_id: op.category_id, ...await queryVendooSizes(session, op) };
+    case 'list_labels': return { labels: await listVendooLabels(session) };
+    case 'list_items': return listVendooItems(session, op);
+    case 'subscription': return { version: await readVendooSubscriptionVersion(session) };
+    default: throw new Error(`Unknown Vendoo read: ${op.op}`);
+  }
+}
+
 // One Studio message, a list of ops, one reply. Studio sequences the calls it
 // needs (probe, upload, create, verify). Independent photo uploads run in small
 // batches, in result order; every batch settles before any dependent write.
@@ -768,6 +896,26 @@ async function runVendooApiOps(ops) {
   const results = [];
   for (let index = 0; index < ops.length; index += 1) {
     const op = ops[index];
+    if (VENDOO_READ_OPS.has(op.op)) {
+      const batch = [op];
+      while (!op.throttle_ms && batch.length < VENDOO_READ_CONCURRENCY
+        && VENDOO_READ_OPS.has(ops[index + batch.length]?.op)
+        && !ops[index + batch.length].throttle_ms) {
+        batch.push(ops[index + batch.length]);
+      }
+      const reads = await Promise.all(batch.map(async (call) => {
+        try {
+          return { op: call.op, ok: true, ...await runVendooRead(session, call) };
+        } catch (err) {
+          return { op: call.op, ok: false, error: String(err.message || err) };
+        }
+      }));
+      results.push(...reads);
+      if (reads.some((result) => !result.ok)) return { ok: false, uid: session.uid, results };
+      index += batch.length - 1;
+      if (op.throttle_ms) await new Promise((resolve) => setTimeout(resolve, op.throttle_ms));
+      continue;
+    }
     if (op.op === 'upload_photo' && !op.throttle_ms) {
       const batch = [];
       while (batch.length < VENDOO_PHOTO_CONCURRENCY
@@ -796,31 +944,19 @@ async function runVendooApiOps(ops) {
     try {
       switch (op.op) {
         case 'session':
+          if (op.expected_uid && op.expected_uid !== session.uid) {
+            throw new Error('This interrupted send belongs to a different Vendoo account. Sign in to that account to recover it.');
+          }
           results.push({ op: 'session', ok: true, uid: session.uid, email: session.email });
           break;
         case 'new_item_id':
           results.push({ op: 'new_item_id', ok: true, item_id: vendooFirestoreId() });
-          break;
-        case 'subscription':
-          results.push({ op: 'subscription', ok: true, version: await readVendooSubscriptionVersion(session) });
           break;
         case 'upload_photo':
           results.push({ op: 'upload_photo', ok: true, photo_id: op.photo?.id || null, image: await uploadVendooPhoto(session, op.photo || {}) });
           break;
         case 'create_item':
           results.push({ op: 'create_item', ok: true, result: await createVendooItem(session, op.item, op.subscription_version ?? null) });
-          break;
-        case 'list_items':
-          results.push({ op: 'list_items', ok: true, ...(await listVendooItems(session, op)) });
-          break;
-        case 'get_item':
-          results.push({ op: 'get_item', ok: true, item_id: op.item_id, item: await getVendooItem(session, op.item_id) });
-          break;
-        case 'category_search':
-          results.push({ op: 'category_search', ok: true, ...(await searchVendooCategory(session, op)) });
-          break;
-        case 'list_labels':
-          results.push({ op: 'list_labels', ok: true, labels: await listVendooLabels(session) });
           break;
         case 'resolve_labels':
           results.push({ op: 'resolve_labels', ok: true, ...(await resolveVendooLabels(session, op)) });
@@ -836,30 +972,6 @@ async function runVendooApiOps(ops) {
           break;
         case 'delist_item':
           results.push({ op: 'delist_item', ok: true, item_id: op.item_id, ...(await delistVendooItem(session, op)) });
-          break;
-        case 'category_map':
-          results.push({
-            op: 'category_map',
-            ok: true,
-            marketplace_id: op.marketplace_id,
-            ...(await mapVendooCategory(session, op)),
-          });
-          break;
-        case 'size_query':
-          results.push({
-            op: 'size_query',
-            ok: true,
-            category_id: op.category_id,
-            ...(await queryVendooSizes(session, op)),
-          });
-          break;
-        case 'category_specifics':
-          results.push({
-            op: 'category_specifics',
-            ok: true,
-            category_id: op.category_id,
-            ...(await getVendooCategorySpecifics(session, op)),
-          });
           break;
         default:
           throw new Error(`Unknown Vendoo API op: ${op.op}`);
