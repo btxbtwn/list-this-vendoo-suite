@@ -259,6 +259,51 @@ class WebResultFilterTest(unittest.TestCase):
         }], expected_names=("outdoor jacket",))
         self.assertEqual(comps, [])
 
+class CompEvidenceTest(unittest.TestCase):
+    def test_ended_and_unavailable_items_are_neither_sold_nor_active(self):
+        for status in ("Completed listing", "Listing ended", "Sold out", "No longer available"):
+            with self.subTest(status=status):
+                self.assertEqual(listings_from_web_results([{
+                    "title": "Levi's shorts", "url": "https://www.ebay.com/itm/9",
+                    "description": f"{status}. $22. Buy It Now",
+                }]), ([], []))
+
+    def test_hidden_accepted_offer_is_not_a_sold_price(self):
+        self.assertEqual(listings_from_web_results([{
+            "title": "Levi's shorts - Sold", "url": "https://www.ebay.com/itm/9",
+            "description": "$22. Best Offer accepted.",
+        }]), ([], []))
+        sold, _live = listings_from_web_results([{
+            "title": "Levi's shorts - Sold", "url": "https://www.ebay.com/itm/9",
+            "description": "Best Offer accepted. Sold for $18.",
+        }])
+        self.assertEqual([comp.price for comp in sold], [18])
+
+    def test_tracking_and_title_urls_do_not_inflate_confidence(self):
+        sold, live = listings_from_web_results([
+            {"title": "Levi's shorts", "url": url, "description": "Sold for $22."}
+            for url in ("https://www.ebay.com/itm/123?track=1",
+                        "https://ebay.com/itm/Levis-shorts/123#details",
+                        "https://www.ebay.com/itm/123/")
+        ] + [{"title": "Levi's shorts", "url": "https://ebay.com/itm/123?track=2",
+              "description": "$22 Buy It Now"}])
+        self.assertEqual(len(sold), 1)
+        self.assertEqual(live, [])
+
+    def test_rejects_lookalike_marketplace_hosts(self):
+        sold, live = listings_from_web_results([{
+            "title": "Levi's shorts", "url": "https://ebay.com.example.org/itm/123",
+            "description": "Sold for $22.",
+        }])
+        self.assertEqual((sold, live), ([], []))
+
+    def test_unknown_availability_does_not_set_active_ceiling(self):
+        self.assertEqual(listings_from_web_results([{
+            "title": "Levi's shorts", "url": "https://www.ebay.com/itm/123",
+            "description": "$22. Good condition.",
+        }]), ([], []))
+
+
 class ModelAnswerParseTest(unittest.TestCase):
     def test_reads_json_comps(self):
         answer = """```json
@@ -267,7 +312,7 @@ class ModelAnswerParseTest(unittest.TestCase):
 ]}
 ```"""
         market, comps, _live = comps_from_model_answer(answer, [])
-        self.assertEqual(market, "$18–$25")
+        self.assertEqual(market, "$22")
         self.assertEqual(comps[0].price, 22)
         self.assertEqual(comps[0].url, "https://www.ebay.com/itm/1")
 
@@ -278,7 +323,7 @@ class ModelAnswerParseTest(unittest.TestCase):
             "   https://poshmark.com/listing/abc\n"
         )
         market, comps, _live = comps_from_model_answer(answer, [])
-        self.assertEqual(market, "$18–$25")
+        self.assertEqual(market, "$18")
         self.assertEqual(len(comps), 1)
         self.assertEqual(comps[0].title, "Levi's slim shorts")
 

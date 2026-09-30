@@ -204,16 +204,57 @@ class ResearchTest(unittest.IsolatedAsyncioTestCase):
     async def test_model_comps_skip_brave(self):
         brave = AsyncMock(return_value=brave_report())
         calls: list = []
-        model = ModelSearch("ChatGPT", searcher(listing_json((22, "511 Slim Shorts", "https://www.ebay.com/itm/1")), calls=calls))
+        model = ModelSearch("ChatGPT", searcher(listing_json(
+            (22, "511 Slim Shorts", "https://www.ebay.com/itm/1"),
+            (19, "Slim Shorts", "https://poshmark.com/listing/2"),
+            (25, "511 Shorts", "https://www.mercari.com/us/item/m3"),
+            live=((28, "Shorts", "https://www.ebay.com/itm/4"),
+                  (29, "Shorts", "https://www.ebay.com/itm/5"),
+                  (30, "Shorts", "https://www.ebay.com/itm/6")),
+        ), calls=calls))
         first, second, third = patched(model, brave=brave)
         with first, second, third:
             text = await research_sold_comps(ANALYSIS)
         brave.assert_not_awaited()
         report = parse_sold_comps(text)
         self.assertEqual(report.source, "ChatGPT")
-        self.assertEqual([comp.price for comp in report.comps], [22])
+        self.assertEqual([comp.price for comp in report.comps], [22, 19, 25])
         self.assertIn("Require explicit evidence that the item sold", calls[0][0]["content"])
         self.assertIn("Levi's", calls[0][1]["content"])
+
+    async def test_thin_model_results_are_supplemented(self):
+        brave = AsyncMock(return_value=brave_report(
+            (21, "Shorts", "https://www.ebay.com/itm/5"),
+            (23, "Shorts", "https://www.ebay.com/itm/6"),
+        ))
+        model = ModelSearch("ChatGPT", searcher(listing_json(
+            (22, "Shorts", "https://www.ebay.com/itm/1"),
+        )))
+        first, second, third = patched(model, brave=brave)
+        with first, second, third:
+            text = await research_sold_comps(ANALYSIS)
+        brave.assert_awaited_once()
+        self.assertTrue(comps_confident(text))
+        self.assertEqual(parse_sold_comps(text).source, "ChatGPT + Brave")
+
+    async def test_enough_sold_but_thin_active_only_searches_active(self):
+        brave = AsyncMock(return_value=brave_report())
+        first, second, third = patched(ModelSearch("ChatGPT", searcher(THREE_SOLD)), brave=brave)
+        with first, second, third:
+            await research_sold_comps(ANALYSIS)
+        queries = brave.await_args.args[0]
+        self.assertEqual(len(queries), 5)
+        self.assertTrue(all("sold" not in query for query in queries))
+
+    async def test_supplement_failure_preserves_model_results(self):
+        brave = AsyncMock(side_effect=RuntimeError("unavailable"))
+        model = ModelSearch("ChatGPT", searcher(listing_json(
+            (22, "Shorts", "https://www.ebay.com/itm/1"),
+        )))
+        first, second, third = patched(model, brave=brave)
+        with first, second, third:
+            text = await research_sold_comps(ANALYSIS)
+        self.assertEqual([comp.price for comp in parse_sold_comps(text).comps], [22])
 
     async def test_no_sold_comps_falls_back_to_brave_and_keeps_live(self):
         brave = AsyncMock(return_value=brave_report((21, "Slim Shorts", "https://www.ebay.com/itm/5")))
