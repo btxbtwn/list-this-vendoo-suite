@@ -2,9 +2,8 @@
 
 The model that writes listings (Settings → Listing AI: the primary when it is
 connected, else the fallback) searches with its native web search tool. Brave
-runs only when that search fails, times out, finds no sold listings, or no
-model is connected. ``stream_sold_comps`` reports each source and the report as
-they land, so the chat and the Regenerate dialog can show progress.
+supplements thin sold or active results, and runs when no model is connected.
+``stream_sold_comps`` reports each source and the report as they land, so the chat and the Regenerate dialog can show progress.
 """
 
 from __future__ import annotations
@@ -14,8 +13,10 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
+from vendoo_studio.config import skills_dir
 from vendoo_studio.services import live_trace
 from vendoo_studio.services.brave_search import (
+    brave_active_queries,
     brave_sold_queries,
     comp_identities,
     item_fields,
@@ -25,6 +26,7 @@ from vendoo_studio.services.brave_search import (
 from vendoo_studio.services.keychain import get_brave_api_key
 from vendoo_studio.services.listing_provider import get_listing_provider
 from vendoo_studio.services.sold_comps import (
+    MIN_CONFIDENT_COMPS,
     SoldCompsReport,
     comps_from_model_answer,
     format_sold_comps,
@@ -58,41 +60,13 @@ COMPS_FAILED_NOTE = (
     "uncertainty in the description."
 )
 
-COMPS_SEARCH_PROMPT = (
-    "You are researching prices for a secondhand marketplace listing. "
-    "Search the live web for recently sold comps on eBay, Poshmark, Mercari, Depop, and Etsy. "
-    "Find as many as you can — aim for at least six across two or more of those "
-    "marketplaces, up to fifteen. Run several searches with different wording rather "
-    "than stopping at the first page of results, but answer within about a minute: "
-    "after roughly eight searches, return what you have. "
-    "Keep only specific sold items with a real sold price. Ignore how-to articles, "
-    "search pages, Terapeak marketing, and pricing guides. "
-    "Every comp must match the requested brand and item type; prefer the same style, "
-    "size, color, material, and department when those details are present. Exclude lots, "
-    "bundles, replacement parts, reproductions, and different models or collaborations. "
-    "Require explicit evidence that the item sold or the listing completed, not merely "
-    "that it is listed. A seller's lifetime \"items sold\" count is not that evidence. "
-    "If a result shows multiple prices, use only the amount explicitly identified as the "
-    "sold price; otherwise skip it. A number in the title, or one labeled retail, MSRP, "
-    "was, original, or shipping, is not the sold price. "
-    "Also list up to eight similar items that are still for sale, with their current "
-    "asking price, under \"live\". Never put a listing that is still for sale in \"comps\". "
-    "Return JSON only in this shape: "
-    '{"market":"$18-$25","comps":[{"title":"...","price":22,"marketplace":"eBay",'
-    '"condition":"Good","url":"https://www.ebay.com/itm/123"}],'
-    '"live":[{"title":"...","price":30,"marketplace":"Poshmark",'
-    '"url":"https://poshmark.com/listing/abc"}]} '
-    "Each entry must have the exact listing URL you observed "
-    "(ebay.com/itm, poshmark.com/listing, mercari.com/us/item, "
-    "depop.com/products, etsy.com/listing). Do not write a listing. Do not invent "
-    "prices or URLs. If you find nothing, return {\"market\":\"\",\"comps\":[],\"live\":[]}."
-)
 
 
 def comps_search_messages(query: str) -> list[dict]:
+    prompt = (skills_dir() / "list-this" / "references" / "comp-research.md").read_text(encoding="utf-8")
     return [
-        {"role": "system", "content": COMPS_SEARCH_PROMPT},
-        {"role": "user", "content": f"Find recently sold marketplace comps for: {query}"},
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": f"Find recently sold comps and active marketplace listings for: {query}"},
     ]
 
 
@@ -224,13 +198,18 @@ async def _stream_sold_comps(fields: dict[str, str]) -> AsyncIterator[CompsEvent
             )
             yield CompsEvent("report", text=format_sold_comps(report))
 
-    # The model's own search is the source; Brave stands in only when it did
-    # not work — failed, timed out, or came back without a single sale.
-    if brave_key and not any(report.comps for report in reports):
+    # Supplement only the side of the research that is still too thin.
+    merged = merge_reports(query, reports)
+    queries: list[str] = []
+    if len(merged.comps) < MIN_CONFIDENT_COMPS:
+        queries.extend(brave_sold_queries(fields))
+    if len(merged.live) < MIN_CONFIDENT_COMPS:
+        queries.extend(brave_active_queries(fields))
+    if brave_key and queries:
         yield CompsEvent("source", source="Brave", state="searching")
         try:
             brave = await research_brave_report(
-                brave_sold_queries(fields) or [query],
+                queries,
                 expected_names=expected_names,
             )
         except Exception as exc:
@@ -243,6 +222,7 @@ async def _stream_sold_comps(fields: dict[str, str]) -> AsyncIterator[CompsEvent
                 "source", source="Brave", state="done",
                 sold=len(brave.comps), live=len(brave.live),
             )
+            yield CompsEvent("report", text=format_sold_comps(merge_reports(query, reports)))
 
     if not reports:
         note = COMPS_FAILED_NOTE

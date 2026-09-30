@@ -6,9 +6,18 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.137 — 2026-09-29
+
+- Send and Update reuse marketplace fields prepared during generation, and new sends upload three photos at a time so you spend less time waiting.
+- See drafts being generated, batch rewrites, and Vendoo sends in Queue. Send to Vendoo adds your approved draft to the queue so you can keep working.
+
+## 0.1.136 — 2026-09-30
+
+- Listing generation searches sold items and active competition separately, looks for more evidence when results are thin, and avoids counting the same item twice or pricing from ended listings and unclear accepted offers.
+
 ## 0.1.135 — 2026-09-29
 
-- See drafts being generated, batch rewrites, and Vendoo sends in Queue. Send to Vendoo adds your approved draft to the queue so you can keep working.
+- When you regenerate several listings, you can drop the price first. Keep the current prices, take 10%, 15%, or 20% off each, or use each listing's own suggestion. The rewrite uses the new price. Nothing changes on Vendoo until you send.
 
 ## 0.1.134 — 2026-09-29
 

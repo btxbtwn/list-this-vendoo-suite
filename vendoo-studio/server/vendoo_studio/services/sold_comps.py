@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import statistics
 from dataclasses import dataclass, field
@@ -55,11 +56,11 @@ _SOLD_FOR_RE = re.compile(
     re.I,
 )
 _PRICE_BEFORE_SOLD_RE = re.compile(
-    _USD + r"\s*" + _AMOUNT + r"\s*(?:[-–—|·,:]\s*)?(?:sold|completed|ended)\b",
+    _USD + r"\s*" + _AMOUNT + r"\s*(?:[-–—|·,:]\s*)?sold\b",
     re.I,
 )
 _SOLD_EVIDENCE_RE = re.compile(
-    r"\b(?:sold(?:\s+(?:for|at|on))?|completed(?:\s+listing)?|item has sold|purchased)\b",
+    r"\b(?:sold(?:\s+(?:for|at|on))?|item has sold|purchased)\b",
     re.I,
 )
 # Seller feedback ("6.3K items sold") and "sold by {seller}" appear on active
@@ -94,6 +95,12 @@ _SHIPPING_PRICE_RE = re.compile(
     re.I,
 )
 _NOT_SOLD_RE = re.compile(r"\b(?:not sold|has(?:n't| not) sold|unsold|sold out)\b", re.I)
+# Ended listings and hidden accepted offers cannot supply current asking prices.
+_UNAVAILABLE_RE = re.compile(
+    r"\b(?:completed|ended|sold out|unavailable|no longer available|out of stock)\b", re.I
+)
+_BEST_OFFER_RE = re.compile(r"\bbest offer accepted\b|\baccepted (?:a |an )?offer\b", re.I)
+_ACTIVE_RE = re.compile(r"\b(?:buy (?:it )?now|add to (?:cart|bag)|for sale|in stock|asking|or best offer)\b", re.I)
 _RANGE_RE = re.compile(
     _USD + r"\s*" + _AMOUNT + r"\s*(?:[-–—]|to)\s*(?:" + _USD + r")?\s*" + _AMOUNT,
     re.I,
@@ -274,11 +281,15 @@ def extract_sold_price(text: str | None, ignore: set[float] | None = None) -> fl
     if _NOT_SOLD_RE.search(blob) or not _SOLD_EVIDENCE_RE.search(evidence):
         return None
     ignored = _non_sale_prices(blob) | (ignore or set())
+    if _BEST_OFFER_RE.search(blob) and not re.search(r"\bsold\s+(?:for|at)\b", blob, re.I):
+        return None
     sold = _SOLD_FOR_RE.search(blob) or _PRICE_BEFORE_SOLD_RE.search(blob)
     if sold:
         price = _usable_price(sold.group(1), ignored)
         if price is not None:
             return price
+    if _BEST_OFFER_RE.search(blob):
+        return None
     prices = {
         price
         for match in _PRICE_RE.finditer(blob)
@@ -298,6 +309,8 @@ def extract_live_price(text: str | None, ignore: set[float] | None = None) -> fl
     blob = text or ""
     evidence = _SELLER_SOLD_COUNT_RE.sub(" ", blob)
     if _SOLD_EVIDENCE_RE.search(evidence) and not _NOT_SOLD_RE.search(blob):
+        return None
+    if _UNAVAILABLE_RE.search(blob) or not _ACTIVE_RE.search(blob):
         return None
     ignored = _non_sale_prices(blob) | (ignore or set())
     prices = {
@@ -339,7 +352,11 @@ def marketplace_from_url(url: str | None) -> str:
     host = (parsed.hostname or "").lower()
     path = parsed.path or ""
     for host_part, prefix, market in _LISTING_HOSTS:
-        if host_part in host and prefix in path.lower():
+        valid_host = (
+            bool(re.fullmatch(r"(?:[a-z0-9-]+\.)*ebay\.(?:com|ca|co\.uk|com\.au|de|fr|it|es)", host))
+            if host_part == "ebay." else host == host_part or host.endswith("." + host_part)
+        )
+        if parsed.scheme in {"http", "https"} and valid_host and prefix in path.lower():
             return market
     return ""
 
@@ -390,7 +407,7 @@ def _comp(
     url: str = "",
     condition: str = "",
 ) -> SoldComp | None:
-    if price is None:
+    if price is None or not math.isfinite(price) or not 1 <= price <= 9999:
         return None
     title = _clean_title(title)
     url_marketplace = marketplace_from_url(url)
@@ -415,7 +432,15 @@ def _comp(
 
 
 def _comp_key(comp: SoldComp) -> str:
-    return comp.url.lower() if comp.url else f"{comp.marketplace}|{comp.price}|{comp.title.lower()}"
+    if comp.url:
+        parsed = urlparse(comp.url)
+        path = parsed.path.rstrip("/")
+        if comp.marketplace == "eBay":
+            # eBay may include a seller title before the ID, or tracking params.
+            item_id = path.split("/itm/", 1)[-1].split("/")[-1]
+            return f"eBay|{item_id}"
+        return f"{comp.marketplace}|{path}"
+    return f"{comp.marketplace}|{comp.price}|{comp.title.lower()}"
 
 
 def _dedupe(comps: list[SoldComp], limit: int = MAX_COMPS, exclude: set[str] | None = None) -> list[SoldComp]:
@@ -638,9 +663,9 @@ def comps_from_model_answer(
         [source for source in sources or [] if isinstance(source, dict)],
         expected_names=expected_names,
     )
-    comps = _dedupe([*comps, *source_comps])
+    comps = _dedupe([*source_comps, *comps])
     live = _dedupe_live([*live, *source_live], comps)
-    return market_range(market or (answer or ""), comps), comps, live
+    return market_range(comps=comps) if comps else market_range(market or (answer or "")), comps, live
 
 
 def merge_reports(query: str, reports: list[SoldCompsReport]) -> SoldCompsReport:

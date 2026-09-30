@@ -136,7 +136,8 @@ Measurement fallback rules:
 - always state in the description that the size is approximate and derived from measurements because no readable size tag was visible
 
 ### Step 4: Comp Checker
-Use `web_search` with query pattern: `"{brand} {item type} sold comps"`
+Follow [Comp research](references/comp-research.md) for sold and active listing searches.
+Use `web_search` with query pattern: `"{brand} {item type} sold comps"`, and search active listings separately.
 Apply pricing formula from MEMORY.md.
 
 ### Step 5: Synthesis (You)
@@ -431,7 +432,7 @@ Before outputting ANY listing, verify:
 
 ## Notes
 
-- Use web search for comps. Studio uses the web search of the model that writes the listing (ChatGPT, Cursor or MiMo), and falls back to Brave Search when that search fails, times out or finds no sales and a key is saved.
+- Use web search for comps. Studio uses the web search of the model that writes the listing (ChatGPT, Cursor or MiMo), and falls back to Brave Search when that search fails, times out, or returns fewer than three sold or active listings and a key is saved.
 - Standard listing JSON output must be copy/paste friendly with a `json` code block
 - Etsy digital download output must be copy-pasteable plain text or markdown, not JSON
 - When the user provides a local path, save the final standard listing as `listing.json` or the Etsy digital download listing as `listing.md` in the resolved photo folder
