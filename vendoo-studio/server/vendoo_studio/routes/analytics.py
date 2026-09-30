@@ -24,8 +24,17 @@ class AnalyticsSales(BaseModel):
     revenue: float
     profit: float | None
     profit_known: int
+    fees_known: int
+    revenue_known: int
+    days_known: int
     average_price: float | None
     median_days: int | None
+
+
+class AnalyticsPrevious(BaseModel):
+    start: str
+    end: str
+    sales: AnalyticsSales
 
 
 class AnalyticsPeriod(BaseModel):
@@ -41,16 +50,24 @@ class AnalyticsGroup(BaseModel):
     revenue: float
 
 
+class AnalyticsActiveListing(BaseModel):
+    conversation_id: str
+    title: str
+    price: float
+    days_listed: int | None
+
+
 class AnalyticsAging(BaseModel):
     label: str
     count: int
     asking_value: float
+    listings: list[AnalyticsActiveListing]
 
 
 class AnalyticsSale(BaseModel):
     conversation_id: str
     title: str
-    price: float
+    price: float | None
     marketplace: str
     sold_at: str | None
     days_listed: int | None
@@ -62,6 +79,7 @@ class AnalyticsResponse(BaseModel):
     periods_truncated: bool
     inventory: AnalyticsInventory
     sales: AnalyticsSales
+    previous: AnalyticsPrevious | None
     periods: list[AnalyticsPeriod]
     marketplaces: list[AnalyticsGroup]
     categories: list[AnalyticsGroup]

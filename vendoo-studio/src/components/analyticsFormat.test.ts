@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDays, formatMoney } from "./analyticsFormat";
+import { formatChange, formatDays, formatMoney } from "./analyticsFormat";
 
 describe("formatMoney", () => {
   it("drops cents on a whole dollar", () => {
@@ -24,5 +24,24 @@ describe("formatDays", () => {
   it("pluralizes", () => {
     expect(formatDays(1)).toBe("1 day");
     expect(formatDays(18)).toBe("18 days");
+  });
+});
+
+describe("formatChange", () => {
+  it("compares positive baselines", () => {
+    expect(formatChange(150, 100, formatMoney)).toBe("Up $50 (50%)");
+    expect(formatChange(5, 10, String)).toBe("Down 5 (50%)");
+  });
+
+  it("avoids misleading percentages for zero baselines or losses", () => {
+    expect(formatChange(40, 0, formatMoney)).toBe("Up $40");
+    expect(formatChange(-20, -40, formatMoney)).toBe("Up $20");
+    expect(formatChange(-20, 40, formatMoney)).toBe("Down $60");
+  });
+
+  it("handles missing and unchanged values", () => {
+    expect(formatChange(null, 10, formatDays)).toBe("No comparison data");
+    expect(formatChange(10, null, formatDays)).toBe("No comparison data");
+    expect(formatChange(0, 0, String)).toBe("No change");
   });
 });

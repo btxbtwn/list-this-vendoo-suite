@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.142 — 2026-09-30
+
+- Compare sales with the previous period and open inventory age groups to review their listings. Analytics now shows missing sale prices and costs clearly, includes recorded $0 costs in profit, and excludes future-dated sales.
+
 ## 0.1.141 — 2026-09-30
 
 - Compare combined, Raghouse-only, and Thrift Vintage Fashion buy lists for your sourcing budget, with shipping, budget remaining, and resale research links.

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { AnalyticsRange, AnalyticsSales, InventoryAnalytics } from "../api/types";
-import { formatDays, formatMoney } from "./analyticsFormat";
+import { formatChange, formatDays, formatMoney } from "./analyticsFormat";
 import { marketplaceName } from "./marketplaceNames";
 
 const RANGES: { id: AnalyticsRange; label: string; heading: string }[] = [
@@ -24,7 +24,7 @@ export function AnalyticsPage({ onOpenListing }: Props) {
     placeholderData: keepPreviousData,
   });
   const data = query.data;
-  const heading = RANGES.find((item) => item.id === range)?.heading ?? "Sales";
+  const heading = RANGES.find((item) => item.id === (data?.range ?? range))?.heading ?? "Sales";
 
   return (
     <div className="analytics-page">
@@ -51,6 +51,7 @@ export function AnalyticsPage({ onOpenListing }: Props) {
         </header>
 
         {query.isLoading && !data ? <p className="analytics-status">Loading analytics…</p> : null}
+        {query.isFetching && data ? <p className="analytics-status" role="status">Updating analytics…</p> : null}
         {query.isError ? (
           <p className="analytics-status">
             {(query.error as Error).message || "Could not load analytics."}
@@ -62,11 +63,24 @@ export function AnalyticsPage({ onOpenListing }: Props) {
             <section className="analytics-section" aria-label={heading}>
               <h2 className="analytics-section-title">{heading}</h2>
               <SalesStats data={data} />
-              {data.range === "all" && data.undated_sales > 0 ? (
+              {data.previous ? (
+                <p className="analytics-note analytics-comparison-period">
+                  Compared with {formatSold(data.previous.start)} – {formatSold(data.previous.end)}
+                  {" (previous period, same length)."}
+                </p>
+              ) : null}
+              {data.sales.revenue_known < data.sales.count ? (
                 <p className="analytics-note">
-                  {data.undated_sales === 1
-                    ? "1 sale has no date, so it is in the totals and not the chart."
-                    : `${data.undated_sales} sales have no date, so they are in the totals and not the chart.`}
+                  {data.sales.count - data.sales.revenue_known} {data.sales.count - data.sales.revenue_known === 1 ? "sale has" : "sales have"} no recorded price.
+                  Revenue, averages, and breakdowns include recorded amounts only.
+                </p>
+              ) : null}
+              {data.undated_sales > 0 ? (
+                <p className="analytics-note">
+                  {data.undated_sales} {data.undated_sales === 1 ? "sale has" : "sales have"} no date.
+                  {data.range === "all"
+                    ? " Included in totals, but excluded from the chart."
+                    : " Excluded from this period; included in All time."}
                 </p>
               ) : null}
               {data.periods_truncated ? (
@@ -110,19 +124,35 @@ export function AnalyticsPage({ onOpenListing }: Props) {
             />
 
             <section className="analytics-section" aria-label="Active listings">
-              <h2 className="analytics-section-title">How long active listings have been up</h2>
+              <h2 className="analytics-section-title">Current inventory by age</h2>
+              <p className="analytics-note">All active listings, regardless of the sales period. Open an age group to review its listings.</p>
               {data.aging.length === 0 ? (
                 <p className="analytics-note">No active listings.</p>
               ) : (
-                <ol className="analytics-ranks">
+                <div className="analytics-aging">
                   {data.aging.map((row) => (
-                    <li key={row.label} className="analytics-rank">
-                      <span className="analytics-rank-label">{row.label}</span>
-                      <span className="analytics-rank-meta">{row.count}</span>
-                      <span className="analytics-rank-value">{formatMoney(row.asking_value)}</span>
-                    </li>
+                    <details key={row.label} className="analytics-age-group">
+                      <summary className="analytics-rank">
+                        <span className="analytics-rank-label">{row.label}</span>
+                        <span className="analytics-age-count">{row.count} listings</span>
+                        <span className="analytics-rank-value">{formatMoney(row.asking_value)} asking</span>
+                      </summary>
+                      <ul className="analytics-recent analytics-age-listings">
+                        {row.listings.map((listing) => (
+                          <li key={listing.conversation_id}>
+                            <button type="button" className="analytics-recent-row" onClick={() => onOpenListing(listing.conversation_id)}>
+                              <span className="analytics-recent-title">{listing.title}</span>
+                              <span className="analytics-recent-meta">
+                                {listing.days_listed == null ? "No list date" : formatDays(listing.days_listed)}
+                              </span>
+                              <span className="analytics-recent-price">{formatMoney(listing.price)}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
                   ))}
-                </ol>
+                </div>
               )}
             </section>
 
@@ -145,7 +175,7 @@ export function AnalyticsPage({ onOpenListing }: Props) {
                           {sale.sold_at ? ` · ${formatSold(sale.sold_at)}` : ""}
                           {sale.days_listed != null ? ` · ${formatDays(sale.days_listed)}` : ""}
                         </span>
-                        <span className="analytics-recent-price">{formatMoney(sale.price)}</span>
+                        <span className="analytics-recent-price">{sale.price == null ? "Price unknown" : formatMoney(sale.price)}</span>
                       </button>
                     </li>
                   ))}
@@ -168,26 +198,34 @@ function InventoryStrip({ inventory }: { inventory: InventoryAnalytics["inventor
   if (inventory.sold) parts.push(`${inventory.sold} sold`);
   if (inventory.failed) parts.push(`${inventory.failed} failed`);
   if (inventory.working) parts.push(`${inventory.working} in progress`);
-  return <p className="analytics-inventory">{parts.join(" · ")}</p>;
+  return <p className="analytics-inventory">Current inventory: {parts.join(" · ")}</p>;
 }
 
 function profitHint(sales: AnalyticsSales): string {
-  if (sales.profit_known === 0) return "Add a cost to see profit";
+  if (sales.profit_known === 0) return "Record sale prices and costs to see profit";
   const scope =
     sales.profit_known === sales.count ? "" : ` on ${sales.profit_known} of ${sales.count} sales`;
-  if (sales.fees_known === 0) return `Sold price minus cost${scope}. No fees recorded yet`;
-  if (sales.fees_known === sales.profit_known) return `After cost, fees and shipping${scope}`;
-  return `After cost, fees and shipping${scope}. Fees recorded on ${sales.fees_known}`;
+  if (sales.fees_known === 0) return `After recorded costs and shipping${scope}. Fees missing`;
+  if (sales.fees_known === sales.profit_known) return `After recorded cost, fees and shipping${scope}`;
+  return `After recorded cost, fees and shipping${scope}. Fees recorded on ${sales.fees_known} of ${sales.profit_known}`;
 }
 
 function SalesStats({ data }: { data: InventoryAnalytics }) {
   const sales = data.sales;
   const profit = sales.profit;
+  const previous = data.previous?.sales;
+  const revenueComplete = previous && sales.revenue_known === sales.count && previous.revenue_known === previous.count;
+  const profitComplete = previous && sales.profit_known === sales.count && previous.profit_known === previous.count
+    && sales.fees_known === sales.count && previous.fees_known === previous.count;
   return (
     <div className="analytics-stats">
-      <Stat label="Revenue" value={formatMoney(sales.revenue)} />
+      <Stat label="Revenue" value={formatMoney(sales.revenue)}
+        hint={`${sales.revenue_known} of ${sales.count} sales with recorded prices`}
+        change={previous ? (revenueComplete ? formatChange(sales.revenue, previous.revenue, formatMoney) : "Comparison unavailable: missing prices") : undefined}
+      />
       <Stat
         label="Sold"
+        change={previous ? formatChange(sales.count, previous.count, String) : undefined}
         value={String(sales.count)}
         hint={sales.average_price == null ? undefined : `${formatMoney(sales.average_price)} average`}
       />
@@ -196,10 +234,13 @@ function SalesStats({ data }: { data: InventoryAnalytics }) {
         value={profit == null ? "—" : formatMoney(profit)}
         negative={profit != null && profit < 0}
         hint={profitHint(sales)}
+        change={previous ? (profitComplete ? formatChange(profit, previous.profit, formatMoney) : "Comparison unavailable: missing costs or fees") : undefined}
       />
       <Stat
         label="Median time to sell"
         value={sales.median_days == null ? "—" : formatDays(sales.median_days)}
+        hint={`Based on ${sales.days_known} of ${sales.count} sales`}
+        change={previous ? formatChange(sales.median_days, previous.median_days, formatDays) : undefined}
       />
     </div>
   );
@@ -209,11 +250,13 @@ function Stat({
   label,
   value,
   hint,
+  change,
   negative = false,
 }: {
   label: string;
   value: string;
   hint?: string;
+  change?: string;
   negative?: boolean;
 }) {
   return (
@@ -221,6 +264,7 @@ function Stat({
       <div className="analytics-stat-label">{label}</div>
       <div className={`analytics-stat-value${negative ? " is-negative" : ""}`}>{value}</div>
       {hint ? <div className="analytics-stat-hint">{hint}</div> : null}
+      {change ? <div className="analytics-stat-change">{change}</div> : null}
     </div>
   );
 }
@@ -232,9 +276,9 @@ function SalesChart({ periods }: { periods: InventoryAnalytics["periods"] }) {
     return <p className="analytics-note">No dated sales in this period.</p>;
   }
   return (
-    <div className="analytics-chart" role="img" aria-label="Sales over time">
+    <div className="analytics-chart" role="img" aria-label="Recorded revenue over time">
       {periods.map((period, index) => {
-        const share = peakRevenue > 0 ? period.revenue / peakRevenue : period.count / peakCount;
+        const share = peakRevenue > 0 ? period.revenue / peakRevenue : 0;
         const height = share > 0 ? Math.max(Math.round(share * 120), 4) : 0;
         return (
           <div key={`${period.label}-${index}`} className="analytics-bar-col">

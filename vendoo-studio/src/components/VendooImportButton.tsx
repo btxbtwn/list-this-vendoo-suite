@@ -60,6 +60,7 @@ export function VendooImportButton() {
     if (!running) return;
     const timer = window.setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     }, 4000);
     return () => window.clearInterval(timer);
   }, [running, queryClient]);
@@ -72,6 +73,7 @@ export function VendooImportButton() {
     if (!wasRunning.current || !run) return;
     wasRunning.current = false;
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    queryClient.invalidateQueries({ queryKey: ["analytics"] });
     if (run.error) {
       addToast({ type: "error", title: "Vendoo sync stopped", description: run.error });
     } else {
