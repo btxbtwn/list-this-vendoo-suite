@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.136 — 2026-09-30
+
+- Check for Studio listings that share a Vendoo link from the listings sidebar, open each one to review it, and prevent linking a Vendoo item already used by another listing.
+
 ## 0.1.135 — 2026-09-29
 
 - When you regenerate several listings, you can drop the price first. Keep the current prices, take 10%, 15%, or 20% off each, or use each listing's own suggestion. The rewrite uses the new price. Nothing changes on Vendoo until you send.

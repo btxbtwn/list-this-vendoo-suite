@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -111,6 +112,58 @@ class LinkVendooDraftTest(unittest.TestCase):
             json={"url_or_id": "taken123"},
         )
         self.assertEqual(response.status_code, 409, response.text)
+
+    def test_relink_same_item_is_allowed_when_unique(self):
+        for ref in ("unique123", "https://app.vendoo.co/app/item/unique123?marketplace=ebay"):
+            response = self.client.post(
+                f"/api/conversations/{self.conv.id}/vendoo-link", json={"url_or_id": ref},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
+    def test_relink_checks_other_owners_even_when_current_listing_is_newest(self):
+        other = ConversationRepo(self.db).create(title="Other tee")
+        other.notes = json.dumps({"vendooItemId": "shared123"})
+        other.updated_at = datetime(2026, 1, 1)
+        self.conv.notes = json.dumps({"vendooItemId": "shared123"})
+        self.conv.updated_at = datetime(2026, 9, 30)
+        self.db.commit()
+        response = self.client.post(
+            f"/api/conversations/{self.conv.id}/vendoo-link",
+            json={"url_or_id": "https://web.vendoo.co/app/item/shared123#general"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("Other tee", response.json()["detail"])
+
+    def test_scan_groups_all_owners_and_does_not_change_listings(self):
+        repo = ConversationRepo(self.db)
+        self.conv.notes = json.dumps({"vendooItemId": "shared123"})
+        second = repo.create(title="Second tee", notes=json.dumps({
+            "vendooItemId": "shared123", "vendooUrl": "https://app.vendoo.co/app/item/shared123",
+        }))
+        third = repo.create(notes=json.dumps({"vendooItemId": "shared123"}))
+        third.settled_at = datetime(2026, 9, 29)
+        repo.create(title="Unique", notes=json.dumps({"vendooItemId": "unique123"}))
+        repo.create(title="Substring", notes=json.dumps({"vendooItemId": "shared1234"}))
+        repo.create(title="Malformed notes", notes="not JSON shared123")
+        self.db.commit()
+        before = [(c.id, c.notes, c.updated_at, c.settled_at) for c in repo.list_all()]
+
+        response = self.client.get("/api/conversations/vendoo-link-duplicates")
+        self.assertEqual(response.status_code, 200, response.text)
+        groups = response.json()
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["vendoo_item_id"], "shared123")
+        self.assertEqual(groups[0]["vendoo_url"], "https://web.vendoo.co/app/item/shared123")
+        self.assertEqual(
+            {row["id"]: row["title"] for row in groups[0]["listings"]},
+            {self.conv.id: "Nike tee", second.id: "Second tee", third.id: "Untitled"},
+        )
+        self.assertEqual(before, [(c.id, c.notes, c.updated_at, c.settled_at) for c in repo.list_all()])
+
+    def test_scan_without_duplicates(self):
+        response = self.client.get("/api/conversations/vendoo-link-duplicates")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), [])
 
     @patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=AsyncMock)
     def test_import_draft_copies_fields_and_photos_into_blank_listing(self, download):
