@@ -339,6 +339,13 @@ export const api = {
   },
 
   jobs: {
+    send: (conversationId: string) => request<Job>("/jobs/send", {
+      method: "POST", body: JSON.stringify({ conversation_id: conversationId }),
+    }),
+    queue: () => request<{
+      work: { conversation_id: string; title: string; detail: string }[];
+      jobs: Job[];
+    }>("/jobs/queue"),
     list: (conversationId?: string) => {
       const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : "";
       return request<Job[]>(`/jobs${query}`);

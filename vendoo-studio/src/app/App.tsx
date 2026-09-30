@@ -42,6 +42,7 @@ import {
   type BulkUploadDefaults,
 } from "../bulkPhotoUpload";
 import { ThemeSync } from "../components/ThemeSync";
+import { QueuePage } from "../components/QueuePage";
 
 const ListingEditor = lazy(() =>
   import("../components/ListingEditor").then((module) => ({ default: module.ListingEditor })),
@@ -133,6 +134,31 @@ export function App() {
     queryFn: () => api.jobs.list(selectedConvId || undefined),
     refetchInterval: 2000,
   });
+  const queue = useQuery({
+    queryKey: ["queue"],
+    queryFn: api.jobs.queue,
+    refetchInterval: 2000,
+  });
+  const previousQueueJobs = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    if (!queue.data) return;
+    const previous = previousQueueJobs.current;
+    previousQueueJobs.current = new Map(queue.data.jobs.map((job) => [job.id, job.status]));
+    if (!previous) return;
+    for (const job of queue.data.jobs) {
+      if (!PREVIEW_JOB_STATUSES.has(previous.get(job.id) || "") || PREVIEW_JOB_STATUSES.has(job.status)) continue;
+      for (const key of ["jobs", "conversations", "conversation", "listing", "listing-fields", "fill-log", "vendoo-item"]) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+      }
+      if (job.status === "completed" || job.status === "failed") {
+        addToast({
+          type: job.status === "failed" ? "error" : "success",
+          title: job.status === "failed" ? "Vendoo send failed" : "Vendoo draft saved",
+          description: job.last_error || job.listing_title,
+        });
+      }
+    }
+  }, [queue.data, queryClient]);
 
   // Bound listings can change tab in Vendoo while the sidebar is open. A quiet
   // inventory pass refreshes draft/active/sold without importing photos — on
@@ -164,7 +190,7 @@ export function App() {
   const listingJob = jobs?.find((job) => job.conversation_id === selectedConvId && job.status !== "cancelled");
   const apiCreateStep = String(listingJob?.current_step || "");
   const apiCreateRunning = Boolean(
-    listingJob?.status === "dispatched"
+    PREVIEW_JOB_STATUSES.has(String(listingJob?.status))
     && (apiCreateStep === "vendoo_api_create" || apiCreateStep.startsWith("vendoo_api_")),
   );
   // API create has no draft tab yet — keep the browser pane closed so we do not
@@ -209,6 +235,8 @@ export function App() {
     ? SETTINGS_SECTION_LABELS[settingsSection]
     : activeView === "analytics"
       ? "Analytics"
+      : activeView === "queue"
+        ? "Queue"
       : activeView === "sourcing"
         ? "Sourcing"
         : String(selectedListing?.title || "Vendoo Studio");
@@ -240,7 +268,7 @@ export function App() {
   };
 
   // Analytics and Sourcing are toggles: pressing the open one goes back to listings.
-  const togglePage = (view: "analytics" | "sourcing") => {
+  const togglePage = (view: "analytics" | "sourcing" | "queue") => {
     setMobilePane("workspace");
     if (activeView === view) {
       setActiveView("listings");
@@ -593,6 +621,10 @@ export function App() {
             onOpenSettings={openSettings}
             onOpenAnalytics={openAnalytics}
             onOpenSourcing={openSourcing}
+            onOpenQueue={() => togglePage("queue")}
+            queueCount={(queue.data?.jobs.filter((j) => PREVIEW_JOB_STATUSES.has(j.status)).length ?? 0)
+              + (queue.data?.work.filter((w) => !bulk.pendingIds.includes(w.conversation_id)).length ?? 0)
+              + bulk.pendingIds.length}
             onCloseSettings={closeSettings}
             onSettingsSectionChange={handleSettingsSectionChange}
             onSettingsSearchResult={handleSettingsSearchResult}
@@ -645,6 +677,7 @@ export function App() {
             <div className="mobile-workspace-title">{workspaceTitle}</div>
             {activeView === "listings" ? (
               <>
+                <button type="button" className="sidebar-icon-btn" aria-label="Queue" onClick={() => togglePage("queue")}>Queue</button>
                 <div className="mobile-workspace-panes" role="tablist" aria-label="Workspace views">
                   <button
                     type="button"
@@ -717,6 +750,10 @@ export function App() {
                     onOpenSetupGuide={() => setSetupGuideOpen(true)}
                   />
                 </Suspense>
+              ) : activeView === "queue" ? (
+                <QueuePage data={queue.data} loading={queue.isPending} error={queue.error}
+                  bulk={bulk} titles={new Map((conversations ?? []).map((c) => [c.id, c.title || "Untitled listing"]))}
+                  onOpenListing={openListing} />
               ) : activeView === "analytics" ? (
                 <Suspense fallback={null}>
                   <AnalyticsPage onOpenListing={openListing} />

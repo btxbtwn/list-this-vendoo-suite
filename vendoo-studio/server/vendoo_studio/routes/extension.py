@@ -331,8 +331,23 @@ async def dispatch_queued_jobs():
         # One Chrome fill at a time; later approvals wait in queued / awaiting_extension.
         if repo.get_running():
             return
-        jobs = [job for job in repo.get_dispatchable() if not is_vendoo_api_step(job.current_step)]
+        jobs = repo.get_dispatchable()
         if not jobs:
+            return
+        job = jobs[0]
+        if is_vendoo_api_step(job.current_step):
+            if not extension_manager.connected:
+                return
+            from vendoo_studio.services.api_job_lock import claim_api_job, start_gate
+            from vendoo_studio.services.send_queue import run_send
+            from vendoo_studio.services.streaming import spawn
+
+            with start_gate():
+                if repo.get_running():
+                    return
+                repo.update_status(job.id, "dispatched", "vendoo_api_categories" if job.vendoo_item_id else "vendoo_api_create")
+                claim_api_job(job.id)
+            spawn(run_send(job.id))
             return
         if not extension_manager.connected:
             for job in jobs:

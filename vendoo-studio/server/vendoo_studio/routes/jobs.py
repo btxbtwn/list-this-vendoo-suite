@@ -41,6 +41,74 @@ class EnsureDraftJobRequest(BaseModel):
     conversation_id: str
 
 
+@router.post("/send", response_model=JobResponse, status_code=202)
+async def enqueue_send(body: EnsureDraftJobRequest, db: Session = Depends(get_db)):
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.services.api_job_lock import start_gate
+    from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+    from vendoo_studio.services.streaming import active_generation
+    from vendoo_studio.services import activity
+    from vendoo_studio.services.vendoo_import import vendoo_binding
+    from vendoo_studio.routes.extension import schedule_advance_job_queue
+
+    conv = ConversationRepo(db).get(body.conversation_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    if active_generation(conv.id) or activity.running(conv.id):
+        raise HTTPException(409, "Wait for generation to finish before sending.")
+    revisions = ListingRepo(db).get_revisions(conv.id)
+    if not revisions:
+        raise HTTPException(400, "Generate or edit a listing first.")
+    binding = vendoo_binding(conv.notes)
+    item_id = binding.get("vendooItemId")
+    if not item_id and not ConversationRepo(db).get_photos(conv.id):
+        raise HTTPException(400, "Add at least one photo first.")
+    snapshot = prepare_listing_snapshot(db, conv, revisions[0].listing_json)
+    with start_gate():
+        repo = JobRepo(db)
+        if any(j.status in ACTIVE_JOB_STATUSES for j in repo.list_by_conversation(conv.id)):
+            raise HTTPException(409, "This listing is already queued or sending to Vendoo.")
+        job = repo.create(
+            conv_id=conv.id, approved_revision_id=revisions[0].id,
+            listing_snapshot=snapshot, vendoo_item_id=item_id,
+            vendoo_url=binding.get("vendooUrl"), status="queued",
+            current_step="vendoo_api_queued",
+        )
+        repo.add_event(job.id, "approved", job.current_step)
+    response = _job_response(job)
+    schedule_advance_job_queue()
+    return response
+
+
+@router.get("/queue")
+async def get_queue(db: Session = Depends(get_db)):
+    from vendoo_studio.services import activity
+    from vendoo_studio.services.streaming import active_generations
+    from vendoo_studio.services.api_job_lock import release_orphaned_api_jobs
+    from vendoo_studio.routes.extension import schedule_advance_job_queue
+
+    release_orphaned_api_jobs(db)
+    schedule_advance_job_queue()
+    from vendoo_studio.models.conversation import Conversation
+
+    work = []
+    generations = active_generations()
+    background = activity.running_all()
+    ids = set(generations) | set(background)
+    for conv in db.query(Conversation.id, Conversation.title).filter(Conversation.id.in_(ids)).all():
+        run = generations.get(conv.id)
+        labels = background.get(conv.id, [])
+        if run or labels:
+            work.append({
+                "conversation_id": conv.id, "title": conv.title,
+                "detail": run.last_status or "Generating listing…" if run else " · ".join(labels),
+            })
+    jobs = JobRepo(db).list_all()
+    active = JobRepo(db).get_active()
+    recent = [j for j in jobs if j.status in {"completed", "failed", "cancelled"}][:30]
+    return {"work": work, "jobs": [_job_response(j) for j in active + recent]}
+
+
 @router.post("/ensure-draft", response_model=JobResponse)
 def ensure_draft_job(body: EnsureDraftJobRequest, db: Session = Depends(get_db)):
     """Attach Fields to an existing Vendoo draft binding without starting a Send."""

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.135 — 2026-09-29
+
+- See drafts being generated, batch rewrites, and Vendoo sends in Queue. Send to Vendoo adds your approved draft to the queue so you can keep working.
+
 ## 0.1.134 — 2026-09-29
 
 - A men's T-shirt category that came back stuck together, without the > between each level, is saved as the real men's T-shirts path.

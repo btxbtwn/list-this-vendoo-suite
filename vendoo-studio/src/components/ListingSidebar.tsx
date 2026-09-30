@@ -122,6 +122,8 @@ interface Props {
   onOpenSettings: () => void;
   onOpenAnalytics: () => void;
   onOpenSourcing: () => void;
+  onOpenQueue: () => void;
+  queueCount: number;
   onCloseSettings: () => void;
   onSettingsSectionChange: (section: SettingsSectionId) => void;
   onSettingsSearchResult: (item: SettingsSearchItem) => void;
@@ -331,6 +333,8 @@ export function ListingSidebar({
   onOpenSettings,
   onOpenAnalytics,
   onOpenSourcing,
+  onOpenQueue,
+  queueCount,
   onCloseSettings,
   onSettingsSectionChange,
   onSettingsSearchResult,
@@ -1000,6 +1004,16 @@ export function ListingSidebar({
             </button>
           ) : (
             <>
+              <button
+                type="button"
+                className={`sidebar-icon-btn queue-nav${activeView === "queue" ? " selected" : ""}`}
+                title="Queue"
+                aria-label={`Queue${queueCount ? ` (${queueCount})` : ""}`}
+                aria-pressed={activeView === "queue"}
+                onClick={onOpenQueue}
+              >
+                <span>Queue{queueCount ? ` · ${queueCount}` : ""}</span>
+              </button>
               <button
                 type="button"
                 className={`sidebar-icon-btn${activeView === "sourcing" ? " selected" : ""}`}

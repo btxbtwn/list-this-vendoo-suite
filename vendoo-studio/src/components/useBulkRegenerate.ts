@@ -41,6 +41,7 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
   const cancelRef = useRef(false);
   const runningRef = useRef(false);
   const [run, setRun] = useState<BulkRegenerateRun | null>(null);
+  const [pendingIds, setPendingIds] = useState<string[]>([]);
 
   async function start(
     ids: string[],
@@ -52,6 +53,7 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
     cancelRef.current = false;
     const marked = new Set<string>();
     const titleOf = (id: string) => titles.get(id) || "listing";
+    setPendingIds(ids);
     setRun({
       index: 0,
       total: ids.length,
@@ -122,12 +124,14 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
       }, {
         cancelled: () => cancelRef.current,
         onProgress: (progress) => {
+          setPendingIds(ids.slice(progress.index));
           setRun({ ...progress, cancelRequested: cancelRef.current, mode, title: titleOf(progress.id) });
         },
       });
     } finally {
       runningRef.current = false;
       setRun(null);
+      setPendingIds([]);
     }
   }
 
@@ -139,6 +143,7 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
   return {
     running: run != null,
     run,
+    pendingIds,
     start,
     cancel,
   };

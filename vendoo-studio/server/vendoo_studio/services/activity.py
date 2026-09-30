@@ -58,6 +58,10 @@ def running(conv_id: str) -> list[str]:
     return list(dict.fromkeys(labels))
 
 
+def running_all() -> dict[str, list[str]]:
+    return {conv_id: labels for conv_id in _work if (labels := running(conv_id))}
+
+
 def cancel(conv_id: str) -> int:
     items = list(_work.get(conv_id, []))
     for work in items:

@@ -137,6 +137,9 @@ def _finish_api_send(db: Session, job_id: str) -> None:
         abandon_api_job_if_still_running(db, job_id)
     finally:
         release_api_job(job_id)
+        from vendoo_studio.routes.extension import schedule_advance_job_queue
+
+        schedule_advance_job_queue()
 
 
 def _known_item_ids(db: Session) -> list[str]:
@@ -881,11 +884,10 @@ async def category_specifics(body: SpecificsRequest):
 async def create(conv_id: str, db: Session = Depends(get_db)):
     """Create this conversation's latest listing as a Vendoo draft."""
     from vendoo_studio.services.api_job_lock import claim_api_job, start_gate
-    from vendoo_studio.services.job_snapshot import prepare_listing_snapshot, save_prepared_revision
-    from vendoo_studio.services.vendoo_create import create_item
+    from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
     from vendoo_studio.services.listing_generate import latest_photo_analysis
     from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
-    from vendoo_studio.services.vendoo_import import merge_notes, vendoo_binding
+    from vendoo_studio.services.vendoo_import import vendoo_binding
 
     conv_repo = ConversationRepo(db)
     conv = conv_repo.get(conv_id)
@@ -920,6 +922,18 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
             current_step=CREATE_STEP,
         )
         claim_api_job(job.id)
+    return await _create_claimed_draft(
+        db, conv, conv_id, revisions, snapshot, photos, provider, evidence, job, job_repo,
+    )
+
+
+async def _create_claimed_draft(
+    db, conv, conv_id, revisions, snapshot, photos, provider, evidence, job, job_repo,
+):
+    from vendoo_studio.services.job_snapshot import save_prepared_revision
+    from vendoo_studio.services.vendoo_create import create_item
+    from vendoo_studio.services.vendoo_import import merge_notes
+
     try:
         try:
             out = await create_item(job, snapshot, photos, provider=provider, evidence=evidence)

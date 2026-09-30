@@ -83,6 +83,10 @@ def active_generation(conv_id: str) -> GenerationRun | None:
     return None
 
 
+def active_generations() -> dict[str, GenerationRun]:
+    return {conv_id: run for conv_id in _generations if (run := active_generation(conv_id)) is not None}
+
+
 def generation_is_current(conv_id: str, run: GenerationRun) -> bool:
     """False once Stop, Clear or Regenerate let go of this run.
 

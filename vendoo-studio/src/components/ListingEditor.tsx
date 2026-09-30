@@ -13,7 +13,6 @@ import { OpenListingButton } from "./OpenListingButton";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { marketplaceName } from "./marketplaceNames";
 import {
-  describeMarketplaces,
   joinMarketplaces,
   marketplacesNeedingRelist,
   relistCallout,
@@ -1016,63 +1015,20 @@ function SendToVendooButton({
   );
 
   const sendMutation = useMutation({
-    mutationFn: async () => {
-      if (bound) {
-        return { kind: "save" as const, ...(await api.vendooApi.save(convId)) };
-      }
-      return { kind: "create" as const, ...(await api.vendooApi.create(convId)) };
-    },
-    onMutate: () => {
-      // Surface the dispatched save/create job as soon as the server writes it,
-      // rather than waiting for the next 2s poll.
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
-    },
-    onSuccess: (res) => {
+    mutationFn: () => api.jobs.send(convId),
+    onSuccess: () => {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs", convId] });
-      queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      queryClient.invalidateQueries({ queryKey: ["listing", convId] });
-      queryClient.invalidateQueries({ queryKey: ["listing-fields", convId] });
-      queryClient.invalidateQueries({ queryKey: ["fill-log"] });
-      queryClient.invalidateQueries({ queryKey: ["vendoo-item"] });
-      if (res.kind === "create") {
-        const gaps = [...(res.unresolved || []), ...(res.unfilled || [])];
-        const gapCount = new Set(gaps.map((gap) =>
-          `${String(gap.marketplace || "general").toLowerCase()}:${String(gap.field || gap.reason || "").toLowerCase()}`,
-        )).size;
-        addToast({
-          type: gapCount ? "error" : "success",
-          title: "Sent to Vendoo",
-          description: gapCount
-            ? `Draft created. Vendoo reported ${gapCount} form gap${gapCount === 1 ? "" : "s"}. Ask Chat only includes fields still empty in Studio.`
-            : "Draft created with marketplace fields filled.",
-        });
-      } else {
-        // A write onto a live item is only half the job, and the half that is
-        // left happens in Vendoo — so the toast names it rather than reporting
-        // plain success and letting the listing sit on its old copy.
-        const relist = (res.relist_needed || []).map(marketplaceName);
-        const written = `${res.updated.length} field${res.updated.length === 1 ? "" : "s"} written.`;
-        addToast({
-          type: relist.length ? "warning" : "success",
-          title: !res.updated.length
-            ? "Nothing to send"
-            : relist.length
-              ? "Vendoo form updated — relist to publish"
-              : "Sent to Vendoo",
-          description: !res.updated.length
-            ? "Vendoo already matches this listing."
-            : relist.length
-              ? `${written} Delist and relist on ${describeMarketplaces(relist)} in Vendoo so buyers see it.`
-              : written,
-        });
-      }
+      addToast({
+        type: "success",
+        title: "Added to queue",
+        description: "You can move on. The Vendoo draft will be saved in the background.",
+      });
       onJobStarted?.();
     },
-    onError: (err: Error) => setError(err.message || "Failed to send"),
+    onError: (err: Error) => setError(err.message || "Failed to queue send"),
   });
 
   const cancelMutation = useMutation({
@@ -1097,7 +1053,7 @@ function SendToVendooButton({
   const step = String(existingJob?.current_step || "");
   const apiCreateActive = Boolean(
     existingJob
-    && existingJob.status === "dispatched"
+    && ACTIVE_SEND_STATUSES.has(existingJob.status)
     && (step === "vendoo_api_create" || step.startsWith("vendoo_api_")),
   );
   // A browser fix the seller asked chat for is typing into the Vendoo form.
@@ -1125,7 +1081,7 @@ function SendToVendooButton({
   const live = liveMarketplaces || [];
   // Mid-generation Send would ship a half-written listing; otherwise the hint
   // says what Send does — and for a live item, what it deliberately does not.
-  const sendEnabled = sendToVendooEnabled(canSend, generating, sendMutation.isPending);
+  const sendEnabled = sendToVendooEnabled(canSend, generating, sendMutation.isPending) && !apiCreateActive && !formFillActive;
   const sendHint = generating
     ? "Wait for generation to finish before sending."
     : !bound
@@ -1160,6 +1116,7 @@ function SendToVendooButton({
   if ((probeActive || apiCreateActive || formFillActive) && existingJob) {
     const stepKey = String(existingJob.current_step || "");
     const apiCreateCopy: Record<string, string> = {
+      vendoo_api_queued: "Waiting in the send queue…",
       vendoo_api_categories: "Resolving marketplace categories…",
       vendoo_api_specifics: "Reading category fields from Vendoo…",
       vendoo_api_fields: "Filling marketplace fields…",

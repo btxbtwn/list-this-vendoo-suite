@@ -117,7 +117,7 @@ class CreateRouteTest(_RouteTest):
         body = res.json()
         self.assertEqual(body["item_id"], CREATED["item_id"])
         self.assertEqual(body["unresolved"], CREATED["unresolved"])
-        dispatch.assert_not_called()
+        dispatch.assert_called_once()
 
         # Held in "dispatched" while it runs so the Send queue skips it.
         self.assertEqual(

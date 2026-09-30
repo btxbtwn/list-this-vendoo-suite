@@ -11,13 +11,14 @@ export const ANALYTICS_CRUMB = "Analytics";
 export const SOURCING_CRUMB = "Sourcing";
 export const UNTITLED_LISTING = "Untitled listing";
 
-export type WorkspaceView = "listings" | "settings" | "analytics" | "sourcing";
+export type WorkspaceView = "listings" | "settings" | "analytics" | "sourcing" | "queue";
 
 export function workspaceCrumbs(
   view: WorkspaceView,
   settingsLabel: string,
   listing: { title?: string | null } | null | undefined,
 ): WorkspaceCrumbs {
+  if (view === "queue") return { context: "Queue", title: null };
   if (view === "settings") {
     return { context: SETTINGS_CRUMB, title: settingsLabel.trim() || null };
   }
