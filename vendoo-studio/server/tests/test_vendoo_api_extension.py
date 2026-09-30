@@ -82,7 +82,7 @@ class VendooApiExtensionTest(unittest.TestCase):
         out = run_node([
             {"op": "session"}, {"op": "new_item_id"}, {"op": "subscription"},
             {"op": "upload_photo", "photo": {"id": "p1", "url": "http://127.0.0.1:4318/api/jobs/j/photos/p1", "mime_type": "image/jpeg", "extension": "jpg", "max_dimension": 1600}},
-            {"op": "create_item", "item": {"itemID": "x"}, "subscription_version": "v2"},
+            {"op": "create_item", "item": {"itemID": "x", "userID": "u1"}, "subscription_version": "v2"},
             {"op": "get_item", "item_id": "abc"},
         ])
         reply = out["sent"][0]
@@ -110,7 +110,7 @@ class VendooApiExtensionTest(unittest.TestCase):
         self.assertEqual(put["headers"]["Content-Type"], "image/jpeg")
         create = next(f for f in out["fetches"] if "cloudfunctions.net/items" in f["url"])
         self.assertEqual(create["headers"]["Authorization"], "Bearer tok")
-        self.assertEqual(json.loads(create["body"]), {"data": {"type": "createItem", "payload": {"item": {"itemID": "x"}, "subscriptionVersion": "v2"}}})
+        self.assertEqual(json.loads(create["body"]), {"data": {"type": "createItem", "payload": {"item": {"itemID": "x", "userID": "u1"}, "subscriptionVersion": "v2"}}})
         get_item = next(f for f in out["fetches"] if "/api/item/abc" in f["url"])
         self.assertIn("userId=u1", get_item["url"])
         self.assertNotIn("securetoken", " ".join(f["url"] for f in out["fetches"]))

@@ -282,9 +282,9 @@ function tokenIsFresh(session) {
 // all run with no Vendoo tab anywhere. A tab is read only to bootstrap the
 // first session, or when the refresh token stops working — the seller having
 // signed out, or Firebase having revoked it.
-async function loadFreshVendooSession() {
+async function loadFreshVendooSession(rejectedToken = null) {
   const cached = await loadCachedVendooSession();
-  if (tokenIsFresh(cached)) return cached;
+  if (tokenIsFresh(cached) && cached.access_token !== rejectedToken) return cached;
   if (cached) {
     try {
       return await cacheVendooSession(await refreshVendooToken(cached));
@@ -303,9 +303,9 @@ async function loadFreshVendooSession() {
   return cacheVendooSession(session);
 }
 
-async function freshVendooSession() {
+async function freshVendooSession(rejectedToken = null) {
   if (!vendooSessionRequest) {
-    vendooSessionRequest = loadFreshVendooSession().finally(() => { vendooSessionRequest = null; });
+    vendooSessionRequest = loadFreshVendooSession(rejectedToken).finally(() => { vendooSessionRequest = null; });
   }
   return vendooSessionRequest;
 }
@@ -351,10 +351,17 @@ function noteVendooApiCall(fields) {
 async function vendooFetch(url, options = {}) {
   const safe = options.retrySafe === true || ['GET', 'HEAD'].includes(options.method || 'GET');
   const deadline = Date.now() + (options.timeoutMs || VENDOO_REQUEST_TIMEOUT_MS);
+  let authRetried = false;
   for (let attempt = 0; ; attempt += 1) {
     let result;
     try {
       result = await vendooFetchOnce(url, { ...options, timeoutMs: Math.max(1, deadline - Date.now()) });
+      if (safe && result.status === 401 && options.token && !authRetried && attempt < 2) {
+        authRetried = true;
+        const session = await freshVendooSession(options.token);
+        options = { ...options, token: session.access_token };
+        continue;
+      }
       if (!safe || ![408, 429, 500, 502, 503, 504].includes(result.status)) return result;
     } catch (err) {
       if (!safe || attempt >= 2 || Date.now() >= deadline) throw err;
@@ -489,6 +496,7 @@ async function readVendooSubscriptionVersion(session) {
 }
 
 async function createVendooItem(session, item, subscriptionVersion) {
+  if (item.userID !== session.uid) throw new Error('The Vendoo account changed during Send. Sign in to the original account and retry.');
   const call = await vendooFetch(`${VENDOO_FUNCTIONS_BASE}/items`, {
     method: 'POST',
     token: session.access_token,

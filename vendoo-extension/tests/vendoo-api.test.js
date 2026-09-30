@@ -148,7 +148,7 @@ test('the real upload/create/read path works over HTTP with concurrent photo PUT
   assert.equal(prep.ok, true, JSON.stringify(prep));
   assert.equal(peak, 3);
   assert.deepEqual(Array.from(prep.results, (row) => row.image.originalMaxDimension), [1000, 1001, 1002, 1003, 1004, 1005]);
-  const item = { itemID: 'draft', generalDetails: { images: Array.from(prep.results, (row) => row.image) } };
+  const item = { itemID: 'draft', userID: 'test-user', generalDetails: { images: Array.from(prep.results, (row) => row.image) } };
   const saved = await worker.runVendooApiOps([
     { op: 'create_item', item }, { op: 'get_item', item_id: 'draft' },
   ]);
@@ -345,4 +345,24 @@ test('conditional saves use the version read before the item snapshot and report
   await assert.rejects(worker.updateVendooItem({ uid: 'one' }, {
     item_id: 'item', updates: { 'generalDetails.title': 'After' }, expected_update_time: 'old-version',
   }), /changed during this save/);
+});
+
+test('a rejected token is refreshed once for safe reads and cannot create in another account', async () => {
+  const worker = workerWithStorage();
+  let refreshes = 0;
+  worker.loadFreshVendooSession = async (rejected) => {
+    assert.equal(rejected, 'expired');
+    refreshes += 1;
+    return { uid: 'one', access_token: 'fresh' };
+  };
+  const tokens = [];
+  worker.fetch = async (_url, options) => {
+    tokens.push(options.headers.Authorization);
+    return new Response('{}', { status: tokens.length === 1 ? 401 : 200 });
+  };
+  assert.equal((await worker.vendooFetch('https://example.test/read', { token: 'expired' })).status, 200);
+  assert.equal(refreshes, 1);
+  assert.deepEqual(tokens, ['Bearer expired', 'Bearer fresh']);
+  worker.fetch = async () => assert.fail('must not send a draft to another account');
+  await assert.rejects(worker.createVendooItem({ uid: 'other' }, { userID: 'one' }, 'v2'), /account changed/);
 });
