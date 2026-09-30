@@ -6,10 +6,14 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.137 — 2026-09-29
+## 0.1.138 — 2026-09-29
 
 - Send and Update reuse marketplace fields prepared during generation, and new sends upload three photos at a time so you spend less time waiting.
 - See drafts being generated, batch rewrites, and Vendoo sends in Queue. Send to Vendoo adds your approved draft to the queue so you can keep working.
+
+## 0.1.137 — 2026-09-30
+
+- Check for Studio listings that share a Vendoo link from the listings sidebar, open each one to review it, and prevent linking a Vendoo item already used by another listing.
 
 ## 0.1.136 — 2026-09-30
 

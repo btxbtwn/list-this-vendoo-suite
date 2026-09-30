@@ -15,6 +15,7 @@ import { addToast } from "../ui/toast";
 import { hasOpenJob, INVENTORY_BUSY_POLL_MS, INVENTORY_IDLE_POLL_MS } from "../api/polling";
 import { UpdateButton } from "./UpdateButton";
 import { VendooImportButton } from "./VendooImportButton";
+import { DuplicateVendooLinksButton } from "./DuplicateVendooLinksButton";
 import {
   SETTINGS_NAV_ITEMS,
   SETTINGS_SECTION_LABELS,
@@ -1015,6 +1016,7 @@ export function ListingSidebar({
       <div className="sidebar-footer">
         <div className="sidebar-footer-actions">
           {settingsMode ? null : <VendooImportButton />}
+          {settingsMode ? null : <DuplicateVendooLinksButton onSelect={onSelect} />}
           {settingsMode ? (
             <button
               type="button"
