@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.140 — 2026-09-30
+
+- Find Duplicate Check in Settings → Listings. Queue is now the leftmost sidebar icon, and the Update button stays fully visible in a narrow sidebar.
+
 ## 0.1.139 — 2026-09-30
 
 - Studio retries update downloads while a new Mac release is being uploaded. If the download remains unavailable, it tells you when to try again.

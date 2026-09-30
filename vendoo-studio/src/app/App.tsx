@@ -744,6 +744,7 @@ export function App() {
               {activeView === "settings" ? (
                 <Suspense fallback={null}>
                   <SettingsPage
+                    onOpenListing={openListing}
                     section={settingsSection}
                     targetId={settingsTargetId}
                     onTargetHandled={() => setSettingsTargetId(null)}

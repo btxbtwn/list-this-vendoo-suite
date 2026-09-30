@@ -15,7 +15,6 @@ import { addToast } from "../ui/toast";
 import { hasOpenJob, INVENTORY_BUSY_POLL_MS, INVENTORY_IDLE_POLL_MS } from "../api/polling";
 import { UpdateButton } from "./UpdateButton";
 import { VendooImportButton } from "./VendooImportButton";
-import { DuplicateVendooLinksButton } from "./DuplicateVendooLinksButton";
 import {
   SETTINGS_NAV_ITEMS,
   SETTINGS_SECTION_LABELS,
@@ -1015,8 +1014,6 @@ export function ListingSidebar({
 
       <div className="sidebar-footer">
         <div className="sidebar-footer-actions">
-          {settingsMode ? null : <VendooImportButton />}
-          {settingsMode ? null : <DuplicateVendooLinksButton onSelect={onSelect} />}
           {settingsMode ? (
             <button
               type="button"
@@ -1034,13 +1031,20 @@ export function ListingSidebar({
               <button
                 type="button"
                 className={`sidebar-icon-btn queue-nav${activeView === "queue" ? " selected" : ""}`}
-                title="Queue"
+                title={queueCount ? `Queue (${queueCount})` : "Queue"}
                 aria-label={`Queue${queueCount ? ` (${queueCount})` : ""}`}
                 aria-pressed={activeView === "queue"}
                 onClick={onOpenQueue}
               >
-                <span>Queue{queueCount ? ` · ${queueCount}` : ""}</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M9 6h11M9 12h11M9 18h11" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                  <circle cx="4" cy="6" r="1" fill="currentColor" />
+                  <circle cx="4" cy="12" r="1" fill="currentColor" />
+                  <circle cx="4" cy="18" r="1" fill="currentColor" />
+                </svg>
+                {queueCount ? <span className="queue-nav-dot" aria-hidden="true" /> : null}
               </button>
+              <VendooImportButton />
               <button
                 type="button"
                 className={`sidebar-icon-btn${activeView === "sourcing" ? " selected" : ""}`}
