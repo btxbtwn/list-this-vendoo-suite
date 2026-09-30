@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.141 — 2026-09-30
+
+- Compare combined, Raghouse-only, and Thrift Vintage Fashion buy lists for your sourcing budget, with shipping, budget remaining, and resale research links.
+
 ## 0.1.140 — 2026-09-30
 
 - Find Duplicate Check in Settings → Listings. Queue is now the leftmost sidebar icon, and the Update button stays fully visible in a narrow sidebar.

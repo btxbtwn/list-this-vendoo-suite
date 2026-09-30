@@ -57,7 +57,7 @@ For every in-stock lot the script computes:
 - **Expected profit** = resale per piece × usable pieces × sell-through × (1 − 20% fees) − landed cost. Sell-through is 50% at average demand, scaled by demand between 25% and 80%.
 - **ROI** = expected profit ÷ landed cost.
 
-The buy list takes the best ROI first, one lot per theme, at least 100% ROI (`--min-roi`), until the budget runs out. When the picks from TVF reach $200 their shipping drops to zero. Each store's cart link (`/cart/<variant>:1,...`) opens that store's cart with the picks in it.
+The buy list takes the best ROI first, one lot per theme, at least 100% ROI (`--min-roi`), until the budget runs out. Shipping discounts are applied before checking the budget and return target. When the picks from TVF reach $200 their shipping drops to zero. Studio also computes Raghouse-only and Thrift Vintage Fashion-only alternatives with the same full budget; choose one plan rather than adding the alternatives together. Each store's cart link (`/cart/<variant>:1,...`) opens that store's cart with the picks in it.
 
 ### 5. Report
 Give the buy list: per store, the lots with pieces, landed cost, resale per piece, expected profit and ROI, the store subtotal and shipping, and the cart link. Then the next five candidates. Raghouse shipping is FedEx, scaled to a real checkout. TVF shipping is still a UPS list-price ceiling. The profit rests on the resale prices you found.

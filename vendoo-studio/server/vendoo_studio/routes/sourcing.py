@@ -86,6 +86,7 @@ class SourcingSnapshot(BaseModel):
     shipping: SourcingShipping
     assumptions: SourcingAssumptions
     buy_list: SourcingBuyList
+    store_buy_lists: dict[str, SourcingBuyList]
     lots: list[SourcingLot]
 
 

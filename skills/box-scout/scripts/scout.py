@@ -375,6 +375,9 @@ def score_lots(
             ship = ship_estimate(lot["lbs"], cfg, store, zones[store])
             if ship is None:
                 continue
+            threshold = cfg["stores"][store]["free_shipping_over"]
+            if threshold is not None and lot["price"] >= threshold:
+                ship = 0.0
             known = [rates[w] for w in terms(lot["title"]) if w in rates]
             demand = (sum(known) / len(known) / baseline) if known and baseline else 1.0
             hits = [t for t in f.trend if re.search(rf"\b{re.escape(t)}\b", lot["title"], re.I)]
@@ -423,12 +426,25 @@ def price_lot(row: dict, ship: float, per_piece: float | None) -> dict:
 
 
 def research_themes(rows: list[dict], limit: int = 24) -> list[str]:
-    """Themes worth a resale lookup: the best-demand theme first, one entry per theme."""
-    best: dict[str, float] = {}
+    """Themes worth pricing, best demand first per store, shared evenly between stores."""
+    if limit <= 0:
+        return []
+    best: dict[str, dict[str, float]] = {}
     for row in rows:
         weight = row["demand"] * (1 + 0.25 * min(len(row["trend_hits"]), 2))
-        best[row["theme"]] = max(best.get(row["theme"], 0.0), weight)
-    return [t for t, _ in sorted(best.items(), key=lambda kv: -kv[1])][:limit]
+        store = best.setdefault(row["store"], {})
+        store[row["theme"]] = max(store.get(row["theme"], 0.0), weight)
+    ranked = [[theme for theme, _ in sorted(themes.items(), key=lambda kv: -kv[1])]
+              for themes in best.values()]
+    result: list[str] = []
+    # Alternate stores so a larger catalog cannot use the entire research allowance.
+    for index in range(max((len(themes) for themes in ranked), default=0)):
+        for themes in ranked:
+            if index < len(themes) and themes[index] not in result:
+                result.append(themes[index])
+                if len(result) >= limit:
+                    return result
+    return result
 
 
 def buy_list(rows: list[dict], cfg: dict, *, budget: float, min_roi: float = 1.0) -> dict:
@@ -438,14 +454,32 @@ def buy_list(rows: list[dict], cfg: dict, *, budget: float, min_roi: float = 1.0
     reach that threshold, and those picks are re-priced without shipping.
     """
     picks: list[dict] = []
-    spent = 0.0
     seen: set[str] = set()
-    for row in sorted((r for r in rows if r["roi"] is not None), key=lambda r: -r["roi"]):
-        if row["roi"] < min_roi or row["theme"] in seen or spent + row["landed"] > budget:
-            continue
-        picks.append(dict(row))
-        seen.add(row["theme"])
-        spent += row["landed"]
+    pending = sorted((r for r in rows if r["roi"] is not None), key=lambda r: -r["roi"])
+    while pending:
+        skipped = []
+        added = False
+        for row in pending:
+            if row["theme"] in seen:
+                continue
+            candidate = [*picks, dict(row)]
+            for store in STORES:
+                mine = [p for p in candidate if p["store"] == store]
+                threshold = cfg["stores"][store]["free_shipping_over"]
+                if threshold is not None and sum(p["price"] for p in mine) >= threshold:
+                    # Copy existing picks: a rejected candidate must not change their shipping.
+                    candidate = [price_lot(dict(p), 0.0, p["resale_per_pc"])
+                                 if p["store"] == store else p for p in candidate]
+            if candidate[-1]["roi"] < min_roi or round(sum(p["landed"] for p in candidate), 2) > budget:
+                skipped.append(row)
+                continue
+            picks = candidate
+            seen.add(row["theme"])
+            added = True
+        if not added:
+            break
+        # A later pick may have unlocked free shipping for an earlier candidate.
+        pending = skipped
     carts = []
     for store in STORES:
         mine = [p for p in picks if p["store"] == store]
