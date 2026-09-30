@@ -478,6 +478,7 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
 async def _save_claimed_draft(
     db, conv, conv_id, item_id, revisions, snapshot, provider, evidence, job, job_repo,
 ):
+    from vendoo_studio.services.job_snapshot import save_prepared_revision
     from vendoo_studio.services.vendoo_api import (
         LISTINGS_KEY,
         apply_update_all,
@@ -499,6 +500,7 @@ async def _save_claimed_draft(
     updates: dict = {}
     current: dict = {}
     desired: dict = {}
+    approved_labels = list(snapshot.get("labels") or [])
     try:
         reply = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
         current = next(
@@ -579,7 +581,10 @@ async def _save_claimed_draft(
     synced_item = {key: value for key, value in current.items() if key != "dateLastModified"}
     if desired.get("dateLastModified"):
         synced_item["dateLastModified"] = desired["dateLastModified"]
-    mark_synced(db, conv_id, synced_item, revisions[0].id)
+    synced_revision_id = save_prepared_revision(
+        db, conv_id, {**snapshot, "labels": approved_labels}, revisions[0].id,
+    )
+    mark_synced(db, conv_id, synced_item, synced_revision_id)
     job_repo.update_status(job.id, "completed", SAVED_STEP, vendoo_item_id=item_id)
     job_repo.add_event(job.id, "vendoo_api_saved", SAVED_STEP, {
         "item_id": item_id,
@@ -876,7 +881,7 @@ async def category_specifics(body: SpecificsRequest):
 async def create(conv_id: str, db: Session = Depends(get_db)):
     """Create this conversation's latest listing as a Vendoo draft."""
     from vendoo_studio.services.api_job_lock import claim_api_job, start_gate
-    from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+    from vendoo_studio.services.job_snapshot import prepare_listing_snapshot, save_prepared_revision
     from vendoo_studio.services.vendoo_create import create_item
     from vendoo_studio.services.listing_generate import latest_photo_analysis
     from vendoo_studio.services.listing_provider import get_listing_provider, provider_is_configured
@@ -933,6 +938,9 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
 
         conv.notes = merge_notes(conv.notes, {"vendooItemId": out["item_id"], "vendooUrl": out["url"]})
         db.commit()
+        synced_revision_id = save_prepared_revision(
+            db, conv_id, out.get("prepared_listing") or snapshot, revisions[0].id,
+        )
         job_repo.update_status(
             job.id, "completed", CREATED_STEP, vendoo_item_id=out["item_id"], vendoo_url=out["url"]
         )
@@ -948,8 +956,7 @@ async def create(conv_id: str, db: Session = Depends(get_db)):
             # otherwise a brand-new item reads as edited-but-unsent straight away.
             from vendoo_studio.services.vendoo_watch import mark_synced
 
-            revision = ListingRepo(db).get_revisions(conv_id)
-            mark_synced(db, conv_id, out["stored"], revision[0].id if revision else None)
+            mark_synced(db, conv_id, out["stored"], synced_revision_id)
         return CreateResponse(
             ok=True,
             job_id=job.id,

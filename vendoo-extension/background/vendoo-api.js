@@ -26,6 +26,7 @@ const VENDOO_TOKEN_MIN_TTL_MS = 5 * 60 * 1000;
 // caching that is what lets Studio work with Vendoo closed.
 const VENDOO_SESSION_KEY = 'vendoo_session';
 const VENDOO_REQUEST_TIMEOUT_MS = 60000;
+const VENDOO_PHOTO_CONCURRENCY = 3;
 
 // Firestore auto-ids: 20 chars from this alphabet. Vendoo mints the item id
 // client-side with collection.doc().id before calling createItem.
@@ -759,12 +760,39 @@ async function searchVendooCategory(session, call) {
 }
 
 // One Studio message, a list of ops, one reply. Studio sequences the calls it
-// needs (probe, upload, create, verify); this only executes them in order and
-// stops at the first failure so Studio sees exactly where it broke.
+// needs (probe, upload, create, verify). Independent photo uploads run in small
+// batches, in result order; every batch settles before any dependent write.
+// A failed upload stops the sequence before the draft can be created.
 async function runVendooApiOps(ops) {
   const session = await freshVendooSession();
   const results = [];
-  for (const op of ops) {
+  for (let index = 0; index < ops.length; index += 1) {
+    const op = ops[index];
+    if (op.op === 'upload_photo' && !op.throttle_ms) {
+      const batch = [];
+      while (batch.length < VENDOO_PHOTO_CONCURRENCY
+        && ops[index + batch.length]?.op === 'upload_photo'
+        && !ops[index + batch.length].throttle_ms) {
+        batch.push(ops[index + batch.length]);
+      }
+      const uploaded = await Promise.all(batch.map(async (call) => {
+        try {
+          return {
+            op: 'upload_photo', ok: true, photo_id: call.photo?.id || null,
+            image: await uploadVendooPhoto(session, call.photo || {}),
+          };
+        } catch (err) {
+          return {
+            op: 'upload_photo', ok: false, photo_id: call.photo?.id || null,
+            error: String(err && err.message ? err.message : err),
+          };
+        }
+      }));
+      results.push(...uploaded);
+      if (uploaded.some((result) => !result.ok)) return { ok: false, uid: session.uid, results };
+      index += batch.length - 1;
+      continue;
+    }
     try {
       switch (op.op) {
         case 'session':

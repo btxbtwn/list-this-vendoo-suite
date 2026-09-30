@@ -14,6 +14,8 @@ reviews in Vendoo, which keeps the AGENTS.md invariant intact.
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -22,12 +24,13 @@ from typing import Any
 from vendoo_studio.config import DATA_DIR, HOST, PORT
 from vendoo_studio.services import browser_bridge
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
-from vendoo_studio.services.specifics_fill import fill_listing_specifics
+from vendoo_studio.services.specifics_fill import fill_listing_specifics, specifics_gaps
 from vendoo_studio.services.vendoo_specifics import (
     MERCARI_STATIC_URL,
     FieldSpec,
     mercari_specifics,
     normalize_specifics,
+    specs_to_rows,
 )
 from vendoo_studio.services.vendoo_api import (
     build_vendoo_item,
@@ -299,6 +302,7 @@ async def _hits_by_search(
     job,
     targets: list[tuple[str, str, str]],
     unresolved: list[dict[str, str]],
+    *, timeout: float = REQUEST_TIMEOUT_SEC,
 ) -> dict[str, dict[str, Any]]:
     """Resolve each target on its own, by live search then the seeded tree.
 
@@ -319,7 +323,7 @@ async def _hits_by_search(
         }
         for _, marketplace_id, path in searchable
     ]
-    reply = await run_ops(job, ops)
+    reply = await run_ops(job, ops, timeout=timeout)
     results = [row for row in reply.get("results", []) if row.get("op") == "category_search"]
     hits: dict[str, dict[str, Any]] = {}
     for (key, marketplace_id, path), result in zip(searchable, results, strict=True):
@@ -361,6 +365,7 @@ async def _hits_by_mapping(
     job,
     general: dict[str, Any],
     targets: list[tuple[str, str, str]],
+    *, timeout: float = REQUEST_TIMEOUT_SEC,
 ) -> dict[str, dict[str, Any]]:
     """Ask Vendoo which category each marketplace uses for this general one.
 
@@ -382,7 +387,7 @@ async def _hits_by_mapping(
         for key, _marketplace_id, _path in targets
     ]
     try:
-        reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=REQUEST_TIMEOUT_SEC)
+        reply = await browser_bridge.request(job, "job.vendoo_api", {"ops": ops}, timeout=timeout)
     except BrowserBridgeError as exc:
         log.info("category mapper unavailable: %s", exc)
         return {}
@@ -406,7 +411,9 @@ async def _hits_by_mapping(
     return hits
 
 
-async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, str]]]:
+async def resolve_listing_categories(
+    job, listing: dict[str, Any], *, timeout: float = REQUEST_TIMEOUT_SEC,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """Resolve Studio breadcrumbs into Vendoo ``categoryV2`` leaf ids.
 
     The general category is settled first, then Vendoo maps it to each
@@ -426,7 +433,7 @@ async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict
     resolved_hits: dict[str, dict[str, Any]] = {}
     general_v2: dict[str, Any] | None = None
     if general_target:
-        resolved_hits.update(await _hits_by_search(job, [general_target], unresolved))
+        resolved_hits.update(await _hits_by_search(job, [general_target], unresolved, timeout=timeout))
         general_v2 = category_from_hit(resolved_hits.get("general"), general_target[2])
     else:
         # Already resolved on the listing — still enough to map from.
@@ -438,7 +445,7 @@ async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict
 
     disagreed: list[tuple[str, str, str]] = []
     if general_v2 and market_targets:
-        mapped = await _hits_by_mapping(job, general_v2, market_targets)
+        mapped = await _hits_by_mapping(job, general_v2, market_targets, timeout=timeout)
         resolved_hits.update(mapped)
         # A mapped leaf that contradicts the breadcrumb this listing named is
         # the mapper guessing a subtype the seller did not ask for. Search for
@@ -450,12 +457,12 @@ async def resolve_listing_categories(job, listing: dict[str, Any]) -> tuple[dict
         market_targets = [row for row in market_targets if row[0] not in mapped]
 
     if market_targets:
-        resolved_hits.update(await _hits_by_search(job, market_targets, unresolved))
+        resolved_hits.update(await _hits_by_search(job, market_targets, unresolved, timeout=timeout))
     if disagreed:
         # Failures here are not worth reporting: the mapped leaf still stands,
         # and so it does unless the search landed on the leaf that was asked
         # for — a near miss is no better than the mapper's own guess.
-        searched = await _hits_by_search(job, disagreed, [])
+        searched = await _hits_by_search(job, disagreed, [], timeout=timeout)
         for key, _marketplace_id, path in disagreed:
             hit = searched.get(key)
             if hit and _agrees_with_path(hit, path):
@@ -729,35 +736,99 @@ async def resolve_label_display_names(
     return apply_label_display_names(cleaned, await label_display_map(job, timeout=timeout))
 
 
-async def prepare_listing_for_vendoo(
+def _category_paths(listing: dict[str, Any]) -> dict[str, str]:
+    cats = listing.get("marketplace_categories")
+    return {
+        "general": str(listing.get("category_path") or ""),
+        **{key: str((cats or {}).get(key) or "") for key in CATEGORY_MARKETPLACES},
+    }
+
+
+def _invalidate_changed_categories(listing: dict[str, Any]) -> None:
+    """A breadcrumb edit must not reuse the leaf ids prepared for its old path."""
+    prepared = listing.get("_vendoo_preparation")
+    previous = prepared.get("categories") if isinstance(prepared, dict) else None
+    if not isinstance(previous, dict):
+        return
+    paths = _category_paths(listing)
+    changed = {key for key, path in paths.items() if previous.get(key) != path}
+    if "general" in changed:
+        changed.update(CATEGORY_MARKETPLACES)
+        listing.pop("category_id", None)
+    for key in changed:
+        for name in ("marketplace_category_ids", "marketplace_category_objects"):
+            if isinstance(listing.get(name), dict):
+                listing[name].pop(key, None)
+        specifics = listing.get(f"{key}_specifics")
+        if isinstance(specifics, dict):
+            specifics.pop("categoryId", None)
+            specifics.pop("categoryPath", None)
+
+
+def _field_signature(listing: dict[str, Any], specifics: dict[str, dict[str, FieldSpec]]) -> str:
+    """Only new categories, schemas or empty fields need another AI fill pass."""
+    from vendoo_studio.services.category_fields import listing_category_ids
+
+    payload = {
+        "categories": _category_paths(listing),
+        "ids": listing_category_ids(listing),
+        "schemas": {key: specs_to_rows(fields) for key, fields in specifics.items()},
+        "gaps": specifics_gaps(listing, specifics),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+async def prepare_listing_fields_for_vendoo(
     job,
     listing: dict[str, Any],
     *,
     provider=None,
     evidence: str = "",
     mark=None,
+    timeout: float = REQUEST_TIMEOUT_SEC,
 ) -> tuple[dict[str, Any], dict[str, dict[str, FieldSpec]], dict[str, Any] | None, list[dict[str, str]], list[dict[str, Any]]]:
-    """Resolve categories, fill leaf fields, and load the encoding schema.
+    """Prepare listing data with reads only; safe to run before seller approval.
 
-    Shared by first Send (``create_item``) and Update Vendoo (save) so a
-    regenerated listing writes the same complete marketplace forms as a
-    brand-new draft.
+    Persist the returned listing during generation. Send and Update then reuse
+    its leaf ids and completed fill pass, including fields the evidence could
+    not answer. Price/copy edits do not repeat that pass; clearing a field or
+    changing its category/schema does.
     """
+    listing = copy.deepcopy(listing)
+    _invalidate_changed_categories(listing)
     schema = load_schema()
     if mark:
         mark("vendoo_api_categories")
-    listing, category_unresolved = await resolve_listing_categories(job, listing)
-    listing, label_unresolved = await resolve_listing_labels(job, listing)
-    unresolved = [*category_unresolved, *label_unresolved]
+    listing, category_unresolved = await resolve_listing_categories(job, listing, timeout=timeout)
     if mark:
         mark("vendoo_api_specifics")
-    specifics = await fetch_listing_specifics(job, listing)
+    specifics = await fetch_listing_specifics(job, listing, timeout=timeout)
     if mark:
         mark("vendoo_api_fields")
-    listing, unfilled = await fill_listing_specifics(
-        listing, specifics, provider, evidence=evidence
+    prepared = listing.get("_vendoo_preparation")
+    signature = prepared.get("field_signature") if isinstance(prepared, dict) else None
+    unfilled = specifics_gaps(listing, specifics)
+    if signature != _field_signature(listing, specifics):
+        listing, unfilled = await fill_listing_specifics(
+            listing, specifics, provider, evidence=evidence
+        )
+    if provider is not None or not unfilled:
+        listing["_vendoo_preparation"] = {
+            "categories": _category_paths(listing),
+            "field_signature": _field_signature(listing, specifics),
+        }
+    return listing, specifics, schema, category_unresolved, unfilled
+
+
+async def prepare_listing_for_vendoo(
+    job, listing: dict[str, Any], *, provider=None, evidence: str = "", mark=None,
+) -> tuple[dict[str, Any], dict[str, dict[str, FieldSpec]], dict[str, Any] | None, list[dict[str, str]], list[dict[str, Any]]]:
+    """Reuse prepared fields and resolve labels only after seller approval."""
+    listing, specifics, schema, unresolved, unfilled = await prepare_listing_fields_for_vendoo(
+        job, listing, provider=provider, evidence=evidence, mark=mark,
     )
-    return listing, specifics, schema, unresolved, unfilled
+    listing, label_unresolved = await resolve_listing_labels(job, listing)
+    return listing, specifics, schema, [*unresolved, *label_unresolved], unfilled
 
 
 async def create_item(
@@ -781,6 +852,7 @@ async def create_item(
     """
     if not photos:
         raise VendooCreateError("Vendoo needs at least one photo")
+    approved_labels = list(listing.get("labels") or [])
 
     def mark(step: str) -> None:
         from sqlalchemy.orm import object_session
@@ -865,6 +937,7 @@ async def create_item(
     diff = diff_roundtrip(item, stored) if isinstance(stored, dict) else []
 
     return {
+        "prepared_listing": {**listing, "labels": approved_labels},
         "unfilled": unfilled,
         "item_id": item_id,
         "url": f"https://web.vendoo.co/app/item/{item_id}",

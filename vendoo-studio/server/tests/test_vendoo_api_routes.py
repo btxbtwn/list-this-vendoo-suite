@@ -56,6 +56,28 @@ class _RouteTest(unittest.TestCase):
 
 
 class CreateRouteTest(_RouteTest):
+    def test_create_remembers_preparation_for_the_next_update(self):
+        prepared = {**LISTING, "category_id": "tops", "_vendoo_preparation": {"field_signature": "prepared"}}
+        create = AsyncMock(return_value={**CREATED, "prepared_listing": prepared})
+        with patch("vendoo_studio.services.vendoo_create.create_item", create):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+        self.assertEqual(res.status_code, 200, res.text)
+        revision = ListingRepo(self.db).get_revisions(self.conv.id)[0]
+        self.assertEqual(revision.listing_json, prepared)
+        self.assertEqual(revision.source, "vendoo_prepare")
+
+    def test_create_preparation_does_not_replace_an_edit_made_during_send(self):
+        edited = {**LISTING, "description": "Newer edit"}
+
+        async def create(*args, **kwargs):
+            ListingRepo(self.db).save_revision(self.conv.id, edited, source="manual")
+            return {**CREATED, "prepared_listing": {**LISTING, "_vendoo_preparation": {}}}
+
+        with patch("vendoo_studio.services.vendoo_create.create_item", create):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json, edited)
+
     def test_passes_the_stored_photo_analysis_as_evidence(self):
         """The vision pass already ran; create reuses it instead of re-paying."""
         analysis = (
@@ -388,6 +410,63 @@ class SaveRouteTest(_RouteTest):
         conv = ConversationRepo(self.db).get(self.conv.id)
         conv.notes = merge_notes(conv.notes, {"vendooItemId": "itm1"})
         self.db.commit()
+
+    def test_prepared_listing_uses_no_ai_on_save_or_copy_edit(self):
+        from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+        from vendoo_studio.services.vendoo_create import prepare_listing_fields_for_vendoo
+        from vendoo_studio.services.vendoo_specifics import FieldSpec
+
+        self.bind()
+        listing = {**LISTING, "category_path": "Clothing > Tops", "category_id": "tops",
+                   "marketplace_category_ids": {"ebay": "shirts"}}
+        fields = {"ebay": {"Season": FieldSpec("Season")}}
+        model = AsyncMock(return_value=[])
+
+        async def ops(_job, calls, **kwargs):
+            self.assertTrue(all(call["op"] in {"get_item", "update_item"} for call in calls))
+            return {"ok": True, "results": [{"op": calls[0]["op"], "ok": True, "item": {
+                "itemID": "itm1", "generalDetails": {"images": []},
+            }}]}
+
+        with patch("vendoo_studio.services.vendoo_create.fetch_listing_specifics", AsyncMock(return_value=fields)), \
+             patch("vendoo_studio.services.vendoo_create._mappable_marketplaces", return_value=()), \
+             patch("vendoo_studio.services.vendoo_create.run_ops", ops), \
+             patch("vendoo_studio.services.listing_field_gaps._request_missing_field_values", model), \
+             patch("vendoo_studio.services.listing_provider.get_listing_provider", return_value=object()), \
+             patch("vendoo_studio.services.listing_provider.provider_is_configured", return_value=True):
+            snapshot = prepare_listing_snapshot(self.db, self.conv, listing)
+            prepared = asyncio.run(prepare_listing_fields_for_vendoo(None, snapshot, provider=object()))[0]
+            ListingRepo(self.db).save_revision(self.conv.id, prepared, source="vendoo_prepare")
+            self.assertEqual(model.await_count, 1)
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
+            self.assertEqual(res.status_code, 200, res.text)
+            edited = {**ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json,
+                      "price": 40, "description": "Seller's revised copy"}
+            ListingRepo(self.db).save_revision(self.conv.id, edited, source="manual")
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
+            self.assertEqual(res.status_code, 200, res.text)
+            self.assertEqual(model.await_count, 1)
+
+    def test_save_remembers_preparation_and_keeps_display_labels(self):
+        self.bind()
+        self.conv.notes = merge_notes(self.conv.notes, {"vendooLabels": "To List"})
+        self.db.commit()
+
+        async def prepare(_job, listing, **kwargs):
+            return {**listing, "labels": ["resolvedId"], "_vendoo_preparation": {"field_signature": "prepared"}}, {}, None, [], []
+
+        async def ops(_job, calls, **kwargs):
+            return {"ok": True, "results": [{"op": calls[0]["op"], "ok": True, "item": {
+                "itemID": "itm1", "generalDetails": {"images": []},
+            }}]}
+
+        with patch("vendoo_studio.services.vendoo_create.prepare_listing_for_vendoo", prepare), \
+             patch("vendoo_studio.services.vendoo_create.run_ops", ops):
+            res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/save")
+        self.assertEqual(res.status_code, 200, res.text)
+        listing = ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json
+        self.assertEqual(listing["labels"], ["To List"])
+        self.assertEqual(listing["_vendoo_preparation"]["field_signature"], "prepared")
 
     def save(self, item):
         async def fake_run_ops(job, ops, **_kwargs):

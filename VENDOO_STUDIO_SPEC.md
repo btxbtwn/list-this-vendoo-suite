@@ -16,6 +16,14 @@ Create a purpose-built local web application that lets the user:
 
 The system is local-only, intended for one user, runs one Chrome automation job at a time (additional approved Sends wait in a FIFO queue), and must always stop before publication.
 
+Generation prepares category ids and marketplace fields in the saved Studio
+listing using read-only category/schema requests. Send and Update reuse this
+preparation; price and description edits do not repeat an unchanged field-fill
+pass. Category edits, newly empty fields and changed schemas require a fresh
+pass. Generation does not create labels, upload photos or write a Vendoo draft.
+After Send approval, photos upload three at a time in seller order; a failed
+upload stops creation, and the saved draft is still read back for verification.
+
 ## 2. Product Decisions
 
 ### Confirmed

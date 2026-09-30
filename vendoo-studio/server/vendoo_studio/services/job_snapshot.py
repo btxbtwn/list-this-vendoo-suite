@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.mercari_shipping import DEFAULT_SHIPPING_LABEL
@@ -84,7 +86,7 @@ def prepare_listing_snapshot(
     from vendoo_studio.services.registry import RegistryService, align_listing_gender
     from vendoo_studio.services.vendoo_import import parse_notes, split_vendoo_labels
 
-    listing_snapshot = dict(listing_json or {})
+    listing_snapshot = copy.deepcopy(listing_json or {})
     conv_notes = parse_notes(getattr(conv, "notes", None))
     labels = split_vendoo_labels(conv_notes.get("vendooLabels"))
     if labels:
@@ -165,6 +167,25 @@ def ensure_listing_defaults(listing_snapshot: dict) -> None:
 
     align_size_fields(listing_snapshot)
     normalize_listing_dropdowns(listing_snapshot)
+
+
+def save_prepared_revision(db: Session, conv_id: str, prepared: dict, revision_id: str) -> str:
+    """Remember preparation for subsequent updates without overwriting a newer edit."""
+    from vendoo_studio.repositories.queries import ListingRepo
+
+    if not isinstance(prepared.get("_vendoo_preparation"), dict):
+        return revision_id
+    db.expire_all()
+    repo = ListingRepo(db)
+    current = repo.get_current(conv_id)
+    if not current or current.current_revision_id != revision_id:
+        return revision_id
+    previous = repo.get_revision(revision_id)
+    if previous and previous.listing_json == prepared:
+        return revision_id
+    return repo.save_revision(
+        conv_id, prepared, source="vendoo_prepare", parent_revision_id=revision_id,
+    ).id
 
 
 def blocker_fields_for_job(job) -> list[dict] | None:

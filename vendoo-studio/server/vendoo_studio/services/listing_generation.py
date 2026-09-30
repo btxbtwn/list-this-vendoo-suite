@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import time
 
@@ -223,7 +224,7 @@ async def run_listing_generation(
                 "_schema_probe_job_id": (schema_seed or {}).get("_schema_probe_job_id") if isinstance(schema_seed, dict) else None,
             }
             # Registered before [DONE] reaches the client, so chat stays busy until it ends.
-            activity.track_task(conv_id, "Filling discovered fields…", spawn(_finish_generation_background(
+            activity.track_task(conv_id, "Preparing marketplace fields…", spawn(_finish_generation_background(
                 conv_id,
                 listing,
                 evidence=evidence_text,
@@ -294,10 +295,8 @@ async def _finish_generation_background(
 ) -> None:
     """Fill remaining discovered fields after the generate stream ends.
 
-    Generation stops at a saved listing. Nothing here reaches Vendoo: the
-    seller presses Send, and Send is one Vendoo API call (``vendoo-api/create``
-    or ``vendoo-api/save``). An automatic push from here used to type the
-    values into the Vendoo form instead, which is the old path and is gone.
+    Generation reads category/schema data and stops at a saved Studio listing.
+    Labels, photos and draft writes wait for the seller to press Send/Update.
     """
     db = SessionLocal()
     repo = ConversationRepo(db)
@@ -322,12 +321,48 @@ async def _finish_generation_background(
             provider,
             evidence=evidence,
         )
+        from types import SimpleNamespace
+
+        from vendoo_studio.repositories.queries import ListingRepo
+        from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+        from vendoo_studio.services.vendoo_create import (
+            BrowserBridgeError,
+            LOOKUP_TIMEOUT_SEC,
+            VendooCreateError,
+            prepare_listing_fields_for_vendoo,
+        )
+
+        listing_repo = ListingRepo(db)
+        saved = listing_repo.get_current(conv_id)
+        revision_id = saved.current_revision_id if saved else None
+        conv = repo.get(conv_id)
+        if conv and saved:
+            snapshot = prepare_listing_snapshot(db, conv, current)
+            try:
+                prepared, _specifics, _schema, _unresolved, _unfilled = await prepare_listing_fields_for_vendoo(
+                    SimpleNamespace(id=None), snapshot, provider=provider, evidence=evidence,
+                    timeout=LOOKUP_TIMEOUT_SEC,
+                )
+            except (BrowserBridgeError, VendooCreateError):
+                # Offline generation still saves a usable listing. Send will
+                # resolve anything that could not be read ahead of time.
+                log.info("Vendoo preparation unavailable for %s", conv_id)
+            else:
+                db.expire_all()
+                latest = listing_repo.get_current(conv_id)
+                if not latest or latest.current_revision_id != revision_id:
+                    # An edit, Clear or Regenerate happened while reads/AI ran.
+                    return
+                listing_repo.save_revision(
+                    conv_id, prepared, source="vendoo_prepare", parent_revision_id=revision_id,
+                )
+                current = prepared
         # Posted only now: said before the fill, it reported fields as empty
         # and "Send when ready" while chat was still filling them.
         repo.add_message(
             conv_id,
             "system",
-            listing_save_summary(db, conv_id, current, repaired=repaired),
+            listing_save_summary(db, conv_id, copy.deepcopy(current), repaired=repaired),
             provider="system",
             model="",
         )
