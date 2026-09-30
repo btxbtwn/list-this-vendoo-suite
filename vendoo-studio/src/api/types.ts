@@ -509,6 +509,13 @@ export interface SourcingCart {
   lots: SourcingLot[];
 }
 
+export interface SourcingBuyList {
+  budget: number;
+  total: number;
+  expected_profit: number;
+  carts: SourcingCart[];
+}
+
 export interface SourcingSnapshot {
   updated_at: string;
   destination_zip: string;
@@ -517,7 +524,8 @@ export interface SourcingSnapshot {
   priced_themes: number;
   shipping: { residential_surcharge: number; fuel_surcharge_pct: number; fuel_surcharge_as_of: string };
   assumptions: { sell_through: number; fees: number; grade_yield: Record<string, number> };
-  buy_list: { budget: number; total: number; expected_profit: number; carts: SourcingCart[] };
+  buy_list: SourcingBuyList;
+  store_buy_lists: Record<string, SourcingBuyList>;
   lots: SourcingLot[];
 }
 

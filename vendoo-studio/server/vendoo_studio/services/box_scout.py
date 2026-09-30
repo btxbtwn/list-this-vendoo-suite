@@ -103,6 +103,9 @@ def read_state() -> dict:
     state.setdefault("resale", {})
     state.setdefault("zone_charts", {})
     state.setdefault("snapshot", None)
+    # Sourcing snapshots are disposable caches; rebuild when the plan format changes.
+    if state["snapshot"] and "store_buy_lists" not in state["snapshot"]:
+        state["snapshot"] = None
     return state
 
 
@@ -317,8 +320,7 @@ def refresh(*, recrawl: bool = True, research: bool = True) -> dict:
 
         if can_research:
             fresh = _fresh_resale(state, now)
-            missing = [t for t in s.research_themes(rows, limit=RESEARCH_THEMES * 2) if t not in fresh]
-            missing = missing[:RESEARCH_THEMES]
+            missing = s.research_themes([r for r in rows if r["theme"] not in fresh], limit=RESEARCH_THEMES)
             examples = {}
             for row in rows:
                 examples.setdefault(row["theme"], row["title"])
@@ -330,8 +332,14 @@ def refresh(*, recrawl: bool = True, research: bool = True) -> dict:
             baselines, rows = s.score_lots(catalogs, cfg, zones, filters, _fresh_resale(state, now))
 
         plan = s.buy_list(rows, cfg, budget=prefs["budget"], min_roi=prefs["min_roi"])
+        store_plans = {
+            store: s.buy_list([r for r in rows if r["store"] == store], cfg,
+                              budget=prefs["budget"], min_roi=prefs["min_roi"])
+            for store in s.STORES
+        }
         evidence = {name: entry.get("evidence", []) for name, entry in state["resale"].items()}
-        for lot in [*rows, *(p for c in plan["carts"] for p in c["lots"])]:
+        for lot in [*rows, *(p for choice in [plan, *store_plans.values()]
+                              for c in choice["carts"] for p in c["lots"])]:
             lot["evidence"] = evidence.get(lot["theme"], [])
         state["snapshot"] = {
             "updated_at": now.isoformat(),
@@ -358,6 +366,7 @@ def refresh(*, recrawl: bool = True, research: bool = True) -> dict:
                 "grade_yield": s.GRADE_YIELD,
             },
             "buy_list": plan,
+            "store_buy_lists": store_plans,
             "lots": rows[:KEEP_LOTS],
         }
         _write_state(state)

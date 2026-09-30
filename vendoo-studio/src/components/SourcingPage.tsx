@@ -15,6 +15,7 @@ import {
   moneyBack,
   nextUpdate,
   otherLots,
+  storeName,
 } from "./boxScout";
 
 const QUERY_KEY = ["sourcing"];
@@ -25,11 +26,17 @@ interface Props {
 
 export function SourcingPage({ onOpenProviders }: Props) {
   const queryClient = useQueryClient();
+  const [choice, setChoice] = useState("all");
   const query = useQuery({
     queryKey: QUERY_KEY,
     queryFn: api.sourcing.get,
-    // While Studio is checking the stores, watch for the new list.
-    refetchInterval: (current) => (current.state.data?.refreshing ? 3000 : false),
+    // Keep watching until the list catches up with saved shipping and budget settings.
+    refetchInterval: (current) => {
+      const state = current.state.data;
+      return state && (state.refreshing || !state.snapshot
+        || state.snapshot.buy_list.budget !== state.prefs.budget
+        || state.snapshot.destination_zip !== state.prefs.zip) ? 3000 : false;
+    },
   });
   const onSaved = (state: SourcingState) => queryClient.setQueryData(QUERY_KEY, state);
   const onError = (error: Error) =>
@@ -42,6 +49,13 @@ export function SourcingPage({ onOpenProviders }: Props) {
   });
   const data = query.data;
   const snapshot = data?.snapshot ?? null;
+  const selectedSnapshot = snapshot ? {
+    ...snapshot,
+    buy_list: choice === "all" ? snapshot.buy_list : snapshot.store_buy_lists[choice],
+    lots: snapshot.lots.filter((lot) => choice === "all" || lot.store === choice),
+  } : null;
+  const updating = !!data && (data.refreshing || refresh.isPending || savePrefs.isPending
+    || snapshot?.buy_list.budget !== data.prefs.budget || snapshot?.destination_zip !== data.prefs.zip);
 
   return (
     <div className="analytics-page">
@@ -58,8 +72,8 @@ export function SourcingPage({ onOpenProviders }: Props) {
             ) : null}
           </div>
           <p className="sourcing-lead">
-            Studio watches Raghouse and Thrift Vintage Fashion for you and picks the boxes worth buying. Open a
-            cart, check it, and pay. Nothing is bought without you.
+            Compare a combined buy list with Raghouse and Thrift Vintage Fashion options for your budget.
+            Review the boxes and estimated profit, then open the cart when you’re ready.
           </p>
           {data ? (
             <Settings prefs={data.prefs} saving={savePrefs.isPending} onSave={(prefs) => savePrefs.mutate(prefs)} />
@@ -81,8 +95,12 @@ export function SourcingPage({ onOpenProviders }: Props) {
         {data && snapshot ? (
           <>
             <StoreProblems snapshot={snapshot} />
-            <BuyList data={data} snapshot={snapshot} onOpenProviders={onOpenProviders} />
-            <MoreBoxes snapshot={snapshot} />
+            <Choices snapshot={snapshot} choice={choice} onChoose={setChoice} />
+            {updating ? <p className="sourcing-hint" role="status">Updating your options. Cart links will be ready when the check finishes.</p> : null}
+            {selectedSnapshot ? <>
+              <BuyList data={data} snapshot={selectedSnapshot} choice={choice} updating={updating} onOpenProviders={onOpenProviders} />
+              <MoreBoxes snapshot={selectedSnapshot} />
+            </> : null}
             <Trending trend={data.trend} />
             <HowItWorks snapshot={snapshot} />
           </>
@@ -161,7 +179,7 @@ function Settings({
           inputMode="decimal"
           disabled={saving}
           clean={(text) => text.replace(/[^\d.]/g, "")}
-          accept={(text) => Number(text) > 0}
+          accept={(text) => Number.isFinite(Number(text)) && Number(text) > 0}
           onCommit={(text) => onSave({ budget: Number(text) })}
         />
       </span>
@@ -178,17 +196,55 @@ function Settings({
   );
 }
 
+function Choices({ snapshot, choice, onChoose }: {
+  snapshot: SourcingSnapshot;
+  choice: string;
+  onChoose: (choice: string) => void;
+}) {
+  return (
+    <section aria-label="Compare sourcing options">
+      <h2 className="sourcing-section-title">Choose a buy list</h2>
+      <p className="sourcing-hint">Each option uses the same {formatMoney(snapshot.buy_list.budget)} budget including estimated shipping. Choose one; these are alternatives. Tax is extra.</p>
+      <div className="sourcing-choices">
+        {["all", "raghouse", "tvf"].map((key) => {
+          const plan = key === "all" ? snapshot.buy_list : snapshot.store_buy_lists[key];
+          const count = plan.carts.reduce((sum, cart) => sum + cart.lots.length, 0);
+          return (
+            <button key={key} type="button" className="sourcing-choice" aria-pressed={choice === key} onClick={() => onChoose(key)}>
+              <strong>{key === "all" ? "Combined list" : storeName(key)}</strong>
+              {count ? <>
+                <span>{boxCount(count)} · {formatMoney(plan.total)}</span>
+                <span>Est. profit {formatMoney(Math.round(plan.expected_profit))}</span>
+              </> : <span>{snapshot.stores[key]?.error ? "Store unavailable" : "No qualifying boxes"}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function BuyList({
   data,
   snapshot,
+  choice,
+  updating,
   onOpenProviders,
 }: {
   data: SourcingState;
   snapshot: SourcingSnapshot;
+  choice: string;
+  updating: boolean;
   onOpenProviders: () => void;
 }) {
   const plan = snapshot.buy_list;
   if (plan.carts.length === 0) {
+    if (choice !== "all" && snapshot.stores[choice]?.error) {
+      return <div className="sourcing-empty">
+        <div className="sourcing-empty-title">{storeName(choice)} is unavailable</div>
+        <p>Studio couldn’t check this store. Try updating again, or compare the other buy lists.</p>
+      </div>;
+    }
     // Prices found earlier stay good for two weeks, so a list can stand without a model connected.
     if (!data.research_available) {
       return (
@@ -206,9 +262,9 @@ function BuyList({
     }
     return (
       <div className="sourcing-empty">
-        <div className="sourcing-empty-title">No box is worth buying right now</div>
+        <div className="sourcing-empty-title">{choice === "all" ? "No qualifying boxes right now" : `No qualifying boxes at ${storeName(choice)}`}</div>
         <p>
-          Nothing is expected to at least double your money within {formatMoney(plan.budget)}. Studio checks again
+          No researched box meets your return target within {formatMoney(plan.budget)} including shipping. Studio checks again
           by itself around {clockTime(nextUpdate(snapshot.updated_at))}.
         </p>
       </div>
@@ -222,19 +278,20 @@ function BuyList({
           Buy {boxCount(boxes)} for {formatMoney(Math.round(plan.total))}
         </div>
         <div className="sourcing-summary-sub">
-          Expected profit about{" "}
+          Estimated profit about{" "}
           <strong className="sourcing-profit">{formatMoney(Math.round(plan.expected_profit))}</strong>. Every $1 you
-          spend should come back as about {moneyBack(plan.total, plan.expected_profit)}.
+          spend could come back as about {moneyBack(plan.total, plan.expected_profit)}.
         </div>
       </section>
+      <p className="sourcing-hint">{formatMoney(Math.max(0, plan.budget - plan.total))} of your budget remains before tax. Resale estimates aren’t guaranteed.</p>
       {plan.carts.map((cart, index) => (
-        <Cart key={cart.store} cart={cart} step={plan.carts.length > 1 ? index + 1 : null} of={plan.carts.length} />
+        <Cart key={cart.store} cart={cart} updating={updating} step={plan.carts.length > 1 ? index + 1 : null} of={plan.carts.length} />
       ))}
     </>
   );
 }
 
-function Cart({ cart, step, of }: { cart: SourcingCart; step: number | null; of: number }) {
+function Cart({ cart, step, of, updating }: { cart: SourcingCart; step: number | null; of: number; updating: boolean }) {
   const gap = freeShippingGap(cart);
   return (
     <section className="sourcing-cart" aria-label={cart.name}>
@@ -259,12 +316,12 @@ function Cart({ cart, step, of }: { cart: SourcingCart; step: number | null; of:
       </dl>
       {gap ? (
         <p className="sourcing-hint">
-          Spend {formatMoney(gap)} more at {cart.name} and shipping is free.
+          Free shipping starts at {formatMoney(cart.free_shipping_over!)} in boxes ({formatMoney(gap)} more).
         </p>
       ) : null}
-      <a className="btn btn-primary sourcing-cart-button" href={cart.cart_url} target="_blank" rel="noopener noreferrer">
+      {updating ? <button className="btn btn-primary sourcing-cart-button" disabled>Updating cart…</button> : <a className="btn btn-primary sourcing-cart-button" href={cart.cart_url} target="_blank" rel="noopener noreferrer">
         Open {cart.name} cart
-      </a>
+      </a>}
       <p className="sourcing-hint sourcing-cart-note">The cart opens with these boxes already in it. Check it, then pay.</p>
     </section>
   );
@@ -281,6 +338,11 @@ function Item({ lot }: { lot: SourcingLot }) {
           {lotReason(lot)}
           {lot.trend_hits.length ? <span className="sourcing-trend"> · trending: {lot.trend_hits.join(", ")}</span> : null}
         </div>
+        <div className="sourcing-item-reason">About {formatMoney(lot.cog_per_usable_pc)} per usable piece, including shipping</div>
+        {lot.evidence.length ? <details className="sourcing-evidence">
+          <summary>Resale research</summary>
+          {lot.evidence.map((url, index) => <a key={url} href={url} target="_blank" rel="noopener noreferrer">Source {index + 1}</a>)}
+        </details> : null}
       </div>
       <div className="sourcing-item-money">
         <div>{formatMoney(Math.round(lot.landed))}</div>
@@ -336,7 +398,7 @@ function Trending({ trend }: { trend: SourcingState["trend"] }) {
   return (
     <section className="sourcing-section" aria-label="Selling right now">
       <h2 className="sourcing-section-title">Selling right now</h2>
-      <p className="sourcing-hint">Boxes with these in the name get picked first. Updated every week.</p>
+      <p className="sourcing-hint">Current research themes used to rank boxes. Updated every week.</p>
       <div className="sourcing-chips">
         {trend.terms.map((term) => (
           <span key={term} className="sourcing-chip">
@@ -378,7 +440,7 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
           sell out fast), minus {Math.round(a.fees * 100)}% marketplace fees and the box's cost with shipping. Recycle
           lots count 60% of their pcs as sellable, Recycle &amp; Good 75%, B Grade 60%, C Grade 50% and every other lot 90%.
         </li>
-        <li>It picks the best boxes that should at least double your money, one of each kind, up to your budget.</li>
+        <li>It picks boxes by estimated return, one of each kind, up to your budget including shipping. Store-only options use the same budget and return target.</li>
         <li>
           Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip}, scaled to a checkout you
           already paid. Thrift Vintage Fashion is a UPS Ground estimate, still at list price.

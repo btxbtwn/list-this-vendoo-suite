@@ -139,6 +139,33 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(lot["title"], "Men's Flannel Shirts Bale · 100LB")  # one bale per theme
         self.assertEqual((lot["ship_est"], lot["landed"]), (0, lot["price"]))
 
+    def test_research_allowance_is_shared_between_stores(self):
+        rows = [{"store": "raghouse", "theme": f"rag-{i}", "demand": 2, "trend_hits": []}
+                for i in range(30)]
+        rows += [{"store": "tvf", "theme": f"tvf-{i}", "demand": 1, "trend_hits": []}
+                 for i in range(30)]
+        themes = self.s.research_themes(rows, limit=24)
+        self.assertEqual(sum(t.startswith("tvf-") for t in themes), 12)
+        self.assertEqual(sum(t.startswith("rag-") for t in themes), 12)
+
+    def test_free_shipping_is_applied_before_budget_and_roi_checks(self):
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), {"men's flannel shirts": 20})[1]
+        plan = self.s.buy_list(rows, self.cfg, budget=225)
+        self.assertEqual(plan["total"], 225)
+        self.assertTrue(plan["carts"][0]["free_shipping"])
+        self.assertIn("50LB", plan["carts"][0]["lots"][0]["title"])
+
+    def test_crossing_free_shipping_threshold_reprices_the_whole_cart(self):
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), {"vintage graphic t-shirts": 100})[1]
+        base = next(r for r in rows if r["store"] == "tvf" and r["roi"] is not None)
+        rows = [self.s.price_lot({**base, "theme": f"theme-{i}", "variant_id": 100 + i, "price": 110}, 45, 100)
+                for i in range(2)]
+        plan = self.s.buy_list(rows, self.cfg, budget=220)
+        self.assertEqual(plan["total"], 220)
+        self.assertEqual(len(plan["carts"][0]["lots"]), 2)
+        self.assertEqual(plan["carts"][0]["shipping"], 0)
+        self.assertEqual(rows[0]["ship_est"], 45)  # source rows stay unchanged
+
 
 def _search(label: str, answers: list[str]) -> ModelSearch:
     calls = iter(answers)
@@ -181,6 +208,28 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual(lots[0]["title"], "Recycle Cartoon T-Shirts 70 pcs")
         self.assertEqual(lots[0]["evidence"], ["https://www.ebay.com/itm/1"])
         self.assertTrue(snapshot["research"])
+
+    def test_both_store_choices_use_the_same_budget_and_keep_evidence(self):
+        prices = json.dumps({"prices": [
+            {"theme": "cartoon t-shirts", "per_piece": 20, "evidence": ["https://www.ebay.com/itm/1"]},
+            {"theme": "vintage graphic t-shirts", "per_piece": 100, "evidence": ["https://www.ebay.com/itm/2"]},
+        ]})
+        with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}', prices, "{}"])):
+            snapshot = box_scout.refresh()
+        self.assertEqual(set(snapshot["store_buy_lists"]), {"raghouse", "tvf"})
+        for store, plan in snapshot["store_buy_lists"].items():
+            self.assertEqual(plan["budget"], 300)
+            self.assertLessEqual(plan["total"], 300)
+            self.assertTrue(plan["carts"])
+            self.assertEqual({c["store"] for c in plan["carts"]}, {store})
+            self.assertTrue(plan["carts"][0]["lots"][0]["evidence"])
+
+    def test_old_snapshot_cache_is_rebuilt_without_losing_preferences(self):
+        self.state_file.write_text(json.dumps({"prefs": {"budget": 180}, "snapshot": {"updated_at": "old"}}))
+        state = box_scout.read_state()
+        self.assertIsNone(state["snapshot"])
+        self.assertEqual(state["prefs"]["budget"], 180)
+        self.assertTrue(box_scout.refresh_is_due())
 
     def test_cached_research_is_not_repeated(self):
         prices = json.dumps({"prices": [{"theme": "cartoon t-shirts", "per_piece": 15}]})
