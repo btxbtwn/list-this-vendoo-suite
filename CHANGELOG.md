@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.143 — 2026-09-30
+
+- Retry interrupted Vendoo sends without creating duplicate drafts or uploading the same photos again. Updates verify the saved fields before showing as synced and detect edits made in Vendoo during a save.
+- Send drafts faster with concurrent category lookups, refreshed category options, and automatic retries for temporary read failures. Send timings are recorded in job events.
+
 ## 0.1.142 — 2026-09-30
 
 - Compare sales with the previous period and open inventory age groups to review their listings. Analytics now shows missing sale prices and costs clearly, includes recorded $0 costs in profit, and excludes future-dated sales.

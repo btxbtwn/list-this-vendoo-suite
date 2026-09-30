@@ -1897,6 +1897,18 @@ def _comparable(value: Any) -> Any:
     return value
 
 
+def diff_updates(updates: dict[str, Any], stored: dict[str, Any]) -> list[dict[str, Any]]:
+    """Verify every explicitly written path, including clears and coded values."""
+    out = []
+    for path, expected in updates.items():
+        actual: Any = stored
+        for part in path.split("."):
+            actual = actual.get(part) if isinstance(actual, dict) else None
+        if actual != expected:
+            out.append({"field": path, "sent": expected, "stored": actual})
+    return out
+
+
 def diff_roundtrip(sent: dict[str, Any], stored: dict[str, Any]) -> list[dict[str, Any]]:
     """Fields Vendoo stored differently from what we sent (generalDetails only).
 

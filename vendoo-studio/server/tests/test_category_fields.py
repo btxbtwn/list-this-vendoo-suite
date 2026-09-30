@@ -63,6 +63,22 @@ class CategoryFieldsCacheTest(unittest.TestCase):
         loaded = category_fields.load_fields(self.marketplace, self.category_id)
         self.assertEqual(sorted(loaded), ["Size"])
 
+    def test_stale_and_empty_schemas_refresh_without_repeated_empty_fetches(self):
+        from datetime import UTC, datetime, timedelta
+        from vendoo_studio.database import SessionLocal
+        from vendoo_studio.models.catalog import CategoryFieldSchema
+
+        category_fields.save_fields(self.marketplace, self.category_id, normalize_specifics(RAW))
+        with SessionLocal() as db:
+            row = db.query(CategoryFieldSchema).filter_by(marketplace=self.marketplace, category_id=self.category_id).one()
+            row.fetched_at = datetime.now(UTC) - timedelta(days=8)
+            db.commit()
+        self.assertIsNone(category_fields.load_fields(self.marketplace, self.category_id))
+        category_fields.save_fields(self.marketplace, self.category_id, normalize_specifics(RAW))
+        self.assertIn("Season", category_fields.load_fields(self.marketplace, self.category_id))
+        category_fields.save_fields(self.marketplace, self.category_id, {})
+        self.assertEqual(category_fields.load_fields(self.marketplace, self.category_id), {})
+
     def test_fields_route_serves_the_cache(self):
         category_fields.save_fields(self.marketplace, self.category_id, normalize_specifics(RAW))
         client = TestClient(app)

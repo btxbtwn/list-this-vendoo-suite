@@ -10,6 +10,7 @@ const STEP_RANGES: [step: string, floor: number, ceiling: number][] = [
   ["vendoo_api_photos", 62, 82],
   ["vendoo_api_create", 82, 93],
   ["vendoo_api_patch", 93, 98],
+  ["vendoo_api_verify", 98, 99],
 ];
 
 export function sendStepRange(step: string, furthestIndex: number): { index: number; floor: number; ceiling: number } {
