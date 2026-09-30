@@ -387,6 +387,8 @@ export interface AnalyticsSales {
   profit: number | null;
   profit_known: number;
   fees_known: number;
+  revenue_known: number;
+  days_known: number;
   average_price: number | null;
   median_days: number | null;
 }
@@ -404,16 +406,24 @@ export interface AnalyticsGroup {
   revenue: number;
 }
 
+export interface AnalyticsActiveListing {
+  conversation_id: string;
+  title: string;
+  price: number;
+  days_listed: number | null;
+}
+
 export interface AnalyticsAging {
   label: string;
   count: number;
   asking_value: number;
+  listings: AnalyticsActiveListing[];
 }
 
 export interface AnalyticsSale {
   conversation_id: string;
   title: string;
-  price: number;
+  price: number | null;
   marketplace: string;
   sold_at: string | null;
   days_listed: number | null;
@@ -425,6 +435,7 @@ export interface InventoryAnalytics {
   periods_truncated: boolean;
   inventory: AnalyticsInventory;
   sales: AnalyticsSales;
+  previous: { start: string; end: string; sales: AnalyticsSales } | null;
   periods: AnalyticsPeriod[];
   marketplaces: AnalyticsGroup[];
   categories: AnalyticsGroup[];

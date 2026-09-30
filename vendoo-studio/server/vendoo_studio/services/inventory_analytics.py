@@ -8,6 +8,7 @@ them. It does not call Vendoo.
 
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -40,10 +41,10 @@ class AnalyticsItem:
     title: str
     status: str
     price: float
-    cost: float
+    cost: float | None
     brand: str
     category: str
-    sold_price: float
+    sold_price: float | None
     sold_at: datetime | None
     listed_at: datetime | None
     marketplace: str
@@ -56,8 +57,8 @@ class AnalyticsItem:
     def profit(self) -> float:
         """Vendoo's net profit: sold price plus shipping paid, less the rest."""
         return (
-            self.sold_price + self.shipping_credit
-            - self.cost - (self.fees or 0.0) - self.shipping_cost
+            (self.sold_price or 0.0) + self.shipping_credit
+            - (self.cost or 0.0) - (self.fees or 0.0) - self.shipping_cost
         )
 
 
@@ -114,16 +115,15 @@ def load_rows(db) -> list[AnalyticsItem]:
         listed_text = str(dates.get("listed") or "")
         sold_text = str(dates.get("sold") or sale.get("soldAt") or "")
         effective = _effective_status(str(status or ""), notes)
-        sold_price = _number(sale.get("price"))
+        sold_price = _amount(sale.get("price"))
         asking = _number(price)
-        if sold_price <= 0 and effective == "sold":
-            sold_price = asking
+        sale_cost = _amount(sale.get("cost"))
         rows.append(AnalyticsItem(
             conversation_id=conv_id,
             title=(str(title or "").strip() or "Untitled listing"),
             status=effective,
             price=asking,
-            cost=_number(sale.get("cost")) or _number(cost),
+            cost=sale_cost if sale_cost is not None else _amount(cost),
             brand=str(brand or "").strip(),
             category=_category_label(category),
             sold_price=sold_price,
@@ -149,7 +149,7 @@ def summarize(
     include_undated = range_id == "all"
     sales = [
         item for item in items
-        if item.status == "sold" and _in_window(item, start, include_undated=include_undated)
+        if item.status == "sold" and _in_window(item, start, now, include_undated=include_undated)
     ]
     dated = [item for item in sales if item.sold_at is not None]
     buckets, truncated = _buckets(range_id, now, [item.sold_at for item in dated if item.sold_at])
@@ -159,25 +159,28 @@ def summarize(
         if index is None:
             continue
         periods[index]["count"] += 1
-        periods[index]["revenue"] += item.sold_price
+        periods[index]["revenue"] += item.sold_price or 0.0
 
-    revenue = sum(item.sold_price for item in sales)
-    profit_rows = [item for item in sales if item.cost > 0 and item.sold_price > 0]
-    days = [item.days_listed for item in sales if item.days_listed is not None]
+    previous = None
+    if start is not None:
+        previous_start = start - (now - start)
+        previous_sales = [
+            item for item in items
+            if item.status == "sold" and item.sold_at is not None
+            and previous_start <= item.sold_at < start
+        ]
+        previous = {
+            "start": previous_start.isoformat(),
+            "end": start.isoformat(),
+            "sales": _sales_stats(previous_sales),
+        }
     return {
         "range": range_id,
         "undated_sales": sum(1 for item in items if item.status == "sold" and item.sold_at is None),
         "periods_truncated": truncated,
         "inventory": _inventory(items),
-        "sales": {
-            "count": len(sales),
-            "revenue": _money(revenue),
-            "profit": _money(sum(item.profit for item in profit_rows)) if profit_rows else None,
-            "profit_known": len(profit_rows),
-            "fees_known": sum(1 for item in profit_rows if item.fees is not None),
-            "average_price": _money(revenue / len(sales)) if sales else None,
-            "median_days": _median_days(days),
-        },
+        "sales": _sales_stats(sales),
+        "previous": previous,
         "periods": [
             {**period, "revenue": _money(period["revenue"])}
             for period in periods
@@ -187,6 +190,24 @@ def summarize(
         "brands": _top(_groups(sales, _brand_key)),
         "aging": _aging(items, now),
         "recent": _recent(sales),
+    }
+
+
+def _sales_stats(sales: list[AnalyticsItem]) -> dict[str, Any]:
+    priced = [item for item in sales if item.sold_price is not None]
+    revenue = sum(item.sold_price or 0.0 for item in priced)
+    profit_rows = [item for item in priced if item.cost is not None]
+    days = [item.days_listed for item in sales if item.days_listed is not None]
+    return {
+        "count": len(sales),
+        "revenue": _money(revenue),
+        "revenue_known": len(priced),
+        "profit": _money(sum(item.profit for item in profit_rows)) if profit_rows else None,
+        "profit_known": len(profit_rows),
+        "fees_known": sum(1 for item in profit_rows if item.fees is not None),
+        "average_price": _money(revenue / len(priced)) if priced else None,
+        "median_days": _median_days(days),
+        "days_known": len(days),
     }
 
 
@@ -261,10 +282,10 @@ def _groups(sales: list[AnalyticsItem], key_of):
             continue
         row = groups.get(key)
         if row is None:
-            groups[key] = {"id": key, "label": label, "count": 1, "revenue": item.sold_price}
+            groups[key] = {"id": key, "label": label, "count": 1, "revenue": item.sold_price or 0.0}
             continue
         row["count"] += 1
-        row["revenue"] += item.sold_price
+        row["revenue"] += item.sold_price or 0.0
     return groups
 
 
@@ -295,29 +316,33 @@ def _top(groups: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _aging(items: list[AnalyticsItem], now: datetime) -> list[dict[str, Any]]:
     buckets = [
-        {"label": label, "count": 0, "asking_value": 0.0}
+        {"label": label, "count": 0, "asking_value": 0.0, "listings": []}
         for label, _start, _end in _AGING
     ]
-    undated = {"label": "No list date", "count": 0, "asking_value": 0.0}
+    undated = {"label": "No list date", "count": 0, "asking_value": 0.0, "listings": []}
     for item in items:
         if item.status != "active":
             continue
-        if item.listed_at is None:
-            undated["count"] += 1
-            undated["asking_value"] += item.price
-            continue
-        days = max(0, int((now - item.listed_at).total_seconds() // 86_400))
-        for index, (_label, start, end) in enumerate(_AGING):
-            if days >= start and (end is None or days < end):
-                buckets[index]["count"] += 1
-                buckets[index]["asking_value"] += item.price
-                break
-    rows = [row for row in buckets if row["count"]]
-    if undated["count"]:
-        rows.append(undated)
+        days = None
+        bucket = undated
+        if item.listed_at is not None:
+            days = max(0, int((now - item.listed_at).total_seconds() // 86_400))
+            for index, (_label, start, end) in enumerate(_AGING):
+                if days >= start and (end is None or days < end):
+                    bucket = buckets[index]
+                    break
+        bucket["count"] += 1
+        bucket["asking_value"] += item.price
+        bucket["listings"].append({
+            "conversation_id": item.conversation_id,
+            "title": item.title,
+            "price": _money(item.price),
+            "days_listed": days,
+        })
     return [
-        {**row, "asking_value": _money(row["asking_value"])}
-        for row in rows
+        {**row, "asking_value": _money(row["asking_value"]),
+         "listings": sorted(row["listings"], key=lambda item: (-(item["days_listed"] or 0), item["title"]))}
+        for row in [*buckets, undated] if row["count"]
     ]
 
 
@@ -331,7 +356,7 @@ def _recent(sales: list[AnalyticsItem]) -> list[dict[str, Any]]:
         {
             "conversation_id": item.conversation_id,
             "title": item.title,
-            "price": _money(item.sold_price),
+            "price": _money(item.sold_price) if item.sold_price is not None else None,
             "marketplace": item.marketplace,
             "sold_at": item.sold_at.isoformat() if item.sold_at else None,
             "days_listed": item.days_listed,
@@ -351,12 +376,12 @@ def _window_start(range_id: str, now: datetime) -> datetime | None:
     return now - timedelta(days=days)
 
 
-def _in_window(item: AnalyticsItem, start: datetime | None, *, include_undated: bool) -> bool:
+def _in_window(
+    item: AnalyticsItem, start: datetime | None, end: datetime, *, include_undated: bool,
+) -> bool:
     if item.sold_at is None:
         return include_undated
-    if start is None:
-        return True
-    return item.sold_at >= start
+    return item.sold_at <= end and (start is None or item.sold_at >= start)
 
 
 def _buckets(
@@ -431,7 +456,7 @@ def _number(value: Any) -> float:
         amount = float(value)
     except (TypeError, ValueError):
         return 0.0
-    if amount != amount or amount <= 0:
+    if not math.isfinite(amount) or amount <= 0:
         return 0.0
     return amount
 
@@ -444,7 +469,7 @@ def _amount(value: Any) -> float | None:
         amount = float(value)
     except (TypeError, ValueError):
         return None
-    if amount != amount or amount < 0:
+    if not math.isfinite(amount) or amount < 0:
         return None
     return amount
 

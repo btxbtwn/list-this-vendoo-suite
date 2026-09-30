@@ -20,7 +20,7 @@ def _item(**overrides) -> AnalyticsItem:
         "title": "Nike Tee",
         "status": "sold",
         "price": 48,
-        "cost": 0,
+        "cost": None,
         "brand": "Nike",
         "category": "T-Shirts",
         "sold_price": 36,
@@ -68,7 +68,7 @@ class SummarizeAnalyticsTest(unittest.TestCase):
         payload = summarize(
             [
                 _item(cost=10, sold_price=40),
-                _item(conversation_id="c2", cost=0, sold_price=20),
+                _item(conversation_id="c2", cost=None, sold_price=20),
                 _item(conversation_id="c3", cost=25, sold_price=10),
             ],
             range_id="all",
@@ -169,6 +169,59 @@ class SummarizeAnalyticsTest(unittest.TestCase):
         self.assertEqual(len(payload["periods"]), 12)
         self.assertEqual(sum(period["count"] for period in payload["periods"]), 1)
 
+    def test_zero_cost_is_known_and_missing_price_is_not_asking_price(self):
+        payload = summarize([
+            _item(cost=0, fees=5),
+            _item(conversation_id="missing", sold_price=None, cost=10),
+            _item(conversation_id="free-sale", sold_price=0, cost=2),
+        ], range_id="30d", now=NOW)
+        self.assertEqual(payload["sales"]["count"], 3)
+        self.assertEqual(payload["sales"]["revenue"], 36)
+        self.assertEqual(payload["sales"]["revenue_known"], 2)
+        self.assertEqual(payload["sales"]["average_price"], 18)
+        self.assertEqual(payload["sales"]["profit_known"], 2)
+        self.assertEqual(payload["sales"]["profit"], 29)
+        self.assertIsNone(next(row for row in payload["recent"] if row["conversation_id"] == "missing")["price"])
+
+    def test_comparison_boundaries_and_future_sales(self):
+        for span, days in (("30d", 30), ("90d", 90)):
+            start = NOW - timedelta(days=days)
+            payload = summarize([
+                _item(sold_at=start),
+                _item(conversation_id="previous", sold_at=start - timedelta(days=days)),
+                _item(conversation_id="too-old", sold_at=start - timedelta(days=days, seconds=1)),
+                _item(conversation_id="future", sold_at=NOW + timedelta(seconds=1)),
+                _item(conversation_id="undated", sold_at=None),
+            ], range_id=span, now=NOW)
+            self.assertEqual(payload["sales"]["count"], 1)
+            self.assertEqual(payload["previous"]["sales"]["count"], 1)
+            self.assertEqual(sum(row["count"] for row in payload["periods"]), 1)
+        all_time = summarize([_item(sold_at=NOW + timedelta(days=1))], range_id="all", now=NOW)
+        self.assertEqual(all_time["sales"]["count"], 0)
+        self.assertIsNone(all_time["previous"])
+
+    def test_twelve_month_comparison_has_equal_duration(self):
+        payload = summarize([], range_id="12m", now=NOW)
+        previous = payload["previous"]
+        end = datetime.fromisoformat(previous["end"])
+        start = datetime.fromisoformat(previous["start"])
+        self.assertEqual(NOW - end, end - start)
+        self.assertEqual(end, datetime(2025, 10, 1, tzinfo=UTC))
+
+    def test_aging_drilldown_contains_only_bucket_members_oldest_first(self):
+        payload = summarize([
+            _item(conversation_id="old", status="active", listed_at=NOW - timedelta(days=100)),
+            _item(conversation_id="older", status="active", listed_at=NOW - timedelta(days=120)),
+            _item(conversation_id="undated", status="active", listed_at=None),
+            _item(conversation_id="sold", status="sold", listed_at=NOW - timedelta(days=100)),
+        ], range_id="30d", now=NOW)
+        groups = {row["label"]: row for row in payload["aging"]}
+        old = groups["Over 3 months"]
+        self.assertEqual([row["conversation_id"] for row in old["listings"]], ["older", "old"])
+        self.assertEqual(old["count"], len(old["listings"]))
+        self.assertEqual(old["asking_value"], sum(row["price"] for row in old["listings"]))
+        self.assertIsNone(groups["No list date"]["listings"][0]["days_listed"])
+
     def test_unknown_range_is_rejected(self):
         from vendoo_studio.services.inventory_analytics import inventory_analytics
 
@@ -228,6 +281,16 @@ class LoadAnalyticsTest(unittest.TestCase):
         self.assertEqual(sold.days_listed, 31)
         self.assertEqual(rows[self.busy.id].status, "listing")
 
+    def test_loader_preserves_zero_sale_cost_and_unknown_sale_price(self):
+        notes = json.loads(self.sold.notes)
+        notes["vendooSale"]["cost"] = 0
+        notes["vendooSale"].pop("price")
+        self.sold.notes = json.dumps(notes)
+        self.db.commit()
+        row = next(row for row in load_rows(self.db) if row.conversation_id == self.sold.id)
+        self.assertEqual(row.cost, 0)
+        self.assertIsNone(row.sold_price)
+
     def test_route_returns_the_workspace(self):
         client = TestClient(app)
         ok = client.get("/api/analytics?range=all")
@@ -235,5 +298,11 @@ class LoadAnalyticsTest(unittest.TestCase):
         body = ok.json()
         self.assertGreaterEqual(body["inventory"]["sold"], 1)
         self.assertIn(body["range"], ("all",))
+        self.assertIn("fees_known", body["sales"])
+        self.assertIn("revenue_known", body["sales"])
+        self.assertIn("days_known", body["sales"])
+        self.assertIsNone(body["previous"])
+        month = client.get("/api/analytics?range=30d").json()
+        self.assertIn("fees_known", month["previous"]["sales"])
         bad = client.get("/api/analytics?range=nope")
         self.assertEqual(bad.status_code, 400)

@@ -188,3 +188,64 @@
     display: none;
   }
 }
+
+.analytics-stat-change {
+  margin-top: 8px;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.analytics-comparison-period {
+  margin-top: 12px;
+}
+
+.analytics-aging {
+  margin-top: 12px;
+}
+
+.analytics-age-group summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.analytics-age-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.analytics-age-group summary .analytics-rank-label::before {
+  content: "▸";
+  display: inline-block;
+  width: 16px;
+}
+
+.analytics-age-group[open] summary .analytics-rank-label::before {
+  content: "▾";
+}
+
+.analytics-age-count {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.analytics-age-listings {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-left: 16px;
+}
+
+.analytics-recent-row:focus-visible,
+.analytics-age-group summary:focus-visible {
+  outline: 2px solid var(--color-cobalt);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .analytics-age-group summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .analytics-age-count {
+    grid-row: 2;
+  }
+}
