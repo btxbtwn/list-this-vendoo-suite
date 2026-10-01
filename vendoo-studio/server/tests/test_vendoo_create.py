@@ -249,6 +249,7 @@ class CreateTest(_NoExtraMapping):
             out = run(create_item(JOB, LISTING, PHOTOS))
         self.assertEqual(out["stored"], fake.stored)
         self.assertEqual(out["stored"]["listings"]["mercari"]["marketplaceSpecifics"]["smartPricing"], False)
+        self.assertTrue(every_op(fake, "get_item")[-1]["raw"])
 
     def test_dropped_repairs_fail_instead_of_returning_a_stale_success(self):
         fake = FakeBridge(self._replies())

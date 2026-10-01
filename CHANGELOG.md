@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.145 — 2026-10-01
+
+- Sending or updating a Vendoo draft verifies its saved fields directly, avoiding false Depop quantity and location errors.
+
 ## 0.1.144 — 2026-09-30
 
 - Keep sizes such as IT 42 and One Size from repeating in listing titles. Reopening a listing removes repeated sizes, and correctly formatted titles pass validation.

@@ -617,10 +617,12 @@ class SaveRouteTest(_RouteTest):
         }
         writes: list[list[str]] = []
         versions: list[str] = []
+        reads: list[dict] = []
 
         async def fake_run_ops(job, ops, **_kwargs):
             for op in ops:
                 if op["op"] == "get_item":
+                    reads.append(op)
                     return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": current}]}
                 if op["op"] == "update_item":
                     writes.append(sorted(op["updates"]))
@@ -636,6 +638,7 @@ class SaveRouteTest(_RouteTest):
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(len(writes), 2)
         self.assertEqual(versions, ["initial-version", "next-version"])
+        self.assertTrue(reads[-1]["raw"])
         self.assertTrue(all(path.startswith("generalDetails") or "." not in path for path in writes[0]))
         self.assertTrue(all(path.startswith("listings.") for path in writes[1]))
         self.assertIn("generalDetails.title", writes[0])

@@ -347,6 +347,42 @@ test('conditional saves use the version read before the item snapshot and report
   }), /changed during this save/);
 });
 
+test('save verification reads exact Firestore values instead of the normalized item API', async () => {
+  const worker = loadWorker();
+  worker.freshVendooSession = async () => ({ uid: 'one' });
+  const item = {
+    itemID: 'item',
+    listings: { depop: {
+      dateLastModified: { _seconds: 1750000000, _nanoseconds: 123456789 },
+      categorySpecifics: { womenswear_robes_quantity: '1', cleared: '' },
+      marketplaceSpecifics: { location: { geoLat: 0, geoLng: 0 }, shippingMethods: [] },
+    } },
+  };
+  const fields = {};
+  for (const [key, value] of Object.entries(item)) fields[key] = worker.firestoreValue(value);
+  const requests = [];
+  worker.vendooFetch = async (url) => {
+    requests.push(url);
+    assert.match(url, /firestore.googleapis.com/);
+    return { ok: true, data: { fields, updateTime: 'saved-version' } };
+  };
+  const reply = await worker.runVendooApiOps([{ op: 'get_item', item_id: 'item', raw: true }]);
+  assert.equal(reply.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(reply.results[0].item)), item);
+  assert.equal(requests.length, 1);
+  const versioned = await worker.getVendooItem({ uid: 'one' }, 'item', { raw: true, withVersion: true });
+  assert.equal(versioned._studio_update_time, 'saved-version');
+});
+
+test('raw verification does not fall back to the item API when Firestore is unreadable', async () => {
+  const worker = loadWorker();
+  worker.vendooFetch = async (url) => {
+    assert.match(url, /firestore.googleapis.com/);
+    return { ok: false, status: 403, data: {} };
+  };
+  await assert.rejects(worker.getVendooItem({ uid: 'one' }, 'item', { raw: true }), /403/);
+});
+
 test('a rejected token is refreshed once for safe reads and cannot create in another account', async () => {
   const worker = workerWithStorage();
   let refreshes = 0;

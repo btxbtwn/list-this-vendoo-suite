@@ -507,9 +507,9 @@ async function createVendooItem(session, item, subscriptionVersion) {
   return call.data?.result ?? call.data;
 }
 
-async function getVendooItem(session, itemId, { allowMissing = false, withVersion = false } = {}) {
+async function getVendooItem(session, itemId, { allowMissing = false, withVersion = false, raw = false } = {}) {
   let version = null;
-  if (withVersion) {
+  if (withVersion || raw) {
     // Read the version before the API snapshot. A concurrent edit during
     // either read then makes the subsequent conditional PATCH fail safely.
     const doc = await vendooFetch(
@@ -519,6 +519,12 @@ async function getVendooItem(session, itemId, { allowMissing = false, withVersio
     if (allowMissing && doc.status === 404) return null;
     if (!doc.ok || !doc.data?.updateTime) throw new Error(vendooError('Read draft version', doc));
     version = doc.data.updateTime;
+    // PATCH writes Firestore fields. The item API reshapes category specifics
+    // and defaults, so it cannot prove those exact fields were retained.
+    if (raw) {
+      const item = firestoreFields(doc.data.fields, true);
+      return withVersion ? { ...item, _studio_update_time: version } : item;
+    }
   }
   const params = new URLSearchParams({
     useMarketplaceImages: 'true',
@@ -685,25 +691,35 @@ function firestoreValue(value) {
 // The inverse of ``firestoreValue``: Vendoo's inventory lives in Firestore, so
 // one paged listing of users/{uid}/items returns every item document whole and
 // there is no need for an /api/item call per listing.
-function firestorePlain(value) {
+function firestorePlain(value, timestampObjects = false) {
   if (!value || typeof value !== 'object') return null;
   if ('nullValue' in value) return null;
   if ('booleanValue' in value) return Boolean(value.booleanValue);
   if ('integerValue' in value) return Number(value.integerValue);
   if ('doubleValue' in value) return Number(value.doubleValue);
-  if ('timestampValue' in value) return String(value.timestampValue);
+  if ('timestampValue' in value) {
+    const timestamp = String(value.timestampValue);
+    if (!timestampObjects) return timestamp;
+    // Match Firebase Timestamp JSON used by the form payload, retaining all
+    // nine fractional digits instead of rounding through JavaScript dates.
+    const fraction = timestamp.match(/\.(\d+)/)?.[1] || '';
+    return {
+      _seconds: Math.floor(Date.parse(timestamp) / 1000),
+      _nanoseconds: Number(fraction.padEnd(9, '0')),
+    };
+  }
   if ('stringValue' in value) return String(value.stringValue);
   if ('bytesValue' in value) return String(value.bytesValue);
   if ('referenceValue' in value) return String(value.referenceValue);
   if ('geoPointValue' in value) return value.geoPointValue;
-  if ('arrayValue' in value) return (value.arrayValue?.values || []).map(firestorePlain);
-  if ('mapValue' in value) return firestoreFields(value.mapValue?.fields);
+  if ('arrayValue' in value) return (value.arrayValue?.values || []).map((part) => firestorePlain(part, timestampObjects));
+  if ('mapValue' in value) return firestoreFields(value.mapValue?.fields, timestampObjects);
   return null;
 }
 
-function firestoreFields(fields) {
+function firestoreFields(fields, timestampObjects = false) {
   const out = {};
-  for (const [key, value] of Object.entries(fields || {})) out[key] = firestorePlain(value);
+  for (const [key, value] of Object.entries(fields || {})) out[key] = firestorePlain(value, timestampObjects);
   return out;
 }
 
@@ -883,6 +899,7 @@ async function runVendooRead(session, op) {
     case 'get_item':
       return { item_id: op.item_id, item: await getVendooItem(session, op.item_id, {
         allowMissing: op.allow_missing === true, withVersion: op.with_version === true,
+        raw: op.raw === true,
       }) };
     case 'category_search': return searchVendooCategory(session, op);
     case 'category_map': return { marketplace_id: op.marketplace_id, ...await mapVendooCategory(session, op) };

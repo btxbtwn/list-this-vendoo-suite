@@ -15,6 +15,7 @@ from vendoo_studio.services.vendoo_api import (
     create_item_payload,
     default_listing_section,
     diff_roundtrip,
+    diff_updates,
     encode_field,
     marketplace_condition,
     observe_item_schema,
@@ -756,6 +757,27 @@ class RoundTripTest(unittest.TestCase):
         self.assertEqual(back["etsy_specifics"]["who_made"], "someone_else")
         self.assertNotIn("category_specifics", back.get("etsy_specifics") or {})
         self.assertEqual(back["depop_specifics"]["style"], ["Streetwear"])
+
+
+class DiffUpdatesTest(unittest.TestCase):
+    def test_verifies_exact_depop_values_and_reports_real_changes(self):
+        prefix = "listings.depop."
+        updates = {
+            prefix + "categorySpecifics.womenswear_robes_quantity": "1",
+            prefix + "marketplaceSpecifics.location.geoLat": 0,
+            prefix + "marketplaceSpecifics.location.geoLng": 0,
+        }
+        stored = {"listings": {"depop": {
+            "categorySpecifics": {"womenswear_robes_quantity": "1"},
+            "marketplaceSpecifics": {"location": {"geoLat": 0, "geoLng": 0}},
+        }}}
+        self.assertEqual(diff_updates(updates, stored), [])
+        stored["listings"]["depop"]["categorySpecifics"]["womenswear_robes_quantity"] = "2"
+        del stored["listings"]["depop"]["marketplaceSpecifics"]["location"]["geoLng"]
+        self.assertEqual([row["field"] for row in diff_updates(updates, stored)], [
+            prefix + "categorySpecifics.womenswear_robes_quantity",
+            prefix + "marketplaceSpecifics.location.geoLng",
+        ])
 
 
 class DiffRoundTripTest(unittest.TestCase):
