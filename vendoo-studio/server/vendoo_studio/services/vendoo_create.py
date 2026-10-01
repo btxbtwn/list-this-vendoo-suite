@@ -1002,7 +1002,7 @@ async def create_item(
                 if not expected_version:
                     raise VendooCreateError("Vendoo did not return the draft version. Retry Send to recover it.")
             mark("vendoo_api_verify")
-            patched = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+            patched = await run_ops(job, [{"op": "get_item", "item_id": item_id, "raw": True}])
             patch_results.extend(patched["results"])
             stored = _result(patched, "get_item").get("item")
             remaining = diff_updates(fixes, stored if isinstance(stored, dict) else {})

@@ -565,7 +565,7 @@ async def _save_claimed_draft(
                 if not expected_version:
                     raise VendooCreateError("Vendoo did not return the saved draft version. Refresh before retrying Update.")
         mark("vendoo_api_verify")
-        verified = await run_ops(job, [{"op": "get_item", "item_id": item_id}])
+        verified = await run_ops(job, [{"op": "get_item", "item_id": item_id, "raw": True}])
         stored = next(
             (r.get("item") for r in verified.get("results", []) if r.get("op") == "get_item"), None
         )
