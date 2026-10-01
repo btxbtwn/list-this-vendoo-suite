@@ -146,6 +146,20 @@ class ValidationCasesTest(unittest.TestCase):
             result.errors,
         )
 
+    def test_title_formula_matches_complete_multiword_size_after_brand(self):
+        listing = {**VALID_LISTING, "brand": "Free People", "size": "IT 42"}
+        for title, valid in (
+            ("Free People IT 42 Bohemian Camisole Red Regular", True),
+            ("Free People IT 44 Bohemian Camisole Red Regular", False),
+            ("Free People Bohemian IT 42 Camisole Red Regular", False),
+            ("Free People Bohemian Camisole Red Regular", False),
+        ):
+            with self.subTest(title=title):
+                listing["title"] = title
+                result = validate_listing(listing, 5, selected_marketplaces=["ebay"])
+                title_errors = [err for err in result.errors if err["field"] == "title"]
+                self.assertEqual(not title_errors, valid, title_errors)
+
     def test_modern_blouse_is_not_etsy_eligible(self):
         result = validate_listing(dict(VALID_LISTING), 5, selected_marketplaces=["etsy"])
         self.assertFalse(result.can_send)
@@ -994,6 +1008,32 @@ class ListingIntegrityRouteTest(unittest.TestCase):
             json={"listing": {"title": "X", "ebay_specifics": "oops"}},
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_listing_reads_and_saves_repair_repeated_size_once(self):
+        listing = {
+            **copy.deepcopy(VALID_LISTING),
+            "title": "Maliparmi IT 42 IT 42 IT 42 Bohemian Camisole Red Regular",
+            "brand": "Maliparmi",
+            "size": "IT 42",
+        }
+        ListingRepo(self.db).save_revision(self.conv.id, listing, source="user_form")
+        url = f"/api/conversations/{self.conv.id}/listing"
+        expected = "Maliparmi IT 42 Bohemian Camisole Red Regular"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        initial = response.json()
+        self.assertEqual(initial["listing"]["title"], expected)
+        for _ in range(3):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["current_revision_id"], initial["current_revision_id"])
+            response = self.client.put(url, json={"listing": response.json()["listing"]})
+            self.assertEqual(response.status_code, 200)
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            initial = response.json()
+            self.assertEqual(initial["listing"]["title"], expected)
+            self.assertFalse(any(err["field"] == "title" for err in initial["errors"]))
 
     def test_restore_rejects_cross_conversation_revision(self):
         listing_repo = ListingRepo(self.db)

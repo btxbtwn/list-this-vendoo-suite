@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.144 — 2026-09-30
+
+- Keep sizes such as IT 42 and One Size from repeating in listing titles. Reopening a listing removes repeated sizes, and correctly formatted titles pass validation.
+
 ## 0.1.143 — 2026-09-30
 
 - Retry interrupted Vendoo sends without creating duplicate drafts or uploading the same photos again. Updates verify the saved fields before showing as synced and detect edits made in Vendoo during a save.

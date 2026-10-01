@@ -118,9 +118,9 @@ def _title_follows_formula(title: str, brand: str, size: str) -> bool:
         rest = tokens[len(brand_tokens):]
     else:
         rest = tokens
-    if size and rest:
-        size_token = size.lower()
-        if rest[0] != size_token and size_token not in rest[:2]:
+    if size:
+        size_tokens = [part.lower() for part in _title_tokens(size)]
+        if rest[:len(size_tokens)] != size_tokens:
             return False
     meaningful = [token for token in tokens if token not in TITLE_STOPWORDS]
     return len(meaningful) >= 4
