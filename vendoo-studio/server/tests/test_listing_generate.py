@@ -681,6 +681,24 @@ class PersistListingTest(unittest.TestCase):
         }
         self.assertFalse(sync_title_size(packed))
 
+    def test_sync_title_size_is_idempotent_for_multiword_sizes(self):
+        from vendoo_studio.services.listing_generate import sync_title_size
+
+        for brand, size in (("Maliparmi", "IT 42"), ("Free People", "One Size")):
+            expected = f"{brand} {size} Bohemian Camisole Red Regular"
+            for count in (0, 1, 3):
+                with self.subTest(brand=brand, count=count):
+                    listing = {
+                        "title": f"{brand} " + f"{size} " * count + "Bohemian Camisole Red Regular",
+                        "brand": brand,
+                        "size": size,
+                    }
+                    self.assertEqual(sync_title_size(listing), count != 1)
+                    self.assertEqual(listing["title"], expected)
+                    for _ in range(3):
+                        self.assertFalse(sync_title_size(listing))
+                        self.assertEqual(listing["title"], expected)
+
     def test_send_readiness_fixes_align_mens_bottoms_size_and_title(self):
         from vendoo_studio.services.listing_generate import apply_send_readiness_fixes
 

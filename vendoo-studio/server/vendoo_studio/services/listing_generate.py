@@ -635,16 +635,23 @@ def sync_title_size(listing: dict) -> bool:
     if not title or not size:
         return False
     tokens = title.split()
-    if any(token.strip(",").lower() == size.lower() for token in tokens):
-        return False
     brand_tokens = [part for part in str(listing.get("brand") or "").strip().split() if part]
     slot = len(brand_tokens)
     if [token.lower() for token in tokens[:slot]] != [part.lower() for part in brand_tokens]:
         slot = 0
-    if slot < len(tokens) and _TITLE_SIZE_TOKEN_RE.match(tokens[slot].strip(",")):
-        tokens[slot] = size
+    size_tokens = size.split()
+    normalized_size = [part.lower() for part in size_tokens]
+    end = slot
+    # Match complete sizes (including IT 42 / One Size), and collapse repetitions
+    # left by earlier saves. Re-running this on a correct title changes nothing.
+    while [token.strip(",").lower() for token in tokens[end:end + len(size_tokens)]] == normalized_size:
+        end += len(size_tokens)
+    if end > slot:
+        tokens[slot:end] = size_tokens
+    elif slot < len(tokens) and _TITLE_SIZE_TOKEN_RE.match(tokens[slot].strip(",")):
+        tokens[slot:slot + 1] = size_tokens
     else:
-        tokens.insert(slot, size)
+        tokens[slot:slot] = size_tokens
     updated = " ".join(tokens)
     # Titles cap at 80 characters; leave a full one alone rather than truncate it.
     if updated == title or len(updated) > 80:
