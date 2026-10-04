@@ -507,14 +507,13 @@ export function ListingSidebar({
       const suggestion = suggestions.find((item) => item.conversation_id === id);
       return [id, listing?.title || suggestion?.title || "Untitled"];
     }));
+    // The bulk bar tracks the run on its own; checkboxes would only sit locked.
+    exitSelecting();
     const result = await bulk.start(ids, titles, "rewrite", drops);
     if (!result) return;
-    if (result.failed.length === 0) {
-      exitSelecting();
-    } else {
-      const failed = new Set(result.failed.map((item) => item.id));
-      setPickedIds(failed);
-      selectionAnchor.current = null;
+    if (result.failed.length > 0) {
+      setPickedIds(new Set(result.failed.map((item) => item.id)));
+      setSelecting(true);
     }
     addToast(bulkRegenerateToast(result));
   }, [bulk, exitSelecting, listingsById, suggestions]);

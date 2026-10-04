@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.148 — 2026-10-04
+
+- After you start Regenerate on selected listings, the checkboxes go away right away instead of staying stuck until the run ends. Any listings that fail come back selected so you can retry them.
+
 ## 0.1.147 — 2026-10-04
 
 - Keep multiple listings open in tabs, switch between them without losing your place, and close tabs without deleting listings.
