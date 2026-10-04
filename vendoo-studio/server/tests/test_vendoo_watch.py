@@ -326,6 +326,49 @@ class SyncConversationTest(unittest.TestCase):
         self.assertEqual(first["action"], "none")
         self.assertEqual(calls, 1)
 
+    def test_sync_skips_while_update_vendoo_holds_the_listing(self):
+        from vendoo_studio.services.vendoo_watch import listing_lock
+
+        async def fail_run_ops(job, ops, **_kwargs):
+            raise AssertionError("sync read Chrome during Update Vendoo")
+
+        async def run():
+            async with listing_lock(self.conv.id):
+                with mock.patch("vendoo_studio.services.vendoo_create.run_ops", fail_run_ops):
+                    return await sync_conversation(self.db, self.conv.id)
+
+        self.assertEqual(asyncio.run(run()), {"action": "none", "reason": "already checking"})
+
+    def test_update_vendoo_waits_for_a_sync_already_reading_the_draft(self):
+        from vendoo_studio.routes.vendoo_api import _save_claimed_draft
+
+        order = []
+
+        async def run():
+            chrome_answered = asyncio.Event()
+
+            async def slow_run_ops(job, ops, **_kwargs):
+                order.append("sync read")
+                await chrome_answered.wait()
+                item = {"itemID": "itm1", "dateLastModified": 1000, "generalDetails": {"title": "Tee"}}
+                return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": item}]}
+
+            async def write(*_args):
+                order.append("update")
+
+            with mock.patch("vendoo_studio.services.vendoo_create.run_ops", slow_run_ops), \
+                 mock.patch("vendoo_studio.routes.vendoo_api._write_claimed_draft", write):
+                sync = asyncio.create_task(sync_conversation(self.db, self.conv.id))
+                await asyncio.sleep(0)
+                update = asyncio.create_task(_save_claimed_draft(self.db, self.conv, self.conv.id))
+                await asyncio.sleep(0.05)
+                self.assertEqual(order, ["sync read"])
+                chrome_answered.set()
+                await asyncio.wait_for(asyncio.gather(sync, update), timeout=2)
+
+        asyncio.run(run())
+        self.assertEqual(order, ["sync read", "update"])
+
     def test_up_to_date_still_stamps_the_check(self):
         result = self.sync(stamp=1000)
         self.assertEqual(result["action"], "none")

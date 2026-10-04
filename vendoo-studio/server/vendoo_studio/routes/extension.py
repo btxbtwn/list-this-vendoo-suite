@@ -338,6 +338,7 @@ async def dispatch_queued_jobs():
         if is_vendoo_api_step(job.current_step):
             if not extension_manager.connected:
                 return
+            from vendoo_studio.routes.vendoo_api import CREATE_STEP, SAVE_STEP
             from vendoo_studio.services.api_job_lock import claim_api_job, start_gate
             from vendoo_studio.services.send_queue import run_send
             from vendoo_studio.services.streaming import spawn
@@ -345,7 +346,7 @@ async def dispatch_queued_jobs():
             with start_gate():
                 if repo.get_running():
                     return
-                repo.update_status(job.id, "dispatched", "vendoo_api_categories" if job.vendoo_item_id else "vendoo_api_create")
+                repo.update_status(job.id, "dispatched", SAVE_STEP if job.vendoo_item_id else CREATE_STEP)
                 claim_api_job(job.id)
             spawn(run_send(job.id))
             return
