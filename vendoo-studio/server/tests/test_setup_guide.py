@@ -225,7 +225,7 @@ class SetupGuideRouteTest(unittest.TestCase):
         self.assertEqual(body["description"], "")
         self.assertEqual(body["default_title"], DEFAULT_TITLE_FORMULA)
         self.assertEqual(body["default_description"], DEFAULT_DESCRIPTION_FORMULA)
-        self.assertEqual(description_formula_markers(), ("flaws:", "measurements:"))
+        self.assertEqual(description_formula_markers(), ("measurements:",))
 
         saved = self.client.put(
             "/api/settings/formulas",
@@ -247,7 +247,7 @@ class SetupGuideRouteTest(unittest.TestCase):
         self.assertEqual(cleared.json()["title"], "")
         self.assertEqual(cleared.json()["description"], "")
         self.assertEqual(user_settings.get_listing_formulas(), {})
-        self.assertEqual(description_formula_markers(), ("flaws:", "measurements:"))
+        self.assertEqual(description_formula_markers(), ("measurements:",))
 
 
 if __name__ == "__main__":

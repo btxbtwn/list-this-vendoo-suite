@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.158 — 2026-10-04
+
+- Descriptions only mention flaws when an item has them. A flawless item no longer gets a "Flaws: none noted" line.
+
 ## 0.1.157 — 2026-10-04
 
 - Regenerate now keeps your measurements and flaws in the new description. Measurements written one per line all come over, not just the first, and the new description always shows your flaws and exact measurements instead of "See photos" or "none noted".
