@@ -28,6 +28,7 @@ def upgrade() -> None:
         sa.Column('price', sa.Float(), nullable=False),
         sa.Column('shipping', sa.Float(), nullable=False),
         sa.Column('pieces', sa.Integer(), nullable=True),
+        sa.Column('estimate_per_piece', sa.Float(), nullable=True),
         sa.Column('bought_at', sa.DateTime(), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint('id'),

@@ -11,6 +11,7 @@ Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 - Keep track of the boxes you buy. Press **I bought this** on a buy-list box, or add one under Sourcing → Boxes you bought, and correct the price, shipping and piece count once you've paid. Choose the box when you bulk upload its photos, or later in Item Details.
 - Each box shows what it cost with shipping, what its sales brought back after fees, how much of it has sold and how long pieces take to sell, with Raghouse and Thrift Vintage Fashion compared side by side.
 - A listing from a box with no cost of goods typed uses the box's cost per piece, in Analytics and as Vendoo's Cost of Goods when you send.
+- Once five pieces from a store's bought boxes have sold, the buy list compares what they sold for with what Studio estimated, and scales that store's resale estimates to match. The Sourcing page tells you how far off the estimates were.
 
 ## 0.1.157 — 2026-10-04
 

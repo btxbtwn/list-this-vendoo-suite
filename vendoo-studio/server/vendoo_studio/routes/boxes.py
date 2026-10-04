@@ -33,6 +33,7 @@ class BoxRow(BoxTotals):
     price: float
     shipping: float
     pieces: int | None
+    estimate_per_piece: float | None
     bought_at: str | None
     cost_per_piece: float | None
 
@@ -55,6 +56,7 @@ class BoxCreate(BaseModel):
     pieces: int | None = Field(None, ge=0)
     url: str | None = None
     bought_at: datetime | None = None
+    estimate_per_piece: float | None = Field(None, ge=0)
 
 
 class BoxUpdate(BaseModel):

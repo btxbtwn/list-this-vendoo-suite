@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BulkUploadDefaults } from "../bulkPhotoUpload";
 import { formatMoney } from "./analyticsFormat";
-import { BOXES_QUERY_KEY, boxStoreName } from "./boughtBoxes";
+import { BOXES_QUERY_KEY, boxStoreName } from "./boxPurchases";
 
 interface Props {
   count: number;

@@ -521,6 +521,8 @@ export interface SourcingLot {
   cog_per_pc: number;
   cog_per_usable_pc: number;
   resale_per_pc: number | null;
+  /** The seller's own sales from this store against the estimates; 1 until known. */
+  resale_factor?: number;
   sell_through: number;
   expected_revenue: number | null;
   expected_profit: number | null;
@@ -558,6 +560,8 @@ export interface SourcingSnapshot {
   buy_list: SourcingBuyList;
   store_buy_lists: Record<string, SourcingBuyList>;
   lots: SourcingLot[];
+  /** Per store: the seller's sales from bought boxes against the estimates. */
+  calibration?: Record<string, { factor: number | null; sales: number; needed: number }>;
 }
 
 export interface SourcingPrefs {
@@ -599,6 +603,7 @@ export interface SourceBox extends BoxTotals {
   price: number;
   shipping: number;
   pieces: number | null;
+  estimate_per_piece: number | null;
   bought_at: string | null;
   cost_per_piece: number | null;
 }
@@ -620,4 +625,5 @@ export interface SourceBoxInput {
   shipping: number;
   pieces: number | null;
   url?: string | null;
+  estimate_per_piece?: number | null;
 }

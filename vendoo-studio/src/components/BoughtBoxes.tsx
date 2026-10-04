@@ -5,7 +5,7 @@ import type { SourceBox, SourceBoxInput, SourceBoxes, SourceStoreResults } from 
 import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
 import { formatDays, formatMoney } from "./analyticsFormat";
-import { BOXES_QUERY_KEY, boxProgress, boxStoreKey, boxStoreName, formatPercent } from "./boughtBoxes";
+import { BOXES_QUERY_KEY, boxProgress, boxStoreKey, boxStoreName, formatPercent } from "./boxPurchases";
 import { DraftInput } from "./DraftInput";
 
 /**

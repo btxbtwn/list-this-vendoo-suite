@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SourceBox, SourcingLot } from "../api/types";
-import { boxFromLot, boxProgress, boxStoreKey, boxStoreName, formatPercent, recentlyBought } from "./boughtBoxes";
+import { boxFromLot, boxProgress, calibrationNote, boxStoreKey, boxStoreName, formatPercent, recentlyBought } from "./boxPurchases";
 
 const lot = {
   store: "raghouse",
@@ -9,6 +9,7 @@ const lot = {
   price: 180,
   ship_est: 33.951,
   pcs: 25,
+  resale_per_pc: 14,
 } as SourcingLot;
 
 describe("bought boxes", () => {
@@ -27,7 +28,19 @@ describe("bought boxes", () => {
       price: 180,
       shipping: 33.95,
       pieces: 25,
+      estimate_per_piece: 14,
     });
+  });
+
+  it("stores the estimate from before the seller's sales adjusted it", () => {
+    expect(boxFromLot({ ...lot, resale_per_pc: 11.2, resale_factor: 0.8 }).estimate_per_piece).toBe(14);
+  });
+
+  it("explains how real sales moved the estimates", () => {
+    expect(calibrationNote("Raghouse", { factor: null, sales: 2, needed: 5 }))
+      .toBe("Raghouse: 2 sales from bought boxes so far. Studio starts adjusting its estimates after 3 more.");
+    expect(calibrationNote("Raghouse", { factor: 0.82, sales: 12, needed: 5 }))
+      .toBe("Raghouse: your 12 sales sold for 82% of what Studio estimated, so its Raghouse prices are set to 82%.");
   });
 
   it("treats a box with the same link from the last two weeks as already bought", () => {

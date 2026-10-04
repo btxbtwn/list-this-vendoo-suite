@@ -23,6 +23,10 @@ from vendoo_studio.models.sourcing import SourceBox
 from vendoo_studio.services.inventory_analytics import AnalyticsItem, load_rows
 
 _LISTED = {"active", "sold"}
+# Sales from bought boxes before a store's resale estimates are adjusted, and
+# how far they may move: a few lucky or unlucky sales should not swing the list.
+CALIBRATION_MIN_SALES = 5
+CALIBRATION_RANGE = (0.3, 2.0)
 
 
 def list_boxes(db: Session) -> list[SourceBox]:
@@ -43,6 +47,7 @@ def create_box(
     pieces: int | None = None,
     url: str | None = None,
     bought_at: datetime | None = None,
+    estimate_per_piece: float | None = None,
 ) -> SourceBox:
     box = SourceBox(
         store=store.strip(),
@@ -50,6 +55,7 @@ def create_box(
         price=price,
         shipping=shipping,
         pieces=pieces or None,
+        estimate_per_piece=estimate_per_piece or None,
         url=(url or "").strip() or None,
         bought_at=bought_at or datetime.now(UTC),
     )
@@ -110,6 +116,35 @@ def results(db: Session) -> dict[str, Any]:
     }
 
 
+def resale_calibration(db: Session) -> dict[str, dict[str, Any]]:
+    """Per store, what pieces from bought boxes sold for against the estimate the
+    buy list used when the box was bought. The median ratio becomes the store's
+    factor once there are enough sales to trust it."""
+    estimates = {
+        box.id: (box.store, box.estimate_per_piece)
+        for box in list_boxes(db)
+        if box.estimate_per_piece
+    }
+    ratios: dict[str, list[float]] = {}
+    for item in load_rows(db):
+        if item.status != "sold" or not item.sold_price or item.box_id not in estimates:
+            continue
+        store, estimate = estimates[item.box_id]
+        ratios.setdefault(store, []).append(item.sold_price / estimate)
+    low, high = CALIBRATION_RANGE
+    return {
+        store: {
+            "factor": (
+                round(min(high, max(low, statistics.median(values))), 2)
+                if len(values) >= CALIBRATION_MIN_SALES else None
+            ),
+            "sales": len(values),
+            "needed": CALIBRATION_MIN_SALES,
+        }
+        for store, values in ratios.items()
+    }
+
+
 def _box_row(box: SourceBox, items: list[AnalyticsItem]) -> dict[str, Any]:
     return {
         "id": box.id,
@@ -119,6 +154,7 @@ def _box_row(box: SourceBox, items: list[AnalyticsItem]) -> dict[str, Any]:
         "price": round(box.price, 2),
         "shipping": round(box.shipping, 2),
         "pieces": box.pieces,
+        "estimate_per_piece": box.estimate_per_piece,
         "bought_at": _iso(box.bought_at),
         "cost_per_piece": cost_share(box),
         **_totals(box.price + box.shipping, box.pieces, items),

@@ -27,6 +27,11 @@ export function boxFromLot(lot: SourcingLot): SourceBoxInput {
     price: lot.price,
     shipping: Math.round(lot.ship_est * 100) / 100,
     pieces: lot.pcs || null,
+    // The estimate before the seller's own sales adjusted it, so the next
+    // adjustment compares like with like.
+    estimate_per_piece: lot.resale_per_pc != null
+      ? Math.round((lot.resale_per_pc / (lot.resale_factor || 1)) * 100) / 100
+      : null,
   };
 }
 
@@ -36,6 +41,21 @@ export function recentlyBought(lot: SourcingLot, boxes: SourceBox[], now = Date.
     && box.bought_at != null
     && now - Date.parse(box.bought_at) < RECENT_DAYS * 86_400_000
   ));
+}
+
+/** One sentence on how a store's real sales have moved its estimates, or null. */
+export function calibrationNote(
+  storeLabel: string,
+  calibration: { factor: number | null; sales: number; needed: number },
+): string | null {
+  const sales = calibration.sales === 1 ? "1 sale" : `${calibration.sales} sales`;
+  if (calibration.factor == null) {
+    const more = calibration.needed - calibration.sales;
+    return `${storeLabel}: ${sales} from bought boxes so far. Studio starts adjusting its estimates after ${more} more.`;
+  }
+  const percent = Math.round(calibration.factor * 100);
+  if (percent === 100) return `${storeLabel}: your ${sales} match Studio's estimates.`;
+  return `${storeLabel}: your ${sales} sold for ${percent}% of what Studio estimated, so its ${storeLabel} prices are set to ${percent}%.`;
 }
 
 export function formatPercent(value: number | null): string {

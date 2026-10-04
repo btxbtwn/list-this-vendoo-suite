@@ -86,6 +86,38 @@ class BoxResultsTest(unittest.TestCase):
         self.assertIsNone(self.db.get(Conversation, self.sold_a.id).box_id)
 
 
+class ResaleCalibrationTest(unittest.TestCase):
+    def setUp(self):
+        self.db = SessionLocal()
+        self.store = f"calibrated-{uuid.uuid4().hex[:6]}"
+        self.box = boxes.create_box(
+            self.db, store=self.store, title="Tees", price=100, pieces=40, estimate_per_piece=20,
+        )
+        self.repo = ConversationRepo(self.db)
+
+    def tearDown(self):
+        self.db.close()
+
+    def _sell(self, *prices):
+        for price in prices:
+            self.repo.create(title="Tee", notes=_sold(price), box_id=self.box.id)
+
+    def test_waits_for_enough_sales_before_adjusting(self):
+        self._sell(10, 12)
+        self.assertEqual(
+            boxes.resale_calibration(self.db)[self.store],
+            {"factor": None, "sales": 2, "needed": boxes.CALIBRATION_MIN_SALES},
+        )
+
+    def test_the_median_sale_against_the_estimate_becomes_the_factor(self):
+        self._sell(10, 12, 16, 18, 400)
+        self.assertEqual(boxes.resale_calibration(self.db)[self.store]["factor"], 0.8)
+
+    def test_the_factor_is_kept_within_range(self):
+        self._sell(1, 1, 1, 1, 1)
+        self.assertEqual(boxes.resale_calibration(self.db)[self.store]["factor"], 0.3)
+
+
 class BoxRoutesTest(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)

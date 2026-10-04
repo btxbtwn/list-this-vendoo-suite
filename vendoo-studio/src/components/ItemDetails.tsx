@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { addLabel, removeLabel, splitLabels } from "./itemLabels";
 import { historyRows } from "./vendooHistory";
-import { BOXES_QUERY_KEY, boxStoreName } from "./boughtBoxes";
+import { BOXES_QUERY_KEY, boxStoreName } from "./boxPurchases";
 import { GARMENTS, type Garment, type Measurements } from "./garmentMeasurements";
 
 interface Props {

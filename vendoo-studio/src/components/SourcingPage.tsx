@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { SourceBoxes, SourcingCart, SourcingLot, SourcingPrefs, SourcingSnapshot, SourcingState } from "../api/types";
 import { addToast } from "../ui/toast";
 import { BoughtBoxes } from "./BoughtBoxes";
-import { BOXES_QUERY_KEY, boxFromLot, recentlyBought } from "./boughtBoxes";
+import { BOXES_QUERY_KEY, boxFromLot, calibrationNote, recentlyBought } from "./boxPurchases";
 import { DraftInput } from "./DraftInput";
 import { formatMoney } from "./analyticsFormat";
 import {
@@ -210,6 +210,10 @@ function Choices({ snapshot, choice, onChoose }: {
     <section aria-label="Compare sourcing options">
       <h2 className="sourcing-section-title">Choose a buy list</h2>
       <p className="sourcing-hint">Each option uses the same {formatMoney(snapshot.buy_list.budget)} budget including estimated shipping. Choose one; these are alternatives. Tax is extra.</p>
+      {Object.entries(snapshot.calibration ?? {}).map(([store, calibration]) => {
+        const note = calibrationNote(storeName(store), calibration);
+        return note ? <p key={store} className="sourcing-hint">{note}</p> : null;
+      })}
       <div className="sourcing-choices">
         {["all", "raghouse", "tvf"].map((key) => {
           const plan = key === "all" ? snapshot.buy_list : snapshot.store_buy_lists[key];
