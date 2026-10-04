@@ -335,8 +335,8 @@ function SalesChart({ periods }: { periods: InventoryAnalytics["periods"] }) {
   const [metric, setMetric] = useState<"revenue" | "count" | "profit">("revenue");
   const peak = Math.max(...periods.map((period) => Math.abs(period[metric] ?? 0)), 0);
   const hasLoss = periods.some((period) => (period[metric] ?? 0) < 0);
-  const baseline = hasLoss ? 60 : 0;
-  const available = hasLoss ? 60 : 120;
+  const baseline = hasLoss ? 110 : 0;
+  const available = hasLoss ? 110 : 220;
   const metricName = metric === "count" ? "Sales" : metric === "profit" ? "Profit" : "Revenue";
   const peakCount = Math.max(...periods.map((period) => period.count), 0);
   if (periods.length === 0 || peakCount === 0) {

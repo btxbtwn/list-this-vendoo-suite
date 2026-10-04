@@ -1,17 +1,19 @@
 .analytics-page {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  container: analytics / inline-size;
 }
 
 .analytics-inner {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 32px;
   width: 100%;
-  max-width: 56rem;
+  max-width: 76rem;
   margin: 0 auto;
-  padding: 24px 20px 48px;
+  padding: 32px 32px 56px;
 }
 
 .analytics-lead,
@@ -21,7 +23,7 @@
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
-  line-height: 1.45;
+  line-height: 1.6;
 }
 
 .analytics-inventory {
@@ -35,9 +37,9 @@
 }
 
 .analytics-section-title {
-  margin: 0 0 10px;
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
-  font-size: 14px;
+  margin: 0 0 18px;
+  color: var(--color-text);
+  font-size: 16px;
   font-weight: var(--weight-medium);
 }
 
@@ -71,7 +73,7 @@
 
 .analytics-section {
   min-width: 0;
-  padding: 16px;
+  padding: 24px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
 }
@@ -80,14 +82,18 @@
   margin-top: 12px;
 }
 
+.analytics-section > .analytics-note {
+  margin-top: 12px;
+}
+
 .analytics-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  gap: 16px;
 }
 
 .analytics-stat {
-  padding: 14px 14px 12px;
+  padding: 20px;
   border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-surface) 40%, transparent);
@@ -96,13 +102,14 @@
 .analytics-stat-label,
 .analytics-stat-hint {
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .analytics-stat-value {
-  margin: 4px 0 2px;
+  margin: 8px 0;
   color: var(--color-text);
-  font-size: 1.35rem;
+  font-size: 1.6rem;
   font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -115,9 +122,10 @@
 .analytics-chart {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  height: 172px;
-  margin-top: 16px;
+  gap: 12px;
+  height: 292px;
+  margin-top: 24px;
+  padding: 4px 4px 12px;
   overflow-x: auto;
 }
 
@@ -128,12 +136,10 @@
 
 .analytics-bar-value {
   max-width: 100%;
-  overflow: hidden;
-  margin-bottom: 4px;
-  color: var(--color-text-muted);
-  font-size: 10px;
+  margin-bottom: 10px;
+  color: var(--color-text);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -145,18 +151,18 @@
 
 .analytics-bar-col {
   display: flex;
-  flex: 1;
+  flex: 1 0 72px;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  min-width: 36px;
+  min-width: 72px;
   height: 100%;
 }
 
 .analytics-bar {
   position: absolute;
   width: 100%;
-  max-width: 36px;
+  max-width: 48px;
   border-radius: 4px 4px 2px 2px;
   background: var(--color-cobalt);
 }
@@ -166,7 +172,7 @@
   display: flex;
   justify-content: center;
   width: 100%;
-  height: 120px;
+  height: 220px;
   flex-shrink: 0;
 }
 
@@ -182,20 +188,19 @@
 
 .analytics-bar-label {
   width: 100%;
-  margin-top: 6px;
-  overflow: hidden;
+  margin-top: 10px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.5;
+  white-space: normal;
 }
 
 .analytics-split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px 32px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 24px;
 }
 
 .analytics-ranks,
@@ -211,7 +216,7 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: baseline;
-  padding: 8px 0;
+  padding: 14px 0;
   border-top: 1px solid var(--color-border);
   color: var(--color-text);
   font-size: 13px;
@@ -219,9 +224,8 @@
 
 .analytics-rank-label,
 .analytics-recent-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
 }
 
 .analytics-rank-meta,
@@ -242,9 +246,9 @@
 .analytics-rank small,
 .analytics-recent-price small {
   display: block;
-  margin-top: 3px;
+  margin-top: 6px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: normal;
   white-space: normal;
 }
@@ -274,7 +278,16 @@
   white-space: nowrap;
 }
 
-@media (max-width: 720px) {
+@container analytics (max-width: 720px) {
+  .analytics-inner {
+    padding: 24px 16px 40px;
+    gap: 24px;
+  }
+
+  .analytics-section {
+    padding: 18px;
+  }
+
   .analytics-split {
     grid-template-columns: 1fr;
   }
@@ -351,7 +364,7 @@
   outline-offset: 2px;
 }
 
-@media (max-width: 720px) {
+@container analytics (max-width: 720px) {
   .analytics-age-group summary {
     grid-template-columns: minmax(0, 1fr) auto;
   }
