@@ -5,21 +5,52 @@ import { api } from "../api/client";
 import type { BulkUploadDefaults } from "../bulkPhotoUpload";
 import { formatMoney } from "./analyticsFormat";
 import { BOXES_QUERY_KEY, boxStoreName } from "./boxPurchases";
+import { dragHasFiles, listingTitleForFolder, moveItem, type PhotoFolderGroup } from "../photoDrop";
 
 interface Props {
-  count: number;
+  groups: PhotoFolderGroup[];
   onCancel: () => void;
-  onConfirm: (defaults: BulkUploadDefaults) => void;
+  onConfirm: (defaults: BulkUploadDefaults, groups: PhotoFolderGroup[]) => void;
 }
 
 const EMPTY_DEFAULTS: BulkUploadDefaults = { cog: "", labels: "" };
 
-export function BulkUploadDialog({ count, onCancel, onConfirm }: Props) {
+type DragSpot = { group: number; photo: number };
+
+export function BulkUploadDialog({ groups: initialGroups, onCancel, onConfirm }: Props) {
   const [defaults, setDefaults] = useState<BulkUploadDefaults>(EMPTY_DEFAULTS);
   const boxes = useQuery({ queryKey: BOXES_QUERY_KEY, queryFn: api.boxes.list }).data?.boxes ?? [];
   const box = boxes.find((row) => row.id === defaults.boxId);
+  const [groups, setGroups] = useState(initialGroups);
+  const [dragFrom, setDragFrom] = useState<DragSpot | null>(null);
+  const [dropOn, setDropOn] = useState<DragSpot | null>(null);
+  // One preview URL per picked file; reordering only shuffles which file sits where.
+  const [previewUrls, setPreviewUrls] = useState<Map<File, string>>(() => new Map());
   const cogRef = useRef<HTMLInputElement>(null);
   const onCancelRef = useRef(onCancel);
+  const count = groups.length;
+
+  // Created and revoked in the same effect so StrictMode's remount gets fresh URLs.
+  useEffect(() => {
+    const urls = new Map(initialGroups.flatMap((group) => group.files).map((file) => [file, URL.createObjectURL(file)]));
+    setPreviewUrls(urls);
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [initialGroups]);
+
+  const resetDrag = () => {
+    setDragFrom(null);
+    setDropOn(null);
+  };
+
+  // Photos only move within their own listing; the first one becomes the cover.
+  const dropPhoto = (target: DragSpot) => {
+    const source = dragFrom;
+    resetDrag();
+    if (!source || source.group !== target.group) return;
+    setGroups((current) => current.map((group, index) => (
+      index === target.group ? { ...group, files: moveItem(group.files, source.photo, target.photo) } : group
+    )));
+  };
 
   useEffect(() => {
     onCancelRef.current = onCancel;
@@ -55,7 +86,7 @@ export function BulkUploadDialog({ count, onCancel, onConfirm }: Props) {
         aria-labelledby="bulk-upload-title"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!invalidCog) onConfirm(defaults);
+          if (!invalidCog) onConfirm(defaults, groups);
         }}
       >
         <div className="confirm-dialog-header">
@@ -64,8 +95,62 @@ export function BulkUploadDialog({ count, onCancel, onConfirm }: Props) {
           </h2>
           <p className="confirm-dialog-description">
             These optional values will be added to every draft in this bulk upload.
+            Drag photos to set their order; the first one is the cover.
           </p>
         </div>
+        <ul className="bulk-upload-groups" aria-label="Photos for each listing">
+          {groups.map((group, groupIndex) => (
+            <li key={group.folder ?? groupIndex} className="bulk-upload-group">
+              <span className="bulk-upload-group-title">
+                {listingTitleForFolder(group.folder)}
+                <span className="photo-tray-meta"> · {group.files.length} photos</span>
+              </span>
+              <div className="photo-strip">
+                {group.files.map((file, photoIndex) => {
+                  const spot = { group: groupIndex, photo: photoIndex };
+                  const canReorder = group.files.length > 1;
+                  const isDragging = dragFrom?.group === groupIndex && dragFrom.photo === photoIndex;
+                  const isDropTarget = dropOn?.group === groupIndex && dropOn.photo === photoIndex;
+                  return (
+                    <div
+                      key={`${file.name}-${file.lastModified}-${file.size}`}
+                      className={[
+                        "photo-thumb",
+                        canReorder ? "photo-thumb-reorderable" : "",
+                        isDragging ? "is-dragging" : "",
+                        isDropTarget ? "is-drop-target" : "",
+                      ].filter(Boolean).join(" ")}
+                      draggable={canReorder}
+                      title={canReorder ? `${file.name} · drag to reorder` : file.name}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", file.name);
+                        setDragFrom(spot);
+                      }}
+                      onDragOver={(event) => {
+                        if (!dragFrom || dragFrom.group !== groupIndex || isDragging) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.dataTransfer.dropEffect = "move";
+                        if (!isDropTarget) setDropOn(spot);
+                      }}
+                      onDrop={(event) => {
+                        if (dragHasFiles(event.dataTransfer)) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        dropPhoto(spot);
+                      }}
+                      onDragEnd={resetDrag}
+                    >
+                      {previewUrls.has(file) ? <img src={previewUrls.get(file)} alt="" draggable={false} /> : null}
+                      <div className="photo-thumb-num">{String(photoIndex + 1).padStart(2, "0")}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </li>
+          ))}
+        </ul>
         <div className="bulk-upload-fields">
           {boxes.length ? (
             <label className="bulk-upload-field is-wide">
