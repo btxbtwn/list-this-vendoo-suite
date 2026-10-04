@@ -318,7 +318,6 @@ export function CopyableLlmError({
 
   return (
     <div className={`llm-error-card${className ? ` ${className}` : ""}`}>
-      {body && <div className="llm-error-text text-xs text-error">{body}</div>}
       {onAskChat && (
         <div className="llm-error-ask">
           <div className="llm-error-actions">
@@ -348,9 +347,15 @@ export function CopyableLlmError({
             </button>
           </div>
           <p className="llm-error-ask-hint">
-            Empty listing values — writes listing JSON only, not Vendoo.
+            Saves changes to this listing. Send to Vendoo when ready.
           </p>
         </div>
+      )}
+      {body && (
+        <details className="llm-error-details">
+          <summary className="text-xs text-error">Errors need attention · View details</summary>
+          <div className="llm-error-text text-xs text-error">{body}</div>
+        </details>
       )}
     </div>
   );

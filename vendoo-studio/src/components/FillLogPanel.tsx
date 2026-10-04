@@ -458,7 +458,13 @@ export function FillLogPanel({
                   <FormSyncCountsView counts={selectedCounts} fromVendooDraft={fromVendooDraft} />
                 )}
               </div>
-              <div className="pr-diff-body">
+              <details key={selectedForm.id} className="pr-field-details" open={Boolean(query || missingOnly)}>
+                <summary>
+                  <span className="pr-details-closed">Show field details</span>
+                  <span className="pr-details-open">Hide field details</span>
+                  {" "}({selectedForm.fields.length})
+                </summary>
+                <div className="pr-diff-body">
                 {!selectedForm.fields.length ? (
                   <div className="pr-empty">
                     <p>
@@ -586,6 +592,7 @@ export function FillLogPanel({
                 ))
                 )}
               </div>
+              </details>
             </div>
           )}
         </div>
