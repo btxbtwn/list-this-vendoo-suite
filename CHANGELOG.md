@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.175 — 2026-10-04
+
+- Switch freely between Input, Forms, and Fields after opening an imported Vendoo listing.
+
 ## 0.1.174 — 2026-10-04
 
 - Switch sales charts between revenue, sales, and profit; see profit margins; rank marketplaces, categories, and brands by what matters to you; and review inventory cost and your oldest active listings in a clearer dashboard.
