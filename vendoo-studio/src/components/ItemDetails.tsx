@@ -358,7 +358,7 @@ export function ItemDetails({ convId }: Props) {
         <h3 className="item-section-title" id="item-section-listing">Notes &amp; Labels</h3>
         <div className="item-field">
           <label className="label">SKU</label>
-          <input {...f("sku")} autoComplete="off" spellCheck={false} placeholder="Made up from brand and size if blank" />
+          <input {...f("sku")} autoComplete="off" spellCheck={false} placeholder="Optional" />
         </div>
         <div className="item-field item-field-notes">
           <label className="label">Notes</label>

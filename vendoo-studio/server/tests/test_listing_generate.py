@@ -348,6 +348,12 @@ class PersistListingTest(unittest.TestCase):
         )
         self.assertEqual(parsed["sku"], "BIN4-001")
 
+    def test_model_sku_is_dropped_without_a_seller_sku(self):
+        parsed = persist_generated_listing(
+            self.db, self.conv.id, "", parsed={**LISTING_JSON, "sku": "NIKE-M"},
+        )
+        self.assertNotIn("sku", parsed)
+
     def test_regenerate_writes_carried_measurements_and_flaws_into_description(self):
         """The model writing "See photos" / "none noted" cannot drop the seller's facts."""
         ConversationRepo(self.db).write_notes(self.conv.id, json.dumps({

@@ -1052,7 +1052,7 @@ def persist_generated_listing(
             listing["marketplace_categories"] = dict(selected["marketplace_categories"])
     # Regenerate carries the seller's SKU, package size, confirmed price,
     # measurements and flaws into notes; keep them on the new listing even if
-    # the model invents others.
+    # the model invents others. The SKU is the seller's alone: none is made up.
     conv = repo.get(conv_id)
     if conv:
         from vendoo_studio.services.vendoo_import import parse_notes
@@ -1062,6 +1062,8 @@ def persist_generated_listing(
         seller_sku = str(seller.get("sku") or "").strip()
         if seller_sku:
             listing["sku"] = seller_sku
+        else:
+            listing.pop("sku", None)
         package = str(seller.get("packageDimensions") or "").strip()
         if package:
             listing["package_dimensions_in"] = package
