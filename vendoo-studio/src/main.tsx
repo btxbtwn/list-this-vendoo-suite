@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClientProvider } from "@tanstack/react-query";
+import { createStudioQueryClient } from "./api/queryClient";
 import { App } from "./app/App";
 import { applyTheme } from "./theme";
 import "./styles/app.css";
@@ -29,14 +30,7 @@ focusManager.setEventListener((onFocus) => {
   };
 });
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5000,
-      retry: 1,
-    },
-  },
-});
+const queryClient = createStudioQueryClient();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.177 — 2026-10-04
+
+- Confirming Regenerate no longer stays on Saving when Studio reports being offline. A stalled price save, reset, or Open listing request shows an error so you can recover without restarting Studio.
+
 ## 0.1.176 — 2026-10-04
 
 - Read Analytics more comfortably with wider sections, roomier totals, and a taller chart that keeps month labels visible instead of squeezing them together.

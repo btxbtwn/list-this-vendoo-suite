@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -126,6 +127,28 @@ class OpenListingRouteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["via"], "chrome")
         launch.assert_called_once()
+
+    def test_chrome_launch_does_not_block_the_server_event_loop(self):
+        self._connect_chrome()
+        threads = {}
+
+        async def dispatch(job):
+            threads["server"] = threading.get_ident()
+            return False
+
+        def launch(url, *, visible):
+            threads["chrome"] = threading.get_ident()
+            return {"ok": True}
+
+        with patch(
+            "vendoo_studio.routes.extension.dispatch_open_listing", new=dispatch,
+        ), patch(
+            "vendoo_studio.services.chrome_bridge.launch_studio_chrome", new=launch,
+        ):
+            response = self.client.post(f"/api/jobs/{self.job.id}/open")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotEqual(threads["server"], threads["chrome"])
 
 
 class DispatchOpenListingTest(unittest.IsolatedAsyncioTestCase):

@@ -100,7 +100,9 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
             ]);
             queryClient.setQueryData(["listing", id], listing);
             queryClient.setQueryData(["messages", id], messages);
-            await refreshAfterReset(queryClient, id);
+            // Fresh listing/messages are already cached above. Sidebar and
+            // photo refetches must not delay starting the confirmed rewrite.
+            void refreshAfterReset(queryClient, id);
           } catch (err) {
             if (showWipe) markChatResetting(id, false);
             marked.delete(id);
