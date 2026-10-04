@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from vendoo_studio.services.sale_events import EventWindow
 
 ANALYTICS_RANGES = ("30d", "90d", "12m", "all")
-_TOP = 6
 _RECENT = 8
 _MAX_MONTHS = 18
 _MONTHS = (
@@ -63,6 +62,10 @@ class AnalyticsItem:
     shipping_cost: float = 0.0
     shipping_credit: float = 0.0
     box_id: str | None = None
+
+    @property
+    def has_cost(self) -> bool:
+        return self.cost is not None
 
     @property
     def net(self) -> float:
@@ -184,13 +187,11 @@ def summarize(
     ]
     dated = [item for item in sales if item.sold_at is not None]
     buckets, truncated = _buckets(range_id, now, [item.sold_at for item in dated if item.sold_at])
-    periods = [{"label": label, "count": 0, "revenue": 0.0} for _start, _end, label in buckets]
+    period_sales: list[list[AnalyticsItem]] = [[] for _ in buckets]
     for item in dated:
         index = _place(item.sold_at, buckets) if item.sold_at is not None else None
-        if index is None:
-            continue
-        periods[index]["count"] += 1
-        periods[index]["revenue"] += item.sold_price or 0.0
+        if index is not None:
+            period_sales[index].append(item)
 
     previous = None
     if start is not None:
@@ -209,19 +210,20 @@ def summarize(
         "range": range_id,
         "undated_sales": sum(1 for item in items if item.status == "sold" and item.sold_at is None),
         "periods_truncated": truncated,
-        "inventory": _inventory(items),
+        "inventory": _inventory(items, now),
         "sales": _sales_stats(sales),
         "previous": previous,
         "periods": [
-            {**period, "revenue": _money(period["revenue"])}
-            for period in periods
+            {"label": label, **_sales_stats(rows)}
+            for (_, _, label), rows in zip(buckets, period_sales, strict=True)
         ],
-        "marketplaces": _top(_groups(sales, _marketplace_key)),
-        "categories": _top(_groups(sales, _category_key)),
-        "brands": _top(_groups(sales, _brand_key)),
+        "marketplaces": _ranked_groups(_groups(sales, _marketplace_key)),
+        "categories": _ranked_groups(_groups(sales, _category_key)),
+        "brands": _ranked_groups(_groups(sales, _brand_key)),
         "aging": _aging(items, now),
         "stale": _stale(items, now),
         "recent": _recent(sales, events or []),
+        "oldest": _oldest(items, now),
     }
 
 
@@ -230,16 +232,19 @@ def _sales_stats(sales: list[AnalyticsItem]) -> dict[str, Any]:
     revenue = sum(item.sold_price or 0.0 for item in priced)
     profit_rows = [item for item in priced if item.cost is not None]
     days = [item.days_listed for item in sales if item.days_listed is not None]
+    profit = sum(item.profit for item in profit_rows)
+    known_revenue = sum(item.sold_price or 0.0 for item in profit_rows)
     return {
         "count": len(sales),
         "revenue": _money(revenue),
         "revenue_known": len(priced),
-        "profit": _money(sum(item.profit for item in profit_rows)) if profit_rows else None,
+        "profit": _money(profit) if profit_rows else None,
         "profit_known": len(profit_rows),
         "fees_known": sum(1 for item in profit_rows if item.fees is not None),
         "average_price": _money(revenue / len(priced)) if priced else None,
         "median_days": _median_days(days),
         "days_known": len(days),
+        "margin": round(profit / known_revenue * 100, 1) if known_revenue else None,
     }
 
 
@@ -287,7 +292,7 @@ def _category_label(value: Any) -> str:
     return text
 
 
-def _inventory(items: list[AnalyticsItem]) -> dict[str, Any]:
+def _inventory(items: list[AnalyticsItem], now: datetime) -> dict[str, Any]:
     counts = {"active": 0, "draft": 0, "sold": 0, "failed": 0, "working": 0}
     asking = 0.0
     for item in items:
@@ -303,22 +308,29 @@ def _inventory(items: list[AnalyticsItem]) -> dict[str, Any]:
         else:
             counts["draft"] += 1
     counts["asking_value"] = _money(asking)
+    active = [item for item in items if item.status == "active"]
+    stale = [item for item in active if item.listed_at and (now - item.listed_at).days >= 90]
+    counts["cost_value"] = _money(sum(item.cost or 0.0 for item in active if item.has_cost))
+    counts["cost_known"] = sum(item.has_cost for item in active)
+    counts["stale_count"] = len(stale)
+    counts["stale_value"] = _money(sum(item.price for item in stale))
+    counts["undated_count"] = sum(item.listed_at is None for item in active)
     return counts
 
 
 def _groups(sales: list[AnalyticsItem], key_of):
-    groups: dict[str, dict[str, Any]] = {}
+    groups: dict[str, tuple[str, list[AnalyticsItem]]] = {}
     for item in sales:
         key, label = key_of(item)
         if not key:
             continue
-        row = groups.get(key)
-        if row is None:
-            groups[key] = {"id": key, "label": label, "count": 1, "revenue": item.sold_price or 0.0}
-            continue
-        row["count"] += 1
-        row["revenue"] += item.sold_price or 0.0
-    return groups
+        if key not in groups:
+            groups[key] = (label, [])
+        groups[key][1].append(item)
+    return {
+        key: {"id": key, "label": label, **_sales_stats(rows)}
+        for key, (label, rows) in groups.items()
+    }
 
 
 def _marketplace_key(item: AnalyticsItem) -> tuple[str, str]:
@@ -335,14 +347,14 @@ def _brand_key(item: AnalyticsItem) -> tuple[str, str]:
     return label.casefold(), label
 
 
-def _top(groups: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _ranked_groups(groups: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     rows = sorted(
         groups.values(),
         key=lambda row: (-row["revenue"], -row["count"], str(row["label"]).lower()),
     )
     return [
         {**row, "revenue": _money(row["revenue"])}
-        for row in rows[:_TOP]
+        for row in rows
     ]
 
 
@@ -437,9 +449,26 @@ def _recent(sales: list[AnalyticsItem], events: list[EventWindow]) -> list[dict[
             "sold_at": item.sold_at.isoformat() if item.sold_at else None,
             "days_listed": item.days_listed,
             "event": next((event.name for event in events if event.covers(item)), None),
+            "profit": _money(item.profit) if item.has_cost and item.sold_price is not None else None,
         }
         for item in ordered[:_RECENT]
     ]
+
+
+def _oldest(items: list[AnalyticsItem], now: datetime) -> list[dict[str, Any]]:
+    """Oldest active listings worth reviewing; never mutate or send them."""
+    stale = [
+        item for item in items
+        if item.status == "active" and item.listed_at is not None
+        and (now - item.listed_at).days >= 90
+    ]
+    stale.sort(key=lambda item: (item.listed_at, -item.price, item.conversation_id))
+    return [{
+        "conversation_id": item.conversation_id,
+        "title": item.title,
+        "price": _money(item.price),
+        "days_listed": (now - item.listed_at).days,
+    } for item in stale[:_RECENT]]
 
 
 def _window_start(range_id: str, now: datetime) -> datetime | None:

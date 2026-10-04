@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { AnalyticsRange, AnalyticsSales, AnalyticsStaleListing, InventoryAnalytics } from "../api/types";
+import type { AnalyticsGroup, AnalyticsRange, AnalyticsSales, AnalyticsStaleListing, InventoryAnalytics } from "../api/types";
 import { formatChange, formatDays, formatMoney } from "./analyticsFormat";
 import { marketplaceName } from "./marketplaceNames";
 import { SaleEvents } from "./SaleEvents";
@@ -31,6 +31,12 @@ export function AnalyticsPage({ onOpenListing }: Props) {
     <div className="analytics-page">
       <div className="analytics-inner">
         <header className="analytics-header">
+          <div className="analytics-title-row">
+            <h1>Analytics</h1>
+            <button type="button" className="pr-pill" disabled={query.isFetching} onClick={() => void query.refetch()}>
+              Refresh
+            </button>
+          </div>
           <p className="analytics-lead">
             Sales and inventory from the listings imported from Vendoo.
           </p>
@@ -91,38 +97,22 @@ export function AnalyticsPage({ onOpenListing }: Props) {
             </section>
 
             <div className="analytics-split">
-              <RankList
-                title="Marketplaces"
-                empty="No sales in this period."
-                rows={data.marketplaces.map((row) => ({
-                  key: row.id,
-                  label: marketplaceName(row.id),
-                  detail: saleCount(row.count),
-                  value: formatMoney(row.revenue),
-                }))}
-              />
-              <RankList
-                title="Categories"
-                empty="No sales in this period."
-                rows={data.categories.map((row) => ({
-                  key: row.id || row.label,
-                  label: row.label,
-                  detail: saleCount(row.count),
-                  value: formatMoney(row.revenue),
-                }))}
-              />
+              <PerformanceList title="Marketplaces" rows={data.marketplaces} marketplace />
+              <PerformanceList title="Categories" rows={data.categories} />
+              <PerformanceList title="Brands" rows={data.brands} />
             </div>
 
-            <RankList
-              title="Brands"
-              empty="No brand on the sales in this period."
-              rows={data.brands.map((row) => ({
-                key: row.id || row.label,
-                label: row.label,
-                detail: saleCount(row.count),
-                value: formatMoney(row.revenue),
-              }))}
-            />
+            <section className="analytics-section" aria-label="Inventory today">
+              <h2 className="analytics-section-title">Inventory today</h2>
+              <p className="analytics-note">Current active listings, across all sales periods.</p>
+              <div className="analytics-stats">
+                <Stat label="Active listings" value={String(data.inventory.active)} />
+                <Stat label="Asking value" value={formatMoney(data.inventory.asking_value)} hint="Total asking prices; potential revenue" />
+                <Stat label="Recorded inventory cost" value={data.inventory.cost_known ? formatMoney(data.inventory.cost_value) : "—"} hint={`Cost recorded on ${data.inventory.cost_known} of ${data.inventory.active} active listings`} />
+                <Stat label="Listed 90+ days" value={String(data.inventory.stale_count)} hint={`${formatMoney(data.inventory.stale_value)} at asking prices`} />
+              </div>
+              {data.inventory.undated_count > 0 ? <p className="analytics-note">{data.inventory.undated_count} active {data.inventory.undated_count === 1 ? "listing has" : "listings have"} no list date and cannot be aged.</p> : null}
+            </section>
 
             <section className="analytics-section" aria-label="Active listings">
               <h2 className="analytics-section-title">Current inventory by age</h2>
@@ -161,6 +151,24 @@ export function AnalyticsPage({ onOpenListing }: Props) {
 
             <SaleEvents onOpenListing={onOpenListing} />
 
+            <section className="analytics-section" aria-label="Oldest active listings">
+              <h2 className="analytics-section-title">Review your oldest listings</h2>
+              <p className="analytics-note">Up to 8 listings that have been active for 90+ days. Open one to review its price, photos, or details.</p>
+              {data.oldest.length === 0 ? <p className="analytics-note">No active listings with a recorded list date are 90+ days old.</p> : (
+                <ul className="analytics-recent">
+                  {data.oldest.map((item) => (
+                    <li key={item.conversation_id}>
+                      <button type="button" className="analytics-recent-row" onClick={() => onOpenListing(item.conversation_id)}>
+                        <span className="analytics-recent-title">{item.title}</span>
+                        <span className="analytics-recent-meta">{formatDays(item.days_listed)} listed</span>
+                        <span className="analytics-recent-price">{formatMoney(item.price)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
             <section className="analytics-section" aria-label="Recent sales">
               <h2 className="analytics-section-title">Recent sales</h2>
               {data.recent.length === 0 ? (
@@ -181,7 +189,10 @@ export function AnalyticsPage({ onOpenListing }: Props) {
                           {sale.days_listed != null ? ` · ${formatDays(sale.days_listed)}` : ""}
                           {sale.event ? ` · ${sale.event}` : ""}
                         </span>
-                        <span className="analytics-recent-price">{sale.price == null ? "Price unknown" : formatMoney(sale.price)}</span>
+                        <span className="analytics-recent-price">
+                          {sale.price == null ? "Price unknown" : formatMoney(sale.price)}
+                          <small>{sale.profit == null ? "Profit unavailable" : `${formatMoney(sale.profit)} profit`}</small>
+                        </span>
                       </button>
                     </li>
                   ))}
@@ -286,6 +297,7 @@ function SalesStats({ data }: { data: InventoryAnalytics }) {
         hint={profitHint(sales)}
         change={previous ? (profitComplete ? formatChange(profit, previous.profit, formatMoney) : "Comparison unavailable: missing costs or fees") : undefined}
       />
+      <Stat label="Profit margin" value={sales.margin == null ? "—" : `${sales.margin}%`} hint="Profit ÷ revenue on sales with recorded cost" negative={sales.margin != null && sales.margin < 0} />
       <Stat
         label="Median time to sell"
         value={sales.median_days == null ? "—" : formatDays(sales.median_days)}
@@ -320,52 +332,98 @@ function Stat({
 }
 
 function SalesChart({ periods }: { periods: InventoryAnalytics["periods"] }) {
-  const peakRevenue = Math.max(...periods.map((period) => period.revenue), 0);
+  const [metric, setMetric] = useState<"revenue" | "count" | "profit">("revenue");
+  const peak = Math.max(...periods.map((period) => Math.abs(period[metric] ?? 0)), 0);
+  const hasLoss = periods.some((period) => (period[metric] ?? 0) < 0);
+  const baseline = hasLoss ? 60 : 0;
+  const available = hasLoss ? 60 : 120;
+  const metricName = metric === "count" ? "Sales" : metric === "profit" ? "Profit" : "Revenue";
   const peakCount = Math.max(...periods.map((period) => period.count), 0);
   if (periods.length === 0 || peakCount === 0) {
     return <p className="analytics-note">No dated sales in this period.</p>;
   }
   return (
-    <div className="analytics-chart" role="img" aria-label="Recorded revenue over time">
-      {periods.map((period, index) => {
-        const share = peakRevenue > 0 ? period.revenue / peakRevenue : 0;
-        const height = share > 0 ? Math.max(Math.round(share * 120), 4) : 0;
-        return (
-          <div key={`${period.label}-${index}`} className="analytics-bar-col">
+    <>
+      <div className="pr-pills analytics-chart-controls" role="group" aria-label="Chart metric">
+        {(["revenue", "count", "profit"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={`pr-pill${metric === value ? " is-active" : ""}`}
+            aria-pressed={metric === value}
+            onClick={() => setMetric(value)}
+          >
+            {value === "revenue" ? "Revenue" : value === "profit" ? "Profit" : "Sales"}
+          </button>
+        ))}
+      </div>
+      {metric === "profit" ? <p className="analytics-note">Profit uses sales with recorded cost and deducts recorded fees and shipping. Missing costs appear as —; loss bars extend below zero.</p> : null}
+      <div className="analytics-chart" role="list" aria-label={`${metricName} over time`}>
+        {periods.map((period, index) => {
+          const value = period[metric];
+          const share = peak > 0 ? Math.abs(value ?? 0) / peak : 0;
+          const height = share > 0 ? Math.max(Math.round(share * available), 2) : 0;
+          const detail = `${period.label}: ${formatMoney(period.revenue)}, ${saleCount(period.count)}, ${period.profit == null ? "profit unavailable" : `${formatMoney(period.profit)} profit`}. Cost on ${period.profit_known} of ${period.count}; fees on ${period.fees_known} of ${period.profit_known}.`;
+          return (
             <div
-              className="analytics-bar"
-              style={{ height: `${height}px` }}
-              title={`${period.label}: ${formatMoney(period.revenue)}, ${saleCount(period.count)}`}
-            />
-            <span className="analytics-bar-label">{period.label}</span>
-          </div>
-        );
-      })}
-    </div>
+              key={`${period.label}-${index}`}
+              className="analytics-bar-col"
+              role="listitem"
+              tabIndex={0}
+              aria-label={detail}
+              title={detail}
+            >
+              <span className="analytics-bar-value" aria-hidden="true">
+                {value == null ? "—" : metric === "count" ? value : formatMoney(value)}
+              </span>
+              <div className="analytics-plot" aria-hidden="true">
+                <div className="analytics-zero" style={{ bottom: `${baseline}px` }} />
+                <div className={`analytics-bar${(value ?? 0) < 0 ? " is-negative" : ""}`} style={{ height: `${height}px`, bottom: `${(value ?? 0) < 0 ? baseline - height : baseline}px` }} />
+              </div>
+              <span className="analytics-bar-label">{period.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
-function RankList({
-  title,
-  empty,
-  rows,
-}: {
+function PerformanceList({ title, rows, marketplace = false }: {
   title: string;
-  empty: string;
-  rows: { key: string; label: string; detail: string; value: string }[];
+  rows: AnalyticsGroup[];
+  marketplace?: boolean;
 }) {
+  const [metric, setMetric] = useState<"revenue" | "profit" | "count">("revenue");
+  const ranked = [...rows].sort((a, b) => {
+    const first = a[metric];
+    const second = b[metric];
+    if (first == null) return second == null ? a.label.localeCompare(b.label) : 1;
+    if (second == null) return -1;
+    return second - first || a.label.localeCompare(b.label);
+  }).slice(0, 6);
   return (
     <section className="analytics-section" aria-label={title}>
-      <h2 className="analytics-section-title">{title}</h2>
-      {rows.length === 0 ? (
-        <p className="analytics-note">{empty}</p>
-      ) : (
+      <div className="analytics-title-row">
+        <h2 className="analytics-section-title">{title}</h2>
+        <select aria-label={`Rank ${title.toLowerCase()} by`} value={metric} onChange={(event) => setMetric(event.target.value as typeof metric)}>
+          <option value="revenue">Revenue</option>
+          <option value="profit">Profit</option>
+          <option value="count">Sales</option>
+        </select>
+      </div>
+      {ranked.length === 0 ? <p className="analytics-note">No {title.toLowerCase()} recorded on sales in this period.</p> : (
         <ol className="analytics-ranks">
-          {rows.map((row) => (
-            <li key={row.key} className="analytics-rank">
-              <span className="analytics-rank-label">{row.label}</span>
-              <span className="analytics-rank-meta">{row.detail}</span>
-              <span className="analytics-rank-value">{row.value}</span>
+          {ranked.map((row) => (
+            <li key={row.id} className="analytics-rank">
+              <span className="analytics-rank-label">
+                {marketplace ? marketplaceName(row.id) : row.label}
+                <small>{saleCount(row.count)}{row.median_days != null ? ` · ${formatDays(row.median_days)} median` : ""}</small>
+              </span>
+              <span className="analytics-rank-value">
+                {metric === "count" ? row.count : row[metric] == null ? "—" : formatMoney(row[metric])}
+                {metric === "profit" ? <small>{row.profit_known === 0 ? "Cost missing" : `Cost on ${row.profit_known}/${row.count} · fees on ${row.fees_known}/${row.profit_known}`}</small> : null}
+              </span>
             </li>
           ))}
         </ol>

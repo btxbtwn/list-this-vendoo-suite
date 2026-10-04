@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.174 — 2026-10-04
+
+- Switch sales charts between revenue, sales, and profit; see profit margins; rank marketplaces, categories, and brands by what matters to you; and review inventory cost and your oldest active listings in a clearer dashboard.
+
 ## 0.1.173 — 2026-10-04
 
 - Analytics has a Discount deeper list: listings up 60 days or more, with how far to mark each one down in the next sale (35–40%) without dropping below what it cost you after fees.
