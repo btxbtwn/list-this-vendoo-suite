@@ -28,9 +28,9 @@ log = logging.getLogger("vendoo_studio.vendoo_api_routes")
 
 CREATE_STEP = "vendoo_api_create"
 CREATED_STEP = "vendoo_api_created"
-# Update Vendoo starts on categories so the editor's job card lights up the
-# same way first Send does, instead of sitting on a silent HTTP wait.
-SAVE_STEP = "vendoo_api_categories"
+# Update Vendoo opens by reading the draft it is about to write, so that is
+# the step the editor's job card names until category resolution starts.
+SAVE_STEP = "vendoo_api_read"
 SAVED_STEP = "vendoo_api_saved"
 PATCH_STEP = "vendoo_api_patch"
 
@@ -481,7 +481,16 @@ async def save_to_vendoo(conv_id: str, db: Session = Depends(get_db)):
         _finish_api_send(db, job.id)
 
 
-async def _save_claimed_draft(
+async def _save_claimed_draft(db, conv, conv_id, *args):
+    from vendoo_studio.services.vendoo_watch import listing_lock
+
+    # Waits out a sync already reading this draft; syncs started meanwhile
+    # see the lock and skip.
+    async with listing_lock(conv_id):
+        return await _write_claimed_draft(db, conv, conv_id, *args)
+
+
+async def _write_claimed_draft(
     db, conv, conv_id, item_id, revisions, snapshot, provider, evidence, job, job_repo,
 ):
     from vendoo_studio.services.job_snapshot import save_prepared_revision
@@ -583,8 +592,9 @@ async def _save_claimed_draft(
         job = job_repo.get(job.id) or job
         if str(getattr(job, "status", "") or "") in {"cancelled", "failed"} or "cancelled" in str(exc).lower():
             raise HTTPException(409, str(exc) or "Update was cancelled") from exc
-        job_repo.update_status(job.id, "failed", SAVE_STEP, error=str(exc))
-        job_repo.add_event(job.id, "vendoo_api_save_failed", SAVE_STEP, {"error": str(exc)})
+        failed_step = str(getattr(job, "current_step", "") or SAVE_STEP)
+        job_repo.update_status(job.id, "failed", failed_step, error=str(exc))
+        job_repo.add_event(job.id, "vendoo_api_save_failed", failed_step, {"error": str(exc)})
         raise _http_error(exc) from exc
 
     job = job_repo.get(job.id) or job

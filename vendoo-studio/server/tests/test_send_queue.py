@@ -144,7 +144,7 @@ class SendQueueTest(unittest.IsolatedAsyncioTestCase):
             return {"item_id": "new-draft", "url": "https://web.vendoo.co/app/item/new-draft", "unresolved": [], "diff": []}
 
         async def save(db, conv, conv_id, item_id, revisions, snapshot, provider, evidence, job, repo):
-            seen.append((item_id, snapshot["title"]))
+            seen.append((item_id, snapshot["title"], repo.get(job.id).current_step))
             repo.update_status(job.id, "completed", "vendoo_api_saved")
             done.set()
 
@@ -155,4 +155,4 @@ class SendQueueTest(unittest.IsolatedAsyncioTestCase):
             await self.enqueue(second)
             await asyncio.wait_for(done.wait(), timeout=3)
             await asyncio.gather(*self.tasks)
-        self.assertEqual(seen, ["create", ("existing-draft", "Update")])
+        self.assertEqual(seen, ["create", ("existing-draft", "Update", "vendoo_api_read")])

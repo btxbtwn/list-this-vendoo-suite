@@ -6,6 +6,7 @@ export function sendProgressLabel(step: string, photos?: { completed: number; to
   }
   const labels: Record<string, string> = {
     vendoo_api_queued: "Waiting in the send queue…",
+    vendoo_api_read: "Reading the Vendoo draft…",
     vendoo_api_reviewed: "Preparing the reviewed draft…",
     vendoo_api_categories: "Resolving marketplace categories…",
     vendoo_api_specifics: "Reading category fields from Vendoo…",

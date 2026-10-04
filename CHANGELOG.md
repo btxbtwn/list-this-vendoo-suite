@@ -6,17 +6,26 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.159 — 2026-10-04
+## 0.1.161 — 2026-10-04
 
 - Check whether something is worth buying while you're in the store. Under Sourcing → Scout an item, take a photo of the item and its tag and type the asking price if there is one. Studio identifies it, looks up what it has sold for, and tells you Buy it, Maybe or Pass, or the most worth paying. It also works on your phone over Tailscale.
 - Press **I bought it** to start a draft from the same photos, with the price you paid as its cost of goods. Every check is kept, and once a bought item sells you can see how close Studio's estimate was.
 
-## 0.1.158 — 2026-10-04
+## 0.1.160 — 2026-10-04
 
 - Keep track of the boxes you buy. Press **I bought this** on a buy-list box, or add one under Sourcing → Boxes you bought, and correct the price, shipping and piece count once you've paid. Choose the box when you bulk upload its photos, or later in Item Details.
 - Each box shows what it cost with shipping, what its sales brought back after fees, how much of it has sold and how long pieces take to sell, with Raghouse and Thrift Vintage Fashion compared side by side.
 - A listing from a box with no cost of goods typed uses the box's cost per piece, in Analytics and as Vendoo's Cost of Goods when you send.
 - Once five pieces from a store's bought boxes have sold, the buy list compares what they sold for with what Studio estimated, and scales that store's resale estimates to match. The Sourcing page tells you how far off the estimates were.
+
+## 0.1.159 — 2026-10-04
+
+- Descriptions only mention flaws when an item has them. A flawless item no longer gets a "Flaws: none noted" line.
+
+## 0.1.158 — 2026-10-04
+
+- Update Vendoo now says "Reading the Vendoo draft…" while it reads the draft, instead of "Resolving marketplace categories…" for the whole wait.
+- A Vendoo sync and an Update Vendoo on the same listing no longer run at the same time. The update waits for a sync that's already reading the draft, and no new sync starts until the update finishes.
 
 ## 0.1.157 — 2026-10-04
 

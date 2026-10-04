@@ -231,7 +231,7 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         self.assertIn("TITLE Formula", formulas)
         self.assertIn("{BRAND} {SIZE} {VIBE} {ITEM} {COLOR} {FIT}", formulas)
         self.assertIn("DESCRIPTION Formula", formulas)
-        self.assertIn("Flaws: {none noted or specific}", formulas)
+        self.assertIn("Flaws: {specific flaws}", formulas)
         pinned = with_pinned_formulas("### Some other rule\nNever invent brands.")
         self.assertTrue(pinned.startswith("## Formula Reference"))
         self.assertIn("Never invent brands", pinned)
@@ -384,7 +384,7 @@ class PersistListingTest(unittest.TestCase):
             self.db, self.conv.id, "", parsed={**LISTING_JSON, "description": description},
         )
         self.assertTrue(parsed["description"].endswith('Measurements: Waist: 16"; Inseam: 30"'))
-        self.assertIn("Flaws: none noted.", parsed["description"])
+        self.assertNotIn("Flaws:", parsed["description"])
 
     def test_model_flaws_that_name_the_seller_flaw_are_kept(self):
         ConversationRepo(self.db).write_notes(self.conv.id, json.dumps({"knownFlaws": "Small stain near hem"}))
@@ -486,7 +486,7 @@ class PersistListingTest(unittest.TestCase):
             },
         }
         self.assertTrue(apply_send_readiness_fixes(listing))
-        self.assertIn("Flaws:", listing["description"])
+        self.assertNotIn("Flaws:", listing["description"])
         self.assertIn("Measurements:", listing["description"])
         self.assertEqual(listing.get("weight_oz"), 8)
         self.assertEqual(listing["ebay_specifics"]["season"], "Spring")
@@ -569,9 +569,35 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(
             listing["description"],
             "Y2K grunge mesh striped crop tee with a cropped boxy fit.\n\n"
-            "Flaws: none noted. See photos for details.\n\n"
             "Measurements: pit to pit 17.5 in, length 16 in.",
         )
+
+    def test_send_readiness_fixes_drop_a_flaws_line_that_says_none(self):
+        from vendoo_studio.services.listing_generate import apply_send_readiness_fixes
+
+        for filler in ("none noted. See photos for details.", "None.", "No visible flaws."):
+            listing = {
+                "title": "Levi's 32 Y2K Jeans Blue Straight",
+                "description": (
+                    "Y2K straight leg jeans in a classic blue wash.\n\n"
+                    f"Flaws: {filler}\n\n"
+                    'Measurements: Waist: 16"; Inseam: 30"'
+                ),
+            }
+            apply_send_readiness_fixes(listing)
+            self.assertEqual(
+                listing["description"],
+                'Y2K straight leg jeans in a classic blue wash.\n\nMeasurements: Waist: 16"; Inseam: 30"',
+            )
+
+        flawed = (
+            "Y2K straight leg jeans in a classic blue wash.\n\n"
+            "Flaws: small mark on hem. See photos for details.\n\n"
+            'Measurements: Waist: 16"; Inseam: 30"'
+        )
+        listing = {"title": "Levi's 32 Y2K Jeans Blue Straight", "description": flawed}
+        apply_send_readiness_fixes(listing)
+        self.assertEqual(listing["description"], flawed)
 
     def test_strip_uncertainty_keeps_descriptions_without_hedges(self):
         from vendoo_studio.services.listing_generate import strip_uncertainty_from_description
@@ -872,7 +898,7 @@ class PersistListingTest(unittest.TestCase):
 
         parsed = asyncio.run(run())
         self.assertEqual(parsed.get("brand"), "Notations")
-        self.assertIn("Flaws:", parsed["description"])
+        self.assertIn("Measurements:", parsed["description"])
         self.assertGreaterEqual(provider.chat_calls, 1)
         notes = [m.text for m in ConversationRepo(self.db).get_messages(self.conv.id) if m.role == "system"]
         self.assertTrue(any("ready for review" in (note or "").lower() for note in notes))

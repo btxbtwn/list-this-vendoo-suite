@@ -64,6 +64,16 @@ __all__ = [
 _locks: dict[str, asyncio.Lock] = {}
 
 
+def listing_lock(conv_id: str) -> asyncio.Lock:
+    """Held while Studio talks to Chrome about one Vendoo draft.
+
+    A sync and an Update Vendoo on the same listing take turns on it: run side
+    by side, both read the item through Chrome at once, and a sync that lands
+    mid-update could pull Vendoo's copy back over the one being written.
+    """
+    return _locks.setdefault(conv_id, asyncio.Lock())
+
+
 def _stamp(value: Any) -> int:
     """Vendoo's dateLastModified as epoch milliseconds."""
     if isinstance(value, (int, float)):
@@ -364,7 +374,7 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
     from vendoo_studio.services.vendoo_create import ITEM_READ_TIMEOUT_SEC, VendooCreateError, run_ops
     from vendoo_studio.services.vendoo_import import parse_notes, vendoo_binding
 
-    lock = _locks.setdefault(conv_id, asyncio.Lock())
+    lock = listing_lock(conv_id)
     # A check already waiting on Chrome answers for this one too. Queueing
     # behind it would hold another of the webview's six connections open.
     if lock.locked():
