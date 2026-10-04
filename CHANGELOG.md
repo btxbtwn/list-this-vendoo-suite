@@ -6,9 +6,13 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.164 — 2026-10-04
+## 0.1.165 — 2026-10-04
 
 - Generate and repair listings with GPT-6.1 Sol without the unsupported reasoning effort error.
+
+## 0.1.164 — 2026-10-04
+
+- Rearrange each listing's photos in the bulk upload dialog before the drafts are created. Drag a photo to move it; the first one becomes the cover.
 
 ## 0.1.163 — 2026-10-04
 

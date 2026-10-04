@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { dragHasFiles, groupImageFilesByFolder } from "../photoDrop";
+import { dragHasFiles, groupImageFilesByFolder, moveItem, type PhotoFolderGroup } from "../photoDrop";
 import type { Photo } from "../api/types";
 import { addToast } from "../ui/toast";
 import { BulkUploadDialog } from "./BulkUploadDialog";
@@ -20,16 +20,6 @@ interface Props {
   onBulkListingsCreated?: (listings: BulkListingUploadResult[]) => void;
 }
 
-function moveItem<T>(items: T[], from: number, to: number): T[] {
-  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {
-    return items;
-  }
-  const next = items.slice();
-  const [item] = next.splice(from, 1);
-  next.splice(to, 0, item);
-  return next;
-}
-
 export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +32,7 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropId, setDropId] = useState<string | null>(null);
-  const [pendingBulkFiles, setPendingBulkFiles] = useState<File[] | null>(null);
+  const [pendingBulkGroups, setPendingBulkGroups] = useState<PhotoFolderGroup[] | null>(null);
 
   const { data: photos } = useQuery({
     queryKey: ["photos", convId],
@@ -186,41 +176,52 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
     setPreviewId(photoId);
   };
 
-  const doUpload = async (
-    fileList: FileList | File[],
-    bulkDefaults?: BulkUploadDefaults,
-  ) => {
-    const files = Array.from(fileList);
-    if (!files.length) return;
+  const resetInputs = () => {
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (folderInputRef.current) folderInputRef.current.value = "";
+  };
+
+  const doBulkUpload = async (groups: PhotoFolderGroup[], bulkDefaults: BulkUploadDefaults) => {
     setUploading(true);
     setUploadError(null);
     try {
-      const groups = groupImageFilesByFolder(files);
-      if (groups.length > 1) {
-        if (!bulkDefaults) {
-          setPendingBulkFiles(files);
-          return;
-        }
-        const listings = await createBulkPhotoListings(groups, bulkDefaults, api.conversations);
-        const createdIds = listings.map((listing) => listing.convId);
-        const errors = listings.flatMap((listing) => listing.errors);
-        const totalPhotos = listings.reduce((sum, listing) => sum + listing.count, 0);
-        await Promise.all(createdIds.map((id) => (
-          queryClient.invalidateQueries({ queryKey: ["photos", id] })
-        )));
-        queryClient.invalidateQueries({ queryKey: ["conversations"] });
-        onBulkListingsCreated?.(listings);
-        const title = `Started ${createdIds.length} listings`;
-        const description = `Added ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} from separate folders.`;
-        if (errors.length) {
-          setUploadError(errors.join("; "));
-          addToast({ type: "error", title, description: errors.join("; ") });
-        } else {
-          addToast({ type: "success", title, description });
-        }
-        return;
+      const listings = await createBulkPhotoListings(groups, bulkDefaults, api.conversations);
+      const createdIds = listings.map((listing) => listing.convId);
+      const errors = listings.flatMap((listing) => listing.errors);
+      const totalPhotos = listings.reduce((sum, listing) => sum + listing.count, 0);
+      await Promise.all(createdIds.map((id) => (
+        queryClient.invalidateQueries({ queryKey: ["photos", id] })
+      )));
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      onBulkListingsCreated?.(listings);
+      const title = `Started ${createdIds.length} listings`;
+      const description = `Added ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} from separate folders.`;
+      if (errors.length) {
+        setUploadError(errors.join("; "));
+        addToast({ type: "error", title, description: errors.join("; ") });
+      } else {
+        addToast({ type: "success", title, description });
       }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
 
+  const doUpload = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    if (!files.length) return;
+    const groups = groupImageFilesByFolder(files);
+    if (groups.length > 1) {
+      // The dialog decides; the inputs reset now so picking the same folder again still fires.
+      setPendingBulkGroups(groups);
+      resetInputs();
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    try {
       const only = groups[0]?.files || files;
       const result = await api.conversations.uploadPhotos(convId, only);
       await queryClient.invalidateQueries({ queryKey: ["photos", convId] });
@@ -233,8 +234,7 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      if (folderInputRef.current) folderInputRef.current.value = "";
+      resetInputs();
     }
   };
 
@@ -354,14 +354,13 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
         </div>,
         document.body
       )}
-      {pendingBulkFiles ? (
+      {pendingBulkGroups ? (
         <BulkUploadDialog
-          count={groupImageFilesByFolder(pendingBulkFiles).length}
-          onCancel={() => setPendingBulkFiles(null)}
-          onConfirm={(bulkDefaults) => {
-            const files = pendingBulkFiles;
-            setPendingBulkFiles(null);
-            void doUpload(files, bulkDefaults);
+          groups={pendingBulkGroups}
+          onCancel={() => setPendingBulkGroups(null)}
+          onConfirm={(bulkDefaults, groups) => {
+            setPendingBulkGroups(null);
+            void doBulkUpload(groups, bulkDefaults);
           }}
         />
       ) : null}

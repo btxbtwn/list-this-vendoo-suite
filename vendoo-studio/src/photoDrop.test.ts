@@ -3,6 +3,7 @@ import {
   dragHasFiles,
   folderKeyForFile,
   groupImageFilesByFolder,
+  moveItem,
   imageFilesFrom,
   imageFilesFromTransfer,
   isImageFile,
@@ -223,5 +224,18 @@ describe("groupImageFilesByFolder", () => {
     ]);
     expect(groups).toHaveLength(1);
     expect(groups[0].folder).toBe("NikeTee");
+  });
+});
+
+describe("moveItem", () => {
+  it("moves an item forward and backward", () => {
+    expect(moveItem(["a", "b", "c", "d"], 0, 2)).toEqual(["b", "c", "a", "d"]);
+    expect(moveItem(["a", "b", "c", "d"], 3, 0)).toEqual(["d", "a", "b", "c"]);
+  });
+
+  it("returns the same array when nothing moves", () => {
+    const items = ["a", "b"];
+    expect(moveItem(items, 1, 1)).toBe(items);
+    expect(moveItem(items, 0, 5)).toBe(items);
   });
 });
