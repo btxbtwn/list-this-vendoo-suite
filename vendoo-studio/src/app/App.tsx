@@ -614,13 +614,10 @@ export function App() {
             selectedConvId={selectedConvId}
             activeView={activeView}
             settingsSection={settingsSection}
-            creating={createConv.isPending}
-            canCreate={true}
             mobileOpen={!isMobile || mobileSidebarOpen}
             listingQuery={listingQuery}
             onSearchQueryChange={handleListingSearch}
             onSelect={openListing}
-            onCreate={createListing}
             onDelete={(id) => deleteConv.mutate(id)}
             onOpenSettings={openSettings}
             onOpenAnalytics={openAnalytics}

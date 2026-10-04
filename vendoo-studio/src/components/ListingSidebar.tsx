@@ -114,13 +114,10 @@ interface Props {
   selectedConvId: string | null;
   activeView: WorkspaceView;
   settingsSection: SettingsSectionId;
-  creating?: boolean;
-  canCreate?: boolean;
   mobileOpen?: boolean;
   listingQuery: string;
   onSearchQueryChange: (query: string) => void;
   onSelect: (id: string) => void;
-  onCreate: () => void;
   onDelete: (id: string, title: string) => void;
   onOpenSettings: () => void;
   onOpenAnalytics: () => void;
@@ -325,13 +322,10 @@ export function ListingSidebar({
   selectedConvId,
   activeView,
   settingsSection,
-  creating,
-  canCreate = true,
   mobileOpen,
   listingQuery,
   onSearchQueryChange,
   onSelect,
-  onCreate,
   onDelete,
   onOpenSettings,
   onOpenAnalytics,
@@ -849,15 +843,6 @@ export function ListingSidebar({
                 aria-label="Search listings by title or SKU"
               />
             </label>
-            <button
-              className="sidebar-icon-btn"
-              title={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo or Cursor key first"}
-              aria-label={canCreate ? "New listing" : "Sign in with ChatGPT or add a MiMo or Cursor key first"}
-              disabled={creating || !canCreate}
-              onClick={onCreate}
-            >
-              <ComposeIcon />
-            </button>
             <button
               type="button"
               className={`sidebar-select-btn${selecting ? " selected" : ""}`}
