@@ -8,11 +8,11 @@ Purpose: produce copy/insert-ready field values for Vendoo + eBay + Etsy + Poshm
 * Output ONLY the fields in the exact order shown. Do not add extra commentary.  
 * One field per line in the format: Field: Value  
 * Never combine multiple fields into one line.  
-* If unknown or not visible, leave blank after the colon (do not guess).  
+* If unknown or not visible, leave blank after the colon unless `SKILL.md` explicitly requires an estimate (including eBay jacket/coat Outer Shell Material).
 * Do not use an em dash in any title or description (use a standard hyphen if needed).  
 * Do not add a period after the last tag in any tag list.  
 * Pricing MUST follow the canonical formula in `skills/list-this/SKILL.md`: sold-comp median × 1.35, whole dollars only. Auto-accept = listing price minus $2. Minimum offer = listing price minus $4.
-* Physical-item descriptions MUST use the Size / Condition / Measurements formula in `SKILL.md`. Do not invent material, garment care, production date, original retail, or vintage status.
+* Physical-item descriptions MUST use the Size / Condition / Measurements formula in `SKILL.md`. Do not invent material, garment care, production date, original retail, or vintage status. Follow `SKILL.md`'s eBay jacket/coat Outer Shell Material exception and document any shell estimate as uncertain.
 
 # **INPUTS**
 
@@ -303,6 +303,7 @@ Depop: No title field → use Universal Description only
 
 **eBay Specifics:**
 All eBay Item Specifics fields. Use Appendix values.
+- Jackets/coats must include `category_specifics["Outer Shell Material"]` (or the discovered schema key), following the required best-guess and uncertainty rules in `SKILL.md`.
 
 **Etsy Specifics:**
 - `who_made`, `what_is`, `when_made` (required for Etsy). `when_made` must be an exact Etsy dropdown value from `vendoo-dropdown-options.json`, such as `2010 - 2019 (Recently)`, not `2010s` or `2010-2019`.
