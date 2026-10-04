@@ -114,7 +114,7 @@ Universal Description (paste-ready, include line breaks, under 150 characters)
 
 *line break*
 
-Flaws: {specific, only list flaws if you see them in the photos- otherwise "none noted"}.​ See photos for details.
+Flaws: {specific, only list flaws if you see them in the photos}.​ See photos for details. Leave this line and its line break out entirely when there are no flaws.
 
 *line break*
 
