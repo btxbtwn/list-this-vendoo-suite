@@ -189,11 +189,24 @@
 }
 
 .bulk-measure-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   font-size: 14px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.bulk-measure-sku {
+  display: flex;
+  flex: 0 0 9rem;
+  align-items: center;
+  gap: 6px;
+}
+
+.bulk-measure-sku .input {
+  min-width: 0;
 }
 
 .bulk-measure-fields {

@@ -1035,6 +1035,24 @@ class ListingIntegrityRouteTest(unittest.TestCase):
             self.assertEqual(initial["listing"]["title"], expected)
             self.assertFalse(any(err["field"] == "title" for err in initial["errors"]))
 
+    def test_seller_sku_edit_reaches_item_details(self):
+        listing = {**copy.deepcopy(VALID_LISTING), "sku": "MODEL-SKU"}
+        ListingRepo(self.db).save_revision(self.conv.id, listing, source="model")
+        self.conv.notes = merge_notes(None, {"sellerNotes": "keep"})
+        self.db.commit()
+        url = f"/api/conversations/{self.conv.id}/listing"
+
+        # Other edits leave Item Details alone.
+        response = self.client.put(url, json={"listing": {**listing, "price": 30}})
+        self.assertEqual(response.status_code, 200)
+        self.db.refresh(self.conv)
+        self.assertNotIn("sku", json.loads(self.conv.notes))
+
+        response = self.client.put(url, json={"listing": {**listing, "sku": "BIN4-001"}})
+        self.assertEqual(response.status_code, 200)
+        self.db.refresh(self.conv)
+        self.assertEqual(json.loads(self.conv.notes), {"sellerNotes": "keep", "sku": "BIN4-001"})
+
     def test_restore_rejects_cross_conversation_revision(self):
         listing_repo = ListingRepo(self.db)
         revision = listing_repo.save_revision(self.conv.id, {"title": "Keep"}, source="user_form")

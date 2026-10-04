@@ -18,6 +18,7 @@ export interface BulkMeasureListing {
 }
 
 interface RowState {
+  sku: string;
   garment: Garment;
   values: Record<string, string>;
 }
@@ -25,18 +26,19 @@ interface RowState {
 interface Props {
   listings: BulkMeasureListing[];
   onClose: () => void;
-  /** Start generating these drafts, measured or not. */
+  /** Start generating these drafts, filled in or not. */
   onGenerate: (listings: BulkMeasureListing[]) => void;
 }
 
 /**
- * Measurements for a whole bulk upload in one grid, before anything generates.
- * Each row shows its photos, so the one with the tape in it is a click away,
- * and what is typed lands in Item Details, where generation takes it as fact.
+ * SKUs and measurements for a whole bulk upload in one grid, before anything
+ * generates. Each row shows its photos, so the one with the tape in it is a
+ * click away, and what is typed lands in Item Details, where generation takes
+ * it as fact and keeps the SKU exactly as typed.
  */
 export function BulkMeasurementsDialog({ listings, onClose, onGenerate }: Props) {
   const [rows, setRows] = useState<Record<string, RowState>>(() => Object.fromEntries(
-    listings.map((listing) => [listing.convId, { garment: guessGarment(listing.title), values: {} }]),
+    listings.map((listing) => [listing.convId, { sku: "", garment: guessGarment(listing.title), values: {} }]),
   ));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,13 +68,18 @@ export function BulkMeasurementsDialog({ listings, onClose, onGenerate }: Props)
     };
   }, []);
 
-  const measuredCount = listings.filter((listing) => {
+  const isMeasured = (row: RowState) => Object.keys(typedMeasurements(row.garment, row.values)).length > 0;
+  const filledCount = listings.filter((listing) => {
     const row = rows[listing.convId];
-    return row && Object.keys(typedMeasurements(row.garment, row.values)).length > 0;
+    return row && (row.sku.trim() || isMeasured(row));
   }).length;
   const count = listings.length;
   const noun = count === 1 ? "listing" : "listings";
 
+  const setSku = (convId: string, sku: string) => setRows((current) => ({
+    ...current,
+    [convId]: { ...current[convId]!, sku },
+  }));
   const setGarment = (convId: string, garment: Garment) => setRows((current) => ({
     ...current,
     [convId]: { ...current[convId]!, garment },
@@ -88,7 +95,11 @@ export function BulkMeasurementsDialog({ listings, onClose, onGenerate }: Props)
     try {
       for (const listing of listings) {
         const row = rows[listing.convId];
-        if (!row || !Object.keys(typedMeasurements(row.garment, row.values)).length) continue;
+        if (!row) continue;
+        const sku = row.sku.trim();
+        // Notes merge on the server, so the SKU goes on its own.
+        if (sku) await api.conversations.update(listing.convId, { notes: JSON.stringify({ sku }) });
+        if (!isMeasured(row)) continue;
         const conv = await api.conversations.get(listing.convId);
         await api.conversations.update(listing.convId, {
           notes: notesWithMeasurements(conv.notes, row.garment, row.values),
@@ -96,7 +107,7 @@ export function BulkMeasurementsDialog({ listings, onClose, onGenerate }: Props)
       }
     } catch (err) {
       setSaving(false);
-      setError(err instanceof Error ? err.message : "Could not save measurements");
+      setError(err instanceof Error ? err.message : "Could not save SKUs and measurements");
       return;
     }
     onGenerate(listings);
@@ -131,10 +142,11 @@ export function BulkMeasurementsDialog({ listings, onClose, onGenerate }: Props)
       >
         <div className="confirm-dialog-header">
           <h2 id="bulk-measure-title" className="confirm-dialog-title">
-            Measurements for {count} {noun}
+            SKU and measurements for {count} {noun}
           </h2>
           <p className="confirm-dialog-description">
-            Type measurements in inches, or leave a row blank. Tab or Enter moves to the next box.
+            Type a SKU and measurements in inches, or leave them blank. A SKU typed here is kept as
+            is; a blank one is made up from the brand and size. Tab or Enter moves to the next box.
             Studio then generates each draft from its photos, one at a time, and stops at a draft.
           </p>
         </div>
@@ -147,6 +159,19 @@ export function BulkMeasurementsDialog({ listings, onClose, onGenerate }: Props)
                 <div className="bulk-measure-body">
                   <div className="bulk-measure-head">
                     <span className="bulk-measure-title" title={listing.title}>{listing.title}</span>
+                    <label className="bulk-measure-sku">
+                      <span className="label">SKU</span>
+                      <input
+                        className="input"
+                        type="text"
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-label={`SKU for ${listing.title}`}
+                        value={row.sku}
+                        onChange={(event) => setSku(listing.convId, event.target.value)}
+                        onKeyDown={onInputKeyDown}
+                      />
+                    </label>
                     <div className="pr-pills item-garment-pills" role="radiogroup" aria-label={`Garment type for ${listing.title}`}>
                       {GARMENTS.map((g) => (
                         <button
@@ -192,9 +217,9 @@ export function BulkMeasurementsDialog({ listings, onClose, onGenerate }: Props)
           </button>
           <span className="bulk-measure-spacer" />
           <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => onGenerate(listings)}>
-            Continue without measurements
+            Continue without them
           </button>
-          <button type="submit" className="btn btn-primary" disabled={saving || measuredCount === 0}>
+          <button type="submit" className="btn btn-primary" disabled={saving || filledCount === 0}>
             {saving ? "Saving…" : `Save and generate ${count}`}
           </button>
         </div>

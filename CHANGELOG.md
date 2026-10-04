@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.151 — 2026-10-04
+
+- You can type a SKU before a listing generates: there's a SKU box beside each item in the measurements popup after a bulk upload, and one in Item Details. Studio keeps the SKU you typed instead of making up its own, and if you change the SKU on a listing, Regenerate keeps your new one.
+
 ## 0.1.150 — 2026-10-04
 
 - A listing no longer stays stuck generating forever when Cursor goes quiet after writing it. After five minutes of silence you now see a Retry message instead of an endless "thinking".

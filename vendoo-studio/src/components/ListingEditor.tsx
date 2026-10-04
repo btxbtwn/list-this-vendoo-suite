@@ -169,7 +169,13 @@ export function ListingEditor({
 
   const updateMutation = useMutation({
     mutationFn: (listing: ListingData) => api.listings.update(convId, listing),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["listing", convId] }),
+    onSuccess: (_result, listing) => {
+      queryClient.invalidateQueries({ queryKey: ["listing", convId] });
+      // A SKU edit is copied into Item Details.
+      if ((listing.sku || "") !== (data?.listing?.sku || "")) {
+        queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+      }
+    },
   });
 
   React.useEffect(() => {
