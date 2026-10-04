@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.176 — 2026-10-04
+
+- Read Analytics more comfortably with wider sections, roomier totals, and a taller chart that keeps month labels visible instead of squeezing them together.
+
 ## 0.1.175 — 2026-10-04
 
 - Switch freely between Input, Forms, and Fields after opening an imported Vendoo listing.
