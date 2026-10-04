@@ -22,6 +22,7 @@ from vendoo_studio.services.fill_log import (
     summarize_missing_fields,
     write_values_into_listing,
 )
+from vendoo_studio.services.vendoo_specifics import is_not_applicable
 from vendoo_studio.services.registry import (
     LEARNED_MARKETPLACES,
     ROOT_FIELD_LABELS,
@@ -46,10 +47,9 @@ GAP_FILL_SYSTEM = (
     "- Use a real value from photo or seller evidence.\n"
     "- When allowed options are listed, copy one of them exactly, character for "
     "character. Those are the only values the field accepts.\n"
-    "- When a field does not apply to the item, leave it out of your reply "
-    "entirely. Do NOT answer \"Does Not Apply\" unless it appears in that "
-    "field's allowed options — it is rejected everywhere else, and an omitted "
-    "field is handled properly.\n"
+    "- When an optional field truly does not apply, include it with value \"\" "
+    "and status \"not_applicable\". Studio remembers that decision and blanks the "
+    "Vendoo field. Missing evidence or no suitable option is not non-applicability.\n"
     "- Fill every field that does pertain, on every marketplace.\n"
     "- Depop Parcel Size follows the packaged weight: under 4oz Extra extra "
     "small, under 8oz Extra small, under 12oz Small, under 1lb Medium, under "
@@ -99,6 +99,10 @@ def collect_empty_discovered_fields(db: Session, listing: dict) -> list[dict[str
 
         key = (marketplace, normalize_field_label(label))
         if key in seen:
+            return
+        if not required and is_not_applicable(listing_value_for_field(
+            listing, marketplace, label, include_not_applicable=True,
+        )):
             return
         if listing_value_for_field(listing, marketplace, label):
             return

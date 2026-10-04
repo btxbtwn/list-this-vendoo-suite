@@ -541,6 +541,8 @@ def adopt_observed_draft_values(
 
 def review_fields(verification: dict, listing: dict) -> list[dict]:
     """An empty snapshot can never prove completeness."""
+    from vendoo_studio.services.vendoo_specifics import is_not_applicable
+
     schema = verification.get("schema") or {}
     gaps = []
     for marketplace, section in schema.items():
@@ -559,6 +561,10 @@ def review_fields(verification: dict, listing: dict) -> list[dict]:
                 matches_expected = field.get("matches_expected")
             empty = observed is None or observed == "" or observed == []
             error = str(field.get("error") or "")
+            if empty and error in {"", "Empty field"} and not field.get("required") and is_not_applicable(
+                listing_value_for_field(listing, marketplace, label, include_not_applicable=True),
+            ):
+                continue
             # A stored Depop/Mercari brand is not proof the marketplace lists it.
             brand_unverified = brand_needs_live_check(marketplace, field, listing_expected)
             # Draft already shows the intended value — do not schedule another fill.

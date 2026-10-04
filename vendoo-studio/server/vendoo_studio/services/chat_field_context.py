@@ -15,6 +15,7 @@ from vendoo_studio.services.listing_field_gaps import collect_empty_discovered_f
 from vendoo_studio.services.marketplaces import get_selected_marketplaces
 from vendoo_studio.services.registry import RegistryService
 from vendoo_studio.services.vendoo_import import vendoo_binding
+from vendoo_studio.services.vendoo_specifics import is_not_applicable
 
 
 def chat_field_context(db: Session, conv_id: str) -> str:
@@ -39,6 +40,10 @@ def chat_field_context(db: Session, conv_id: str) -> str:
             or (marketplace, normalize_field_name(label)) in hidden_keys
             or field_out_of_scope(marketplace, label)
         ):
+            return
+        if not field.get("required") and is_not_applicable(listing_value_for_field(
+            listing, marketplace, label, include_not_applicable=True,
+        )):
             return
         value = listing_value_for_field(listing, marketplace, label)
         row = {
@@ -135,7 +140,10 @@ def chat_field_context(db: Session, conv_id: str) -> str:
         "When asked to complete or fix fields, generate or repair supportable values using photos, "
         "seller notes, and exact allowed options. Preserve unrelated fields. "
         "Use a fenced JSON object with missing_fields rows (marketplace, field, value) "
-        "so Studio saves the answers. For a request targeting specific fields, change only those fields. "
+        "so Studio saves the answers. If an optional field truly does not apply, return value \"\" "
+        "and status \"not_applicable\" to clear it and remember the decision. "
+        "Do not mark missing evidence or an unsupported dropdown value as not applicable. "
+        "For a request targeting specific fields, change only those fields. "
         "A fill_on_vendoo row already has a listing value: preserve it and explain that it still needs "
         "Fill on Vendoo. An adopt_saved_value row already has a saved Vendoo answer: use its observed "
         "value rather than generating a replacement. Saving chat answers updates Studio only; never claim the Vendoo draft was filled "

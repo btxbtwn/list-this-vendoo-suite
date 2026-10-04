@@ -33,6 +33,15 @@ class ListingFieldGapsTest(unittest.TestCase):
         ))
         self.db.commit()
 
+    def test_not_applicable_optional_fields_are_not_counted(self):
+        listing = {
+            "title": "Blouse", "category_path": "Clothing > Tops",
+            "etsy_specifics": {"pattern": "Solid", "holiday": "Does Not Apply"},
+        }
+        self.assertEqual(remaining_discovered_gap_count(self.db, listing), 0)
+        listing["etsy_specifics"]["holiday"] = ""
+        self.assertEqual(remaining_discovered_gap_count(self.db, listing), 1)
+
     def test_collect_empty_discovered_fields_from_category_schema(self):
         listing = {
             "title": "Blouse",

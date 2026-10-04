@@ -305,3 +305,21 @@ describe("Fields filters", () => {
     })).toBe("13");
   });
 });
+
+
+describe("not applicable Ask chat fields", () => {
+  it("excludes a cleared non-applicable field even with an old fill failure", () => {
+    const listing = { title: "Dress", depop_specifics: { material: "Does Not Apply" } };
+    const failures = [entry({ marketplace: "depop", field: "Material", status: "invalid" })];
+    expect(askChatTargetCount(depopForm(), listing, failures)).toBe(0);
+    expect(askChatGapsPrompt(depopForm(), false, listing, failures)).not.toContain("Field: Material");
+    const { sourceForms } = sourceFormsForJob(undefined, undefined, listing, ["depop"]);
+    expect(sourceForms.find((form) => form.id === "depop")?.fields.find(
+      (field) => field.label === "Material",
+    )?.notApplicable).toBe(true);
+  });
+
+  it("keeps an ordinary cleared field in Ask chat", () => {
+    expect(askChatTargetCount(depopForm(), { depop_specifics: { material: "" } }, [])).toBe(1);
+  });
+});
