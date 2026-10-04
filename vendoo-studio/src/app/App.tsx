@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useReducer, type CSSProperties } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { INVENTORY_BUSY_POLL_MS, INVENTORY_IDLE_POLL_MS } from "../api/polling";
@@ -44,6 +44,9 @@ import {
 import { ThemeSync } from "../components/ThemeSync";
 import { QueuePage } from "../components/QueuePage";
 
+import { OpenListingTabs } from "../components/OpenListingTabs";
+import { initialListingTabs, listingTabsReducer } from "./listingTabs";
+
 const ListingEditor = lazy(() =>
   import("../components/ListingEditor").then((module) => ({ default: module.ListingEditor })),
 );
@@ -83,20 +86,26 @@ function useMobileLayout() {
 export function App() {
   const queryClient = useQueryClient();
   const isMobile = useMobileLayout();
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(() => {
-    const listingId = new URLSearchParams(window.location.search).get("listing");
-    return listingId || null;
-  });
+  const [listingTabs, dispatchListingTab] = useReducer(
+    listingTabsReducer,
+    new URLSearchParams(window.location.search).get("listing") || null,
+    initialListingTabs,
+  );
+  const selectedConvId = listingTabs.selectedId;
+  const selectedTab = listingTabs.tabs.find((tab) => tab.id === selectedConvId);
+  const reviewTab = selectedTab?.reviewTab ?? "input";
+  const setSelectedConvId = (id: string) => dispatchListingTab({ type: "open", id });
+  const setReviewTab = (value: ListingReviewTab) => {
+    if (selectedConvId) dispatchListingTab({ type: "review", id: selectedConvId, value });
+  };
+  const clearListingWorkspace = (id: string) => dispatchListingTab({ type: "clear", id });
   const [activeView, setActiveView] = useState<WorkspaceView>("listings");
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(DEFAULT_SETTINGS_SECTION);
   const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"workspace" | "editor" | "browser">("workspace");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(() => window.matchMedia(MOBILE_LAYOUT_QUERY).matches);
   const [listingQuery, setListingQuery] = useState("");
-  const [queuedChatMessage, setQueuedChatMessage] = useState<string | null>(null);
   const [setupGuideOpen, setSetupGuideOpen] = useState(setupGuideAutoOpen === true);
-  const [workspaceNonce, setWorkspaceNonce] = useState(0);
-  const [reviewTab, setReviewTab] = useState<ListingReviewTab>("input");
   const [browserJobId, setBrowserJobId] = useState<string | null>(null);
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const [browserExpanded, setBrowserExpanded] = useState(false);
@@ -377,10 +386,6 @@ export function App() {
   }, [selectedConvId]);
 
   useEffect(() => {
-    setReviewTab("input");
-  }, [selectedConvId, workspaceNonce]);
-
-  useEffect(() => {
     if (!isMobile) setMobileSidebarOpen(false);
   }, [isMobile]);
 
@@ -554,8 +559,8 @@ export function App() {
   const deleteConv = useMutation({
     mutationFn: (convId: string) => api.conversations.delete(convId),
     onSuccess: (_data, convId) => {
-      if (selectedConvId === convId) {
-        setSelectedConvId(null);
+      dispatchListingTab({ type: "close", id: convId });
+      if (selectedConvId === convId && listingTabs.tabs.length === 1) {
         setMobilePane("workspace");
         if (isMobile) setMobileSidebarOpen(true);
       }
@@ -583,8 +588,7 @@ export function App() {
             <ListingReviewActions
               convId={selectedConvId}
               onCleared={() => {
-                setQueuedChatMessage(null);
-                setWorkspaceNonce((value) => value + 1);
+                clearListingWorkspace(selectedConvId);
               }}
               onMouseDown={stopTitlebarDrag}
             />
@@ -739,7 +743,23 @@ export function App() {
               </>
             ) : null}
           </header>
-          <div className="workspace-body">
+          {activeView === "listings" ? (
+            <OpenListingTabs
+              tabs={listingTabs.tabs.map((tab) => ({
+                id: tab.id,
+                title: conversations?.find((listing) => listing.id === tab.id)?.title || "Untitled listing",
+              }))}
+              selectedId={selectedConvId}
+              onSelect={openListing}
+              onClose={(id) => dispatchListingTab({ type: "close", id })}
+              onCreate={createListing}
+              creating={createConv.isPending}
+            />
+          ) : null}
+          <div className="workspace-body" id="listing-workspace-panel"
+            role={activeView === "listings" && selectedConvId ? "tabpanel" : undefined}
+            aria-labelledby={activeView === "listings" && selectedConvId ? `listing-tab-${selectedConvId}` : undefined}
+          >
             <main className="panel main-panel" ref={mainPanelRef}>
               {activeView === "settings" ? (
                 <Suspense fallback={null}>
@@ -763,40 +783,7 @@ export function App() {
                 <Suspense fallback={null}>
                   <SourcingPage onOpenProviders={openProviders} />
                 </Suspense>
-              ) : selectedConvId ? (
-                <div className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
-                  {browserPaneOpen && (
-                    <BrowserPreview
-                      jobId={listingJob?.id ?? null}
-                      step={listingJob?.current_step}
-                      status={listingJob?.status}
-                      vendooItemId={listingJob?.vendoo_item_id}
-                      vendooUrl={listingJob?.vendoo_url}
-                      cancelling={cancelJob.isPending}
-                      onCancel={listingJob?.id ? () => cancelJob.mutate(listingJob.id) : undefined}
-                      interactive={browserOpen}
-                      automationRunning={previewOpen}
-                      onClose={closeBrowser}
-                      expanded={browserExpanded}
-                      onToggleExpanded={isMobile ? undefined : () => setBrowserExpanded((value) => !value)}
-                      selected={browserFields}
-                      onSelectedChange={setBrowserFields}
-                      onGoToChat={isMobile ? () => setMobilePane("workspace") : undefined}
-                    />
-                  )}
-                  <div className="listing-workspace-main" key={`${selectedConvId}:${workspaceNonce}`}>
-                    <div className="chat-column">
-                      <ChatPanel
-                        convId={selectedConvId}
-                        queuedMessage={queuedChatMessage}
-                        onQueuedMessageConsumed={() => setQueuedChatMessage(null)}
-                        browser={browserOpen && browserJobId ? { jobId: browserJobId, fields: browserFields } : null}
-                        onBrowserFieldsChange={setBrowserFields}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : needsSetup ? (
+              ) : selectedConvId ? null : needsSetup ? (
                 <SetupChecklist
                   providerConfigured={providerConfigured}
                   chromeAvailable={status?.chrome_available !== false}
@@ -827,6 +814,42 @@ export function App() {
                   </button>
                 </div>
               )}
+              {selectedConvId && (
+                <div hidden={activeView !== "listings"} className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
+                  {browserPaneOpen && (
+                    <BrowserPreview
+                      jobId={listingJob?.id ?? null}
+                      step={listingJob?.current_step}
+                      status={listingJob?.status}
+                      vendooItemId={listingJob?.vendoo_item_id}
+                      vendooUrl={listingJob?.vendoo_url}
+                      cancelling={cancelJob.isPending}
+                      onCancel={listingJob?.id ? () => cancelJob.mutate(listingJob.id) : undefined}
+                      interactive={browserOpen}
+                      automationRunning={previewOpen}
+                      onClose={closeBrowser}
+                      expanded={browserExpanded}
+                      onToggleExpanded={isMobile ? undefined : () => setBrowserExpanded((value) => !value)}
+                      selected={browserFields}
+                      onSelectedChange={setBrowserFields}
+                      onGoToChat={isMobile ? () => setMobilePane("workspace") : undefined}
+                    />
+                  )}
+                  {listingTabs.tabs.map((tab) => (
+                    <div className="listing-workspace-main listing-session" key={`${tab.id}:${tab.nonce}`} hidden={tab.id !== selectedConvId}>
+                      <div className="chat-column">
+                        <ChatPanel
+                          convId={tab.id}
+                          queuedMessage={tab.queuedMessage}
+                          onQueuedMessageConsumed={() => dispatchListingTab({ type: "message", id: tab.id, value: null })}
+                          browser={tab.id === selectedConvId && browserOpen && browserJobId ? { jobId: browserJobId, fields: browserFields } : null}
+                          onBrowserFieldsChange={setBrowserFields}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </main>
 
             {activeView === "listings" && !detailHidden && (
@@ -840,37 +863,39 @@ export function App() {
                 {...DETAIL_WIDTH}
               />
             )}
-            {activeView === "listings" && !detailHidden && (
-              <aside id="listing-inspector" className="panel detail-panel">
+            {(listingTabs.tabs.length > 0 || (activeView === "listings" && !detailHidden)) && (
+              <aside id="listing-inspector" className="panel detail-panel" hidden={activeView !== "listings" || detailHidden}>
                 {selectedConvId ? (
-                  <Suspense fallback={null}>
-                    <ListingEditor
-                      key={`${selectedConvId}:${workspaceNonce}`}
-                      convId={selectedConvId}
-                      reviewTab={reviewTab}
-                      onReviewTabChange={setReviewTab}
-                      onJobStarted={() => setMobilePane("browser")}
-                      onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
-                      browserOpen={browserOpen}
-                      onAskChat={(text) => {
-                        setQueuedChatMessage(text);
-                        setMobilePane("workspace");
-                      }}
-                      onCleared={() => {
-                        setQueuedChatMessage(null);
-                        setWorkspaceNonce((value) => value + 1);
-                      }}
-                      onBulkListingsCreated={(listings) => {
-                        askForMeasurements(listings);
-                        const first = listings[0]?.convId;
-                        if (!first) return;
-                        setSelectedConvId(first);
-                        setActiveView("listings");
-                        setMobilePane("workspace");
-                        setMobileSidebarOpen(false);
-                      }}
-                    />
-                  </Suspense>
+                  listingTabs.tabs.map((tab) => (
+                    <div className="listing-session" key={`${tab.id}:${tab.nonce}`} hidden={tab.id !== selectedConvId}>
+                      <Suspense fallback={null}>
+                        <ListingEditor
+                          convId={tab.id}
+                          reviewTab={tab.reviewTab}
+                          onReviewTabChange={(value) => dispatchListingTab({ type: "review", id: tab.id, value })}
+                          onJobStarted={() => setMobilePane("browser")}
+                          onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
+                          browserOpen={tab.id === selectedConvId && browserOpen}
+                          onAskChat={(text) => {
+                            dispatchListingTab({ type: "message", id: tab.id, value: text });
+                            setMobilePane("workspace");
+                          }}
+                          onCleared={() => {
+                            clearListingWorkspace(tab.id);
+                          }}
+                          onBulkListingsCreated={(listings) => {
+                            askForMeasurements(listings);
+                            const first = listings[0]?.convId;
+                            if (!first) return;
+                            setSelectedConvId(first);
+                            setActiveView("listings");
+                            setMobilePane("workspace");
+                            setMobileSidebarOpen(false);
+                          }}
+                        />
+                      </Suspense>
+                    </div>
+                  ))
                 ) : (
                   <div className="empty-state">
                     <p className="text-xs text-muted font-mono">Select a listing to inspect</p>

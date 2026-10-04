@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.147 — 2026-10-04
+
+- Keep multiple listings open in tabs, switch between them without losing your place, and close tabs without deleting listings.
+
 ## 0.1.146 — 2026-10-04
 
 - Boys' and girls' pants no longer stop generation with "Could not find verified poshmark category candidates". Poshmark files kids' pants under Kids → Bottoms, and Studio now looks there.
