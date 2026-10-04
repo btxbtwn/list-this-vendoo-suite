@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.168 — 2026-10-04
+
+- Backups take about a sixth of the disk space: each database snapshot is now compressed, and older uncompressed snapshots still restore.
+
 ## 0.1.167 — 2026-10-04
 
 - The Fix errors and Ask chat buttons stay in view: the per-field fix list now sits below them and starts collapsed.

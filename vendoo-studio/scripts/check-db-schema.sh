@@ -15,10 +15,19 @@ PYTHON="$(find_python)" || { echo "Python 3.12+ not found. Run ./scripts/setup.s
 
 PYTHONPATH="$ROOT/server" "$PYTHON" - "$@" <<'PY'
 import sys
+import tempfile
+from pathlib import Path
 
+from vendoo_studio.services.backups import decompress_snapshot
 from vendoo_studio.services.schema_drift import describe, inspect_database
 
 target = sys.argv[1] if len(sys.argv) > 1 else None
+if target and Path(target).suffix == ".gz":
+    # Snapshots are gzipped; inspect the database inside one.
+    unpacked = Path(tempfile.mkdtemp()) / "snapshot.db"
+    decompress_snapshot(Path(target), unpacked)
+    target = str(unpacked)
+
 try:
     drift = inspect_database(target)
 except FileNotFoundError as exc:

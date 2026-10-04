@@ -36,17 +36,26 @@ if curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1;
   exit 69
 fi
 
+STAGED="${DATABASE}.restoring"
 echo "Checking $SNAPSHOT ..."
-PYTHONPATH="$ROOT/server" "$PYTHON" - "$SNAPSHOT" <<'PY'
+PYTHONPATH="$ROOT/server" "$PYTHON" - "$SNAPSHOT" "$STAGED" <<'PY'
 import sqlite3
 import sys
+from pathlib import Path
 
-path = sys.argv[1]
-connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+from vendoo_studio.services.backups import decompress_snapshot
+
+snapshot, staged = Path(sys.argv[1]), Path(sys.argv[2])
+# Unpack before checking: a snapshot is gzipped, and a gzip of a damaged
+# database unpacks perfectly well. The check has to run on the database.
+decompress_snapshot(snapshot, staged)
+
+connection = sqlite3.connect(f"file:{staged}?mode=ro", uri=True)
 result = connection.execute("PRAGMA integrity_check").fetchone()
 connection.close()
 if not result or result[0] != "ok":
-    print(f"  {path} is damaged: {result[0] if result else 'unreadable'}", file=sys.stderr)
+    staged.unlink(missing_ok=True)
+    print(f"  {snapshot} is damaged: {result[0] if result else 'unreadable'}", file=sys.stderr)
     raise SystemExit(65)
 print("  integrity_check ok")
 PY
@@ -57,7 +66,7 @@ echo "  over    : $DATABASE"
 echo
 if [[ "$CONFIRM" != "--yes" ]]; then
   read -r -p "Replace the current database? [y/N] " answer
-  [[ "$answer" == "y" || "$answer" == "Y" ]] || { echo "Left alone."; exit 0; }
+  [[ "$answer" == "y" || "$answer" == "Y" ]] || { rm -f "$STAGED"; echo "Left alone."; exit 0; }
 fi
 
 if [[ -f "$DATABASE" ]]; then
@@ -71,6 +80,6 @@ fi
 # The -wal and -shm belong to the database being replaced. Left behind, SQLite
 # would replay them onto the restored file and mix the two together.
 rm -f "${DATABASE}-wal" "${DATABASE}-shm"
-cp "$SNAPSHOT" "$DATABASE"
+mv "$STAGED" "$DATABASE"
 
 echo "Restored. Start Studio and check your listings."
