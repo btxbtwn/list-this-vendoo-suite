@@ -116,6 +116,7 @@ def _save_missing_fields(db: Session, conv_id: str, missing_fields: list[dict]) 
     from vendoo_studio.services.fill_log import (
         FillLogService,
         summarize_missing_fields,
+        remember_chat_clears,
         write_values_into_listing,
     )
 
@@ -130,6 +131,7 @@ def _save_missing_fields(db: Session, conv_id: str, missing_fields: list[dict]) 
         )
         return False
     updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
+    updated = remember_chat_clears(updated, missing_fields)
     save_listing_revision(db, conv_id, updated)
     FillLogService(db).record_generated_values(conv_id, missing_fields)
     ConversationRepo(db).add_message(
@@ -140,6 +142,34 @@ def _save_missing_fields(db: Session, conv_id: str, missing_fields: list[dict]) 
         model="",
     )
     return True
+
+
+def recover_saved_chat_clears(db: Session, conv_id: str, revision) -> dict:
+    """Recover explicit clears from the chat reply that produced a saved revision."""
+    from vendoo_studio.models.conversation import Message
+    from vendoo_studio.services.fill_log import (
+        _is_clear,
+        extract_missing_fields,
+        listing_value_for_field,
+        remember_chat_clears,
+    )
+
+    listing = dict(revision.listing_json or {})
+    if revision.source != "model_refinement" or "reviewed_empty_fields" in listing:
+        return listing
+    query = db.query(Message).filter(
+        Message.conversation_id == conv_id,
+        Message.role == "assistant",
+        Message.created_at <= revision.created_at,
+    )
+    parent = ListingRepo(db).get_revision(revision.parent_revision_id) if revision.parent_revision_id else None
+    if parent:
+        query = query.filter(Message.created_at > parent.created_at)
+    message = query.order_by(Message.created_at.desc()).first()
+    patches = extract_missing_fields(message.text) if message else None
+    clears = [patch for patch in patches or [] if _is_clear(patch.get("value")) and not
+              listing_value_for_field(listing, patch["marketplace"], patch["field"])]
+    return remember_chat_clears(listing, clears)
 
 
 def apply_listing_payload(db: Session, conv_id: str, full_text: str) -> tuple[list[dict] | None, bool]:

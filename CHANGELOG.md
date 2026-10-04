@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.172 — 2026-10-04
+
+- Ask chat remembers optional fields it deliberately leaves blank, including answers already saved in chat, so they stop coming back as missing.
+
 ## 0.1.171 — 2026-10-04
 
 - Fields marked as not applicable stay cleared and no longer count toward Ask chat.

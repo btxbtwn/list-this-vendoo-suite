@@ -323,3 +323,27 @@ describe("not applicable Ask chat fields", () => {
     expect(askChatTargetCount(depopForm(), { depop_specifics: { material: "" } }, [])).toBe(1);
   });
 });
+
+
+describe("intentionally cleared Ask chat fields", () => {
+  it("excludes a reviewed blank and its stale failure without marking it not applicable", () => {
+    const listing = {
+      title: "Dress", depop_specifics: { material: "" },
+      reviewed_empty_fields: [{ marketplace: "depop", field: "Material" }],
+    };
+    const failures = [entry({ marketplace: "depop", field: "Material", status: "invalid" })];
+    expect(askChatTargetCount(depopForm(), listing, failures)).toBe(0);
+    expect(askChatGapsPrompt(depopForm(), false, listing, failures)).not.toContain("Field: Material");
+    expect(askChatTargetCount(depopForm(), { ...listing, reviewed_empty_fields: [] }, [])).toBe(1);
+  });
+
+  it("keeps a failure actionable if a real value replaces the reviewed blank", () => {
+    const listing = {
+      depop_specifics: { material: "Cotton" },
+      reviewed_empty_fields: [{ marketplace: "depop", field: "Material" }],
+    };
+    expect(askChatTargetCount(depopForm(), listing, [
+      entry({ marketplace: "depop", field: "Material", status: "invalid" }),
+    ])).toBe(1);
+  });
+});

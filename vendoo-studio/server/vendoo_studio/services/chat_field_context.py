@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.repositories.queries import ConversationRepo, FillLogRepo, JobRepo, ListingRepo
 from vendoo_studio.services.completion_gaps import field_id, field_out_of_scope, review_fields
-from vendoo_studio.services.fill_log import listing_value_for_field, prompt_options
+from vendoo_studio.services.fill_log import field_intentionally_empty, listing_value_for_field, prompt_options
 from vendoo_studio.services.hidden_fields import hidden_fields, normalize_field_name
 from vendoo_studio.services.listing_field_gaps import collect_empty_discovered_fields
 from vendoo_studio.services.marketplaces import get_selected_marketplaces
@@ -40,6 +40,8 @@ def chat_field_context(db: Session, conv_id: str) -> str:
             or (marketplace, normalize_field_name(label)) in hidden_keys
             or field_out_of_scope(marketplace, label)
         ):
+            return
+        if not field.get("required") and field_intentionally_empty(listing, marketplace, label):
             return
         if not field.get("required") and is_not_applicable(listing_value_for_field(
             listing, marketplace, label, include_not_applicable=True,

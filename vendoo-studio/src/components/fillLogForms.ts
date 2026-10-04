@@ -170,6 +170,7 @@ export function fieldsNeedingListingValues(
     form.fields
       .filter((field) => !field.notApplicable && !isUnfillableField(field, form.id))
       .filter((field) => !isDoesNotApplyValue(listingValueForField(listing, form.id, field, true)))
+      .filter((field) => !fieldIntentionallyEmpty(listing, form.id, field))
       .filter((field) => listingFieldEmpty(listing, form.id, field))
       .filter((field) => {
         if (!fromVendooDraft) return true;
@@ -179,6 +180,18 @@ export function fieldsNeedingListingValues(
       })
       .map((field) => ({ form, field })),
   );
+}
+
+function fieldIntentionallyEmpty(
+  listing: Record<string, unknown> | undefined,
+  marketplace: string,
+  field: DraftField,
+): boolean {
+  const rows = listing?.reviewed_empty_fields;
+  if (!Array.isArray(rows) || !listingFieldEmpty(listing, marketplace, field)) return false;
+  return rows.some((row) => row && typeof row === "object"
+    && String(row.marketplace || "general").toLowerCase() === marketplace
+    && normalizeLookupKey(String(row.field || "")) === normalizeLookupKey(field.label || field.key));
 }
 
 function applicableChatFailures(
@@ -192,6 +205,7 @@ function applicableChatFailures(
       (candidate) => fieldMatchKey(candidate) === normalizeFieldName(entry.field),
     ) || { key: entry.field, label: entry.field, value: "", missing: true };
     return entry.status !== "not_applicable" && !field.notApplicable
+      && !fieldIntentionallyEmpty(listing, marketplace, field)
       && !isDoesNotApplyValue(listingValueForField(listing, marketplace, field, true));
   });
 }

@@ -15,6 +15,7 @@ from vendoo_studio.services.fill_log import (
     FillLogService,
     extract_missing_fields,
     field_lookup_key,
+    field_intentionally_empty,
     listing_value_for_field,
     normalize_field_label,
     prompt_options,
@@ -99,6 +100,8 @@ def collect_empty_discovered_fields(db: Session, listing: dict) -> list[dict[str
 
         key = (marketplace, normalize_field_label(label))
         if key in seen:
+            return
+        if not required and field_intentionally_empty(listing, marketplace, label):
             return
         if not required and is_not_applicable(listing_value_for_field(
             listing, marketplace, label, include_not_applicable=True,
