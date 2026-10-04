@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.165 — 2026-10-04
+
+- Reach Fix errors and Ask chat for fields without scrolling through individual fields; expand error and marketplace field details only when you need them.
+
 ## 0.1.164 — 2026-10-04
 
 - Rearrange each listing's photos in the bulk upload dialog before the drafts are created. Drag a photo to move it; the first one becomes the cover.

@@ -77,6 +77,11 @@
   min-width: 0;
 }
 
+.llm-error-details summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
 .llm-error-ask-header {
   font-size: var(--text-xs);
   font-weight: 600;
@@ -517,9 +522,7 @@
 
 .pr-split {
   display: flex;
-  /* Keep the forms and fields box tall enough to show a few whole rows; the
-     editor body scrolls when the actions above leave less room than this. */
-  min-height: 380px;
+  min-height: 0;
   flex: 1;
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -710,6 +713,31 @@
   overflow: auto;
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+.pr-field-details {
+  min-height: 0;
+  overflow: auto;
+}
+
+.pr-field-details > summary {
+  cursor: pointer;
+  padding: 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.pr-field-details > summary:hover {
+  color: var(--color-text);
+}
+
+.pr-field-details .pr-details-open,
+.pr-field-details[open] .pr-details-closed {
+  display: none;
+}
+
+.pr-field-details[open] .pr-details-open {
+  display: inline;
 }
 
 .pr-section-block + .pr-section-block {
