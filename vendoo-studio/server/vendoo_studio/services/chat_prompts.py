@@ -202,24 +202,13 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
             "- Depop: exactly 3 style tags from the allowed values list.\n"
             + (f"\n{photo_analysis_text}\n\n" if photo_analysis_text else "") +
             comps_block +
-            f"\n--- Listing Rules ---\n\n{skill_rules}"
-            if skill_rules
-            else ""
+            (f"\n--- Listing Rules ---\n\n{skill_rules}" if skill_rules else "")
         ) + current_listing_prompt(db, conv_id) + learned_fields_prompt(db, conv_id),
     }
 
-    import json
+    from vendoo_studio.services.chat_field_context import chat_field_context
 
-    from vendoo_studio.repositories.queries import JobRepo
-    from vendoo_studio.services.completion_gaps import review_fields
-    for job in JobRepo(db).list_by_conversation(conv_id):
-        if job.current_step == "awaiting_answers":
-            review = JobRepo(db).latest_event(job.id, "completion_review")
-            if review:
-                system_prompt["content"] += "\nUnresolved saved-form fields:\n" + json.dumps(
-                    review_fields(review.payload or {}, job.listing_snapshot or {}), ensure_ascii=False)
-                system_prompt["content"] += "\nUse photo evidence and the seller's notes or later replies to update these fields. Never claim completion before verification. Never ask clarifying questions."
-            break
+    system_prompt["content"] += chat_field_context(db, conv_id)
     messages = [system_prompt]
     for msg in history[-20:]:
         role = msg.role
