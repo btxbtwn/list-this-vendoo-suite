@@ -239,7 +239,8 @@ LISTING_INSTRUCTIONS = (
     "from the photo analysis and listing rules below.\n\n"
     "Preserve category_path and marketplace_categories from the verified category selections below. "
     "Each marketplace uses its own category tree; do not substitute another form's breadcrumb.\n\n"
-    "Always include sku (BRAND-SIZE slug, e.g. DISNEY-PARKS-M), primaryColor, and secondaryColor "
+    "Never make up a sku: leave it out unless the seller notes give one. "
+    "Always include primaryColor, and secondaryColor "
     "when a second color is visible. Colors must be exact Vendoo General dropdown values from "
     "the listing rules below. Use Blue for navy; Navy is only a Depop option. "
     "Use Vendoo general condition values such as "
@@ -286,7 +287,6 @@ LISTING_INSTRUCTIONS = (
     '  "condition": "...",\n'
     '  "primaryColor": "...",\n'
     '  "secondaryColor": "...",\n'
-    '  "sku": "...",\n'
     '  "size": "...",\n'
     '  "sizeType": "...",\n'
     '  "tags": [...],\n'

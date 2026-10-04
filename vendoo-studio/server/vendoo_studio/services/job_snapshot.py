@@ -10,22 +10,6 @@ from vendoo_studio.models.mercari_shipping import DEFAULT_SHIPPING_LABEL
 from vendoo_studio.repositories.queries import JobRepo
 
 
-def generate_sku(listing: dict) -> str:
-    brand = str(listing.get("brand") or "").strip()
-    size = str(listing.get("size") or "").strip()
-
-    def slug(text: str) -> str:
-        chars = [ch.upper() if ch.isalnum() else "-" for ch in text]
-        return "-".join(part for part in "".join(chars).split("-") if part)
-
-    parts = []
-    if brand:
-        parts.append(slug(brand))
-    if size:
-        parts.append(slug(size))
-    return "-".join(parts) if parts else "ITEM"
-
-
 _NON_RESUMABLE_STEPS = frozenset({
     "",
     "queued",
@@ -142,9 +126,6 @@ def ensure_listing_defaults(listing_snapshot: dict) -> None:
     condition = listing_snapshot.get("condition")
     if condition:
         listing_snapshot["condition"] = ListingSchema.validate_condition(condition)
-
-    if not str(listing_snapshot.get("sku") or "").strip():
-        listing_snapshot["sku"] = generate_sku(listing_snapshot)
 
     from vendoo_studio.services.registry import map_vendoo_category_path
 
