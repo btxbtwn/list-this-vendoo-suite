@@ -50,6 +50,7 @@ from vendoo_studio.services.fill_log import (
     write_values_into_listing,
 )
 from vendoo_studio.services.listing_provider import get_listing_provider
+from vendoo_studio.services.skill_formulas import etsy_when_made_rules
 
 log = logging.getLogger(__name__)
 
@@ -487,7 +488,8 @@ async def complete_job(db: Session, job_id: str) -> None:
                 "Change only listed gaps. Preserve correct values. Use exact dropdown options. "
                 "Every new factual value MUST cite an exact quote from the supplied photo analysis or seller evidence, "
                 "except packaged shipping weight, which you should infer from item type, size, material, photos, "
-                "seller notes, and research (evidence may be 'estimated packaged weight for <item type>'). "
+                "seller notes, and research (evidence may be 'estimated packaged weight for <item type>'), "
+                "and Etsy when-made, whose estimate must explain its reasoning instead of citing an exact date quote. "
                 "Package dimensions come from the saved listing/settings default; copy them rather than estimating them. "
                 "An existing expected value may be retried without a quote. "
                 "Optional fields that truly do not apply may use value 'Does Not Apply' or not_applicable with evidence. "
@@ -513,7 +515,8 @@ async def complete_job(db: Session, job_id: str) -> None:
                 "Never use Unknown/N/A/Does not apply to hide a missing fact. Only mark an optional field not applicable when evidence establishes that. "
                 "When a real value is needed but evidence does not support one, put it in no_evidence — including required fields. "
                 "Do not put applicable marketplace optional apparel fields in no_evidence just to clear the gap — keep repairing or leave for review. "
-                "Do not publish or claim completion."
+                "Do not publish or claim completion.\n\n"
+                + etsy_when_made_rules()
             )}, {"role": "user", "content": json.dumps(
                 {"gaps": [compact_gap_for_model(field) for field in needs_model], "evidence": evidence},
                 ensure_ascii=False,
@@ -561,6 +564,8 @@ async def complete_job(db: Session, job_id: str) -> None:
                 quote = str(candidate.get("evidence") or "").strip()
                 same = str(value) == str(field["expected"])
                 estimable = is_shipping_estimate_field(key[1])
+                if key == ("etsy", "when made") and quote:
+                    estimable = True
                 dna = is_does_not_apply_value(value)
                 if dna and field.get("required"):
                     continue

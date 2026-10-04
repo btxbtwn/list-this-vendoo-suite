@@ -98,14 +98,25 @@ def description_formula_markers() -> tuple[str, ...]:
     return found or DEFAULT_DESCRIPTION_MARKERS
 
 
+@lru_cache(maxsize=1)
+def etsy_when_made_rules() -> str:
+    """Read the canonical date-estimation policy for every listing/repair prompt."""
+    text = (skills_dir() / "list-this" / "SKILL.md").read_text(encoding="utf-8")
+    heading = "## Etsy When Made Estimation"
+    section = text[text.index(heading):]
+    end = _SECTION_HEADING.search(section, len(heading))
+    return section[:end.start() if end else len(section)].strip()
+
+
 def with_pinned_formulas(skill_rules: str, *, max_chars: int = 10000) -> str:
     """Put title/description formulas first, then other skill chunks."""
-    pinned = listing_formula_rules()
+    policy = etsy_when_made_rules()
+    pinned = f"{listing_formula_rules()}\n\n{policy}"
     rest = str(skill_rules or "").strip()
     if not rest:
         return pinned[:max_chars]
     # Avoid duplicating the same Formula Reference block when the fallback is full SKILL.md.
     if rest.lstrip().startswith("## Formula Reference") or "### TITLE Formula" in rest[:2000]:
-        return rest[:max_chars]
+        return f"{policy}\n\n{rest}"[:max_chars]
     combined = f"{pinned}\n\n--- Additional listing rules ---\n\n{rest}"
     return combined[:max_chars]

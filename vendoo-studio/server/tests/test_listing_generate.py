@@ -235,6 +235,13 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         pinned = with_pinned_formulas("### Some other rule\nNever invent brands.")
         self.assertTrue(pinned.startswith("## Formula Reference"))
         self.assertIn("Never invent brands", pinned)
+        self.assertIn("## Etsy When Made Estimation", pinned)
+        self.assertIn("make an educated estimate", pinned)
+        self.assertIn("most plausible modern range", pinned)
+        # The policy must survive both semantic chunks and full-file loading.
+        full_rules = with_pinned_formulas(formulas + "\n" + "other rules\n" * 1500)
+        self.assertIn("## Etsy When Made Estimation", full_rules)
+
 
     def test_preserve_formula_copy_keeps_good_title_and_description(self):
         from vendoo_studio.services.listing_generate import _preserve_formula_copy
