@@ -514,6 +514,9 @@ async def _save_claimed_draft(
         current = next(
             (r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None
         ) or {}
+        review = job_repo.latest_event(job.id, "vendoo_review")
+        if review and current.get("_studio_update_time") != review.payload.get("expected_version"):
+            raise VendooCreateError("The Vendoo draft changed after your preview. Review the changes again before updating.")
         with measure_stage(job, "prepare"):
             snapshot, specifics, schema, _unresolved, _unfilled = await prepare_listing_for_vendoo(
                 job, snapshot, provider=provider, evidence=evidence, mark=mark,

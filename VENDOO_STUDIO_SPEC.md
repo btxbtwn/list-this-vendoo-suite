@@ -14,6 +14,17 @@ Create a purpose-built local web application that lets the user:
 8. Send the approved listing to Vendoo as one call to Vendoo's own item API — photos to the inventory service, then `createItem` with every marketplace section already resolved. No marketplace form is opened or filled.
 9. Watch progress in the web app, and pull back anything edited in Vendoo.
 
+Send and Update first open a read-only change preview. Approval binds the
+prepared fields, category schemas, listing revision, item details and photo
+order to the queued job; later edits do not rewrite that approval. A preview
+expires after 15 minutes or a Studio restart. An update also checks the Vendoo
+draft version before writing and asks for another review if it changed.
+Updates retain Vendoo's existing photos; the preview says this explicitly.
+Progress reports the active stage, elapsed time and confirmed photo-upload
+counts, without estimated percentages. Validation issues link to their fields.
+History compares revisions and restores listing fields into a new revision;
+photos stay as they are, and restoration never sends to Vendoo.
+
 The system is local-only, intended for one user, runs one Chrome automation job at a time (additional approved Sends wait in a FIFO queue), and must always stop before publication.
 
 Generation prepares category ids and marketplace fields in the saved Studio

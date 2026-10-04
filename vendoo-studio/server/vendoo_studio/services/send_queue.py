@@ -24,12 +24,17 @@ async def run_send(job_id: str) -> None:
         job = repo.get(job_id)
         if not job or job.status != "dispatched":
             return
+        repo.add_event(job.id, "vendoo_api_started")
         conv_repo = ConversationRepo(db)
         conv = conv_repo.get(job.conversation_id)
         if not conv:
             raise ValueError("Listing no longer exists")
         revisions = [SimpleNamespace(id=job.approved_revision_id)]
         snapshot = dict(job.listing_snapshot)
+        review = repo.latest_event(job.id, "vendoo_review")
+        photos = conv_repo.get_photos(conv.id)
+        if review and [p.id for p in photos] != review.payload["photo_ids"]:
+            raise ValueError("Photos changed after approval. Review the listing again before sending.")
         provider = get_listing_provider() if provider_is_configured() else None
         evidence = latest_photo_analysis(conv_repo.get_messages(conv.id)) or str(conv.notes or "")
         if job.vendoo_item_id:
@@ -39,7 +44,7 @@ async def run_send(job_id: str) -> None:
             )
         else:
             await _create_claimed_draft(
-                db, conv, conv.id, revisions, snapshot, conv_repo.get_photos(conv.id),
+                db, conv, conv.id, revisions, snapshot, photos,
                 provider, evidence, job, repo,
             )
     except Exception as exc:

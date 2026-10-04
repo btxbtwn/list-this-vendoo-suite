@@ -130,6 +130,22 @@ export interface RevisionRestoreResult extends OkResponse {
   revision_id: string;
 }
 
+export interface ListingChange {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+
+export interface SendPreview {
+  review_id: string;
+  revision_id: string;
+  mode: "create" | "update";
+  changes: ListingChange[];
+  photo_count: number;
+  photo_action: "keep" | "upload";
+  warnings: string[];
+}
+
 export interface PriceDropHistoryEvent {
   from_price: number;
   to_price: number;
@@ -214,6 +230,8 @@ export interface Job {
   listing_title: string;
   mode?: string | null;
   blocker_fields?: Record<string, unknown>[] | null;
+  send_progress?: { completed: number; total: number } | null;
+  started_at?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -1,4 +1,5 @@
 import type {
+  SendPreview,
   BackupSnapshot,
   BackupsStatus,
   Conversation,
@@ -300,8 +301,12 @@ export const api = {
     validate: (convId: string) =>
       request<ValidationResult>(`/conversations/${convId}/listing/validate`, { method: "POST" }),
     revisions: (convId: string) => request<ListingRevision[]>(`/conversations/${convId}/revisions`),
-    restore: (convId: string, revisionId: string) =>
-      request<RevisionRestoreResult>(`/conversations/${convId}/revisions/${revisionId}/restore`, { method: "POST" }),
+    revision: (convId: string, revisionId: string) =>
+      request<{ id: string; listing: ListingData }>(`/conversations/${convId}/revisions/${revisionId}`),
+    restore: (convId: string, revisionId: string, expectedRevisionId: string) =>
+      request<RevisionRestoreResult>(`/conversations/${convId}/revisions/${revisionId}/restore`, {
+        method: "POST", body: JSON.stringify({ expected_revision_id: expectedRevisionId }),
+      }),
     priceDropPreview: (convId: string) =>
       request<PriceDropPreview>(`/conversations/${convId}/price-drop/preview`, { method: "POST" }),
     /** Stream sold comps: each source's progress, then the preview they imply. */
@@ -344,8 +349,11 @@ export const api = {
   },
 
   jobs: {
-    send: (conversationId: string) => request<Job>("/jobs/send", {
+    sendPreview: (conversationId: string) => request<SendPreview>("/jobs/send-preview", {
       method: "POST", body: JSON.stringify({ conversation_id: conversationId }),
+    }),
+    send: (conversationId: string, reviewId: string) => request<Job>("/jobs/send", {
+      method: "POST", body: JSON.stringify({ conversation_id: conversationId, review_id: reviewId }),
     }),
     queue: () => request<{
       work: { conversation_id: string; title: string; detail: string }[];

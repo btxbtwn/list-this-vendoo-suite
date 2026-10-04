@@ -33,6 +33,8 @@ class JobResponse(BaseModel):
     mode: str | None = None
     # Marketplace/field gaps from the latest completion pause (Ask chat targets).
     blocker_fields: list[dict] | None = None
+    send_progress: dict | None = None
+    started_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -41,11 +43,27 @@ class EnsureDraftJobRequest(BaseModel):
     conversation_id: str
 
 
+class SendJobRequest(EnsureDraftJobRequest):
+    review_id: str
+
+
+@router.post("/send-preview")
+async def send_preview(body: EnsureDraftJobRequest, db: Session = Depends(get_db)):
+    from vendoo_studio.services.send_review import preview_send
+    from vendoo_studio.services.vendoo_create import VendooCreateError
+    from vendoo_studio.services.browser_bridge import BrowserBridgeError
+
+    try:
+        return await preview_send(db, body.conversation_id)
+    except (VendooCreateError, BrowserBridgeError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
 @router.post("/send", response_model=JobResponse, status_code=202)
-async def enqueue_send(body: EnsureDraftJobRequest, db: Session = Depends(get_db)):
+async def enqueue_send(body: SendJobRequest, db: Session = Depends(get_db)):
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
     from vendoo_studio.services.api_job_lock import start_gate
-    from vendoo_studio.services.job_snapshot import prepare_listing_snapshot
+    from vendoo_studio.services.send_review import reviewed_send
     from vendoo_studio.services.streaming import active_generation
     from vendoo_studio.services import activity
     from vendoo_studio.services.vendoo_import import vendoo_binding
@@ -63,7 +81,8 @@ async def enqueue_send(body: EnsureDraftJobRequest, db: Session = Depends(get_db
     item_id = binding.get("vendooItemId")
     if not item_id and not ConversationRepo(db).get_photos(conv.id):
         raise HTTPException(400, "Add at least one photo first.")
-    snapshot = prepare_listing_snapshot(db, conv, revisions[0].listing_json)
+    review = reviewed_send(db, conv.id, body.review_id)
+    snapshot = review["preparation"]["snapshot"]
     with start_gate():
         repo = JobRepo(db)
         if any(j.status in ACTIVE_JOB_STATUSES for j in repo.list_by_conversation(conv.id)):
@@ -75,6 +94,9 @@ async def enqueue_send(body: EnsureDraftJobRequest, db: Session = Depends(get_db
             current_step="vendoo_api_queued",
         )
         repo.add_event(job.id, "approved", job.current_step)
+        repo.add_event(job.id, "vendoo_review", payload={
+            **review["preparation"], "photo_ids": review["photo_ids"],
+        })
     response = _job_response(job)
     schedule_advance_job_queue()
     return response
@@ -731,6 +753,11 @@ async def cancel_job(job_id: str, db: Session = Depends(get_db)):
 def _job_response(job) -> JobResponse:
     from vendoo_studio.services.schema_probe import is_schema_probe_job
 
+    from vendoo_studio.services.vendoo_send import job_repo
+
+    repo = job_repo(job)
+    progress = repo.latest_event(job.id, "vendoo_api_progress") if repo else None
+    started = repo.latest_event(job.id, "vendoo_api_started") if repo else None
     title = job.listing_snapshot.get("title", "") if job.listing_snapshot else ""
     return JobResponse(
         id=job.id,
@@ -744,6 +771,8 @@ def _job_response(job) -> JobResponse:
         listing_title=title,
         mode="schema_probe" if is_schema_probe_job(job) else None,
         blocker_fields=blocker_fields_for_job(job),
+        send_progress=progress.payload if progress else None,
+        started_at=started.created_at.isoformat() if started and started.created_at else None,
         created_at=job.created_at.isoformat() if job.created_at else "",
         updated_at=job.updated_at.isoformat() if job.updated_at else "",
     )

@@ -1058,6 +1058,7 @@ class ListingIntegrityRouteTest(unittest.TestCase):
         revision = listing_repo.save_revision(self.conv.id, {"title": "Keep"}, source="user_form")
         response = self.client.post(
             f"/api/conversations/{self.other.id}/revisions/{revision.id}/restore",
+            json={"expected_revision_id": revision.id},
         )
         self.assertEqual(response.status_code, 404)
 

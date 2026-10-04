@@ -6,6 +6,12 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.152 — 2026-10-03
+
+- Jump straight to fields that need fixing, grouped by marketplace. Send progress shows completed photo uploads and elapsed time.
+- Review the exact draft changes before approving Send or Update. Approval keeps the reviewed version, and a changed Vendoo draft requires another review.
+- Compare earlier listing versions and restore one from History without changing anything in Vendoo.
+
 ## 0.1.151 — 2026-10-04
 
 - You can type a SKU before a listing generates: there's a SKU box beside each item in the measurements popup after a bulk upload, and one in Item Details. Studio keeps the SKU you typed instead of making up its own, and if you change the SKU on a listing, Regenerate keeps your new one.

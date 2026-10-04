@@ -32,6 +32,20 @@ def checkpoint(job, uid: str, item_id: str) -> None:
         repo.add_event(job.id, "vendoo_api_checkpoint", payload={"uid": uid, "item_id": item_id})
 
 
+def record_photo_progress(db, job_id: str | None, payload: dict) -> None:
+    repo = JobRepo(db)
+    job = repo.get(job_id) if job_id else None
+    if not job or job.status != "dispatched" or job.current_step != "vendoo_api_photos":
+        return
+    completed, total = payload.get("completed"), payload.get("total")
+    if type(completed) is not int or type(total) is not int or not 0 <= completed <= total or total <= 0:
+        return
+    previous = repo.latest_event(job_id, "vendoo_api_progress")
+    if previous and completed < previous.payload.get("completed", 0):
+        return
+    repo.add_event(job_id, "vendoo_api_progress", "vendoo_api_photos", {"completed": completed, "total": total})
+
+
 @contextmanager
 def measure_stage(job, stage: str):
     """One bounded timing row per job; no listing data or credentials."""
