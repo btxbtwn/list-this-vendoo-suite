@@ -49,15 +49,13 @@ COMPS_SETUP_NOTE = (
 )
 COMPS_THIN_IDENTITY_NOTE = (
     "Not enough brand or item detail from the photos to search sold comps. "
-    "Use an estimated baseline and note pricing uncertainty in the description."
+    "Use an estimated baseline."
 )
 COMPS_TIMEOUT_NOTE = (
-    "Sold comps search timed out. Use an estimated baseline and note pricing "
-    "uncertainty in the description."
+    "Sold comps search timed out. Use an estimated baseline."
 )
 COMPS_FAILED_NOTE = (
-    "Sold comps search failed. Use an estimated baseline and note pricing "
-    "uncertainty in the description."
+    "Sold comps search failed. Use an estimated baseline."
 )
 
 

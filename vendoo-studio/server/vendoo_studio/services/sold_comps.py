@@ -22,11 +22,11 @@ INSTRUCTION = (
     "Use these live results to set market price, then listing price = market × 1.35 (whole dollars)."
 )
 THIN_INSTRUCTION = (
-    "Only {count} sold listing{plural} found — too thin to price from. Treat it as a weak signal, "
-    "lean on an estimated baseline, and note pricing uncertainty in the description."
+    "Only {count} sold listing{plural} found — too thin to price from. Treat it as a weak signal "
+    "and lean on an estimated baseline."
 )
 EMPTY_NOTE = (
-    "No sold listings found. Use an estimated baseline and note pricing uncertainty in the description."
+    "No sold listings found. Use an estimated baseline."
 )
 # Listings still for sale show what this item competes with. An asking price is
 # what a seller hopes for, not what the market paid, so it never sets the price.

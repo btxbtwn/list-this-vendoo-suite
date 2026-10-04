@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.156 — 2026-10-04
+
+- Descriptions no longer include doubts like "photo estimates" or "color is uncertain". Anything Studio couldn't confirm stays in its chat reply to you, and buyers never see it.
+
 ## 0.1.155 — 2026-10-04
 
 - Update Vendoo no longer tells you to wait for generation when nothing is running, and a listing stuck on In Progress clears itself.

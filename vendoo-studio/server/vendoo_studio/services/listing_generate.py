@@ -352,27 +352,43 @@ _PRICING_TERMS_RE = re.compile(
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
-def strip_pricing_from_description(listing: dict) -> bool:
-    """Remove any pricing/comp talk from the buyer-facing description."""
+# Uncertainty is internal: the seller hears it in the chat reply, a buyer never
+# reads "photo estimates" or "color is uncertain" in the listing.
+_UNCERTAINTY_TERMS_RE = re.compile(
+    r"(?i)(?:\buncertain(?:ty|ties)?\b|\bunclear\b|\bunsure\b|\bunverified\b|\bunconfirmed\b"
+    r"|\bunreadable\b|\billegible\b|\bestimat(?:e|es|ed|ion)\b|\bapprox(?:\.|imate(?:ly)?\b)"
+    r"|\bnot (?:sure|certain|confirmed|verified)\b"
+    r"|\b(?:could(?:n't| not)|can(?:'t|not)) (?:be )?(?:verif|confirm|read|determin|tell)"
+    r"|\bno (?:readable |visible )?(?:size |brand |care )?tag\b|\bmissing (?:size |brand )?tag\b)"
+)
+_PARENTHETICAL_RE = re.compile(r"\s*\([^()]*\)")
+
+
+def _strip_description_sentences(listing: dict, pattern: re.Pattern[str]) -> bool:
+    """Drop description sentences (and asides) matching ``pattern``, keeping the formula blocks."""
     if not isinstance(listing, dict):
         return False
     desc = str(listing.get("description") or "")
-    if not desc.strip() or not _PRICING_TERMS_RE.search(desc):
+    if not desc.strip() or not pattern.search(desc):
         return False
+
+    def keep(part: str) -> bool:
+        return bool(part.strip()) and not pattern.search(part)
 
     kept_blocks: list[str] = []
     for block in re.split(r"\n\s*\n", desc):
-        lowered = block.strip().lower()
-        # Flaws:/Measurements: blocks are structural; keep them verbatim.
-        if lowered.startswith(("flaws:", "measurements:")):
-            kept_blocks.append(block)
-            continue
-        sentences = [
-            part for part in _SENTENCE_SPLIT_RE.split(block.strip())
-            if part.strip() and not _PRICING_TERMS_RE.search(part)
-        ]
-        if sentences:
-            kept_blocks.append(" ".join(part.strip() for part in sentences))
+        block = _PARENTHETICAL_RE.sub(
+            lambda match: "" if pattern.search(match.group(0)) else match.group(0), block
+        )
+        sentences = _SENTENCE_SPLIT_RE.split(block.strip())
+        # Flaws:/Measurements: blocks are structural; their labelled first
+        # sentence stays, only trailing asides can go.
+        if block.strip().lower().startswith(("flaws:", "measurements:")):
+            kept = [sentences[0], *filter(keep, sentences[1:])]
+        else:
+            kept = [part for part in sentences if keep(part)]
+        if kept:
+            kept_blocks.append(" ".join(part.strip() for part in kept))
     # Stripping can eat the whole vibe sentence; fall back to the title so the
     # description keeps its opening line.
     if kept_blocks and kept_blocks[0].strip().lower().startswith(("flaws:", "measurements:")):
@@ -383,6 +399,16 @@ def strip_pricing_from_description(listing: dict) -> bool:
         return False
     listing["description"] = cleaned
     return True
+
+
+def strip_pricing_from_description(listing: dict) -> bool:
+    """Remove any pricing/comp talk from the buyer-facing description."""
+    return _strip_description_sentences(listing, _PRICING_TERMS_RE)
+
+
+def strip_uncertainty_from_description(listing: dict) -> bool:
+    """Remove hedges about unverified details from the buyer-facing description."""
+    return _strip_description_sentences(listing, _UNCERTAINTY_TERMS_RE)
 
 
 def ensure_physical_description(listing: dict) -> bool:
@@ -696,6 +722,8 @@ def apply_send_readiness_fixes(listing: dict) -> bool:
     if align_size_fields(listing):
         changed = True
     if strip_pricing_from_description(listing):
+        changed = True
+    if strip_uncertainty_from_description(listing):
         changed = True
     if ensure_physical_description(listing):
         changed = True

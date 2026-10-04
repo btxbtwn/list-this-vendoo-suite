@@ -83,11 +83,11 @@ When made: {when_made}
 
 | Error | Cause | Resolution |
 |-------|-------|------------|
-| Brand unclear | Tag unreadable in photos | Infer from logos, hardware, and seller notes when supportable; otherwise leave brand empty and flag uncertainty — never ask |
-| Size conflict | Extractor and Verifier disagree | Prefer the clearer tag reading; if still ambiguous use measurement fallback and flag uncertainty — never ask |
-| Size tag missing | No readable size tag in photos | Fall back to a clean measurement-derived marketplace size; flag uncertainty in the description only |
-| No comps found | Search returned no sold listings | Use estimated baseline; note uncertainty in description |
-| Missing required photos | No tag/label photo | Infer from the photos provided; flag missing tag evidence in the description — never ask for more photos |
+| Brand unclear | Tag unreadable in photos | Infer from logos, hardware, and seller notes when supportable; otherwise leave brand empty — never ask |
+| Size conflict | Extractor and Verifier disagree | Prefer the clearer tag reading; if still ambiguous use measurement fallback — never ask |
+| Size tag missing | No readable size tag in photos | Fall back to a clean measurement-derived marketplace size; do not mention the missing tag in the description |
+| No comps found | Search returned no sold listings | Use estimated baseline; never mention it in the description |
+| Missing required photos | No tag/label photo | Infer from the photos provided — never ask for more photos |
 | Invalid local path | Provided path does not resolve to an item photo folder | Tell user the path could not be used and return JSON or copy-paste text in chat only |
 | Unwritable local folder | Folder exists but the output file cannot be written | Surface the write failure explicitly and do not claim the save succeeded |
 | Vision tool returns "no image attached" | vision_analyze fails on local file paths | Switch immediately to mcp_minimax_token_plan_understand_image as fallback — do not retry the failing tool |
@@ -124,7 +124,7 @@ If the size tag is missing, cropped out, or unreadable but the garment measureme
 
 ### Step 3: Cross-check (MANDATORY)
 Extractor and Verifier must agree on brand/size.
-If they disagree, prefer the clearer tag/logo evidence; if still unresolved, use measurement fallback for size and leave unsupported brand empty — flag uncertainty in the description. Never ask the seller clarifying questions.
+If they disagree, prefer the clearer tag/logo evidence; if still unresolved, use measurement fallback for size and leave unsupported brand empty. Never ask the seller clarifying questions.
 
 If no readable size tag exists in the photos, skip strict size-tag agreement and derive an approximate size from the provided or visible measurements instead.
 
@@ -133,7 +133,6 @@ Measurement fallback rules:
 - use the nearest standard marketplace size only when the measurements support a reasonable estimate
 - if a standard size estimate would be too speculative, use the measurement size itself in the listing copy, such as `30 in waist` or `30x29`
 - `size` and marketplace size fields must be a clean dropdown value only (`10`, `M`, `30x29`) — never prefix with `approx`, `approximately`, `about`, `around`, `est`, or `~`
-- always state in the description that the size is approximate and derived from measurements because no readable size tag was visible
 
 ### Step 4: Comp Checker
 Follow [Comp research](references/comp-research.md) for sold and active listing searches.
@@ -145,7 +144,7 @@ Apply pricing formula from MEMORY.md.
 - Enforce the applicable description formula EXACTLY
 - Populate platform-specific fields
 - For Etsy digital downloads, output a copy-pasteable text block instead of JSON
-- Flag uncertainties in the description
+- Keep uncertainties out of the description (see rule 8)
 
 ### Step 6: Local Save (MANDATORY when path is provided)
 - Resolve the save folder from the user's local path.
@@ -315,18 +314,18 @@ Minimum       = Listing Price - $4
 
 ## Rules (VIOLATION = INCORRECT LISTING)
 
-1. **NEVER invent brand names** — use brand only when readable from tags/logos or stated in seller notes; if unsupported, leave brand empty and flag uncertainty. Never ask the seller.
+1. **NEVER invent brand names** — use brand only when readable from tags/logos or stated in seller notes; if unsupported, leave brand empty. Never ask the seller.
 2. **Verifier confirmation REQUIRED for brand** and for size when a readable size tag exists
 3. **Cross-check is MANDATORY** — extractor and verifier must agree when a readable size tag exists; otherwise use the measurement fallback rules
-4. **If unresolved disagreement remains after measurement fallback, INFER from photos and initial seller notes** — prefer the stronger evidence, flag uncertainty in the description, and never ask clarifying questions
+4. **If unresolved disagreement remains after measurement fallback, INFER from photos and initial seller notes** — prefer the stronger evidence and never ask clarifying questions
 5. **📌 TITLE MUST MATCH FORMULA EXACTLY** — Brand Size Vibe Item Color Fit order
 6. **📌 DESCRIPTION MUST MATCH THE APPLICABLE FORMULA EXACTLY** — use the physical-item template by default, or the Etsy Digital Download Description Formula for Etsy digital products
 7. **Pricing MUST follow formula** (comp × 1.35, whole dollars only)
-8. **Flag uncertainties in the description** — be explicit about what you couldn't verify
+8. **NEVER put uncertainties in the description** — the description is buyer-facing. No hedges about what you couldn't verify or read, no "approximate", "estimated", "photo estimates", "uncertain" or "unclear" notes, no missing-tag or color doubts. Leave unsupported fields empty and mention open questions only in your reply to the seller
 9. **Reference vendoo_listing_template.md BEFORE generating** — structure/order priority
 10. **For Etsy digital downloads, use the Etsy Digital Download Description Formula** — do not use the physical-item description template
 11. **For Etsy digital downloads, return the Etsy Digital Download Output Format** — do not output JSON
-12. **Infer packaged shipping weight on every listing; do not ask the seller for it** — always populate both `weight_lb` and `weight_oz` with a reasonable packaged-shipping estimate supported by the item type, size, material, photos, seller notes, and research evidence (include typical packaging). Pounds may be `0`, but the combined weight must be greater than zero. Examples: light tee/tank ~6–10 oz; heavy graphic tee ~10–14 oz; hoodie/sweatshirt ~1 lb 0–8 oz; jeans/pants ~1–1.5 lb; light jacket ~1–2 lb. Prefer seller-provided scale weight when given. Studio supplies `package_dimensions_in` from the seller's saved package-dimensions default (initially `13x10x3`); do not ask the seller to confirm routine apparel shipping weight or package size. Infer unread tag size/material, department, when-made era, and other product facts from photos and initial seller notes when supportable; leave unsupported facts empty and flag them — never ask.
+12. **Infer packaged shipping weight on every listing; do not ask the seller for it** — always populate both `weight_lb` and `weight_oz` with a reasonable packaged-shipping estimate supported by the item type, size, material, photos, seller notes, and research evidence (include typical packaging). Pounds may be `0`, but the combined weight must be greater than zero. Examples: light tee/tank ~6–10 oz; heavy graphic tee ~10–14 oz; hoodie/sweatshirt ~1 lb 0–8 oz; jeans/pants ~1–1.5 lb; light jacket ~1–2 lb. Prefer seller-provided scale weight when given. Studio supplies `package_dimensions_in` from the seller's saved package-dimensions default (initially `13x10x3`); do not ask the seller to confirm routine apparel shipping weight or package size. Infer unread tag size/material, department, when-made era, and other product facts from photos and initial seller notes when supportable; leave unsupported facts empty — never ask.
 13. **Never ask clarifying questions** — generate from the photos and notes provided up front. The seller reviews the draft; do not pause to interview them.
 
 ## Pre-Output Verification (MANDATORY)
@@ -350,7 +349,7 @@ Before outputting ANY listing, verify:
 - [ ] **Etsy digital line 7:** `Instant download after purchase. No physical item will be shipped.`
 - [ ] **Etsy digital output format:** if the item is a digital Etsy product, return the Etsy Digital Download Output Format as copy-pasteable text or markdown, not JSON
 - [ ] **Pricing:** Listing = comp×1.35, Auto-accept = -$2, Minimum = -$4
-- [ ] **Uncertainties documented:** Pricing sources and any uncertainties noted in description
+- [ ] **No uncertainties in description:** no hedges, estimates, or unverified-detail notes in buyer-facing copy; open questions go in the reply to the seller only
 - [ ] **Local save completed:** If a local path was provided, `listing.json` was written for standard listings or `listing.md` was written for Etsy digital download listings and verified
 - [ ] **Main fields populated:** title, description, price, brand, condition, size, primaryColor, secondaryColor (if visible), sku, quantity, weight_lb, weight_oz, package_dimensions_in
 - [ ] **Vendoo category is terminal:** use Vendoo General taxonomy (`Women > Women's Clothing > Tops` for women's shirts/T-shirts; `Men > Men's Clothing > Shirts > T-Shirts` for men's T-shirts), not marketplace-only aliases such as `Shirts & Blouses`

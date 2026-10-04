@@ -66,8 +66,8 @@ THIN_BRAVE_COMPS = (
     "- $22 · eBay · Levi's 511 Slim Shorts - Sold\n"
     "  https://www.ebay.com/itm/123\n"
     "\n"
-    "Only 1 sold listing found — too thin to price from. Treat it as a weak signal, "
-    "lean on an estimated baseline, and note pricing uncertainty in the description."
+    "Only 1 sold listing found — too thin to price from. Treat it as a weak signal "
+    "and lean on an estimated baseline."
 )
 EMPTY_COMPS = format_sold_comps(
     SoldCompsReport(query="Levi's Slim shorts sold comps", source="ChatGPT web search")
