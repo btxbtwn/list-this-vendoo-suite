@@ -5,6 +5,8 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import httpx
+
 from vendoo_studio.services.comp_research import comps_search_messages
 from vendoo_studio.providers.chatgpt_codex import (
     MODELS_CLIENT_VERSION,
@@ -16,6 +18,7 @@ from vendoo_studio.providers.chatgpt_codex import (
     clamp_reasoning_effort,
     resolved_chatgpt_models,
     resolved_chatgpt_reasoning,
+    supported_reasoning_efforts,
     visible_model_slugs,
     web_search_answer,
     web_search_sources,
@@ -95,6 +98,25 @@ class ChatGPTOAuthTest(unittest.TestCase):
 
 
 class ChatGPTModelChoiceTest(unittest.TestCase):
+    def test_gpt_61_sol_reasoning_efforts(self):
+        for model in ("gpt-6.1-sol", "gpt-6.1-sol-2026-09-30", "openai/gpt-6.1-sol", " GPT-6.1-SOL "):
+            with self.subTest(model=model):
+                self.assertEqual(supported_reasoning_efforts(model), ("low", "medium", "high", "xhigh", "max"))
+                self.assertEqual(clamp_reasoning_effort("none", model), "low")
+                self.assertEqual(clamp_reasoning_effort("minimal", model), "low")
+                self.assertEqual(clamp_reasoning_effort("max", model), "max")
+
+    def test_gpt_61_sol_payload_uses_supported_saved_effort(self):
+        for saved, expected in (("none", "low"), ("medium", "medium"), ("max", "max")):
+            with self.subTest(saved=saved):
+                with patch(
+                    "vendoo_studio.providers.chatgpt_codex.get_chatgpt_models",
+                    return_value={"listing_model": "gpt-6.1-sol", "reasoning_effort": saved},
+                ):
+                    provider = ChatGPTCodexProvider()
+                payload = provider._payload([{"role": "user", "content": "Generate a listing"}], provider.listing_model, True)
+                self.assertEqual(payload["reasoning"], {"effort": expected, "summary": "auto"})
+
     def test_resolved_models_use_saved_prefs(self):
         with patch(
             "vendoo_studio.providers.chatgpt_codex.get_chatgpt_models",
@@ -129,6 +151,35 @@ class ChatGPTModelChoiceTest(unittest.TestCase):
         self.assertEqual(payload["tool_choice"], "required")
         self.assertEqual(payload["include"], ["web_search_call.action.sources"])
         self.assertEqual(payload["reasoning"]["effort"], "low")
+
+
+class ChatGPTQuickChatTest(unittest.IsolatedAsyncioTestCase):
+    async def test_repair_sends_low_for_gpt_61_sol_and_none_for_gpt_55(self):
+        for model, expected_effort in (("gpt-6.1-sol", "low"), ("gpt-5.5", "none")):
+            with self.subTest(model=model):
+                captured = {}
+
+                def respond(request, captured=captured):
+                    captured.update(json.loads(request.content))
+                    return httpx.Response(200, text=(
+                        'data: {"type":"response.output_text.delta","delta":"{}"}\n\n'
+                        'data: [DONE]\n\n'
+                    ))
+
+                client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+                with (
+                    patch("vendoo_studio.providers.chatgpt_codex.get_chatgpt_models", return_value={
+                        "listing_model": model, "reasoning_effort": "high",
+                    }),
+                    patch("vendoo_studio.providers.chatgpt_codex.httpx.AsyncClient", return_value=client),
+                    patch.object(ChatGPTCodexProvider, "_headers", new=AsyncMock(return_value={})),
+                ):
+                    result = [text async for text in ChatGPTCodexProvider().quick_chat([
+                        {"role": "user", "content": "Repair JSON"},
+                    ])]
+                self.assertEqual(result, ["{}"])
+                self.assertEqual(captured["model"], model)
+                self.assertEqual(captured["reasoning"]["effort"], expected_effort)
 
 
 class WebSearchExtractTest(unittest.TestCase):
