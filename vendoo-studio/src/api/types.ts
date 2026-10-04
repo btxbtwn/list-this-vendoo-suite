@@ -399,6 +399,11 @@ export interface AnalyticsInventory {
   failed: number;
   working: number;
   asking_value: number;
+  cost_value: number;
+  cost_known: number;
+  stale_count: number;
+  stale_value: number;
+  undated_count: number;
 }
 
 export interface AnalyticsSales {
@@ -411,19 +416,16 @@ export interface AnalyticsSales {
   days_known: number;
   average_price: number | null;
   median_days: number | null;
+  margin: number | null;
 }
 
-export interface AnalyticsPeriod {
+export interface AnalyticsPeriod extends AnalyticsSales {
   label: string;
-  count: number;
-  revenue: number;
 }
 
-export interface AnalyticsGroup {
+export interface AnalyticsGroup extends AnalyticsSales {
   id: string;
   label: string;
-  count: number;
-  revenue: number;
 }
 
 export interface AnalyticsActiveListing {
@@ -463,6 +465,7 @@ export interface AnalyticsSale {
   days_listed: number | null;
   /** The sale event this sale fell in, if any. */
   event: string | null;
+  profit: number | null;
 }
 
 export interface InventoryAnalytics {
@@ -479,6 +482,7 @@ export interface InventoryAnalytics {
   aging: AnalyticsAging[];
   stale: AnalyticsStaleListing[];
   recent: AnalyticsSale[];
+  oldest: { conversation_id: string; title: string; price: number; days_listed: number }[];
 }
 
 export interface SaleEventSale {

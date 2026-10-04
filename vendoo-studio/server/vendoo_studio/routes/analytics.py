@@ -17,6 +17,11 @@ class AnalyticsInventory(BaseModel):
     failed: int
     working: int
     asking_value: float
+    cost_value: float
+    cost_known: int
+    stale_count: int
+    stale_value: float
+    undated_count: int
 
 
 class AnalyticsSales(BaseModel):
@@ -29,6 +34,7 @@ class AnalyticsSales(BaseModel):
     days_known: int
     average_price: float | None
     median_days: int | None
+    margin: float | None
 
 
 class AnalyticsPrevious(BaseModel):
@@ -37,17 +43,13 @@ class AnalyticsPrevious(BaseModel):
     sales: AnalyticsSales
 
 
-class AnalyticsPeriod(BaseModel):
+class AnalyticsPeriod(AnalyticsSales):
     label: str
-    count: int
-    revenue: float
 
 
-class AnalyticsGroup(BaseModel):
+class AnalyticsGroup(AnalyticsSales):
     id: str
     label: str
-    count: int
-    revenue: float
 
 
 class AnalyticsActiveListing(BaseModel):
@@ -83,6 +85,14 @@ class AnalyticsSale(BaseModel):
     sold_at: str | None
     days_listed: int | None
     event: str | None
+    profit: float | None
+
+
+class AnalyticsOldListing(BaseModel):
+    conversation_id: str
+    title: str
+    price: float
+    days_listed: int
 
 
 class AnalyticsResponse(BaseModel):
@@ -99,6 +109,7 @@ class AnalyticsResponse(BaseModel):
     aging: list[AnalyticsAging]
     stale: list[AnalyticsStaleListing]
     recent: list[AnalyticsSale]
+    oldest: list[AnalyticsOldListing]
 
 
 @router.get("", response_model=AnalyticsResponse)

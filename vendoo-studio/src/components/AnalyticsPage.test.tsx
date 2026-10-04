@@ -13,20 +13,21 @@ vi.mock("@tanstack/react-query", () => ({
 
 const sales = {
   count: 2, revenue: 80, revenue_known: 2, profit: 50,
-  profit_known: 2, fees_known: 2, average_price: 40, median_days: 10, days_known: 2,
+  profit_known: 2, fees_known: 2, average_price: 40, median_days: 10, days_known: 2, margin: 62.5,
 };
 const data: InventoryAnalytics = {
   range: "30d", undated_sales: 1, periods_truncated: false,
-  inventory: { active: 1, draft: 0, sold: 2, failed: 0, working: 0, asking_value: 60 },
+  inventory: { active: 1, draft: 0, sold: 2, failed: 0, working: 0, asking_value: 60, cost_value: 8, cost_known: 1, stale_count: 1, stale_value: 60, undated_count: 0 },
   sales,
   previous: {
     start: "2026-08-01T00:00:00Z", end: "2026-08-31T00:00:00Z",
     sales: { ...sales, revenue: 40, profit: 25, count: 1, revenue_known: 1, profit_known: 1, fees_known: 1 },
   },
-  periods: [], marketplaces: [], categories: [], brands: [],
+  periods: [{ ...sales, label: "Sep" }], marketplaces: [], categories: [], brands: [{ ...sales, id: "nike", label: "Nike" }],
+  oldest: [{ conversation_id: "old-stock", title: "Older jacket", price: 60, days_listed: 110 }],
   recent: [{
     conversation_id: "sold-tee", title: "Band tee", price: 24, marketplace: "depop",
-    sold_at: "2026-09-12T18:00:00Z", days_listed: 12, event: "Depop fall sale",
+    sold_at: "2026-09-12T18:00:00Z", days_listed: 12, event: "Depop fall sale", profit: 12,
   }],
   stale: [
     {
@@ -83,6 +84,30 @@ describe("AnalyticsPage", () => {
     expect(html).toContain("Comparison unavailable: missing costs or fees");
     expect(html).toContain("1 sale has no recorded price");
     expect(html).not.toContain("Up $40");
+    expect(html).not.toContain("undefined");
+  });
+
+  it("shows margins, chart choices, ranking controls, inventory cost, and oldest listings", () => {
+    const html = render(data);
+    expect(html).toContain("Profit margin");
+    expect(html).toContain("62.5%");
+    expect(html).toContain('aria-label="Chart metric"');
+    expect(html).toContain('aria-label="Rank brands by"');
+    expect(html).toContain("Recorded inventory cost");
+    expect(html).toContain("Listed 90+ days");
+    expect(html).toContain("Review your oldest listings");
+    expect(html).toContain("110 days listed");
+    expect(html).toContain("$12 profit");
+  });
+
+  it("keeps unknown prices and profits distinct from recorded zero amounts", () => {
+    const html = render({ ...data, recent: [
+      { ...data.recent[0], price: null, profit: null },
+      { ...data.recent[0], conversation_id: "free", price: 0, profit: 0 },
+    ] });
+    expect(html).toContain("Price unknown");
+    expect(html).toContain("Profit unavailable");
+    expect(html).toContain("$0 profit");
     expect(html).not.toContain("undefined");
   });
 
