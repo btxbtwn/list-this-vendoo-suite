@@ -814,13 +814,13 @@ GARMENT_MEASUREMENTS: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {
 }
 
 
-def _seller_measurements(parsed: dict) -> str:
-    """Only the selected garment's measurements; the others stay saved but unused."""
+def _garment_measurements(parsed: dict) -> tuple[str, str]:
+    """Only the selected garment's label and measurements; the others stay saved but unused."""
     garment = parsed.get("garment")
     if garment == "shorts":  # saved before shorts folded into pants
         garment = "pants"
     if garment not in GARMENT_MEASUREMENTS:
-        return ""
+        return "", ""
     label, fields = GARMENT_MEASUREMENTS[garment]
     measurements = parsed.get("measurements")
     values = None
@@ -829,15 +829,54 @@ def _seller_measurements(parsed: dict) -> str:
         if values is None and garment == "pants":
             values = measurements.get("shorts")
     if not isinstance(values, dict):
-        return ""
+        return "", ""
     parts = [
         f'{name}: {str(values.get(key) or "").strip()}"'
         for key, name in fields
         if str(values.get(key) or "").strip()
     ]
-    if not parts:
-        return ""
-    return f"- Measurements ({label.lower()}): " + "; ".join(parts)
+    return (label, "; ".join(parts)) if parts else ("", "")
+
+
+def _description_measurements(parsed: dict) -> str:
+    """The measurements the description must show: typed ones, else carried by Regenerate."""
+    _label, typed = _garment_measurements(parsed)
+    return typed or str(parsed.get("descriptionMeasurements") or "").strip()
+
+
+def _comparable(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def apply_seller_description_facts(listing: dict, seller: dict) -> bool:
+    """Write the seller's measurements and flaws into the description verbatim.
+
+    The model is told both, but nothing else stops it writing "See photos" or
+    "none noted" over them — which is how Regenerate used to lose them.
+    """
+    from vendoo_studio.services.listing_carryover import (
+        description_block,
+        set_description_block,
+        without_see_photos,
+    )
+
+    if not isinstance(listing, dict):
+        return False
+    desc = str(listing.get("description") or "").strip()
+    updated = desc
+    flaws = without_see_photos(seller.get("knownFlaws"))
+    # A model that names the seller's flaws and adds ones it saw keeps its block.
+    if flaws and _comparable(flaws) not in _comparable(description_block(updated, "flaws?")):
+        updated = set_description_block(
+            updated, "flaws?", f"Flaws: {flaws}. See photos for details.", before="measurements?"
+        )
+    measurements = _description_measurements(seller)
+    if measurements and description_block(updated, "measurements?") != measurements.rstrip("."):
+        updated = set_description_block(updated, "measurements?", f"Measurements: {measurements}")
+    if updated == desc:
+        return False
+    listing["description"] = updated
+    return True
 
 
 def _asking_price(notes: dict) -> float:
@@ -881,9 +920,9 @@ def seller_item_details(notes: str | None) -> str:
         lines.append(f"- List price: ${asking:g} (the seller set this — use it exactly)")
     if parsed.get("packageDimensions"):
         lines.append(f"- Package dimensions: {parsed['packageDimensions']}")
-    measurements = _seller_measurements(parsed)
+    label, measurements = _garment_measurements(parsed)
     if measurements:
-        lines.append(measurements)
+        lines.append(f"- Measurements ({label.lower()}): {measurements}")
     else:
         # Carried off an earlier description by Regenerate: still seller facts.
         carried = str(parsed.get("descriptionMeasurements") or "").strip()
@@ -998,13 +1037,15 @@ def persist_generated_listing(
         if selected.get("marketplace_categories"):
             listing["category_path"] = selected["category_path"]
             listing["marketplace_categories"] = dict(selected["marketplace_categories"])
-    # Regenerate carries the seller's SKU, package size and confirmed price into
-    # notes; keep them on the new listing even if the model invents others.
+    # Regenerate carries the seller's SKU, package size, confirmed price,
+    # measurements and flaws into notes; keep them on the new listing even if
+    # the model invents others.
     conv = repo.get(conv_id)
     if conv:
         from vendoo_studio.services.vendoo_import import parse_notes
 
         seller = parse_notes(conv.notes)
+        apply_seller_description_facts(listing, seller)
         seller_sku = str(seller.get("sku") or "").strip()
         if seller_sku:
             listing["sku"] = seller_sku
@@ -1086,6 +1127,10 @@ async def persist_generated_listing_with_repair(
                 updated["marketplace_categories"] = dict(listing["marketplace_categories"])
             RegistryService(db).merge_learned_fields(updated)
             apply_send_readiness_fixes(updated)
+            if conv:
+                from vendoo_studio.services.vendoo_import import parse_notes
+
+                apply_seller_description_facts(updated, parse_notes(conv.notes))
             if listing.get("package_dimensions_in"):
                 updated["package_dimensions_in"] = listing["package_dimensions_in"]
             listing = updated

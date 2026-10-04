@@ -15,10 +15,16 @@ import re
 from typing import Any
 
 # A description block runs from its marker to a blank line or the next marker,
-# which is how the skill's Flaws:/Measurements: formula lays them out.
-_BLOCK_TEMPLATE = r"(?is)\b{marker}\s*:\s*(.+?)(?=\n\s*\n|\n\s*[A-Za-z][A-Za-z /]{{1,20}}\s*:|\Z)"
+# which is how the skill's Flaws:/Measurements: formula lays them out. A line
+# like ``Length: 27"`` is a measurement inside the block, not a new marker.
+_BLOCK_TEMPLATE = (
+    r"(?is)\b{marker}\s*:\s*(.+?)"
+    r"(?=\n\s*\n|\n\s*[A-Za-z][A-Za-z /]{{1,20}}\s*:(?!\s*[\d.])|\Z)"
+)
 _NO_FLAWS_RE = re.compile(r"(?i)^(?:none|no known|no visible|nothing)\b")
 _DIGIT_RE = re.compile(r"\d")
+# The formula's closing phrase, not part of the flaws themselves.
+_SEE_PHOTOS_RE = re.compile(r"(?i)[\s.;,]*see (?:the )?photos(?: for (?:details|more))?[\s.]*$")
 
 DEFAULT_PACKAGE_DIMENSIONS = "13x10x3"
 
@@ -34,7 +40,30 @@ def description_block(description: Any, marker: str) -> str:
     match = re.search(_BLOCK_TEMPLATE.format(marker=marker), text)
     if not match:
         return ""
-    return re.sub(r"\s+", " ", match.group(1)).strip().rstrip(".")
+    lines = [re.sub(r"\s+", " ", line).strip().rstrip(";") for line in match.group(1).splitlines()]
+    return "; ".join(line for line in lines if line).strip().rstrip(".")
+
+
+def set_description_block(description: Any, marker: str, line: str, *, before: str = "") -> str:
+    """``description`` with its ``Marker: ...`` block replaced by ``line``.
+
+    A missing block is added ahead of the ``before`` block when there is one,
+    otherwise at the end, so Flaws: still reads above Measurements:.
+    """
+    text = str(description or "").strip()
+    pattern = re.compile(_BLOCK_TEMPLATE.format(marker=marker))
+    if pattern.search(text):
+        return pattern.sub(lambda _match: line, text, count=1)
+    anchor = re.search(_BLOCK_TEMPLATE.format(marker=before), text) if before else None
+    if anchor:
+        head = text[: anchor.start()].rstrip()
+        return f"{head}\n\n{line}\n\n{text[anchor.start():]}" if head else f"{line}\n\n{text}"
+    return f"{text}\n\n{line}" if text else line
+
+
+def without_see_photos(flaws: Any) -> str:
+    """Flaws text without the formula's trailing "See photos for details"."""
+    return _SEE_PHOTOS_RE.sub("", str(flaws or "")).strip().rstrip(".")
 
 
 def _measurements_from_description(description: Any) -> str:
@@ -44,7 +73,7 @@ def _measurements_from_description(description: Any) -> str:
 
 
 def _flaws_from_description(description: Any) -> str:
-    block = description_block(description, "flaws?")
+    block = without_see_photos(description_block(description, "flaws?"))
     return "" if _NO_FLAWS_RE.match(block) else block
 
 
