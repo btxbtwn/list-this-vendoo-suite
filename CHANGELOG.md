@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.164 — 2026-10-04
+
+- Rearrange each listing's photos in the bulk upload dialog before the drafts are created. Drag a photo to move it; the first one becomes the cover.
+
 ## 0.1.163 — 2026-10-04
 
 - Studio uses much less CPU while it sits open. It only checks for updates every second or two while something is running (a send, a generation, a ChatGPT sign-in), slows down while it's behind another window, and catches up the moment you switch back.

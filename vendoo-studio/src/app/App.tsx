@@ -35,6 +35,7 @@ import { addToast } from "../ui/toast";
 import {
   groupImageFilesByFolder,
   listingTitleForFolder,
+  type PhotoFolderGroup,
 } from "../photoDrop";
 import {
   createBulkPhotoListings,
@@ -109,7 +110,7 @@ export function App() {
   const [browserJobId, setBrowserJobId] = useState<string | null>(null);
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const [browserExpanded, setBrowserExpanded] = useState(false);
-  const [pendingBulkFiles, setPendingBulkFiles] = useState<File[] | null>(null);
+  const [pendingBulkGroups, setPendingBulkGroups] = useState<PhotoFolderGroup[] | null>(null);
   const [measureListings, setMeasureListings] = useState<BulkMeasureListing[] | null>(null);
   const wasPreviewOpen = useRef(false);
   const mainPanelRef = useRef<HTMLElement>(null);
@@ -474,19 +475,18 @@ export function App() {
   // Multiple folders (Finder multi-select or a parent of item folders) each
   // become their own draft — a bulk upload — instead of one mixed listing.
   const dropPhotos = useMutation({
-    mutationFn: async ({
-      files,
-      bulkDefaults = { cog: "", labels: "" },
-    }: {
-      files: File[];
-      bulkDefaults?: BulkUploadDefaults;
-    }) => {
-      const groups = groupImageFilesByFolder(files);
-      if (groups.length > 1) {
-        const listings = await createBulkPhotoListings(groups, bulkDefaults, api.conversations);
+    mutationFn: async (
+      upload:
+        | { files: File[] }
+        | { groups: PhotoFolderGroup[]; bulkDefaults: BulkUploadDefaults },
+    ) => {
+      if ("groups" in upload) {
+        const listings = await createBulkPhotoListings(upload.groups, upload.bulkDefaults, api.conversations);
         return { mode: "bulk" as const, listings };
       }
 
+      const { files } = upload;
+      const groups = groupImageFilesByFolder(files);
       const only = groups[0]?.files || files;
       const openConvId = selectedConvId;
       const title =
@@ -960,21 +960,21 @@ export function App() {
         busy={dropPhotos.isPending}
         busyLabel="Adding photos…"
         onFiles={(files) => {
-          if (groupImageFilesByFolder(files).length > 1) {
-            setPendingBulkFiles(files);
+          const groups = groupImageFilesByFolder(files);
+          if (groups.length > 1) {
+            setPendingBulkGroups(groups);
             return;
           }
           dropPhotos.mutate({ files });
         }}
       />
-      {pendingBulkFiles ? (
+      {pendingBulkGroups ? (
         <BulkUploadDialog
-          count={groupImageFilesByFolder(pendingBulkFiles).length}
-          onCancel={() => setPendingBulkFiles(null)}
-          onConfirm={(bulkDefaults) => {
-            const files = pendingBulkFiles;
-            setPendingBulkFiles(null);
-            dropPhotos.mutate({ files, bulkDefaults });
+          groups={pendingBulkGroups}
+          onCancel={() => setPendingBulkGroups(null)}
+          onConfirm={(bulkDefaults, groups) => {
+            setPendingBulkGroups(null);
+            dropPhotos.mutate({ groups, bulkDefaults });
           }}
         />
       ) : null}

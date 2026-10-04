@@ -137,7 +137,33 @@
 }
 
 .bulk-upload-popup {
-  max-width: 30rem;
+  max-width: 36rem;
+}
+
+.bulk-upload-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 24px 16px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.bulk-upload-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bulk-upload-group-title {
+  overflow: hidden;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bulk-upload-fields {
