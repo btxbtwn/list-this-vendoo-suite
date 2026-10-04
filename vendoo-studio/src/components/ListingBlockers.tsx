@@ -16,7 +16,7 @@ export function ListingBlockers({ issues, onSelect }: {
   return (
     <div className="listing-blockers" aria-label="Fields to fix before sending">
       {[...groups].map(([group, entries]) => (
-        <details key={group} open>
+        <details key={group}>
           <summary>{group} · {entries.length} {entries.length === 1 ? "issue" : "issues"}</summary>
           {entries.map((issue, index) => <div key={`${issue.field}:${index}`} className="listing-blocker">
             <span>{issue.message}</span>

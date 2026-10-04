@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.167 — 2026-10-04
+
+- The Fix errors and Ask chat buttons stay in view: the per-field fix list now sits below them and starts collapsed.
+
 ## 0.1.166 — 2026-10-04
 
 - Generate and repair listings with GPT-6.1 Sol without the unsupported reasoning effort error.
