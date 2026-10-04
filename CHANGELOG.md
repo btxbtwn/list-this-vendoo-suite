@@ -6,6 +6,12 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.158 — 2026-10-04
+
+- Keep track of the boxes you buy. Press **I bought this** on a buy-list box, or add one under Sourcing → Boxes you bought, and correct the price, shipping and piece count once you've paid. Choose the box when you bulk upload its photos, or later in Item Details.
+- Each box shows what it cost with shipping, what its sales brought back after fees, how much of it has sold and how long pieces take to sell, with Raghouse and Thrift Vintage Fashion compared side by side.
+- A listing from a box with no cost of goods typed uses the box's cost per piece, in Analytics and as Vendoo's Cost of Goods when you send.
+
 ## 0.1.157 — 2026-10-04
 
 - Regenerate now keeps your measurements and flaws in the new description. Measurements written one per line all come over, not just the first, and the new description always shows your flaws and exact measurements instead of "See photos" or "none noted".

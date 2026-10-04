@@ -103,6 +103,9 @@ def prepare_listing_snapshot(
         cog = float(cog_raw) if cog_raw else None
     except ValueError:
         cog = None
+    if cog is None and getattr(conv, "box_id", None):
+        from vendoo_studio.services.boxes import cost_share, get_box
+        cog = cost_share(get_box(db, conv.box_id))
     if cog is not None:
         listing_snapshot["cost"] = cog
     seller_notes = str(conv_notes.get("sellerNotes") or "").strip()

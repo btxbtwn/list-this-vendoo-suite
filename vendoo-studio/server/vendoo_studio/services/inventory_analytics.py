@@ -52,14 +52,20 @@ class AnalyticsItem:
     fees: float | None = None
     shipping_cost: float = 0.0
     shipping_credit: float = 0.0
+    box_id: str | None = None
+
+    @property
+    def net(self) -> float:
+        """What the sale brought in before the item's own cost."""
+        return (
+            (self.sold_price or 0.0) + self.shipping_credit
+            - (self.fees or 0.0) - self.shipping_cost
+        )
 
     @property
     def profit(self) -> float:
         """Vendoo's net profit: sold price plus shipping paid, less the rest."""
-        return (
-            (self.sold_price or 0.0) + self.shipping_credit
-            - (self.cost or 0.0) - (self.fees or 0.0) - self.shipping_cost
-        )
+        return self.net - (self.cost or 0.0)
 
 
 def inventory_analytics(
@@ -83,6 +89,7 @@ def load_rows(db) -> list[AnalyticsItem]:
 
     from vendoo_studio.models.conversation import Conversation
     from vendoo_studio.models.listing import Listing, ListingRevision
+    from vendoo_studio.models.sourcing import SourceBox
     from vendoo_studio.services.sell_through import _days_between, _parse_moment
     from vendoo_studio.services.vendoo_import import VENDOO_MARKETPLACE_ALIASES, parse_notes
 
@@ -100,14 +107,23 @@ def load_rows(db) -> list[AnalyticsItem]:
             .all()
         )
     }
+    # An item with no cost of its own carries its share of the box it came from.
+    box_share = {
+        box_id: _money((price + shipping) / pieces)
+        for box_id, price, shipping, pieces in db.query(
+            SourceBox.id, SourceBox.price, SourceBox.shipping, SourceBox.pieces,
+        ).all()
+        if pieces
+    }
     rows: list[AnalyticsItem] = []
     conversations = db.query(
         Conversation.id,
         Conversation.title,
         Conversation.status,
         Conversation.notes,
+        Conversation.box_id,
     ).all()
-    for conv_id, title, status, notes_raw in conversations:
+    for conv_id, title, status, notes_raw, box_id in conversations:
         notes = parse_notes(notes_raw)
         price, cost, brand, category = facets.get(conv_id, (None, None, None, None))
         dates = notes.get("vendooDates") if isinstance(notes.get("vendooDates"), dict) else {}
@@ -118,12 +134,13 @@ def load_rows(db) -> list[AnalyticsItem]:
         sold_price = _amount(sale.get("price"))
         asking = _number(price)
         sale_cost = _amount(sale.get("cost"))
+        own_cost = sale_cost if sale_cost is not None else _amount(cost)
         rows.append(AnalyticsItem(
             conversation_id=conv_id,
             title=(str(title or "").strip() or "Untitled listing"),
             status=effective,
             price=asking,
-            cost=sale_cost if sale_cost is not None else _amount(cost),
+            cost=own_cost if own_cost is not None else box_share.get(box_id),
             brand=str(brand or "").strip(),
             category=_category_label(category),
             sold_price=sold_price,
@@ -134,6 +151,7 @@ def load_rows(db) -> list[AnalyticsItem]:
             fees=_amount(sale.get("fees")),
             shipping_cost=_amount(sale.get("shippingCost")) or 0.0,
             shipping_credit=_amount(sale.get("shippingCredit")) or 0.0,
+            box_id=box_id,
         ))
     return rows
 

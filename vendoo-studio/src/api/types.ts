@@ -8,6 +8,8 @@ export interface ConversationSummary {
   id: string;
   title: string | null;
   status: string;
+  /** The wholesale box this item came out of. */
+  box_id?: string | null;
   settled_at?: string | null;
   unsettled_at?: string | null;
   created_at: string;
@@ -572,4 +574,50 @@ export interface SourcingState {
   prefs: SourcingPrefs;
   trend: { terms: string[]; updated_at: string | null; source: string | null };
   snapshot: SourcingSnapshot | null;
+}
+
+/** What a bought box, or a store's boxes together, have returned so far. */
+export interface BoxTotals {
+  spent: number;
+  listings: number;
+  listed: number;
+  sold: number;
+  returned: number;
+  profit: number;
+  roi: number | null;
+  sell_through: number | null;
+  unsold_asking: number;
+  median_days: number | null;
+}
+
+export interface SourceBox extends BoxTotals {
+  id: string;
+  /** "raghouse", "tvf", or the name of any other store. */
+  store: string;
+  title: string;
+  url: string | null;
+  price: number;
+  shipping: number;
+  pieces: number | null;
+  bought_at: string | null;
+  cost_per_piece: number | null;
+}
+
+export interface SourceStoreResults extends BoxTotals {
+  store: string;
+  boxes: number;
+}
+
+export interface SourceBoxes {
+  boxes: SourceBox[];
+  stores: SourceStoreResults[];
+}
+
+export interface SourceBoxInput {
+  store: string;
+  title: string;
+  price: number;
+  shipping: number;
+  pieces: number | null;
+  url?: string | null;
 }

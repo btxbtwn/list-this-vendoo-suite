@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { SourcingCart, SourcingLot, SourcingPrefs, SourcingSnapshot, SourcingState } from "../api/types";
+import type { SourceBoxes, SourcingCart, SourcingLot, SourcingPrefs, SourcingSnapshot, SourcingState } from "../api/types";
 import { addToast } from "../ui/toast";
+import { BoughtBoxes } from "./BoughtBoxes";
+import { BOXES_QUERY_KEY, boxFromLot, recentlyBought } from "./boughtBoxes";
+import { DraftInput } from "./DraftInput";
 import { formatMoney } from "./analyticsFormat";
 import {
   REFRESH_HOURS,
@@ -91,6 +94,7 @@ export function SourcingPage({ onOpenProviders }: Props) {
             <p>Studio is reading both stores and looking up what their boxes resell for. This takes a few minutes.</p>
           </div>
         ) : null}
+        {data && !snapshot ? <BoughtBoxes /> : null}
 
         {data && snapshot ? (
           <>
@@ -101,6 +105,7 @@ export function SourcingPage({ onOpenProviders }: Props) {
               <BuyList data={data} snapshot={selectedSnapshot} choice={choice} updating={updating} onOpenProviders={onOpenProviders} />
               <MoreBoxes snapshot={selectedSnapshot} />
             </> : null}
+            <BoughtBoxes />
             <Trending trend={data.trend} />
             <HowItWorks snapshot={snapshot} />
           </>
@@ -303,7 +308,7 @@ function Cart({ cart, step, of, updating }: { cart: SourcingCart; step: number |
       </div>
       <ol className="sourcing-items">
         {cart.lots.map((lot) => (
-          <Item key={lot.variant_id} lot={lot} />
+          <Item key={lot.variant_id} lot={lot} storeName={cart.name} />
         ))}
       </ol>
       <dl className="sourcing-totals">
@@ -327,7 +332,23 @@ function Cart({ cart, step, of, updating }: { cart: SourcingCart; step: number |
   );
 }
 
-function Item({ lot }: { lot: SourcingLot }) {
+function Item({ lot, storeName }: { lot: SourcingLot; storeName: string }) {
+  const queryClient = useQueryClient();
+  const boxes = useQuery({ queryKey: BOXES_QUERY_KEY, queryFn: api.boxes.list });
+  const record = useMutation({
+    mutationFn: () => api.boxes.create(boxFromLot(lot)),
+    onSuccess: (data: SourceBoxes) => {
+      queryClient.setQueryData(BOXES_QUERY_KEY, data);
+      addToast({
+        type: "success",
+        title: "Added to your boxes",
+        description: `Correct the shipping under Boxes you bought once ${storeName} charges it.`,
+      });
+    },
+    onError: (error: Error) =>
+      addToast({ type: "error", title: "Could not record the box", description: error.message }),
+  });
+  const bought = recentlyBought(lot, boxes.data?.boxes ?? []);
   return (
     <li className="sourcing-item">
       <div className="sourcing-item-main">
@@ -352,6 +373,14 @@ function Item({ lot }: { lot: SourcingLot }) {
             {formatMoney(Math.abs(Math.round(lot.expected_profit)))} profit
           </div>
         ) : null}
+        <button
+          type="button"
+          className="sourcing-link sourcing-bought"
+          disabled={bought || record.isPending || !boxes.data}
+          onClick={() => record.mutate()}
+        >
+          {bought ? "Bought" : "I bought this"}
+        </button>
       </div>
     </li>
   );
@@ -448,63 +477,5 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
         <li>Studio never buys. The cart buttons only fill a cart for you to check and pay.</li>
       </ul>
     </details>
-  );
-}
-
-function DraftInput({
-  value,
-  label,
-  prefix,
-  width,
-  inputMode,
-  maxLength,
-  disabled,
-  clean,
-  accept,
-  onCommit,
-}: {
-  value: string;
-  label: string;
-  prefix?: string;
-  width: string;
-  inputMode: "numeric" | "decimal";
-  maxLength?: number;
-  disabled: boolean;
-  clean: (text: string) => string;
-  accept: (text: string) => boolean;
-  onCommit: (text: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  const [saved, setSaved] = useState(value);
-  if (saved !== value) {
-    // The saved value changed underneath the field, e.g. a recent ZIP was tapped.
-    setSaved(value);
-    setDraft(value);
-  }
-  const commit = () => {
-    const next = draft.trim();
-    if (next !== value && accept(next)) onCommit(next);
-    else setDraft(value);
-  };
-  return (
-    <span className="sourcing-input">
-      {prefix ? <span className="sourcing-input-prefix">{prefix}</span> : null}
-      <input
-        className="input input-sm"
-        style={{ width }}
-        type="text"
-        inputMode={inputMode}
-        maxLength={maxLength}
-        aria-label={label}
-        value={draft}
-        disabled={disabled}
-        onChange={(event) => setDraft(clean(event.target.value))}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-          if (event.key === "Escape") setDraft(value);
-        }}
-      />
-    </span>
   );
 }

@@ -6,10 +6,12 @@ import { joinLabels, splitLabels } from "./components/itemLabels";
 export interface BulkUploadDefaults {
   cog: string;
   labels: string;
+  /** The wholesale box these items came out of. */
+  boxId?: string;
 }
 
 interface BulkUploadApi {
-  create: (body: { title: string; notes?: string }) => Promise<{ id: string }>;
+  create: (body: { title: string; notes?: string; box_id?: string }) => Promise<{ id: string }>;
   uploadPhotos: (convId: string, files: File[]) => Promise<PhotoUploadResult>;
 }
 
@@ -41,6 +43,7 @@ export async function createBulkPhotoListings(
     const conv = await conversations.create({
       title: listingTitleForFolder(group.folder),
       ...(notes ? { notes } : {}),
+      ...(defaults.boxId ? { box_id: defaults.boxId } : {}),
     });
     const result = await conversations.uploadPhotos(conv.id, group.files);
     listings.push({
