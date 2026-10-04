@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { addLabel, removeLabel, splitLabels } from "./itemLabels";
 import { historyRows } from "./vendooHistory";
+import { BOXES_QUERY_KEY, boxStoreName } from "./boxPurchases";
 import { GARMENTS, type Garment, type Measurements } from "./garmentMeasurements";
 
 interface Props {
@@ -286,6 +287,19 @@ export function ItemDetails({ convId }: Props) {
     },
   });
 
+  const { data: boxData } = useQuery({ queryKey: BOXES_QUERY_KEY, queryFn: api.boxes.list });
+  const boxes = boxData?.boxes ?? [];
+  const box = boxes.find((row) => row.id === conv?.box_id);
+  const chooseBox = async (boxId: string) => {
+    try {
+      const updated = await api.conversations.update(convId, { box_id: boxId || null });
+      queryClient.setQueryData(["conversation", convId], updated);
+      void queryClient.invalidateQueries({ queryKey: BOXES_QUERY_KEY });
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Could not save the box");
+    }
+  };
+
   // Vendoo's own dates for the item: when it went live, sold, and was touched.
   const history = useMemo(() => historyRows(conv || {}), [conv]);
   const currentLabels = splitLabels(details.vendooLabels);
@@ -492,7 +506,12 @@ export function ItemDetails({ convId }: Props) {
         <div className="item-row item-row-3">
           <div className="item-field">
             <label className="label">COG ($)</label>
-            <input {...f("cog", "number")} step="0.01" placeholder="0.00" />
+            <input
+              {...f("cog", "number")}
+              step="0.01"
+              placeholder={box?.cost_per_piece != null ? box.cost_per_piece.toFixed(2) : "0.00"}
+              title={box?.cost_per_piece != null ? "Blank uses the box's cost per piece" : undefined}
+            />
           </div>
           <div className="item-field">
             <label className="label">Posh Orig ($)</label>
@@ -503,6 +522,24 @@ export function ItemDetails({ convId }: Props) {
             <input {...f("packageDimensions")} placeholder={defaultPackageDimensions} />
           </div>
         </div>
+        {boxes.length ? (
+          <div className="item-row">
+            <div className="item-field">
+              <label className="label" htmlFor={`item-box-${convId}`}>Box</label>
+              <select
+                id={`item-box-${convId}`}
+                className="input"
+                value={conv?.box_id || ""}
+                onChange={(event) => void chooseBox(event.target.value)}
+              >
+                <option value="">Not from a box</option>
+                {boxes.map((row) => (
+                  <option key={row.id} value={row.id}>{boxStoreName(row.store)} · {row.title}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="item-section" aria-labelledby="item-section-measurements">

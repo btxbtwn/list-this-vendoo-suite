@@ -50,6 +50,7 @@ def load_models() -> None:
     from vendoo_studio.models.diagnostics import DiagnosticRun, FieldObservation  # noqa: F401
     from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
     from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
+    from vendoo_studio.models.sourcing import SourceBox  # noqa: F401
     from vendoo_studio.models.catalog import (  # noqa: F401
         CategoryFieldSchema,
         CategoryNode,

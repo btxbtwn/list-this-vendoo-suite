@@ -24,6 +24,8 @@ class Conversation(Base):
     title = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     status = Column(String, default="draft")
+    # The wholesale box this item came out of, when the seller said so.
+    box_id = Column(String, ForeignKey("source_boxes.id", ondelete="SET NULL"), nullable=True, index=True)
     settled_at = Column(DateTime, nullable=True)
     unsettled_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)

@@ -276,8 +276,8 @@ FINALIZE_GAPS_PROMPT = (
     "TITLE and DESCRIPTION follow list-this skill formulas exactly:\n"
     "- Title order: Brand Size Vibe Item Color Fit (max 80 chars); the size shown is the size "
     "field verbatim, and men's bottoms size is the waist alone (34), never waist x inseam.\n"
-    "- Physical description: one short trendy vibe/style keyword sentence, then Flaws: and "
-    "Measurements: lines — with blank lines between blocks.\n"
+    "- Physical description: one short trendy vibe/style keyword sentence, then a Flaws: line "
+    "only when the item has flaws, then a Measurements: line — with blank lines between blocks.\n"
     "Preserve the current title and description unless a listed validation error is for title or "
     "description. Never replace a formula-compliant title/description with freeform marketing copy.\n"
     "Use exact marketplace dropdown values. Keep category_path and marketplace_categories unchanged.\n"
@@ -411,8 +411,28 @@ def strip_uncertainty_from_description(listing: dict) -> bool:
     return _strip_description_sentences(listing, _UNCERTAINTY_TERMS_RE)
 
 
+def strip_empty_flaws_from_description(listing: dict) -> bool:
+    """Drop a Flaws block that only says there are none; a flawless item has no Flaws line."""
+    from vendoo_studio.services.listing_carryover import says_no_flaws
+
+    if not isinstance(listing, dict):
+        return False
+    desc = str(listing.get("description") or "")
+    blocks = re.split(r"\n\s*\n", desc.strip())
+    kept = [
+        block
+        for block in blocks
+        if not re.match(r"(?i)\s*flaws?\s*:", block)
+        or not says_no_flaws(re.sub(r"(?i)^\s*flaws?\s*:", "", block))
+    ]
+    if len(kept) == len(blocks):
+        return False
+    listing["description"] = "\n\n".join(kept)
+    return True
+
+
 def ensure_physical_description(listing: dict) -> bool:
-    """Rewrite description into the trendy-keyword/Flaws/Measurements formula when markers are missing."""
+    """Rewrite description into the trendy-keyword/Measurements formula when markers are missing."""
     from vendoo_studio.models.validation import _description_follows_formula
     from vendoo_studio.models.etsy_fields import is_etsy_digital_listing
 
@@ -436,25 +456,16 @@ def ensure_physical_description(listing: dict) -> bool:
         if bits:
             meas = "; ".join(re.sub(r"\s+", " ", bit).strip() for bit in bits)
 
-    lower = desc.lower()
-    # Prefer appending missing required blocks so existing vibe prose stays intact.
-    if "\n" in desc and len(desc) >= 40:
-        additions: list[str] = []
-        if "flaws:" not in lower:
-            additions.append("Flaws: none noted. See photos for details.")
-        if "measurements:" not in lower:
-            additions.append(f"Measurements: {meas}")
-        if additions:
-            listing["description"] = desc.rstrip() + "\n\n" + "\n\n".join(additions)
-            return True
+    # Prefer appending the missing Measurements block so existing vibe prose stays intact.
+    if "\n" in desc and len(desc) >= 40 and "measurements:" not in desc.lower():
+        listing["description"] = f"{desc.rstrip()}\n\nMeasurements: {meas}"
+        return True
 
     title = str(listing.get("title") or "").strip()
     vibe = _first_sentence(desc, fallback=f"{title}." if title else "Resale-ready item.")
-    listing["description"] = (
-        f"{vibe}\n\n"
-        "Flaws: none noted. See photos for details.\n\n"
-        f"Measurements: {meas}"
-    )
+    flaws = re.search(r"(?im)^flaws?:.*$", desc)
+    blocks = [vibe, flaws.group(0).strip() if flaws else "", f"Measurements: {meas}"]
+    listing["description"] = "\n\n".join(block for block in blocks if block)
     return True
 
 
@@ -724,6 +735,8 @@ def apply_send_readiness_fixes(listing: dict) -> bool:
     if strip_pricing_from_description(listing):
         changed = True
     if strip_uncertainty_from_description(listing):
+        changed = True
+    if strip_empty_flaws_from_description(listing):
         changed = True
     if ensure_physical_description(listing):
         changed = True

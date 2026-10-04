@@ -17,10 +17,12 @@ _MARKER_LINE_RE = re.compile(r"(?m)^([A-Za-z][A-Za-z /]{1,20}):\s*\{")
 DEFAULT_TITLE_FORMULA = "{BRAND} {SIZE} {VIBE} {ITEM} {COLOR} {FIT}"
 DEFAULT_DESCRIPTION_FORMULA = (
     "{trendy vibe/style keyword sentence with period}\n\n"
-    "Flaws: {none noted or specific}. See photos for details.\n\n"
+    "Flaws: {specific flaws}. See photos for details.\n\n"
     "Measurements: {See photos OR specific measurements}"
 )
-DEFAULT_DESCRIPTION_MARKERS = ("flaws:", "measurements:")
+DEFAULT_DESCRIPTION_MARKERS = ("measurements:",)
+# A flawless item leaves its Flaws line out, so the marker is never required.
+OPTIONAL_DESCRIPTION_MARKERS = frozenset({"flaws:"})
 
 _FALLBACK_FORMULAS = f"""## Formula Reference (NON-NEGOTIABLE)
 
@@ -36,6 +38,7 @@ _FALLBACK_FORMULAS = f"""## Formula Reference (NON-NEGOTIABLE)
 ```
 {DEFAULT_DESCRIPTION_FORMULA}
 ```
+- Include the Flaws line only when the item has flaws; leave it out entirely when there are none.
 
 ### PRICING Formula
 ```
@@ -90,7 +93,8 @@ def description_formula_markers() -> tuple[str, ...]:
     stays in sync when the user edits the formula in Settings.
     """
     template = get_listing_formulas().get("description") or DEFAULT_DESCRIPTION_FORMULA
-    found = tuple(sorted({f"{m.group(1).strip().lower()}:" for m in _MARKER_LINE_RE.finditer(template)}))
+    labels = {f"{m.group(1).strip().lower()}:" for m in _MARKER_LINE_RE.finditer(template)}
+    found = tuple(sorted(labels - OPTIONAL_DESCRIPTION_MARKERS))
     return found or DEFAULT_DESCRIPTION_MARKERS
 
 

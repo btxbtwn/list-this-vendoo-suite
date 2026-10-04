@@ -293,6 +293,18 @@ def _zones(state: dict, cfg: dict, dest_zip: str, now: datetime, errors: dict[st
     return zones
 
 
+def _calibration() -> dict[str, dict]:
+    """How the seller's own sales from each store compare with the resale estimates."""
+    from vendoo_studio.database import SessionLocal
+    from vendoo_studio.services.boxes import resale_calibration
+
+    db = SessionLocal()
+    try:
+        return resale_calibration(db)
+    finally:
+        db.close()
+
+
 def refresh(*, recrawl: bool = True, research: bool = True) -> dict:
     """Crawl, research what is stale, rebuild the buy list and save it. Returns the snapshot.
 
@@ -316,7 +328,9 @@ def refresh(*, recrawl: bool = True, research: bool = True) -> dict:
                 state["trend"] = {"terms": terms, "updated_at": now.isoformat(), "source": source}
 
         filters = s.Filters(trend=tuple(state["trend"]["terms"]), include_vip=prefs["raghouse_vip"])
-        baselines, rows = s.score_lots(catalogs, cfg, zones, filters, _fresh_resale(state, now))
+        calibration = _calibration()
+        factors = {store: c["factor"] for store, c in calibration.items() if c["factor"] is not None}
+        baselines, rows = s.score_lots(catalogs, cfg, zones, filters, _fresh_resale(state, now), factors)
 
         if can_research:
             fresh = _fresh_resale(state, now)
@@ -329,7 +343,7 @@ def refresh(*, recrawl: bool = True, research: bool = True) -> dict:
                 prices, source = asyncio.run(_research_prices(batch, examples))
                 for name, entry in prices.items():
                     state["resale"][name] = {**entry, "updated_at": now.isoformat(), "source": source}
-            baselines, rows = s.score_lots(catalogs, cfg, zones, filters, _fresh_resale(state, now))
+            baselines, rows = s.score_lots(catalogs, cfg, zones, filters, _fresh_resale(state, now), factors)
 
         plan = s.buy_list(rows, cfg, budget=prefs["budget"], min_roi=prefs["min_roi"])
         store_plans = {
@@ -368,6 +382,7 @@ def refresh(*, recrawl: bool = True, research: bool = True) -> dict:
             "buy_list": plan,
             "store_buy_lists": store_plans,
             "lots": rows[:KEEP_LOTS],
+            "calibration": calibration,
         }
         _write_state(state)
         return state["snapshot"]

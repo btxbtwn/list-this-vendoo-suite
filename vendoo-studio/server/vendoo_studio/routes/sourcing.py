@@ -32,6 +32,8 @@ class SourcingLot(BaseModel):
     cog_per_pc: float
     cog_per_usable_pc: float
     resale_per_pc: float | None
+    # The seller's own sales from this store against the estimates; 1 until known.
+    resale_factor: float = 1.0
     sell_through: float
     expected_revenue: float | None
     expected_profit: float | None
@@ -77,6 +79,12 @@ class SourcingAssumptions(BaseModel):
     grade_yield: dict[str, float]
 
 
+class SourcingCalibration(BaseModel):
+    factor: float | None
+    sales: int
+    needed: int
+
+
 class SourcingSnapshot(BaseModel):
     updated_at: str
     destination_zip: str
@@ -88,6 +96,7 @@ class SourcingSnapshot(BaseModel):
     buy_list: SourcingBuyList
     store_buy_lists: dict[str, SourcingBuyList]
     lots: list[SourcingLot]
+    calibration: dict[str, SourcingCalibration] = {}
 
 
 class SourcingPrefs(BaseModel):

@@ -351,14 +351,18 @@ def score_lots(
     zones: dict[str, int],
     f: Filters,
     resale: dict[str, float] | None = None,
+    resale_factor: dict[str, float] | None = None,
 ):
     """Return {store: baseline sell-out rate} and every in-stock lot passing `f`, ranked.
 
     `catalogs` maps a store id to its raw products and `zones` each store to its
     shipping zone for the destination. `resale` maps a theme to the typical sold
     price of one piece; lots with a price get an expected profit and ROI.
+    `resale_factor` scales those prices per store, for a seller whose own sales
+    from that store's boxes run above or below the estimates.
     """
     resale = resale or {}
+    resale_factor = resale_factor or {}
     baselines: dict[str, float] = {}
     rows = []
     for store, products in catalogs.items():
@@ -390,7 +394,10 @@ def score_lots(
                 "demand": round(demand, 2),
                 "trend_hits": hits,
             }
-            rows.append(price_lot(row, ship, resale.get(lot["theme"])))
+            factor = resale_factor.get(store, 1.0)
+            per_piece = resale.get(lot["theme"])
+            row["resale_factor"] = factor
+            rows.append(price_lot(row, ship, round(per_piece * factor, 2) if per_piece else per_piece))
     for row in rows:
         boost = 1 + 0.25 * min(len(row["trend_hits"]), 2)
         if row["roi"] is not None:
