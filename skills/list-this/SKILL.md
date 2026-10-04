@@ -207,6 +207,7 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 | **Size** | Match tag or measurement-derived |
 | **Fit** | Slim, Regular, Relaxed, etc. |
 | **Material** | Cotton, Polyester, etc. |
+| **Outer Shell Material** | Required for jackets/coats; follow the best-guess rule in Formula Reference when shell composition is unverified. |
 | **Pattern** | Solid, Striped, Floral, Tie-Dye, etc. |
 | **Style** | Casual, Graphic Tee, etc. |
 | **Accents** | Visible features: Graphic Print, Logo, Embroidered, Distressed, etc. |
@@ -264,6 +265,9 @@ Measurements: {See photos OR specific measurements}
 - Keep the first line short and keyword-driven (vibe, decade/trend, fit, fabric) — not two separate sentences.
 - Do not add Size, a full condition write-up, shipping speed, or bundle/discount lines — those are covered by marketplace fields and marketplace-level promos already.
 - NEVER include pricing details in the description: no prices, dollar amounts, comps, sold-listing counts, market or resale value, MSRP, discounts, offers, or notes about pricing confidence. Pricing belongs in the price field only.
+
+### eBay Jackets and Coats: Required Outer Shell Material
+Fill `ebay_specifics.category_specifics["Outer Shell Material"]` for jackets/coats (use the live schema key if supplied). Prefer readable shell composition or seller notes; otherwise make the best guess from photos, texture, construction, and reliable exact-model research. Choose a supported eBay value; never blank or Does Not Apply. Estimate the shell, not lining/down fill; never invent percentages or claim leather over faux leather without evidence. Material/fabricType does not replace this field. Flag estimates in the description: "Outer shell estimated as polyester; tag not visible." Preserve description structure; do not copy estimates into Depop's tag-only Material. Never ask the seller.
 
 ### Etsy Digital Download Description Formula
 Use this override only when the Etsy listing is a digital product.
@@ -355,6 +359,7 @@ Before outputting ANY listing, verify:
 - [ ] **Main fields populated:** title, description, price, brand, condition, size, primaryColor, secondaryColor (if visible), quantity, weight_lb, weight_oz, package_dimensions_in
 - [ ] **Vendoo category is terminal:** use Vendoo General taxonomy (`Women > Women's Clothing > Tops` for women's shirts/T-shirts; `Men > Men's Clothing > Shirts > T-Shirts` for men's T-shirts), not marketplace-only aliases such as `Shirts & Blouses`
 - [ ] **eBay specifics populated (ALL required):** type, department, sizeType, size, brand, fit, material, pattern, style, accents, features, neckline, closure, countryOfOrigin, fabricType, garmentCare, handmade, personalize, vintage, occasion, season, theme, unitQuantity, unitType
+- [ ] **eBay jackets/coats:** Outer Shell Material populated separately from material/fabricType, with the best estimate when unverified; shell uncertainty documented in the description
 - [ ] **eBay specifics key names match extension fieldNameMap:** JSON keys like `features`, `neckline`, `season`, `unitQuantity`, `unitType` must use exactly these names (not aliases like `feature` or `qty`) so the Vendoo extension can find and fill the corresponding form fields
 - [ ] **Petite size normalized:** petite codes such as `PS` are mapped using exact platform-supported values instead of being flattened to plain small
 - [ ] **Depop specifics populated:** source, age, style, type, fit, material, occasion, and size_grouping when supportable
