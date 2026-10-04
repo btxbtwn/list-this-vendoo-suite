@@ -251,6 +251,48 @@ class CursorProviderTest(unittest.IsolatedAsyncioTestCase):
         fake_client.close.assert_called_once()
         self.assertTrue(closed.is_set())
 
+    async def test_run_that_ignores_cancel_still_times_out(self):
+        provider = CursorProvider(api_key="cursor_test")
+        release = threading.Event()
+
+        class WedgedRun:
+            id = "run-wedged"
+            cancel = MagicMock()
+
+            def wait(self):
+                # The SDK stays blocked after its answer even once cancelled and closed.
+                release.wait(5)
+                raise RuntimeError("released")
+
+        fake_agent = MagicMock()
+        fake_agent.send = MagicMock(return_value=WedgedRun())
+        fake_agent.__enter__ = MagicMock(return_value=fake_agent)
+        fake_agent.__exit__ = MagicMock(return_value=None)
+
+        fake_client = MagicMock()
+        fake_client.agents.create = MagicMock(return_value=fake_agent)
+        fake_client.__enter__ = MagicMock(return_value=fake_client)
+        fake_client.__exit__ = MagicMock(return_value=None)
+
+        try:
+            with (
+                patch("cursor_sdk.Client.launch_bridge", return_value=fake_client),
+                patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
+                patch("vendoo_studio.providers.cursor_agent.IDLE_TIMEOUT_SEC", 0.2),
+                patch("vendoo_studio.providers.cursor_agent.WORKER_EXIT_GRACE_SEC", 0.2),
+            ):
+                scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
+                with self.assertRaisesRegex(RuntimeError, "stopped responding"):
+                    await asyncio.wait_for(self._drain(provider), timeout=2)
+            WedgedRun.cancel.assert_called_once()
+            fake_client.close.assert_called_once()
+        finally:
+            release.set()
+
+    async def _drain(self, provider):
+        async for _chunk in provider.chat([{"role": "user", "content": "Hi"}], stream=False):
+            pass
+
     async def test_connection_lists_models(self):
         provider = CursorProvider(api_key="cursor_test")
 

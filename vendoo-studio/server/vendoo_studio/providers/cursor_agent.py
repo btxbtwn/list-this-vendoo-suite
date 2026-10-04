@@ -47,6 +47,10 @@ _STREAM_DONE = object()
 # A Cursor run that sends nothing for this long has stalled. The SDK waits on
 # it forever, and generation's field fill sat behind one with the listing busy.
 IDLE_TIMEOUT_SEC = 300.0
+# How long a stopped run's worker gets to exit. Cancel and close normally free it
+# at once, but a run that went quiet after its answer ignored both and held the
+# listing busy for good, so past this the worker is left behind instead.
+WORKER_EXIT_GRACE_SEC = 10.0
 
 
 def normalize_cursor_api_key(raw: str) -> str:
@@ -360,7 +364,9 @@ class CursorProvider:
         queue: asyncio.Queue[object] = asyncio.Queue()
 
         def _emit(item: object) -> None:
-            loop.call_soon_threadsafe(queue.put_nowait, item)
+            # A worker left behind may outlive the loop it reports to.
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(queue.put_nowait, item)
 
         handles: dict[str, object] = {}
 
@@ -449,7 +455,17 @@ class CursorProvider:
                 if client is not None:
                     client.close()
 
-        worker_task = asyncio.create_task(asyncio.to_thread(_worker))
+        worker_done = threading.Event()
+
+        def _worker_thread() -> None:
+            try:
+                _worker()
+            finally:
+                worker_done.set()
+
+        # A daemon thread, not the shared executor: a worker the SDK never frees
+        # must not take an executor slot or hold up quitting the app.
+        threading.Thread(target=_worker_thread, name="cursor-run", daemon=True).start()
         finished = False
         try:
             while True:
@@ -472,8 +488,9 @@ class CursorProvider:
                 yield item  # type: ignore[misc]
         finally:
             if not finished:
-                await asyncio.shield(asyncio.to_thread(_abort))
-            await asyncio.shield(worker_task)
+                threading.Thread(target=_abort, name="cursor-abort", daemon=True).start()
+            if not await asyncio.to_thread(worker_done.wait, WORKER_EXIT_GRACE_SEC):
+                log.warning("Cursor run did not stop after %.0fs; leaving its worker behind", WORKER_EXIT_GRACE_SEC)
 
     def _parse_json_response(self, content: str) -> dict:
         try:
