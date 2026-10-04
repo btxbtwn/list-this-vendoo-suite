@@ -49,7 +49,7 @@ def resolved_chatgpt_reasoning() -> str:
 
 def supported_reasoning_efforts(model: str) -> tuple[str, ...]:
     slug = (model or "").strip().lower().rsplit("/", 1)[-1]
-    if "astra" in slug:
+    if "astra" in slug or slug.startswith("gpt-6.1-sol"):
         return ("low", "medium", "high", "xhigh", "max")
     if "gpt-5.6" in slug:
         return ("none", "low", "medium", "high", "xhigh", "max")
@@ -513,7 +513,7 @@ class ChatGPTCodexProvider:
                         yield StreamChunk(text, "content")
 
     async def quick_chat(self, messages: list[dict]):
-        """Mechanical rewrites (JSON repair) need no reasoning budget."""
+        """Use the model's lowest supported effort for mechanical JSON repair."""
         text = ""
         async for chunk in self._stream(messages, self.listing_model, reasoning_effort="none"):
             kind, piece = unpack_stream_item(chunk)
