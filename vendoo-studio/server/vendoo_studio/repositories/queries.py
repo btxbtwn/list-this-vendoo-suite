@@ -299,6 +299,8 @@ class ConversationRepo:
         sold); a send in flight reads ``listing`` and a send that broke reads
         ``failed``.
         """
+        from vendoo_studio.services import activity
+        from vendoo_studio.services.streaming import active_generation
         from vendoo_studio.services.vendoo_import import parse_notes
 
         busy_map = {
@@ -309,13 +311,20 @@ class ConversationRepo:
         latest_jobs = self._latest_jobs()
         changed = False
         for conv in self.db.query(Conversation).all():
-            if conv.status == "in_progress":
+            if conv.status == "in_progress" and (
+                active_generation(conv.id) is not None or activity.running(conv.id)
+            ):
                 if _sync_settlement(conv, conv.status):
                     changed = True
                 continue
             vendoo_status = str(parse_notes(conv.notes).get("vendooStatus") or "")
             if vendoo_status not in VENDOO_LISTING_STATUSES:
                 vendoo_status = "draft"
+            if conv.status == "in_progress":
+                # Nothing is generating: a stopped chat, a dropped stream or a
+                # quit mid-run left the label behind, and it blocks Send.
+                conv.status = vendoo_status
+                changed = True
             latest_job = latest_jobs.get(conv.id)
             if latest_job:
                 job_status, job_updated_at = latest_job
