@@ -1093,7 +1093,7 @@
 .listing-blockers {
   display: grid;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-top: 12px;
   font-size: var(--text-xs);
 }
 

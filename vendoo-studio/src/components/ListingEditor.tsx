@@ -1296,7 +1296,6 @@ function SendToVendooButton({
 
   return (
     <div>
-      {!generating && <ListingBlockers issues={uniqueBlockers} onSelect={onSelectBlocker} />}
       <button
         type="button"
         className={`${bound ? "btn btn-primary" : "btn btn-success"}${sendMutation.isPending ? " is-busy" : ""}`}
@@ -1322,6 +1321,8 @@ function SendToVendooButton({
         <SendProgress label={bound ? "Writing marketplace forms to Vendoo…" : "Starting the send…"} />
       )}
       {errorCard}
+      {/* Collapsed and below the error card, so opening a group never pushes Fix errors / Ask chat out of view. */}
+      {!generating && <ListingBlockers issues={uniqueBlockers} onSelect={onSelectBlocker} />}
       {reviewOpen && <SendReview preview={previewMutation.data} loading={previewMutation.isPending}
         error={previewMutation.error?.message || error} busy={sendMutation.isPending}
         onClose={() => { setReviewOpen(false); setError(null); }}
