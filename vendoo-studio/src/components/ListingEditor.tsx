@@ -28,6 +28,7 @@ import {
   ETSY_CATEGORY_OPTIONALS,
 } from "../marketplaceFields";
 import { withDropdownOptions } from "../dropdownOptions";
+import { activityPollMs, EXTENSION_STATUS_POLL_MS, fillLogPollMs, jobsPollMs, pollMs } from "../api/polling";
 import { addToast } from "../ui/toast";
 import { useChatBusy } from "./ChatPanel";
 import { fetchVendooItemLive, VENDOO_ITEM_STALE_MS, vendooItemQueryKey } from "../api/vendooItemQuery";
@@ -92,11 +93,14 @@ export function ListingEditor({
   const editorRef = React.useRef<HTMLDivElement>(null);
   const showJsonEditor = React.useCallback(() => setEditTab("json"), []);
 
-  const { data: jobs, isLoading: jobsLoading, isFetching: jobsFetching } = useQuery({
+  // isFetching is read only where Retry renders: destructuring it here would
+  // re-render the whole editor twice on every jobs poll.
+  const jobsQuery = useQuery({
     queryKey: ["jobs", convId],
     queryFn: () => api.jobs.list(convId),
-    refetchInterval: 2000,
+    refetchInterval: (query) => jobsPollMs(query.state.data),
   });
+  const { data: jobs, isLoading: jobsLoading } = jobsQuery;
   const { data: photos, isLoading: photosLoading } = useQuery({
     queryKey: ["photos", convId],
     queryFn: () => api.conversations.photos(convId),
@@ -246,7 +250,7 @@ export function ListingEditor({
   const { data: activity } = useQuery({
     queryKey: ["activity", convId],
     queryFn: () => api.conversations.activity(convId),
-    refetchInterval: (query) => (query.state.data?.busy ? 1000 : 2000),
+    refetchInterval: (query) => activityPollMs(Boolean(query.state.data?.busy)),
   });
   const generating = chatBusy || Boolean(activity?.busy) || schemaProbeActive;
   const askChat = generating ? undefined : onAskChat;
@@ -439,7 +443,7 @@ export function ListingEditor({
                   type="button"
                   className="btn btn-secondary btn-sm"
                   style={{ marginTop: 12 }}
-                  disabled={jobsFetching || ensureDraftMutation.isPending}
+                  disabled={jobsQuery.isFetching || ensureDraftMutation.isPending}
                   onClick={() => {
                     setEnsureError(null);
                     ensureAttemptKey.current = null;
@@ -447,7 +451,7 @@ export function ListingEditor({
                     ensureDraftMutation.mutate();
                   }}
                 >
-                  {ensureDraftMutation.isPending || jobsFetching ? "Retrying…" : "Retry"}
+                  {ensureDraftMutation.isPending || jobsQuery.isFetching ? "Retrying…" : "Retry"}
                 </button>
               )}
             </div>
@@ -999,13 +1003,13 @@ function SendToVendooButton({
   const { data: extStatus } = useQuery({
     queryKey: ["extension-status"],
     queryFn: api.extension.status,
-    refetchInterval: 5000,
+    refetchInterval: () => pollMs(EXTENSION_STATUS_POLL_MS),
   });
 
   const { data: jobs } = useQuery({
     queryKey: ["jobs", convId],
     queryFn: () => api.jobs.list(convId),
-    refetchInterval: 2000,
+    refetchInterval: (query) => jobsPollMs(query.state.data),
   });
 
   const listingJob = jobs?.find((j) => j.conversation_id === convId && j.status !== "cancelled");
@@ -1025,7 +1029,7 @@ function SendToVendooButton({
     queryKey: ["fill-log", listingJobId],
     queryFn: () => api.jobs.fillLog(listingJobId!),
     enabled: Boolean(listingJobId),
-    refetchInterval: 2000,
+    refetchInterval: () => fillLogPollMs(listingJob?.status),
   });
   const { data: hiddenData } = useQuery({
     queryKey: ["settings-hidden-fields", convId],

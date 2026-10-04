@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../api/client";
+import { jobsPollMs } from "../api/polling";
 import { RegenerateListingButton, useClearListing } from "./ClearListingButton";
 import { OpenListingButton } from "./OpenListingButton";
 
@@ -76,7 +77,7 @@ function useListingJob(convId: string) {
   const { data: jobs } = useQuery({
     queryKey: ["jobs", convId],
     queryFn: () => api.jobs.list(convId),
-    refetchInterval: 2000,
+    refetchInterval: (query) => jobsPollMs(query.state.data),
   });
   const { data: conversation } = useQuery({
     queryKey: ["conversation", convId],

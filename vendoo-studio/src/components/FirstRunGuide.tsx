@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { BUSY_POLL_MS, IDLE_POLL_MS, pollMs } from "../api/polling";
 import { dismissSetupGuide } from "../onboarding";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
@@ -48,7 +49,8 @@ export function FirstRunGuide({
   const { data: provider } = useQuery({
     queryKey: ["settings-provider"],
     queryFn: api.settings.provider,
-    refetchInterval: 2000,
+    // Fast only while a ChatGPT sign-in waits on the browser; key saves invalidate it.
+    refetchInterval: (query) => pollMs(query.state.data?.chatgpt?.pending ? BUSY_POLL_MS : IDLE_POLL_MS),
   });
   const { data: brave } = useQuery({
     queryKey: ["settings-brave"],

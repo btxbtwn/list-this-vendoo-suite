@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { IDLE_POLL_MS, pollMs } from "../api/polling";
 import type { Suggestion, SuggestionKind } from "../api/types";
 
 export const SUGGESTION_KIND_LABELS: Record<SuggestionKind, string> = {
@@ -52,7 +53,7 @@ export function SuggestionsPanel({
   const { data, isFetched } = useQuery({
     queryKey: ["suggestions"],
     queryFn: api.suggestions.list,
-    refetchInterval: 2000,
+    refetchInterval: () => pollMs(IDLE_POLL_MS),
   });
   const suggestions = data?.suggestions || [];
   const [expanded, setExpanded] = useState(true);

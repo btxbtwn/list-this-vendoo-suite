@@ -1,6 +1,7 @@
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { pollMs } from "../api/polling";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -35,7 +36,7 @@ export function VendooSyncStatus({ convId, bound }: { convId: string; bound: boo
     queryKey: ["vendoo-sync", convId],
     queryFn: () => api.vendooApi.syncStatus(convId),
     enabled: bound,
-    refetchInterval: 5000,
+    refetchInterval: () => pollMs(5000),
   });
 
   const refreshListing = React.useCallback(() => {

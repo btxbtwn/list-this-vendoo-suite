@@ -2,6 +2,7 @@ import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { FillLogReport } from "../api/types";
+import { EXTENSION_STATUS_POLL_MS, fillLogPollMs, pollMs } from "../api/polling";
 import {
   VENDOO_ITEM_STALE_MS,
   vendooItemQueryKey,
@@ -106,11 +107,11 @@ export function FillLogPanel({
   onJobStarted?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const report = useFillLog(jobId);
+  const report = useFillLog(jobId, jobStatus);
   const { data: extStatus } = useQuery({
     queryKey: ["extension-status"],
     queryFn: api.extension.status,
-    refetchInterval: 5000,
+    refetchInterval: () => pollMs(EXTENSION_STATUS_POLL_MS),
   });
   const { data: marketplaceSettings } = useQuery({
     queryKey: ["settings-marketplaces"],
@@ -600,12 +601,12 @@ export function FillLogPanel({
   );
 }
 
-function useFillLog(jobId: string): FillLogReport | undefined {
+function useFillLog(jobId: string, jobStatus: string | undefined): FillLogReport | undefined {
   const { data } = useQuery({
     queryKey: ["fill-log", jobId],
     queryFn: () => api.jobs.fillLog(jobId),
     enabled: Boolean(jobId),
-    refetchInterval: 2000,
+    refetchInterval: () => fillLogPollMs(jobStatus),
   });
   return data;
 }

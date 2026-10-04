@@ -51,6 +51,29 @@ class ChromeBridgeTest(unittest.TestCase):
         self.assertTrue(stamp.is_file())
         self.assertIn(chrome_bridge.expected_extension_build() or "", stamp.read_text(encoding="utf-8"))
 
+    def test_fingerprint_rehashes_only_when_files_change(self):
+        first = chrome_bridge.extension_fingerprint(self.extension)
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("rehashed")):
+            self.assertEqual(chrome_bridge.extension_fingerprint(self.extension), first)
+        (self.extension / "background.js").write_text("console.log('changed')\n", encoding="utf-8")
+        self.assertNotEqual(chrome_bridge.extension_fingerprint(self.extension), first)
+
+    def test_fingerprint_never_walks_skipped_directories(self):
+        (self.extension / "node_modules" / "pkg").mkdir(parents=True)
+        (self.extension / "node_modules" / "pkg" / "index.js").write_text("x\n", encoding="utf-8")
+        walked: list[str] = []
+        real_walk = os.walk
+
+        def spy(top, *args, **kwargs):
+            for entry in real_walk(top, *args, **kwargs):
+                walked.append(entry[0])
+                yield entry
+
+        with patch.object(chrome_bridge.os, "walk", spy):
+            files = chrome_bridge._iter_extension_files(self.extension)
+        self.assertEqual([path.name for path in files], ["background.js", "manifest.json"])
+        self.assertFalse(any("node_modules" in directory for directory in walked))
+
     def test_install_is_idempotent_until_source_changes(self):
         self.assertTrue(chrome_bridge.install_bundled_extension())
         self.assertFalse(chrome_bridge.install_bundled_extension())
