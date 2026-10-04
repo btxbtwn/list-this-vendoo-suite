@@ -189,3 +189,46 @@ class CategoryRankingTest(unittest.TestCase):
             )
 
         self.assertEqual([row["path"] for row in choices["ebay"]], [right_path])
+
+    def test_boys_pants_find_poshmarks_unisex_kids_bottoms(self):
+        """Poshmark has no Boys or Pants leaf for kids, only Kids > Bottoms.
+
+        The only word matches were adult Pants leaves, which the department
+        filter rightly drops, and generation stopped with no candidates.
+        """
+        from vendoo_studio.services.category_selection import _collect_choices
+
+        paths = [
+            "Kids",
+            "Kids > Accessories > Belts",
+            "Kids > Bottoms > Casual",
+            "Kids > Bottoms > Jeans",
+            "Men > Pants > Chinos & Khakis",
+            "Women > Pants & Jumpsuits > Trousers",
+        ]
+        for path in paths:
+            self.db.add(CategoryTreeNode(
+                marketplace="poshmark", category_id=path, parent_id="", path=path,
+                label=path.rsplit(">", 1)[-1].strip(),
+                is_leaf=path != "Kids", has_children=path == "Kids",
+            ))
+        self.db.commit()
+
+        with patch(
+            "vendoo_studio.services.category_selection.search_catalog",
+            return_value=[
+                {"id": "Men > Pants > Chinos & Khakis", "path": "Men > Pants > Chinos & Khakis"},
+            ],
+        ):
+            choices, _nodes = _collect_choices(
+                self.db,
+                ["poshmark"],
+                "boys Pants Boys'",
+                {},
+                "",
+                analysis="- category: Boys' Pants\n- size: 14",
+            )
+
+        found = [row["path"] for row in choices["poshmark"]]
+        self.assertIn("Kids > Bottoms > Casual", found)
+        self.assertTrue(all(path.startswith("Kids >") for path in found))

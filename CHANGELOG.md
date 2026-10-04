@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.146 — 2026-10-04
+
+- Boys' and girls' pants no longer stop generation with "Could not find verified poshmark category candidates". Poshmark files kids' pants under Kids → Bottoms, and Studio now looks there.
+
 ## 0.1.145 — 2026-10-01
 
 - Sending or updating a Vendoo draft verifies its saved fields directly, avoiding false Depop quantity and location errors.

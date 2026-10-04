@@ -228,8 +228,18 @@ def _leaf_query_under(db, marketplace: str, path_prefix: str, *, limit: int | No
     return query.limit(limit).all() if limit else query.all()
 
 
+# Garments some trees only name by their group: Poshmark files kids' pants
+# under "Kids > Bottoms > Casual" and has no "Pants" leaf to match.
+_GROUP_WORDS = {
+    "pants": "bottoms", "pant": "bottoms", "trousers": "bottoms", "chinos": "bottoms",
+    "khakis": "bottoms", "slacks": "bottoms",
+}
+
+
 def _query_tokens(query: str) -> list[str]:
-    return [token for token in re.findall(r"[a-z0-9']+", (query or "").casefold()) if len(token) > 2]
+    tokens = [token for token in re.findall(r"[a-z0-9']+", (query or "").casefold()) if len(token) > 2]
+    groups = [_GROUP_WORDS[token] for token in tokens if token in _GROUP_WORDS]
+    return tokens + [group for group in groups if group not in tokens]
 
 
 _SIBILANT_ES = ("ses", "xes", "zes", "ches", "shes")
@@ -323,6 +333,12 @@ def _leaf_query_under_matching(db, marketplace: str, path_prefix: str, tokens: l
     return query.order_by(CategoryTreeNode.path).limit(MAX_RANKED_ROWS).all()
 
 
+def _has_kids_root(db, marketplace: str) -> bool:
+    return db.query(
+        db.query(CategoryTreeNode).filter_by(marketplace=marketplace, path="Kids").exists()
+    ).scalar()
+
+
 def _collect_choices(
     db,
     marketplaces: list[str],
@@ -394,9 +410,16 @@ def _collect_choices(
             _take(node)
 
         # Seeds + filtered search can be empty when the index only returned
-        # hardware collisions; fall back to word-ranked clothing leaves.
-        if not ordered:
-            for node in _leaves_matching_query(db, marketplace, query, prefix):
+        # hardware collisions, or when a boys'/girls' item met a unisex Kids
+        # tree whose only word matches are adult leaves; fall back to
+        # word-ranked clothing leaves, inside Kids first for a kids' item.
+        scopes = [prefix]
+        if not prefix and department in {"boys", "girls"} and _has_kids_root(db, marketplace):
+            scopes.insert(0, "Kids")
+        for scope in scopes:
+            if ordered:
+                break
+            for node in _leaves_matching_query(db, marketplace, query, scope):
                 if not _usable_search_node(
                     node, apparel=apparel, women_tops=women_tops, context=context,
                     department=department,
