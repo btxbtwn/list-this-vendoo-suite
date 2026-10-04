@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./app/App";
 import { applyTheme } from "./theme";
 import "./styles/app.css";
@@ -16,6 +16,18 @@ function markDesktopApp() {
 }
 
 markDesktopApp();
+
+// Polls slow down while Studio sits behind another window (see pollMs), and the
+// desktop webview never reports itself hidden, so also refetch on window focus.
+focusManager.setEventListener((onFocus) => {
+  const listener = () => onFocus();
+  window.addEventListener("visibilitychange", listener, false);
+  window.addEventListener("focus", listener, false);
+  return () => {
+    window.removeEventListener("visibilitychange", listener);
+    window.removeEventListener("focus", listener);
+  };
+});
 
 const queryClient = new QueryClient({
   defaultOptions: {

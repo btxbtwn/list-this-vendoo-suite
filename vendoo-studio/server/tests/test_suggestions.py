@@ -86,19 +86,41 @@ class SuggestionsTest(unittest.TestCase):
         self.db.commit()
         self.assertEqual(self._by_title("Broken active")["kind"], "fix_validation")
 
-    def test_fixed_listing_drops_stale_validation_flag(self):
+    def test_later_revision_drops_stale_validation_flag(self):
         conv = self.convs.create(title="Fixed draft")
         self.listings.save_revision(conv.id, {"title": "Fixed draft", "price": 18}, "user_form")
         listing = self.listings.get_current(conv.id)
         listing.validation_status = "error"
         self.db.commit()
         with patch(
-            "vendoo_studio.services.suggestions.validate_listing",
+            "vendoo_studio.models.validation.validate_listing",
             return_value=ValidationResult(valid=True),
         ):
-            card = self._by_title("Fixed draft")
-        self.assertEqual(card["kind"], "ready_to_review")
+            self.listings.save_revision(conv.id, {"title": "Fixed draft", "price": 19}, "chat")
         self.assertEqual(self.listings.get_current(conv.id).validation_status, "valid")
+        self.assertEqual(self._by_title("Fixed draft")["kind"], "ready_to_review")
+
+    def test_adding_a_photo_rechecks_validation_flag(self):
+        conv = self.convs.create(title="Needs photos")
+        self.listings.save_revision(conv.id, {"title": "Needs photos", "price": 18}, "user_form")
+        listing = self.listings.get_current(conv.id)
+        listing.validation_status = "error"
+        self.db.commit()
+        with patch(
+            "vendoo_studio.models.validation.validate_listing",
+            return_value=ValidationResult(valid=True),
+        ) as validate:
+            self.convs.add_photo(conv.id, "a.jpg", "a.jpg", "image/jpeg", 12)
+        self.assertEqual(validate.call_args.args[1], 1)
+        self.assertEqual(self.listings.get_current(conv.id).validation_status, "valid")
+
+    def test_listing_suggestions_never_writes(self):
+        conv = self.convs.create(title="Flagged")
+        self.listings.save_revision(conv.id, {"title": "Flagged", "price": 18}, "user_form")
+        self.listings.get_current(conv.id).validation_status = "error"
+        self.db.commit()
+        with patch.object(self.db, "commit", side_effect=AssertionError("suggestions wrote")):
+            self.assertEqual(self._by_title("Flagged")["kind"], "fix_validation")
 
     def test_stale_starts_at_thirty_days_and_older_ranks_first(self):
         thirty = self.convs.create(title="Thirty")

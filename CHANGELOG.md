@@ -6,9 +6,13 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.163 — 2026-10-04
+## 0.1.164 — 2026-10-04
 
 - Reach Fix errors and Ask chat for fields without scrolling through individual fields; expand error and marketplace field details only when you need them.
+
+## 0.1.163 — 2026-10-04
+
+- Studio uses much less CPU while it sits open. It only checks for updates every second or two while something is running (a send, a generation, a ChatGPT sign-in), slows down while it's behind another window, and catches up the moment you switch back.
 
 ## 0.1.162 — 2026-10-04
 

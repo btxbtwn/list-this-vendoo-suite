@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { EXTENSION_STATUS_POLL_MS, pollMs } from "../api/polling";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 
 export function ExtensionStatus() {
   const { data } = useQuery({
     queryKey: ["extension-status"],
     queryFn: api.extension.status,
-    // Poll faster while offline so Connect Chrome status flips promptly.
-    refetchInterval: (query) => (query.state.data?.connected ? 5000 : 1500),
+    // Connect Chrome polls on its own while it waits for the pairing.
+    refetchInterval: () => pollMs(EXTENSION_STATUS_POLL_MS),
   });
 
   const connected = Boolean(data?.connected);

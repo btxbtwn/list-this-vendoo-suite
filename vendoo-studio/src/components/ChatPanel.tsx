@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { BrowserField } from "../api/client";
+import { activityPollMs, BUSY_POLL_MS, LIVE_POLL_MS, pollMs } from "../api/polling";
 import type { ConversationActivity, Job, Message } from "../api/types";
 import { ChatMarkdown } from "./ChatMarkdown";
 import {
@@ -776,7 +777,8 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const { data: activity } = useQuery({
     queryKey: ["activity", convId],
     queryFn: () => api.conversations.activity(convId),
-    refetchInterval: (query) => (getLive(convId).streaming || getLive(convId).generating || query.state.data?.busy ? 1000 : 2000),
+    refetchInterval: (query) =>
+      activityPollMs(getLive(convId).streaming || getLive(convId).generating || Boolean(query.state.data?.busy)),
   });
   const serverBusy = Boolean(activity?.busy);
   const busy = streaming || generating || serverBusy || resetting;
@@ -784,7 +786,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const { data: messages, isLoading } = useQuery({
     queryKey: ["messages", convId],
     queryFn: () => api.conversations.messages(convId),
-    refetchInterval: busy ? 1000 : false,
+    refetchInterval: busy ? () => pollMs(LIVE_POLL_MS) : false,
   });
 
   const { data: photos } = useQuery({
@@ -795,13 +797,13 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
   const { data: listing } = useQuery({
     queryKey: ["listing", convId],
     queryFn: () => api.listings.get(convId),
-    refetchInterval: busy ? 2000 : false,
+    refetchInterval: busy ? () => pollMs(BUSY_POLL_MS) : false,
   });
 
   const { data: jobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: () => api.jobs.list(),
-    refetchInterval: busy ? 2000 : false,
+    refetchInterval: busy ? () => pollMs(BUSY_POLL_MS) : false,
   });
 
   // Anything posted in the background shows up as soon as activity notices it.

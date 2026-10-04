@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { IDLE_POLL_MS, pollMs } from "../api/polling";
 import { ProviderLogo, resolveProviderLogoId } from "./ProviderLogo";
 
 export function providerStatusModelLabel(
@@ -14,7 +15,7 @@ export function ProviderStatus() {
   const { data } = useQuery({
     queryKey: ["settings-provider"],
     queryFn: api.settings.provider,
-    refetchInterval: 10000,
+    refetchInterval: () => pollMs(IDLE_POLL_MS),
   });
 
   const connected = Boolean(data?.configured);

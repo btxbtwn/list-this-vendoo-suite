@@ -7,7 +7,6 @@ and uses the existing Generate / editor / price-drop controls.
 
 from __future__ import annotations
 
-import copy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -15,8 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Photo
-from vendoo_studio.models.listing import Listing, ListingRevision
-from vendoo_studio.models.validation import validate_listing
+from vendoo_studio.models.listing import Listing
 from vendoo_studio.repositories.queries import BUSY_LISTING_STATUSES, ConversationRepo
 from vendoo_studio.services.vendoo_import import parse_notes
 
@@ -67,10 +65,9 @@ def list_suggestions(
         when = when.replace(tzinfo=UTC)
 
     repo = ConversationRepo(db)
-    repo.reconcile_job_statuses()
     covers = repo.cover_photo_ids()
     photo_counts = _photo_counts(db)
-    listings = _listing_state(db, photo_counts)
+    listings = _listing_state(db)
 
     cards: list[dict[str, Any]] = []
     for conv in repo.list_all():
@@ -103,33 +100,12 @@ def _photo_counts(db: Session) -> dict[str, int]:
     return {conv_id: int(count) for conv_id, count in rows}
 
 
-def _listing_state(db: Session, photo_counts: dict[str, int]) -> dict[str, dict[str, Any]]:
-    rows = db.query(Listing).all()
-    for listing in rows:
-        if listing.validation_status == "error":
-            _revalidate(db, listing, photo_counts.get(listing.conversation_id, 0))
-    db.commit()
+def _listing_state(db: Session) -> dict[str, dict[str, Any]]:
+    rows = db.query(Listing.conversation_id, Listing.current_revision_id, Listing.validation_status).all()
     return {
-        listing.conversation_id: {
-            "revision_id": listing.current_revision_id,
-            "validation_status": listing.validation_status,
-        }
-        for listing in rows
+        conv_id: {"revision_id": revision_id, "validation_status": validation_status}
+        for conv_id, revision_id, validation_status in rows
     }
-
-
-def _revalidate(db: Session, listing: Listing, photo_count: int) -> None:
-    """Re-check a flagged listing against its current revision.
-
-    The flag is written when the seller saves the form, but chat, repair,
-    regeneration and Vendoo sync write later revisions without touching it,
-    so a listing fixed any other way would stay flagged forever.
-    """
-    revision = db.get(ListingRevision, listing.current_revision_id) if listing.current_revision_id else None
-    data = copy.deepcopy(revision.listing_json) if revision and isinstance(revision.listing_json, dict) else {}
-    validation = validate_listing(data, photo_count, require_photos=True)
-    listing.validation_status = "valid" if validation.valid else "error"
-    listing.validation_errors = validation.errors + validation.warnings
 
 
 def _card_for(
