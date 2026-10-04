@@ -1,0 +1,38 @@
+.open-listing-tabs {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-ink);
+}
+.open-listing-tablist { display: flex; flex: 1; min-width: 0; overflow-x: auto; }
+.open-listing-tab {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  max-width: 240px;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+}
+.open-listing-tab.selected { background: var(--color-paper); border-bottom-color: var(--color-cobalt); color: var(--color-text); }
+.open-listing-tab-title, .open-listing-tab-close, .open-listing-tab-new { border: 0; background: transparent; color: inherit; cursor: pointer; }
+.open-listing-tab-title {
+  min-width: 0;
+  padding: 10px 8px 10px 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  text-align: left;
+}
+.open-listing-tab-close, .open-listing-tab-new { flex-shrink: 0; width: 32px; height: 32px; font-size: 20px; }
+.open-listing-tab-new { align-self: center; color: var(--color-text-muted); }
+.open-listing-tab-close:hover, .open-listing-tab-new:hover { background: var(--color-ink-hover); color: var(--color-text); }
+.open-listing-tabs button:focus-visible { outline: 2px solid var(--color-cobalt); outline-offset: -2px; }
+.detail-panel > .listing-session { height: 100%; }
+.listing-session[hidden], .listing-workspace[hidden], .detail-panel[hidden] { display: none; }
+@media (max-width: 900px) {
+  .open-listing-tab { max-width: 180px; }
+  .open-listing-tab-close { width: 36px; height: 36px; }
+}
