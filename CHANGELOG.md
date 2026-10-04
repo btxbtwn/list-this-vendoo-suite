@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.158 — 2026-10-04
+
+- Update Vendoo now says "Reading the Vendoo draft…" while it reads the draft, instead of "Resolving marketplace categories…" for the whole wait.
+- A Vendoo sync and an Update Vendoo on the same listing no longer run at the same time. The update waits for a sync that's already reading the draft, and no new sync starts until the update finishes.
+
 ## 0.1.157 — 2026-10-04
 
 - Regenerate now keeps your measurements and flaws in the new description. Measurements written one per line all come over, not just the first, and the new description always shows your flaws and exact measurements instead of "See photos" or "none noted".
