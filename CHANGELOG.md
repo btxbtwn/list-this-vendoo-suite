@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.150 — 2026-10-04
+
+- A listing no longer stays stuck generating forever when Cursor goes quiet after writing it. After five minutes of silence you now see a Retry message instead of an endless "thinking".
+
 ## 0.1.149 — 2026-10-04
 
 - Start a new listing with the + at the end of your open listing tabs. The extra New listing button in the sidebar is gone.
