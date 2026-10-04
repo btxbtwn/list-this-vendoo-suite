@@ -145,6 +145,16 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     normalize_listing_dropdowns(body.listing)
     validation = validate_listing(body.listing, photo_count, require_photos=True)
 
+    # Generation pins the SKU in Item Details over the model's, so a SKU the
+    # seller edits here goes there too, or Regenerate would bring the old one back.
+    revisions = listing_repo.get_revisions(conv_id)
+    previous_sku = str((revisions[0].listing_json if revisions else {}).get("sku") or "").strip()
+    sku = str(body.listing.get("sku") or "").strip()
+    if sku != previous_sku:
+        from vendoo_studio.services.vendoo_import import merge_notes
+
+        conv_repo.write_notes(conv_id, merge_notes(conv_repo.get(conv_id).notes, {"sku": sku}))
+
     revision = listing_repo.save_revision(
         conv_id=conv_id,
         listing_json=body.listing,

@@ -10,6 +10,7 @@ interface Props {
 }
 
 interface ItemDetailsData {
+  sku: string;
   sellerNotes: string;
   knownFlaws: string;
   descriptionMeasurements: string;
@@ -59,6 +60,7 @@ function rememberLabels(
 }
 
 const DEFAULTS: ItemDetailsData = {
+  sku: "",
   sellerNotes: "",
   knownFlaws: "",
   descriptionMeasurements: "",
@@ -90,6 +92,7 @@ function parseNotes(notes: string | null, defaultPackageDimensions = DEFAULTS.pa
   try {
     const parsed = JSON.parse(notes);
     return {
+      sku: parsed.sku || "",
       sellerNotes: parsed.sellerNotes || "",
       knownFlaws: parsed.knownFlaws || "",
       descriptionMeasurements: parsed.descriptionMeasurements || "",
@@ -235,6 +238,7 @@ export function ItemDetails({ convId }: Props) {
         await api.conversations.update(convId, { notes: JSON.stringify({
           // Clear obsolete seller-entered condition; categoryOverride stays agent-managed.
           condition: "",
+          sku: updated.sku,
           sellerNotes: updated.sellerNotes,
           knownFlaws: updated.knownFlaws,
           descriptionMeasurements: updated.descriptionMeasurements,
@@ -338,6 +342,10 @@ export function ItemDetails({ convId }: Props) {
     <div className="item-details">
       <section className="item-section" aria-labelledby="item-section-listing">
         <h3 className="item-section-title" id="item-section-listing">Notes &amp; Labels</h3>
+        <div className="item-field">
+          <label className="label">SKU</label>
+          <input {...f("sku")} autoComplete="off" spellCheck={false} placeholder="Made up from brand and size if blank" />
+        </div>
         <div className="item-field item-field-notes">
           <label className="label">Notes</label>
           <textarea

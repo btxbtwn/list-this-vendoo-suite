@@ -341,6 +341,13 @@ class PersistListingTest(unittest.TestCase):
         )
         self.assertEqual(parsed["price"], 34.0)
 
+    def test_seller_sku_wins_over_a_made_up_one(self):
+        ConversationRepo(self.db).write_notes(self.conv.id, json.dumps({"sku": "BIN4-001"}))
+        parsed = persist_generated_listing(
+            self.db, self.conv.id, "", parsed={**LISTING_JSON, "sku": "NIKE-M"},
+        )
+        self.assertEqual(parsed["sku"], "BIN4-001")
+
     def test_saved_dimension_default_wins_over_model_estimate(self):
         with patch(
             "vendoo_studio.services.user_settings.package_dimensions_string",
