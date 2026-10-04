@@ -1403,6 +1403,18 @@ def _listing_section(
         key: value for key, value in specifics.items()
         if key not in known and key != "category_specifics"
     }
+    # Generation stores leaf fields in category_specifics; the gap filler
+    # writes corrections at the top level. Encode both, preferring a current
+    # top-level answer even when its spelling differs from the nested label.
+    nested_aspects = specifics.get("category_specifics")
+    if isinstance(nested_aspects, dict):
+        answered = {
+            _field_words(key) for key, value in aspects.items()
+            if value not in (None, "", [], {})
+        }
+        for key, value in nested_aspects.items():
+            if _field_words(key) not in answered:
+                aspects[key] = value
     for key in list(specifics.keys()):
         if key in _STUDIO_ONLY_SPECIFIC_KEYS or key == "category_specifics":
             specifics.pop(key, None)

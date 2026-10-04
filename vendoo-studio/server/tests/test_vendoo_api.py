@@ -414,6 +414,53 @@ class BuildItemTest(unittest.TestCase):
         posh = item["listings"]["poshmark"]["overrides"]["categoryV2"]
         self.assertEqual(posh, {"id": "posh_blouses", "displayPath": ["Women", "Tops", "Blouses"]})
 
+    def test_nested_jacket_aspects_reach_the_vendoo_draft(self):
+        specs = normalize_specifics({
+            "Outer Shell Material": _spec(
+                "Outer Shell Material", options=[("poly", "Polyester")], min_values=1,
+            ),
+            "Style": _spec("Style", options=[("bomber", "Bomber Jacket")], min_values=1),
+        })
+        item, unresolved = build_vendoo_item({
+            "title": "Bomber jacket",
+            "marketplace_category_ids": {"ebay": "57988"},
+            "ebay_specifics": {"category_specifics": {
+                "Outer Shell Material": "Polyester", "Style": "Bomber Jacket",
+            }},
+        }, specifics={"ebay": specs})
+
+        self.assertEqual(item["listings"]["ebay"]["categorySpecifics"], {
+            "57988_Outer Shell Material": "poly", "57988_Style": "bomber",
+        })
+        self.assertFalse(any(row["field"].startswith("ebay:") for row in unresolved))
+
+    def test_flat_correction_overrides_nested_aspect_alias(self):
+        specs = normalize_specifics({
+            "Outer Shell Material": _spec("Outer Shell Material", options=["Polyester", "Cotton"]),
+            "Style": _spec("Style", options=["Bomber Jacket", "Windbreaker"]),
+        })
+        item, _ = build_vendoo_item({
+            "marketplace_category_ids": {"ebay": "57988"},
+            "ebay_specifics": {
+                "outerShellMaterial": "Cotton", "style": "Windbreaker",
+                "category_specifics": {"Outer Shell Material": "Polyester", "Style": "Bomber Jacket"},
+            },
+        }, specifics={"ebay": specs})
+        self.assertEqual(item["listings"]["ebay"]["categorySpecifics"], {
+            "57988_Outer Shell Material": "Cotton", "57988_Style": "Windbreaker",
+        })
+
+    def test_nested_aspects_use_learned_shapes_without_a_leaf_schema(self):
+        item, _ = build_vendoo_item({
+            "marketplace_category_ids": {"ebay": "57988"},
+            "ebay_specifics": {"category_specifics": {
+                "Outer Shell Material": "Polyester", "Style": "Bomber Jacket",
+            }},
+        }, schema={"aspects": {"ebay": {"Outer Shell Material": "scalar", "Style": "list"}}})
+        self.assertEqual(item["listings"]["ebay"]["categorySpecifics"], {
+            "57988_Outer Shell Material": "Polyester", "57988_Style": ["Bomber Jacket"],
+        })
+
     def test_ebay_aspects_use_vendoos_schema_for_the_leaf(self):
         """Vendoo's schema decides the keys, the list shapes and the codes."""
         specs = normalize_specifics({

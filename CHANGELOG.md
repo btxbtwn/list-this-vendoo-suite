@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.179 — 2026-10-04
+
+- Keep jacket Outer Shell Material, Style, and other category details when saving Vendoo drafts. Fill applicable eBay optional fields, repair unsupported dropdown answers, and continue to later fields when earlier ones cannot be answered.
+
 ## 0.1.178 — 2026-10-04
 
 - Bulk uploads now generate up to three listings at once. The queue shows progress for each listing, and stopping a batch lets active listings finish while the remaining drafts stay ungenerated.

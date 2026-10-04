@@ -19,7 +19,9 @@ import time
 from typing import Any
 
 from vendoo_studio.services.fill_log import listing_value_for_field, write_values_into_listing
-from vendoo_studio.services.vendoo_specifics import FieldSpec
+from vendoo_studio.services.vendoo_specifics import (
+    FieldSpec, encode_scaled, encode_specific, is_not_applicable,
+)
 
 log = logging.getLogger("vendoo_studio.specifics_fill")
 
@@ -51,9 +53,18 @@ def specifics_gaps(
             label = spec.display or spec.key
             if not label:
                 continue
-            if listing_value_for_field(listing, marketplace, label):
+            value = listing_value_for_field(listing, marketplace, label, include_not_applicable=True)
+            if not spec.required and is_not_applicable(value):
+                continue
+            if spec.scales:
+                _, stored, resolved = encode_scaled(spec, value)
+            else:
+                stored, resolved = encode_specific(spec, value)
+            if resolved and stored not in (None, "", [], {}):
                 continue
             row: dict[str, Any] = {"marketplace": marketplace, "field": label}
+            if value and not is_not_applicable(value):
+                row["rejected"] = value
             if spec.options:
                 row["options"] = sorted(spec.options.values())
             if spec.required:
@@ -87,15 +98,20 @@ async def fill_listing_specifics(
         return current, specifics_gaps(current, specifics)
 
     filled = 0
+    stalled: set[tuple[str, str]] = set()
     deadline = time.monotonic() + FILL_DEADLINE_SEC
     for _ in range(MAX_ROUNDS):
-        gaps = specifics_gaps(current, specifics)
+        gaps = [
+            gap for gap in specifics_gaps(current, specifics)
+            if (gap["marketplace"], gap["field"]) not in stalled
+        ]
         if not gaps:
             break
+        batch = gaps[:MAX_GAPS_PER_ROUND]
         request = asyncio.ensure_future(_request_missing_field_values(
             provider,
             listing=current,
-            gaps=gaps[:MAX_GAPS_PER_ROUND],
+            gaps=batch,
             evidence=evidence,
         ))
         # Not wait_for: that waits out the cancelled call's cleanup, and a
@@ -107,13 +123,15 @@ async def fill_listing_specifics(
             break
         patches = request.result()
         if not patches:
-            break
+            stalled.update((gap["marketplace"], gap["field"]) for gap in batch)
+            continue
         # Cap what lands, not just what was asked: a model that answers more
         # fields than it was given should not get to write them.
         updated = write_values_into_listing(current, patches[:MAX_PATCH_FIELDS])
         if updated == current:
-            # Nothing landed — asking the same question again would not help.
-            break
+            # Move past this batch so unresolved fields do not hide later ones.
+            stalled.update((gap["marketplace"], gap["field"]) for gap in batch)
+            continue
         current = updated
         filled += len(patches[:MAX_PATCH_FIELDS])
 

@@ -790,14 +790,16 @@ def _invalidate_changed_categories(listing: dict[str, Any]) -> None:
 
 
 def _field_signature(listing: dict[str, Any], specifics: dict[str, dict[str, FieldSpec]]) -> str:
-    """Only new categories, schemas or empty fields need another AI fill pass."""
+    """New categories, schemas, gaps or repair rules need another AI fill pass."""
     from vendoo_studio.services.category_fields import listing_category_ids
+    from vendoo_studio.services.listing_field_gaps import gap_fill_rules
 
     payload = {
         "categories": _category_paths(listing),
         "ids": listing_category_ids(listing),
         "schemas": {key: specs_to_rows(fields) for key, fields in specifics.items()},
         "gaps": specifics_gaps(listing, specifics),
+        "rules": hashlib.sha256(gap_fill_rules().encode()).hexdigest(),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 

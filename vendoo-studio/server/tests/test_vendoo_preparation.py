@@ -68,6 +68,13 @@ class PreparationTest(unittest.TestCase):
         self.prepare(prepared)
         self.assertEqual(self.model.await_count, 1)
 
+    def test_changed_repair_rules_retry_previously_unanswered_fields(self):
+        with patch("vendoo_studio.services.listing_field_gaps.gap_fill_rules", return_value="old rules"):
+            prepared = self.prepare(self.listing)
+        with patch("vendoo_studio.services.listing_field_gaps.gap_fill_rules", return_value="new rules"):
+            self.prepare(prepared)
+        self.assertEqual(self.model.await_count, 2)
+
     def test_category_edit_discards_old_ids_before_resolution_without_mutating_input(self):
         prepared = self.prepare(self.listing)
         prepared["marketplace_categories"]["ebay"] = "Clothing > Sweaters"
