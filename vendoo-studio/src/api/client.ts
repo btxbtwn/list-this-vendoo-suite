@@ -34,6 +34,8 @@ import type {
   SuggestionsResponse,
   AnalyticsRange,
   InventoryAnalytics,
+  SourceBoxInput,
+  SourceBoxes,
   SourcingPrefs,
   SourcingState,
 } from "./types";
@@ -155,6 +157,14 @@ export const api = {
   analytics: {
     get: (range: AnalyticsRange) => request<InventoryAnalytics>(`/analytics?range=${range}`),
   },
+  boxes: {
+    list: () => request<SourceBoxes>("/boxes"),
+    create: (body: SourceBoxInput) =>
+      request<SourceBoxes>("/boxes", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: string, body: Partial<SourceBoxInput>) =>
+      request<SourceBoxes>(`/boxes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    remove: (id: string) => request<SourceBoxes>(`/boxes/${id}`, { method: "DELETE" }),
+  },
   sourcing: {
     get: () => request<SourcingState>("/sourcing"),
     refresh: () => request<SourcingState>("/sourcing/refresh", { method: "POST" }),
@@ -230,10 +240,10 @@ export const api = {
     }[]>("/conversations/vendoo-link-duplicates"),
     list: () => request<ConversationSummary[]>("/conversations"),
     get: (id: string) => request<Conversation>(`/conversations/${id}`),
-    create: (body?: { title?: string; notes?: string }) =>
+    create: (body?: { title?: string; notes?: string; box_id?: string | null }) =>
       request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(body || {}) }),
     // Status is not here on purpose: it follows the bound Vendoo item.
-    update: (id: string, body: { title?: string; notes?: string }) =>
+    update: (id: string, body: { title?: string; notes?: string; box_id?: string | null }) =>
       request<Conversation>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     settle: (id: string) =>
       request<Conversation>(`/conversations/${id}/settle`, { method: "POST" }),

@@ -14,6 +14,7 @@ from vendoo_studio.repositories.queries import (
     ListingRepo,
 )
 from vendoo_studio.models.conversation import utcnow
+from vendoo_studio.services import boxes
 from vendoo_studio.services.listing_delete import ListingBusy, delete_listing, wipe_contents
 from vendoo_studio.services.photos import delete_thumbnails
 
@@ -26,6 +27,7 @@ COVER_THUMB_SIZE = 96
 class ConversationCreate(BaseModel):
     title: str | None = None
     notes: str | None = None
+    box_id: str | None = None
 
 
 class ConversationSummary(BaseModel):
@@ -37,6 +39,8 @@ class ConversationSummary(BaseModel):
     id: str
     title: str | None
     status: str
+    # The wholesale box this item came out of.
+    box_id: str | None = None
     settled_at: str | None = None
     unsettled_at: str | None = None
     created_at: str
@@ -108,7 +112,9 @@ class PhotoResponse(BaseModel):
 @router.post("", response_model=ConversationResponse)
 def create_conversation(body: ConversationCreate, db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
-    conv = repo.create(title=body.title, notes=body.notes)
+    if body.box_id and boxes.get_box(db, body.box_id) is None:
+        raise HTTPException(404, "Box not found")
+    conv = repo.create(title=body.title, notes=body.notes, box_id=body.box_id)
     return _conv_response(conv)
 
 
@@ -155,12 +161,14 @@ def get_conversation(conv_id: str, db: Session = Depends(get_db)):
 
 
 class ConversationUpdate(BaseModel):
-    """Title and notes only: a listing's status is Vendoo's to report."""
+    """Title, notes and box only: a listing's status is Vendoo's to report."""
 
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = None
     notes: str | None = None
+    # Null takes the listing out of its box; leaving it out changes nothing.
+    box_id: str | None = None
 
 
 class DeleteConversationResponse(BaseModel):
@@ -270,6 +278,12 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
             conv.notes = merge_notes(conv.notes, incoming)
         else:
             conv.notes = body.notes
+        changed = True
+    if "box_id" in body.model_fields_set and body.box_id != conv.box_id:
+        try:
+            boxes.assign_box(db, conv, body.box_id)
+        except LookupError as exc:
+            raise HTTPException(404, "Box not found") from exc
         changed = True
     if changed:
         db.commit()
@@ -644,6 +658,7 @@ def _conv_response(conv, extras: dict | None = None) -> ConversationResponse:
         title=conv.title,
         notes=notes_json,
         status=conv.status,
+        box_id=conv.box_id,
         settled_at=_iso(conv.settled_at),
         unsettled_at=_iso(conv.unsettled_at),
         created_at=conv.created_at.isoformat() if conv.created_at else "",

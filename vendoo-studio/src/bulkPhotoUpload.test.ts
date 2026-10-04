@@ -39,4 +39,17 @@ describe("createBulkPhotoListings", () => {
     expect(uploadPhotos).toHaveBeenNthCalledWith(2, "listing-b", expect.any(Array));
     expect(result.map((listing) => listing.convId)).toEqual(["listing-a", "listing-b"]);
   });
+
+  it("puts every draft in the chosen box", async () => {
+    const create = vi.fn().mockResolvedValue({ id: "listing-a" });
+    const uploadPhotos = vi.fn().mockResolvedValue({ ok: true, count: 1, photos: [] });
+
+    await createBulkPhotoListings(
+      [{ folder: "upload/Item A", files: [photo("a.jpg")] }],
+      { cog: "", labels: "", boxId: "box-1" },
+      { create, uploadPhotos },
+    );
+
+    expect(create).toHaveBeenCalledWith({ title: "Item A", box_id: "box-1" });
+  });
 });

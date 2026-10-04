@@ -402,3 +402,91 @@
   .sourcing-choices { grid-template-columns: 1fr; }
   .sourcing-updated { flex-wrap: wrap; }
 }
+
+/* Boxes the seller bought, and what each has made back. */
+.sourcing-bought {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.sourcing-bought:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
+.bought-add-link {
+  font-size: var(--text-sm);
+}
+
+.bought-stores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.bought-store {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.bought-store strong {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.bought-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.bought-fields .sourcing-hint {
+  margin: 0;
+}
+
+.bought-remove {
+  margin-left: auto;
+  color: var(--color-text-muted);
+}
+
+.bought-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.bought-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 6rem;
+}
+
+.bought-add-field.is-wide {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.bought-add-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
