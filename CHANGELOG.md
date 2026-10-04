@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.171 — 2026-10-04
+
+- Fields marked as not applicable stay cleared and no longer count toward Ask chat.
+
 ## 0.1.170 — 2026-10-04
 
 - Ask chat now considers required fields, gaps reported when your Vendoo draft was created, and the latest saved-draft field checks to help finish missing values.

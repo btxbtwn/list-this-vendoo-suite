@@ -169,6 +169,7 @@ export function fieldsNeedingListingValues(
   return forms.flatMap((form) =>
     form.fields
       .filter((field) => !field.notApplicable && !isUnfillableField(field, form.id))
+      .filter((field) => !isDoesNotApplyValue(listingValueForField(listing, form.id, field, true)))
       .filter((field) => listingFieldEmpty(listing, form.id, field))
       .filter((field) => {
         if (!fromVendooDraft) return true;
@@ -180,6 +181,21 @@ export function fieldsNeedingListingValues(
   );
 }
 
+function applicableChatFailures(
+  forms: DraftForm[],
+  listing: Record<string, unknown> | undefined,
+  failures: FillLogEntry[],
+): FillLogEntry[] {
+  return failures.filter((entry) => {
+    const marketplace = String(entry.marketplace || "").toLowerCase();
+    const field = forms.find((form) => form.id === marketplace)?.fields.find(
+      (candidate) => fieldMatchKey(candidate) === normalizeFieldName(entry.field),
+    ) || { key: entry.field, label: entry.field, value: "", missing: true };
+    return entry.status !== "not_applicable" && !field.notApplicable
+      && !isDoesNotApplyValue(listingValueForField(listing, marketplace, field, true));
+  });
+}
+
 /** Deduped empty listing values + Apply/Send failures for the Ask-chat button. */
 export function askChatTargetCount(
   forms: DraftForm[],
@@ -189,7 +205,7 @@ export function askChatTargetCount(
 ): number {
   const seen = new Set<string>();
   let count = 0;
-  for (const entry of failures) {
+  for (const entry of applicableChatFailures(forms, listing, failures)) {
     const key = `${String(entry.marketplace || "").toLowerCase()}:${normalizeFieldName(entry.field)}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -484,6 +500,7 @@ export function listingValueForField(
   listing: Record<string, unknown> | undefined,
   marketplace: string,
   field: DraftField,
+  includeNotApplicable = false,
 ): string {
   if (!listing) return "";
   const key = normalizeLookupKey(field.label || field.key);
@@ -513,7 +530,7 @@ export function listingValueForField(
   if (raw == null) return "";
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean).join(", ").trim();
   const text = String(raw).trim();
-  if (isDoesNotApplyValue(text)) return "";
+  if (!includeNotApplicable && isDoesNotApplyValue(text)) return "";
   return text;
 }
 
@@ -684,7 +701,7 @@ export function askChatGapsPrompt(
     lines.push(line);
   };
 
-  for (const entry of failures) {
+  for (const entry of applicableChatFailures(forms, listing, failures)) {
     const marketplace = String(entry.marketplace || "").toLowerCase();
     const field = entry.field || "";
     const key = `${marketplace}:${normalizeFieldName(field)}`;
@@ -718,7 +735,7 @@ export function askChatGapsPrompt(
   }
 
   const emptyCount = fieldsNeedingListingValues(forms, listing, fromDraft).length;
-  const failCount = failures.length;
+  const failCount = applicableChatFailures(forms, listing, failures).length;
   const parts: string[] = [];
   if (emptyCount) parts.push(`${emptyCount} empty`);
   if (failCount) parts.push(`${failCount} failed`);

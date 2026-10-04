@@ -62,6 +62,19 @@ class FillLogHelpersTest(unittest.TestCase):
         )
         self.assertEqual(fields, [{"marketplace": "depop", "field": "material", "value": ""}])
 
+    def test_not_applicable_clear_is_saved_as_a_disposition(self):
+        fields = extract_missing_fields(
+            '{"missing_fields":[{"marketplace":"depop","field":"Material",'
+            '"value":"","status":"not_applicable"}]}'
+        )
+        listing = write_values_into_listing({"depop_specifics": {"material": "Cotton"}}, fields)
+        self.assertEqual(listing["depop_specifics"]["material"], "Does Not Apply")
+        self.assertEqual(listing_value_for_field(listing, "depop", "Material"), "")
+        restored = write_values_into_listing(listing, [
+            {"marketplace": "depop", "field": "Material", "value": "Silk"},
+        ])
+        self.assertEqual(listing_value_for_field(restored, "depop", "Material"), "Silk")
+
     def test_extract_missing_fields_ignores_json_patch(self):
         self.assertIsNone(extract_missing_fields('[{"op":"replace","path":"/sku","value":"ABC-1"}]'))
 
@@ -407,6 +420,25 @@ class FillLogServiceTest(unittest.TestCase):
         report = service.report_for_job(self.job)
         self.assertEqual(report["summary"]["filled"], 2)
         self.assertEqual(report["summary"]["skipped"], 0)
+
+    def test_not_applicable_resolves_old_failure_and_can_be_replaced(self):
+        service = FillLogService(self.db)
+        row = service.save_step(self.job, "filling_ebay", {
+            "marketplace": "ebay", "entries": [
+                {"field": "Theme", "status": "invalid", "reason": "Rejected option"},
+            ],
+        })[0]
+        service.record_generated_values(self.conv.id, [
+            {"marketplace": "ebay", "field": "Theme", "value": "Does Not Apply"},
+        ])
+        self.db.refresh(row)
+        self.assertEqual(row.status, "not_applicable")
+        service.record_generated_values(self.conv.id, [
+            {"marketplace": "ebay", "field": "Theme", "value": "Flowers"},
+        ])
+        self.db.refresh(row)
+        self.assertEqual(row.status, "skipped")
+        self.assertEqual(row.value_preview, "Flowers")
 
     def test_record_generated_values_updates_leftover_preview(self):
         service = FillLogService(self.db)

@@ -112,3 +112,27 @@ def test_every_chat_turn_gets_field_context_even_without_skill_rules(context_db)
     assert "Listing field gaps" in messages[0]["content"]
     assert "Material" in messages[0]["content"]
     assert "Never publish" in messages[0]["content"]
+
+
+def test_not_applicable_optional_field_is_excluded_from_readback(context_db):
+    db, conv_id, job = context_db
+    ListingRepo(db).save_revision(conv_id, {
+        "title": "Shirt", "category_path": "Clothing > Tops",
+        "ebay_specifics": {"holiday": "Does Not Apply"},
+    }, source="model")
+    JobRepo(db).add_event(job.id, "completion_review", payload={"schema": {
+        "ebay": {"fields": [{"label": "Holiday", "value": ""}]},
+    }})
+    assert all(row["field"] != "Holiday" for row in rows(chat_field_context(db, conv_id)))
+
+
+def test_not_applicable_does_not_hide_required_fields_or_failed_clears():
+    from vendoo_studio.services.completion_gaps import review_fields
+
+    listing = {"ebay_specifics": {"holiday": "Does Not Apply"}}
+    optional = {"schema": {"ebay": {"fields": [{"label": "Holiday", "value": ""}]}}}
+    assert review_fields(optional, listing) == []
+    optional["schema"]["ebay"]["fields"][0]["required"] = True
+    assert len(review_fields(optional, listing)) == 1
+    optional["schema"]["ebay"]["fields"][0].update(required=False, error="Clear failed")
+    assert len(review_fields(optional, listing)) == 1

@@ -265,7 +265,9 @@ def _value_from_record(record: dict | None, key: str) -> Any:
     return None
 
 
-def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
+def listing_value_for_field(
+    listing: dict, marketplace: str, field: str, *, include_not_applicable: bool = False,
+) -> str:
     source = listing if isinstance(listing, dict) else {}
     marketplace = str(marketplace or "general").strip().lower()
     key = field_lookup_key(field)
@@ -305,7 +307,7 @@ def listing_value_for_field(listing: dict, marketplace: str, field: str) -> str:
             return map_marketplace_category_path(
                 marketplace, result or str(source.get("category_path") or ""), source,
             )
-    if result and DOES_NOT_APPLY_RE.match(result):
+    if not include_not_applicable and result and DOES_NOT_APPLY_RE.match(result):
         return ""
     return result or ""
 
@@ -370,6 +372,8 @@ def extract_missing_fields(text: str) -> list[dict] | None:
                 break
             field = str(item.get("field") or "").strip()
             value = item.get("value")
+            if item.get("status") == "not_applicable":
+                value = "Does Not Apply"
             if not field or value is None:
                 continue
             # An explicit blank clears the field. Chat needs that when the only
@@ -721,6 +725,8 @@ class FillLogService:
         """Copy chat-generated leftover values onto matching fill-log rows."""
         if not conversation_id or not patches:
             return 0
+        from vendoo_studio.services.vendoo_specifics import is_not_applicable
+
         entries = self._repo.list_for_conversation(conversation_id)
         if not entries:
             return 0
@@ -733,13 +739,19 @@ class FillLogService:
                 continue
             want = field_lookup_key(field)
             for entry in entries:
-                if entry.status not in FILLABLE_STATUSES:
+                if entry.status not in (*FILLABLE_STATUSES, "not_applicable"):
                     continue
                 if str(entry.marketplace or "").strip().lower() != marketplace:
                     continue
                 if field_lookup_key(entry.field) != want:
                     continue
                 entry.value_preview = preview
+                if is_not_applicable(patch.get("value")):
+                    entry.status = "not_applicable"
+                    entry.reason = "Does not apply to this item"
+                elif entry.status == "not_applicable":
+                    entry.status = "skipped"
+                    entry.reason = "Saved in Studio; needs Fill on Vendoo"
                 updated += 1
         if updated:
             self._db.commit()
