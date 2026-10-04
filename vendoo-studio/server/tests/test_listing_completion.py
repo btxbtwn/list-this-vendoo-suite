@@ -172,6 +172,37 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("confirm", (self.job.last_error or "").casefold())
         self.dispatch.assert_not_awaited()
 
+    async def test_etsy_when_made_estimate_is_saved_without_exact_date_quote(self):
+        self.verification["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
+        self.verification["schema"]["etsy"] = {"fields": [{
+            "label": "When Was It Made?", "value": "", "required": True,
+            "selector": "#whenMade", "options_complete": True,
+            "options": ["2010 - 2019 (Recently)", "2020 - 2026 (Recently)"],
+        }]}
+        self.review()
+        provider = await self.run_completion({"fields": [{
+            "marketplace": "etsy", "field": "When Was It Made?",
+            "value": "2010 - 2019 (Recently)",
+            "evidence": "Estimated from the modern sportswear style; exact production date unknown.",
+        }]})
+        self.assertIn("make an educated estimate", provider.messages[0]["content"])
+        self.assertEqual(self.job.current_step, "filling_fields")
+        self.assertEqual(self.dispatch.await_args.args[1][0]["value"], "2010 - 2019 (Recently)")
+        self.assertEqual(self.job.listing_snapshot["etsy_specifics"]["when_made"], "2010 - 2019 (Recently)")
+
+    async def test_etsy_when_made_estimate_must_use_offered_option(self):
+        self.verification["schema"]["ebay"]["fields"][0]["value"] = "Cotton"
+        self.verification["schema"]["etsy"] = {"fields": [{
+            "label": "When Made", "value": "", "required": True,
+            "options_complete": True, "options": ["2010 - 2019 (Recently)"],
+        }]}
+        self.review()
+        await self.run_completion({"fields": [{
+            "marketplace": "etsy", "field": "When Made", "value": "2010s",
+            "evidence": "Estimated from modern sportswear style",
+        }]})
+        self.dispatch.assert_not_awaited()
+
     async def test_unresolved_gap_is_recorded_as_no_evidence_once(self):
         self.review()
         await self.run_completion({"questions": ["What material is listed on the tag?"]})

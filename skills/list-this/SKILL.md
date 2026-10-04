@@ -425,6 +425,13 @@ Before outputting ANY listing, verify:
 
 **Action:** Prefer the clearer tag reading (33), flag the conflict briefly in the description if helpful, and finish the listing. Do not ask.
 
+## Etsy When Made Estimation
+
+- Always populate Etsy `when_made` with an exact current dropdown option. An exact production date is not required to choose a date range.
+- Prefer a known date from the seller, a tag, or research. Otherwise make an educated estimate using the brand, label design, construction, materials, graphics, and overall style. If those clues are inconclusive, choose the most plausible modern range from the offered options; never leave this required field blank merely because the date is unknown.
+- Do not infer vintage status from retro styling, wear, or the word Y2K alone. Select a vintage range only when the available clues support that age. Never use Made To Order for an already-made resale item.
+- Treat this as an exception to the rule against unsupported age claims: save the estimated dropdown range, explain briefly in the seller-facing reply that it is an estimate, and keep that uncertainty out of the buyer-facing description. Do not invent a precise production year or ask the seller to supply one.
+
 ## Resources
 
 - **Mandatory reference:** `references/vendoo_listing_template.md`

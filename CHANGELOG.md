@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.169 — 2026-10-04
+
+- Etsy's When Made field now uses an educated date-range estimate when the exact production date is unknown, so missing dates no longer block a draft.
+
 ## 0.1.168 — 2026-10-04
 
 - Backups take about a sixth of the disk space: each database snapshot is now compressed, and older uncompressed snapshots still restore.
