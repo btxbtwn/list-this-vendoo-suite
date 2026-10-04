@@ -12,7 +12,7 @@ import {
 } from "../bulkRegenerate";
 import { confirmDialog, isConfirmDialogOpen } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
-import { hasOpenJob, INVENTORY_BUSY_POLL_MS, INVENTORY_IDLE_POLL_MS } from "../api/polling";
+import { jobsPollMs } from "../api/polling";
 import { UpdateButton } from "./UpdateButton";
 import { VendooImportButton } from "./VendooImportButton";
 import {
@@ -392,7 +392,7 @@ export function ListingSidebar({
   const { data: jobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: () => api.jobs.list(),
-    refetchInterval: (query) => (hasOpenJob(query.state.data) ? INVENTORY_BUSY_POLL_MS : INVENTORY_IDLE_POLL_MS),
+    refetchInterval: (query) => jobsPollMs(query.state.data),
   });
   const jobIdByConversation = useMemo(() => {
     const map = new Map<string, string>();

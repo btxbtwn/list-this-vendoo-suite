@@ -391,6 +391,7 @@ class ConversationRepo:
             height=height,
         )
         self.db.add(photo)
+        _recheck_error_flag(self.db, conv_id)
         self.db.commit()
         self.db.refresh(photo)
         return photo
@@ -403,6 +404,7 @@ class ConversationRepo:
         if not photo:
             return False
         self.db.delete(photo)
+        _recheck_error_flag(self.db, conv_id)
         self.db.commit()
         return True
 
@@ -413,6 +415,28 @@ class ConversationRepo:
                 photo.display_order = idx
         self.db.commit()
         return self.get_photos(conv_id)
+
+
+def _recheck_error_flag(db: Session, conv_id: str) -> None:
+    """Re-check a listing a form save flagged, now that its inputs changed.
+
+    Chat, repair, regeneration and Vendoo sync write revisions without
+    touching the flag, and photos change its photo rule, so a listing fixed any
+    other way would otherwise stay flagged forever.
+    """
+    import copy
+
+    from vendoo_studio.models.validation import validate_listing
+
+    listing = db.query(Listing).filter(Listing.conversation_id == conv_id).first()
+    if not listing or listing.validation_status != "error":
+        return
+    revision = db.get(ListingRevision, listing.current_revision_id) if listing.current_revision_id else None
+    data = copy.deepcopy(revision.listing_json) if revision and isinstance(revision.listing_json, dict) else {}
+    photo_count = db.query(Photo).filter(Photo.conversation_id == conv_id).count()
+    validation = validate_listing(data, photo_count, require_photos=True)
+    listing.validation_status = "valid" if validation.valid else "error"
+    listing.validation_errors = validation.errors + validation.warnings
 
 
 class ListingRepo:
@@ -438,6 +462,7 @@ class ListingRepo:
         else:
             listing = Listing(conversation_id=conv_id, current_revision_id=revision.id)
             self.db.add(listing)
+        _recheck_error_flag(self.db, conv_id)
 
         title = (listing_json.get("title") or "").strip()
         if title:

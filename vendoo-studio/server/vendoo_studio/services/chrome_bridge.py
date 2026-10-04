@@ -87,24 +87,34 @@ def _iter_extension_files(root: Path) -> list[Path]:
     files: list[Path] = []
     if not root.is_dir():
         return files
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        rel_parts = path.relative_to(root).parts
-        if any(_ignored_name(part) for part in rel_parts):
-            continue
-        files.append(path)
-    return files
+    for directory, dirnames, filenames in os.walk(root):
+        # Pruned here so node_modules and tests are never walked at all.
+        dirnames[:] = [name for name in dirnames if not _ignored_name(name)]
+        base = Path(directory)
+        files.extend(base / name for name in filenames if not _ignored_name(name))
+    return sorted(path for path in files if path.is_file())
+
+
+# root -> (stat signature, fingerprint). Extension status is polled, and the
+# files almost never change between polls, so only rehash when a stat moves.
+_fingerprints: dict[Path, tuple[tuple, str]] = {}
 
 
 def extension_fingerprint(root: Path) -> str:
+    files = _iter_extension_files(root)
+    signature = tuple((path, (st := path.stat()).st_mtime_ns, st.st_size) for path in files)
+    cached = _fingerprints.get(root)
+    if cached and cached[0] == signature:
+        return cached[1]
     digest = hashlib.sha256()
-    for path in _iter_extension_files(root):
+    for path in files:
         digest.update(path.relative_to(root).as_posix().encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
-    return digest.hexdigest()
+    fingerprint = digest.hexdigest()
+    _fingerprints[root] = (signature, fingerprint)
+    return fingerprint
 
 
 def _overlay_copy(source: Path, destination: Path) -> None:

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.163 — 2026-10-04
+
+- Studio uses much less CPU while it sits open. It only checks for updates every second or two while something is running (a send, a generation, a ChatGPT sign-in), slows down while it's behind another window, and catches up the moment you switch back.
+
 ## 0.1.162 — 2026-10-04
 
 - Studio no longer makes up a SKU. A listing only gets a SKU when you type one in Item Details or the measurements popup; otherwise the SKU stays blank.

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, useReducer, type CSSProperties } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { INVENTORY_BUSY_POLL_MS, INVENTORY_IDLE_POLL_MS } from "../api/polling";
+import { BUSY_POLL_MS, IDLE_POLL_MS, hasOpenJob, jobsPollMs, pollMs } from "../api/polling";
 import type { BrowserField } from "../api/client";
 import { BuildVersion } from "../components/BuildVersion";
 import { ExtensionStatus } from "../components/ExtensionStatus";
@@ -125,7 +125,7 @@ export function App() {
   const { data: status } = useQuery({
     queryKey: ["status"],
     queryFn: api.status,
-    refetchInterval: 4000,
+    refetchInterval: (query) => pollMs(query.state.data?.active_job_id ? BUSY_POLL_MS : IDLE_POLL_MS),
   });
   // Re-reading the whole inventory is the heaviest request Studio makes, so it
   // only runs fast while a Vendoo send is moving rows. Studio's own edits
@@ -134,19 +134,22 @@ export function App() {
     queryKey: ["conversations"],
     queryFn: api.conversations.list,
     refetchInterval: (query) =>
-      status?.active_job_id || query.state.data?.some((c) => c.status === "listing")
-        ? INVENTORY_BUSY_POLL_MS
-        : INVENTORY_IDLE_POLL_MS,
+      pollMs(
+        status?.active_job_id || query.state.data?.some((c) => c.status === "listing")
+          ? BUSY_POLL_MS
+          : IDLE_POLL_MS,
+      ),
   });
   const { data: jobs } = useQuery({
     queryKey: selectedConvId ? ["jobs", selectedConvId] : ["jobs"],
     queryFn: () => api.jobs.list(selectedConvId || undefined),
-    refetchInterval: 2000,
+    refetchInterval: (query) => jobsPollMs(query.state.data),
   });
   const queue = useQuery({
     queryKey: ["queue"],
     queryFn: api.jobs.queue,
-    refetchInterval: 2000,
+    refetchInterval: (query) =>
+      pollMs(hasOpenJob(query.state.data?.jobs) || query.state.data?.work.length ? BUSY_POLL_MS : IDLE_POLL_MS),
   });
   const previousQueueJobs = useRef<Map<string, string> | null>(null);
   useEffect(() => {
