@@ -6,6 +6,7 @@ import { addToast } from "../ui/toast";
 import { BoughtBoxes } from "./BoughtBoxes";
 import { BOXES_QUERY_KEY, boxFromLot, calibrationNote, recentlyBought } from "./boxPurchases";
 import { DraftInput } from "./DraftInput";
+import { ScoutPanel } from "./ScoutPanel";
 import { formatMoney } from "./analyticsFormat";
 import {
   REFRESH_HOURS,
@@ -25,9 +26,54 @@ const QUERY_KEY = ["sourcing"];
 
 interface Props {
   onOpenProviders: () => void;
+  onOpenListing: (convId: string) => void;
 }
 
-export function SourcingPage({ onOpenProviders }: Props) {
+const TAB_KEY = "studio.sourcing.tab";
+
+export function SourcingPage({ onOpenProviders, onOpenListing }: Props) {
+  const [tab, setTab] = useState(() => localStorage.getItem(TAB_KEY) === "scout" ? "scout" : "boxes");
+  const choose = (next: "boxes" | "scout") => {
+    localStorage.setItem(TAB_KEY, next);
+    setTab(next);
+  };
+  return (
+    <div className="analytics-page">
+      <div className="analytics-inner sourcing-inner">
+        <div className="pr-pills sourcing-tabs" role="tablist" aria-label="Sourcing">
+          {([["boxes", "Wholesale boxes"], ["scout", "Scout an item"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={`pr-pill${tab === id ? " is-active" : ""}`}
+              onClick={() => choose(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {tab === "scout" ? (
+          <>
+            <header className="sourcing-header">
+              <h1 className="sourcing-title">Is it worth buying?</h1>
+              <p className="sourcing-lead">
+                Photograph an item and its tag in the store. Studio identifies it, looks up what it has sold for,
+                and tells you the most worth paying. Nothing is bought or listed.
+              </p>
+            </header>
+            <ScoutPanel onOpenListing={onOpenListing} />
+          </>
+        ) : (
+          <BoxSourcing onOpenProviders={onOpenProviders} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
   const queryClient = useQueryClient();
   const [choice, setChoice] = useState("all");
   const query = useQuery({
@@ -61,8 +107,7 @@ export function SourcingPage({ onOpenProviders }: Props) {
     || snapshot?.buy_list.budget !== data.prefs.budget || snapshot?.destination_zip !== data.prefs.zip);
 
   return (
-    <div className="analytics-page">
-      <div className="analytics-inner sourcing-inner">
+    <>
         <header className="sourcing-header">
           <div className="sourcing-title-row">
             <h1 className="sourcing-title">Your buy list</h1>
@@ -110,8 +155,7 @@ export function SourcingPage({ onOpenProviders }: Props) {
             <HowItWorks snapshot={snapshot} />
           </>
         ) : null}
-      </div>
-    </div>
+    </>
   );
 }
 

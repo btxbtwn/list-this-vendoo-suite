@@ -34,6 +34,8 @@ import type {
   SuggestionsResponse,
   AnalyticsRange,
   InventoryAnalytics,
+  ScoutCheck,
+  ScoutState,
   SourceBoxInput,
   SourceBoxes,
   SourcingPrefs,
@@ -156,6 +158,22 @@ export const api = {
   },
   analytics: {
     get: (range: AnalyticsRange) => request<InventoryAnalytics>(`/analytics?range=${range}`),
+  },
+  scout: {
+    list: () => request<ScoutState>("/scout"),
+    create: async (files: File[], askingPrice: number | null): Promise<ScoutCheck> => {
+      const form = new FormData();
+      files.forEach((file) => form.append("files", file));
+      if (askingPrice != null) form.append("asking_price", String(askingPrice));
+      const response = await fetch(`${BASE}/scout`, { method: "POST", body: form });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(errorMessage(data, `Check failed: ${response.status}`));
+      return data as ScoutCheck;
+    },
+    setAskingPrice: (id: string, askingPrice: number | null) =>
+      request<ScoutCheck>(`/scout/${id}`, { method: "PATCH", body: JSON.stringify({ asking_price: askingPrice }) }),
+    decide: (id: string, decision: "bought" | "passed") =>
+      request<ScoutCheck>(`/scout/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
   },
   boxes: {
     list: () => request<SourceBoxes>("/boxes"),

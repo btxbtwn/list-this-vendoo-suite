@@ -6,9 +6,14 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.161 — 2026-10-04
+## 0.1.162 — 2026-10-04
 
 - Studio no longer makes up a SKU. A listing only gets a SKU when you type one in Item Details or the measurements popup; otherwise the SKU stays blank.
+
+## 0.1.161 — 2026-10-04
+
+- Check whether something is worth buying while you're in the store. Under Sourcing → Scout an item, take a photo of the item and its tag and type the asking price if there is one. Studio identifies it, looks up what it has sold for, and tells you Buy it, Maybe or Pass, or the most worth paying. It also works on your phone over Tailscale.
+- Press **I bought it** to start a draft from the same photos, with the price you paid as its cost of goods. Every check is kept, and once a bought item sells you can see how close Studio's estimate was.
 
 ## 0.1.160 — 2026-10-04
 
