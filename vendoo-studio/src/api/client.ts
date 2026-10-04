@@ -85,6 +85,24 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function requestWithTimeout<T>(
+  path: string,
+  options: RequestInit,
+  timeoutMessage: string,
+  timeoutMs = 30000,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await request<T>(path, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(timeoutMessage);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface VendooSyncStatus {
   checked_at: string | null;
   conflict: boolean;
@@ -294,10 +312,10 @@ export const api = {
     delete: (id: string) =>
       request<DeleteConversationResult>(`/conversations/${id}`, { method: "DELETE" }),
     reset: (id: string, opts?: { keepInputs?: boolean }) =>
-      request<Conversation>(`/conversations/${id}/reset`, {
+      requestWithTimeout<Conversation>(`/conversations/${id}/reset`, {
         method: "POST",
         body: JSON.stringify({ keep_inputs: Boolean(opts?.keepInputs) }),
-      }),
+      }, "Resetting the listing took too long. Check the listing before trying Regenerate again; you do not need to restart Studio."),
     reorderPhotos: (convId: string, orderedIds: string[]) =>
       request<OkResponse>(`/conversations/${convId}/photos/order`, {
         method: "PATCH",
@@ -378,10 +396,10 @@ export const api = {
       convId: string,
       body: { price: number; percent?: number | null; mode: "percent" | "comps" | "custom" },
     ) =>
-      request<PriceDropApplyResult>(`/conversations/${convId}/price-drop`, {
+      requestWithTimeout<PriceDropApplyResult>(`/conversations/${convId}/price-drop`, {
         method: "POST",
         body: JSON.stringify(body),
-      }),
+      }, "Saving the price took too long. Check the listing's price before confirming again; you do not need to restart Studio."),
   },
 
   jobs: {
@@ -435,7 +453,11 @@ export const api = {
         },
       ),
     open: (id: string) =>
-      request<{ ok: boolean; url: string; via: "extension" | "chrome" }>(`/jobs/${id}/open`, { method: "POST" }),
+      requestWithTimeout<{ ok: boolean; url: string; via: "extension" | "chrome" }>(
+        `/jobs/${id}/open`, { method: "POST" },
+        "Opening the listing took too long. Try Open listing again; you do not need to restart Studio.",
+        25000,
+      ),
     browser: {
       open: (id: string) =>
         request<{ ok: boolean; controller: string; input?: boolean; warning?: string }>(`/jobs/${id}/browser/open`, {

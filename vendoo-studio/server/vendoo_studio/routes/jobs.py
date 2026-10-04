@@ -715,7 +715,7 @@ async def open_listing(job_id: str, db: Session = Depends(get_db)):
             return OpenListingResponse(ok=True, url=url, via="extension")
 
     try:
-        launch_studio_chrome(url, visible=True)
+        await asyncio.to_thread(launch_studio_chrome, url, visible=True)
     except ChromeBridgeError as exc:
         raise HTTPException(400, str(exc)) from exc
     return OpenListingResponse(ok=True, url=url, via="chrome")
