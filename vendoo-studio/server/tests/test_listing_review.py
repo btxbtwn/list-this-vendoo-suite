@@ -83,6 +83,25 @@ class ListingReviewTest(unittest.TestCase):
         self.assertEqual(len(JobRepo(self.db).list_by_conversation(self.conv.id)), 0)
         self.assertEqual(len(ListingRepo(self.db).get_revisions(self.conv.id)), 2)
 
+    def test_preview_reads_draft_while_preparing_fields(self):
+        import asyncio
+
+        started = asyncio.Event()
+
+        async def prepare(_job, listing, **_kwargs):
+            started.set()
+            return deepcopy(listing), {}, None, [], []
+
+        async def blocking_run_ops(_job, ops, **_kwargs):
+            # Answers only once field preparation is under way.
+            await asyncio.wait_for(started.wait(), 1)
+            return {"ok": True, "results": [{"op": "get_item", "ok": True, "item": deepcopy(self.remote)}]}
+
+        with patch("vendoo_studio.services.vendoo_create.run_ops", blocking_run_ops), \
+                patch("vendoo_studio.services.vendoo_create.prepare_listing_fields_for_vendoo", prepare):
+            preview = self.preview(bound=True)
+        self.assertEqual(preview["mode"], "update")
+
     def test_create_preview_uploads_only_after_approval_and_persists_review(self):
         preview = self.preview()
         self.assertEqual((preview["photo_action"], preview["photo_count"]), ("upload", 1))
