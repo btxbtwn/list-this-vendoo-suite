@@ -85,6 +85,9 @@ def delete_listing(db: Session, conv_id: str) -> tuple[int, int]:
     conv = repo.get(conv_id)
     if conv is None:
         raise LookupError("Conversation not found")
+    from vendoo_studio.models.scout import ScoutCheck
+    # The check stays as a record of the decision; only the link goes.
+    db.query(ScoutCheck).filter(ScoutCheck.conversation_id == conv_id).update({ScoutCheck.conversation_id: None})
     db.delete(conv)
     db.commit()
     return deleted_jobs, deleted_photos
