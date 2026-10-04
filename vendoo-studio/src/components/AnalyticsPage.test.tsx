@@ -4,7 +4,12 @@ import type { InventoryAnalytics } from "../api/types";
 import { AnalyticsPage } from "./AnalyticsPage";
 
 const { useQuery } = vi.hoisted(() => ({ useQuery: vi.fn() }));
-vi.mock("@tanstack/react-query", () => ({ useQuery, keepPreviousData: vi.fn() }));
+vi.mock("@tanstack/react-query", () => ({
+  useQuery,
+  keepPreviousData: vi.fn(),
+  useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useQueryClient: () => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn() }),
+}));
 
 const sales = {
   count: 2, revenue: 80, revenue_known: 2, profit: 50,
@@ -18,7 +23,21 @@ const data: InventoryAnalytics = {
     start: "2026-08-01T00:00:00Z", end: "2026-08-31T00:00:00Z",
     sales: { ...sales, revenue: 40, profit: 25, count: 1, revenue_known: 1, profit_known: 1, fees_known: 1 },
   },
-  periods: [], marketplaces: [], categories: [], brands: [], recent: [],
+  periods: [], marketplaces: [], categories: [], brands: [],
+  recent: [{
+    conversation_id: "sold-tee", title: "Band tee", price: 24, marketplace: "depop",
+    sold_at: "2026-09-12T18:00:00Z", days_listed: 12, event: "Depop fall sale",
+  }],
+  stale: [
+    {
+      conversation_id: "old-stock", title: "Older jacket", days_listed: 110, price: 60,
+      cost: 8, lowest_price: 10, discount_percent: 40, sale_price: 36,
+    },
+    {
+      conversation_id: "thin-margin", title: "Pricey boots", days_listed: 75, price: 30,
+      cost: 20, lowest_price: 25, discount_percent: null, sale_price: null,
+    },
+  ],
   aging: [{
     label: "Over 3 months", count: 1, asking_value: 60,
     listings: [{ conversation_id: "old-stock", title: "Older jacket", price: 60, days_listed: 110 }],
@@ -26,7 +45,11 @@ const data: InventoryAnalytics = {
 };
 
 function render(payload: InventoryAnalytics) {
-  useQuery.mockReturnValue({ data: payload, isLoading: false, isError: false, isFetching: false });
+  useQuery.mockImplementation(({ queryKey }: { queryKey: readonly string[] }) =>
+    queryKey[0] === "sale-events"
+      ? { data: { events: [] }, isError: false }
+      : { data: payload, isLoading: false, isError: false, isFetching: false },
+  );
   return renderToStaticMarkup(<AnalyticsPage onOpenListing={vi.fn()} />);
 }
 
@@ -42,6 +65,16 @@ describe("AnalyticsPage", () => {
     expect(html).toContain("<summary");
     expect(html).toContain("Older jacket");
     expect(html).toContain("110 days");
+  });
+
+  it("lists stale stock with how deep to cut, and tags event sales", () => {
+    const html = render(data);
+    expect(html).toContain("Discount deeper");
+    expect(html).toContain("40% off → $36");
+    expect(html).toContain("lowest $10");
+    expect(html).toContain("Keep full price");
+    expect(html).toContain("Depop fall sale");
+    expect(html).toContain("No sale events yet.");
   });
 
   it("withholds comparisons when prices or costs are missing", () => {

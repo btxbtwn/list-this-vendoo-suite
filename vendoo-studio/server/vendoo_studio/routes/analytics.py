@@ -64,6 +64,17 @@ class AnalyticsAging(BaseModel):
     listings: list[AnalyticsActiveListing]
 
 
+class AnalyticsStaleListing(BaseModel):
+    conversation_id: str
+    title: str
+    days_listed: int
+    price: float
+    cost: float | None
+    lowest_price: int | None
+    discount_percent: int | None
+    sale_price: float | None
+
+
 class AnalyticsSale(BaseModel):
     conversation_id: str
     title: str
@@ -71,6 +82,7 @@ class AnalyticsSale(BaseModel):
     marketplace: str
     sold_at: str | None
     days_listed: int | None
+    event: str | None
 
 
 class AnalyticsResponse(BaseModel):
@@ -85,6 +97,7 @@ class AnalyticsResponse(BaseModel):
     categories: list[AnalyticsGroup]
     brands: list[AnalyticsGroup]
     aging: list[AnalyticsAging]
+    stale: list[AnalyticsStaleListing]
     recent: list[AnalyticsSale]
 
 

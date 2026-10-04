@@ -38,6 +38,8 @@ import type {
   ScoutState,
   SourceBoxInput,
   SourceBoxes,
+  SaleEvent,
+  SaleEventInput,
   SourcingPrefs,
   SourcingState,
 } from "./types";
@@ -174,6 +176,12 @@ export const api = {
       request<ScoutCheck>(`/scout/${id}`, { method: "PATCH", body: JSON.stringify({ asking_price: askingPrice }) }),
     decide: (id: string, decision: "bought" | "passed") =>
       request<ScoutCheck>(`/scout/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
+  },
+  saleEvents: {
+    list: () => request<{ events: SaleEvent[] }>("/sale-events"),
+    create: (body: SaleEventInput) =>
+      request<{ events: SaleEvent[] }>("/sale-events", { method: "POST", body: JSON.stringify(body) }),
+    remove: (id: string) => request<{ events: SaleEvent[] }>(`/sale-events/${id}`, { method: "DELETE" }),
   },
   boxes: {
     list: () => request<SourceBoxes>("/boxes"),

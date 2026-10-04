@@ -440,6 +440,20 @@ export interface AnalyticsAging {
   listings: AnalyticsActiveListing[];
 }
 
+/** An active listing past 60 days, with how deep it can go and still cover its cost. */
+export interface AnalyticsStaleListing {
+  conversation_id: string;
+  title: string;
+  days_listed: number;
+  price: number;
+  cost: number | null;
+  /** Whole dollars that return the cost after fees; null with no cost recorded. */
+  lowest_price: number | null;
+  /** Null when even the everyday 25% would sell below the lowest price. */
+  discount_percent: number | null;
+  sale_price: number | null;
+}
+
 export interface AnalyticsSale {
   conversation_id: string;
   title: string;
@@ -447,6 +461,8 @@ export interface AnalyticsSale {
   marketplace: string;
   sold_at: string | null;
   days_listed: number | null;
+  /** The sale event this sale fell in, if any. */
+  event: string | null;
 }
 
 export interface InventoryAnalytics {
@@ -461,7 +477,43 @@ export interface InventoryAnalytics {
   categories: AnalyticsGroup[];
   brands: AnalyticsGroup[];
   aging: AnalyticsAging[];
+  stale: AnalyticsStaleListing[];
   recent: AnalyticsSale[];
+}
+
+export interface SaleEventSale {
+  conversation_id: string;
+  title: string;
+  price: number | null;
+  marketplace: string;
+  sold_at: string | null;
+}
+
+/** A marketplace sale event the seller joined, against the weeks around it. */
+export interface SaleEvent {
+  id: string;
+  name: string;
+  starts_on: string;
+  ends_on: string;
+  discount_percent: number | null;
+  /** Empty means every marketplace. */
+  marketplaces: string[];
+  status: "upcoming" | "running" | "ended";
+  sold: number;
+  revenue: number;
+  per_week: number | null;
+  before_per_week: number | null;
+  after_per_week: number | null;
+  after_days: number;
+  sales: SaleEventSale[];
+}
+
+export interface SaleEventInput {
+  name: string;
+  starts_on: string;
+  ends_on: string;
+  marketplaces: string[];
+  discount_percent: number | null;
 }
 
 export interface BackupSnapshot {
