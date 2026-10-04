@@ -990,7 +990,7 @@ export function ListingSidebar({
                 else exitSelecting();
               }}
             >
-              {bulk.running ? (bulk.run?.cancelRequested ? "Finishing…" : "Stop after this") : "Cancel"}
+              {bulk.running ? (bulk.run?.cancelRequested ? "Finishing…" : "Stop batch") : "Cancel"}
             </button>
           </div>
         </div>
@@ -1195,12 +1195,16 @@ function bulkStatusLabel(
   eligibleCount: number,
 ): string {
   if (run) {
+    if (run.mode === "generate") {
+      if (run.cancelRequested) return `Finishing ${run.active.size} active listings…`;
+      return `Generating ${run.active.size} listings · ${run.finished} of ${run.total} finished`;
+    }
     const { title } = run;
     const place = `${run.index + 1} of ${run.total}`;
     if (run.cancelRequested) return `Finishing ${title}…`;
     if (run.phase === "dropping") return `Dropping the price on ${title} (${place})`;
     if (run.phase === "finishing") return `Finishing fields on ${title} (${place})`;
-    return `${run.mode === "generate" ? "Generating" : "Rewriting"} ${title} (${place})`;
+    return `Rewriting ${title} (${place})`;
   }
   if (eligibleCount === 0) return "No listings with photos to rewrite";
   return `${selectedCount} selected`;

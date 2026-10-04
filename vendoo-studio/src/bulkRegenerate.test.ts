@@ -145,6 +145,87 @@ describe("bulkPriceDrops", () => {
 });
 
 describe("runBulkRegenerate", () => {
+  it("runs three generation streams concurrently and refills a free slot", async () => {
+    const gates = new Map(["a", "b", "c", "d"].map((id) => [id, deferred()]));
+    const started: string[] = [];
+    const settled: string[] = [];
+    const phases = new Map<string, string>();
+    const run = runBulkRegenerate(["a", "b", "c", "d"], deps({
+      generate: (id) => followListingGeneration(id, {
+        fetchImpl: async () => new Response(new ReadableStream({
+          async start(controller) {
+            started.push(id);
+            await gates.get(id)!.promise;
+            controller.enqueue(new TextEncoder().encode(`data: {"title":"${id}"}\n\ndata: [DONE]\n\n`));
+            controller.close();
+          },
+        })),
+      }),
+    }), {
+      cancelled: () => false,
+      concurrency: 3,
+      onProgress: ({ id, phase }) => phases.set(id, phase),
+      onSettled: (id) => settled.push(id),
+    });
+    await vi.waitFor(() => expect(started).toEqual(["a", "b", "c"]));
+    expect([...phases.values()]).toEqual(["generating", "generating", "generating"]);
+    gates.get("b")!.resolve();
+    await vi.waitFor(() => expect(started).toEqual(["a", "b", "c", "d"]));
+    expect(settled).toEqual(["b"]);
+    for (const gate of gates.values()) gate.resolve();
+    const result = await run;
+    expect([...result.completed].sort()).toEqual(["a", "b", "c", "d"]);
+    expect(result.failed).toEqual([]);
+    expect([...settled].sort()).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("keeps a worker occupied until its marketplace fields finish", async () => {
+    const fill = deferred();
+    const started: string[] = [];
+    let polls = 0;
+    const run = runBulkRegenerate(["a", "b", "c"], deps({
+      generate: async (id) => { started.push(id); },
+      pending: async (id) => id === "a" && polls++ === 0,
+      sleep: () => fill.promise,
+    }), { cancelled: () => false, concurrency: 2 });
+    await vi.waitFor(() => expect(started).toEqual(["a", "b", "c"]));
+    let finished = false;
+    void run.then(() => { finished = true; });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    fill.resolve();
+    expect([...(await run).completed].sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("stops waiting listings and lets every active listing finish", async () => {
+    const gate = deferred();
+    const started: string[] = [];
+    let cancel = false;
+    const run = runBulkRegenerate(["a", "b", "c", "d"], deps({
+      generate: async (id) => {
+        started.push(id);
+        await gate.promise;
+      },
+    }), { cancelled: () => cancel, concurrency: 3 });
+    await vi.waitFor(() => expect(started).toEqual(["a", "b", "c"]));
+    cancel = true;
+    gate.resolve();
+    const result = await run;
+    expect(started).toEqual(["a", "b", "c"]);
+    expect([...result.completed].sort()).toEqual(["a", "b", "c"]);
+    expect(result.cancelled).toBe(true);
+  });
+
+  it("continues concurrent work when one listing fails", async () => {
+    const result = await runBulkRegenerate(["a", "b", "c", "d"], deps({
+      generate: async (id) => {
+        if (id === "b") throw new Error("model busy");
+      },
+    }), { cancelled: () => false, concurrency: 3 });
+    expect([...result.completed].sort()).toEqual(["a", "c", "d"]);
+    expect(result.failed).toEqual([{ id: "b", message: "model busy" }]);
+  });
+
   it("rewrites listings one at a time and waits for field fill", async () => {
     const order: string[] = [];
     let pending = true;
@@ -332,4 +413,10 @@ function sseResponse(body: string, status = 200): Response {
     status,
     headers: { "Content-Type": "text/event-stream" },
   });
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
 }

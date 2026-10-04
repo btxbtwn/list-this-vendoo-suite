@@ -1,9 +1,9 @@
 /**
- * Rewrite several listings from their photos and item details, one at a time.
+ * Rewrite or generate several listings from their photos and item details.
  * Each listing uses the same reset as Regenerate (keep photos, measurements,
  * flaws, COG, labels and notes) and then the generate stream. A confirmed
  * price drop is saved first, so the rewrite reuses that price. The next listing
- * waits until this one's stream and leftover field fill have finished.
+ * waits for a worker whose stream and leftover field fill have finished.
  */
 
 export type BulkRegenerateProgress = {
@@ -112,8 +112,12 @@ export type BulkRegenerateDeps = {
 
 export type BulkRegenerateControl = {
   cancelled(): boolean;
+  concurrency?: number;
   onProgress?(progress: BulkRegenerateProgress): void;
+  onSettled?(id: string): void;
 };
+
+export const BULK_GENERATE_CONCURRENCY = 3;
 
 const DEFAULT_POLL_MS = 1000;
 const DEFAULT_MAX_PENDING_POLLS = 600;
@@ -237,11 +241,7 @@ export async function runBulkRegenerate(
   const pollMs = deps.pollMs ?? DEFAULT_POLL_MS;
   const maxPendingPolls = deps.maxPendingPolls ?? DEFAULT_MAX_PENDING_POLLS;
 
-  for (let index = 0; index < ids.length; index += 1) {
-    if (control.cancelled()) {
-      result.cancelled = true;
-      break;
-    }
+  async function runListing(index: number) {
     const id = ids[index]!;
     const progress = { index, total: ids.length, id };
     if (deps.willDrop?.(id)) {
@@ -250,7 +250,7 @@ export async function runBulkRegenerate(
         await deps.drop?.(id);
       } catch (err) {
         result.failed.push({ id, message: errorText(err) });
-        continue;
+        return;
       }
       // The price is already the new one. Cancel still rewrites this listing
       // so the draft is written at the dropped price.
@@ -260,11 +260,11 @@ export async function runBulkRegenerate(
       await deps.reset(id);
     } catch (err) {
       result.failed.push({ id, message: errorText(err) });
-      continue;
+      return;
     }
     if (!deps.accepted(id)) {
       result.skipped.push(id);
-      continue;
+      return;
     }
     // Cancel during the wipe still rewrites this listing. Stopping here would
     // leave the chat and generated fields discarded with nothing written back.
@@ -273,25 +273,32 @@ export async function runBulkRegenerate(
       await deps.generate(id);
     } catch (err) {
       result.failed.push({ id, message: errorText(err) });
-      if (control.cancelled()) {
-        result.cancelled = true;
-        break;
-      }
-      continue;
+      return;
     }
     result.completed.push(id);
     control.onProgress?.({ ...progress, phase: "finishing" });
     let polls = 0;
     while (await deps.pending(id)) {
-      if (control.cancelled()) {
-        result.cancelled = true;
-        return result;
-      }
       polls += 1;
       if (polls >= maxPendingPolls) break;
       await deps.sleep(pollMs);
     }
   }
+
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < ids.length && !control.cancelled()) {
+      const index = nextIndex++;
+      try {
+        await runListing(index);
+      } finally {
+        control.onSettled?.(ids[index]!);
+      }
+    }
+  }
+  const concurrency = Math.min(ids.length, Math.max(1, Math.floor(control.concurrency ?? 1)));
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  result.cancelled ||= control.cancelled();
   return result;
 }
 

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.178 — 2026-10-04
+
+- Bulk uploads now generate up to three listings at once. The queue shows progress for each listing, and stopping a batch lets active listings finish while the remaining drafts stay ungenerated.
+
 ## 0.1.177 — 2026-10-04
 
 - Confirming Regenerate no longer stays on Saving when Studio reports being offline. A stalled price save, reset, or Open listing request shows an error so you can recover without restarting Studio.

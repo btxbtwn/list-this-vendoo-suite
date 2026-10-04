@@ -147,7 +147,7 @@ export function BulkMeasurementsDialog({ listings, onClose, onGenerate }: Props)
           <p className="confirm-dialog-description">
             Type a SKU and measurements in inches, or leave them blank. A SKU typed here is kept as
             is; a blank one is made up from the brand and size. Tab or Enter moves to the next box.
-            Studio then generates each draft from its photos, one at a time, and stops at a draft.
+            Studio then generates up to three listings at once from their photos and stops at drafts.
           </p>
         </div>
         <div className="bulk-measure-grid" ref={gridRef}>

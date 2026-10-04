@@ -60,13 +60,13 @@ export function QueuePage({ data, loading, error, bulk, titles, onOpenListing }:
           <h2>In progress &amp; waiting</h2>
           {!loading && !error && count === 0 && <p className="queue-lead">No work waiting. Generate a listing or click Send to Vendoo to add work here.</p>}
           <ul className="queue-list">
-            {bulk.pendingIds.map((id, index) => (
+            {bulk.pendingIds.map((id) => (
               <li className="queue-row" key={`bulk-${id}`}>
                 <div className="queue-row-copy">
                   <button className="queue-listing" onClick={() => onOpenListing(id)}>{titles.get(id) || "Untitled listing"}</button>
                   <p>{bulk.run?.mode === "rewrite" ? "Regenerate listing" : "Generate draft"}</p>
                 </div>
-                <span className="queue-status">{index === 0 ? bulk.run?.phase : "Waiting"}</span>
+                <span className="queue-status">{bulk.run?.active.get(id)?.phase ?? "Waiting"}</span>
               </li>
             ))}
             {work.map((w) => (
@@ -80,7 +80,7 @@ export function QueuePage({ data, loading, error, bulk, titles, onOpenListing }:
             ))}
             {active.map(renderJob)}
           </ul>
-          {bulk.running && <button className="btn btn-secondary btn-sm" onClick={bulk.cancel} disabled={bulk.run?.cancelRequested}>Stop batch after current listing</button>}
+          {bulk.running && <button className="btn btn-secondary btn-sm" onClick={bulk.cancel} disabled={bulk.run?.cancelRequested}>Stop batch after active listings</button>}
         </section>
         {recent.length > 0 && <section aria-label="Recent sends">
           <h2>Recent sends</h2>

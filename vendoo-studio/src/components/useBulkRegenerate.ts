@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import {
+  BULK_GENERATE_CONCURRENCY,
   followListingGeneration,
   runBulkRegenerate,
   type BulkPriceDrop,
@@ -24,13 +25,15 @@ export type BulkRegenerateRun = BulkRegenerateProgress & {
   mode: BulkRunMode;
   /** The listing being worked on, as the seller named it. */
   title: string;
+  active: ReadonlyMap<string, BulkRegenerateProgress>;
+  finished: number;
 };
 
 export type BulkRegenerate = ReturnType<typeof useBulkRegenerate>;
 
 /**
- * Rewrites the given listings one at a time, or generates fresh drafts the
- * same way. Lives in App, so collapsing the sidebar does not drop a run. The open chat hears about the
+ * Rewrites listings one at a time, or generates fresh drafts concurrently.
+ * Lives in App, so collapsing the sidebar does not drop a run. The open chat hears about the
  * run after the server has registered it, and attaches to that same stream.
  */
 export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
@@ -54,6 +57,8 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
     runningRef.current = true;
     cancelRef.current = false;
     const marked = new Set<string>();
+    const remaining = new Set(ids);
+    const active = new Map<string, BulkRegenerateProgress>();
     const planned = mode === "rewrite" && drops && drops.size > 0 ? drops : undefined;
     const titleOf = (id: string) => titles.get(id) || "listing";
     setPendingIds(ids);
@@ -65,6 +70,8 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
       cancelRequested: false,
       mode,
       title: titleOf(ids[0] || ""),
+      active: new Map(),
+      finished: 0,
     });
     try {
       return await runBulkRegenerate(ids, {
@@ -141,9 +148,21 @@ export function useBulkRegenerate(chatOpen: (id: string) => boolean) {
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       }, {
         cancelled: () => cancelRef.current,
+        concurrency: mode === "generate" ? BULK_GENERATE_CONCURRENCY : 1,
         onProgress: (progress) => {
-          setPendingIds(ids.slice(progress.index));
-          setRun({ ...progress, cancelRequested: cancelRef.current, mode, title: titleOf(progress.id) });
+          active.set(progress.id, progress);
+          setRun({
+            ...progress, cancelRequested: cancelRef.current, mode, title: titleOf(progress.id),
+            active: new Map(active), finished: ids.length - remaining.size,
+          });
+        },
+        onSettled: (id) => {
+          remaining.delete(id);
+          active.delete(id);
+          setPendingIds([...remaining]);
+          setRun((current) => current ? {
+            ...current, active: new Map(active), finished: ids.length - remaining.size,
+          } : current);
         },
       });
     } finally {
