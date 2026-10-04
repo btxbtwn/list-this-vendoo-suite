@@ -306,3 +306,42 @@ class LoadAnalyticsTest(unittest.TestCase):
         self.assertIn("fees_known", month["previous"]["sales"])
         bad = client.get("/api/analytics?range=nope")
         self.assertEqual(bad.status_code, 400)
+
+
+class StaleListingsTest(unittest.TestCase):
+    def _stale(self, **overrides):
+        fields = {"conversation_id": "old", "status": "active", "price": 30, "sold_price": None,
+                  "sold_at": None, "listed_at": NOW - timedelta(days=70)}
+        fields.update(overrides)
+        return summarize([_item(**fields)], range_id="all", now=NOW)["stale"]
+
+    def test_only_active_listings_past_sixty_days_oldest_first(self):
+        payload = summarize([
+            _item(conversation_id="young", status="active", listed_at=NOW - timedelta(days=59)),
+            _item(conversation_id="old", status="active", listed_at=NOW - timedelta(days=61)),
+            _item(conversation_id="older", status="active", listed_at=NOW - timedelta(days=200)),
+            _item(conversation_id="undated", status="active", listed_at=None),
+            _item(conversation_id="sold", listed_at=NOW - timedelta(days=200)),
+        ], range_id="all", now=NOW)
+        self.assertEqual([row["conversation_id"] for row in payload["stale"]], ["older", "old"])
+
+    def test_cuts_as_deep_as_the_cost_after_fees_allows(self):
+        # $8 cost needs $10 back after 20% fees: 40% off $30 is $18.
+        row = self._stale(cost=8)[0]
+        self.assertEqual(row["lowest_price"], 10)
+        self.assertEqual(row["discount_percent"], 40)
+        self.assertEqual(row["sale_price"], 18)
+        # $15 cost needs $19: 40% off ($18) is too deep, 35% off ($19.50) is not.
+        self.assertEqual(self._stale(cost=15)[0]["discount_percent"], 35)
+        # $17 cost needs $22: only the everyday 25% off ($22.50) still covers it.
+        self.assertEqual(self._stale(cost=17)[0]["discount_percent"], 25)
+        # $18 cost needs $23: even 25% off is a loss, so no cut at all.
+        held = self._stale(cost=18)[0]
+        self.assertIsNone(held["discount_percent"])
+        self.assertIsNone(held["sale_price"])
+
+    def test_no_cost_means_no_floor_and_the_shallower_deep_cut(self):
+        row = self._stale(cost=None)[0]
+        self.assertIsNone(row["lowest_price"])
+        self.assertEqual(row["discount_percent"], 35)
+        self.assertEqual(row["sale_price"], 19.5)

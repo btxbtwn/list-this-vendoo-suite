@@ -12,7 +12,10 @@ import math
 import statistics
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from vendoo_studio.services.sale_events import EventWindow
 
 ANALYTICS_RANGES = ("30d", "90d", "12m", "all")
 _TOP = 6
@@ -31,6 +34,13 @@ _AGING = (
     ("2–3 months", 60, 90),
     ("Over 3 months", 90, None),
 )
+# Listings this old with no sale get a deeper cut than the everyday event one.
+STALE_DAYS = 60
+EVENT_PERCENT = 25
+# Deepest first; the first that still covers the item's cost after fees wins.
+DEEP_PERCENTS = (40, 35)
+# With no cost recorded there is no floor to check, so stay at the shallower cut.
+UNKNOWN_COST_PERCENT = 35
 
 
 @dataclass(frozen=True)
@@ -77,10 +87,12 @@ def inventory_analytics(
     """Totals for ``range_id`` (``30d``, ``90d``, ``12m``, or ``all``)."""
     if range_id not in ANALYTICS_RANGES:
         raise ValueError(range_id)
+    from vendoo_studio.services.sale_events import windows
+
     clock = now or datetime.now(UTC)
     if clock.tzinfo is None:
         clock = clock.replace(tzinfo=UTC)
-    return summarize(load_rows(db), range_id=range_id, now=clock)
+    return summarize(load_rows(db), range_id=range_id, now=clock, events=windows(db))
 
 
 def load_rows(db) -> list[AnalyticsItem]:
@@ -161,6 +173,7 @@ def summarize(
     *,
     range_id: str,
     now: datetime,
+    events: list[EventWindow] | None = None,
 ) -> dict[str, Any]:
     """Group already-loaded rows. ``now`` keeps the window testable."""
     start = _window_start(range_id, now)
@@ -207,7 +220,8 @@ def summarize(
         "categories": _top(_groups(sales, _category_key)),
         "brands": _top(_groups(sales, _brand_key)),
         "aging": _aging(items, now),
-        "recent": _recent(sales),
+        "stale": _stale(items, now),
+        "recent": _recent(sales, events or []),
     }
 
 
@@ -364,7 +378,51 @@ def _aging(items: list[AnalyticsItem], now: datetime) -> list[dict[str, Any]]:
     ]
 
 
-def _recent(sales: list[AnalyticsItem]) -> list[dict[str, Any]]:
+def lowest_price(cost: float | None) -> int | None:
+    """The whole-dollar price that still returns the item's cost after fees."""
+    from vendoo_studio.services.scout import FEES
+
+    if not cost or cost <= 0:
+        return None
+    return math.ceil(cost / (1 - FEES))
+
+
+def deep_discount(price: float, floor: int | None) -> int | None:
+    """The deepest cut that stays at or above ``floor``, or None when even the
+    everyday event discount would sell this item at a loss."""
+    if floor is None:
+        return UNKNOWN_COST_PERCENT
+    for percent in (*DEEP_PERCENTS, EVENT_PERCENT):
+        if price * (1 - percent / 100) >= floor:
+            return percent
+    return None
+
+
+def _stale(items: list[AnalyticsItem], now: datetime) -> list[dict[str, Any]]:
+    """Active listings past ``STALE_DAYS``, oldest first, with how deep to cut."""
+    rows = []
+    for item in items:
+        if item.status != "active" or item.listed_at is None or item.price <= 0:
+            continue
+        days = int((now - item.listed_at).total_seconds() // 86_400)
+        if days < STALE_DAYS:
+            continue
+        floor = lowest_price(item.cost)
+        percent = deep_discount(item.price, floor)
+        rows.append({
+            "conversation_id": item.conversation_id,
+            "title": item.title,
+            "days_listed": days,
+            "price": _money(item.price),
+            "cost": _money(item.cost) if item.cost is not None else None,
+            "lowest_price": floor,
+            "discount_percent": percent,
+            "sale_price": _money(item.price * (1 - percent / 100)) if percent is not None else None,
+        })
+    return sorted(rows, key=lambda row: (-row["days_listed"], row["title"]))
+
+
+def _recent(sales: list[AnalyticsItem], events: list[EventWindow]) -> list[dict[str, Any]]:
     ordered = sorted(
         sales,
         key=lambda item: item.sold_at or datetime.min.replace(tzinfo=UTC),
@@ -378,6 +436,7 @@ def _recent(sales: list[AnalyticsItem]) -> list[dict[str, Any]]:
             "marketplace": item.marketplace,
             "sold_at": item.sold_at.isoformat() if item.sold_at else None,
             "days_listed": item.days_listed,
+            "event": next((event.name for event in events if event.covers(item)), None),
         }
         for item in ordered[:_RECENT]
     ]

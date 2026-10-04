@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.173 — 2026-10-04
+
+- Analytics has a Discount deeper list: listings up 60 days or more, with how far to mark each one down in the next sale (35–40%) without dropping below what it cost you after fees.
+- Add the Depop, eBay and Etsy sale events you join under Analytics → Sale events. Studio counts the sales that came in during each one, compares them with the weeks before and after, and labels those sales in Recent sales.
+
 ## 0.1.172 — 2026-10-04
 
 - Ask chat remembers optional fields it deliberately leaves blank, including answers already saved in chat, so they stop coming back as missing.

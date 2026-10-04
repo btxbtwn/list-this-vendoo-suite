@@ -249,3 +249,52 @@
     grid-row: 2;
   }
 }
+
+.analytics-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Beats .sourcing-link, which loads after this file. */
+.analytics-section .analytics-title-link {
+  font-size: 13px;
+}
+
+.analytics-stale {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.analytics-event-live {
+  color: var(--color-cobalt);
+}
+
+.analytics-event-body {
+  padding: 0 0 8px 16px;
+}
+
+.bought-add .analytics-event-date {
+  width: 12rem;
+}
+
+.bought-add .analytics-event-markets {
+  width: auto;
+  flex: none;
+}
+
+.analytics-event-market-list {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 30px;
+}
+
+.analytics-event-market {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text);
+  font-size: 13px;
+}
