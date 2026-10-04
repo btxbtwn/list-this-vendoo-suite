@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SaleEvent } from "../api/types";
-import { eventDates, eventLift, eventMarketplaces } from "./saleEvents";
+import { eventDates, eventLift, eventMarketplaces } from "./saleEventFormat";
 
 function event(overrides: Partial<SaleEvent> = {}): SaleEvent {
   return {

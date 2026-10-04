@@ -13,7 +13,7 @@ import {
   eventDates,
   eventLift,
   eventMarketplaces,
-} from "./saleEvents";
+} from "./saleEventFormat";
 
 /**
  * Marketplace sale events the seller joined. A sale on one of the event's
