@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../api/client";
 import type { BulkUploadDefaults } from "../bulkPhotoUpload";
+import { formatMoney } from "./analyticsFormat";
+import { BOXES_QUERY_KEY, boxStoreName } from "./boxPurchases";
 
 interface Props {
   count: number;
@@ -12,6 +16,8 @@ const EMPTY_DEFAULTS: BulkUploadDefaults = { cog: "", labels: "" };
 
 export function BulkUploadDialog({ count, onCancel, onConfirm }: Props) {
   const [defaults, setDefaults] = useState<BulkUploadDefaults>(EMPTY_DEFAULTS);
+  const boxes = useQuery({ queryKey: BOXES_QUERY_KEY, queryFn: api.boxes.list }).data?.boxes ?? [];
+  const box = boxes.find((row) => row.id === defaults.boxId);
   const cogRef = useRef<HTMLInputElement>(null);
   const onCancelRef = useRef(onCancel);
 
@@ -61,6 +67,22 @@ export function BulkUploadDialog({ count, onCancel, onConfirm }: Props) {
           </p>
         </div>
         <div className="bulk-upload-fields">
+          {boxes.length ? (
+            <label className="bulk-upload-field is-wide">
+              <span className="label">Box</span>
+              <select
+                className="input"
+                value={defaults.boxId || ""}
+                onChange={(event) => setDefaults((current) => ({ ...current, boxId: event.target.value || undefined }))}
+              >
+                <option value="">Not from a box</option>
+                {boxes.map((row) => (
+                  <option key={row.id} value={row.id}>{boxStoreName(row.store)} · {row.title}</option>
+                ))}
+              </select>
+              <span className="bulk-upload-help">See what this box makes back under Sourcing → Boxes you bought.</span>
+            </label>
+          ) : null}
           <label className="bulk-upload-field">
             <span className="label">Cost of goods (COG)</span>
             <input
@@ -70,10 +92,13 @@ export function BulkUploadDialog({ count, onCancel, onConfirm }: Props) {
               min="0"
               step="0.01"
               inputMode="decimal"
-              placeholder="0.00"
+              placeholder={box?.cost_per_piece != null ? box.cost_per_piece.toFixed(2) : "0.00"}
               value={defaults.cog}
               onChange={(event) => setDefaults((current) => ({ ...current, cog: event.target.value }))}
             />
+            {box?.cost_per_piece != null ? (
+              <span className="bulk-upload-help">Leave blank to use the box's {formatMoney(box.cost_per_piece)} a piece.</span>
+            ) : null}
           </label>
           <label className="bulk-upload-field">
             <span className="label">Labels</span>

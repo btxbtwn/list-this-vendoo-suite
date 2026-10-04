@@ -77,8 +77,10 @@ class ConversationRepo:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, title: str | None = None, notes: str | None = None) -> Conversation:
-        conv = Conversation(title=title, notes=notes)
+    def create(
+        self, title: str | None = None, notes: str | None = None, box_id: str | None = None,
+    ) -> Conversation:
+        conv = Conversation(title=title, notes=notes, box_id=box_id or None)
         self.db.add(conv)
         self.db.commit()
         self.db.refresh(conv)

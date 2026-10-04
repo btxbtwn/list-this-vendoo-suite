@@ -139,6 +139,14 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(lot["title"], "Men's Flannel Shirts Bale · 100LB")  # one bale per theme
         self.assertEqual((lot["ship_est"], lot["landed"]), (0, lot["price"]))
 
+    def test_a_store_factor_scales_only_that_stores_resale_prices(self):
+        resale = {"cartoon t-shirts": 15, "men's flannel shirts": 12}
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), resale, {"raghouse": 0.5})[1]
+        cartoon = next(r for r in rows if r["theme"] == "cartoon t-shirts")
+        flannel = next(r for r in rows if r["theme"] == "men's flannel shirts")
+        self.assertEqual((cartoon["resale_per_pc"], cartoon["resale_factor"]), (7.5, 0.5))
+        self.assertEqual((flannel["resale_per_pc"], flannel["resale_factor"]), (12, 1.0))
+
     def test_research_allowance_is_shared_between_stores(self):
         rows = [{"store": "raghouse", "theme": f"rag-{i}", "demand": 2, "trend_hits": []}
                 for i in range(30)]
