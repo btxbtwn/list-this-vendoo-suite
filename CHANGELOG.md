@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.149 — 2026-10-04
+
+- Start a new listing with the + at the end of your open listing tabs. The extra New listing button in the sidebar is gone.
+
 ## 0.1.148 — 2026-10-04
 
 - After you start Regenerate on selected listings, the checkboxes go away right away instead of staying stuck until the run ends. Any listings that fail come back selected so you can retry them.
