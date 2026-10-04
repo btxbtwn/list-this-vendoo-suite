@@ -1,5 +1,6 @@
 """Read-only send previews, bound to the listing the seller reviewed."""
 
+import asyncio
 from collections import OrderedDict
 from copy import deepcopy
 import hashlib
@@ -84,18 +85,30 @@ async def preview_send(db, conv_id: str) -> dict:
     inputs, fingerprint = review_inputs(db, conv_id)
     job = SimpleNamespace(id=None)
     item_id = inputs["binding"].get("vendooItemId")
-    current = {}
-    if item_id:
+
+    async def read_current() -> dict:
+        if not item_id:
+            return {}
         reply = await run_ops(job, [{"op": "get_item", "item_id": item_id, "with_version": True}], timeout=ITEM_READ_TIMEOUT_SEC)
-        current = next((r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None)
-        if not isinstance(current, dict) or not current.get("_studio_update_time"):
-            raise HTTPException(502, "Could not read the current Vendoo draft version. Reload the extension and try again.")
-    snapshot, specifics, schema, unresolved, unfilled = await prepare_listing_fields_for_vendoo(job, inputs["snapshot"])
+        return next((r.get("item") for r in reply.get("results", []) if r.get("op") == "get_item"), None)
+
+    async def read_labels() -> dict[str, str] | None:
+        if not inputs["snapshot"].get("labels"):
+            return None
+        return await label_display_map(job, timeout=ITEM_READ_TIMEOUT_SEC)
+
+    # Independent reads: the extension answers them side by side.
+    current, (snapshot, specifics, schema, unresolved, unfilled), names = await asyncio.gather(
+        read_current(), prepare_listing_fields_for_vendoo(job, inputs["snapshot"]), read_labels(),
+    )
+    if item_id and (not isinstance(current, dict) or not current.get("_studio_update_time")):
+        raise HTTPException(502, "Could not read the current Vendoo draft version. Reload the extension and try again.")
     images = (current.get("generalDetails") or {}).get("images") or []
     desired, build_unresolved = build_vendoo_item(snapshot, schema, images=images, specifics=specifics)
     # Compare label names, without creating labels before approval.
     if snapshot.get("labels") or current.get("labels"):
-        names = await label_display_map(job, timeout=ITEM_READ_TIMEOUT_SEC)
+        if names is None:
+            names = await label_display_map(job, timeout=ITEM_READ_TIMEOUT_SEC)
         current = deepcopy(current)
         current["labels"] = [names.get(str(label), str(label)) for label in current.get("labels", [])]
         desired["labels"] = [names.get(str(label), str(label)) for label in snapshot.get("labels", [])]

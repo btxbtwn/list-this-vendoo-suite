@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.153 — 2026-10-04
+
+- The Review Vendoo changes preview opens faster: Studio reads the current draft, the category fields and your labels at the same time instead of one after another.
+
 ## 0.1.152 — 2026-10-03
 
 - Jump straight to fields that need fixing, grouped by marketplace. Send progress shows completed photo uploads and elapsed time.
