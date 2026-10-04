@@ -6,9 +6,17 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.153 — 2026-10-04
+## 0.1.155 — 2026-10-04
 
 - Update Vendoo no longer tells you to wait for generation when nothing is running, and a listing stuck on In Progress clears itself.
+
+## 0.1.154 — 2026-10-04
+
+- The Review Vendoo changes preview opens faster: Studio reads the current draft, the category fields and your labels at the same time instead of one after another.
+
+## 0.1.153 — 2026-10-04
+
+- The scrollbar under the open listing tabs is now a thin line that only shows when you hover over the tabs.
 
 ## 0.1.152 — 2026-10-03
 
