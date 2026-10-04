@@ -19,6 +19,7 @@ test('photo uploads overlap, stay bounded and retain seller order before create'
     return { version: 3, id: image.id };
   };
   let created = false;
+  const progress = [];
   worker.createVendooItem = async () => {
     assert.equal(active, 0);
     created = true;
@@ -26,7 +27,7 @@ test('photo uploads overlap, stay bounded and retain seller order before create'
   };
   const result = worker.runVendooApiOps([
     ...['a', 'b', 'c', 'd', 'e'].map(photo), { op: 'create_item', item: {} },
-  ]);
+  ], (value) => progress.push({ ...value }));
   await tick();
   assert.deepEqual([...pending.keys()], ['a', 'b', 'c']);
   assert.equal(created, false);
@@ -34,6 +35,7 @@ test('photo uploads overlap, stay bounded and retain seller order before create'
   pending.get('b')();
   await tick();
   assert.equal(pending.has('d'), false);
+  assert.deepEqual(progress, [{ completed: 0, total: 5 }, { completed: 1, total: 5 }, { completed: 2, total: 5 }]);
   pending.get('a')();
   await tick();
   assert.equal(peak, 3);
@@ -43,6 +45,7 @@ test('photo uploads overlap, stay bounded and retain seller order before create'
   assert.equal(reply.ok, true);
   assert.equal(created, true);
   assert.deepEqual(reply.results.slice(0, 5).map((row) => row.image.id), ['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual(progress.map((value) => value.completed), [0, 1, 2, 3, 4, 5]);
 });
 
 test('a failed photo settles the current batch and prevents later uploads and writes', async () => {
@@ -50,6 +53,7 @@ test('a failed photo settles the current batch and prevents later uploads and wr
   worker.freshVendooSession = async () => ({ uid: 'u1' });
   let finish;
   const started = [];
+  const progress = [];
   worker.uploadVendooPhoto = async (_session, image) => {
     started.push(image.id);
     if (image.id === 'b') throw new Error('upload failed');
@@ -59,7 +63,7 @@ test('a failed photo settles the current batch and prevents later uploads and wr
   worker.createVendooItem = async () => { assert.fail('must not create'); };
   const result = worker.runVendooApiOps([
     ...['a', 'b', 'c', 'd'].map(photo), { op: 'create_item', item: {} },
-  ]);
+  ], (value) => progress.push({ ...value }));
   let settled = false;
   result.then(() => { settled = true; });
   await tick();
@@ -70,6 +74,7 @@ test('a failed photo settles the current batch and prevents later uploads and wr
   assert.deepEqual(started, ['a', 'b', 'c']);
   assert.deepEqual(reply.results.map((row) => row.ok), [true, false, true]);
   assert.equal(reply.results[1].photo_id, 'b');
+  assert.equal(progress.at(-1).completed, 2);
 });
 
 test('dependent reads and writes remain sequential around upload batches', async () => {

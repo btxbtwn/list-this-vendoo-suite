@@ -848,9 +848,22 @@ async def prepare_listing_for_vendoo(
     job, listing: dict[str, Any], *, provider=None, evidence: str = "", mark=None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, FieldSpec]], dict[str, Any] | None, list[dict[str, str]], list[dict[str, Any]]]:
     """Reuse prepared fields and resolve labels only after seller approval."""
-    listing, specifics, schema, unresolved, unfilled = await prepare_listing_fields_for_vendoo(
-        job, listing, provider=provider, evidence=evidence, mark=mark,
-    )
+    from vendoo_studio.services.vendoo_send import job_repo
+    from vendoo_studio.services.vendoo_specifics import specs_from_rows
+
+    repo = job_repo(job)
+    event = repo.latest_event(job.id, "vendoo_review") if repo else None
+    if event:
+        if mark:
+            mark("vendoo_api_reviewed")
+        reviewed = event.payload
+        listing = copy.deepcopy(reviewed["snapshot"])
+        specifics = {mp: specs_from_rows(rows) for mp, rows in reviewed["specifics"].items()}
+        schema, unresolved, unfilled = reviewed["schema"], reviewed["unresolved"], reviewed["unfilled"]
+    else:
+        listing, specifics, schema, unresolved, unfilled = await prepare_listing_fields_for_vendoo(
+            job, listing, provider=provider, evidence=evidence, mark=mark,
+        )
     listing, label_unresolved = await resolve_listing_labels(job, listing)
     return listing, specifics, schema, [*unresolved, *label_unresolved], unfilled
 

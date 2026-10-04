@@ -39,6 +39,7 @@ class ExtMessageType(str, enum.Enum):
     JOB_VENDOO_ITEM = "job.vendoo_item"
     JOB_CATEGORIES = "job.categories"
     JOB_VENDOO_API_RESULT = "job.vendoo_api_result"
+    JOB_VENDOO_API_PROGRESS = "job.vendoo_api_progress"
     JOB_PREVIEW_FRAME = "job.preview_frame"
     BROWSER_RESULT = "browser.result"
     DIAGNOSTIC_OBSERVED = "diagnostic.observed"

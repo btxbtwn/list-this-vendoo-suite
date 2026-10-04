@@ -85,8 +85,9 @@ class VendooApiExtensionTest(unittest.TestCase):
             {"op": "create_item", "item": {"itemID": "x", "userID": "u1"}, "subscription_version": "v2"},
             {"op": "get_item", "item_id": "abc"},
         ])
-        reply = out["sent"][0]
-        self.assertEqual(reply["type"], "job.vendoo_api_result")
+        progress = [message for message in out["sent"] if message["type"] == "job.vendoo_api_progress"]
+        self.assertEqual([message["payload"]["completed"] for message in progress], [0, 1])
+        reply = next(message for message in out["sent"] if message["type"] == "job.vendoo_api_result")
         self.assertEqual(reply["message_id"], "r1")
         self.assertEqual(reply["job_id"], "job-1")
         payload = reply["payload"]

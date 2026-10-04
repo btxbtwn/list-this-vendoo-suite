@@ -1551,7 +1551,7 @@ export function ChatPanel({ convId, queuedMessage, onQueuedMessageConsumed, brow
 
         {resetting && (
           <div className="thinking-block">
-            <SendProgress label="Clearing chat and generated fields…" ceiling={70} />
+            <SendProgress label="Clearing chat and generated fields…" />
           </div>
         )}
 

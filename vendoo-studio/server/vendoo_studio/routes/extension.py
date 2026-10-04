@@ -771,6 +771,11 @@ async def extension_websocket(ws: WebSocket):
                     repo.add_event(job_id, "dispatched")
                     _set_conversation_status(db, job_id, "listing")
 
+            elif msg_type == "job.vendoo_api_progress":
+                from vendoo_studio.services.vendoo_send import record_photo_progress
+
+                record_photo_progress(db, message.get("job_id"), message.get("payload", {}))
+
             elif msg_type == "job.progress":
                 payload = message.get("payload", {})
                 job_id = message.get("job_id")

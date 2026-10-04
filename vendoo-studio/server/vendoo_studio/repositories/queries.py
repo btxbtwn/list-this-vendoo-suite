@@ -27,7 +27,7 @@ BULKY_EVENT_KEYS = ("item", "schema", "fill_log", "verification")
 SANITIZED_EVENT_TYPES = ("step_completed", "step_failed")
 # One row each: the newest progress is the only progress worth having, and the
 # stored review already carries every schema section read so far.
-UPSERT_EVENT_TYPES = ("progress", "completion_review", "vendoo_api_checkpoint", "vendoo_api_timing")
+UPSERT_EVENT_TYPES = ("progress", "completion_review", "vendoo_api_checkpoint", "vendoo_api_timing", "vendoo_api_progress")
 
 BUSY_LISTING_STATUSES = ("in_progress", "listing")
 # Vendoo's own inventory labels, plus the one state Vendoo has no name for.

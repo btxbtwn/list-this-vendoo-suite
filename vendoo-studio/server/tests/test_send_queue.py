@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from vendoo_studio.database import Base
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
-from vendoo_studio.routes.jobs import EnsureDraftJobRequest, enqueue_send, cancel_job, get_queue
+from vendoo_studio.routes.jobs import SendJobRequest, enqueue_send, cancel_job, get_queue
 from vendoo_studio.routes.extension import dispatch_queued_jobs
 from vendoo_studio.services.vendoo_create import VendooCreateError
 
@@ -55,7 +55,14 @@ class SendQueueTest(unittest.IsolatedAsyncioTestCase):
         return conv
 
     async def enqueue(self, conv):
-        return await enqueue_send(EnsureDraftJobRequest(conversation_id=conv.id), self.db)
+        from vendoo_studio.services.send_review import remember_review, review_inputs
+
+        inputs, fingerprint = review_inputs(self.db, conv.id)
+        review_id = remember_review(inputs, fingerprint, {
+            "snapshot": inputs["snapshot"], "specifics": {}, "schema": None,
+            "unresolved": [], "unfilled": [], "expected_version": None,
+        })
+        return await enqueue_send(SendJobRequest(conversation_id=conv.id, review_id=review_id), self.db)
 
     async def test_fifo_snapshots_and_failure_advance(self):
         first, second = self.listing("First"), self.listing("Second")

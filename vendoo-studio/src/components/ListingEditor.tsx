@@ -7,7 +7,11 @@ import { FillLogPanel } from "./FillLogPanel";
 import { PhotoTray } from "./PhotoTray";
 import { ItemDetails } from "./ItemDetails";
 import { ConnectChromeButton } from "./ConnectChromeButton";
-import { SendProgress, useSendStep } from "./SendProgress";
+import { SendProgress, sendProgressLabel } from "./SendProgress";
+import { ListingBlockers } from "./ListingBlockers";
+import { ListingHistory } from "./ListingHistory";
+import { SendReview } from "./SendReview";
+import { blockerTarget, matchingEditorField } from "./listingChanges";
 import { VendooSyncStatus } from "./VendooSyncStatus";
 import { OpenListingButton } from "./OpenListingButton";
 import { MarketplaceLogo } from "./MarketplaceLogo";
@@ -83,6 +87,10 @@ export function ListingEditor({
   const queryClient = useQueryClient();
   const [editTab, setEditTab] = React.useState("general");
   const [jsonText, setJsonText] = React.useState("");
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [fieldTarget, setFieldTarget] = React.useState<{ field: string; sequence: number } | null>(null);
+  const editorRef = React.useRef<HTMLDivElement>(null);
+  const showJsonEditor = React.useCallback(() => setEditTab("json"), []);
 
   const { data: jobs, isLoading: jobsLoading, isFetching: jobsFetching } = useQuery({
     queryKey: ["jobs", convId],
@@ -199,6 +207,28 @@ export function ListingEditor({
     if (!tabs.includes(editTab)) setEditTab("general");
   }, [editTab, tabs]);
 
+  const openBlocker = (field: string) => {
+    const target = blockerTarget(field);
+    onReviewTabChange(target.reviewTab);
+    setEditTab(tabs.includes(target.tab) ? target.tab : "json");
+    setFieldTarget({ field, sequence: Date.now() });
+  };
+  React.useEffect(() => {
+    if (fieldTarget?.field === "photos" && reviewTab === "input") {
+      const target = editorRef.current?.querySelector<HTMLElement>(".photo-tray button");
+      target?.scrollIntoView({ block: "center" });
+      target?.focus();
+    }
+    if (fieldTarget && editTab === "json" && reviewTab === "forms") {
+      const target = editorRef.current?.querySelector<HTMLTextAreaElement>("textarea[aria-label='Listing JSON']");
+      target?.focus();
+      const keys = fieldTarget.field.split(".");
+      const key = keys[keys.length - 1];
+      const index = target?.value.indexOf(JSON.stringify(key)) ?? -1;
+      if (index >= 0) target?.setSelectionRange(index, index + key.length + 2);
+    }
+  }, [fieldTarget, reviewTab, editTab]);
+
   const applyJsonEdit = () => {
     try {
       const parsed = JSON.parse(jsonText);
@@ -273,7 +303,7 @@ export function ListingEditor({
   }, [jobsLoading, photosLoading, listingJob?.id, importedItemId, convId, photos?.length]);
 
   return (
-    <div className="listing-editor">
+    <div className="listing-editor" ref={editorRef}>
       <div className="pr-review-header">
         {/* Desktop: the titlebar breadcrumb already names the listing in full and
             the actions sit beside it, so repeating a truncated copy here only
@@ -293,6 +323,7 @@ export function ListingEditor({
           </ListingReviewActions>
         </div>
         <div className="pr-review-meta">
+          <button type="button" className="btn btn-ghost btn-sm" disabled={!data?.current_revision_id} onClick={() => { setFieldTarget(null); setHistoryOpen(true); }}>History</button>
           <VendooLinkControl
             convId={convId}
             itemId={importedItemId}
@@ -425,7 +456,7 @@ export function ListingEditor({
           <>
             <div className="tab-group">
               {tabs.map((tab) => (
-                <button key={tab} className={`tab-btn${editTab === tab ? " active" : ""}`} onClick={() => setEditTab(tab)}>
+                <button key={tab} className={`tab-btn${editTab === tab ? " active" : ""}`} onClick={() => { setFieldTarget(null); setEditTab(tab); }}>
                   {tab === "json" ? "JSON" : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               ))}
@@ -434,6 +465,7 @@ export function ListingEditor({
               <div>
                 <textarea
                   className="input"
+                  aria-label="Listing JSON"
                   value={jsonText}
                   onChange={(e) => setJsonText(e.target.value)}
                   style={{ height: 340, fontFamily: "var(--font-mono)", fontSize: 11.5 }}
@@ -448,6 +480,8 @@ export function ListingEditor({
                 listing={listing}
                 revisionId={data?.current_revision_id}
                 tab={editTab}
+                target={fieldTarget}
+                onMissingField={showJsonEditor}
                 onChange={(updated) => updateMutation.mutate(updated)}
               />
             )}
@@ -466,10 +500,13 @@ export function ListingEditor({
           selectedMarketplaces={marketplaceSettings?.selected}
           liveMarketplaces={liveMarketplaces}
           vendooItemId={importedItemId}
+          onSelectBlocker={openBlocker}
           onJobStarted={onJobStarted}
           onAskChat={askChat}
         />
       </div>
+      {historyOpen && data?.current_revision_id && <ListingHistory convId={convId} listing={listing} revisionId={data.current_revision_id}
+        busy={generating || Boolean(jobs?.some((job) => ACTIVE_SEND_STATUSES.has(job.status)))} onClose={() => setHistoryOpen(false)} />}
     </div>
   );
 }
@@ -480,17 +517,22 @@ function StructuredEditor({
   revisionId,
   tab,
   onChange,
+  target,
+  onMissingField,
 }: {
   convId: string;
   listing: ListingData;
   revisionId?: string | null;
   tab: string;
   onChange: (v: ListingData) => void;
+  target: { field: string; sequence: number } | null;
+  onMissingField: () => void;
 }) {
+  const formRef = React.useRef<HTMLDivElement>(null);
   // What Vendoo says this listing's category actually renders, rather than a
   // list kept by hand here. Falls back to the static one while it loads, or
   // for a category no schema has been fetched for.
-  const { data: forms } = useQuery({
+  const { data: forms, isFetching: fieldsLoading } = useQuery({
     queryKey: ["listing-fields", convId],
     queryFn: () => api.vendooApi.listingFields(convId),
     staleTime: 60_000,
@@ -510,6 +552,14 @@ function StructuredEditor({
     [forms, listing, tab, dropdownOptions?.forms],
   );
   const [local, setLocal] = React.useState<Record<string, string>>({});
+  React.useEffect(() => {
+    if (!target) return;
+    const key = matchingEditorField(fields, target.field);
+    if (!key) { if (!fieldsLoading) onMissingField(); return; }
+    const input = [...(formRef.current?.querySelectorAll<HTMLElement>("[data-listing-field]") || [])].find((element) => element.dataset.listingField === key);
+    input?.scrollIntoView({ block: "center" });
+    input?.focus();
+  }, [target, fields, fieldsLoading, onMissingField]);
 
   React.useEffect(() => {
     const init: Record<string, string> = {};
@@ -525,11 +575,11 @@ function StructuredEditor({
 
   const handleBlur = (key: string) => {
     if (local[key] == null) return;
+    const field = fields.find((entry) => entry.key === key);
+    const before = getListingEditorValue(listing, key);
+    if (local[key] === (before != null ? String(before) : field?.defaultValue || "")) return;
     const updated = cloneListing(listing);
-    for (const field of fields) {
-      if (local[field.key] == null) continue;
-      setListingEditorValue(updated, field.key, coerce(local[field.key]));
-    }
+    setListingEditorValue(updated, key, coerce(local[key]));
     onChange(updated);
   };
 
@@ -537,10 +587,7 @@ function StructuredEditor({
     const nextLocal = { ...local, [key]: value };
     setLocal(nextLocal);
     const updated = cloneListing(listing);
-    for (const field of fields) {
-      if (nextLocal[field.key] == null) continue;
-      setListingEditorValue(updated, field.key, coerce(nextLocal[field.key]));
-    }
+    setListingEditorValue(updated, key, coerce(value));
     onChange(updated);
   };
 
@@ -548,14 +595,14 @@ function StructuredEditor({
   const gridFields = fields.filter((f) => !["title", "description", "category_path"].includes(f.key));
 
   return (
-    <div>
+    <div ref={formRef}>
       {generalFields.map((f) => (
         <div key={f.key} className="field-row">
-          <label className="label">{f.label}</label>
+          <label className="label" htmlFor={`listing-field-${f.key}`}>{f.label}</label>
           {f.key === "description" ? (
-            <textarea className="input" style={{ height: 100 }} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
+            <textarea id={`listing-field-${f.key}`} data-listing-field={f.key} className="input" style={{ height: 100 }} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
           ) : (
-            <input className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
+            <input id={`listing-field-${f.key}`} data-listing-field={f.key} className="input" type={f.type || "text"} value={local[f.key] || ""} onChange={(e) => setLocal({ ...local, [f.key]: e.target.value })} onBlur={() => handleBlur(f.key)} />
           )}
         </div>
       ))}
@@ -563,9 +610,11 @@ function StructuredEditor({
       <div className="field-grid">
         {gridFields.map((f) => (
           <div key={f.key} className={f.label === "Category" ? "field-row field-full" : "field-row"}>
-            <label className="label">{f.label}</label>
+            <label className="label" htmlFor={`listing-field-${f.key}`}>{f.label}</label>
             {f.options?.length ? (
               <select
+                id={`listing-field-${f.key}`}
+                data-listing-field={f.key}
                 className="input"
                 value={local[f.key] || ""}
                 onChange={(e) => commitField(f.key, e.target.value)}
@@ -581,6 +630,8 @@ function StructuredEditor({
               </select>
             ) : (
               <input
+                id={`listing-field-${f.key}`}
+                data-listing-field={f.key}
                 className="input"
                 type={f.type || "text"}
                 value={local[f.key] || ""}
@@ -601,6 +652,7 @@ function schemaFieldsForTab(
   tab: string,
 ): EditorField[] | null {
   const form = forms?.find((entry) => entry.marketplace === tab);
+  if (tab === "general") return null;
   // An unknown leaf still answers with the marketplace's own controls and the
   // values this listing holds, so render whatever rows came back.
   if (!form?.fields.length) return null;
@@ -631,6 +683,9 @@ function getFieldsForTab(listing: ListingData | undefined, tab: string): EditorF
         { key: "size", label: "Size" },
         { key: "sku", label: "SKU" },
         { key: "category_path", label: "Category" },
+        { key: "department", label: "Department" },
+        { key: "weight_oz", label: "Package Weight (oz)", type: "number" },
+        { key: "package_dimensions_in", label: "Package Dimensions (LxWxH in)" },
       ];
     case "ebay":
       return mergeSpecificsWithDefaults(listing?.ebay_specifics, "ebay_specifics", [
@@ -910,6 +965,7 @@ function SendToVendooButton({
   vendooItemId,
   onJobStarted,
   onAskChat,
+  onSelectBlocker,
 }: {
   convId: string;
   canSend: boolean;
@@ -923,9 +979,12 @@ function SendToVendooButton({
   vendooItemId?: string | null;
   onJobStarted?: () => void;
   onAskChat?: (text: string) => void;
+  onSelectBlocker: (field: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
+  const [reviewOpen, setReviewOpen] = React.useState(false);
+  const previewMutation = useMutation({ mutationFn: () => api.jobs.sendPreview(convId) });
   const sendLock = React.useRef(false);
   const bound = Boolean(vendooItemId);
 
@@ -1021,9 +1080,10 @@ function SendToVendooButton({
   );
 
   const sendMutation = useMutation({
-    mutationFn: () => api.jobs.send(convId),
+    mutationFn: (reviewId: string) => api.jobs.send(convId, reviewId),
     onSuccess: () => {
       setError(null);
+      setReviewOpen(false);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["queue"] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -1070,7 +1130,6 @@ function SendToVendooButton({
     && !apiCreateActive
     && ["queued", "awaiting_extension", "dispatched"].includes(String(existingJob.status || "")),
   );
-  const sendStep = useSendStep(step, apiCreateActive);
   const shownSendError = suppressOwnSendConflict(error, apiCreateActive);
   const extensionConnected = extStatus?.connected ?? false;
   const uniqueBlockers = React.useMemo(() => {
@@ -1110,9 +1169,16 @@ function SendToVendooButton({
       setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
       return;
     }
+    setError(null);
+    sendMutation.reset();
+    setReviewOpen(true);
+    previewMutation.mutate();
+  };
+  const approveSend = (reviewId: string) => {
+    if (sendLock.current || !sendEnabled) return;
     sendLock.current = true;
     setError(null);
-    sendMutation.mutate(undefined, {
+    sendMutation.mutate(reviewId, {
       onSettled: () => {
         sendLock.current = false;
       },
@@ -1121,16 +1187,6 @@ function SendToVendooButton({
 
   if ((probeActive || apiCreateActive || formFillActive) && existingJob) {
     const stepKey = String(existingJob.current_step || "");
-    const apiCreateCopy: Record<string, string> = {
-      vendoo_api_queued: "Waiting in the send queue…",
-      vendoo_api_categories: "Resolving marketplace categories…",
-      vendoo_api_specifics: "Reading category fields from Vendoo…",
-      vendoo_api_fields: "Filling marketplace fields…",
-      vendoo_api_photos: "Uploading photos to Vendoo…",
-      vendoo_api_create: "Creating the Vendoo draft…",
-      vendoo_api_patch: "Saving marketplace fields…",
-      vendoo_api_verify: "Checking the saved Vendoo draft…",
-    };
     const label = probeActive
       ? "Discovering fields"
       : apiCreateActive
@@ -1139,7 +1195,7 @@ function SendToVendooButton({
     const statusText = probeActive
       ? (existingJob.current_step || existingJob.status)
       : apiCreateActive
-        ? (apiCreateCopy[stepKey] || "Working with Vendoo…")
+        ? sendProgressLabel(stepKey, existingJob.send_progress)
         : `${existingJob.status}: ${existingJob.current_step || "queued"}`;
     return (
       <div className="job-card">
@@ -1148,7 +1204,8 @@ function SendToVendooButton({
             <div className="job-card-label">{label}</div>
             <div className="job-card-status">
               {apiCreateActive ? (
-                <SendProgress label={statusText} floor={sendStep.floor} ceiling={sendStep.ceiling} />
+                <SendProgress label={statusText} startedAt={existingJob.started_at || existingJob.created_at}
+                  photos={stepKey === "vendoo_api_photos" ? existingJob.send_progress : undefined} />
               ) : statusText}
               {probeActive && (
                 <div className="mt-4 text-xs text-muted">
@@ -1208,6 +1265,7 @@ function SendToVendooButton({
       <div style={{ display: "grid", gap: 8, justifyItems: "center", textAlign: "center" }}>
         <div className="text-xs text-muted">Chrome is not connected yet.</div>
         <ConnectChromeButton />
+        {!generating && <ListingBlockers issues={uniqueBlockers} onSelect={onSelectBlocker} />}
       </div>
     );
   }
@@ -1234,6 +1292,7 @@ function SendToVendooButton({
 
   return (
     <div>
+      {!generating && <ListingBlockers issues={uniqueBlockers} onSelect={onSelectBlocker} />}
       <button
         type="button"
         className={`${bound ? "btn btn-primary" : "btn btn-success"}${sendMutation.isPending ? " is-busy" : ""}`}
@@ -1259,6 +1318,10 @@ function SendToVendooButton({
         <SendProgress label={bound ? "Writing marketplace forms to Vendoo…" : "Starting the send…"} />
       )}
       {errorCard}
+      {reviewOpen && <SendReview preview={previewMutation.data} loading={previewMutation.isPending}
+        error={previewMutation.error?.message || error} busy={sendMutation.isPending}
+        onClose={() => { setReviewOpen(false); setError(null); }}
+        onRetry={() => { setError(null); sendMutation.reset(); previewMutation.mutate(); }} onApprove={approveSend} />}
     </div>
   );
 }

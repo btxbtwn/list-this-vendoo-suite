@@ -916,9 +916,12 @@ async function runVendooRead(session, op) {
 // needs (probe, upload, create, verify). Independent photo uploads run in small
 // batches, in result order; every batch settles before any dependent write.
 // A failed upload stops the sequence before the draft can be created.
-async function runVendooApiOps(ops) {
+async function runVendooApiOps(ops, onProgress = () => {}) {
   const session = await freshVendooSession();
   const results = [];
+  const totalPhotos = ops.filter((op) => op.op === 'upload_photo').length;
+  let completedPhotos = 0;
+  if (totalPhotos) onProgress({ completed: 0, total: totalPhotos });
   for (let index = 0; index < ops.length; index += 1) {
     const op = ops[index];
     if (VENDOO_READ_OPS.has(op.op)) {
@@ -950,9 +953,12 @@ async function runVendooApiOps(ops) {
       }
       const uploaded = await Promise.all(batch.map(async (call) => {
         try {
+          const image = await uploadVendooPhoto(session, call.photo || {});
+          completedPhotos += 1;
+          onProgress({ completed: completedPhotos, total: totalPhotos });
           return {
             op: 'upload_photo', ok: true, photo_id: call.photo?.id || null,
-            image: await uploadVendooPhoto(session, call.photo || {}),
+            image,
           };
         } catch (err) {
           return {
@@ -979,6 +985,8 @@ async function runVendooApiOps(ops) {
           break;
         case 'upload_photo':
           results.push({ op: 'upload_photo', ok: true, photo_id: op.photo?.id || null, image: await uploadVendooPhoto(session, op.photo || {}) });
+          completedPhotos += 1;
+          onProgress({ completed: completedPhotos, total: totalPhotos });
           break;
         case 'create_item':
           results.push({ op: 'create_item', ok: true, result: await createVendooItem(session, op.item, op.subscription_version ?? null) });
@@ -1030,7 +1038,14 @@ async function handleVendooApiMessage(msg) {
     return;
   }
   try {
-    replyVendooApi(msg, await runVendooApiOps(ops));
+    replyVendooApi(msg, await runVendooApiOps(ops, (progress) => {
+      if (!msg.job_id) return;
+      send({
+        version: 1, type: 'job.vendoo_api_progress', job_id: msg.job_id,
+        message_id: payload.request_id, sent_at: new Date().toISOString(),
+        payload: { ...progress, request_id: payload.request_id, step: 'vendoo_api_photos' },
+      });
+    }));
   } catch (err) {
     replyVendooApi(msg, { ok: false, error: String(err && err.message ? err.message : err), results: [] });
   }

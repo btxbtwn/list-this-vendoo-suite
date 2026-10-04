@@ -171,6 +171,8 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
     for job in JobRepo(db).list_by_conversation(conv_id):
         if job.status not in refresh_statuses or is_schema_probe_job(job):
             continue
+        if JobRepo(db).latest_event(job.id, "vendoo_review"):
+            continue  # A reviewed Send owns its approved snapshot, even after edits.
         platforms = (job.listing_snapshot or {}).get("platforms") if isinstance(job.listing_snapshot, dict) else None
         snapshot = dict(body.listing)
         if isinstance(platforms, list):
@@ -225,21 +227,41 @@ def get_revisions(conv_id: str, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/api/conversations/{conv_id}/revisions/{revision_id}")
+def get_revision(conv_id: str, revision_id: str, db: Session = Depends(get_db)):
+    target = ListingRepo(db).get_revision(revision_id)
+    if not target or target.conversation_id != conv_id:
+        raise HTTPException(404, "Revision not found")
+    return {"id": target.id, "listing": target.listing_json}
+
+
+class RevisionRestoreRequest(BaseModel):
+    expected_revision_id: str
+
+
 @router.post("/api/conversations/{conv_id}/revisions/{revision_id}/restore")
-def restore_revision(conv_id: str, revision_id: str, db: Session = Depends(get_db)):
+def restore_revision(conv_id: str, revision_id: str, body: RevisionRestoreRequest, db: Session = Depends(get_db)):
+    from vendoo_studio.models.job import ACTIVE_JOB_STATUSES
+    from vendoo_studio.repositories.queries import JobRepo
+    from vendoo_studio.services import activity
+    from vendoo_studio.services.streaming import active_generation
+
     listing_repo = ListingRepo(db)
     target = listing_repo.get_revision(revision_id)
     if not target or target.conversation_id != conv_id:
         raise HTTPException(404, "Revision not found")
 
     current = listing_repo.get_current(conv_id)
-    new_revision = listing_repo.save_revision(
-        conv_id=conv_id,
-        listing_json=target.listing_json,
-        source="restore",
-        parent_revision_id=current.current_revision_id if current else None,
-    )
-    return {"ok": True, "revision_id": new_revision.id}
+    if not current or current.current_revision_id != body.expected_revision_id:
+        raise HTTPException(409, "This listing changed while you were comparing revisions. Review it again before restoring.")
+    if active_generation(conv_id) or activity.running(conv_id) or any(
+        job.status in ACTIVE_JOB_STATUSES for job in JobRepo(db).list_by_conversation(conv_id)
+    ):
+        raise HTTPException(409, "Wait for generation or sending to finish before restoring a revision.")
+    result = update_listing(conv_id, ListingUpdate(listing=copy.deepcopy(target.listing_json)), db)
+    listing_repo.get_revision(result["revision_id"]).source = "restore"
+    db.commit()
+    return result
 
 
 class PriceDropApply(BaseModel):
