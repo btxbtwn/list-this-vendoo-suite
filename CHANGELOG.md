@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.170 — 2026-10-04
+
+- Ask chat now considers required fields, gaps reported when your Vendoo draft was created, and the latest saved-draft field checks to help finish missing values.
+
 ## 0.1.169 — 2026-10-04
 
 - Etsy's When Made field now uses an educated date-range estimate when the exact production date is unknown, so missing dates no longer block a draft.
