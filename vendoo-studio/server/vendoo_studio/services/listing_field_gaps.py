@@ -57,7 +57,8 @@ GAP_FILL_SYSTEM = (
     "2lb Large, otherwise Extra large.\n"
     "- Infer packaged shipping weight from item type, size, material, photos, seller notes, and research.\n"
     "- Copy package dimensions from the listing's saved Settings default; do not estimate or ask for them.\n"
-    "- Never invent brand, measurements, material, age, or origin without evidence.\n"
+    "- Follow the supplied canonical listing rules for evidence requirements, defaults, "
+    "and permitted estimates.\n"
     "- Include every listed field that you can resolve; omit fields that need a seller question."
 )
 
@@ -191,6 +192,7 @@ def build_missing_fields_request(listing: dict, gaps: list[dict[str, Any]], evid
             f"  Current value: {current}\n"
             f"  Status: {status}"
         )
+        detail += f"\n  Required: {'yes' if gap.get('required') else 'no'}"
         options, complete = prompt_options(gap.get("options"), context)
         if options:
             detail += f"\n  Allowed options: {'; '.join(options)}"
@@ -210,6 +212,15 @@ def build_missing_fields_request(listing: dict, gaps: list[dict[str, Any]], evid
     )
 
 
+def gap_fill_rules() -> str:
+    """Canonical rules used by field repair and its preparation cache."""
+    from vendoo_studio.config import skills_dir
+
+    skill_path = skills_dir() / "list-this" / "SKILL.md"
+    rules = skill_path.read_text(encoding="utf-8") if skill_path.is_file() else ""
+    return f"{GAP_FILL_SYSTEM}\n\n--- Canonical listing rules ---\n{rules}"
+
+
 async def _request_missing_field_values(
     provider,
     *,
@@ -221,7 +232,7 @@ async def _request_missing_field_values(
 
     request = build_missing_fields_request(listing, gaps, evidence)
     messages = [
-        {"role": "system", "content": GAP_FILL_SYSTEM},
+        {"role": "system", "content": gap_fill_rules()},
         {
             "role": "user",
             "content": (
@@ -258,7 +269,7 @@ async def _request_missing_field_values(
         round_patches: list[dict] = []
         for gap in gaps:
             value = listing_value_for_field(merged, gap["marketplace"], gap["field"])
-            if value and not listing_value_for_field(listing, gap["marketplace"], gap["field"]):
+            if value and (gap.get("rejected") or not listing_value_for_field(listing, gap["marketplace"], gap["field"])):
                 round_patches.append({
                     "marketplace": gap["marketplace"],
                     "field": gap["field"],
