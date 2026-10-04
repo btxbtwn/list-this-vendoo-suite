@@ -490,3 +490,136 @@
   gap: 8px;
   margin-left: auto;
 }
+
+/* Scout: is this one item worth buying? */
+.sourcing-tabs {
+  align-self: flex-start;
+}
+
+.scout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.scout-new,
+.scout-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+}
+
+.scout-new .sourcing-hint {
+  margin: 0;
+}
+
+.scout-photos,
+.scout-card-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scout-thumb,
+.scout-add {
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+}
+
+.scout-thumb img,
+.scout-card-photos img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scout-add {
+  border-style: dashed;
+  color: var(--color-cobalt);
+  font: inherit;
+  font-size: 12px;
+}
+
+.scout-card-photos img {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+}
+
+.scout-new-row,
+.scout-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.scout-new-row,
+.scout-card-actions {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.scout-new-row {
+  justify-content: space-between;
+}
+
+.scout-decide {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.scout-card-title {
+  color: var(--color-text);
+  font-size: 1.1rem;
+  font-weight: var(--weight-medium);
+}
+
+.scout-verdict-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+
+.scout-verdict {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.scout-verdict.is-buy {
+  background: color-mix(in srgb, var(--color-success) 20%, transparent);
+  color: var(--color-success);
+}
+
+.scout-verdict.is-maybe,
+.scout-verdict.is-unsure {
+  background: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+  color: var(--color-text);
+}
+
+.scout-verdict.is-pass {
+  background: color-mix(in srgb, var(--color-tomato) 18%, transparent);
+  color: var(--color-tomato);
+}
+
+.scout-reason {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.scout-spacer {
+  flex: 1;
+}
