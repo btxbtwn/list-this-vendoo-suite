@@ -285,11 +285,14 @@ export function ListingEditor({
       .map(marketplaceName);
   }, [conversation]);
 
+  // Opening an imported draft selects Fields once. The parent creates a new
+  // callback on each render; that must not reset the seller's tab selection.
+  const openImportedFields = React.useEffectEvent(() => onReviewTabChange("fields"));
   React.useEffect(() => {
     if (importedItemId && listingJob?.status === "imported") {
-      onReviewTabChange("fields");
+      openImportedFields();
     }
-  }, [importedItemId, listingJob?.status, listingJob?.id, onReviewTabChange]);
+  }, [importedItemId, listingJob?.status, listingJob?.id]);
 
   const ensureAttemptKey = React.useRef<string | null>(null);
   React.useEffect(() => {
