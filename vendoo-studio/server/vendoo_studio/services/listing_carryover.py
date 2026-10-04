@@ -21,7 +21,7 @@ _BLOCK_TEMPLATE = (
     r"(?is)\b{marker}\s*:\s*(.+?)"
     r"(?=\n\s*\n|\n\s*[A-Za-z][A-Za-z /]{{1,20}}\s*:(?!\s*[\d.])|\Z)"
 )
-_NO_FLAWS_RE = re.compile(r"(?i)^(?:none|no known|no visible|nothing)\b")
+_NO_FLAWS_RE = re.compile(r"(?i)^(?:none|no known|no visible|no notable|nothing|n/?a)\b")
 _DIGIT_RE = re.compile(r"\d")
 # The formula's closing phrase, not part of the flaws themselves.
 _SEE_PHOTOS_RE = re.compile(r"(?i)[\s.;,]*see (?:the )?photos(?: for (?:details|more))?[\s.]*$")
@@ -72,9 +72,14 @@ def _measurements_from_description(description: Any) -> str:
     return block if _DIGIT_RE.search(block) else ""
 
 
+def says_no_flaws(text: str) -> bool:
+    """True for filler such as "none noted" that a Flaws block carries when there are none."""
+    return bool(_NO_FLAWS_RE.match(text.strip()))
+
+
 def _flaws_from_description(description: Any) -> str:
     block = without_see_photos(description_block(description, "flaws?"))
-    return "" if _NO_FLAWS_RE.match(block) else block
+    return "" if says_no_flaws(block) else block
 
 
 def _money(value: Any) -> str:
