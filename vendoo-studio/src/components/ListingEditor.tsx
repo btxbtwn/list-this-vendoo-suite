@@ -248,7 +248,7 @@ export function ListingEditor({
     queryFn: () => api.conversations.activity(convId),
     refetchInterval: (query) => (query.state.data?.busy ? 1000 : 2000),
   });
-  const generating = chatBusy || Boolean(activity?.busy) || conversation?.status === "in_progress" || schemaProbeActive;
+  const generating = chatBusy || Boolean(activity?.busy) || schemaProbeActive;
   const askChat = generating ? undefined : onAskChat;
 
   const listing = data?.listing || {};

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.153 — 2026-10-04
+
+- Update Vendoo no longer tells you to wait for generation when nothing is running, and a listing stuck on In Progress clears itself.
+
 ## 0.1.152 — 2026-10-03
 
 - Jump straight to fields that need fixing, grouped by marketplace. Send progress shows completed photo uploads and elapsed time.
