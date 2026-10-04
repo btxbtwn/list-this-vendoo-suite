@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.157 — 2026-10-04
+
+- Regenerate now keeps your measurements and flaws in the new description. Measurements written one per line all come over, not just the first, and the new description always shows your flaws and exact measurements instead of "See photos" or "none noted".
+
 ## 0.1.156 — 2026-10-04
 
 - Descriptions no longer include doubts like "photo estimates" or "color is uncertain". Anything Studio couldn't confirm stays in its chat reply to you, and buyers never see it.

@@ -348,6 +348,56 @@ class PersistListingTest(unittest.TestCase):
         )
         self.assertEqual(parsed["sku"], "BIN4-001")
 
+    def test_regenerate_writes_carried_measurements_and_flaws_into_description(self):
+        """The model writing "See photos" / "none noted" cannot drop the seller's facts."""
+        ConversationRepo(self.db).write_notes(self.conv.id, json.dumps({
+            "knownFlaws": "small stain near the hem",
+            "descriptionMeasurements": 'Pit to pit: 22"; Length: 27"; Sleeve: 25"',
+        }))
+        description = (
+            "Grunge oversized flannel.\n\n"
+            "Flaws: none noted. See photos for details.\n\n"
+            "Measurements: See photos"
+        )
+        parsed = persist_generated_listing(
+            self.db, self.conv.id, "", parsed={**LISTING_JSON, "description": description},
+        )
+        self.assertEqual(parsed["description"], (
+            "Grunge oversized flannel.\n\n"
+            "Flaws: small stain near the hem. See photos for details.\n\n"
+            'Measurements: Pit to pit: 22"; Length: 27"; Sleeve: 25"'
+        ))
+        saved = ListingRepo(self.db).get_revisions(self.conv.id)[0].listing_json
+        self.assertEqual(saved["description"], parsed["description"])
+
+    def test_typed_measurements_replace_model_numbers(self):
+        ConversationRepo(self.db).write_notes(self.conv.id, json.dumps({
+            "garment": "pants",
+            "measurements": {"pants": {"waist": "16", "inseam": "30"}},
+        }))
+        description = (
+            "Baggy y2k carpenter jeans.\n\n"
+            "Flaws: none noted. See photos for details.\n\n"
+            'Measurements: Waist: 15"; Inseam: 32"'
+        )
+        parsed = persist_generated_listing(
+            self.db, self.conv.id, "", parsed={**LISTING_JSON, "description": description},
+        )
+        self.assertTrue(parsed["description"].endswith('Measurements: Waist: 16"; Inseam: 30"'))
+        self.assertIn("Flaws: none noted.", parsed["description"])
+
+    def test_model_flaws_that_name_the_seller_flaw_are_kept(self):
+        ConversationRepo(self.db).write_notes(self.conv.id, json.dumps({"knownFlaws": "Small stain near hem"}))
+        description = (
+            "Grunge oversized flannel.\n\n"
+            "Flaws: small stain near hem; light pilling on the sleeves. See photos for details.\n\n"
+            "Measurements: See photos"
+        )
+        parsed = persist_generated_listing(
+            self.db, self.conv.id, "", parsed={**LISTING_JSON, "description": description},
+        )
+        self.assertEqual(parsed["description"], description)
+
     def test_saved_dimension_default_wins_over_model_estimate(self):
         with patch(
             "vendoo_studio.services.user_settings.package_dimensions_string",
