@@ -502,6 +502,40 @@ class PersistListingTest(unittest.TestCase):
         )
         self.assertIn("Flaws:", listing["description"])
 
+    def test_send_readiness_fixes_strip_uncertainty_from_description(self):
+        from vendoo_studio.services.listing_generate import apply_send_readiness_fixes
+
+        listing = {
+            "title": "BCNU M mesh striped crop top tee y2k grunge M",
+            "description": (
+                "Y2K grunge mesh striped crop tee with a cropped boxy fit. "
+                "Brand could not be verified from the tag.\n\n"
+                "Flaws: none noted. See photos for details.\n\n"
+                "Measurements: pit to pit 17.5 in, length 16 in (photo estimates; silver "
+                "versus gray color is uncertain)."
+            ),
+        }
+        apply_send_readiness_fixes(listing)
+        self.assertEqual(
+            listing["description"],
+            "Y2K grunge mesh striped crop tee with a cropped boxy fit.\n\n"
+            "Flaws: none noted. See photos for details.\n\n"
+            "Measurements: pit to pit 17.5 in, length 16 in.",
+        )
+
+    def test_strip_uncertainty_keeps_descriptions_without_hedges(self):
+        from vendoo_studio.services.listing_generate import strip_uncertainty_from_description
+
+        listing = {
+            "title": "Levi's 32 Y2K Jeans Blue Straight",
+            "description": (
+                "Y2K straight leg jeans (button fly) in a classic blue wash.\n\n"
+                "Flaws: small mark on hem. See photos for details.\n\n"
+                'Measurements: Waist: 16"; Inseam: 30"'
+            ),
+        }
+        self.assertFalse(strip_uncertainty_from_description(listing))
+
     def test_sanitize_listing_sizes_strips_approx_prefix(self):
         from vendoo_studio.services.listing_generate import (
             apply_send_readiness_fixes,
