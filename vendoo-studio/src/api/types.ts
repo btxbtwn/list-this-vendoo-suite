@@ -627,3 +627,34 @@ export interface SourceBoxInput {
   url?: string | null;
   estimate_per_piece?: number | null;
 }
+
+export type ScoutVerdict = "buy" | "maybe" | "pass" | "unsure";
+
+/** One "is this worth buying?" check from photos taken while sourcing. */
+export interface ScoutCheck {
+  id: string;
+  status: "checking" | "done" | "failed";
+  asking_price: number | null;
+  photo_urls: string[];
+  title: string | null;
+  /** Expected sale price: the median of the sold comps. */
+  estimate: number | null;
+  comps_count: number | null;
+  comps: string | null;
+  error: string | null;
+  decision: "bought" | "passed" | null;
+  conversation_id: string | null;
+  sold_price: number | null;
+  created_at: string | null;
+  /** What the sale brings in after marketplace fees. */
+  net: number | null;
+  /** The most worth paying to double the money. */
+  pay_up_to: number | null;
+  profit: number | null;
+  verdict: ScoutVerdict | null;
+}
+
+export interface ScoutState {
+  checks: ScoutCheck[];
+  track_record: { checks: number; bought: number; sold: number; median_ratio: number | null; close: number };
+}

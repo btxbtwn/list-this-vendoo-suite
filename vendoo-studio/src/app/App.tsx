@@ -778,7 +778,7 @@ export function App() {
                 </Suspense>
               ) : activeView === "sourcing" ? (
                 <Suspense fallback={null}>
-                  <SourcingPage onOpenProviders={openProviders} />
+                  <SourcingPage onOpenProviders={openProviders} onOpenListing={openListing} />
                 </Suspense>
               ) : selectedConvId ? null : needsSetup ? (
                 <SetupChecklist
