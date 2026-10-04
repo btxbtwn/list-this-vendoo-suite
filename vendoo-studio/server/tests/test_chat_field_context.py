@@ -136,3 +136,70 @@ def test_not_applicable_does_not_hide_required_fields_or_failed_clears():
     assert len(review_fields(optional, listing)) == 1
     optional["schema"]["ebay"]["fields"][0].update(required=False, error="Clear failed")
     assert len(review_fields(optional, listing)) == 1
+
+
+def test_chat_clear_without_status_is_remembered(context_db):
+    from vendoo_studio.services.chat_listing import apply_listing_payload
+
+    db, conv_id, _ = context_db
+    db.add(CategorySchema(
+        general_path="Clothing > Tops", marketplace="general", category_path="Tops",
+        fields=[{"label": "Secondary Color", "required": False}],
+    ))
+    db.commit()
+    assert any(row["field"] == "Secondary Color" for row in rows(chat_field_context(db, conv_id)))
+    apply_listing_payload(db, conv_id,
+        '{"missing_fields":[{"marketplace":"general","field":"Secondary Color","value":""}]}')
+    listing = ListingRepo(db).get_revisions(conv_id)[0].listing_json
+    assert listing["reviewed_empty_fields"] == [{"marketplace": "general", "field": "Secondary Color"}]
+    assert all(row["field"] != "Secondary Color" for row in rows(chat_field_context(db, conv_id)))
+    apply_listing_payload(db, conv_id,
+        '{"missing_fields":[{"marketplace":"general","field":"Secondary Color","value":"White"}]}')
+    listing = ListingRepo(db).get_revisions(conv_id)[0].listing_json
+    assert "reviewed_empty_fields" not in listing
+    assert listing["secondaryColor"] == "White"
+
+
+def test_listing_read_recovers_an_existing_saved_clear(context_db):
+    from vendoo_studio.routes.listings import get_listing
+
+    db, conv_id, _ = context_db
+    parent = ListingRepo(db).get_revisions(conv_id)[0]
+    ConversationRepo(db).add_message(conv_id, "assistant",
+        'I left Secondary Color blank because there is no verified second color.\n'
+        '{"missing_fields":[{"marketplace":"general","field":"Secondary Color","value":""}]}')
+    ListingRepo(db).save_revision(conv_id, parent.listing_json, source="model_refinement",
+                                  parent_revision_id=parent.id)
+    response = get_listing(conv_id, db)
+    assert response.listing["reviewed_empty_fields"] == [
+        {"marketplace": "general", "field": "Secondary Color"},
+    ]
+    count = len(ListingRepo(db).get_revisions(conv_id))
+    get_listing(conv_id, db)
+    assert len(ListingRepo(db).get_revisions(conv_id)) == count
+
+
+def test_reviewed_blank_does_not_hide_required_fields():
+    from vendoo_studio.services.completion_gaps import review_fields
+
+    listing = {"reviewed_empty_fields": [{"marketplace": "ebay", "field": "Holiday"}]}
+    schema = {"schema": {"ebay": {"fields": [{"label": "Holiday", "value": ""}]}}}
+    assert review_fields(schema, listing) == []
+    schema["schema"]["ebay"]["fields"][0]["required"] = True
+    assert len(review_fields(schema, listing)) == 1
+
+
+def test_saved_chat_clear_recovery_does_not_override_a_later_seller_value(context_db):
+    from vendoo_studio.routes.listings import get_listing
+
+    db, conv_id, _ = context_db
+    parent = ListingRepo(db).get_revisions(conv_id)[0]
+    ConversationRepo(db).add_message(conv_id, "assistant",
+        '{"missing_fields":[{"marketplace":"general","field":"Secondary Color","value":""}]}')
+    cleared = ListingRepo(db).save_revision(conv_id, parent.listing_json,
+        source="model_refinement", parent_revision_id=parent.id)
+    ListingRepo(db).save_revision(conv_id, {**parent.listing_json, "secondaryColor": "White"},
+        source="user_form", parent_revision_id=cleared.id)
+    response = get_listing(conv_id, db)
+    assert response.listing["secondaryColor"] == "White"
+    assert "reviewed_empty_fields" not in response.listing

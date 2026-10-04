@@ -486,6 +486,41 @@ def _is_clear(value: Any) -> bool:
     return str(value).strip() == ""
 
 
+def field_intentionally_empty(listing: dict, marketplace: str, field: str) -> bool:
+    """A saved chat clear was reviewed; it is not an unanswered optional field."""
+    key = (str(marketplace or "general").strip().lower(), field_lookup_key(field))
+    return not listing_value_for_field(listing, marketplace, field) and any(
+        isinstance(row, dict) and (
+            str(row.get("marketplace") or "general").strip().lower(),
+            field_lookup_key(row.get("field") or ""),
+        ) == key
+        for row in listing.get("reviewed_empty_fields", [])
+    )
+
+
+def remember_chat_clears(listing: dict, patches: list[dict]) -> dict:
+    """Remember explicit blank answers separately from Does Not Apply."""
+    updated = dict(listing)
+    rows = [dict(row) for row in listing.get("reviewed_empty_fields", []) if isinstance(row, dict)]
+    for patch in patches:
+        marketplace = str(patch.get("marketplace") or "general").strip().lower()
+        field = str(patch.get("field") or "").strip()
+        value = patch.get("value")
+        if not field or value is None:
+            continue
+        rows = [row for row in rows if (
+            str(row.get("marketplace") or "general").strip().lower(),
+            field_lookup_key(row.get("field") or ""),
+        ) != (marketplace, field_lookup_key(field))]
+        if _is_clear(value):
+            rows.append({"marketplace": marketplace, "field": field})
+    if rows:
+        updated["reviewed_empty_fields"] = rows
+    else:
+        updated.pop("reviewed_empty_fields", None)
+    return updated
+
+
 def write_values_into_listing(listing: dict, patches: list[dict]) -> dict:
     from vendoo_studio.services.registry import label_to_json_key
 

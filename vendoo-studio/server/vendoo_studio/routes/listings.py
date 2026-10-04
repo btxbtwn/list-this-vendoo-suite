@@ -91,6 +91,13 @@ def get_listing(conv_id: str, db: Session = Depends(get_db)):
         listing_data = copy.deepcopy(latest.listing_json)
 
     changed = False
+    if revisions:
+        from vendoo_studio.services.chat_listing import recover_saved_chat_clears
+
+        recovered = recover_saved_chat_clears(db, conv_id, revisions[0])
+        if recovered != listing_data:
+            listing_data = recovered
+            changed = True
     if isinstance(listing_data, dict):
         if align_size_fields(listing_data):
             changed = True
