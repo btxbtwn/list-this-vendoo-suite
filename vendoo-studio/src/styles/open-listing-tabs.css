@@ -6,6 +6,10 @@
   background: var(--color-ink);
 }
 .open-listing-tablist { display: flex; flex: 1; min-width: 0; overflow-x: auto; }
+.open-listing-tablist::-webkit-scrollbar { height: 3px; }
+.open-listing-tablist::-webkit-scrollbar-thumb { border: 0; border-radius: 0; background-color: transparent; }
+.open-listing-tablist:hover::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); }
+.open-listing-tablist::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
 .open-listing-tab {
   display: flex;
   flex: 0 0 auto;
