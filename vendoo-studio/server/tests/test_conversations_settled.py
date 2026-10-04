@@ -72,6 +72,26 @@ class ConversationSettlementTest(unittest.TestCase):
         self.db.refresh(conv)
         self.assertIsNotNone(conv.settled_at)
 
+    def test_reconcile_clears_in_progress_when_nothing_runs(self):
+        conv = self.repo.create(title="Crop top")
+        self.repo.update_status(conv.id, "in_progress")
+        self.repo.reconcile_job_statuses()
+        self.db.refresh(conv)
+        self.assertEqual(conv.status, "draft")
+
+    def test_reconcile_keeps_in_progress_while_chat_runs(self):
+        from vendoo_studio.services import activity
+
+        conv = self.repo.create(title="Crop top")
+        self.repo.update_status(conv.id, "in_progress")
+        work = activity.begin(conv.id, "Answering…")
+        try:
+            self.repo.reconcile_job_statuses()
+        finally:
+            activity.end(work)
+        self.db.refresh(conv)
+        self.assertEqual(conv.status, "in_progress")
+
     def test_reconcile_does_not_resettle_after_explicit_unsettle(self):
         conv = self.repo.create(title="Nike tee")
         self.repo.update_status(conv.id, "sold")
