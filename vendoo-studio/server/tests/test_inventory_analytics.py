@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -34,6 +35,24 @@ def _item(**overrides) -> AnalyticsItem:
 
 
 class SummarizeAnalyticsTest(unittest.TestCase):
+    def test_missing_sales_data_includes_undated_and_old_sales_in_every_range(self):
+        items = [
+            _item(conversation_id="undated", title="A jacket", sold_at=None, sold_price=None,
+                  cost=None, fees=None, marketplace="unknown"),
+            _item(conversation_id="old", title="B boots", sold_at=NOW - timedelta(days=500),
+                  cost=None, fees=0),
+            _item(conversation_id="free", title="C tee", sold_price=0, cost=0, fees=0),
+            _item(conversation_id="active", status="active", sold_price=None, sold_at=None),
+        ]
+        for range_id in ("7d", "30d", "all"):
+            with self.subTest(range_id=range_id):
+                rows = summarize(items, range_id=range_id, now=NOW)["incomplete_sales"]
+                self.assertEqual(rows, [
+                    {"conversation_id": "undated", "title": "A jacket",
+                     "missing": ["sale date", "sale price", "cost", "fees", "marketplace"]},
+                    {"conversation_id": "old", "title": "B boots", "missing": ["cost"]},
+                ])
+
     def test_seven_days_has_daily_buckets_and_previous_week_comparison(self):
         start = NOW - timedelta(days=7)
         items = [
@@ -443,6 +462,8 @@ class LoadAnalyticsTest(unittest.TestCase):
         self.assertIn("fees_known", body["sales"])
         self.assertIn("revenue_known", body["sales"])
         self.assertIn("days_known", body["sales"])
+        self.assertIn("last_updated_at", body)
+        self.assertIn("incomplete_sales", body)
         self.assertIsNone(body["previous"])
         month = client.get("/api/analytics?range=30d").json()
         self.assertIn("fees_known", month["previous"]["sales"])
@@ -453,6 +474,15 @@ class LoadAnalyticsTest(unittest.TestCase):
         self.assertIn("sell_through_rate", week.json())
         bad = client.get("/api/analytics?range=nope")
         self.assertEqual(bad.status_code, 400)
+
+    def test_recalculating_analytics_uses_the_saved_sync_time(self):
+        client = TestClient(app)
+        with patch("vendoo_studio.services.user_settings.vendoo_inventory_synced_at", return_value="2026-10-05T12:30:00Z"):
+            for range_id in ("7d", "all"):
+                body = client.get(f"/api/analytics?range={range_id}").json()
+                self.assertEqual(body["last_updated_at"], "2026-10-05T12:30:00Z")
+        with patch("vendoo_studio.services.user_settings.vendoo_inventory_synced_at", return_value=None):
+            self.assertIsNone(client.get("/api/analytics").json()["last_updated_at"])
 
 
 class StaleListingsTest(unittest.TestCase):

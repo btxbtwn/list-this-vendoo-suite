@@ -211,6 +211,13 @@ async def _run() -> None:
                 if not page_token:
                     break
             _delete_missing(db, conv_repo, seen_ids)
+            # An empty response with bound listings is treated as a quiet Vendoo
+            # session above, so it cannot establish that analytics is current.
+            inventory_verified = bool(seen_ids) or not conv_repo.vendoo_bound_item_ids()
+        if inventory_verified and not _progress.failed:
+            from vendoo_studio.services.user_settings import record_vendoo_inventory_sync
+
+            record_vendoo_inventory_sync(utcnow().isoformat())
     except asyncio.CancelledError:
         _progress.cancelled = True
         raise

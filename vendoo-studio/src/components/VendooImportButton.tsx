@@ -27,7 +27,7 @@ export function progressLabel(run: VendooBulkImport): string {
 }
 
 /** Sync the whole Vendoo inventory, photos included. */
-export function VendooImportButton() {
+export function VendooImportButton({ variant = "sidebar" }: { variant?: "sidebar" | "analytics" }) {
   const queryClient = useQueryClient();
   const wasRunning = useRef(false);
 
@@ -74,6 +74,9 @@ export function VendooImportButton() {
     wasRunning.current = false;
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
     queryClient.invalidateQueries({ queryKey: ["analytics"] });
+    queryClient.invalidateQueries({ queryKey: ["sale-events"] });
+    // The sidebar is also mounted on Analytics and owns completion notifications.
+    if (variant === "analytics") return;
     if (run.error) {
       addToast({ type: "error", title: "Vendoo sync stopped", description: run.error });
     } else {
@@ -83,7 +86,7 @@ export function VendooImportButton() {
         description: importSummary(run),
       });
     }
-  }, [running, run, queryClient]);
+  }, [running, run, queryClient, variant]);
 
   const onClick = async () => {
     if (start.isPending) return;
@@ -104,7 +107,7 @@ export function VendooImportButton() {
   if (running && run) {
     const pct = run.total ? Math.min(100, Math.round((run.processed / run.total) * 100)) : 0;
     return (
-      <div className="vendoo-import is-running" title={run.current_title || undefined}>
+      <div className={`vendoo-import is-running${variant === "analytics" ? " analytics-sync-progress" : ""}`} role="status" title={run.current_title || undefined}>
         <div className="vendoo-import-copy">
           <span className="vendoo-import-label">{progressLabel(run)}</span>
           <span className="vendoo-import-bar" aria-hidden="true">
@@ -126,25 +129,26 @@ export function VendooImportButton() {
   return (
     <button
       type="button"
-      className={`sidebar-icon-btn sidebar-vendoo-sync-btn${start.isPending ? " is-busy" : ""}`}
-      title="Sync Vendoo data"
-      aria-label="Sync Vendoo data"
+      className={variant === "analytics" ? "pr-pill" : `sidebar-icon-btn sidebar-vendoo-sync-btn${start.isPending ? " is-busy" : ""}`}
+      title={variant === "analytics" ? "Resync Vendoo data" : "Sync Vendoo data"}
+      aria-label={variant === "analytics" ? "Resync Vendoo data" : "Sync Vendoo data"}
       aria-busy={start.isPending || undefined}
       disabled={start.isPending}
       onClick={onClick}
     >
-      {/* Cloud + down arrow, sized to match Settings / Check for Updates glyphs. */}
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path
-          d="M4 14.9A7 7 0 1115.71 8h1.79a4.5 4.5 0 012.5 8.242"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path d="M12 12v9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-        <path d="M8 17l4 4 4-4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      {variant === "analytics" ? (start.isPending ? "Starting sync…" : "Resync Vendoo data") : (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M4 14.9A7 7 0 1115.71 8h1.79a4.5 4.5 0 012.5 8.242"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M12 12v9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+          <path d="M8 17l4 4 4-4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
     </button>
   );
 }

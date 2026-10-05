@@ -95,8 +95,16 @@ class AnalyticsOldListing(BaseModel):
     days_listed: int
 
 
+class AnalyticsIncompleteSale(BaseModel):
+    conversation_id: str
+    title: str
+    missing: list[str]
+
+
 class AnalyticsResponse(BaseModel):
     range: str
+    last_updated_at: str | None
+    incomplete_sales: list[AnalyticsIncompleteSale]
     undated_sales: int
     periods_truncated: bool
     inventory: AnalyticsInventory

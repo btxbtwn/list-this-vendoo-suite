@@ -1,13 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { InventoryAnalytics } from "../api/types";
+import type { InventoryAnalytics, VendooBulkImport } from "../api/types";
 import { AnalyticsPage } from "./AnalyticsPage";
 
-const { useQuery } = vi.hoisted(() => ({ useQuery: vi.fn() }));
+const { useQuery, useMutation } = vi.hoisted(() => ({ useQuery: vi.fn(), useMutation: vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
   useQuery,
   keepPreviousData: vi.fn(),
-  useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useMutation,
   useQueryClient: () => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn() }),
 }));
 
@@ -17,6 +17,7 @@ const sales = {
 };
 const data: InventoryAnalytics = {
   range: "30d", undated_sales: 1, periods_truncated: false,
+  last_updated_at: "2026-10-05T12:30:00Z", incomplete_sales: [],
   inventory: { active: 1, draft: 0, sold: 2, failed: 0, working: 0, asking_value: 60, cost_value: 8, cost_known: 1, stale_count: 1, stale_value: 60, undated_count: 0 },
   sell_through_rate: 66.7,
   sales,
@@ -46,16 +47,56 @@ const data: InventoryAnalytics = {
   }],
 };
 
-function render(payload: InventoryAnalytics) {
+function render(payload: InventoryAnalytics, run: Partial<VendooBulkImport> = { running: false }, starting = false) {
+  useMutation.mockReturnValue({ mutate: vi.fn(), isPending: starting });
   useQuery.mockImplementation(({ queryKey }: { queryKey: readonly string[] }) =>
     queryKey[0] === "sale-events"
       ? { data: { events: [] }, isError: false }
+      : queryKey[0] === "vendoo-bulk-import" ? { data: run }
       : { data: payload, isLoading: false, isError: false, isFetching: false },
   );
   return renderToStaticMarkup(<AnalyticsPage onOpenListing={vi.fn()} />);
 }
 
 describe("AnalyticsPage", () => {
+  it("shows the last completed Vendoo sync and offers a real resync", () => {
+    const html = render(data);
+    expect(html).toContain("Last updated on");
+    expect(html).toContain('dateTime="2026-10-05T12:30:00Z"');
+    expect(html).toContain("Resync Vendoo data");
+    expect(html).not.toContain("Refresh</button>");
+    expect(render({ ...data, last_updated_at: null })).toContain("Last updated on: not recorded yet.");
+  });
+
+  it("shows sync progress and a stop control instead of starting a second sync", () => {
+    const html = render(data, { running: true, total: 20, processed: 5, photos: 2 });
+    expect(html).toContain("Syncing 5 of 20 · 2 photos");
+    expect(html).toContain('role="status"');
+    expect(html).toContain("Stop</button>");
+    expect(html).not.toContain("Resync Vendoo data</button>");
+    const pending = render(data, { running: false }, true);
+    expect(pending).toContain('aria-busy="true" disabled=""');
+    expect(pending).toContain("Starting sync…");
+  });
+
+  it("reminds the seller to complete missing sales details across all time", () => {
+    const html = render({ ...data, incomplete_sales: [
+      { conversation_id: "undated", title: "Undated jacket", missing: ["sale date", "sale price", "fees"] },
+      { conversation_id: "old", title: "Old boots", missing: ["cost"] },
+    ] });
+    expect(html).toContain("2 sales need sales data");
+    expect(html).toContain("Across all time");
+    expect(html).toContain("Add the missing details in Vendoo, then resync");
+    expect(html).toContain("Undated jacket");
+    expect(html).toContain("Missing sale date, sale price, fees");
+    expect(html).toContain("Old boots");
+    expect(html).not.toContain("undefined");
+    expect(render(data)).not.toContain('aria-label="Missing sales data"');
+    expect(render({ ...data, incomplete_sales: [
+      { conversation_id: "one", title: "Single sale", missing: ["marketplace"] },
+    ] })).toContain("1 sale needs sales data");
+  });
+
   it("shows the weekly view and explains the sell-through percentage", () => {
     const html = render({ ...data, range: "7d" });
     expect(html).toContain("Last 7 days");

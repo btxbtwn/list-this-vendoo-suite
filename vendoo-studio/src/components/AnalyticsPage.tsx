@@ -5,6 +5,7 @@ import type { AnalyticsGroup, AnalyticsRange, AnalyticsSales, AnalyticsStaleList
 import { formatChange, formatDays, formatMoney } from "./analyticsFormat";
 import { marketplaceName } from "./marketplaceNames";
 import { SaleEvents } from "./SaleEvents";
+import { VendooImportButton } from "./VendooImportButton";
 
 const RANGES: { id: AnalyticsRange; label: string; heading: string }[] = [
   { id: "7d", label: "7 days", heading: "Last 7 days" },
@@ -34,13 +35,20 @@ export function AnalyticsPage({ onOpenListing }: Props) {
         <header className="analytics-header">
           <div className="analytics-title-row">
             <h1>Analytics</h1>
-            <button type="button" className="pr-pill" disabled={query.isFetching} onClick={() => void query.refetch()}>
-              Refresh
-            </button>
+            <VendooImportButton variant="analytics" />
           </div>
           <p className="analytics-lead">
             Sales and inventory from the listings imported from Vendoo.
           </p>
+          {data ? (
+            <p className="analytics-note analytics-updated">
+              {data.last_updated_at ? <>
+                {"Last updated on "}
+                <time dateTime={data.last_updated_at}>{new Date(data.last_updated_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time>
+                {" from Vendoo."}
+              </> : "Last updated on: not recorded yet. Resync Vendoo data to record an update."}
+            </p>
+          ) : null}
           {data ? <InventoryStrip inventory={data.inventory} /> : null}
           <div className="pr-pills" role="tablist" aria-label="Sales period">
             {RANGES.map((item) => (
@@ -68,6 +76,30 @@ export function AnalyticsPage({ onOpenListing }: Props) {
 
         {data ? (
           <>
+            {data.incomplete_sales.length > 0 ? (
+              <section className="analytics-section analytics-reminder" aria-label="Missing sales data">
+                <h2 className="analytics-section-title">
+                  {data.incomplete_sales.length} {data.incomplete_sales.length === 1 ? "sale needs" : "sales need"} sales data
+                </h2>
+                <p className="analytics-note">
+                  Across all time. Add the missing details in Vendoo, then resync to update your analytics.
+                  Missing prices, costs, or fees leave revenue and profit incomplete.
+                </p>
+                <details className="analytics-missing-sales">
+                  <summary>Review sales with missing data</summary>
+                  <ul className="analytics-recent">
+                    {data.incomplete_sales.map((sale) => (
+                      <li key={sale.conversation_id}>
+                        <button type="button" className="analytics-recent-row" onClick={() => onOpenListing(sale.conversation_id)}>
+                          <span className="analytics-recent-title">{sale.title}</span>
+                          <span className="analytics-missing-fields">Missing {sale.missing.join(", ")}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </section>
+            ) : null}
             <section className="analytics-section" aria-label={heading}>
               <h2 className="analytics-section-title">{heading}</h2>
               <SalesStats data={data} />

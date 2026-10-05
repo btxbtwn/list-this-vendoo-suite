@@ -91,11 +91,15 @@ def inventory_analytics(
     if range_id not in ANALYTICS_RANGES:
         raise ValueError(range_id)
     from vendoo_studio.services.sale_events import windows
+    from vendoo_studio.services.user_settings import vendoo_inventory_synced_at
 
     clock = now or datetime.now(UTC)
     if clock.tzinfo is None:
         clock = clock.replace(tzinfo=UTC)
-    return summarize(load_rows(db), range_id=range_id, now=clock, events=windows(db))
+    return {
+        **summarize(load_rows(db), range_id=range_id, now=clock, events=windows(db)),
+        "last_updated_at": vendoo_inventory_synced_at(),
+    }
 
 
 def load_rows(db) -> list[AnalyticsItem]:
@@ -211,6 +215,7 @@ def summarize(
     return {
         "range": range_id,
         "undated_sales": sum(1 for item in items if item.status == "sold" and item.sold_at is None),
+        "incomplete_sales": _incomplete_sales(items),
         "periods_truncated": truncated,
         "inventory": inventory,
         # Snapshot-based rate: period sales plus inventory still available today.
@@ -229,6 +234,30 @@ def summarize(
         "recent": _recent(sales, events or []),
         "oldest": _oldest(items, now),
     }
+
+
+def _incomplete_sales(items: list[AnalyticsItem]) -> list[dict[str, Any]]:
+    """Sold listings needing attention, including sales outside the selected period."""
+    rows = []
+    for item in items:
+        if item.status != "sold":
+            continue
+        missing = [
+            label for label, absent in (
+                ("sale date", item.sold_at is None),
+                ("sale price", item.sold_price is None),
+                ("cost", item.cost is None),
+                ("fees", item.fees is None),
+                ("marketplace", item.marketplace == "unknown"),
+            ) if absent
+        ]
+        if missing:
+            rows.append({
+                "conversation_id": item.conversation_id,
+                "title": item.title,
+                "missing": missing,
+            })
+    return sorted(rows, key=lambda row: (row["title"].casefold(), row["conversation_id"]))
 
 
 def _sales_stats(sales: list[AnalyticsItem]) -> dict[str, Any]:

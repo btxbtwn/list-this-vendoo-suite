@@ -32,6 +32,61 @@
   font-variant-numeric: tabular-nums;
 }
 
+.analytics-updated {
+  margin-top: 8px;
+}
+
+.analytics-header > .analytics-title-row {
+  flex-wrap: wrap;
+}
+
+.analytics-title-row .analytics-sync-progress {
+  flex: 0 1 22rem;
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+}
+
+.analytics-sync-progress .vendoo-import-label,
+.analytics-sync-progress .vendoo-import-cancel {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.analytics-reminder {
+  border-color: var(--color-cobalt);
+}
+
+.analytics-missing-sales {
+  margin-top: 16px;
+  font-size: var(--text-sm);
+}
+
+.analytics-missing-sales summary {
+  cursor: pointer;
+}
+
+.analytics-missing-sales summary:focus-visible {
+  outline: 2px solid var(--color-cobalt);
+  outline-offset: 2px;
+}
+
+.analytics-missing-sales .analytics-recent {
+  max-height: 320px;
+  margin-top: 12px;
+  overflow-y: auto;
+}
+
+.analytics-missing-sales .analytics-recent-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.analytics-missing-fields {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
 .analytics-header .pr-pills {
   margin-top: 14px;
 }

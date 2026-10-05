@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.182 — 2026-10-05
+
+- See when Analytics last synced with Vendoo, resync your data from the Analytics tab, and review reminders for sold items with missing sales details.
+
 ## 0.1.181 — 2026-10-04
 
 - Stop repeated Ask chat repairs from clearing required listing values, keep unknown original prices blank without validation errors, and use the saved brand and department when repairing titles and eBay fields.
