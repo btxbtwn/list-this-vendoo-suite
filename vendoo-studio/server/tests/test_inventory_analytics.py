@@ -34,6 +34,47 @@ def _item(**overrides) -> AnalyticsItem:
 
 
 class SummarizeAnalyticsTest(unittest.TestCase):
+    def test_seven_days_has_daily_buckets_and_previous_week_comparison(self):
+        start = NOW - timedelta(days=7)
+        items = [
+            _item(conversation_id=str(day), sold_at=start + timedelta(days=day))
+            for day in range(8)
+        ] + [
+            _item(sold_at=start - timedelta(seconds=1), sold_price=20),
+            _item(sold_at=NOW - timedelta(days=14), sold_price=10),
+            _item(sold_at=NOW - timedelta(days=14, seconds=1)),
+            _item(sold_at=NOW + timedelta(seconds=1)),
+            _item(sold_at=None),
+        ]
+        payload = summarize(items, range_id="7d", now=NOW)
+        self.assertEqual(payload["sales"]["count"], 8)
+        self.assertEqual([row["count"] for row in payload["periods"]], [1] * 6 + [2])
+        self.assertEqual([row["label"] for row in payload["periods"]], [f"9/{day}" for day in range(20, 27)])
+        self.assertEqual(payload["previous"]["sales"]["count"], 2)
+        self.assertEqual(payload["previous"]["sales"]["revenue"], 30)
+        self.assertEqual(payload["previous"]["start"], (NOW - timedelta(days=14)).isoformat())
+        self.assertEqual(payload["undated_sales"], 1)
+
+    def test_sell_through_uses_period_sales_and_current_active_inventory(self):
+        items = [
+            _item(),
+            _item(sold_at=NOW - timedelta(days=10)),
+            _item(sold_at=None),
+            _item(status="active", sold_at=None),
+            _item(status="active", sold_at=None),
+            _item(status="draft"),
+            _item(status="failed"),
+            _item(status="listing"),
+        ]
+        self.assertEqual(summarize(items, range_id="7d", now=NOW)["sell_through_rate"], 33.3)
+        self.assertEqual(summarize(items, range_id="all", now=NOW)["sell_through_rate"], 60)
+
+    def test_sell_through_handles_empty_unsold_and_sold_out_inventory(self):
+        self.assertIsNone(summarize([], range_id="7d", now=NOW)["sell_through_rate"])
+        self.assertIsNone(summarize([_item(status="draft")], range_id="7d", now=NOW)["sell_through_rate"])
+        self.assertEqual(summarize([_item(status="active")], range_id="7d", now=NOW)["sell_through_rate"], 0)
+        self.assertEqual(summarize([_item()], range_id="7d", now=NOW)["sell_through_rate"], 100)
+
     def test_sold_price_is_revenue_and_asking_price_is_inventory(self):
         payload = summarize(
             [
@@ -405,6 +446,11 @@ class LoadAnalyticsTest(unittest.TestCase):
         self.assertIsNone(body["previous"])
         month = client.get("/api/analytics?range=30d").json()
         self.assertIn("fees_known", month["previous"]["sales"])
+        week = client.get("/api/analytics?range=7d")
+        self.assertEqual(week.status_code, 200, week.text)
+        self.assertEqual(week.json()["range"], "7d")
+        self.assertEqual(len(week.json()["periods"]), 7)
+        self.assertIn("sell_through_rate", week.json())
         bad = client.get("/api/analytics?range=nope")
         self.assertEqual(bad.status_code, 400)
 

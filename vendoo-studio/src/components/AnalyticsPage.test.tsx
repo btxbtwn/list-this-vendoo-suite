@@ -18,6 +18,7 @@ const sales = {
 const data: InventoryAnalytics = {
   range: "30d", undated_sales: 1, periods_truncated: false,
   inventory: { active: 1, draft: 0, sold: 2, failed: 0, working: 0, asking_value: 60, cost_value: 8, cost_known: 1, stale_count: 1, stale_value: 60, undated_count: 0 },
+  sell_through_rate: 66.7,
   sales,
   previous: {
     start: "2026-08-01T00:00:00Z", end: "2026-08-31T00:00:00Z",
@@ -55,6 +56,15 @@ function render(payload: InventoryAnalytics) {
 }
 
 describe("AnalyticsPage", () => {
+  it("shows the weekly view and explains the sell-through percentage", () => {
+    const html = render({ ...data, range: "7d" });
+    expect(html).toContain("Last 7 days");
+    expect(html).toContain("7 days</button>");
+    expect(html).toContain("Sell-through rate");
+    expect(html).toContain("66.7%");
+    expect(html).toContain("Sales in this period ÷ (sales in this period + active listings today)");
+    expect(render({ ...data, sell_through_rate: null })).not.toContain("null%");
+  });
   it("renders period comparisons, coverage, and expandable active listings", () => {
     const html = render(data);
     expect(html).toContain("Last 30 days");
