@@ -8,6 +8,23 @@ from vendoo_studio.services import box_scout
 router = APIRouter(prefix="/api/sourcing", tags=["sourcing"])
 
 
+class SourcingComp(BaseModel):
+    url: str
+    title: str
+    sold_at: str
+    price: float
+    marketplace: str
+    snippet: str
+
+
+class SourcingActiveComp(BaseModel):
+    url: str
+    title: str
+    price: float
+    marketplace: str
+    snippet: str
+
+
 class SourcingLot(BaseModel):
     store: str
     variant_id: int
@@ -40,6 +57,15 @@ class SourcingLot(BaseModel):
     roi: float | None
     score: float
     evidence: list[str] = []
+    comps: list[SourcingComp]
+    research_at: str | None
+    research_source: str | None
+    active_comps: list[SourcingActiveComp]
+    active_median: float | None
+    resale_low: float | None
+    operating_cost: float
+    break_even_pcs: int | None
+    downside_profit: float | None
 
 
 class SourcingCart(BaseModel):
@@ -58,6 +84,7 @@ class SourcingBuyList(BaseModel):
     total: float
     expected_profit: float
     carts: list[SourcingCart]
+    exclusions: dict[str, str]
 
 
 class SourcingStore(BaseModel):
@@ -77,6 +104,7 @@ class SourcingAssumptions(BaseModel):
     sell_through: float
     fees: float
     grade_yield: dict[str, float]
+    cost_per_piece: float
 
 
 class SourcingCalibration(BaseModel):
@@ -88,6 +116,7 @@ class SourcingCalibration(BaseModel):
 class SourcingSnapshot(BaseModel):
     updated_at: str
     destination_zip: str
+    preferences: dict[str, str | float | bool]
     stores: dict[str, SourcingStore]
     research: bool
     priced_themes: int
@@ -105,6 +134,10 @@ class SourcingPrefs(BaseModel):
     raghouse_vip: bool
     zip: str
     recent_zips: list[str]
+    sell_through: float
+    fees: float
+    cost_per_piece: float
+    include_rework: bool
 
 
 class SourcingTrend(BaseModel):
@@ -122,8 +155,12 @@ class SourcingResponse(BaseModel):
 
 
 class SourcingPrefsUpdate(BaseModel):
-    budget: float | None = Field(None, gt=0)
-    min_roi: float | None = Field(None, ge=0)
+    budget: float | None = Field(None, gt=0, allow_inf_nan=False)
+    min_roi: float | None = Field(None, ge=0, allow_inf_nan=False)
+    sell_through: float | None = Field(None, gt=0, le=1, allow_inf_nan=False)
+    fees: float | None = Field(None, ge=0, lt=1, allow_inf_nan=False)
+    cost_per_piece: float | None = Field(None, ge=0, allow_inf_nan=False)
+    include_rework: bool | None = None
     raghouse_vip: bool | None = None
     zip: str | None = Field(None, pattern=r"^\d{5}$")
 

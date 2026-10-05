@@ -16,10 +16,13 @@ import {
   freeShippingGap,
   isZip,
   lotReason,
-  moneyBack,
   nextUpdate,
   otherLots,
+  planMetrics,
+  planNeedsUpdate,
+  saleDate,
   storeName,
+  whyNotPicked,
 } from "./boxScout";
 
 const QUERY_KEY = ["sourcing"];
@@ -82,9 +85,7 @@ function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
     // Keep watching until the list catches up with saved shipping and budget settings.
     refetchInterval: (current) => {
       const state = current.state.data;
-      return state && (state.refreshing || !state.snapshot
-        || state.snapshot.buy_list.budget !== state.prefs.budget
-        || state.snapshot.destination_zip !== state.prefs.zip) ? 3000 : false;
+      return state && (state.refreshing || planNeedsUpdate(state)) ? 3000 : false;
     },
   });
   const onSaved = (state: SourcingState) => queryClient.setQueryData(QUERY_KEY, state);
@@ -104,13 +105,13 @@ function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
     lots: snapshot.lots.filter((lot) => choice === "all" || lot.store === choice),
   } : null;
   const updating = !!data && (data.refreshing || refresh.isPending || savePrefs.isPending
-    || snapshot?.buy_list.budget !== data.prefs.budget || snapshot?.destination_zip !== data.prefs.zip);
+    || planNeedsUpdate(data));
 
   return (
     <>
         <header className="sourcing-header">
           <div className="sourcing-title-row">
-            <h1 className="sourcing-title">Your buy list</h1>
+            <h1 className="sourcing-title">Source with sales evidence</h1>
             {data ? (
               <UpdateStatus
                 snapshot={snapshot}
@@ -120,8 +121,8 @@ function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
             ) : null}
           </div>
           <p className="sourcing-lead">
-            Compare a combined buy list with Raghouse and Thrift Vintage Fashion options for your budget.
-            Review the boxes and estimated profit, then open the cart when you’re ready.
+            Compare wholesale boxes using recent comparable sales, current competition, and your costs.
+            A mixed box’s contents and future sales remain uncertain.
           </p>
           {data ? (
             <Settings prefs={data.prefs} saving={savePrefs.isPending} onSave={(prefs) => savePrefs.mutate(prefs)} />
@@ -136,7 +137,7 @@ function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
         {data && !snapshot ? (
           <div className="sourcing-empty">
             <div className="sourcing-empty-title">Getting your first list ready…</div>
-            <p>Studio is reading both stores and looking up what their boxes resell for. This takes a few minutes.</p>
+            <p>Studio is reading both stores and collecting dated sold listings. Only boxes with enough recent evidence can qualify. This takes a few minutes.</p>
           </div>
         ) : null}
         {data && !snapshot ? <BoughtBoxes /> : null}
@@ -144,6 +145,7 @@ function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
         {data && snapshot ? (
           <>
             <StoreProblems snapshot={snapshot} />
+            <ResearchCoverage snapshot={snapshot} />
             <Choices snapshot={snapshot} choice={choice} onChoose={setChoice} />
             {updating ? <p className="sourcing-hint" role="status">Updating your options. Cart links will be ready when the check finishes.</p> : null}
             {selectedSnapshot ? <>
@@ -219,10 +221,24 @@ function Settings({
         ))}
       </span>
       <span className="sourcing-setting">
-        Spend up to
+        Minimum ROI
+        <DraftInput
+          value={String(Math.round(prefs.min_roi * 100))}
+          label="Minimum estimated profit as a percentage of purchase cost"
+          suffix="%"
+          width="5.5rem"
+          inputMode="decimal"
+          disabled={saving}
+          clean={(text) => text.replace(/[^\d.]/g, "")}
+          accept={(text) => text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0}
+          onCommit={(text) => onSave({ min_roi: Number(text) / 100 })}
+        />
+      </span>
+      <span className="sourcing-setting">
+        Purchase budget
         <DraftInput
           value={String(prefs.budget)}
-          label="Most to spend"
+          label="Most to spend on boxes and inbound shipping before tax"
           prefix="$"
           width="5.5rem"
           inputMode="decimal"
@@ -241,6 +257,31 @@ function Settings({
         />
         I'm a Raghouse VIP
       </label>
+      <details className="sourcing-assumptions">
+        <summary>Your planning assumptions: {Math.round(prefs.sell_through * 100)}% sell, {Math.round(prefs.fees * 100)}% fees, {formatMoney(prefs.cost_per_piece)} costs per usable piece</summary>
+        <div className="sourcing-settings">
+          <span className="sourcing-setting">Usable pieces expected to sell
+            <DraftInput value={String(Math.round(prefs.sell_through * 100))} label="Percentage of usable pieces you plan to sell" suffix="%" width="5rem" inputMode="decimal" disabled={saving}
+              clean={(text) => text.replace(/[^\d.]/g, "")} accept={(text) => Number(text) > 0 && Number(text) <= 100}
+              onCommit={(text) => onSave({ sell_through: Number(text) / 100 })} />
+          </span>
+          <span className="sourcing-setting">Effective marketplace fees
+            <DraftInput value={String(Math.round(prefs.fees * 100))} label="Effective marketplace and payment fees as a percentage of item revenue" suffix="%" width="5rem" inputMode="decimal" disabled={saving}
+              clean={(text) => text.replace(/[^\d.]/g, "")} accept={(text) => text !== "" && Number(text) >= 0 && Number(text) < 100}
+              onCommit={(text) => onSave({ fees: Number(text) / 100 })} />
+          </span>
+          <span className="sourcing-setting">Other costs per usable piece
+            <DraftInput value={String(prefs.cost_per_piece)} label="Operating allowance per usable piece" prefix="$" width="5.5rem" inputMode="decimal" disabled={saving}
+              clean={(text) => text.replace(/[^\d.]/g, "")} accept={(text) => text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0}
+              onCommit={(text) => onSave({ cost_per_piece: Number(text) })} />
+          </span>
+          <label className="sourcing-setting sourcing-check">
+            <input type="checkbox" checked={prefs.include_rework} disabled={saving} onChange={(event) => onSave({ include_rework: event.target.checked })} />
+            Include damaged and rework grades
+          </label>
+        </div>
+        <p className="sourcing-hint">These are your planning inputs, not measured probabilities. Use your actual costs for cleaning, repairs, photography, labor, packaging, seller-paid postage, fixed fees and returns. The allowance is charged for every usable piece, even those that don’t sell. Purchase tax is extra.</p>
+      </details>
     </div>
   );
 }
@@ -262,12 +303,14 @@ function Choices({ snapshot, choice, onChoose }: {
         {["all", "raghouse", "tvf"].map((key) => {
           const plan = key === "all" ? snapshot.buy_list : snapshot.store_buy_lists[key];
           const count = plan.carts.reduce((sum, cart) => sum + cart.lots.length, 0);
+          const metrics = planMetrics(plan);
           return (
             <button key={key} type="button" className="sourcing-choice" aria-pressed={choice === key} onClick={() => onChoose(key)}>
               <strong>{key === "all" ? "Combined list" : storeName(key)}</strong>
               {count ? <>
                 <span>{boxCount(count)} · {formatMoney(plan.total)}</span>
                 <span>Est. profit {formatMoney(Math.round(plan.expected_profit))}</span>
+                <span>Lower-sales test {formatMoney(Math.round(metrics.downside))}</span>
               </> : <span>{snapshot.stores[key]?.error ? "Store unavailable" : "No qualifying boxes"}</span>}
             </button>
           );
@@ -303,10 +346,7 @@ function BuyList({
       return (
         <div className="sourcing-empty">
           <div className="sourcing-empty-title">One step before Studio can pick boxes</div>
-          <p>
-            Studio asks your listing AI to look up what each kind of box resells for. Connect ChatGPT, Cursor or
-            MiMo and your list fills in on the next update.
-          </p>
+          <p>Connect ChatGPT, Cursor or MiMo to research recent sold items. A box qualifies only when the evidence and cost checks pass.</p>
           <button type="button" className="btn btn-primary btn-sm" onClick={onOpenProviders}>
             Connect an AI
           </button>
@@ -317,26 +357,30 @@ function BuyList({
       <div className="sourcing-empty">
         <div className="sourcing-empty-title">{choice === "all" ? "No qualifying boxes right now" : `No qualifying boxes at ${storeName(choice)}`}</div>
         <p>
-          No researched box meets your return target within {formatMoney(plan.budget)} including shipping. Studio checks again
+          No box passes all the evidence, condition, return and lower-sales checks within {formatMoney(plan.budget)} including shipping. Review the other boxes below to see what ruled them out. Studio checks again
           by itself around {clockTime(nextUpdate(snapshot.updated_at))}.
         </p>
       </div>
     );
   }
   const boxes = plan.carts.reduce((sum, cart) => sum + cart.lots.length, 0);
+  const metrics = planMetrics(plan);
   return (
     <>
       <section className="sourcing-summary" aria-label="Summary">
         <div className="sourcing-summary-main">
-          Buy {boxCount(boxes)} for {formatMoney(Math.round(plan.total))}
+          {boxCount(boxes)} to review · {formatMoney(Math.round(plan.total))} with shipping
         </div>
         <div className="sourcing-summary-sub">
-          Estimated profit about{" "}
-          <strong className="sourcing-profit">{formatMoney(Math.round(plan.expected_profit))}</strong>. Every $1 you
-          spend could come back as about {moneyBack(plan.total, plan.expected_profit)}.
+          Estimated profit <strong className="sourcing-profit">{formatMoney(Math.round(plan.expected_profit))}</strong> after fees and {formatMoney(metrics.operating)} in operating costs, before tax.
         </div>
+        <dl className="sourcing-metrics">
+          <div><dt>Usable pieces (estimate)</dt><dd>{Math.round(metrics.usable)}</dd></div>
+          <div><dt>Sales in your plan</dt><dd>~{Math.round(metrics.sold)}</dd></div>
+          <div><dt>Lower-sales test profit</dt><dd>{formatMoney(Math.round(metrics.downside))}</dd></div>
+        </dl>
       </section>
-      <p className="sourcing-hint">{formatMoney(Math.max(0, plan.budget - plan.total))} of your budget remains before tax. Resale estimates aren’t guaranteed.</p>
+      <p className="sourcing-hint">{formatMoney(Math.max(0, plan.budget - plan.total))} of your purchase budget remains before tax. Keep another {formatMoney(metrics.operating)} for operating costs. The lower-sales test uses half your planned sales at each theme’s lowest retained sale price, capped by the resale estimate. It is a sensitivity test, not a guaranteed minimum profit.</p>
       {plan.carts.map((cart, index) => (
         <Cart key={cart.store} cart={cart} updating={updating} step={plan.carts.length > 1 ? index + 1 : null} of={plan.carts.length} />
       ))}
@@ -356,7 +400,7 @@ function Cart({ cart, step, of, updating }: { cart: SourcingCart; step: number |
       </div>
       <ol className="sourcing-items">
         {cart.lots.map((lot) => (
-          <Item key={lot.variant_id} lot={lot} storeName={cart.name} />
+          <Item key={`${lot.store}:${lot.variant_id}`} lot={lot} storeName={cart.name} />
         ))}
       </ol>
       <dl className="sourcing-totals">
@@ -408,10 +452,11 @@ function Item({ lot, storeName }: { lot: SourcingLot; storeName: string }) {
           {lot.trend_hits.length ? <span className="sourcing-trend"> · trending: {lot.trend_hits.join(", ")}</span> : null}
         </div>
         <div className="sourcing-item-reason">About {formatMoney(lot.cog_per_usable_pc)} per usable piece, including shipping</div>
-        {lot.evidence.length ? <details className="sourcing-evidence">
-          <summary>Resale research</summary>
-          {lot.evidence.map((url, index) => <a key={url} href={url} target="_blank" rel="noopener noreferrer">Source {index + 1}</a>)}
-        </details> : null}
+        {lot.break_even_pcs != null ? <div className="sourcing-item-reason">
+          Break even after {lot.break_even_pcs} sales · plan assumes ~{Math.round(lot.usable_pcs * lot.sell_through)} sales
+        </div> : null}
+        {lot.pcs_estimated || lot.lbs_estimated ? <div className="sourcing-item-why">{lot.pcs_estimated ? "Piece count is estimated from weight. " : ""}{lot.lbs_estimated ? "Shipping weight is estimated. " : ""}Check the supplier’s lot details.</div> : null}
+        <ResearchEvidence lot={lot} />
       </div>
       <div className="sourcing-item-money">
         <div>{formatMoney(Math.round(lot.landed))}</div>
@@ -421,6 +466,7 @@ function Item({ lot, storeName }: { lot: SourcingLot; storeName: string }) {
             {formatMoney(Math.abs(Math.round(lot.expected_profit)))} profit
           </div>
         ) : null}
+        {lot.downside_profit != null ? <div className="sourcing-item-why">Lower-sales test {formatMoney(Math.round(lot.downside_profit))}</div> : null}
         <button
           type="button"
           className="sourcing-link sourcing-bought"
@@ -442,16 +488,17 @@ function MoreBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
       <summary>See {lots.length} more boxes Studio looked at</summary>
       <ol className="sourcing-items">
         {lots.map((lot) => (
-          <li key={lot.variant_id} className="sourcing-item">
+          <li key={`${lot.store}:${lot.variant_id}`} className="sourcing-item">
             <div className="sourcing-item-main">
               <a className="sourcing-item-title" href={lot.url} target="_blank" rel="noopener noreferrer">
                 {lot.title}
               </a>
               <div className="sourcing-item-reason">{lotReason(lot, true)}</div>
+              <ResearchEvidence lot={lot} />
             </div>
             <div className="sourcing-item-money">
               <div>{formatMoney(Math.round(lot.landed))}</div>
-              <div className="sourcing-item-why">{whyNotPicked(lot, snapshot)}</div>
+              <div className="sourcing-item-why">{whyNotPicked(lot, snapshot.buy_list)}</div>
             </div>
           </li>
         ))}
@@ -460,22 +507,43 @@ function MoreBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
   );
 }
 
-/** Why a box that was looked at is not on the list, in a few words. */
-function whyNotPicked(lot: SourcingLot, snapshot: SourcingSnapshot): string {
-  const profit = lot.expected_profit;
-  if (profit == null) return "price not known yet";
-  if (profit < 0) return `would lose ${formatMoney(Math.abs(Math.round(profit)))}`;
-  if (lot.roi != null && lot.roi < 1) return `only +${formatMoney(Math.round(profit))} profit`;
-  if (lot.landed > snapshot.buy_list.budget - snapshot.buy_list.total) return "over your budget";
-  return `+${formatMoney(Math.round(profit))} profit`;
+function ResearchEvidence({ lot }: { lot: SourcingLot }) {
+  if (!lot.comps.length) return <div className="sourcing-item-why">Not enough recent sold evidence to estimate resale.</div>;
+  return <details className="sourcing-evidence">
+    <summary>{lot.comps.length} reported sales · research {lot.research_at ? clockTime(lot.research_at) : ""}</summary>
+    <p className="sourcing-hint">{lot.research_source} reported these comparable sales. Sale status, dates, condition and relevance are AI-reported; Studio checks the supplied data but does not independently verify each source page. Review the links before buying.</p>
+    <ul className="sourcing-comps">
+      {lot.comps.map((comp) => <li key={comp.url}>
+        <a href={comp.url} target="_blank" rel="noopener noreferrer">{comp.title}</a>
+        <span>{comp.marketplace} · {formatMoney(comp.price)} · reported sold {saleDate(comp.sold_at)}</span>
+        <q>{comp.snippet}</q>
+      </li>)}
+    </ul>
+    {lot.active_median != null ? <p className="sourcing-hint">Current asking-price median {formatMoney(lot.active_median)}; the resale estimate is capped at this price.</p>
+      : <p className="sourcing-hint">Current competition sample is too small to cap the price. Market sell-through and time to sell are unknown.</p>}
+    {lot.active_comps.length ? <ul className="sourcing-comps">
+      {lot.active_comps.map((comp) => <li key={comp.url}>
+        <a href={comp.url} target="_blank" rel="noopener noreferrer">{comp.title}</a>
+        <span>{comp.marketplace} · asking {formatMoney(comp.price)}</span>
+      </li>)}
+    </ul> : null}
+  </details>;
+}
+
+function ResearchCoverage({ snapshot }: { snapshot: SourcingSnapshot }) {
+  const priced = snapshot.lots.filter((lot) => lot.resale_per_pc != null).length;
+  return <div className="sourcing-research-status" role="status">
+    <strong>{priced} of {snapshot.lots.length} boxes shown have enough recent sold evidence.</strong>
+    <span>At least 3 distinct reported sales within 30 days. Older sales provide context. Prices are checked weekly. Sales evidence supports an estimate; it does not measure the chance your box will sell.</span>
+  </div>;
 }
 
 function Trending({ trend }: { trend: SourcingState["trend"] }) {
   if (trend.terms.length === 0) return null;
   return (
     <section className="sourcing-section" aria-label="Selling right now">
-      <h2 className="sourcing-section-title">Selling right now</h2>
-      <p className="sourcing-hint">Current research themes used to rank boxes. Updated every week.</p>
+      <h2 className="sourcing-section-title">Themes to research</h2>
+      <p className="sourcing-hint">Trend reports guide what Studio researches first. A trend match cannot qualify a box or increase its projected sales. {trend.updated_at ? `Researched ${clockTime(trend.updated_at)}.` : ""}</p>
       <div className="sourcing-chips">
         {trend.terms.map((term) => (
           <span key={term} className="sourcing-chip">
@@ -510,19 +578,20 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
         <li>Every {REFRESH_HOURS} hours it reads every box both stores have in stock.</li>
         <li>
           It asks your AI what one piece of each kind of box sells for on eBay, Poshmark, Depop and Mercari, and
-          checks again every two weeks.
+          checks again every week. It requires dated sold examples and computes their median, capped by comparable asking prices when enough are available.
         </li>
         <li>
-          Profit assumes about {Math.round(a.sell_through * 100)}% of the sellable pieces sell (more for boxes that
-          sell out fast), minus {Math.round(a.fees * 100)}% marketplace fees and the box's cost with shipping. Recycle
-          lots count 60% of their pcs as sellable, Recycle &amp; Good 75%, B Grade 60%, C Grade 50% and every other lot 90%.
+          Profit uses your {Math.round(a.sell_through * 100)}% sales assumption, {Math.round(a.fees * 100)}% effective fees,
+          {" "}{formatMoney(a.cost_per_piece)} operating allowance per usable piece, and purchase cost with shipping. Usable-piece shares are planning estimates based on grade, not inspected counts.
         </li>
-        <li>It picks boxes by estimated return, one of each kind, up to your budget including shipping. Store-only options use the same budget and return target.</li>
+        <li>Each recommended box must meet your ROI target and avoid a loss when half your planned pieces sell at the lower of its lowest retained sold price and resale estimate. Damaged/rework grades are excluded unless you enable them.</li>
+        <li>It picks by incremental return, one box per theme, and checks the whole cart’s shipping. It also tests pairs that unlock free shipping. This is a greedy selection; it doesn’t guarantee the best possible combination.</li>
         <li>
           Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip}, scaled to a checkout you
           already paid. Thrift Vintage Fashion is a UPS Ground estimate, still at list price.
         </li>
         <li>Studio never buys. The cart buttons only fill a cart for you to check and pay.</li>
+        <li>Inspect supplier photos and grade notes before buying. Check sale sources against the likely brand, era, condition and garment mix. Confirm final shipping and tax at checkout; a wholesale box is not an inspected set of identical products.</li>
       </ul>
     </details>
   );

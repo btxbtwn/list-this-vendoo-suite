@@ -557,6 +557,15 @@ export interface DatabaseReport {
   pruned?: { vendoo_drafts: number; duplicate_events: number; deleted: number };
 }
 
+export interface SourcingComp {
+  url: string;
+  title: string;
+  sold_at: string;
+  price: number;
+  marketplace: string;
+  snippet: string;
+}
+
 export interface SourcingLot {
   store: string;
   variant_id: number;
@@ -581,14 +590,22 @@ export interface SourcingLot {
   cog_per_pc: number;
   cog_per_usable_pc: number;
   resale_per_pc: number | null;
-  /** The seller's own sales from this store against the estimates; 1 until known. */
-  resale_factor?: number;
+  resale_factor: number;
   sell_through: number;
   expected_revenue: number | null;
   expected_profit: number | null;
   roi: number | null;
   score: number;
   evidence: string[];
+  comps: SourcingComp[];
+  research_at: string | null;
+  research_source: string | null;
+  active_comps: Omit<SourcingComp, "sold_at">[];
+  active_median: number | null;
+  resale_low: number | null;
+  operating_cost: number;
+  break_even_pcs: number | null;
+  downside_profit: number | null;
 }
 
 export interface SourcingCart {
@@ -607,21 +624,22 @@ export interface SourcingBuyList {
   total: number;
   expected_profit: number;
   carts: SourcingCart[];
+  exclusions: Record<string, "needs_research" | "rework" | "same_theme" | "return_target" | "downside" | "budget" | "alternative">;
 }
 
 export interface SourcingSnapshot {
   updated_at: string;
   destination_zip: string;
+  preferences: Omit<SourcingPrefs, "recent_zips">;
   stores: Record<string, { name: string; error: string | null; sellout: number | null; zone: number | null }>;
   research: boolean;
   priced_themes: number;
   shipping: { residential_surcharge: number; fuel_surcharge_pct: number; fuel_surcharge_as_of: string };
-  assumptions: { sell_through: number; fees: number; grade_yield: Record<string, number> };
+  assumptions: { sell_through: number; fees: number; grade_yield: Record<string, number>; cost_per_piece: number };
   buy_list: SourcingBuyList;
   store_buy_lists: Record<string, SourcingBuyList>;
   lots: SourcingLot[];
-  /** Per store: the seller's sales from bought boxes against the estimates. */
-  calibration?: Record<string, { factor: number | null; sales: number; needed: number }>;
+  calibration: Record<string, { factor: number | null; sales: number; needed: number }>;
 }
 
 export interface SourcingPrefs {
@@ -630,6 +648,10 @@ export interface SourcingPrefs {
   raghouse_vip: boolean;
   zip: string;
   recent_zips: string[];
+  sell_through: number;
+  fees: number;
+  cost_per_piece: number;
+  include_rework: boolean;
 }
 
 export interface SourcingState {

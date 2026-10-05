@@ -25,6 +25,7 @@ import time
 import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -61,9 +62,11 @@ GRADE_YIELD = {
 PCS_PER_LB = {"tee": 3.0, "shirt": 2.0, "sweat": 1.0, "bottoms": 0.9, "jacket": 0.6, "mix": 1.6}
 PACKAGING_LB = 1.0
 
-# Of the pieces you can sell, how many sell, before fees. Scaled by demand below.
+# Planning assumptions, not measurements of resale marketplace demand.
 BASE_SELL_THROUGH = 0.50
 MARKETPLACE_FEES = 0.20  # fees and payment processing on each sale
+OPERATING_COST_PER_PIECE = 2.00  # planning allowance per usable piece; replace with actual costs
+REWORK_GRADES = {"mixed", "recycle", "b", "bc", "c"}
 
 SKIP_TYPES = {"Singles", "Membership", "Accessories", "Shoes"}
 SKIP_TITLE_RE = re.compile(r"gift card|membership|auction items|sample (?:tee|sweats) stock", re.I)
@@ -103,6 +106,9 @@ class Filters:
     include_vip: bool = False
     target_cog: float = 2.00  # landed $ per usable piece that ranks as a good buy without a resale price
     days: int = 60  # Raghouse sell-out history window
+    sell_through: float = BASE_SELL_THROUGH
+    fees: float = MARKETPLACE_FEES
+    cost_per_piece: float = OPERATING_COST_PER_PIECE
 
 
 def parse_terms(text: str) -> tuple[str, ...]:
@@ -352,6 +358,7 @@ def score_lots(
     f: Filters,
     resale: dict[str, float] | None = None,
     resale_factor: dict[str, float] | None = None,
+    *, resale_low: dict[str, float] | None = None,
 ):
     """Return {store: baseline sell-out rate} and every in-stock lot passing `f`, ranked.
 
@@ -359,9 +366,11 @@ def score_lots(
     shipping zone for the destination. `resale` maps a theme to the typical sold
     price of one piece; lots with a price get an expected profit and ROI.
     `resale_factor` scales those prices per store, for a seller whose own sales
-    from that store's boxes run above or below the estimates.
+    from that store's boxes run below the estimates. Stronger past sales never
+    lift forecasts above current researched prices.
     """
     resale = resale or {}
+    resale_low = resale_low or {}
     resale_factor = resale_factor or {}
     baselines: dict[str, float] = {}
     rows = []
@@ -393,11 +402,17 @@ def score_lots(
                 "usable_pcs": round(usable, 1),
                 "demand": round(demand, 2),
                 "trend_hits": hits,
+                "resale_low": resale_low.get(lot["theme"], resale.get(lot["theme"])),
             }
-            factor = resale_factor.get(store, 1.0)
+            # Historical underperformance can reduce forecasts; it cannot lift
+            # them above current comparable-sale/asking-price evidence.
+            factor = min(1.0, resale_factor.get(store, 1.0))
             per_piece = resale.get(lot["theme"])
             row["resale_factor"] = factor
-            rows.append(price_lot(row, ship, round(per_piece * factor, 2) if per_piece else per_piece))
+            if row["resale_low"] is not None:
+                row["resale_low"] = round(row["resale_low"] * factor, 2)
+            rows.append(price_lot(row, ship, round(per_piece * factor, 2) if per_piece else per_piece,
+                                  sell_through=f.sell_through, fees=f.fees, cost_per_piece=f.cost_per_piece))
     for row in rows:
         boost = 1 + 0.25 * min(len(row["trend_hits"]), 2)
         if row["roi"] is not None:
@@ -409,10 +424,14 @@ def score_lots(
     return baselines, rows
 
 
-def price_lot(row: dict, ship: float, per_piece: float | None) -> dict:
+def price_lot(
+    row: dict, ship: float, per_piece: float | None,
+    *, sell_through: float = BASE_SELL_THROUGH, fees: float = MARKETPLACE_FEES,
+    cost_per_piece: float = OPERATING_COST_PER_PIECE,
+) -> dict:
     """Fill in landed cost and, when the theme has a resale price, profit and ROI."""
     landed = row["price"] + ship
-    sell_through = min(0.8, max(0.25, BASE_SELL_THROUGH * row["demand"]))
+    operating_cost = row["usable_pcs"] * cost_per_piece
     row.update({
         "ship_est": round(ship, 2),
         "landed": round(landed, 2),
@@ -422,13 +441,20 @@ def price_lot(row: dict, ship: float, per_piece: float | None) -> dict:
         "sell_through": round(sell_through, 2),
         "expected_revenue": None,
         "expected_profit": None,
+        "operating_cost": round(operating_cost, 2),
+        "break_even_pcs": None,
+        "downside_profit": None,
         "roi": None,
     })
     if per_piece:
-        revenue = per_piece * row["usable_pcs"] * sell_through * (1 - MARKETPLACE_FEES)
+        revenue = per_piece * row["usable_pcs"] * sell_through * (1 - fees)
         row["expected_revenue"] = round(revenue, 2)
-        row["expected_profit"] = round(revenue - landed, 2)
-        row["roi"] = round((revenue - landed) / landed, 2)
+        row["expected_profit"] = round(revenue - operating_cost - landed, 2)
+        row["roi"] = round((revenue - operating_cost - landed) / landed, 2)
+        row["break_even_pcs"] = math.ceil((landed + operating_cost) / (per_piece * (1 - fees)))
+        low = min(row.get("resale_low") or per_piece, per_piece)
+        row["downside_profit"] = round(low * row["usable_pcs"] * sell_through / 2 * (1 - fees)
+                                       - operating_cost - landed, 2)
     return row
 
 
@@ -454,39 +480,67 @@ def research_themes(rows: list[dict], limit: int = 24) -> list[str]:
     return result
 
 
-def buy_list(rows: list[dict], cfg: dict, *, budget: float, min_roi: float = 1.0) -> dict:
-    """Pick lots to buy: best ROI first, one per theme, within `budget`.
+def buy_list(
+    rows: list[dict], cfg: dict, *, budget: float, min_roi: float = 1.0,
+    sell_through: float = BASE_SELL_THROUGH, fees: float = MARKETPLACE_FEES,
+    cost_per_piece: float = OPERATING_COST_PER_PIECE, include_rework: bool = False,
+) -> dict:
+    """Pick by incremental return, one per theme, within `budget`.
 
-    A store with free shipping over a threshold ships free once the picks from it
-    reach that threshold, and those picks are re-priced without shipping.
+    Evaluate shipping on the complete proposed cart. Also consider two-lot
+    bundles that unlock free shipping even when neither lot qualifies alone.
+    This is a greedy recommendation, not an exhaustive portfolio optimizer.
     """
     picks: list[dict] = []
     seen: set[str] = set()
-    pending = sorted((r for r in rows if r["roi"] is not None), key=lambda r: -r["roi"])
-    while pending:
-        skipped = []
-        added = False
-        for row in pending:
-            if row["theme"] in seen:
-                continue
-            candidate = [*picks, dict(row)]
+    priced = [r for r in rows if r["roi"] is not None and (include_rework or r["grade"] not in REWORK_GRADES)]
+
+    def evaluate(additions: list[dict]) -> list[dict]:
+        proposed = [*picks, *additions]
+        free_stores = {
+            store for store in STORES
+            if (threshold := cfg["stores"][store]["free_shipping_over"]) is not None
+            and sum(p["price"] for p in proposed if p["store"] == store) >= threshold
+        }
+        return [price_lot(dict(p), 0.0 if p["store"] in free_stores else p["ship_est"],
+                          p["resale_per_pc"], sell_through=sell_through, fees=fees,
+                          cost_per_piece=cost_per_piece) for p in proposed]
+
+    while True:
+        remaining = [r for r in priced if r["theme"] not in seen]
+        options = ([row] for row in remaining)
+
+        def bundles():
             for store in STORES:
-                mine = [p for p in candidate if p["store"] == store]
                 threshold = cfg["stores"][store]["free_shipping_over"]
-                if threshold is not None and sum(p["price"] for p in mine) >= threshold:
-                    # Copy existing picks: a rejected candidate must not change their shipping.
-                    candidate = [price_lot(dict(p), 0.0, p["resale_per_pc"])
-                                 if p["store"] == store else p for p in candidate]
-            if candidate[-1]["roi"] < min_roi or round(sum(p["landed"] for p in candidate), 2) > budget:
-                skipped.append(row)
+                subtotal = sum(p["price"] for p in picks if p["store"] == store)
+                if threshold is None or subtotal >= threshold:
+                    continue
+                mine = [r for r in remaining if r["store"] == store and subtotal + r["price"] < threshold]
+                for index, first in enumerate(mine):
+                    for second in mine[index + 1:]:
+                        if first["theme"] != second["theme"] and subtotal + first["price"] + second["price"] >= threshold:
+                            yield [first, second]
+
+        best = None
+        best_rank = None
+        current_total = sum(p["landed"] for p in picks)
+        current_profit = sum(p["expected_profit"] for p in picks)
+        for additions in chain(options, bundles()):
+            candidate = evaluate(additions)
+            total = round(sum(p["landed"] for p in candidate), 2)
+            if total > budget or any(p["roi"] < min_roi or p["downside_profit"] < 0 for p in candidate):
                 continue
-            picks = candidate
-            seen.add(row["theme"])
-            added = True
-        if not added:
+            profit = sum(p["expected_profit"] for p in candidate)
+            extra_cost = total - current_total
+            extra_profit = profit - current_profit
+            rank = (extra_profit / extra_cost if extra_cost > 0 else float("inf"), extra_profit, -total)
+            if best_rank is None or rank > best_rank:
+                best, best_rank = candidate, rank
+        if best is None:
             break
-        # A later pick may have unlocked free shipping for an earlier candidate.
-        pending = skipped
+        picks = best
+        seen = {p["theme"] for p in picks}
     carts = []
     for store in STORES:
         mine = [p for p in picks if p["store"] == store]
@@ -497,7 +551,8 @@ def buy_list(rows: list[dict], cfg: dict, *, budget: float, min_roi: float = 1.0
         free = threshold is not None and subtotal >= threshold
         if free:
             for p in mine:
-                price_lot(p, 0.0, p["resale_per_pc"])
+                price_lot(p, 0.0, p["resale_per_pc"], sell_through=sell_through, fees=fees,
+                          cost_per_piece=cost_per_piece)
         carts.append({
             "store": store,
             "name": STORES[store]["name"],
@@ -510,7 +565,31 @@ def buy_list(rows: list[dict], cfg: dict, *, budget: float, min_roi: float = 1.0
         })
     total = sum(p["landed"] for c in carts for p in c["lots"])
     profit = sum(p["expected_profit"] for c in carts for p in c["lots"])
-    return {"budget": budget, "total": round(total, 2), "expected_profit": round(profit, 2), "carts": carts}
+    selected = {(p["store"], p["variant_id"]) for p in picks}
+    exclusions = {}
+    for row in rows:
+        if (row["store"], row["variant_id"]) in selected:
+            continue
+        if not include_rework and row["grade"] in REWORK_GRADES:
+            reason = "rework"
+        elif row["roi"] is None:
+            reason = "needs_research"
+        elif row["theme"] in seen:
+            reason = "same_theme"
+        else:
+            candidate = evaluate([row])
+            lot = candidate[-1]
+            if lot["roi"] < min_roi:
+                reason = "return_target"
+            elif lot["downside_profit"] < 0:
+                reason = "downside"
+            elif round(sum(p["landed"] for p in candidate), 2) > budget:
+                reason = "budget"
+            else:
+                reason = "alternative"
+        exclusions[f"{row['store']}:{row['variant_id']}"] = reason
+    return {"budget": budget, "total": round(total, 2), "expected_profit": round(profit, 2),
+            "carts": carts, "exclusions": exclusions}
 
 
 # --- CLI ------------------------------------------------------------------------------
@@ -557,11 +636,22 @@ def main() -> int:
     ap.add_argument("--resale", type=Path, help='JSON {"theme": price per piece}; adds profit, ROI and a buy list')
     ap.add_argument("--budget", type=float, default=300)
     ap.add_argument("--min-roi", type=float, default=1.0, help="1.0 = expected profit at least equals cost")
+    ap.add_argument("--sell-through", type=float, default=BASE_SELL_THROUGH, help="share of usable pieces expected to sell, 0–1")
+    ap.add_argument("--fees", type=float, default=MARKETPLACE_FEES, help="marketplace and payment fee share, 0–1")
+    ap.add_argument("--cost-per-piece", type=float, default=OPERATING_COST_PER_PIECE,
+                    help="operating cost allowance for each usable piece, including prep, labor and sale expenses")
+    ap.add_argument("--include-rework", action="store_true", help="allow damaged/rework grades in recommendations")
     ap.add_argument("--themes", action="store_true", help="print the themes that most need a resale price")
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument("--json", action="store_true", help="print every ranked lot as JSON")
     ap.add_argument("--catalog", type=Path, help='read saved catalogs {"raghouse": [...], "tvf": [...]}')
     args = ap.parse_args()
+    if not 0 < args.sell_through <= 1 or not 0 <= args.fees < 1:
+        ap.error("--sell-through must be above 0 and at most 1; --fees must be at least 0 and below 1")
+    if not math.isfinite(args.budget) or args.budget <= 0 or not math.isfinite(args.min_roi) or args.min_roi < 0:
+        ap.error("--budget must be positive and --min-roi must be nonnegative")
+    if not math.isfinite(args.cost_per_piece) or args.cost_per_piece < 0:
+        ap.error("--cost-per-piece must be a finite, nonnegative amount")
 
     cfg = load_shipping()
     if not valid_zip(args.zip):
@@ -578,14 +668,17 @@ def main() -> int:
     else:
         catalogs = {s: fetch_catalog(s) for s in stores}
     filters = Filters(
-        trend=parse_terms(args.trend), min_pcs=args.min_pcs, max_price=args.max_price, include_vip=args.vip
+        trend=parse_terms(args.trend), min_pcs=args.min_pcs, max_price=args.max_price, include_vip=args.vip,
+        sell_through=args.sell_through, fees=args.fees, cost_per_piece=args.cost_per_piece,
     )
     resale = json.loads(args.resale.read_text()) if args.resale else {}
     baselines, rows = score_lots(catalogs, cfg, zones, filters, resale)
     if args.themes:
         print("\n".join(research_themes(rows)))
         return 0
-    plan = buy_list(rows, cfg, budget=args.budget, min_roi=args.min_roi) if resale else None
+    plan = buy_list(rows, cfg, budget=args.budget, min_roi=args.min_roi,
+                    sell_through=args.sell_through, fees=args.fees, cost_per_piece=args.cost_per_piece,
+                    include_rework=args.include_rework) if resale else None
     if args.json:
         json.dump({"baselines": baselines, "lots": rows, "buy_list": plan}, sys.stdout, indent=2)
         print()

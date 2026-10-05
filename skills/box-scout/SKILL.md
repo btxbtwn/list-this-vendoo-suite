@@ -23,6 +23,11 @@ Both stores are Shopify shops, so their public `/products.json` feeds list every
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | budget | number | No | Most to spend this round. Default $300. |
+| min_roi | number | No | Minimum estimated profit ÷ purchase cost. Default 1.0 (100%). |
+| sell_through | number | No | Seller’s planned share of usable pieces that sell, 0–1. Default 0.5. This is not a measured probability. |
+| fees | number | No | Effective marketplace and payment fee allowance, 0–1. Default 0.2; replace with actual effective costs. |
+| cost_per_piece | number | No | Operating allowance for each usable piece, including prep, labor, packaging, seller-paid postage, fixed fees and returns. Default $2 is a planning input, not a market fact. |
+| include_rework | boolean | No | Allow damaged/rework grades. Default false. |
 | vip | boolean | No | The seller has Raghouse VIP ($64/month). Boxes tagged `VIP_Product`, most of each new Raghouse drop, are members-only; they are left out unless `--vip`. |
 
 ## How the stores differ
@@ -41,7 +46,11 @@ python3 skills/box-scout/scripts/scout.py --trend "carhartt,y2k,cartoon,..." --t
 This prints the lot themes that most need a resale price, best demand first. A theme is a lot's title without counts, grades and store filler: `Abbie Recycle Tees & Tops 87 pcs` becomes `abbie tees & tops`.
 
 ### 3. Price each theme
-For each theme, search sold listings from the last 90 days and estimate what one typical piece from a mixed lot sells for: the median piece, not the best find. Write the results to a file keyed by the exact theme text:
+For each theme, find at least three distinct comparable sold listings within the last 30 days. This is the minimum sample accepted by Studio, not a statistical guarantee. Match garment type, likely brand tier, era and condition to ordinary pieces in the lot; exclude rare premium finds, bundles, new-with-tags condition mismatches and hidden accepted-offer prices. Use actual USD item prices excluding shipping. Keep the item URL, title, reported sale date and quoted sale-price evidence for every example. Active asking prices and supplier resale claims cannot supply a sold price.
+
+Compute the median of retained sales within the last 30 days. Older examples within 90 days can provide context, but cannot qualify a theme or set today’s price. When at least three comparable active listings are available, cap the estimate at their median asking price. Search results are a sample, not the complete market: do not calculate marketplace sell-through, sales velocity or a probability of sale from the count of results. Studio validates supplied data but does not independently verify the source pages, so label dates and sales as AI-reported and let the seller inspect them. Unsupported estimates stay out of recommendations. Research expires after seven days and cached sale dates are rechecked as they age.
+
+Outside Studio, write researched prices to a file keyed by the exact theme text:
 ```json
 {"cartoon t-shirts": 14, "vintage graphic t-shirts": 22, "men's flannel shirts": 12}
 ```
@@ -54,18 +63,23 @@ For every in-stock lot the script computes:
 - **Ship est**: the store's carrier list rate for the lot's weight and zone, plus that carrier's residential surcharge and fuel surcharge, times the store's `ship_factor`. Raghouse is FedEx Ground (zone 6 from Phoenix to 70115). TVF is UPS Ground (zone 5 from Hialeah to 70115). Weights round up to the next pound. TVF lots with no weight are estimated from their piece count. Raghouse's factor is order #83897: FedEx charged $33.95 on a 29 lb box whose list estimate was $65.96. TVF is still list price.
 - **Usable pieces**: pieces × the share a grade yields (90% plain, 75% Recycle & Good, 60% Recycle or B grade, down to 50% for C grade). Bales sold by the pound get a piece count from typical garment weights (3 tees, 1 sweatshirt or 0.6 jackets per pound), marked `~`.
 - **Demand**: how often lots with the same title words sold out, relative to that store's average. Raghouse counts the last 60 days; TVF restocks the same products, so all of its lots count.
-- **Expected profit** = resale per piece × usable pieces × sell-through × (1 − 20% fees) − landed cost. Sell-through is 50% at average demand, scaled by demand between 25% and 80%.
+- **Expected profit** = resale per piece × usable pieces × planned sell-through × (1 − effective fees) − operating allowance × usable pieces − landed cost. The seller’s own underperforming box sales can reduce a supplier’s forecasts; stronger past sales never raise them above current researched prices. Wholesale sell-out and trend matches only help prioritize research; they never increase planned resale sales.
+- **Break-even pieces** = round up ((landed cost + operating allowance × usable pieces) ÷ (resale per piece × (1 − effective fees))).
+- **Lower-sales test** = profit if half the planned pieces sell at the lower of the lowest retained sold price and the resale estimate, with the full operating allowance still deducted. A recommended box must not lose money in this scenario. It is a sensitivity test, not a guaranteed floor or probability. Outside Studio, a price-only input uses its researched price for this scenario; it does not carry the sold-price range.
 - **ROI** = expected profit ÷ landed cost.
 
-The buy list takes the best ROI first, one lot per theme, at least 100% ROI (`--min-roi`), until the budget runs out. Shipping discounts are applied before checking the budget and return target. When the picks from TVF reach $200 their shipping drops to zero. Studio also computes Raghouse-only and Thrift Vintage Fashion-only alternatives with the same full budget; choose one plan rather than adding the alternatives together. Each store's cart link (`/cart/<variant>:1,...`) opens that store's cart with the picks in it.
+The buy list takes the best incremental return first, one lot per theme, at least 100% ROI (`--min-roi`) and a nonnegative lower-sales test, until the budget runs out. Mixed/Recycle and TVF B, B/C and C grades need repairs or rework and are excluded unless `--include-rework`. The default usable shares remain planning assumptions, not inspected counts. Shipping discounts are applied before checking the budget and return target. When the picks from TVF reach $200 their shipping drops to zero. The script also evaluates two-box combinations that cross that threshold even when neither qualifies alone. This greedy selection does not guarantee the mathematically best combination. Studio also computes Raghouse-only and Thrift Vintage Fashion-only alternatives with the same full budget; choose one plan rather than adding the alternatives together. Each store's cart link (`/cart/<variant>:1,...`) opens that store's cart with the picks in it.
 
 ### 5. Report
-Give the buy list: per store, the lots with pieces, landed cost, resale per piece, expected profit and ROI, the store subtotal and shipping, and the cart link. Then the next five candidates. Raghouse shipping is FedEx, scaled to a real checkout. TVF shipping is still a UPS list-price ceiling. The profit rests on the resale prices you found.
+Give the buy list: per store, the lots with pieces, landed cost, resale per piece, expected profit, operating allowance, break-even sales, lower-sales test and ROI, the store subtotal and shipping, and the cart link. Then the next five candidates. Raghouse shipping is FedEx, scaled to a real checkout. TVF shipping is still a UPS list-price ceiling. The profit rests on the resale prices you found.
 
 ## Shipping estimate
 `references/shipping.json` holds UPS Ground and FedEx Ground list rates for zones 2–8, 1–150 lb, the zone of each store (from the USPS zone chart; Phoenix 850 to 70115 is FedEx zone 6), each carrier's residential and fuel surcharges, and a `ship_factor` per store. Raghouse ships FedEx. TVF is estimated as UPS. The stores quote discounted rates at checkout, so the real charge is usually lower than list. **When the seller reports a real checkout quote, set that store's `ship_factor` to quote ÷ estimate.** Raghouse is already set from order #83897 ($33.95 ÷ $65.96 FedEx list). Update a carrier's fuel surcharge when it is more than a month old.
 
 ## Rules
+- Never claim a box or its individual pieces are guaranteed to sell. Sold examples support a price estimate; mixed contents, condition and future demand remain unknown. Never display a confidence percentage that has not been calibrated against observed outcomes.
+- Before purchase, review supplier photos, likely brands, sizes and grade notes against the comparable sales, confirm final freight and tax, and keep cash for processing. Inspect and photograph the shipment on arrival. Raghouse purchases are final; TVF asks for problems to be reported with photos within 72 hours.
+- Before resale, clean/prepare each item, take actual front/back/label/flaw photos, measure useful dimensions, and disclose condition precisely. Use the canonical `list-this` listing workflow for drafts; sourcing must never publish listings.
 - **Never buy.** Do not check out, log in or create an account; a cart link only fills the cart, and the seller pays.
 - Do not try to get past Cloudflare challenges, bot checks or rate limits. Raghouse's live shipping quote sits behind one; that is why shipping is estimated. If a catalog stops answering, report it and continue with the other store.
 - Crawl once per run, one second between pages.
@@ -78,3 +92,14 @@ Give the buy list: per store, the lots with pieces, landed cost, resale per piec
 | Empty buy list | No priced lot clears the ROI bar within budget | Say so; list the best candidates and what their ROI would be. |
 | Lot missing | Sold out, no piece count, under 10 pieces, or over 150 lb | Mention it if the seller asked about it by name. |
 | Estimates far from real quotes | Discounted carrier rates or a stale fuel surcharge | Calibrate `ship_factor` and update the fuel surcharge. |
+
+## Research basis (reviewed 2026-10-05)
+
+- [eBay Product Research](https://www.ebay.com/help/selling/selling-tools/research?id=4853): compare sold prices, condition, attributes, shipping and time windows; complete research data can include accepted-offer prices. Public snippets often cannot expose that actual price, so exclude hidden offers.
+- [eBay clothing selling guidance](https://www.ebay.com/sellercenter/selling/what-to-sell/selling-clothes): accurate condition, item specifics, measurements, photos and competitive pricing affect outcomes. A trend alone cannot establish that an unidentified mixed garment will sell.
+- [eBay selling fees](https://www.ebay.com/help/selling/fees-credits-invoices/selling-fees?id=4822) and [Depop shop guidance](https://www.depop.com/blog/grow-your-shop/): costs and competition differ by marketplace. Use an effective allowance and actual operating costs rather than asserting one universal fee rate.
+- [Raghouse FAQ](https://raghouse.com/pages/faq): Recycle clothing may have tears, stains or missing buttons; purchases are final. Repairs and lost pieces need explicit treatment.
+- [TVF FAQ](https://thriftvintagefashion.com/pages/faqs-tvf): grade B can have defects; C suits rework; clothing arrives unlaundered; subjective returns are not accepted. Supplier estimated resale values are claims, not completed-sale evidence.
+- [ThredUp 2026 Resale Report](https://www.thredup.com/resale): broad market trends provide research context. Aggregate resale growth does not establish demand for an individual lot, garment or brand.
+
+The sample floor, seven-day cache, $2 operating allowance and half-sales sensitivity test are product safeguards, not marketplace promises. Adjust planning costs to the seller’s actual operation; no public trend report can make wholesale resale certain.

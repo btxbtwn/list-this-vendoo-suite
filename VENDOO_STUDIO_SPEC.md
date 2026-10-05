@@ -208,6 +208,14 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Fully usable desktop and mobile layouts.
 - Settings → Connections → Remote access enables private Tailscale Serve to the loopback Studio (same process/data as the Mac UI). Copy the HTTPS link for phone browsers on the Tailnet. No native mobile app; Funnel stays off.
 
+### Sourcing
+
+- Compare a combined wholesale buy list with supplier-only alternatives using the same purchase budget. Open supplier carts for the seller to review; never purchase or publish automatically.
+- Keep sourcing rules and calculations in `skills/box-scout/`. The Studio service supplies catalog data, model research and saved preferences; it does not maintain a second rule set.
+- Show dated, linked, AI-reported sold examples, current asking-price comparisons, research recency, purchase costs, operating allowance, estimated profit, break-even sales and a lower-sales sensitivity result. Distinguish validated supplied data from independent source-page verification and measured demand from planning assumptions. Never claim a guaranteed sale or an uncalibrated confidence percentage.
+- Explain why each alternative did not qualify using the skill’s decisions. Keep cart links disabled while saved planning preferences differ from the snapshot, including changes made during an ongoing refresh.
+- Store disposable sourcing snapshots and preferences in the local sourcing state file; rebuild obsolete snapshots without losing preferences. No inventory database schema change is needed for this workflow.
+
 ### Listing Library
 
 - Create a new listing.
