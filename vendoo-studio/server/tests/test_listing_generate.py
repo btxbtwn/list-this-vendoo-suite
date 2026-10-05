@@ -202,6 +202,24 @@ class ListingGenerateHelpersTest(unittest.TestCase):
         self.assertIn("size: M", text)
         self.assertTrue(photo_analysis_usable(text))
 
+    def test_photo_evidence_keeps_sources_confidence_and_uncertainty_details(self):
+        from vendoo_studio.services.brave_search import fields_from_analysis
+
+        text = format_photo_analysis({
+            "brand": {"value": "Nike", "source": "tag", "confidence": 0.9,
+                      "evidence": "Nike label readable", "evidencePhotoIds": ["photo-2"]},
+            "size": {"value": "M", "source": "measurement-derived", "confidence": 0.4},
+            "measurements": [{"label": "Length", "value": "27 inches", "source": "photo ruler"}],
+            "uncertainties": [{"field": "material", "issue": "care tag not legible"}],
+        })
+        self.assertIn("Nike label readable", text)
+        self.assertIn("photo-2", text)
+        self.assertIn("model confidence (not verified): 0.4", text)
+        self.assertIn("Length: 27 inches (source: photo ruler)", text)
+        self.assertIn("material: care tag not legible", text)
+        # Richer evidence must not leak into the brand used for comp queries.
+        self.assertEqual(fields_from_analysis(text)["brand"], "Nike")
+
     def test_analysis_with_photo_count_never_asks_for_uploads(self):
         text = analysis_with_photo_count(7, "Photo analysis:\n- brand: M&O Gold")
         self.assertIn("already uploaded 7 product photo", text)
@@ -1329,6 +1347,39 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(COMPS_SETUP_NOTE, comps[0].text)
         prompt = _first_generate_prompt(self.provider)
         self.assertIn(COMPS_SETUP_NOTE, prompt)
+
+    async def test_generate_uses_recorded_seller_history_without_a_separate_advice_message(self):
+        from datetime import UTC, datetime, timedelta
+
+        with self.Session() as db:
+            ListingRepo(db).save_revision(self.conv_id, {
+                "category_path": MEN_TSHIRT_PATH, "quantity": 1,
+            }, source="category_analysis")
+            now = datetime.now(UTC)
+            for price in (20, 22, 24, 26, 28):
+                prior = ConversationRepo(db).create(title="M&O Gold Tee")
+                prior.notes = json.dumps({
+                    "vendooStatus": "sold",
+                    "vendooSale": {"price": price, "marketplace": "ebay"},
+                    "vendooDates": {
+                        "listed": (now - timedelta(days=30)).isoformat(),
+                        "sold": (now - timedelta(days=2)).isoformat(),
+                    },
+                })
+                db.commit()
+                ListingRepo(db).save_revision(prior.id, {
+                    "title": prior.title, "brand": "M&O Gold", "quantity": 1,
+                    "category_path": MEN_TSHIRT_PATH, "price": 100,
+                }, source="vendoo_import")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(f"/api/conversations/{self.conv_id}/generate")
+        self.assertEqual(response.status_code, 200)
+        prompt = _first_generate_prompt(self.provider)
+        self.assertIn("--- Seller history for this item ---", prompt)
+        self.assertIn('"median_sold_price": 24', prompt)
+        with self.Session() as db:
+            messages = ConversationRepo(db).get_messages(self.conv_id)
+            self.assertFalse(any("--- Seller history for this item ---" in message.text for message in messages))
 
     async def test_keepalives_emit_while_waiting_for_model(self):
         async def slow():

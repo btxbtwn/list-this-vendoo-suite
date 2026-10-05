@@ -50,7 +50,7 @@ Ceiling       = median asking price of 3+ similar live listings; price at or
 
 
 @lru_cache(maxsize=1)
-def _base_formula_rules(*, max_chars: int = 3500) -> str:
+def _base_formula_rules(*, max_chars: int = 6000) -> str:
     """Return the non-negotiable Formula Reference section from list-this SKILL.md."""
     skill_md = skills_dir() / "list-this" / "SKILL.md"
     if not skill_md.is_file():
@@ -71,7 +71,7 @@ def _base_formula_rules(*, max_chars: int = 3500) -> str:
     return section[:max_chars]
 
 
-def listing_formula_rules(*, max_chars: int = 3500) -> str:
+def listing_formula_rules(*, max_chars: int = 6000) -> str:
     """Base formula reference with any user-customized title/description swapped in."""
     text = _base_formula_rules(max_chars=max_chars)
     custom = get_listing_formulas()
@@ -115,8 +115,9 @@ def with_pinned_formulas(skill_rules: str, *, max_chars: int = 10000) -> str:
     rest = str(skill_rules or "").strip()
     if not rest:
         return pinned[:max_chars]
-    # Avoid duplicating the same Formula Reference block when the fallback is full SKILL.md.
-    if rest.lstrip().startswith("## Formula Reference") or "### TITLE Formula" in rest[:2000]:
+    # A retrieved chunk may contain only the title formula. Only skip pinning
+    # when the complete current section is already present at the front.
+    if rest.startswith(pinned):
         return f"{policy}\n\n{rest}"[:max_chars]
     combined = f"{pinned}\n\n--- Additional listing rules ---\n\n{rest}"
     return combined[:max_chars]
