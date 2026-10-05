@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.181 — 2026-10-04
+
+- Stop repeated Ask chat repairs from clearing required listing values, keep unknown original prices blank without validation errors, and use the saved brand and department when repairing titles and eBay fields.
+
 ## 0.1.180 — 2026-10-05
 
 - See your sell-through rate in Analytics and switch to a 7-day view with daily sales and a comparison to the previous week.
