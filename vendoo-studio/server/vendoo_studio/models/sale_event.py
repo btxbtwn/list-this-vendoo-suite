@@ -1,22 +1,27 @@
-from __future__ import annotations
+"""Seller-maintained promotion plans. These records never trigger automation."""
 
-from sqlalchemy import JSON, Column, Date, DateTime, Integer, String
+from sqlalchemy import JSON, Column, Date, DateTime, Float, String, Text
 
 from vendoo_studio.database import Base
 from vendoo_studio.models.conversation import new_id, utcnow
 
 
 class SaleEvent(Base):
-    """A marketplace sale the seller joined, like Depop's or Etsy's sitewide
-    sales. A sale on one of its marketplaces between its first and last day
-    counts as an event sale."""
-
     __tablename__ = "sale_events"
 
     id = Column(String, primary_key=True, default=new_id)
-    name = Column(String, nullable=False)
-    starts_on = Column(Date, nullable=False)
-    ends_on = Column(Date, nullable=False)
-    discount_percent = Column(Integer, nullable=True)
-    marketplaces = Column(JSON, nullable=False, default=list)  # marketplace ids; empty means all
-    created_at = Column(DateTime, default=utcnow)
+    title = Column(String, nullable=False)
+    marketplace = Column(String, nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    timezone = Column(String, nullable=False)
+    discount_percent = Column(Float, nullable=True)
+    fee_percent = Column(Float, nullable=True)
+    shipping_cost = Column(Float, nullable=True)
+    minimum_profit = Column(Float, nullable=True)
+    # Snapshot the chosen items so an edit or deletion cannot rewrite history.
+    items = Column(JSON, nullable=False)
+    status = Column(String, nullable=False, default="planned")
+    notes = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

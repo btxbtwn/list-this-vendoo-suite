@@ -1,0 +1,54 @@
+.sale-calendar h3 { margin: 0; font-size: 14px; font-weight: var(--weight-medium); }
+.sale-calendar p { font-size: var(--text-sm); line-height: 1.6; }
+.sale-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sale-patterns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 16px; margin-top: 24px; }
+.sale-pattern, .sale-event, .sale-plan-form { padding: 18px; border: 1px solid var(--color-border); border-radius: 10px; }
+.sale-pattern p { min-height: 4.8em; color: var(--color-text-muted); }
+.sale-pattern > small { display: block; margin: 12px 0; color: var(--color-text-muted); line-height: 1.5; }
+.sale-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.sale-weekdays div { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; background: var(--color-surface); border-radius: 4px; font-size: 11px; }
+.sale-weekdays span { color: var(--color-text-muted); }
+.sale-weekdays strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.sale-calendar-toolbar { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 12px; margin: 28px 0 16px; }
+.sale-calendar-toolbar label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sale-calendar input, .sale-calendar select, .sale-calendar textarea { min-width: 0; padding: 8px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-text); font: inherit; }
+.sale-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.sale-weekday { padding: 8px 0; text-align: center; font-size: 12px; color: var(--color-text-muted); }
+.sale-day { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-height: 92px; padding: 8px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; }
+.sale-day > span { font-size: 12px; }
+.sale-day.is-outside { opacity: .55; }
+.sale-day.is-today > span { font-weight: bold; color: var(--color-cobalt); }
+.sale-day.is-selected { border-color: var(--color-cobalt); background: color-mix(in srgb, var(--color-cobalt) 8%, transparent); }
+.sale-day:focus-visible { outline: 2px solid var(--color-cobalt); outline-offset: 1px; }
+.sale-chip { padding: 3px 5px; border-radius: 4px; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.sale-ebay { background: color-mix(in srgb, var(--color-cobalt) 14%, transparent); }
+.sale-depop { background: color-mix(in srgb, var(--color-tomato) 14%, transparent); }
+.sale-etsy { background: color-mix(in srgb, var(--color-text-muted) 14%, transparent); }
+.sale-agenda-title { margin-top: 24px; }
+.sale-agenda { display: grid; gap: 12px; }
+.sale-event details { margin: 14px 0; font-size: 13px; }
+.sale-event details summary { cursor: pointer; }
+.sale-event ul { list-style: none; padding: 0; }
+.sale-event li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; }
+.sale-event li button { padding: 0; border: 0; background: transparent; color: var(--color-cobalt); text-align: left; cursor: pointer; font: inherit; }
+.sale-event li span { font-size: 12px; color: var(--color-text-muted); }
+.sale-notes { white-space: pre-wrap; }
+.sale-results { padding: 12px; margin: 14px 0; background: var(--color-surface); border-radius: 8px; }
+.sale-results p { margin: 6px 0; }
+.sale-plan-form { margin-top: 24px; border-color: var(--color-cobalt); }
+.sale-plan-form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.sale-form-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 14px; }
+.sale-form-fields label, .sale-search { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.sale-search { margin: 18px 0 10px; }
+.sale-item-picker { max-height: 280px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px; }
+.sale-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 4px; font-size: 13px; border-bottom: 1px solid var(--color-border); }
+.sale-item small { display: block; color: var(--color-text-muted); font-size: 11px; margin-top: 4px; }
+.sale-error { color: var(--color-tomato); font-size: 13px; }
+@container analytics (max-width: 720px) {
+  .sale-day { padding: 4px; min-height: 75px; }
+  .sale-chip { font-size: 9px; padding: 2px; }
+  .sale-calendar > .analytics-title-row { flex-wrap: wrap; }
+  .sale-item { grid-template-columns: auto minmax(0, 1fr); }
+  .sale-item > span:last-child { grid-column: 2; }
+  .sale-event li { flex-direction: column; }
+}

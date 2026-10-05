@@ -61,6 +61,7 @@ export function VendooImportButton({ variant = "sidebar" }: { variant?: "sidebar
     const timer = window.setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["sale-calendar"] });
     }, 4000);
     return () => window.clearInterval(timer);
   }, [running, queryClient]);
@@ -74,7 +75,7 @@ export function VendooImportButton({ variant = "sidebar" }: { variant?: "sidebar
     wasRunning.current = false;
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
     queryClient.invalidateQueries({ queryKey: ["analytics"] });
-    queryClient.invalidateQueries({ queryKey: ["sale-events"] });
+    queryClient.invalidateQueries({ queryKey: ["sale-calendar"] });
     // The sidebar is also mounted on Analytics and owns completion notifications.
     if (variant === "analytics") return;
     if (run.error) {

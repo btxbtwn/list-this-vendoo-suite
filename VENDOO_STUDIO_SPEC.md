@@ -1013,3 +1013,28 @@ Version 1 is complete when the user can:
 14. Retry a failed step without creating a duplicate item.
 15. Open the completed Vendoo draft.
 16. Confirm that no listing was published automatically.
+
+
+## Sale calendar in Analytics
+
+The calendar stores local promotion plans and records for eBay, Depop, and Etsy.
+Planning selects active items, snapshots their prices and costs, and checks a
+seller-entered profit floor using estimated effective fees and seller shipping.
+Saving, editing, recording, or cancelling an event never writes to a marketplace
+or to Vendoo. The seller runs the sale separately and marks it as run.
+
+Weekday suggestions rank two-day windows over up to 26 complete weeks of
+imported sales. Suggestions require at least 20 dated sales across 8 complete
+weeks and a unique strongest window; they are experiments, not predictions of
+discount lift. Records show sales and recorded profit during the event and a
+comparison with matching weekdays before it, plus marketplace sales over up
+to 14 days after it. Overlapping recorded promotions
+or insufficient history suppress that comparison. Missing prices, costs, and
+fees are disclosed. Recent sales get event labels only from events marked as
+run, in the event time zone and selected item scope. Marketplace-wide historical
+records have no item scope. Resyncing Vendoo refreshes the calendar results.
+
+Earlier multi-marketplace event records migrate to one record per marketplace;
+events that covered all marketplaces keep that scope. Their dates are retained,
+and UTC is explicitly flagged as assumed because the earlier schema stored no
+time zone. Sellers can correct the time zone on historical records.
