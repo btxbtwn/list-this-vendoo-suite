@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -17,6 +19,7 @@ from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.services import vendoo_bulk_import
+from vendoo_studio.services.user_settings import record_vendoo_inventory_sync, vendoo_inventory_synced_at
 from vendoo_studio.services.vendoo_import import (
     import_vendoo_item,
     merge_notes,
@@ -130,6 +133,11 @@ class VendooItemStatusTest(unittest.TestCase):
 
 class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        settings = patch("vendoo_studio.services.user_settings.settings_path", return_value=Path(temp.name) / "settings.json")
+        settings.start()
+        self.addCleanup(settings.stop)
         engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},
@@ -188,6 +196,11 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progress["skipped"], 0)
         self.assertEqual(progress["failed"], 0)
         self.assertFalse(progress["running"])
+        synced_at = vendoo_inventory_synced_at()
+        self.assertIsNotNone(synced_at)
+        # The progress object is lost on restart; the successful sync time is not.
+        vendoo_bulk_import._progress = vendoo_bulk_import.BulkImportProgress()
+        self.assertEqual(vendoo_inventory_synced_at(), synced_at)
 
         repo = ConversationRepo(self.db)
         convs = {conv.title: conv for conv in repo.list_all()}
@@ -308,14 +321,17 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
     async def test_an_inventory_that_reads_as_empty_deletes_nothing(self):
         """A quiet Vendoo session must not be read as an emptied account."""
         await self._run([[vendoo_item("a", title="Tee A")]])
+        synced_at = vendoo_inventory_synced_at()
 
         progress = await self._run([[]])
 
         self.assertEqual(progress["deleted"], 0)
         self.assertEqual(len(ConversationRepo(self.db).list_all()), 1)
+        self.assertEqual(vendoo_inventory_synced_at(), synced_at)
 
     async def test_a_cancelled_run_deletes_nothing(self):
         await self._run([[vendoo_item("a", title="Tee A")]])
+        synced_at = vendoo_inventory_synced_at()
 
         async def cancel_after_first_page(page_token: str, *, ids_only: bool = False):
             if ids_only:
@@ -341,6 +357,7 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(vendoo_bulk_import.status()["deleted"], 0)
         self.assertEqual(len(ConversationRepo(self.db).list_all()), 1)
+        self.assertEqual(vendoo_inventory_synced_at(), synced_at)
 
     async def test_a_busy_listing_is_kept_even_when_vendoo_lost_the_item(self):
         await self._run([[vendoo_item("a", title="Tee A")]])
@@ -360,6 +377,7 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(ConversationRepo(self.db).get(conv.id))
 
     async def test_one_bad_item_does_not_end_the_run(self):
+        record_vendoo_inventory_sync("2026-10-01T12:00:00Z")
         pages = [[vendoo_item("a", title="Tee A"), vendoo_item("b", title="Tee B")]]
 
         async def flaky(db, *, item_id: str, **kwargs):
@@ -374,6 +392,14 @@ class BulkImportRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progress["imported"], 1)
         self.assertEqual(progress["failures"][0]["item_id"], "a")
         self.assertEqual(len(ConversationRepo(self.db).list_all()), 1)
+        self.assertEqual(vendoo_inventory_synced_at(), "2026-10-01T12:00:00Z")
+
+    async def test_failed_inventory_read_keeps_the_previous_sync_time(self):
+        record_vendoo_inventory_sync("2026-10-01T12:00:00Z")
+        with patch.object(vendoo_bulk_import, "_count_items", side_effect=RuntimeError("Chrome disconnected")):
+            await vendoo_bulk_import._run()
+        self.assertEqual(vendoo_bulk_import.status()["error"], "Chrome disconnected")
+        self.assertEqual(vendoo_inventory_synced_at(), "2026-10-01T12:00:00Z")
 
 
 class BulkImportControlTest(unittest.IsolatedAsyncioTestCase):

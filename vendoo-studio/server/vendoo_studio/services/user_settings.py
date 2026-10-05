@@ -11,6 +11,7 @@ _lock = threading.Lock()
 SETUP_GUIDE_DISMISSED_KEY = "setup_guide_dismissed"
 LISTING_PROVIDER_KEY = "listing_provider"
 UI_PREFS_KEY = "ui"
+VENDOO_INVENTORY_SYNCED_AT_KEY = "vendoo_inventory_synced_at"
 RECENT_LABELS_KEY = "recent_vendoo_labels"
 SETTLED_SHELF_KEY = "settled_shelf_expanded"
 HIDDEN_LABELS_KEY = "hidden_vendoo_labels"
@@ -105,6 +106,19 @@ def _write_unlocked(payload: dict) -> None:
 def read_settings() -> dict:
     with _lock:
         return _read_unlocked()
+
+
+def vendoo_inventory_synced_at() -> str | None:
+    value = read_settings().get(VENDOO_INVENTORY_SYNCED_AT_KEY)
+    return value if isinstance(value, str) and value else None
+
+
+def record_vendoo_inventory_sync(finished_at: str) -> None:
+    """Persist the last complete inventory sync across Studio restarts."""
+    def mutator(payload: dict) -> None:
+        payload[VENDOO_INVENTORY_SYNCED_AT_KEY] = finished_at
+
+    update_settings(mutator)
 
 
 def write_settings(payload: dict) -> None:
