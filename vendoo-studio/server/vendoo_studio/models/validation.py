@@ -343,6 +343,12 @@ def normalize_listing_dropdowns(listing: dict) -> bool:
     if not isinstance(listing, dict):
         return False
     changed = canonicalize_listing_keys(listing)
+    poshmark = listing.get("poshmark_specifics")
+    if isinstance(poshmark, dict) and "originalPrice" in poshmark:
+        price = poshmark["originalPrice"]
+        if price is None or (isinstance(price, str) and not price.strip()):
+            del poshmark["originalPrice"]
+            changed = True
     if _ensure_general_condition(listing):
         changed = True
 

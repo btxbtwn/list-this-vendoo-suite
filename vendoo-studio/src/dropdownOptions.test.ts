@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { withDropdownOptions } from "./dropdownOptions";
+import { optionsForField, withDropdownOptions } from "./dropdownOptions";
 
 type Field = { key: string; label: string; options?: string[] };
 
@@ -21,6 +21,13 @@ const FORMS = {
 };
 
 describe("withDropdownOptions", () => {
+  it("does not offer a category-specific static eBay department list", () => {
+    expect(optionsForField(FORMS, "ebay", "department")).toBeUndefined();
+    const fields = withDropdownOptions([{ key: "ebay_specifics.department", label: "Department" }] as Field[], "ebay", FORMS);
+    expect(fields[0].options).toBeUndefined();
+    const live = withDropdownOptions([{ key: "ebay_specifics.department", options: ["Women"] }], "ebay", FORMS);
+    expect(live[0].options).toEqual(["Women"]);
+  });
   it("attaches general condition and size options from the vendoo form", () => {
     const input: Field[] = [
       { key: "condition", label: "Condition" },

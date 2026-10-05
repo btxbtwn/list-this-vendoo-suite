@@ -953,7 +953,7 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(saved["department"], "Men")
         self.assertEqual(saved["category_path"], MEN_TSHIRT_PATH)
         self.assertEqual(saved["ebay_specifics"]["department"], "Men")
-        self.assertEqual(saved["ebay_specifics"]["Primary Store Category"], "Men's Clothing")
+        self.assertEqual(saved["ebay_specifics"]["primaryStoreCategory"], "Men's Clothing")
         self.assertEqual(saved["poshmark_specifics"]["styleTags"], ["Casual", "Streetwear", "Embroidered"])
         notes = json.loads(ConversationRepo(self.db).get(self.conv.id).notes)
         self.assertEqual(notes["categoryOverride"], MEN_TSHIRT_PATH)
@@ -1005,6 +1005,74 @@ class PersistListingTest(unittest.TestCase):
         self.assertEqual(etsy.get("Pattern") or etsy.get("pattern"), "Solid")
         messages = ConversationRepo(self.db).get_messages(self.conv.id)
         self.assertTrue(any("Saved to the listing JSON" in (m.text or "") for m in messages))
+
+    def test_repeated_blank_repairs_preserve_required_values_and_unknown_price(self):
+        from vendoo_studio.models.validation import validate_listing
+        from vendoo_studio.repositories.queries import RegistryRepo
+
+        RegistryRepo(self.db).upsert_schema_fields("poshmark", None, [{"label": "Original Price", "selector": "#originalPrice"}])
+
+        repo = ListingRepo(self.db)
+        repo.save_revision(self.conv.id, {
+            "title": "XS Streetwear Graphic T-Shirt Black Slim Fit",
+            "brand": "Unbranded", "size": "XS", "department": "Women",
+            "description": "Graphic jersey tee.\nFlaws: Light lint.\nMeasurements: Pit to pit 14 inches; length 24.5 inches.",
+            "price": 12, "condition": "Pre-Owned - Good",
+            "category_path": "Clothing, Shoes & Accessories > Women > Women's Clothing > Tops",
+            "ebay_specifics": {"brand": "", "department": "", "size": "XS", "sizeType": "Regular", "type": "T-Shirt"},
+            "poshmark_specifics": {"originalPrice": ""},
+        }, "test")
+        reply = json.dumps({"missing_fields": [
+            {"marketplace": "general", "field": "brand", "value": ""},
+            {"marketplace": "general", "field": "title", "value": "XS Streetwear Graphic T-Shirt Black Slim Fit"},
+            {"marketplace": "ebay", "field": "brand", "value": ""},
+            {"marketplace": "ebay", "field": "department", "value": ""},
+            {"marketplace": "poshmark", "field": "originalPrice", "value": None},
+        ]})
+        for _ in range(2):
+            _, saved = chat_listing.apply_listing_payload(self.db, self.conv.id, reply)
+            self.assertTrue(saved)
+            listing = repo.get_revisions(self.conv.id)[0].listing_json
+            self.assertEqual(listing["brand"], "Unbranded")
+            self.assertEqual(listing["department"], "Women")
+            self.assertEqual(listing["ebay_specifics"]["department"], "Women")
+            self.assertEqual(listing["ebay_specifics"]["brand"], "Unbranded")
+            self.assertEqual(listing["title"], "Unbranded XS Streetwear Graphic T-Shirt Black Slim Fit")
+            self.assertNotIn("originalPrice", listing["poshmark_specifics"])
+            validation = validate_listing(listing, require_photos=False, selected_marketplaces=["ebay", "poshmark"])
+            blocked = {error["field"] for error in validation.errors}
+            self.assertFalse(blocked & {"title", "brand", "ebay_specifics.department", "ebay_specifics.brand", "poshmark_specifics.originalPrice"})
+        messages = ConversationRepo(self.db).get_messages(self.conv.id)
+        self.assertTrue(any("Kept existing values" in message.text for message in messages))
+        self.assertTrue(any("eBay / brand: Unbranded" in message.text for message in messages))
+
+        async def read_saved_listing():
+            def override_db():
+                yield self.db
+
+            app.dependency_overrides[get_db] = override_db
+            try:
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                    response = await client.get(f"/api/conversations/{self.conv.id}/listing")
+                    self.assertEqual(response.status_code, 200)
+                    payload = response.json()
+                    self.assertNotIn("originalPrice", payload["listing"]["poshmark_specifics"])
+                    self.assertEqual(payload["listing"]["ebay_specifics"]["department"], "Women")
+            finally:
+                app.dependency_overrides.clear()
+
+        asyncio.run(read_saved_listing())
+
+    def test_optional_original_price_accepts_blank_but_rejects_non_numeric_values(self):
+        from vendoo_studio.models.validation import validate_listing
+
+        for value in (None, "", "   "):
+            data = {"poshmark_specifics": {"originalPrice": value}}
+            validation = validate_listing(data, require_photos=False, selected_marketplaces=[])
+            self.assertNotIn("originalPrice", data["poshmark_specifics"])
+            self.assertFalse(any(error["field"] == "poshmark_specifics.originalPrice" for error in validation.errors))
+        validation = validate_listing({"poshmark_specifics": {"originalPrice": "unknown"}}, require_photos=False, selected_marketplaces=[])
+        self.assertTrue(any(error["field"] == "poshmark_specifics.originalPrice" for error in validation.errors))
 
     def test_apply_missing_fields_repairs_and_saves_when_ask_chat_format_breaks(self):
         listing_repo = ListingRepo(self.db)

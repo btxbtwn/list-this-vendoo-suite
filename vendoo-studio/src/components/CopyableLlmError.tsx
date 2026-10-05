@@ -146,6 +146,7 @@ Update EVERY field listed below so the errors clear. Use photo analysis and sell
 For eBay Season intelligently choose exactly one of Spring, Summer, Fall, or Winter from the item (title, fabric, type, photos). Never leave it blank and never use Does Not Apply.
 For every marketplace field shown after Show Optional Fields (eBay, Etsy, Depop, and others): fill a real value when it pertains to the item. Use Does Not Apply only when it literally does not apply.
 ${OPTIONS_RULE}
+Required fields must not be cleared to resolve an error. Reuse supported values from the current listing. For an unidentified brand, use Unbranded; include that brand before the size in the title. Copy the listing's department into eBay department. If captured department options exclude it, explain the category/schema mismatch rather than choose an inaccurate department. Leave an unknown optional original price blank; do not invent a retail price.
 
 Validation errors:
 ${lines.join("\n") || "- (no details)"}

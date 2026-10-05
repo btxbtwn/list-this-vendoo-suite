@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+
 from sqlalchemy.orm import Session
 
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
@@ -32,8 +34,13 @@ def _sync_category_override(db: Session, conv_id: str, listing: dict) -> None:
 
 
 def save_listing_revision(db: Session, conv_id: str, listing: dict, *, operations: list[dict] | None = None) -> dict:
+    from vendoo_studio.models.validation import normalize_listing_dropdowns
+    from vendoo_studio.services.listing_generate import align_size_fields
+
     updated = align_listing_gender(listing, operations)
     stamped = _stamp_learned_fields(db, updated)
+    align_size_fields(stamped)
+    normalize_listing_dropdowns(stamped)
     revisions = ListingRepo(db).get_revisions(conv_id)
     parent_id = revisions[0].id if revisions else None
     ListingRepo(db).save_revision(
@@ -115,6 +122,7 @@ async def _maybe_resolve_vendoo_category(
 def _save_missing_fields(db: Session, conv_id: str, missing_fields: list[dict]) -> bool:
     from vendoo_studio.services.fill_log import (
         FillLogService,
+        listing_value_for_field,
         summarize_missing_fields,
         remember_chat_clears,
         write_values_into_listing,
@@ -130,14 +138,42 @@ def _save_missing_fields(db: Session, conv_id: str, missing_fields: list[dict]) 
             model="",
         )
         return False
-    updated = write_values_into_listing(dict(revisions[0].listing_json), missing_fields)
-    updated = remember_chat_clears(updated, missing_fields)
+    from vendoo_studio.models.validation import normalize_listing_dropdowns, validate_listing
+    from vendoo_studio.services.listing_generate import align_size_fields
+
+    updated = copy.deepcopy(revisions[0].listing_json)
+    accepted = []
+    rejected = []
+    for field in missing_fields:
+        before = validate_listing(copy.deepcopy(updated), require_photos=False)
+        candidate = write_values_into_listing(copy.deepcopy(updated), [field])
+        after = validate_listing(candidate, require_photos=False)
+        previous_errors = {(error["field"], error["message"]) for error in before.errors}
+        new_errors = [error for error in after.errors if (error["field"], error["message"]) not in previous_errors]
+        if field.get("value") in ("", []) and new_errors:
+            rejected.extend(error["message"] for error in new_errors)
+            continue
+        updated = candidate
+        accepted.append(field)
+    align_size_fields(updated)
+    normalize_listing_dropdowns(updated)
+    # Report the saved value when normalization restored a cleared required
+    # field or completed a size-first title.
+    for index, field in enumerate(accepted):
+        if field.get("value") in ("", []) or field.get("field", "").casefold() == "title":
+            value = listing_value_for_field(updated, field.get("marketplace", "general"), field["field"])
+            if value:
+                accepted[index] = {**field, "value": value}
+    updated = remember_chat_clears(updated, accepted)
     save_listing_revision(db, conv_id, updated)
-    FillLogService(db).record_generated_values(conv_id, missing_fields)
+    FillLogService(db).record_generated_values(conv_id, accepted)
+
     ConversationRepo(db).add_message(
         conv_id,
         "system",
-        summarize_missing_fields(missing_fields),
+        (summarize_missing_fields(accepted) if accepted else "No proposed field changes were accepted.")
+        + ("\nKept existing values because the proposed changes would introduce validation errors:\n"
+           + "\n".join(f"- {message}" for message in dict.fromkeys(rejected)) if rejected else ""),
         provider="system",
         model="",
     )

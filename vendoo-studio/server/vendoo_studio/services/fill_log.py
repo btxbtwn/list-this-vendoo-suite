@@ -374,8 +374,10 @@ def extract_missing_fields(text: str) -> list[dict] | None:
             value = item.get("value")
             if item.get("status") == "not_applicable":
                 value = "Does Not Apply"
-            if not field or value is None:
+            if not field or ("value" not in item and item.get("status") != "not_applicable"):
                 continue
+            if value is None:
+                value = ""
             # An explicit blank clears the field. Chat needs that when the only
             # value it has — Depop material "Chiffon" — is not on the dropdown,
             # because leaving the row out would keep the rejected value forever.

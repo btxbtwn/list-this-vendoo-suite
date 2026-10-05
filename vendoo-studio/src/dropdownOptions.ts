@@ -47,6 +47,9 @@ function optionsFor(
   marketplace: string,
   fieldLeaf: string,
 ): string[] | undefined {
+  // This static scrape captured one men's category. Department options vary
+  // by category; live schema options are supplied directly on editor fields.
+  if (marketplace === "ebay" && optionKey(fieldLeaf) === "department") return undefined;
   const bucket = forms?.[marketplace];
   if (!bucket) return undefined;
   if (bucket[fieldLeaf]?.length) return bucket[fieldLeaf];
