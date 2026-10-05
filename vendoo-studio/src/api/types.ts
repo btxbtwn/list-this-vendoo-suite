@@ -488,41 +488,6 @@ export interface InventoryAnalytics {
   oldest: { conversation_id: string; title: string; price: number; days_listed: number }[];
 }
 
-export interface SaleEventSale {
-  conversation_id: string;
-  title: string;
-  price: number | null;
-  marketplace: string;
-  sold_at: string | null;
-}
-
-/** A marketplace sale event the seller joined, against the weeks around it. */
-export interface SaleEvent {
-  id: string;
-  name: string;
-  starts_on: string;
-  ends_on: string;
-  discount_percent: number | null;
-  /** Empty means every marketplace. */
-  marketplaces: string[];
-  status: "upcoming" | "running" | "ended";
-  sold: number;
-  revenue: number;
-  per_week: number | null;
-  before_per_week: number | null;
-  after_per_week: number | null;
-  after_days: number;
-  sales: SaleEventSale[];
-}
-
-export interface SaleEventInput {
-  name: string;
-  starts_on: string;
-  ends_on: string;
-  marketplaces: string[];
-  discount_percent: number | null;
-}
-
 export interface BackupSnapshot {
   path: string;
   name: string;

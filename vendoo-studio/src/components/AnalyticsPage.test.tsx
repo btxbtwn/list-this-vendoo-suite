@@ -50,8 +50,8 @@ const data: InventoryAnalytics = {
 function render(payload: InventoryAnalytics, run: Partial<VendooBulkImport> = { running: false }, starting = false) {
   useMutation.mockReturnValue({ mutate: vi.fn(), isPending: starting });
   useQuery.mockImplementation(({ queryKey }: { queryKey: readonly string[] }) =>
-    queryKey[0] === "sale-events"
-      ? { data: { events: [] }, isError: false }
+    queryKey[0] === "sale-calendar"
+      ? { data: { events: [], patterns: [], items: [], timezone: "UTC" }, isError: false }
       : queryKey[0] === "vendoo-bulk-import" ? { data: run }
       : { data: payload, isLoading: false, isError: false, isFetching: false },
   );
@@ -126,7 +126,7 @@ describe("AnalyticsPage", () => {
     expect(html).toContain("lowest $10");
     expect(html).toContain("Keep full price");
     expect(html).toContain("Depop fall sale");
-    expect(html).toContain("No sale events yet.");
+    expect(html).toContain("No events here yet. Select a day and plan a sale.");
   });
 
   it("withholds comparisons when prices or costs are missing", () => {

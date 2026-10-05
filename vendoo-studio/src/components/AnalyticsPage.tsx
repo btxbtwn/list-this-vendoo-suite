@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { AnalyticsGroup, AnalyticsRange, AnalyticsSales, AnalyticsStaleListing, InventoryAnalytics } from "../api/types";
 import { formatChange, formatDays, formatMoney } from "./analyticsFormat";
 import { marketplaceName } from "./marketplaceNames";
-import { SaleEvents } from "./SaleEvents";
+import { SaleCalendar } from "./SaleCalendar";
 import { VendooImportButton } from "./VendooImportButton";
 
 const RANGES: { id: AnalyticsRange; label: string; heading: string }[] = [
@@ -182,7 +182,7 @@ export function AnalyticsPage({ onOpenListing }: Props) {
 
             <DiscountDeeper listings={data.stale} onOpenListing={onOpenListing} />
 
-            <SaleEvents onOpenListing={onOpenListing} />
+            <SaleCalendar onOpenListing={onOpenListing} />
 
             <section className="analytics-section" aria-label="Oldest active listings">
               <h2 className="analytics-section-title">Review your oldest listings</h2>

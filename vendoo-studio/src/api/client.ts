@@ -38,12 +38,11 @@ import type {
   ScoutState,
   SourceBoxInput,
   SourceBoxes,
-  SaleEvent,
-  SaleEventInput,
   SourcingPrefs,
   SourcingState,
 } from "./types";
 import { readSse } from "./sse";
+import type { SaleCalendarData, SaleEventStatus, SalePlan, SaleRecord } from "./saleCalendar";
 
 const BASE = "/api";
 
@@ -195,12 +194,16 @@ export const api = {
     decide: (id: string, decision: "bought" | "passed") =>
       request<ScoutCheck>(`/scout/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
   },
-  saleEvents: {
-    list: () => request<{ events: SaleEvent[] }>("/sale-events"),
-    create: (body: SaleEventInput) =>
-      request<{ events: SaleEvent[] }>("/sale-events", { method: "POST", body: JSON.stringify(body) }),
-    remove: (id: string) => request<{ events: SaleEvent[] }>(`/sale-events/${id}`, { method: "DELETE" }),
+  saleCalendar: {
+    record: (record: SaleRecord) => request<{ id: string }>("/analytics/calendar/records", { method: "POST", body: JSON.stringify(record) }),
+    editRecord: (id: string, record: SaleRecord) => request<{ id: string }>(`/analytics/calendar/records/${id}`, { method: "PUT", body: JSON.stringify(record) }),
+    get: (timezone: string) => request<SaleCalendarData>(`/analytics/calendar?timezone=${encodeURIComponent(timezone)}`),
+    create: (plan: SalePlan) => request<{ id: string }>("/analytics/calendar", { method: "POST", body: JSON.stringify(plan) }),
+    update: (id: string, plan: SalePlan) => request<{ id: string }>(`/analytics/calendar/${id}`, { method: "PUT", body: JSON.stringify(plan) }),
+    status: (id: string, status: SaleEventStatus) => request<{ ok: boolean }>(`/analytics/calendar/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+    remove: (id: string) => request<{ ok: boolean }>(`/analytics/calendar/${id}`, { method: "DELETE" }),
   },
+
   boxes: {
     list: () => request<SourceBoxes>("/boxes"),
     create: (body: SourceBoxInput) =>

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.183 — 2026-10-05
+
+- Plan eBay, Depop, and Etsy sales on a calendar, try windows suggested by your sales history, check estimated item profits, and compare recorded event results with the same weekdays before the sale.
+
 ## 0.1.182 — 2026-10-05
 
 - See when Analytics last synced with Vendoo, resync your data from the Analytics tab, and review reminders for sold items with missing sales details.
