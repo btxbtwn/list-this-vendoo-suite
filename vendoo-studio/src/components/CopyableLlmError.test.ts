@@ -28,6 +28,16 @@ describe("emptyFieldsButtonLabel", () => {
 });
 
 describe("fix-errors prompts", () => {
+  it("protects required values and omits stale department options", () => {
+    const prompt = validationErrorsPrompt(
+      [{ field: "ebay_specifics.department", message: "Department is required" }],
+      "XS Streetwear Graphic T-Shirt Black Slim Fit",
+      { ebay: { department: ["Men", "Teens", "Unisex Adults"] } },
+    );
+    expect(prompt).not.toContain("Men | Teens | Unisex Adults");
+    expect(prompt).toContain("Required fields must not be cleared");
+    expect(prompt).toContain("use Unbranded");
+  });
   it("lists the Depop dropdown options for a rejected value", () => {
     const prompt = validationErrorsPrompt(
       [{

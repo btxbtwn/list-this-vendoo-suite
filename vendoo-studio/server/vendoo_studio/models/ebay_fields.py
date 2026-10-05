@@ -702,18 +702,19 @@ def ensure_ebay_category_optionals(listing: dict) -> bool:
 
 
 def promote_required_ebay_specifics(listing: dict) -> bool:
-    """Lift required eBay keys out of category_specifics — the filler reads them flat."""
+    """Fill required eBay keys from nested specifics or matching general values."""
     ebay = listing.get("ebay_specifics")
     if not isinstance(ebay, dict):
         return False
     nested = ebay.get("category_specifics")
-    if not isinstance(nested, dict):
-        return False
+    nested = nested if isinstance(nested, dict) else {}
     changed = False
     for key in REQUIRED_EBAY_KEYS:
         if not ebay_optional_blank(ebay.get(key)):
             continue
         value = nested.get(key)
+        if ebay_optional_blank(value) and key in {"brand", "department", "size", "sizeType"}:
+            value = listing.get(key)
         if ebay_optional_blank(value):
             continue
         ebay[key] = value

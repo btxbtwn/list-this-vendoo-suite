@@ -675,7 +675,13 @@ def sync_title_size(listing: dict) -> bool:
     brand_tokens = [part for part in str(listing.get("brand") or "").strip().split() if part]
     slot = len(brand_tokens)
     if [token.lower() for token in tokens[:slot]] != [part.lower() for part in brand_tokens]:
-        slot = 0
+        # A size-first title omitted the known brand. Restore the existing
+        # value rather than ask the model to invent or rediscover one.
+        size_tokens = size.split()
+        if brand_tokens and [token.lower() for token in tokens[:len(size_tokens)]] == [part.lower() for part in size_tokens]:
+            tokens[:0] = brand_tokens
+        else:
+            slot = 0
     size_tokens = size.split()
     normalized_size = [part.lower() for part in size_tokens]
     end = slot
