@@ -64,6 +64,32 @@ class ListingPromptOrderTest(unittest.TestCase):
         self.assertIn("Colors must be exact Vendoo General dropdown values", chat_prompts.LISTING_INSTRUCTIONS)
         self.assertIn("Use Blue for navy", chat_prompts.LISTING_INSTRUCTIONS)
 
+    def test_first_generation_receives_required_flags_and_exact_allowed_options(self):
+        ListingRepo(self.db).save_revision(self.conv.id, {"category_path": "Clothing > Tops"}, source="category_analysis")
+        content = chat_prompts.listing_generation_messages("R", "", "", self.db, self.conv.id)[0]["content"]
+        section = content[content.index("--- Discovered fields still empty ---"):]
+        self.assertIn('etsy: Pattern (required) — allowed options: ["Solid", "Floral"]', section)
+
+    def test_api_schema_options_reach_first_generation_and_large_lists_are_bounded(self):
+        from vendoo_studio.services.vendoo_specifics import FieldSpec
+
+        spec = FieldSpec("style", display="Style", required=True, options={
+            **{str(i): f"Other option {i}" for i in range(200)},
+            "floral": "Floral Blouse", "none": "Does Not Apply",
+        })
+        with (
+            patch("vendoo_studio.services.listing_field_gaps.listing_category_ids", return_value={"ebay": "123"}),
+            patch("vendoo_studio.services.listing_field_gaps.load_fields", return_value={"style": spec}),
+        ):
+            content = chat_prompts.listing_generation_messages(
+                "R", "", "Photo analysis:\n- style: Floral Blouse", self.db, self.conv.id,
+            )[0]["content"]
+        section = content[content.index("--- Discovered fields still empty ---"):]
+        self.assertIn("ebay: Style (required)", section)
+        self.assertIn("Floral Blouse", section)
+        self.assertIn("relevant subset", section)
+        self.assertLess(section.count("Other option"), 30)
+
 
 class _QuickProvider:
     def __init__(self):

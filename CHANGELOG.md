@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.184 — 2026-10-05
+
+- Generate listings with relevant recorded sales and similar unsold inventory in mind, while keeping your chosen price and current marketplace comps in view.
+- Preserve photo evidence and uncertainty, and supply required fields and allowed choices earlier so generated listings need fewer corrections.
+
 ## 0.1.183 — 2026-10-05
 
 - Source clothing with recent sold examples, current competition, adjustable selling costs, break-even sales, and a lower-sales profit check. Boxes with weak evidence or repair-heavy grades stay out of recommendations by default.

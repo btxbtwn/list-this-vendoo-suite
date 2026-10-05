@@ -446,6 +446,28 @@ Use `mimo-v2.5-pro` with:
 - Marketplace value constraints.
 - Conversation instructions.
 
+Generation also supplies a bounded, read-only seller-history context after the
+general category is resolved: current listing facets matched by brand, full
+category and known condition, recent recorded sale prices and durations, and
+similar active inventory. It excludes the current item, asking-price substitutes
+for sales, missing or invalid sale dates, and unrelated notes or photos. The
+canonical `skills/list-this/SKILL.md` owns how that evidence affects pricing and
+historical vocabulary. Small samples remain weak examples, and historical item
+facts never replace evidence about the new item. Photo analysis preserves its
+evidence sources, model confidence and uncertainty details; discovered field
+requirements and exact allowed options reach the initial generation prompt.
+
+Future evidence sources need stronger provenance before they guide generation:
+revision edits can be item-specific corrections rather than reusable seller
+preferences; a saved shipping weight can be an estimate or import default rather
+than a measured shipment; and current listing text can differ from the text at
+the time of sale. Sales alone do not establish effective keywords, conversion
+rates, or platform demand. Those analyses require dated exposure and outcome
+history (including impressions, views, offers and returns), which the listing
+import does not currently preserve. Generation must receive relevant records
+with their source, age and missing-data coverage rather than aggregate dashboard
+rankings or an unfiltered inventory dump.
+
 The output contains a user-facing response, complete proposed listing, uncertainties, and validation warnings.
 
 ### Stage 3: Revision

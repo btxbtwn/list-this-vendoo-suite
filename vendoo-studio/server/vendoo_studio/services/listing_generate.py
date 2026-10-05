@@ -74,6 +74,16 @@ def format_photo_analysis(evidence: dict) -> str:
         if isinstance(fd, dict) and fd.get("source"):
             extra = f" (source: {fd.get('source')})"
         parts.append(f"- {field_key}: {value}{extra}")
+        if isinstance(fd, dict):
+            detail = []
+            if fd.get("evidence"):
+                detail.append(f"evidence: {fd['evidence']}")
+            if fd.get("evidencePhotoIds"):
+                detail.append(f"photo ids: {fd['evidencePhotoIds']}")
+            if fd.get("confidence") is not None:
+                detail.append(f"model confidence (not verified): {fd['confidence']}")
+            if detail:
+                parts.append(f"Evidence for {field_key}: {'; '.join(detail)}")
     condition = evidence.get("condition")
     flaws = condition.get("visibleFlaws", []) if isinstance(condition, dict) else []
     if flaws:
@@ -83,7 +93,8 @@ def format_photo_analysis(evidence: dict) -> str:
             label = str(measurement.get("label") or "").strip()
             value = str(measurement.get("value") or "").strip()
             if label and value:
-                parts.append(f"- {label}: {value}")
+                source = f" (source: {measurement['source']})" if measurement.get("source") else ""
+                parts.append(f"- {label}: {value}{source}")
     tag_text = evidence.get("tag_text")
     if isinstance(tag_text, dict):
         tag_parts = [
@@ -101,7 +112,8 @@ def format_photo_analysis(evidence: dict) -> str:
     uncertainties = evidence.get("uncertainties") or []
     if uncertainties:
         parts.append("- uncertainties: " + ", ".join(
-            u.get("field", str(u)) if isinstance(u, dict) else str(u) for u in uncertainties
+            f"{u.get('field', 'item')}: {u.get('issue', 'uncertain')}"
+            if isinstance(u, dict) else str(u) for u in uncertainties
         ))
     return "\n".join(parts)
 
