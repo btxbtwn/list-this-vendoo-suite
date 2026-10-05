@@ -6,9 +6,13 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.183 — 2026-10-05
+## 0.1.184 — 2026-10-05
 
 - Plan eBay, Depop, and Etsy sales on a calendar, try windows suggested by your sales history, check estimated item profits, and compare recorded event results with the same weekdays before the sale.
+
+## 0.1.183 — 2026-10-05
+
+- Source clothing with recent sold examples, current competition, adjustable selling costs, break-even sales, and a lower-sales profit check. Boxes with weak evidence or repair-heavy grades stay out of recommendations by default.
 
 ## 0.1.182 — 2026-10-05
 

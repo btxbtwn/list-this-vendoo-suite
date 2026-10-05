@@ -5,6 +5,7 @@ export function DraftInput({
   value,
   label,
   prefix,
+  suffix,
   width,
   inputMode,
   maxLength,
@@ -16,6 +17,7 @@ export function DraftInput({
   value: string;
   label: string;
   prefix?: string;
+  suffix?: string;
   width: string;
   inputMode: "numeric" | "decimal";
   maxLength?: number;
@@ -55,6 +57,7 @@ export function DraftInput({
           if (event.key === "Escape") setDraft(value);
         }}
       />
+      {suffix ? <span className="sourcing-input-suffix">{suffix}</span> : null}
     </span>
   );
 }

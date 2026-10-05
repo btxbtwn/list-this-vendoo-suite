@@ -54,6 +54,7 @@ export function calibrationNote(
     return `${storeLabel}: ${sales} from bought boxes so far. Studio starts adjusting its estimates after ${more} more.`;
   }
   const percent = Math.round(calibration.factor * 100);
+  if (percent > 100) return `${storeLabel}: your ${sales} beat Studio's past estimates. Current research still caps new price estimates.`;
   if (percent === 100) return `${storeLabel}: your ${sales} match Studio's estimates.`;
   return `${storeLabel}: your ${sales} sold for ${percent}% of what Studio estimated, so its ${storeLabel} prices are set to ${percent}%.`;
 }

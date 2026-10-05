@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SourcingCart, SourcingLot, SourcingSnapshot } from "../api/types";
+import type { SourcingCart, SourcingLot, SourcingSnapshot, SourcingState } from "../api/types";
 import {
   cartTotal,
   clockTime,
@@ -7,10 +7,12 @@ import {
   gradeLabel,
   isZip,
   lotReason,
-  moneyBack,
   nextUpdate,
   otherLots,
+  planMetrics,
+  planNeedsUpdate,
   piecesLabel,
+  whyNotPicked,
 } from "./boxScout";
 
 function lot(overrides: Partial<SourcingLot> = {}): SourcingLot {
@@ -38,12 +40,22 @@ function lot(overrides: Partial<SourcingLot> = {}): SourcingLot {
     cog_per_pc: 1.91,
     cog_per_usable_pc: 2.12,
     resale_per_pc: 14,
+    resale_factor: 1,
     sell_through: 0.75,
     expected_revenue: 520,
     expected_profit: 388,
     roi: 2.94,
     score: 3.9,
     evidence: [],
+    comps: [],
+    research_at: null,
+    research_source: null,
+    active_comps: [],
+    active_median: null,
+    resale_low: 12,
+    operating_cost: 124.2,
+    break_even_pcs: 23,
+    downside_profit: 25,
     ...overrides,
   };
 }
@@ -67,15 +79,66 @@ describe("money", () => {
     expect(cartTotal(cart())).toBe(205);
   });
 
-  it("says what each dollar spent should bring back", () => {
-    expect(moneyBack(418, 1210)).toBe("$3.89");
-    expect(moneyBack(0, 0)).toBe("$0");
-  });
-
   it("says how much more unlocks free shipping", () => {
     expect(freeShippingGap(cart())).toBe(35);
     expect(freeShippingGap(cart({ free_shipping: true }))).toBeNull();
     expect(freeShippingGap(cart({ free_shipping_over: null }))).toBeNull();
+  });
+});
+
+function state(): SourcingState {
+  const prefs = {
+    budget: 300, min_roi: 1, raghouse_vip: false, zip: "70115", recent_zips: ["70115"],
+    sell_through: 0.5, fees: 0.2, cost_per_piece: 2, include_rework: false,
+  };
+  const plan = { budget: 300, total: 132, expected_profit: 388, carts: [cart({ lots: [lot()] })], exclusions: {} };
+  return {
+    refreshing: false, research_available: true, prefs,
+    trend: { terms: [], updated_at: null, source: null },
+    snapshot: {
+      updated_at: "2026-10-05T12:00:00Z", destination_zip: "70115",
+      preferences: {
+        budget: 300, min_roi: 1, raghouse_vip: false, zip: "70115", sell_through: 0.5,
+        fees: 0.2, cost_per_piece: 2, include_rework: false,
+      },
+      calibration: {}, stores: {}, research: true, priced_themes: 1,
+      shipping: { residential_surcharge: 6, fuel_surcharge_pct: 0.2, fuel_surcharge_as_of: "2026-10-01" },
+      assumptions: { sell_through: 0.5, fees: 0.2, cost_per_piece: 2, grade_yield: { good: 0.9 } },
+      buy_list: plan, store_buy_lists: { raghouse: plan, tvf: plan }, lots: [lot()],
+    },
+  };
+}
+
+describe("planning settings", () => {
+  it("keeps cart links unavailable until every saved planning input is reflected", () => {
+    const original = state();
+    expect(planNeedsUpdate(original)).toBe(false);
+    expect(planNeedsUpdate({ ...original, snapshot: null })).toBe(true);
+    for (const [key, value] of Object.entries({
+      budget: 200, min_roi: 1.5, raghouse_vip: true, zip: "10001", sell_through: 0.75,
+      fees: 0.25, cost_per_piece: 5, include_rework: true,
+    })) {
+      expect(planNeedsUpdate({ ...original, prefs: { ...original.prefs, [key]: value } }), key).toBe(true);
+    }
+    expect(planNeedsUpdate({ ...original, prefs: { ...original.prefs, recent_zips: ["10001", "70115"] } })).toBe(false);
+  });
+
+  it("shows operating cash separately from the purchase budget", () => {
+    const plan = state().snapshot!.buy_list;
+    expect(planMetrics(plan)).toEqual({ usable: 62.1, sold: 62.1 * 0.75, operating: 124.2, downside: 25 });
+  });
+
+  it("uses the selected plan’s exclusion reason rather than guessing from individual shipping", () => {
+    const plan = { ...state().snapshot!.buy_list, exclusions: { "raghouse:1": "downside" as const } };
+    expect(whyNotPicked(lot({ roi: 4 }), plan)).toBe("Loses money in the lower-sales test");
+    expect(whyNotPicked(lot(), { ...plan, exclusions: { "raghouse:1": "return_target" } })).toBe("Below your return target");
+  });
+
+  it("preserves other-store comparisons of a selected theme", () => {
+    const snapshot = state().snapshot!;
+    snapshot.lots.push(lot({ store: "tvf", variant_id: 2 }));
+    expect(otherLots(snapshot).map((row) => row.store)).toEqual(["tvf"]);
+    expect(otherLots(snapshot, 0)).toEqual([]);
   });
 });
 
@@ -94,7 +157,7 @@ describe("box wording", () => {
   });
 
   it("explains a box in one line", () => {
-    expect(lotReason(lot())).toBe("69 pcs · Good · sells for about $14 each");
+    expect(lotReason(lot())).toBe("69 pcs · Good · estimated resale $14 each");
     expect(lotReason(lot({ grade: "recycle", resale_per_pc: null, vip: true }), true)).toBe(
       "Raghouse · 69 pcs · Recycle · VIP only",
     );

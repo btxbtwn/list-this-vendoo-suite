@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 import urllib.error
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -120,8 +121,8 @@ class ScoutScriptTest(unittest.TestCase):
 
     def test_buy_list_keeps_to_budget_one_lot_per_theme(self):
         resale = {"cartoon t-shirts": 15, "plain blank tees": 6, "men's flannel shirts": 12}
-        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), resale)[1]
-        plan = self.s.buy_list(rows, self.cfg, budget=150, min_roi=0.5)
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), resale)[1]
+        plan = self.s.buy_list(rows, self.cfg, budget=150, min_roi=0.5, cost_per_piece=0, include_rework=True)
         picked = [lot["title"] for cart in plan["carts"] for lot in cart["lots"]]
         # The $60 cartoon lot shares a theme with the recycle lot, so it stays off the list.
         # Lower Raghouse shipping leaves room for the blank tees inside $150.
@@ -131,8 +132,8 @@ class ScoutScriptTest(unittest.TestCase):
 
     def test_free_shipping_once_a_store_order_clears_its_threshold(self):
         resale = {"men's flannel shirts": 12}
-        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), resale)[1]
-        cart = self.s.buy_list(rows, self.cfg, budget=1000, min_roi=0)["carts"][0]
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), resale)[1]
+        cart = self.s.buy_list(rows, self.cfg, budget=1000, min_roi=0, cost_per_piece=0)["carts"][0]
         self.assertEqual(cart["store"], "tvf")
         self.assertTrue(cart["free_shipping"])
         lot = cart["lots"][0]
@@ -147,6 +148,12 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual((cartoon["resale_per_pc"], cartoon["resale_factor"]), (7.5, 0.5))
         self.assertEqual((flannel["resale_per_pc"], flannel["resale_factor"]), (12, 1.0))
 
+    def test_past_overperformance_cannot_raise_current_researched_prices(self):
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(),
+                                 {"cartoon t-shirts": 15}, {"raghouse": 1.5})[1]
+        cartoon = next(r for r in rows if r["theme"] == "cartoon t-shirts")
+        self.assertEqual((cartoon["resale_per_pc"], cartoon["resale_factor"]), (15, 1.0))
+
     def test_research_allowance_is_shared_between_stores(self):
         rows = [{"store": "raghouse", "theme": f"rag-{i}", "demand": 2, "trend_hits": []}
                 for i in range(30)]
@@ -157,14 +164,14 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(sum(t.startswith("rag-") for t in themes), 12)
 
     def test_free_shipping_is_applied_before_budget_and_roi_checks(self):
-        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), {"men's flannel shirts": 20})[1]
-        plan = self.s.buy_list(rows, self.cfg, budget=225)
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), {"men's flannel shirts": 20})[1]
+        plan = self.s.buy_list(rows, self.cfg, budget=225, cost_per_piece=0)
         self.assertEqual(plan["total"], 225)
         self.assertTrue(plan["carts"][0]["free_shipping"])
         self.assertIn("50LB", plan["carts"][0]["lots"][0]["title"])
 
     def test_crossing_free_shipping_threshold_reprices_the_whole_cart(self):
-        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), {"vintage graphic t-shirts": 100})[1]
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), {"vintage graphic t-shirts": 100})[1]
         base = next(r for r in rows if r["store"] == "tvf" and r["roi"] is not None)
         rows = [self.s.price_lot({**base, "theme": f"theme-{i}", "variant_id": 100 + i, "price": 110}, 45, 100)
                 for i in range(2)]
@@ -175,6 +182,68 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(rows[0]["ship_est"], 45)  # source rows stay unchanged
 
 
+    def test_wholesale_demand_cannot_inflate_resale_sales(self):
+        base = next(r for r in self._lots() if r["store"] == "raghouse")
+        slow = self.s.price_lot({**base, "demand": 0.1}, 30, 30)
+        popular = self.s.price_lot({**base, "demand": 10, "trend_hits": ["cartoon"]}, 30, 30)
+        self.assertEqual(slow["sell_through"], 0.5)
+        self.assertEqual(slow["expected_profit"], popular["expected_profit"])
+
+    def test_operating_allowance_and_break_even_include_unsold_pieces(self):
+        row = {"price": 60, "pcs": 20, "usable_pcs": 10, "demand": 50, "resale_low": 15}
+        priced = self.s.price_lot(row, 20, 20, sell_through=0.6, fees=0.25, cost_per_piece=2)
+        self.assertEqual(priced["operating_cost"], 20)
+        self.assertEqual(priced["expected_revenue"], 90)
+        self.assertEqual(priced["expected_profit"], -10)
+        self.assertEqual(priced["break_even_pcs"], 7)
+        self.assertEqual(priced["downside_profit"], -66.25)
+
+    def test_default_recommendations_exclude_rework_even_with_high_roi(self):
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), {"cartoon t-shirts": 40})[1]
+        plan = self.s.buy_list(rows, self.cfg, budget=1000)
+        picked = [p for c in plan["carts"] for p in c["lots"]]
+        self.assertEqual([p["grade"] for p in picked], ["good"])
+        self.assertEqual(plan["exclusions"]["raghouse:2"], "rework")
+        allowed = self.s.buy_list(rows, self.cfg, budget=1000, include_rework=True)
+        self.assertEqual(allowed["carts"][0]["lots"][0]["grade"], "recycle")
+
+    def test_high_roi_with_a_losing_lower_sales_scenario_does_not_qualify(self):
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(),
+                                 {"cartoon t-shirts": 40}, resale_low={"cartoon t-shirts": 3})[1]
+        good = next(r for r in rows if r["grade"] == "good" and r["theme"] == "cartoon t-shirts")
+        self.assertGreater(good["roi"], 1)
+        plan = self.s.buy_list([good], self.cfg, budget=1000)
+        self.assertEqual(plan["carts"], [])
+        self.assertEqual(plan["exclusions"]["raghouse:1"], "downside")
+
+    def test_two_boxes_can_qualify_together_when_neither_passes_alone(self):
+        base = next(r for r in self._lots() if r["store"] == "tvf" and r["grade"] == "a")
+        rows = [self.s.price_lot({**base, "theme": f"bundle-{i}", "variant_id": 700 + i,
+                                  "price": 110, "resale_low": 70}, 45, 70) for i in range(2)]
+        before = [dict(r) for r in rows]
+        self.assertEqual(self.s.buy_list(rows[:1], self.cfg, budget=220)["carts"], [])
+        plan = self.s.buy_list(rows, self.cfg, budget=220)
+        self.assertEqual(plan["total"], 220)
+        self.assertEqual(len(plan["carts"][0]["lots"]), 2)
+        self.assertTrue(plan["carts"][0]["free_shipping"])
+        self.assertTrue(all(p["downside_profit"] >= 0 for p in plan["carts"][0]["lots"]))
+        self.assertEqual(rows, before)
+
+    def test_free_shipping_pair_still_cannot_exceed_budget(self):
+        base = next(r for r in self._lots() if r["store"] == "tvf" and r["grade"] == "a")
+        rows = [self.s.price_lot({**base, "theme": f"bundle-{i}", "variant_id": 800 + i,
+                                  "price": 110, "resale_low": 70}, 45, 70) for i in range(2)]
+        self.assertEqual(self.s.buy_list(rows, self.cfg, budget=219.99)["carts"], [])
+
+    def test_budget_rejection_accounts_for_selected_carts_free_shipping(self):
+        base = next(r for r in self._lots() if r["store"] == "tvf" and r["grade"] == "a")
+        rows = [self.s.price_lot({**base, "theme": f"theme-{i}", "variant_id": 900 + i,
+                                  "price": 110, "resale_low": 100}, 45, 100) for i in range(3)]
+        plan = self.s.buy_list(rows, self.cfg, budget=300)
+        self.assertEqual(plan["total"], 220)
+        self.assertEqual(plan["exclusions"]["tvf:902"], "budget")
+
+
 def _search(label: str, answers: list[str]) -> ModelSearch:
     calls = iter(answers)
 
@@ -182,6 +251,19 @@ def _search(label: str, answers: list[str]) -> ModelSearch:
         return {"answer": next(calls), "sources": []}
 
     return ModelSearch(label, search)
+
+
+def _price_evidence(theme: str, per_piece: float, vid: int = 1) -> dict:
+    return {
+        "theme": theme,
+        "comps": [{
+            "url": f"https://www.ebay.com/itm/{vid + index}",
+            "title": f"{theme} used clothing",
+            "currency": "USD",
+            "sold_at": (box_scout._now().date() - timedelta(days=index + 1)).isoformat(),
+            "snippet": f"Sold for US ${per_piece:.2f} on {(box_scout._now().date() - timedelta(days=index + 1)).isoformat()}",
+        } for index in range(3)],
+    }
 
 
 class RefreshTest(unittest.TestCase):
@@ -202,7 +284,7 @@ class RefreshTest(unittest.TestCase):
 
     def test_researches_trends_and_prices_then_builds_the_buy_list(self):
         prices = json.dumps({"prices": [
-            {"theme": "cartoon t-shirts", "per_piece": 15, "evidence": ["https://www.ebay.com/itm/1"]},
+            _price_evidence("cartoon t-shirts", 30),
             {"theme": "not asked for", "per_piece": 99},
         ]})
         model = _search("ChatGPT", ['```json\n{"terms": ["Cartoon", "y2k"]}\n```', prices, "{}"])
@@ -213,14 +295,14 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual(set(state["resale"]), {"cartoon t-shirts"})
         self.assertEqual(state["resale"]["cartoon t-shirts"]["source"], "ChatGPT")
         lots = snapshot["buy_list"]["carts"][0]["lots"]
-        self.assertEqual(lots[0]["title"], "Recycle Cartoon T-Shirts 70 pcs")
-        self.assertEqual(lots[0]["evidence"], ["https://www.ebay.com/itm/1"])
+        self.assertEqual(lots[0]["title"], "Cartoon T-Shirts 60 pcs")
+        self.assertEqual(lots[0]["evidence"], [f"https://www.ebay.com/itm/{i}" for i in range(1, 4)])
         self.assertTrue(snapshot["research"])
 
     def test_both_store_choices_use_the_same_budget_and_keep_evidence(self):
         prices = json.dumps({"prices": [
-            {"theme": "cartoon t-shirts", "per_piece": 20, "evidence": ["https://www.ebay.com/itm/1"]},
-            {"theme": "vintage graphic t-shirts", "per_piece": 100, "evidence": ["https://www.ebay.com/itm/2"]},
+            _price_evidence("cartoon t-shirts", 30),
+            _price_evidence("vintage graphic t-shirts", 100, vid=100),
         ]})
         with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}', prices, "{}"])):
             snapshot = box_scout.refresh()
@@ -240,7 +322,7 @@ class RefreshTest(unittest.TestCase):
         self.assertTrue(box_scout.refresh_is_due())
 
     def test_cached_research_is_not_repeated(self):
-        prices = json.dumps({"prices": [{"theme": "cartoon t-shirts", "per_piece": 15}]})
+        prices = json.dumps({"prices": [_price_evidence("cartoon t-shirts", 30)]})
         with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}', prices, "{}"])):
             box_scout.refresh()
         trends = mock.AsyncMock(return_value=([], None))
@@ -293,6 +375,47 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual({lot["store"] for lot in snapshot["lots"]}, {"tvf"})
 
 
+    def test_preferences_saved_during_research_survive_and_request_a_rebuild(self):
+        async def research(themes, examples):
+            box_scout.set_prefs(budget=200, min_roi=1.5, zip="10001", raghouse_vip=True,
+                                sell_through=0.6, fees=0.25, cost_per_piece=1.5, include_rework=True)
+            return box_scout.clean_prices([_price_evidence("cartoon t-shirts", 40)], set(themes)), "ChatGPT"
+
+        with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}'])), \
+                mock.patch.object(box_scout, "_research_prices", side_effect=research):
+            first = box_scout.refresh()
+        prefs = box_scout.read_state()["prefs"]
+        self.assertEqual(prefs["budget"], 200)
+        self.assertEqual(prefs["zip"], "10001")
+        self.assertEqual(first["preferences"]["budget"], 300)
+        self.assertTrue(box_scout.refresh_is_due())
+        second = box_scout.refresh(recrawl=False, research=False)
+        self.assertEqual(second["preferences"], {k: prefs[k] for k in box_scout.PLAN_PREFS})
+        self.assertFalse(box_scout.refresh_is_due())
+
+    def test_old_price_only_cache_cannot_qualify(self):
+        box_scout._write_state({"prefs": box_scout.DEFAULT_PREFS,
+                                "resale": {"cartoon t-shirts": {"per_piece": 100,
+                                                               "updated_at": box_scout._now().isoformat()}}})
+        with self._models():
+            snapshot = box_scout.refresh()
+        self.assertEqual(snapshot["buy_list"]["carts"], [])
+        self.assertTrue(all(p["resale_per_pc"] is None for p in snapshot["lots"]))
+
+    def test_sources_and_costs_are_in_the_api_snapshot(self):
+        with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}',
+                                               json.dumps({"prices": [_price_evidence("cartoon t-shirts", 40)]}), "{}"])):
+            box_scout.refresh()
+        from vendoo_studio.routes.sourcing import SourcingSnapshot
+
+        snapshot = SourcingSnapshot.model_validate(box_scout.read_state()["snapshot"])
+        lot = snapshot.buy_list.carts[0].lots[0]
+        self.assertEqual(len(lot.comps), 3)
+        self.assertEqual(lot.research_source, "ChatGPT")
+        self.assertGreater(lot.operating_cost, 0)
+        self.assertGreaterEqual(lot.downside_profit, 0)
+
+
 class SourcingRouteTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -331,3 +454,122 @@ class SourcingRouteTest(unittest.TestCase):
         body = self.client.get("/api/sourcing").json()
         self.assertEqual(body["snapshot"]["destination_zip"], "70115")
         self.assertEqual(set(body["snapshot"]["stores"]), {"raghouse", "tvf"})
+
+
+class ResearchEvidenceTest(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 5, 12, tzinfo=UTC)
+        patcher = mock.patch.object(box_scout, "_now", return_value=self.now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _clean(self, item):
+        return box_scout.clean_prices([item], {"cartoon t-shirts"}, now=self.now)
+
+    def test_prices_come_from_sale_evidence_not_an_ai_estimated_number(self):
+        item = _price_evidence("cartoon t-shirts", 20)
+        item["per_piece"] = 499
+        item["comps"][2]["snippet"] = "Sold for US $40.00"
+        cleaned = self._clean(item)["cartoon t-shirts"]
+        self.assertEqual(cleaned["per_piece"], 20)
+        self.assertEqual((cleaned["low"], cleaned["high"]), (20, 40))
+
+    def test_duplicate_listings_cannot_fill_the_minimum_sample(self):
+        item = _price_evidence("cartoon t-shirts", 20)
+        item["comps"][1]["url"] = "http://ebay.com/itm/other-title/1?tracking=abc"
+        item["comps"][2]["url"] = "https://www.ebay.com/itm/1#tracking"
+        self.assertEqual(self._clean(item), {})
+
+    def test_old_future_or_unknown_dates_do_not_qualify(self):
+        for date_text in ("2026-07-01", "2026-10-06", "", "not-a-date"):
+            with self.subTest(date_text=date_text):
+                item = _price_evidence("cartoon t-shirts", 20)
+                item["comps"][0]["sold_at"] = date_text
+                self.assertEqual(self._clean(item), {})
+
+    def test_sale_sample_needs_three_examples_from_the_last_thirty_days(self):
+        item = _price_evidence("cartoon t-shirts", 20)
+        for comp in item["comps"][1:]:
+            comp["sold_at"] = "2026-09-01"
+        self.assertEqual(self._clean(item), {})
+
+    def test_active_or_hidden_offer_prices_cannot_be_called_sales(self):
+        for snippet in ("Buy it now $20", "$20 best offer accepted", "$20 sold out", "63 items sold $20",
+                        "Not sold $20", "Sold AU $20"):
+            with self.subTest(snippet=snippet):
+                item = _price_evidence("cartoon t-shirts", 20)
+                item["comps"][0]["snippet"] = snippet
+                self.assertEqual(self._clean(item), {})
+
+    def test_non_usd_or_non_listing_sources_do_not_qualify(self):
+        for changes in ({"currency": "CAD"}, {"url": "https://www.ebay.com/sch/sold"},
+                        {"url": "https://ebay.com.evil.example/itm/1"},
+                        {"url": "https://[broken/itm/1"}, {"title": ""}):
+            with self.subTest(changes=changes):
+                item = _price_evidence("cartoon t-shirts", 20)
+                item["comps"][0].update(changes)
+                self.assertEqual(self._clean(item), {})
+
+    def test_current_competition_caps_estimated_resale(self):
+        item = _price_evidence("cartoon t-shirts", 30)
+        item["active"] = [{"url": f"https://www.ebay.com/itm/{100 + i}", "title": "Cartoon tee",
+                           "currency": "USD", "snippet": f"Buy it now US ${price}"}
+                          for i, price in enumerate((10, 15, 20))]
+        cleaned = self._clean(item)["cartoon t-shirts"]
+        self.assertEqual(cleaned["sold_median"], 30)
+        self.assertEqual(cleaned["per_piece"], 15)
+        self.assertEqual(cleaned["active_median"], 15)
+        self.assertEqual(len(cleaned["active"]), 3)
+
+    def test_thin_competition_sample_is_unknown(self):
+        item = _price_evidence("cartoon t-shirts", 30)
+        item["active"] = [{"url": "https://www.ebay.com/itm/100", "title": "Cartoon tee",
+                           "currency": "USD", "snippet": "Buy it now US $5"}]
+        cleaned = self._clean(item)["cartoon t-shirts"]
+        self.assertEqual(cleaned["per_piece"], 30)
+        self.assertIsNone(cleaned["active_median"])
+
+    def test_research_cache_expires_after_a_week(self):
+        cleaned = self._clean(_price_evidence("cartoon t-shirts", 30))["cartoon t-shirts"]
+        for age, qualifies in ((6, True), (7, False), (-1, False)):
+            entry = {**cleaned, "updated_at": (self.now - timedelta(days=age)).isoformat()}
+            fresh = box_scout._fresh_research({"resale": {"cartoon t-shirts": entry}}, self.now)
+            self.assertEqual(bool(fresh), qualifies)
+
+    def test_cached_dates_are_rechecked_even_before_the_week_is_up(self):
+        item = _price_evidence("cartoon t-shirts", 30)
+        for comp in item["comps"]:
+            comp["sold_at"] = "2026-09-05"
+        cleaned = self._clean(item)["cartoon t-shirts"]
+        fresh = box_scout._fresh_research({"resale": {"cartoon t-shirts": {
+            **cleaned, "updated_at": self.now.isoformat(),
+        }}}, self.now + timedelta(days=1))
+        self.assertEqual(fresh, {})
+
+
+class RefreshConcurrencyTest(unittest.TestCase):
+    def test_background_refresh_reserves_the_job_before_starting_a_thread(self):
+        with mock.patch.object(box_scout.threading, "Thread") as thread:
+            self.assertTrue(box_scout.refresh_in_background())
+            try:
+                self.assertTrue(box_scout.refreshing())
+                self.assertFalse(box_scout.refresh_in_background())
+                thread.assert_called_once()
+            finally:
+                box_scout._refresh_lock.release()
+
+    def test_failed_background_refresh_releases_the_job(self):
+        finished = threading.Event()
+
+        def fail(**kwargs):
+            finished.set()
+            raise RuntimeError("Research failed")
+
+        with mock.patch.object(box_scout, "_refresh", side_effect=fail), \
+                mock.patch.object(box_scout.log, "exception"):
+            self.assertTrue(box_scout.refresh_in_background())
+            self.assertTrue(finished.wait(2))
+            # Acquiring the lock waits for the worker's finally block, not just its entry.
+            self.assertTrue(box_scout._refresh_lock.acquire(timeout=2))
+            box_scout._refresh_lock.release()
+        self.assertFalse(box_scout.refreshing())
