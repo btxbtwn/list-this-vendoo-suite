@@ -318,6 +318,13 @@ Auto-accept   = Listing Price - $2
 Minimum       = Listing Price - $4
 ```
 
+### Seller History During Generation
+- Use recent recorded sales from the seller's own inventory alongside current outside sold comps when Studio supplies seller history. Candidate matches share brand, full general category and condition when known; check item type, model, era, size and visible details before treating them as comparable. A category such as women's Tops can contain both tees and blouses.
+- With at least five genuinely comparable recorded sales, use the seller's sold-price median to inform the market-comp baseline. The supplied medians summarize only the shown examples: use them only when those examples are comparable, never assume unseen matching records prove an exact-model price. Cross-check recent outside comps; do not blindly average conflicting cohorts or let old sales override current market evidence. With fewer than five, treat personal sales as examples only. Without three outside sold comps or five comparable personal sales, keep the conservative estimated baseline.
+- Apply the PRICING Formula to the chosen baseline, preserve the current live asking ceiling, and always keep a price explicitly set by the seller. Cost and fees describe profitability; they do not prove that a buyer will pay more.
+- Similar unsold inventory is a weak caution about demand and overpricing, not evidence of completed sales, a historical sell-through rate, or a reason to copy its asking prices.
+- Historical titles can supply relevant vocabulary only when supported by this item's photos and seller notes. Never copy another item's brand, size, material, flaws, measurements, manufacturing date, or vintage claim. A sale does not prove its wording caused the sale. Keep sales evidence, cost, profit, and pricing reasoning out of the buyer-facing description.
+
 ## Rules (VIOLATION = INCORRECT LISTING)
 
 1. **NEVER invent brand names** — use brand only when readable from tags/logos or stated in seller notes; if unsupported, leave brand empty. Never ask the seller.

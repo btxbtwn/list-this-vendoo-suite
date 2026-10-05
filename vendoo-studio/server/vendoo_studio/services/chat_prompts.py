@@ -14,6 +14,7 @@ from vendoo_studio.services.chat_citations import (
     expand_citations_for_provider,
 )
 from vendoo_studio.services.comp_research import research_sold_comps
+from vendoo_studio.services.generation_history import seller_history_prompt
 from vendoo_studio.services.listing_generate import (
     PHOTO_ANALYSIS_RETRY_MESSAGE,
     PhotoAnalysisError,
@@ -255,11 +256,8 @@ LISTING_INSTRUCTIONS = (
     "Never invent brand, size, material, age, or other product facts without photo or seller evidence. "
     "Prefer verbatim tag text from the photo analysis for brand, size, and material. "
     "Studio applies generated values onto the bound Vendoo draft automatically when Chrome is connected. "
-    "Price from the sold comps block when it has three or more sold listings: market price × 1.35, whole dollars. "
-    "One or two sold listings is a single data point, not a market — with fewer than three, or with none, "
-    "use a conservative baseline and price conservatively. "
-    "When the comps block states a live asking median, never price above it unless the item is clearly "
-    "better than those listings — buyers pick the cheaper of two similar items for sale. "
+    "Choose the pricing baseline from current sold comps and relevant seller history using the "
+    "canonical PRICING Formula below. Follow its evidence thresholds and live asking ceiling. "
     "Never mention pricing in the description.\n"
     "The description is buyer-facing copy about the item: never include prices, dollar amounts, comps, "
     "sold-listing counts, market or resale value, MSRP, discounts, offers, or any note about pricing "
@@ -293,7 +291,7 @@ LISTING_INSTRUCTIONS = (
 )
 
 
-def _empty_discovered_fields_prompt(db: Session, conv_id: str) -> str:
+def _empty_discovered_fields_prompt(db: Session, conv_id: str, evidence: str = "") -> str:
     """List discovered fields still empty so generation fills them in one pass, not a later gap round."""
     from copy import deepcopy
 
@@ -310,7 +308,20 @@ def _empty_discovered_fields_prompt(db: Session, conv_id: str) -> str:
     gaps = collect_empty_discovered_fields(db, probe)
     if not gaps:
         return ""
-    lines = [f"- {gap['marketplace']}: {gap['field']}" for gap in gaps]
+    import json
+    from vendoo_studio.services.fill_log import prompt_options
+
+    lines = []
+    for gap in gaps:
+        line = f"- {gap['marketplace']}: {gap['field']}"
+        if gap.get("required"):
+            line += " (required)"
+        if gap.get("options"):
+            options, complete = prompt_options(gap["options"], evidence or str(probe.get("title") or ""))
+            line += " — allowed options: " + json.dumps(options, ensure_ascii=False)
+            if not complete:
+                line += " (relevant subset; other allowed options may exist)"
+        lines.append(line)
     return (
         "\n\n--- Discovered fields still empty ---\n"
         "Fill each of these in the listing JSON (root fields or the marketplace *_specifics) using exact "
@@ -337,6 +348,7 @@ def listing_generation_messages(
     )
     # Static instructions and rules lead so provider prefix caches hit across items;
     # per-item evidence follows.
+    field_evidence = f"{analysis_text}\n{item_details}"
     system_content = (
         f"{LISTING_INSTRUCTIONS}\n\n"
         f"--- Listing Rules ---\n\n{skill_rules}"
@@ -346,8 +358,9 @@ def listing_generation_messages(
         f"{item_details}\n\n"
         f"{analysis_text}"
         f"{comps_block}"
+        f"{seller_history_prompt(db, conv_id, analysis_text)}"
         f"{current_listing_prompt(db, conv_id)}"
-        f"{_empty_discovered_fields_prompt(db, conv_id)}"
+        f"{_empty_discovered_fields_prompt(db, conv_id, field_evidence)}"
     )
     return [
         {"role": "system", "content": system_content},
