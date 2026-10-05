@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.183 — 2026-10-05
+
+- Source clothing with recent sold examples, current competition, adjustable selling costs, break-even sales, and a lower-sales profit check. Boxes with weak evidence or repair-heavy grades stay out of recommendations by default.
+
 ## 0.1.182 — 2026-10-05
 
 - See when Analytics last synced with Vendoo, resync your data from the Analytics tab, and review reminders for sold items with missing sales details.

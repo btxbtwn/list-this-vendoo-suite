@@ -1,4 +1,4 @@
-import type { SourcingCart, SourcingLot, SourcingSnapshot } from "../api/types";
+import type { SourcingBuyList, SourcingCart, SourcingLot, SourcingSnapshot, SourcingState } from "../api/types";
 
 /**
  * Each store's own name for a box's grade. Raghouse sells "Recycle", "Recycle & Good"
@@ -17,12 +17,6 @@ export const REFRESH_HOURS = 6;
 
 export function cartTotal(cart: SourcingCart): number {
   return cart.subtotal + cart.shipping;
-}
-
-/** What each dollar spent should come back as: $418 for $1,210 profit is about $3.89. */
-export function moneyBack(total: number, profit: number): string {
-  if (total <= 0) return "$0";
-  return `$${((total + profit) / total).toFixed(2)}`;
 }
 
 /** What is left to spend at a store before its free shipping starts, or null. */
@@ -47,7 +41,7 @@ export function lotReason(lot: SourcingLot, withStore = false): string {
     withStore ? storeName(lot.store) : null,
     piecesLabel(lot),
     gradeLabel(lot),
-    lot.resale_per_pc != null ? `sells for about $${Math.round(lot.resale_per_pc)} each` : null,
+    lot.resale_per_pc != null ? `estimated resale $${Math.round(lot.resale_per_pc)} each` : null,
     lot.vip ? "VIP only" : null,
   ];
   return parts.filter(Boolean).join(" · ");
@@ -59,11 +53,13 @@ export function storeName(store: string): string {
 
 /** The best ranked box of each kind the buy list did not already take. */
 export function otherLots(snapshot: SourcingSnapshot, limit = 20): SourcingLot[] {
-  const seen = new Set(snapshot.buy_list.carts.flatMap((cart) => cart.lots.map((lot) => lot.theme)));
+  if (limit <= 0) return [];
+  const seen = new Set(snapshot.buy_list.carts.flatMap((cart) => cart.lots.map((lot) => `${lot.store}:${lot.theme}`)));
   const lots: SourcingLot[] = [];
   for (const lot of snapshot.lots) {
-    if (seen.has(lot.theme)) continue;
-    seen.add(lot.theme);
+    const key = `${lot.store}:${lot.theme}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     lots.push(lot);
     if (lots.length === limit) break;
   }
@@ -86,4 +82,39 @@ export function nextUpdate(updatedAt: string): string {
 
 export function isZip(text: string): boolean {
   return /^\d{5}$/.test(text.trim());
+}
+
+export function planNeedsUpdate(state: SourcingState): boolean {
+  const snapshot = state.snapshot;
+  return !snapshot || Object.entries(snapshot.preferences).some(
+    ([key, value]) => state.prefs[key as keyof typeof snapshot.preferences] !== value,
+  );
+}
+
+export function planMetrics(plan: SourcingBuyList) {
+  const lots = plan.carts.flatMap((cart) => cart.lots);
+  return {
+    usable: lots.reduce((sum, lot) => sum + lot.usable_pcs, 0),
+    sold: lots.reduce((sum, lot) => sum + lot.usable_pcs * lot.sell_through, 0),
+    operating: lots.reduce((sum, lot) => sum + lot.operating_cost, 0),
+    downside: lots.reduce((sum, lot) => sum + (lot.downside_profit ?? 0), 0),
+  };
+}
+
+const EXCLUSION_LABELS = {
+  needs_research: "Needs recent sold evidence",
+  rework: "Needs repairs or rework",
+  same_theme: "Another box of this kind was selected",
+  return_target: "Below your return target",
+  downside: "Loses money in the lower-sales test",
+  budget: "Doesn’t fit this cart’s budget",
+  alternative: "Another combination was selected",
+};
+
+export function whyNotPicked(lot: SourcingLot, plan: SourcingBuyList): string {
+  return EXCLUSION_LABELS[plan.exclusions[`${lot.store}:${lot.variant_id}`]];
+}
+
+export function saleDate(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
