@@ -7,6 +7,7 @@ import { marketplaceName } from "./marketplaceNames";
 import { SaleEvents } from "./SaleEvents";
 
 const RANGES: { id: AnalyticsRange; label: string; heading: string }[] = [
+  { id: "7d", label: "7 days", heading: "Last 7 days" },
   { id: "30d", label: "30 days", heading: "Last 30 days" },
   { id: "90d", label: "90 days", heading: "Last 90 days" },
   { id: "12m", label: "12 months", heading: "Last 12 months" },
@@ -289,6 +290,11 @@ function SalesStats({ data }: { data: InventoryAnalytics }) {
         change={previous ? formatChange(sales.count, previous.count, String) : undefined}
         value={String(sales.count)}
         hint={sales.average_price == null ? undefined : `${formatMoney(sales.average_price)} average`}
+      />
+      <Stat
+        label="Sell-through rate"
+        value={data.sell_through_rate == null ? "—" : `${data.sell_through_rate}%`}
+        hint="Sales in this period ÷ (sales in this period + active listings today)"
       />
       <Stat
         label="Profit"

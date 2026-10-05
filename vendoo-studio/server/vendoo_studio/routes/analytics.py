@@ -100,6 +100,7 @@ class AnalyticsResponse(BaseModel):
     undated_sales: int
     periods_truncated: bool
     inventory: AnalyticsInventory
+    sell_through_rate: float | None
     sales: AnalyticsSales
     previous: AnalyticsPrevious | None
     periods: list[AnalyticsPeriod]

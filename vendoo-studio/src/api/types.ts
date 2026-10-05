@@ -390,7 +390,7 @@ export interface SuggestionsResponse {
   suggestions: Suggestion[];
 }
 
-export type AnalyticsRange = "30d" | "90d" | "12m" | "all";
+export type AnalyticsRange = "7d" | "30d" | "90d" | "12m" | "all";
 
 export interface AnalyticsInventory {
   active: number;
@@ -473,6 +473,7 @@ export interface InventoryAnalytics {
   undated_sales: number;
   periods_truncated: boolean;
   inventory: AnalyticsInventory;
+  sell_through_rate: number | null;
   sales: AnalyticsSales;
   previous: { start: string; end: string; sales: AnalyticsSales } | null;
   periods: AnalyticsPeriod[];

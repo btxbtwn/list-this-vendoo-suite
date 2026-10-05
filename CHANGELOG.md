@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.180 — 2026-10-05
+
+- See your sell-through rate in Analytics and switch to a 7-day view with daily sales and a comparison to the previous week.
+
 ## 0.1.179 — 2026-10-04
 
 - Keep jacket Outer Shell Material, Style, and other category details when saving Vendoo drafts. Fill applicable eBay optional fields, repair unsupported dropdown answers, and continue to later fields when earlier ones cannot be answered.

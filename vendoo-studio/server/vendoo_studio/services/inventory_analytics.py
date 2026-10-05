@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from vendoo_studio.services.sale_events import EventWindow
 
-ANALYTICS_RANGES = ("30d", "90d", "12m", "all")
+ANALYTICS_RANGES = ("7d", "30d", "90d", "12m", "all")
 _RECENT = 8
 _MAX_MONTHS = 18
 _MONTHS = (
@@ -87,7 +87,7 @@ def inventory_analytics(
     range_id: str = "12m",
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Totals for ``range_id`` (``30d``, ``90d``, ``12m``, or ``all``)."""
+    """Totals for ``range_id`` (``7d``, ``30d``, ``90d``, ``12m``, or ``all``)."""
     if range_id not in ANALYTICS_RANGES:
         raise ValueError(range_id)
     from vendoo_studio.services.sale_events import windows
@@ -206,11 +206,15 @@ def summarize(
             "end": start.isoformat(),
             "sales": _sales_stats(previous_sales),
         }
+    inventory = _inventory(items, now)
+    available = len(sales) + inventory["active"]
     return {
         "range": range_id,
         "undated_sales": sum(1 for item in items if item.status == "sold" and item.sold_at is None),
         "periods_truncated": truncated,
-        "inventory": _inventory(items, now),
+        "inventory": inventory,
+        # Snapshot-based rate: period sales plus inventory still available today.
+        "sell_through_rate": round(len(sales) / available * 100, 1) if available else None,
         "sales": _sales_stats(sales),
         "previous": previous,
         "periods": [
@@ -476,7 +480,7 @@ def _window_start(range_id: str, now: datetime) -> datetime | None:
     if range_id == "12m":
         year, month = _add_months(now.year, now.month, -11)
         return datetime(year, month, 1, tzinfo=UTC)
-    days = {"30d": 30, "90d": 90}.get(range_id)
+    days = {"7d": 7, "30d": 30, "90d": 90}.get(range_id)
     if days is None:
         return None
     return now - timedelta(days=days)
@@ -495,6 +499,8 @@ def _buckets(
     now: datetime,
     dated: list[datetime],
 ) -> tuple[list[tuple[datetime, datetime, str]], bool]:
+    if range_id == "7d":
+        return _span_buckets(now, days=7, count=7), False
     if range_id == "30d":
         return _span_buckets(now, days=30, count=6), False
     if range_id == "90d":
