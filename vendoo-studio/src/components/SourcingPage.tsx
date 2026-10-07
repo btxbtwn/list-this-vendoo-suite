@@ -378,7 +378,7 @@ function BuyList({
       </div>;
     }
     // Prices found earlier stay good for one week, so a list can stand without a model connected.
-    if (!data.research_available) {
+    if (!data.research_available && snapshot.lots.length > 0 && !hasEvidence) {
       return (
         <div className="sourcing-empty">
           <div className="sourcing-empty-title">One step before Studio can pick boxes</div>
