@@ -64,7 +64,7 @@ const FirstRunGuide = lazy(() =>
   import("../components/FirstRunGuide").then((module) => ({ default: module.FirstRunGuide })),
 );
 
-const PREVIEW_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
+const ACTIVE_JOB_STATUSES = new Set(["queued", "awaiting_extension", "dispatched"]);
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
 const SIDEBAR_WIDTH: PanelWidthLimits = { min: 200, max: 420, maxVw: 30 };
 /* Min 420 so the inspector can't shrink under the titlebar listing chrome. */
@@ -112,7 +112,7 @@ export function App() {
   const [browserExpanded, setBrowserExpanded] = useState(false);
   const [pendingBulkGroups, setPendingBulkGroups] = useState<PhotoFolderGroup[] | null>(null);
   const [measureListings, setMeasureListings] = useState<BulkMeasureListing[] | null>(null);
-  const wasPreviewOpen = useRef(false);
+  const wasBrowserOpen = useRef(false);
   const mainPanelRef = useRef<HTMLElement>(null);
   const [sidebarWidth, setSidebarWidth] = usePanelWidth("sidebar");
   const [detailWidth, setDetailWidth] = usePanelWidth("detail");
@@ -159,7 +159,7 @@ export function App() {
     previousQueueJobs.current = new Map(queue.data.jobs.map((job) => [job.id, job.status]));
     if (!previous) return;
     for (const job of queue.data.jobs) {
-      if (!PREVIEW_JOB_STATUSES.has(previous.get(job.id) || "") || PREVIEW_JOB_STATUSES.has(job.status)) continue;
+      if (!ACTIVE_JOB_STATUSES.has(previous.get(job.id) || "") || ACTIVE_JOB_STATUSES.has(job.status)) continue;
       for (const key of ["jobs", "conversations", "conversation", "listing", "listing-fields", "fill-log", "vendoo-item"]) {
         void queryClient.invalidateQueries({ queryKey: [key] });
       }
@@ -201,20 +201,9 @@ export function App() {
   const needsSetup = !status || !status.provider_configured || !status.extension_connected;
   const createListingTitle = "New listing";
   const listingJob = jobs?.find((job) => job.conversation_id === selectedConvId && job.status !== "cancelled");
-  const apiCreateStep = String(listingJob?.current_step || "");
-  const apiCreateRunning = Boolean(
-    PREVIEW_JOB_STATUSES.has(String(listingJob?.status))
-    && (apiCreateStep === "vendoo_api_create" || apiCreateStep.startsWith("vendoo_api_")),
-  );
-  // API create has no draft tab yet — keep the browser pane closed so we do not
-  // show a forever "Connecting to the Vendoo tab" while Chrome talks to the API.
-  const previewOpen = Boolean(
-    listingJob
-    && PREVIEW_JOB_STATUSES.has(String(listingJob.status))
-    && !apiCreateRunning,
-  );
+  const automationRunning = ACTIVE_JOB_STATUSES.has(String(listingJob?.status));
+  // Sends run in the background; the seller opens the browser explicitly.
   const browserOpen = Boolean(browserJobId && listingJob?.id === browserJobId);
-  const browserPaneOpen = previewOpen || browserOpen;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -320,11 +309,11 @@ export function App() {
   };
 
   useEffect(() => {
-    if (wasPreviewOpen.current && !browserPaneOpen && mobilePane === "browser") {
+    if (wasBrowserOpen.current && !browserOpen && mobilePane === "browser") {
       setMobilePane("workspace");
     }
-    wasPreviewOpen.current = browserPaneOpen;
-  }, [browserPaneOpen, mobilePane]);
+    wasBrowserOpen.current = browserOpen;
+  }, [browserOpen, mobilePane]);
 
   const openBrowser = useMutation({
     mutationFn: (jobId: string) => api.jobs.browser.open(jobId),
@@ -350,22 +339,6 @@ export function App() {
     setBrowserExpanded(false);
     if (jobId) void api.jobs.browser.close(jobId).catch(() => {});
   };
-
-  // Every listing run happens in the same interactive draft browser the
-  // "Browser" button opens. Attach as soon as the run has a draft; when
-  // the fill finishes the seller keeps the live tab instead of losing the pane.
-  const autoBrowserJobRef = useRef<string | null>(null);
-  const openBrowserMutate = openBrowser.mutate;
-  const listingJobId = listingJob?.id ?? null;
-  const listingJobHasDraft = Boolean(listingJob?.vendoo_item_id || listingJob?.vendoo_url);
-  const listingJobIsProbe = listingJob?.mode === "schema_probe";
-  useEffect(() => {
-    if (!listingJobId || !previewOpen || !listingJobHasDraft || listingJobIsProbe) return;
-    if (!status?.extension_connected) return;
-    if (browserJobId === listingJobId || autoBrowserJobRef.current === listingJobId) return;
-    autoBrowserJobRef.current = listingJobId;
-    openBrowserMutate(listingJobId);
-  }, [listingJobId, previewOpen, listingJobHasDraft, listingJobIsProbe, status?.extension_connected, browserJobId, openBrowserMutate]);
 
   useEffect(() => {
     // A new Send replaces the listing job. Release the old draft tab.
@@ -626,7 +599,7 @@ export function App() {
             onOpenAnalytics={openAnalytics}
             onOpenSourcing={openSourcing}
             onOpenQueue={() => togglePage("queue")}
-            queueCount={(queue.data?.jobs.filter((j) => PREVIEW_JOB_STATUSES.has(j.status)).length ?? 0)
+            queueCount={(queue.data?.jobs.filter((j) => ACTIVE_JOB_STATUSES.has(j.status)).length ?? 0)
               + (queue.data?.work.filter((w) => !bulk.pendingIds.includes(w.conversation_id)).length ?? 0)
               + bulk.pendingIds.length}
             onCloseSettings={closeSettings}
@@ -707,7 +680,7 @@ export function App() {
                     role="tab"
                     aria-selected={mobilePane === "browser"}
                     className={mobilePane === "browser" ? "selected" : ""}
-                    disabled={!selectedConvId || !browserPaneOpen}
+                    disabled={!selectedConvId || !browserOpen}
                     onClick={() => setMobilePane("browser")}
                   >
                     Browser
@@ -815,8 +788,8 @@ export function App() {
                 </div>
               )}
               {selectedConvId && (
-                <div hidden={activeView !== "listings"} className={`listing-workspace${browserPaneOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
-                  {browserPaneOpen && (
+                <div hidden={activeView !== "listings"} className={`listing-workspace${browserOpen && browserExpanded ? " is-browser-expanded" : ""}`}>
+                  {browserOpen && (
                     <BrowserPreview
                       jobId={listingJob?.id ?? null}
                       step={listingJob?.current_step}
@@ -826,7 +799,7 @@ export function App() {
                       cancelling={cancelJob.isPending}
                       onCancel={listingJob?.id ? () => cancelJob.mutate(listingJob.id) : undefined}
                       interactive={browserOpen}
-                      automationRunning={previewOpen}
+                      automationRunning={automationRunning}
                       onClose={closeBrowser}
                       expanded={browserExpanded}
                       onToggleExpanded={isMobile ? undefined : () => setBrowserExpanded((value) => !value)}
@@ -873,7 +846,6 @@ export function App() {
                           convId={tab.id}
                           reviewTab={tab.reviewTab}
                           onReviewTabChange={(value) => dispatchListingTab({ type: "review", id: tab.id, value })}
-                          onJobStarted={() => setMobilePane("browser")}
                           onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
                           browserOpen={tab.id === selectedConvId && browserOpen}
                           onAskChat={(text) => {

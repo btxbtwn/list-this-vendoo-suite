@@ -11,7 +11,6 @@ import { ConnectChromeButton } from "./ConnectChromeButton";
 import { SendProgress, sendProgressLabel } from "./SendProgress";
 import { ListingBlockers } from "./ListingBlockers";
 import { ListingHistory } from "./ListingHistory";
-import { SendReview } from "./SendReview";
 import { blockerTarget, matchingEditorField } from "./listingChanges";
 import { VendooSyncStatus } from "./VendooSyncStatus";
 import { OpenListingButton } from "./OpenListingButton";
@@ -56,7 +55,6 @@ import type { BulkListingUploadResult } from "../bulkPhotoUpload";
 
 interface Props {
   convId: string;
-  onJobStarted?: () => void;
   onAskChat?: (text: string) => void;
   onCleared?: () => void;
   onOpenBrowser?: (jobId: string) => void;
@@ -77,7 +75,6 @@ interface EditorField {
 
 export function ListingEditor({
   convId,
-  onJobStarted,
   onAskChat,
   onCleared,
   onOpenBrowser,
@@ -431,7 +428,6 @@ export function ListingEditor({
               listing={listing}
               onAskChat={askChat}
               onFilled={() => queryClient.invalidateQueries({ queryKey: ["listing", convId] })}
-              onJobStarted={onJobStarted}
             />
           ) : (
             <div className="pr-empty">
@@ -510,7 +506,6 @@ export function ListingEditor({
           liveMarketplaces={liveMarketplaces}
           vendooItemId={importedItemId}
           onSelectBlocker={openBlocker}
-          onJobStarted={onJobStarted}
           onAskChat={askChat}
         />
       </div>
@@ -972,7 +967,6 @@ function SendToVendooButton({
   selectedMarketplaces,
   liveMarketplaces,
   vendooItemId,
-  onJobStarted,
   onAskChat,
   onSelectBlocker,
 }: {
@@ -986,14 +980,11 @@ function SendToVendooButton({
   /** Marketplaces already carrying this item, named for the copy under Send. */
   liveMarketplaces?: string[];
   vendooItemId?: string | null;
-  onJobStarted?: () => void;
   onAskChat?: (text: string) => void;
   onSelectBlocker: (field: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [error, setError] = React.useState<string | null>(null);
-  const [reviewOpen, setReviewOpen] = React.useState(false);
-  const previewMutation = useMutation({ mutationFn: () => api.jobs.sendPreview(convId) });
   const sendLock = React.useRef(false);
   const bound = Boolean(vendooItemId);
 
@@ -1089,10 +1080,9 @@ function SendToVendooButton({
   );
 
   const sendMutation = useMutation({
-    mutationFn: (reviewId: string) => api.jobs.send(convId, reviewId),
+    mutationFn: () => api.jobs.send(convId),
     onSuccess: () => {
       setError(null);
-      setReviewOpen(false);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["queue"] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -1101,7 +1091,6 @@ function SendToVendooButton({
         title: "Added to queue",
         description: "You can move on. The Vendoo draft will be saved in the background.",
       });
-      onJobStarted?.();
     },
     onError: (err: Error) => setError(err.message || "Failed to queue send"),
   });
@@ -1165,8 +1154,8 @@ function SendToVendooButton({
           + (live.length > 2
             ? `The live listings on all ${live.length} marketplaces keep`
             : `The live ${joinMarketplaces(live)} ${live.length === 1 ? "listing keeps" : "listings keep"}`)
-          + " the old version until you delist and relist in Vendoo."
-        : "Writes changed fields onto the linked Vendoo draft. Nothing is published.";
+          + " the old version until you delist and relist in Vendoo. Keeps the photos already in Vendoo."
+        : "Writes changed fields onto the linked Vendoo draft. Keeps the photos already in Vendoo. Nothing is published.";
 
   const startSend = () => {
     if (sendLock.current || sendMutation.isPending) return;
@@ -1178,16 +1167,9 @@ function SendToVendooButton({
       setError(blockerText || "Listing is not ready. Add a title, description, price, and at least one photo.");
       return;
     }
-    setError(null);
-    sendMutation.reset();
-    setReviewOpen(true);
-    previewMutation.mutate();
-  };
-  const approveSend = (reviewId: string) => {
-    if (sendLock.current || !sendEnabled) return;
     sendLock.current = true;
     setError(null);
-    sendMutation.mutate(reviewId, {
+    sendMutation.mutate(undefined, {
       onSettled: () => {
         sendLock.current = false;
       },
@@ -1328,10 +1310,6 @@ function SendToVendooButton({
       {errorCard}
       {/* Collapsed and below the error card, so opening a group never pushes Fix errors / Ask chat out of view. */}
       {!generating && <ListingBlockers issues={uniqueBlockers} onSelect={onSelectBlocker} />}
-      {reviewOpen && <SendReview preview={previewMutation.data} loading={previewMutation.isPending}
-        error={previewMutation.error?.message || error} busy={sendMutation.isPending}
-        onClose={() => { setReviewOpen(false); setError(null); }}
-        onRetry={() => { setError(null); sendMutation.reset(); previewMutation.mutate(); }} onApprove={approveSend} />}
     </div>
   );
 }
