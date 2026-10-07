@@ -50,7 +50,7 @@ Ceiling       = median asking price of 3+ similar live listings; price at or
 
 
 @lru_cache(maxsize=1)
-def _base_formula_rules(*, max_chars: int = 6000) -> str:
+def _base_formula_rules(*, max_chars: int = 8000) -> str:
     """Return the non-negotiable Formula Reference section from list-this SKILL.md."""
     skill_md = skills_dir() / "list-this" / "SKILL.md"
     if not skill_md.is_file():
@@ -71,7 +71,7 @@ def _base_formula_rules(*, max_chars: int = 6000) -> str:
     return section[:max_chars]
 
 
-def listing_formula_rules(*, max_chars: int = 6000) -> str:
+def listing_formula_rules(*, max_chars: int = 8000) -> str:
     """Base formula reference with any user-customized title/description swapped in."""
     text = _base_formula_rules(max_chars=max_chars)
     custom = get_listing_formulas()

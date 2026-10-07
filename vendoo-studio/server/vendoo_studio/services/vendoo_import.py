@@ -374,6 +374,9 @@ async def import_vendoo_draft(
         listing["labels"] = await resolve_label_display_names(
             job, listing["labels"], timeout=LOOKUP_TIMEOUT_SEC
         )
+    from vendoo_studio.services.listing_evidence import capture_sale_snapshot
+
+    capture_sale_snapshot(db, conv_id, item, form)
     current = listing_repo.get_current(conv_id)
     revision = listing_repo.save_revision(
         conv_id=conv_id,

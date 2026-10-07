@@ -146,6 +146,10 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
 
     photo_count = len(conv_repo.get_photos(conv_id))
     _reject_corrupt_listing(body.listing)
+    from vendoo_studio.services.listing_evidence import explicit_changes, record_correction
+
+    previous = listing_repo.get_revision(current.current_revision_id) if current and current.current_revision_id else None
+    changes = explicit_changes(previous.listing_json if previous else {}, body.listing)
     sanitize_listing_sizes(body.listing)
     # The seller's size input is the source of truth; the title follows it.
     align_size_fields(body.listing)
@@ -168,6 +172,8 @@ def update_listing(conv_id: str, body: ListingUpdate, db: Session = Depends(get_
         source="user_form",
         parent_revision_id=current.current_revision_id if current else None,
     )
+
+    record_correction(db, conv_id, revision.id, body.listing, changes)
 
     if current:
         current.validation_status = "valid" if validation.valid else "error"
@@ -267,6 +273,8 @@ def restore_revision(conv_id: str, revision_id: str, body: RevisionRestoreReques
         raise HTTPException(409, "Wait for generation or sending to finish before restoring a revision.")
     result = update_listing(conv_id, ListingUpdate(listing=copy.deepcopy(target.listing_json)), db)
     listing_repo.get_revision(result["revision_id"]).source = "restore"
+    from vendoo_studio.models.listing_evidence import ListingCorrection
+    db.query(ListingCorrection).filter_by(revision_id=result["revision_id"]).update({"source": "restore"})
     db.commit()
     return result
 

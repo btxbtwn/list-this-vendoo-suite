@@ -15,6 +15,7 @@ from vendoo_studio.services.chat_citations import (
 )
 from vendoo_studio.services.comp_research import research_sold_comps
 from vendoo_studio.services.generation_history import seller_history_prompt
+from vendoo_studio.services.listing_evidence import generation_evidence_prompt
 from vendoo_studio.services.listing_generate import (
     PHOTO_ANALYSIS_RETRY_MESSAGE,
     PhotoAnalysisError,
@@ -359,6 +360,7 @@ def listing_generation_messages(
         f"{analysis_text}"
         f"{comps_block}"
         f"{seller_history_prompt(db, conv_id, analysis_text)}"
+        f"{generation_evidence_prompt(db, conv_id)}"
         f"{current_listing_prompt(db, conv_id)}"
         f"{_empty_discovered_fields_prompt(db, conv_id, field_evidence)}"
     )

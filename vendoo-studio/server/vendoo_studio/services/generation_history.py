@@ -13,11 +13,13 @@ import statistics
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Conversation
 from vendoo_studio.models.listing import Listing, ListingRevision
+from vendoo_studio.models.listing_evidence import ListingEvidence, SaleSnapshot
+from vendoo_studio.services.listing_evidence import sale_key
 from vendoo_studio.models.schema import ListingSchema, VALID_CONDITIONS
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.brave_search import fields_from_analysis
@@ -111,17 +113,41 @@ def seller_history_context(
         .join(ListingRevision, ListingRevision.id == Listing.current_revision_id)
         .filter(
             Conversation.id != conv_id,
-            func.lower(func.trim(func.json_extract(ListingRevision.listing_json, "$.brand")))
-            == brand.lower(),
+            or_(
+                func.lower(func.trim(func.json_extract(ListingRevision.listing_json, "$.brand"))) == brand.lower(),
+                db.query(SaleSnapshot.id).filter(
+                    SaleSnapshot.conversation_id == Conversation.id,
+                    func.lower(func.trim(func.json_extract(SaleSnapshot.listing, "$.brand"))) == brand.lower(),
+                ).exists(),
+            ),
         )
         .order_by(Conversation.updated_at.desc(), Conversation.id)
         .all()
     )
+    candidate_ids = [row[0] for row in rows]
+    snapshots = {(row.conversation_id, row.sale_key): row for row in
+                 db.query(SaleSnapshot).filter(SaleSnapshot.conversation_id.in_(candidate_ids)).all()}
+    evidence = {row.conversation_id: row for row in
+                db.query(ListingEvidence).filter(ListingEvidence.conversation_id.in_(candidate_ids)).all()}
     sales: list[dict] = []
     active: list[dict] = []
     excluded_sales = 0
     seen_items = {str(notes["vendooItemId"])} if notes.get("vendooItemId") else set()
     for _id, status, raw_notes, title, raw_category, department, raw_condition, size, price, quantity in rows:
+        candidate_notes = parse_notes(raw_notes)
+        effective = _effective_status(str(status or ""), candidate_notes)
+        sale = candidate_notes.get("vendooSale") or {}
+        dates = candidate_notes.get("vendooDates") or {}
+        sale = sale if isinstance(sale, dict) else {}
+        dates = dates if isinstance(dates, dict) else {}
+        snapshot = snapshots.get((_id, sale_key(sale, dates))) if effective == "sold" else None
+        if snapshot:
+            historical = snapshot.listing
+            if _text(historical.get("brand")).casefold() != brand.casefold():
+                continue
+            title, raw_category, department, raw_condition, size, price, quantity = (
+                historical.get(key) for key in facets
+            )
         if quantity != 1:
             continue
         candidate_path = map_vendoo_category_path(_path(raw_category), {
@@ -132,24 +158,28 @@ def seller_history_context(
         candidate_condition = _condition(raw_condition)
         if condition and candidate_condition != condition:
             continue
-        candidate_notes = parse_notes(raw_notes)
         item_id = str(candidate_notes.get("vendooItemId") or "").strip()
         if item_id:
             if item_id in seen_items:
                 continue
             seen_items.add(item_id)
-        effective = _effective_status(str(status or ""), candidate_notes)
         if effective not in {"sold", "active"}:
             continue
-        dates = candidate_notes.get("vendooDates")
-        dates = dates if isinstance(dates, dict) else {}
         example = {
             "title": _text(title), "size": _text(size),
             "condition": candidate_condition,
         }
+        recorded = evidence.get(_id)
+        if recorded:
+            shipping = recorded.shipping
+            shipped_on = _parse_moment(str((shipping or {}).get("shipped_on") or ""))
+            if shipped_on and start <= shipped_on <= clock:
+                example["measured_shipping"] = shipping
+            windows = [entry for entry in recorded.engagement or [] if
+                       start.date().isoformat() <= entry["end_date"] <= clock.date().isoformat()]
+            if windows:
+                example["engagement_windows"] = sorted(windows, key=lambda entry: entry["end_date"], reverse=True)[:3]
         if effective == "sold":
-            sale = candidate_notes.get("vendooSale")
-            sale = sale if isinstance(sale, dict) else {}
             sold_price = _amount(sale.get("price"))
             sold_text = str(dates.get("sold") or sale.get("soldAt") or "")
             sold_at = _parse_moment(sold_text)
@@ -158,6 +188,8 @@ def seller_history_context(
                 continue
             example.update({
                 "sold_price": sold_price, "sold_at": sold_at.astimezone(UTC).isoformat(),
+                "listing_text_source": snapshot.source if snapshot else "current_listing_not_verified_at_sale",
+                "snapshot_observed_at": snapshot.observed_at.isoformat() if snapshot else None,
                 "days_to_sell": _days_between(str(dates.get("listed") or ""), sold_text),
                 "marketplace": _text(sale.get("marketplace")),
                 "cost": _amount(sale.get("cost")), "fees": _amount(sale.get("fees")),

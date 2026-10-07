@@ -286,12 +286,15 @@ def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> 
         vendoo_listed_marketplaces,
         vendoo_listing_urls,
         vendoo_updated_at,
+        vendoo_sale,
     )
 
     repo = ConversationRepo(db)
     conv = repo.get(conv_id)
     if not conv:
         return "draft"
+    from vendoo_studio.services.listing_evidence import capture_sale_snapshot
+    capture_sale_snapshot(db, conv_id, item)
     status = vendoo_item_status(item, None)
     if status not in VENDOO_LISTING_STATUSES:
         status = "draft"
@@ -304,6 +307,7 @@ def refresh_inventory_label(db: Session, conv_id: str, item: dict[str, Any]) -> 
         "vendooMarketplaces": vendoo_listed_marketplaces(item, None),
         "vendooListingUrls": vendoo_listing_urls(item, None),
         "vendooDates": vendoo_dates(item, None),
+        "vendooSale": vendoo_sale(item, None),
         "vendooUpdatedAt": vendoo_updated_at(item, None),
     }), bump_updated_at=False)
     # Generation owns ``in_progress``. A send owns ``listing`` only while a job

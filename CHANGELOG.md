@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.186 — 2026-10-07
+
+- Let generation learn from your deliberate listing edits and preserve the Vendoo listing when a sale is first observed.
+- Record measured packed shipping and dated marketplace views, impressions, offers and returns under Input → Shipping and buyer response, so future listings can use reliable examples.
+
 ## 0.1.185 — 2026-10-05
 
 - Plan eBay, Depop, and Etsy sales on a calendar, try windows suggested by your sales history, check estimated item profits, and compare recorded event results with the same weekdays before the sale.
