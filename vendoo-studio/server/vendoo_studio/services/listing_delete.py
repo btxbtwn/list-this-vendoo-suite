@@ -88,6 +88,9 @@ def delete_listing(db: Session, conv_id: str) -> tuple[int, int]:
     from vendoo_studio.models.scout import ScoutCheck
     # The check stays as a record of the decision; only the link goes.
     db.query(ScoutCheck).filter(ScoutCheck.conversation_id == conv_id).update({ScoutCheck.conversation_id: None})
+    from vendoo_studio.models.listing_evidence import ListingCorrection, ListingEvidence, SaleSnapshot
+    for model in (ListingCorrection, ListingEvidence, SaleSnapshot):
+        db.query(model).filter_by(conversation_id=conv_id).delete(synchronize_session=False)
     db.delete(conv)
     db.commit()
     return deleted_jobs, deleted_photos

@@ -457,16 +457,30 @@ facts never replace evidence about the new item. Photo analysis preserves its
 evidence sources, model confidence and uncertainty details; discovered field
 requirements and exact allowed options reach the initial generation prompt.
 
-Future evidence sources need stronger provenance before they guide generation:
-revision edits can be item-specific corrections rather than reusable seller
-preferences; a saved shipping weight can be an estimate or import default rather
-than a measured shipment; and current listing text can differ from the text at
-the time of sale. Sales alone do not establish effective keywords, conversion
-rates, or platform demand. Those analyses require dated exposure and outcome
-history (including impressions, views, offers and returns), which the listing
-import does not currently preserve. Generation must receive relevant records
-with their source, age and missing-data coverage rather than aggregate dashboard
-rankings or an unfiltered inventory dump.
+Generation receives deliberate field edits recorded before automatic
+normalization, separately from revisions. Current-item corrections retain
+explicit clears; related title and description edits are bounded examples and
+never transfer another item's facts or replace canonical/customized formulas.
+These records survive regeneration and are removed when the listing is deleted.
+Old revisions are not backfilled as deliberate edits.
+
+A dated Vendoo sale freezes its remote listing at first observation. Both full
+imports and status-only syncs capture it; repeated syncs never overwrite it.
+The record is explicitly first-observed-sold text, not verified text at the sale
+instant. Generation matches historical facets against that snapshot, so later
+listing edits cannot rewrite historical examples. Legacy listings without a
+snapshot remain labeled as current text with unknown at-sale provenance.
+
+Input → Shipping and buyer response records packed weight, optional dimensions
+and actual postage, with a shipment date and `seller_measured` provenance.
+Marketplace reports record dated impressions, views, offers and returns with
+`seller_reported` provenance. Reports can be edited or removed; overlapping
+windows remain separate and unknown counts never become zero. Studio has no
+direct eBay OAuth connection, so these reports are entered by the seller rather
+than fetched through a new marketplace integration. Generation receives only
+bounded relevant records and their dates/sources. Neither sales alone nor
+traffic counts establish effective keywords or causation. No publishing or
+Vendoo-write action follows from recording evidence.
 
 The output contains a user-facing response, complete proposed listing, uncertainties, and validation warnings.
 

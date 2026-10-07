@@ -300,3 +300,19 @@ def test_the_models_match_the_migrations(engine, snapshots):
         "  cd vendoo-studio && .venv/bin/alembic revision --autogenerate -m \"...\"\n"
         f"Differences: {differences}"
     )
+
+
+def test_listing_evidence_migrates_previous_release_without_inventing_history(engine, snapshots):
+    from alembic import command
+    config = schema_migrations.alembic_config(str(engine.url))
+    command.upgrade(config, "47a52dece27b")
+    with sqlite3.connect(engine.url.database) as connection:
+        connection.execute("INSERT INTO conversations (id, title) VALUES ('seller-item', 'Original listing')")
+        connection.execute("INSERT INTO listing_revisions (id, conversation_id, listing_json, source) VALUES ('seller-rev', 'seller-item', '{}', 'user_form')")
+    ensure_schema(engine)
+    with sqlite3.connect(engine.url.database) as connection:
+        assert connection.execute("SELECT title FROM conversations WHERE id = 'seller-item'").fetchone() == ("Original listing",)
+        assert connection.execute("SELECT source FROM listing_revisions WHERE id = 'seller-rev'").fetchone() == ("user_form",)
+        for table in ("listing_corrections", "sale_snapshots", "listing_evidence"):
+            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
+    assert [snapshot.reason for snapshot in backups.list_snapshots(snapshots)] == ["pre-migration"]
