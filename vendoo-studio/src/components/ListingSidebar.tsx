@@ -356,6 +356,7 @@ export function ListingSidebar({
     queryKey: ["settings-ui"],
     queryFn: api.settings.ui,
   });
+  const nameBySku = uiPrefs?.listing_names === "sku";
 
   useEffect(() => {
     if (!uiPrefs) return;
@@ -839,8 +840,8 @@ export function ListingSidebar({
                 type="search"
                 value={listingQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Search by title or SKU"
-                aria-label="Search listings by title or SKU"
+                placeholder="Search by title, SKU or label"
+                aria-label="Search listings by title, SKU or label"
               />
             </label>
             <button
@@ -896,6 +897,7 @@ export function ListingSidebar({
                 jobId={jobIdByConversation.get(listing.id)}
                 statusDraft={statusDraftFor(listing.id)}
                 visibleMarketplaces={visibleMarketplaces}
+                nameBySku={nameBySku}
                 selecting={selecting}
                 checked={selectedIds.has(listing.id)}
                 canSelect={listingCanRegenerate(listing)}
@@ -934,6 +936,7 @@ export function ListingSidebar({
                     jobId={jobIdByConversation.get(listing.id)}
                     statusDraft={statusDraftFor(listing.id)}
                     visibleMarketplaces={visibleMarketplaces}
+                    nameBySku={nameBySku}
                     onSelect={onSelect}
                     onDelete={onDelete}
                     onUnsettle={(id) => unsettleListing.mutate(id)}
@@ -1219,6 +1222,7 @@ function ListingRow({
   jobId,
   statusDraft,
   visibleMarketplaces,
+  nameBySku = false,
   selecting = false,
   checked = false,
   canSelect = false,
@@ -1237,6 +1241,7 @@ function ListingRow({
   jobId?: string;
   statusDraft?: Record<string, unknown>;
   visibleMarketplaces?: Set<string>;
+  nameBySku?: boolean;
   selecting?: boolean;
   checked?: boolean;
   canSelect?: boolean;
@@ -1248,6 +1253,8 @@ function ListingRow({
   onUnsettle?: (id: string) => void;
 }) {
   const title = listing.title || "Untitled";
+  // Named by SKU, a listing without one still shows its title.
+  const name = (nameBySku && listing.sku?.trim()) || title;
   // A bulk-imported listing has no local photos yet; Vendoo's own image stands in.
   const coverUrl = listing.cover_photo_url || listing.vendoo_cover_url || null;
   const status = String(listing.status || "draft");
@@ -1476,7 +1483,7 @@ function ListingRow({
             <button
               type="button"
               className="nav-link-title"
-              title={title}
+              title={name === title ? title : `${name} · ${title}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelect(listing.id);
@@ -1487,7 +1494,7 @@ function ListingRow({
                 startRename();
               }}
             >
-              {title}
+              {name}
             </button>
           )}
           <div className="nav-link-meta">

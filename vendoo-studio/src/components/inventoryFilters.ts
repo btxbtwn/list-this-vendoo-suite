@@ -102,10 +102,14 @@ function listedOn(listing: FilterableListing): string[] {
   return listing.vendoo_marketplaces || [];
 }
 
-/** Vendoo searches Title and SKU; a listing with neither only matches an empty query. */
+/** Vendoo searches Title and SKU; Studio also searches the labels a listing wears. */
 export function matchesSearch(listing: FilterableListing, needle: string): boolean {
   if (!needle) return true;
-  return lower(listing.title || "Untitled").includes(needle) || lower(listing.sku).includes(needle);
+  return (
+    lower(listing.title || "Untitled").includes(needle)
+    || lower(listing.sku).includes(needle)
+    || (listing.vendoo_labels || []).some((label) => lower(label).includes(needle))
+  );
 }
 
 /** Days since the listing went live, or null for one that never did. */

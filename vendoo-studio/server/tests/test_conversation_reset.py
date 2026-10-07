@@ -414,6 +414,42 @@ class ConversationResetTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIsNone(response.json()["notes"])
 
+    def test_renamed_listing_keeps_its_name_through_saves_and_regenerate(self):
+        renamed = self.client.patch(f"/api/conversations/{self.conv.id}", json={"title": "SKU-0042"})
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertTrue(json.loads(renamed.json()["notes"])["titlePinned"])
+
+        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Nike Tee Mens M"}, "user_form")
+        self.db.expire_all()
+        self.assertEqual(ConversationRepo(self.db).get(self.conv.id).title, "SKU-0042")
+
+        with photos_dir(self.photos_tmp.name):
+            regenerated = self.client.post(
+                f"/api/conversations/{self.conv.id}/reset", json={"keep_inputs": True},
+            )
+        self.assertEqual(regenerated.status_code, 200, regenerated.text)
+        self.assertEqual(regenerated.json()["title"], "SKU-0042")
+
+        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Nike Tee Mens M"}, "generate")
+        self.db.expire_all()
+        self.assertEqual(ConversationRepo(self.db).get(self.conv.id).title, "SKU-0042")
+
+    def test_clear_drops_a_pinned_name(self):
+        self.client.patch(f"/api/conversations/{self.conv.id}", json={"title": "SKU-0042"})
+
+        with photos_dir(self.photos_tmp.name):
+            cleared = self.client.post(f"/api/conversations/{self.conv.id}/reset")
+        self.assertEqual(cleared.json()["title"], "New Listing")
+
+        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Nike Tee Mens M"}, "generate")
+        self.db.expire_all()
+        self.assertEqual(ConversationRepo(self.db).get(self.conv.id).title, "Nike Tee Mens M")
+
+    def test_unrenamed_listing_follows_its_title(self):
+        ListingRepo(self.db).save_revision(self.conv.id, {"title": "Nike Tee Mens M"}, "user_form")
+        self.db.expire_all()
+        self.assertEqual(ConversationRepo(self.db).get(self.conv.id).title, "Nike Tee Mens M")
+
     def test_reset_missing_conversation_is_404(self):
         response = self.client.post("/api/conversations/missing/reset")
         self.assertEqual(response.status_code, 404)

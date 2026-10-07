@@ -16,6 +16,8 @@ RECENT_LABELS_KEY = "recent_vendoo_labels"
 SETTLED_SHELF_KEY = "settled_shelf_expanded"
 HIDDEN_LABELS_KEY = "hidden_vendoo_labels"
 THEME_KEY = "theme"
+LISTING_NAMES_KEY = "listing_names"
+LISTING_NAME_CHOICES = frozenset({"title", "sku"})
 MAX_RECENT_LABELS = 12
 MAX_HIDDEN_LABELS = 200
 LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "mimo", "cursor"})
@@ -321,11 +323,14 @@ def normalize_theme(value: object) -> ThemeChoice:
 def get_ui_prefs() -> dict:
     ui = _ui_prefs()
     settled = ui.get(SETTLED_SHELF_KEY)
+    names = ui.get(LISTING_NAMES_KEY)
     return {
         RECENT_LABELS_KEY: _clean_recent_labels(ui.get(RECENT_LABELS_KEY)),
         SETTLED_SHELF_KEY: DEFAULT_SETTLED_SHELF_EXPANDED if not isinstance(settled, bool) else settled,
         HIDDEN_LABELS_KEY: _clean_hidden_labels(ui.get(HIDDEN_LABELS_KEY)),
         THEME_KEY: normalize_theme(ui.get(THEME_KEY)),
+        # The sidebar names each listing by its title, or by its SKU where it has one.
+        LISTING_NAMES_KEY: names if names in LISTING_NAME_CHOICES else "title",
     }
 
 
@@ -334,8 +339,9 @@ def set_ui_prefs(
     recent_vendoo_labels: object | None = None,
     settled_shelf_expanded: object | None = None,
     theme: object | None = None,
+    listing_names: object | None = None,
 ) -> dict:
-    if recent_vendoo_labels is None and settled_shelf_expanded is None and theme is None:
+    if recent_vendoo_labels is None and settled_shelf_expanded is None and theme is None and listing_names is None:
         return get_ui_prefs()
 
     def mutator(payload: dict) -> None:
@@ -350,6 +356,10 @@ def set_ui_prefs(
             if not isinstance(theme, str) or theme.strip().lower() not in THEME_CHOICES:
                 raise ValueError("theme must be dark, light, or system")
             ui[THEME_KEY] = theme.strip().lower()
+        if listing_names is not None:
+            if listing_names not in LISTING_NAME_CHOICES:
+                raise ValueError("listing_names must be title or sku")
+            ui[LISTING_NAMES_KEY] = listing_names
         payload[UI_PREFS_KEY] = ui
 
     update_settings(mutator)

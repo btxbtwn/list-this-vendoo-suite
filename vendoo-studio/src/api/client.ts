@@ -10,6 +10,7 @@ import type {
   FillLogReport,
   Job,
   ListingData,
+  ListingNames,
   ListingProviderId,
   ListingResponse,
   ListingRevision,
@@ -668,11 +669,13 @@ export const api = {
         settled_shelf_expanded: boolean;
         hidden_vendoo_labels: string[];
         theme: "dark" | "light" | "system";
+        listing_names: ListingNames;
       }>("/settings/ui"),
     setUi: (body: {
       recent_vendoo_labels?: string[];
       settled_shelf_expanded?: boolean;
       theme?: "dark" | "light" | "system";
+      listing_names?: ListingNames;
       remember_labels?: string | string[];
       restore_labels?: string[];
       forget_label?: string;
@@ -683,6 +686,7 @@ export const api = {
         settled_shelf_expanded: boolean;
         hidden_vendoo_labels: string[];
         theme: "dark" | "light" | "system";
+        listing_names: ListingNames;
       }>("/settings/ui", { method: "PUT", body: JSON.stringify(body) }),
     formulas: () =>
       request<{

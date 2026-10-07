@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { ListingProviderId, VendooApiLogEntry } from "../api/types";
+import type { ListingNames, ListingProviderId, VendooApiLogEntry } from "../api/types";
 import { backupSummary, formatBytes } from "./backupSummary";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
@@ -731,6 +731,10 @@ function AppearanceSection() {
       applyTheme(normalizeTheme(payload.theme));
     },
   });
+  const namesMutation = useMutation({
+    mutationFn: (listingNames: ListingNames) => api.settings.setUi({ listing_names: listingNames }),
+    onSuccess: (payload) => queryClient.setQueryData(["settings-ui"], payload),
+  });
   const theme = normalizeTheme(data?.theme);
 
   return (
@@ -749,6 +753,23 @@ function AppearanceSection() {
             <option value="dark">Dark</option>
             <option value="light">Light</option>
             <option value="system">System</option>
+          </select>
+        }
+      />
+      <SettingsRow
+        id="listing-names"
+        title="Listing names"
+        description="What the sidebar calls each listing. By SKU, a listing without a SKU keeps its title."
+        control={
+          <select
+            className="input settings-model-select"
+            aria-label="Listing names"
+            value={data?.listing_names ?? "title"}
+            disabled={isPending || namesMutation.isPending}
+            onChange={(event) => namesMutation.mutate(event.target.value as ListingNames)}
+          >
+            <option value="title">Title</option>
+            <option value="sku">SKU</option>
           </select>
         }
       />

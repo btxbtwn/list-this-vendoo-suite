@@ -6,6 +6,12 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.192 — 2026-10-07
+
+- A listing you rename in the sidebar keeps that name when it saves, updates or regenerates.
+- Settings → General → Listing names can show each listing by its SKU instead of its title.
+- Sidebar search now finds listings by their labels too, alongside title and SKU.
+
 ## 0.1.191 — 2026-10-07
 
 - Save Fabric Type as a supported Vendoo dropdown choice and keep petite eBay sizes paired correctly, including PL for petite large.

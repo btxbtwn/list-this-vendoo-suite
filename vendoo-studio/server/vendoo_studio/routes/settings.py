@@ -639,6 +639,7 @@ class UiPrefsConfig(BaseModel):
     recent_vendoo_labels: list[str] | None = None
     settled_shelf_expanded: bool | None = None
     theme: str | None = None
+    listing_names: str | None = None
     remember_labels: str | list[str] | None = None
     restore_labels: list[str] | None = None
     forget_label: str | None = None
@@ -664,6 +665,7 @@ def put_ui_prefs(config: UiPrefsConfig):
             recent_vendoo_labels=config.recent_vendoo_labels,
             settled_shelf_expanded=config.settled_shelf_expanded,
             theme=config.theme,
+            listing_names=config.listing_names,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -53,6 +53,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     searchTerms: ["appearance", "light mode", "dark mode", "system", "color scheme"],
   },
   {
+    id: "listing-names",
+    title: "Listing names",
+    section: "general",
+    targetId: "listing-names",
+    searchTerms: ["sku", "sidebar", "rename", "listing title", "name by sku"],
+  },
+  {
     id: "marketplaces",
     title: "Marketplaces",
     section: "listings",
