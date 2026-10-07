@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.190 — 2026-10-07
+
+- Follow clearer, numbered instructions for relisting after regenerating, with easier-to-read text and an “I've relisted” button to clear the reminder.
+
 ## 0.1.189 — 2026-10-07
 
 - See all boxes Studio checked immediately, including when none are recommended. Supplier choices show how many boxes were found, and an empty recommendation explains when recent sold evidence is missing.

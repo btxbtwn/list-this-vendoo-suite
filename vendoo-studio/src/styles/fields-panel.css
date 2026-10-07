@@ -252,10 +252,11 @@
    happens in Vendoo rather than here. */
 .pr-notice.is-relist {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  line-height: 1.45;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.55;
   color: var(--color-text-secondary);
   background: var(--color-draft-tint);
   border: 1px solid color-mix(in srgb, var(--color-draft) 40%, var(--color-border));
@@ -266,6 +267,31 @@
   font-weight: 600;
 }
 
+.pr-relist-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pr-relist-summary {
+  margin: 6px 0 0;
+}
+
+.pr-relist-steps {
+  margin: 10px 0;
+  padding-left: 22px;
+}
+
+.pr-relist-steps li + li {
+  margin-top: 6px;
+}
+
+.pr-relist-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
 .pr-notice-body {
   min-width: 0;
   flex: 1;
@@ -273,6 +299,7 @@
 
 .pr-notice-actions {
   display: flex;
+  flex-wrap: wrap;
   flex: none;
   align-items: center;
   gap: 6px;
