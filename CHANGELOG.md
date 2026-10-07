@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.193 — 2026-10-07
+
+- On a phone, the top bar no longer crams its buttons together: Queue is an icon like the others, and Workspace, Listing and Browser sit on their own row with full labels.
+
 ## 0.1.192 — 2026-10-07
 
 - A listing you rename in the sidebar keeps that name when it saves, updates or regenerates.

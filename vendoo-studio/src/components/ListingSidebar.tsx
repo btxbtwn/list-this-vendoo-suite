@@ -173,6 +173,17 @@ export function SearchIcon() {
   );
 }
 
+export function QueueIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M9 6h11M9 12h11M9 18h11" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <circle cx="4" cy="6" r="1" fill="currentColor" />
+      <circle cx="4" cy="12" r="1" fill="currentColor" />
+      <circle cx="4" cy="18" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function AnalyticsIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1023,12 +1034,7 @@ export function ListingSidebar({
                 aria-pressed={activeView === "queue"}
                 onClick={onOpenQueue}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M9 6h11M9 12h11M9 18h11" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-                  <circle cx="4" cy="6" r="1" fill="currentColor" />
-                  <circle cx="4" cy="12" r="1" fill="currentColor" />
-                  <circle cx="4" cy="18" r="1" fill="currentColor" />
-                </svg>
+                <QueueIcon />
                 {queueCount ? <span className="queue-nav-dot" aria-hidden="true" /> : null}
               </button>
               <VendooImportButton />
