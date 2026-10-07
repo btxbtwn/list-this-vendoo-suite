@@ -623,7 +623,7 @@ def _build_registry_selectors(listing: dict, db, platforms: list[str]) -> dict:
                 if selectors:
                     fields[field_label] = {
                         "selectors": selectors,
-                        "value": str(value) if value else "",
+                        "value": value if value is not None else "",
                     }
         result[marketplace] = fields
 
@@ -633,7 +633,7 @@ def _build_registry_selectors(listing: dict, db, platforms: list[str]) -> dict:
         if selectors:
             general_fields[field_label] = {
                 "selectors": selectors,
-                "value": str(listing.get(field_label, "")),
+                "value": listing.get(field_label, ""),
             }
     if general_fields:
         result["general"] = general_fields

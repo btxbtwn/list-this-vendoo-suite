@@ -829,6 +829,9 @@ async def prepare_listing_fields_for_vendoo(
     if mark:
         mark("vendoo_api_specifics")
     specifics = await fetch_listing_specifics(job, listing, timeout=timeout)
+    from vendoo_studio.models.ebay_fields import normalize_ebay_sizes
+
+    normalize_ebay_sizes(listing)
     if mark:
         mark("vendoo_api_fields")
     prepared = listing.get("_vendoo_preparation")

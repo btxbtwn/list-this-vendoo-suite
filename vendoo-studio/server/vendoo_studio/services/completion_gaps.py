@@ -328,7 +328,8 @@ def deterministic_gap_patches(
         if error not in SOFT_GAP_ERRORS:
             needs_model.append(gap)
             continue
-        value = str(gap.get("expected") or "").strip()
+        expected = gap.get("expected")
+        value = expected if isinstance(expected, list) else str(expected or "").strip()
         if not value:
             value = listing_value_for_field(listing, marketplace, field)
         if not value and field_lookup_key(field) == "size":

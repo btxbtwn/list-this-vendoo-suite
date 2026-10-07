@@ -376,8 +376,13 @@ def encode_specific(spec: FieldSpec, value: Any) -> tuple[Any, bool]:
     parts = _parts(value)
     if not parts:
         return ([] if spec.multi else ""), True
+    # Fabric Type describes construction (Knit, Woven), while fibres belong
+    # in Material. Even a creatable select must use the category's vocabulary.
+    strict_options = spec.selection_only or (
+        bool(spec.options) and _norm(spec.display) == "fabric type"
+    )
     if not spec.multi:
-        parts = parts[:1] if spec.selection_only or len(parts) == 1 else [", ".join(parts)]
+        parts = parts[:1] if strict_options or len(parts) == 1 else [", ".join(parts)]
     encoded: list[str] = []
     resolved = True
     for part in parts:
@@ -387,7 +392,7 @@ def encode_specific(spec: FieldSpec, value: Any) -> tuple[Any, bool]:
         if _norm(part) in _NOT_APPLICABLE:
             continue
         code = _encode_one(spec, part)
-        if code is None and spec.selection_only:
+        if code is None and strict_options:
             # The rest of the declines ("none", "unknown") against a list
             # that does not offer them are the model declining too, not a
             # value Vendoo rejected. Reporting them buries the real gaps.
@@ -395,7 +400,7 @@ def encode_specific(spec: FieldSpec, value: Any) -> tuple[Any, bool]:
                 continue
             code = _other_option(spec)
         if code is None:
-            if spec.selection_only:
+            if strict_options:
                 resolved = False
                 continue
             code = part

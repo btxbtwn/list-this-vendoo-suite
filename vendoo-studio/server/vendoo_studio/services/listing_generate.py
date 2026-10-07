@@ -725,15 +725,20 @@ def propagate_general_size(listing: dict) -> bool:
     if str(listing.get("size") or "").strip() != size:
         listing["size"] = size
     changed = False
+    from vendoo_studio.models.ebay_fields import ebay_optional_raw, ebay_size_for_type
+
     for specifics_key in _SIZE_SPECIFIC_KEYS:
         block = listing.get(specifics_key)
         if not isinstance(block, dict):
             continue
         if specifics_key != "ebay_specifics" and "size" not in block:
             continue
-        if str(block.get("size") or "").strip() == size:
+        target = size
+        if specifics_key == "ebay_specifics":
+            target = ebay_size_for_type(size, ebay_optional_raw(block, "sizeType") or listing.get("sizeType"))
+        if str(block.get("size") or "").strip() == target:
             continue
-        listing[specifics_key] = {**block, "size": size}
+        listing[specifics_key] = {**block, "size": target}
         changed = True
     return changed
 
