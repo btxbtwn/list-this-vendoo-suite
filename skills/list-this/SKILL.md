@@ -166,7 +166,7 @@ Apply pricing formula from MEMORY.md.
 **Petite Size Normalization (MANDATORY):**
 - Keep the raw verified tag size in the listing copy when it is a petite code such as `PS`, `PM`, `PL`, or `PXL`.
 - For Vendoo/general size mapping, prefer the actual petite code used by the platform dropdown, such as `PS` for petite small, instead of improvising `SP` or free-typing a custom alias.
-- For marketplaces that split the size into a base size plus a grouping, map petite sizes as base size plus petite grouping. Example: tag `PS` maps to Depop `Size = S` and `Size grouping = Petite`, while eBay should keep `Size Type = Petites` and use the closest supported petite size code when available.
+- For marketplaces that split the size into a base size plus a grouping, map petite sizes as base size plus petite grouping. Example: tag `PS` maps to Depop `Size = S` and `Size grouping = Petite`. On eBay, keep `Size Type = Petites` and select the category's matching petite size (`PS`, `PM`, `PL`, `PXL`, or numeric sizes such as `12P`). A petite large must not become plain `L`; verify that the petite code is offered by the category. Keep platform-specific size mappings when syncing the general size.
 - When the exact petite mapping is unclear from the live platform options, stop and verify the options instead of flattening the size to plain `S`/`Small`.
 
 **Measurement-Derived Size Fallback (MANDATORY when no size tag is visible):**
@@ -215,7 +215,7 @@ Every eBay listing MUST populate these fields. Leaving them blank causes downgra
 | **Neckline** | Crew Neck, V-Neck, Scoop Neck, Henley, etc. |
 | **Closure** | Pullover, Button, Zip, Snap, etc. |
 | **Country of Origin** | From tag: China, Haiti, Bangladesh, etc. |
-| **Fabric Type** | Cotton, Denim, Polyester, Knit, etc. |
+| **Fabric Type** | Exact category dropdown option for construction/texture, such as Denim, Jersey, Knit, or Woven. Polyester/Spandex belong in Material unless the category explicitly offers them for Fabric Type. Never stringify a list into this single select. |
 | **Garment Care** | Machine Washable (default) |
 | **Handmade** | "No" (always) |
 | **Personalize** | "No" (always) |

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.191 — 2026-10-07
+
+- Save Fabric Type as a supported Vendoo dropdown choice and keep petite eBay sizes paired correctly, including PL for petite large.
+
 ## 0.1.190 — 2026-10-07
 
 - Follow clearer, numbered instructions for relisting after regenerating, with easier-to-read text and an “I've relisted” button to clear the reminder.

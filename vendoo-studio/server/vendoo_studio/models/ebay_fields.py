@@ -472,6 +472,40 @@ def ebay_optional_raw(ebay: dict, key: str) -> Any:
     return None
 
 
+def ebay_size_for_type(size: Any, size_type: Any) -> str:
+    """eBay's petite sizes use PS/PM/PL/PXL or a numeric P suffix."""
+    text = text_value(size)
+    if text_value(size_type).casefold() not in {"petite", "petites"}:
+        return text
+    token = text.upper().replace(" ", "")
+    alpha = r"(?:XXS|XS|S|M|L|XL|XXL|[2-6]XL)"
+    match = re.fullmatch(rf"P?({alpha})P?", token)
+    if match:
+        return f"P{match.group(1)}"
+    if re.fullmatch(r"\d{1,2}P?", token):
+        return token.rstrip("P") + "P"
+    return text
+
+
+def normalize_ebay_sizes(listing: dict) -> bool:
+    """Keep eBay's Size paired with its petite Size Type, preserving general size."""
+    ebay = listing.get("ebay_specifics")
+    if not isinstance(ebay, dict):
+        return False
+    size_type = ebay_optional_raw(ebay, "sizeType") or listing.get("sizeType")
+    size = ebay_optional_raw(ebay, "size") or listing.get("size")
+    normalized = ebay_size_for_type(size, size_type)
+    updated = dict(ebay)
+    if normalized and normalized != size:
+        updated["size"] = normalized
+    if text_value(size_type).casefold() in {"petite", "petites"}:
+        updated["sizeType"] = "Petites"
+    if updated == ebay:
+        return False
+    listing["ebay_specifics"] = updated
+    return True
+
+
 def ebay_optional_blank(value: Any) -> bool:
     if value is None:
         return True

@@ -54,6 +54,10 @@ def specifics_gaps(
             if not label:
                 continue
             value = listing_value_for_field(listing, marketplace, label, include_not_applicable=True)
+            if marketplace == "ebay" and spec.key == "Size":
+                from vendoo_studio.models.ebay_fields import ebay_size_for_type
+
+                value = ebay_size_for_type(value, listing_value_for_field(listing, "ebay", "Size Type"))
             if not spec.required and is_not_applicable(value):
                 continue
             if spec.scales:
@@ -94,6 +98,9 @@ async def fill_listing_specifics(
     )
 
     current = dict(listing) if isinstance(listing, dict) else {}
+    from vendoo_studio.models.ebay_fields import normalize_ebay_sizes
+
+    normalize_ebay_sizes(current)
     if provider is None or not specifics:
         return current, specifics_gaps(current, specifics)
 
@@ -128,6 +135,7 @@ async def fill_listing_specifics(
         # Cap what lands, not just what was asked: a model that answers more
         # fields than it was given should not get to write them.
         updated = write_values_into_listing(current, patches[:MAX_PATCH_FIELDS])
+        normalize_ebay_sizes(updated)
         if updated == current:
             # Move past this batch so unresolved fields do not hide later ones.
             stalled.update((gap["marketplace"], gap["field"]) for gap in batch)

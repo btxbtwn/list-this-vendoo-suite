@@ -1371,6 +1371,12 @@ def _listing_section(
     section = default_listing_section(marketplace)
     raw = listing.get(SPECIFICS_SOURCES.get(marketplace, f"{marketplace}_specifics"))
     specifics = dict(raw) if isinstance(raw, dict) else {}
+    if marketplace == "ebay":
+        from vendoo_studio.models.ebay_fields import normalize_ebay_sizes
+
+        sized = {**listing, "ebay_specifics": specifics}
+        normalize_ebay_sizes(sized)
+        specifics = sized["ebay_specifics"]
     known = section["marketplaceSpecifics"]
 
     for key in ("weight", "dimensions"):
