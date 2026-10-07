@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.187 — 2026-10-07
+
+- Send to Vendoo and Update Vendoo start from one click, without a preview dialog or automatically opening the browser pane. Follow progress in the editor and open Browse draft whenever you want to view it.
+
 ## 0.1.186 — 2026-10-07
 
 - Let generation learn from your deliberate listing edits and preserve the Vendoo listing when a sale is first observed.

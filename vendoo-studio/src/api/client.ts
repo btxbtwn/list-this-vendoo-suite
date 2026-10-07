@@ -419,12 +419,15 @@ export const api = {
   },
 
   jobs: {
-    sendPreview: (conversationId: string) => request<SendPreview>("/jobs/send-preview", {
-      method: "POST", body: JSON.stringify({ conversation_id: conversationId }),
-    }),
-    send: (conversationId: string, reviewId: string) => request<Job>("/jobs/send", {
-      method: "POST", body: JSON.stringify({ conversation_id: conversationId, review_id: reviewId }),
-    }),
+    send: async (conversationId: string) => {
+      // The button click approves the send. Freeze its preparation before queueing.
+      const prepared = await request<SendPreview>("/jobs/send-preview", {
+        method: "POST", body: JSON.stringify({ conversation_id: conversationId }),
+      });
+      return request<Job>("/jobs/send", {
+        method: "POST", body: JSON.stringify({ conversation_id: conversationId, review_id: prepared.review_id }),
+      });
+    },
     queue: () => request<{
       work: { conversation_id: string; title: string; detail: string }[];
       jobs: Job[];

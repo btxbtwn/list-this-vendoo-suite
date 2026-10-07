@@ -104,7 +104,6 @@ export function FillLogPanel({
   listing?: Record<string, unknown>;
   onAskChat?: (text: string) => void;
   onFilled?: () => void;
-  onJobStarted?: () => void;
 }) {
   const queryClient = useQueryClient();
   const report = useFillLog(jobId, jobStatus);

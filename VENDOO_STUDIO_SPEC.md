@@ -14,12 +14,11 @@ Create a purpose-built local web application that lets the user:
 8. Send the approved listing to Vendoo as one call to Vendoo's own item API — photos to the inventory service, then `createItem` with every marketplace section already resolved. No marketplace form is opened or filled.
 9. Watch progress in the web app, and pull back anything edited in Vendoo.
 
-Send and Update first open a read-only change preview. Approval binds the
-prepared fields, category schemas, listing revision, item details and photo
-order to the queued job; later edits do not rewrite that approval. A preview
-expires after 15 minutes or a Studio restart. An update also checks the Vendoo
-draft version before writing and asks for another review if it changed.
-Updates retain Vendoo's existing photos; the preview says this explicitly.
+Clicking **Send to Vendoo** or **Update Vendoo** approves the action directly,
+without a change-preview dialog. Studio prepares the fields, category schemas,
+listing revision, item details and photo order before queueing; later edits do
+not rewrite that approval. An update checks the Vendoo draft version before
+writing and stops if it changed. Updates retain Vendoo's existing photos.
 Progress reports the active stage, elapsed time and confirmed photo-upload
 counts, without estimated percentages. Validation issues link to their fields.
 History compares revisions and restores listing fields into a new revision;
@@ -199,7 +198,7 @@ Mobile and narrow screens use Photos, Chat, Listing, and Automation tabs.
 - Sidebar, workspace, and inspector share the same 8px inset and aligned top/bottom frame.
 - Column footers stay independent: sidebar keeps Settings and updates; inspector keeps Send to Vendoo; only the chat column gets a T3-style composer.
 - Chat chrome follows T3 Code: user right, assistant left, no bubble cards. Assistant and user text render as T3-style markdown (GFM tables, headings, lists, inline code). The composer is always visible as a rounded `#111111` pill on `#0a0a0a` with a circular `#346bf1` send control. Empty state keeps Generate Listing when photos exist.
-- Browser preview is a bottom pane in the center column while a listing job is `queued`, `awaiting_extension`, or `dispatched`, or while the seller has opened **Browse draft** on a saved draft. Collapse it otherwise. Do not keep a permanent ~42% split.
+- Browser preview is a bottom pane in the center column only when the seller opens **Browse draft**. **Send to Vendoo** and **Update Vendoo** run in the background with progress in the editor; they do not open the preview or switch the mobile pane. Collapse the preview when the seller closes it. Do not keep a permanent ~42% split.
 - Browse draft makes the preview interactive, following T3 Code's in-app browser. **Use** forwards pointer, wheel, keyboard, and paste to the Vendoo tab. **Pick**, **Box**, and **Pen** point Studio at fields, and **Missed fields** outlines empty listing fields. Picked fields show as chips in the chat composer. While the draft is open, chat messages go to the fix agent with those fields: it reads the live form, takes one action at a time (Studio's filler first, then clicks and typing), re-reads the form to verify, saves, and replies with the changed values and its steps. It changes only what the seller asked for, skips account settings, pauses when the seller presses, scrolls, or types in the pane, and stops after 24 steps. Input waits while Studio is filling.
 - T3 Code blue marks primary actions, selection, and focus; marketplace colors remain sparing.
 - System UI sans handles navigation, controls, and content while the T3 Code mono stack handles measurements, JSON, and technical status.
