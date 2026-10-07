@@ -466,8 +466,10 @@ class ListingRepo:
 
         title = (listing_json.get("title") or "").strip()
         if title:
+            from vendoo_studio.services.vendoo_import import parse_notes
+
             conv = self.db.query(Conversation).filter(Conversation.id == conv_id).first()
-            if conv:
+            if conv and not parse_notes(conv.notes).get("titlePinned"):
                 conv.title = title
 
         self.db.commit()

@@ -70,6 +70,11 @@ describe("matchesSearch", () => {
     expect(matchesSearch(tee, "martens")).toBe(false);
   });
 
+  it("matches the labels a listing wears", () => {
+    expect(matchesSearch(tee, "a19")).toBe(true);
+    expect(matchesSearch(boots, "a19")).toBe(false);
+  });
+
   it("keeps everything for an empty query", () => {
     expect(matchesSearch(draft, "")).toBe(true);
   });

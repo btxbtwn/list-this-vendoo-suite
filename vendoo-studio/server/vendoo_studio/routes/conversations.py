@@ -263,11 +263,13 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
     if not conv:
         raise HTTPException(404, "Conversation not found")
     changed = False
+    renamed = False
     if body.title is not None:
         title = body.title.strip()
         if not title:
             raise HTTPException(400, "Title cannot be empty")
-        if title != (conv.title or ""):
+        renamed = title != (conv.title or "")
+        if renamed:
             conv.title = title
             conv.updated_at = utcnow()
             changed = True
@@ -279,6 +281,12 @@ def update_conversation(conv_id: str, body: ConversationUpdate, db: Session = De
         else:
             conv.notes = body.notes
         changed = True
+    if renamed:
+        from vendoo_studio.services.vendoo_import import merge_notes
+
+        # A listing the seller renamed keeps that name when the listing saves
+        # or regenerates, instead of following the listing's title.
+        conv.notes = merge_notes(conv.notes, {"titlePinned": True})
     if "box_id" in body.model_fields_set and body.box_id != conv.box_id:
         try:
             boxes.assign_box(db, conv, body.box_id)
@@ -472,7 +480,9 @@ async def reset_conversation(
     conv = repo.get(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
-    conv.title = "New Listing"
+    # A name the seller gave the listing outlives Regenerate; Clear drops it.
+    if not (keep_inputs and parse_notes(notes).get("titlePinned")):
+        conv.title = "New Listing"
     if keep_inputs:
         conv.notes = notes
     else:

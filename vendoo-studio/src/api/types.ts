@@ -266,6 +266,9 @@ export interface ChatGPTStatus {
 
 export type ListingProviderId = "chatgpt" | "mimo" | "cursor";
 
+/** What the sidebar names each listing by. */
+export type ListingNames = "title" | "sku";
+
 export interface ProviderStatus {
   provider: string;
   primary: ListingProviderId;
