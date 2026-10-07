@@ -145,6 +145,7 @@ function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
         {data && snapshot ? (
           <>
             <StoreProblems snapshot={snapshot} />
+            <SeasonalContext snapshot={snapshot} />
             <ResearchCoverage snapshot={snapshot} />
             <Choices snapshot={snapshot} choice={choice} onChoose={setChoice} />
             {updating ? <p className="sourcing-hint" role="status">Updating your options. Cart links will be ready when the check finishes.</p> : null}
@@ -257,6 +258,18 @@ function Settings({
         />
         I'm a Raghouse VIP
       </label>
+      <div className="sourcing-settings sourcing-window-settings" aria-label="Selling window settings">
+        <span className="sourcing-setting">Ready to sell in
+          <DraftInput value={String(prefs.ready_in_weeks)} label="Weeks for shipping, preparation and listing" suffix="weeks" width="6rem" inputMode="numeric" disabled={saving}
+            clean={(text) => text.replace(/\D/g, "")} accept={(text) => text !== "" && Number(text) <= 26}
+            onCommit={(text) => onSave({ ready_in_weeks: Number(text) })} />
+        </span>
+        <span className="sourcing-setting">Then selling for
+          <DraftInput value={String(prefs.selling_window_weeks)} label="Length of the target selling window in weeks" suffix="weeks" width="6rem" inputMode="numeric" disabled={saving}
+            clean={(text) => text.replace(/\D/g, "")} accept={(text) => Number(text) >= 1 && Number(text) <= 26}
+            onCommit={(text) => onSave({ selling_window_weeks: Number(text) })} />
+        </span>
+      </div>
       <details className="sourcing-assumptions">
         <summary>Your planning assumptions: {Math.round(prefs.sell_through * 100)}% sell, {Math.round(prefs.fees * 100)}% fees, {formatMoney(prefs.cost_per_piece)} costs per usable piece</summary>
         <div className="sourcing-settings">
@@ -284,6 +297,22 @@ function Settings({
       </details>
     </div>
   );
+}
+
+function SeasonalContext({ snapshot }: { snapshot: SourcingSnapshot }) {
+  const { window, seller_history: history } = snapshot.seasonality;
+  const date = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  return <section className="sourcing-coverage" aria-label="Seasonal sourcing context">
+    <strong>Buying now for {date(window.start_date)} – {date(window.end_date)}</strong>
+    <p className="sourcing-hint">Research targets this selling window. Matching themes get priority among qualifying boxes; seasonality does not raise estimated prices or sales.</p>
+    {history.groups.length ? <details>
+      <summary>Your sales in the same calendar windows: {history.groups.length} category {history.groups.length === 1 ? "group" : "groups"}</summary>
+      <p className="sourcing-hint">Looking back up to three years. These are recorded sales, not a measure of demand or your chance of selling a box. Prices below are historical; box estimates use recent sold evidence.</p>
+      {history.groups.map((group) => <p className="sourcing-hint" key={`${group.category_path}:${group.item_type}`}>
+        {group.category_path}{group.item_type ? ` · ${group.item_type}` : ""}: {group.count} sales · historical median {formatMoney(group.historical_median_price)}
+      </p>)}
+    </details> : <p className="sourcing-hint">{history.matching_window_sales} recorded sales in the same calendar windows over the previous three years. No category/type group has the {history.minimum_group_sales} sales needed for personal context yet. Studio can still research seasonal themes.</p>}
+  </section>;
 }
 
 function Choices({ snapshot, choice, onChoose }: {
@@ -341,7 +370,7 @@ function BuyList({
         <p>Studio couldn’t check this store. Try updating again, or compare the other buy lists.</p>
       </div>;
     }
-    // Prices found earlier stay good for two weeks, so a list can stand without a model connected.
+    // Prices found earlier stay good for one week, so a list can stand without a model connected.
     if (!data.research_available) {
       return (
         <div className="sourcing-empty">
@@ -449,7 +478,7 @@ function Item({ lot, storeName }: { lot: SourcingLot; storeName: string }) {
         </a>
         <div className="sourcing-item-reason">
           {lotReason(lot)}
-          {lot.trend_hits.length ? <span className="sourcing-trend"> · trending: {lot.trend_hits.join(", ")}</span> : null}
+          {lot.trend_hits.length ? <span className="sourcing-trend"> · selling-window match: {lot.trend_hits.join(", ")}</span> : null}
         </div>
         <div className="sourcing-item-reason">About {formatMoney(lot.cog_per_usable_pc)} per usable piece, including shipping</div>
         {lot.break_even_pcs != null ? <div className="sourcing-item-reason">
@@ -541,9 +570,9 @@ function ResearchCoverage({ snapshot }: { snapshot: SourcingSnapshot }) {
 function Trending({ trend }: { trend: SourcingState["trend"] }) {
   if (trend.terms.length === 0) return null;
   return (
-    <section className="sourcing-section" aria-label="Selling right now">
+    <section className="sourcing-section" aria-label="Selling-window research">
       <h2 className="sourcing-section-title">Themes to research</h2>
-      <p className="sourcing-hint">Trend reports guide what Studio researches first. A trend match cannot qualify a box or increase its projected sales. {trend.updated_at ? `Researched ${clockTime(trend.updated_at)}.` : ""}</p>
+      <p className="sourcing-hint">Seasonal reports and your selling window guide research and prioritize qualifying boxes. A theme match cannot qualify a box or increase its projected sales. {trend.updated_at ? `Researched ${clockTime(trend.updated_at)}.` : ""}</p>
       <div className="sourcing-chips">
         {trend.terms.map((term) => (
           <span key={term} className="sourcing-chip">
@@ -585,7 +614,7 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
           {" "}{formatMoney(a.cost_per_piece)} operating allowance per usable piece, and purchase cost with shipping. Usable-piece shares are planning estimates based on grade, not inspected counts.
         </li>
         <li>Each recommended box must meet your ROI target and avoid a loss when half your planned pieces sell at the lower of its lowest retained sold price and resale estimate. Damaged/rework grades are excluded unless you enable them.</li>
-        <li>It picks by incremental return, one box per theme, and checks the whole cart’s shipping. It also tests pairs that unlock free shipping. This is a greedy selection; it doesn’t guarantee the best possible combination.</li>
+        <li>It prefers researched selling-window matches among qualifying boxes, then incremental return, one box per theme, and checks the whole cart’s shipping. It also tests pairs that unlock free shipping. This is a greedy selection; it doesn’t guarantee the best possible combination.</li>
         <li>
           Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip}, scaled to a checkout you
           already paid. Thrift Vintage Fashion is a UPS Ground estimate, still at list price.

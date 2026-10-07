@@ -89,7 +89,7 @@ describe("money", () => {
 function state(): SourcingState {
   const prefs = {
     budget: 300, min_roi: 1, raghouse_vip: false, zip: "70115", recent_zips: ["70115"],
-    sell_through: 0.5, fees: 0.2, cost_per_piece: 2, include_rework: false,
+    sell_through: 0.5, fees: 0.2, cost_per_piece: 2, include_rework: false, ready_in_weeks: 4, selling_window_weeks: 4,
   };
   const plan = { budget: 300, total: 132, expected_profit: 388, carts: [cart({ lots: [lot()] })], exclusions: {} };
   return {
@@ -99,7 +99,11 @@ function state(): SourcingState {
       updated_at: "2026-10-05T12:00:00Z", destination_zip: "70115",
       preferences: {
         budget: 300, min_roi: 1, raghouse_vip: false, zip: "70115", sell_through: 0.5,
-        fees: 0.2, cost_per_piece: 2, include_rework: false,
+        fees: 0.2, cost_per_piece: 2, include_rework: false, ready_in_weeks: 4, selling_window_weeks: 4,
+      },
+      seasonality: {
+        window: { buy_on: "2026-10-07", start_date: "2026-11-04", end_date: "2026-12-01", ready_in_weeks: 4, selling_window_weeks: 4, market: "US online resale", timezone: "UTC" },
+        seller_history: { periods: [], dated_recorded_sales: 0, matching_window_sales: 0, excluded_incomplete_or_invalid: 0, minimum_group_sales: 5, coverage: "recorded sales", groups: [] },
       },
       calibration: {}, stores: {}, research: true, priced_themes: 1,
       shipping: { residential_surcharge: 6, fuel_surcharge_pct: 0.2, fuel_surcharge_as_of: "2026-10-01" },
@@ -116,7 +120,7 @@ describe("planning settings", () => {
     expect(planNeedsUpdate({ ...original, snapshot: null })).toBe(true);
     for (const [key, value] of Object.entries({
       budget: 200, min_roi: 1.5, raghouse_vip: true, zip: "10001", sell_through: 0.75,
-      fees: 0.25, cost_per_piece: 5, include_rework: true,
+      fees: 0.25, cost_per_piece: 5, include_rework: true, ready_in_weeks: 8, selling_window_weeks: 6,
     })) {
       expect(planNeedsUpdate({ ...original, prefs: { ...original.prefs, [key]: value } }), key).toBe(true);
     }

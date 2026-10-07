@@ -59,6 +59,11 @@
   font-size: var(--text-sm);
 }
 
+.sourcing-window-settings {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+
 .sourcing-setting {
   display: inline-flex;
   align-items: center;
@@ -704,4 +709,19 @@
   .sourcing-metrics { grid-template-columns: 1fr; gap: 12px; }
   .sourcing-item { flex-wrap: wrap; }
   .sourcing-item-money { align-items: flex-start; text-align: left; }
+}
+
+.sourcing-coverage {
+  padding: 14px 18px;
+  border-left: 2px solid var(--color-border);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.sourcing-coverage strong {
+  font-weight: var(--weight-medium);
+}
+
+.sourcing-coverage summary {
+  cursor: pointer;
 }

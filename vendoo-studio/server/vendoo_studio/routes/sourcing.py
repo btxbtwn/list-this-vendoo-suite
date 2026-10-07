@@ -113,6 +113,47 @@ class SourcingCalibration(BaseModel):
     needed: int
 
 
+class SourcingWindow(BaseModel):
+    buy_on: str
+    start_date: str
+    end_date: str
+    ready_in_weeks: int
+    selling_window_weeks: int
+    market: str
+    timezone: str
+
+
+class SourcingHistoricalExample(BaseModel):
+    title: str
+    sold_at: str
+    sold_price: float
+    listing_source: str
+
+
+class SourcingHistoricalGroup(BaseModel):
+    category_path: str
+    item_type: str | None
+    count: int
+    historical_median_price: float
+    period_counts: dict[str, int]
+    examples: list[SourcingHistoricalExample]
+
+
+class SourcingHistory(BaseModel):
+    periods: list[dict[str, str]]
+    dated_recorded_sales: int
+    matching_window_sales: int
+    excluded_incomplete_or_invalid: int
+    minimum_group_sales: int
+    groups: list[SourcingHistoricalGroup]
+    coverage: str
+
+
+class SourcingSeasonality(BaseModel):
+    window: SourcingWindow
+    seller_history: SourcingHistory
+
+
 class SourcingSnapshot(BaseModel):
     updated_at: str
     destination_zip: str
@@ -126,6 +167,7 @@ class SourcingSnapshot(BaseModel):
     store_buy_lists: dict[str, SourcingBuyList]
     lots: list[SourcingLot]
     calibration: dict[str, SourcingCalibration] = {}
+    seasonality: SourcingSeasonality
 
 
 class SourcingPrefs(BaseModel):
@@ -138,6 +180,8 @@ class SourcingPrefs(BaseModel):
     fees: float
     cost_per_piece: float
     include_rework: bool
+    ready_in_weeks: int
+    selling_window_weeks: int
 
 
 class SourcingTrend(BaseModel):
@@ -160,6 +204,8 @@ class SourcingPrefsUpdate(BaseModel):
     sell_through: float | None = Field(None, gt=0, le=1, allow_inf_nan=False)
     fees: float | None = Field(None, ge=0, lt=1, allow_inf_nan=False)
     cost_per_piece: float | None = Field(None, ge=0, allow_inf_nan=False)
+    ready_in_weeks: int | None = Field(None, ge=0, le=26, strict=True)
+    selling_window_weeks: int | None = Field(None, ge=1, le=26, strict=True)
     include_rework: bool | None = None
     raghouse_vip: bool | None = None
     zip: str | None = Field(None, pattern=r"^\d{5}$")
@@ -195,6 +241,6 @@ def update_sourcing_prefs(update: SourcingPrefsUpdate):
         box_scout.set_prefs(**update.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    # Only prices change, so reuse the last crawl rather than asking the stores again.
+    # Rebuild for the saved costs and selling window using the last store crawl.
     box_scout.refresh_in_background(recrawl=False)
     return _response()

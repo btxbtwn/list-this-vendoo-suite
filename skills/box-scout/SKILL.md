@@ -27,6 +27,8 @@ Both stores are Shopify shops, so their public `/products.json` feeds list every
 | sell_through | number | No | Seller’s planned share of usable pieces that sell, 0–1. Default 0.5. This is not a measured probability. |
 | fees | number | No | Effective marketplace and payment fee allowance, 0–1. Default 0.2; replace with actual effective costs. |
 | cost_per_piece | number | No | Operating allowance for each usable piece, including prep, labor, packaging, seller-paid postage, fixed fees and returns. Default $2 is a planning input, not a market fact. |
+| ready_in_weeks | integer | No | Weeks for inbound shipping, prep and listing before selling starts, 0–26. Studio default 4. |
+| selling_window_weeks | integer | No | Length of the target selling period, 1–26 weeks. Studio default 4 (selling 4–8 weeks after buying). |
 | include_rework | boolean | No | Allow damaged/rework grades. Default false. |
 | vip | boolean | No | The seller has Raghouse VIP ($64/month). Boxes tagged `VIP_Product`, most of each new Raghouse drop, are members-only; they are left out unless `--vip`. |
 
@@ -36,8 +38,12 @@ Both stores are Shopify shops, so their public `/products.json` feeds list every
 
 ## Workflow
 
-### 1. Research what is selling now
-Search for what secondhand and vintage clothing sells fastest on eBay, Poshmark, Depop and Mercari this month. Turn it into 10–20 short lowercase terms spelled the way lot titles spell them: brands (`carhartt`, `harley`), eras (`y2k`, `90s`, `vintage`), themes (`cartoon`, `sports`, `western`) and garments (`fleece`, `flannel`).
+### 1. Research for the selling window
+Set an explicit dated selling window based on shipping, preparation and listing time. Studio defaults to starting four weeks after buying, lasting four weeks; the seller can adjust both. Research seasonal categories and upcoming holidays for that window using current marketplace sources. The inbound shipping ZIP is not the location of nationwide buyers.
+
+When seller sales history is available, compare recorded, dated actual single-item sales from the same calendar windows in the previous three years. Prefer listing facets frozen at first observation of a sale; label current facets as unverified at sale. Require five sales in a category/type group before supplying it as context. Do not substitute asking prices for missing sold amounts, compare raw counts as a demand lift, infer inventory exposure or conversion, or claim the sample represents all seller sales. Historical median prices are context only and cannot replace recent comps.
+
+Search for what secondhand and vintage clothing is relevant on eBay, Poshmark, Depop and Mercari during that window. Turn it into 10–20 short lowercase terms spelled the way lot titles spell them: brands (`carhartt`, `harley`), eras (`y2k`, `90s`, `vintage`), themes (`cartoon`, `sports`, `western`) and garments (`fleece`, `flannel`).
 
 ### 2. List the themes to price
 ```bash
@@ -63,12 +69,12 @@ For every in-stock lot the script computes:
 - **Ship est**: the store's carrier list rate for the lot's weight and zone, plus that carrier's residential surcharge and fuel surcharge, times the store's `ship_factor`. Raghouse is FedEx Ground (zone 6 from Phoenix to 70115). TVF is UPS Ground (zone 5 from Hialeah to 70115). Weights round up to the next pound. TVF lots with no weight are estimated from their piece count. Raghouse's factor is order #83897: FedEx charged $33.95 on a 29 lb box whose list estimate was $65.96. TVF is still list price.
 - **Usable pieces**: pieces × the share a grade yields (90% plain, 75% Recycle & Good, 60% Recycle or B grade, down to 50% for C grade). Bales sold by the pound get a piece count from typical garment weights (3 tees, 1 sweatshirt or 0.6 jackets per pound), marked `~`.
 - **Demand**: how often lots with the same title words sold out, relative to that store's average. Raghouse counts the last 60 days; TVF restocks the same products, so all of its lots count.
-- **Expected profit** = resale per piece × usable pieces × planned sell-through × (1 − effective fees) − operating allowance × usable pieces − landed cost. The seller’s own underperforming box sales can reduce a supplier’s forecasts; stronger past sales never raise them above current researched prices. Wholesale sell-out and trend matches only help prioritize research; they never increase planned resale sales.
+- **Expected profit** = resale per piece × usable pieces × planned sell-through × (1 − effective fees) − operating allowance × usable pieces − landed cost. The seller’s own underperforming box sales can reduce a supplier’s forecasts; stronger past sales never raise them above current researched prices. Wholesale sell-out helps prioritize research; selling-window matches prioritize research and qualifying picks; they never increase planned resale sales.
 - **Break-even pieces** = round up ((landed cost + operating allowance × usable pieces) ÷ (resale per piece × (1 − effective fees))).
 - **Lower-sales test** = profit if half the planned pieces sell at the lower of the lowest retained sold price and the resale estimate, with the full operating allowance still deducted. A recommended box must not lose money in this scenario. It is a sensitivity test, not a guaranteed floor or probability. Outside Studio, a price-only input uses its researched price for this scenario; it does not carry the sold-price range.
 - **ROI** = expected profit ÷ landed cost.
 
-The buy list takes the best incremental return first, one lot per theme, at least 100% ROI (`--min-roi`) and a nonnegative lower-sales test, until the budget runs out. Mixed/Recycle and TVF B, B/C and C grades need repairs or rework and are excluded unless `--include-rework`. The default usable shares remain planning assumptions, not inspected counts. Shipping discounts are applied before checking the budget and return target. When the picks from TVF reach $200 their shipping drops to zero. The script also evaluates two-box combinations that cross that threshold even when neither qualifies alone. This greedy selection does not guarantee the mathematically best combination. Studio also computes Raghouse-only and Thrift Vintage Fashion-only alternatives with the same full budget; choose one plan rather than adding the alternatives together. Each store's cart link (`/cart/<variant>:1,...`) opens that store's cart with the picks in it.
+The buy list prefers researched selling-window matches among qualifying boxes, then takes the best incremental return, one lot per theme, at least 100% ROI (`--min-roi`) and a nonnegative lower-sales test, until the budget runs out. Mixed/Recycle and TVF B, B/C and C grades need repairs or rework and are excluded unless `--include-rework`. The default usable shares remain planning assumptions, not inspected counts. Shipping discounts are applied before checking the budget and return target. When the picks from TVF reach $200 their shipping drops to zero. The script also evaluates two-box combinations that cross that threshold even when neither qualifies alone. This greedy selection does not guarantee the mathematically best combination. Studio also computes Raghouse-only and Thrift Vintage Fashion-only alternatives with the same full budget; choose one plan rather than adding the alternatives together. Each store's cart link (`/cart/<variant>:1,...`) opens that store's cart with the picks in it.
 
 ### 5. Report
 Give the buy list: per store, the lots with pieces, landed cost, resale per piece, expected profit, operating allowance, break-even sales, lower-sales test and ROI, the store subtotal and shipping, and the cart link. Then the next five candidates. Raghouse shipping is FedEx, scaled to a real checkout. TVF shipping is still a UPS list-price ceiling. The profit rests on the resale prices you found.
@@ -93,8 +99,9 @@ Give the buy list: per store, the lots with pieces, landed cost, resale per piec
 | Lot missing | Sold out, no piece count, under 10 pieces, or over 150 lb | Mention it if the seller asked about it by name. |
 | Estimates far from real quotes | Discounted carrier rates or a stale fuel surcharge | Calibrate `ship_factor` and update the fuel surcharge. |
 
-## Research basis (reviewed 2026-10-05)
+## Research basis (reviewed 2026-10-07)
 
+- [eBay research tools](https://www.ebay.com/sellercenter/growth/ebay-research-tools): research sales trends across time windows to plan inventory ahead of seasonal demand. Studio uses dated planning context, without inventing a seasonal price increase.
 - [eBay Product Research](https://www.ebay.com/help/selling/selling-tools/research?id=4853): compare sold prices, condition, attributes, shipping and time windows; complete research data can include accepted-offer prices. Public snippets often cannot expose that actual price, so exclude hidden offers.
 - [eBay clothing selling guidance](https://www.ebay.com/sellercenter/selling/what-to-sell/selling-clothes): accurate condition, item specifics, measurements, photos and competitive pricing affect outcomes. A trend alone cannot establish that an unidentified mixed garment will sell.
 - [eBay selling fees](https://www.ebay.com/help/selling/fees-credits-invoices/selling-fees?id=4822) and [Depop shop guidance](https://www.depop.com/blog/grow-your-shop/): costs and competition differ by marketplace. Use an effective allowance and actual operating costs rather than asserting one universal fee rate.
