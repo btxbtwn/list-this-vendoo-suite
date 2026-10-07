@@ -142,7 +142,7 @@ describe("planning settings", () => {
     const snapshot = state().snapshot!;
     snapshot.lots.push(lot({ store: "tvf", variant_id: 2 }));
     expect(otherLots(snapshot).map((row) => row.store)).toEqual(["tvf"]);
-    expect(otherLots(snapshot, 0)).toEqual([]);
+
   });
 });
 
@@ -172,7 +172,13 @@ describe("box wording", () => {
 });
 
 describe("otherLots", () => {
-  it("shows the best box of each kind the buy list did not take", () => {
+  it("shows all 80 checked boxes when none are recommended, including repeated themes", () => {
+    const snapshot = state().snapshot!;
+    snapshot.buy_list.carts = [];
+    snapshot.lots = Array.from({ length: 80 }, (_, index) => lot({ variant_id: index + 1 }));
+    expect(otherLots(snapshot)).toHaveLength(80);
+  });
+  it("keeps alternative variants of the same theme visible and excludes only selected boxes", () => {
     const picked = lot({ variant_id: 1, theme: "cartoon t-shirts" });
     const snapshot = {
       buy_list: { budget: 300, total: 132, expected_profit: 388, carts: [cart({ lots: [picked] })] },
@@ -184,8 +190,7 @@ describe("otherLots", () => {
         lot({ variant_id: 5, theme: "y2k vibes" }),
       ],
     } as SourcingSnapshot;
-    expect(otherLots(snapshot).map((item) => item.variant_id)).toEqual([3, 5]);
-    expect(otherLots(snapshot, 1)).toHaveLength(1);
+    expect(otherLots(snapshot).map((item) => item.variant_id)).toEqual([2, 3, 4, 5]);
   });
 });
 

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.189 — 2026-10-07
+
+- See all boxes Studio checked immediately, including when none are recommended. Supplier choices show how many boxes were found, and an empty recommendation explains when recent sold evidence is missing.
+
 ## 0.1.188 — 2026-10-07
 
 - Plan wholesale purchases for when you expect to sell: adjust shipping and prep time, research upcoming seasonal themes, and use your recorded sales from the same calendar windows as context. Qualifying boxes that match the selling window get priority, with the same budget, recent-sales and return checks.

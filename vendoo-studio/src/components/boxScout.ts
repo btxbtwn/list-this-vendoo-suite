@@ -51,19 +51,10 @@ export function storeName(store: string): string {
   return store === "tvf" ? "Thrift Vintage Fashion" : "Raghouse";
 }
 
-/** The best ranked box of each kind the buy list did not already take. */
-export function otherLots(snapshot: SourcingSnapshot, limit = 20): SourcingLot[] {
-  if (limit <= 0) return [];
-  const seen = new Set(snapshot.buy_list.carts.flatMap((cart) => cart.lots.map((lot) => `${lot.store}:${lot.theme}`)));
-  const lots: SourcingLot[] = [];
-  for (const lot of snapshot.lots) {
-    const key = `${lot.store}:${lot.theme}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    lots.push(lot);
-    if (lots.length === limit) break;
-  }
-  return lots;
+/** All available variants outside the selected buy list, in their ranked order. */
+export function otherLots(snapshot: SourcingSnapshot): SourcingLot[] {
+  const picked = new Set(snapshot.buy_list.carts.flatMap((cart) => cart.lots.map((lot) => `${lot.store}:${lot.variant_id}`)));
+  return snapshot.lots.filter((lot) => !picked.has(`${lot.store}:${lot.variant_id}`));
 }
 
 export function clockTime(iso: string, now = new Date()): string {
