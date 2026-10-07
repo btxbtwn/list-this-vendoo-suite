@@ -368,18 +368,27 @@ export function ListingEditor({
         <div
           className="pr-notice is-relist"
           role="status"
-          // The sentence says how many; the tooltip says which.
           title={`Waiting on a relist: ${relistMarketplaces.join(", ")}`}
         >
           <div className="pr-notice-body">
-            <strong>
-              {stage === "list" ? "List it again to finish." : "Relist in Vendoo to publish this edit."}
-            </strong>{" "}
-            {relistCallout(relistMarketplaces, stage)}{" "}
-            {stage === "list"
-              ? "In Vendoo, list the item again and this clears itself."
-              : "In Vendoo, the ⋮ menu beside Vendoo Form has Delist Item — it takes the item off"
-                + " every marketplace at once. List it again after that."}
+            <h3 className="pr-relist-title">
+              {stage === "list" ? "Finish relisting in Vendoo" : "Relist to show your updates"}
+            </h3>
+            <p className="pr-relist-summary">{relistCallout(relistMarketplaces, stage)}</p>
+            <ol className="pr-relist-steps">
+              <li>Open this listing in Vendoo.</li>
+              {stage !== "list" && (
+                <li>
+                  Open the <strong>⋮ menu</strong> beside <strong>Vendoo Form</strong> and choose{" "}
+                  <strong>Delist Item</strong>. This removes the item from every marketplace at once.
+                </li>
+              )}
+              <li>List the item again on: <strong>{relistMarketplaces.join(", ")}</strong>.</li>
+            </ol>
+            <p className="pr-relist-hint">
+              Already relisted? Choose <strong>I've relisted</strong> to clear this reminder.
+              {" "}This button only clears the reminder.
+            </p>
           </div>
           <div className="pr-notice-actions">
             {listingJob ? (
@@ -394,10 +403,10 @@ export function ListingEditor({
               type="button"
               className="btn btn-ghost btn-sm pr-notice-action"
               disabled={relistDone.isPending}
-              title="Stop reminding me — the listing is handled"
+              title="Clear this reminder after you have relisted in Vendoo"
               onClick={() => relistDone.mutate()}
             >
-              Done
+              {relistDone.isPending ? "Clearing…" : "I've relisted"}
             </button>
           </div>
         </div>
