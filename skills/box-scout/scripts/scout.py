@@ -485,7 +485,7 @@ def buy_list(
     sell_through: float = BASE_SELL_THROUGH, fees: float = MARKETPLACE_FEES,
     cost_per_piece: float = OPERATING_COST_PER_PIECE, include_rework: bool = False,
 ) -> dict:
-    """Pick by incremental return, one per theme, within `budget`.
+    """Prefer researched selling-window matches, then incremental return, within `budget`.
 
     Evaluate shipping on the complete proposed cart. Also consider two-lot
     bundles that unlock free shipping even when neither lot qualifies alone.
@@ -534,7 +534,9 @@ def buy_list(
             profit = sum(p["expected_profit"] for p in candidate)
             extra_cost = total - current_total
             extra_profit = profit - current_profit
-            rank = (extra_profit / extra_cost if extra_cost > 0 else float("inf"), extra_profit, -total)
+            # Window matches affect selection only after all financial gates pass.
+            rank = (any(p["trend_hits"] for p in additions),
+                    extra_profit / extra_cost if extra_cost > 0 else float("inf"), extra_profit, -total)
             if best_rank is None or rank > best_rank:
                 best, best_rank = candidate, rank
         if best is None:

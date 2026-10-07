@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.188 — 2026-10-07
+
+- Plan wholesale purchases for when you expect to sell: adjust shipping and prep time, research upcoming seasonal themes, and use your recorded sales from the same calendar windows as context. Qualifying boxes that match the selling window get priority, with the same budget, recent-sales and return checks.
+
 ## 0.1.187 — 2026-10-07
 
 - Send to Vendoo and Update Vendoo start from one click, without a preview dialog or automatically opening the browser pane. Follow progress in the editor and open Browse draft whenever you want to view it.

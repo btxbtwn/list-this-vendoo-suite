@@ -13,6 +13,7 @@ picks already in it; the seller reviews and pays there.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.util
 import json
 import logging
@@ -29,6 +30,7 @@ from types import ModuleType
 from urllib.parse import urlparse
 
 from vendoo_studio.config import skills_dir, user_data_root
+from vendoo_studio.services.sourcing_seasonality import planning_context, research_context
 from vendoo_studio.services.sold_comps import (
     MIN_CONFIDENT_COMPS,
     extract_live_price,
@@ -53,12 +55,15 @@ DEFAULT_PREFS = {
     "budget": 300.0, "min_roi": 1.0, "raghouse_vip": False, "zip": "70115", "recent_zips": ["70115"],
     "sell_through": 0.5, "fees": 0.2,
     "cost_per_piece": 2.0, "include_rework": False,
+    "ready_in_weeks": 4, "selling_window_weeks": 4,
 }
-PLAN_PREFS = ("budget", "min_roi", "raghouse_vip", "zip", "sell_through", "fees", "cost_per_piece", "include_rework")
+PLAN_PREFS = ("budget", "min_roi", "raghouse_vip", "zip", "sell_through", "fees", "cost_per_piece", "include_rework",
+              "ready_in_weeks", "selling_window_weeks")
 
 TRENDS_PROMPT = (
     "You track what secondhand and vintage clothing sells fastest on eBay, Poshmark, Depop "
-    "and Mercari. Search the live web for this month's resale trend reports, marketplace "
+    "and Mercari. Plan sourcing for the supplied future selling window. Search the live web "
+    "for seasonal resale trends, upcoming holidays, marketplace reports and "
     "trend pages and reseller \"what's selling\" posts from the last 30 days. Return JSON "
     'only: {"terms":["carhartt","y2k"]} with 10 to 20 lowercase terms of one or two words: '
     "brands, eras, themes and garment types, spelled the way wholesale lot titles spell "
@@ -132,7 +137,8 @@ def read_state() -> dict:
     state.setdefault("zone_charts", {})
     state.setdefault("snapshot", None)
     # Sourcing snapshots are disposable caches; rebuild when the plan format changes.
-    if state["snapshot"] and "preferences" not in state["snapshot"]:
+    if state["snapshot"] and ("seasonality" not in state["snapshot"]
+                              or not all(key in state["snapshot"].get("preferences", {}) for key in PLAN_PREFS)):
         state["snapshot"] = None
     return state
 
@@ -175,6 +181,8 @@ def set_prefs(
     fees: float | None = None,
     cost_per_piece: float | None = None,
     include_rework: bool | None = None,
+    ready_in_weeks: int | None = None,
+    selling_window_weeks: int | None = None,
 ) -> dict:
     with _state_lock:
         state = read_state()
@@ -185,6 +193,12 @@ def set_prefs(
                                      (value <= 0 if name in {"budget", "sell_through"} else value < 0) or
                                      (name == "sell_through" and value > 1) or (name == "fees" and value >= 1)):
                 raise ValueError(f"Invalid {name.replace('_', ' ')}.")
+        for name, value, minimum in (("ready_in_weeks", ready_in_weeks, 0),
+                                      ("selling_window_weeks", selling_window_weeks, 1)):
+            if value is not None:
+                if type(value) is not int or not minimum <= value <= 26:
+                    raise ValueError(f"Invalid {name.replace('_', ' ')}.")
+                prefs[name] = value
         if zip is not None:
             if not scout().valid_zip(zip):
                 raise ValueError("A ZIP code is five digits.")
@@ -346,14 +360,14 @@ def clean_prices(raw: list, asked: set[str], *, now: datetime | None = None) -> 
     return prices
 
 
-async def _research_trends() -> tuple[list[str], str | None]:
-    payload, source = await _ask(TRENDS_PROMPT, "What is selling right now?", "terms")
+async def _research_trends(context: dict) -> tuple[list[str], str | None]:
+    payload, source = await _ask(TRENDS_PROMPT, research_context(context), "terms")
     return (clean_terms(payload["terms"]) if payload else []), source
 
 
-async def _research_prices(themes: list[str], examples: dict[str, str]) -> tuple[dict[str, dict], str | None]:
+async def _research_prices(themes: list[str], examples: dict[str, str], context: dict) -> tuple[dict[str, dict], str | None]:
     lines = "\n".join(f"- {t} (example lot: {examples.get(t, t)})" for t in themes)
-    payload, source = await _ask(RESALE_PROMPT, f"Today is {_now().date().isoformat()}.\nCategories:\n{lines}", "prices")
+    payload, source = await _ask(RESALE_PROMPT, f"{research_context(context)}\nCategories:\n{lines}", "prices")
     return (clean_prices(payload["prices"], set(themes)) if payload else {}), source
 
 
@@ -440,11 +454,24 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
     catalogs = {k: v for k, v in _crawl(errors, recrawl=recrawl).items() if k in zones}
     can_research = research and research_available()
 
+    context = planning_context(prefs, now)
+    # Reuse current-price comps across horizons, but never reuse themes for another
+    # selling window. Weekly buckets avoid repeating trend research every crawl.
+    week = (now.date() - timedelta(days=now.weekday())).isoformat()
+    trend_key = hashlib.sha256(json.dumps({
+        "week": week, "ready": prefs["ready_in_weeks"], "duration": prefs["selling_window_weeks"],
+        "groups": [{key: group[key] for key in ("category_path", "item_type", "count", "historical_median_price")}
+                   for group in context["seller_history"]["groups"]],
+    }, sort_keys=True).encode()).hexdigest()
     trend_age = _age(state["trend"].get("updated_at"), now)
-    if can_research and (trend_age is None or trend_age >= TREND_MAX_AGE):
-        terms, source = asyncio.run(_research_trends())
-        if terms:
-            state["trend"] = {"terms": terms, "updated_at": now.isoformat(), "source": source}
+    if (state["trend"].get("context_key") != trend_key or trend_age is None
+            or trend_age < timedelta(0) or trend_age >= TREND_MAX_AGE):
+        state["trend"] = {"terms": [], "updated_at": None, "source": None}
+        if can_research:
+            terms, source = asyncio.run(_research_trends(context))
+            if terms:
+                state["trend"] = {"terms": terms, "updated_at": now.isoformat(), "source": source,
+                                  "context_key": trend_key}
 
     filters = s.Filters(trend=tuple(state["trend"]["terms"]), include_vip=prefs["raghouse_vip"],
                         sell_through=prefs["sell_through"], fees=prefs["fees"], cost_per_piece=prefs["cost_per_piece"])
@@ -463,7 +490,7 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
             examples.setdefault(row["theme"], row["title"])
         for start in range(0, len(missing), RESEARCH_BATCH):
             batch = missing[start : start + RESEARCH_BATCH]
-            prices, source = asyncio.run(_research_prices(batch, examples))
+            prices, source = asyncio.run(_research_prices(batch, examples, context))
             for name, entry in prices.items():
                 state["resale"][name] = {**entry, "updated_at": now.isoformat(), "source": source}
         fresh = _fresh_research(state, now)
@@ -507,6 +534,7 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
         "store_buy_lists": store_plans,
         "lots": rows[:KEEP_LOTS],
         "calibration": calibration,
+        "seasonality": context,
     }
     _write_state(state, preserve_prefs=True)
     return state["snapshot"]

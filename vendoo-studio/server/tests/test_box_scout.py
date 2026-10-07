@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from vendoo_studio.main import app
 from vendoo_studio.services import box_scout
+from vendoo_studio.services.sourcing_seasonality import historical_windows, selling_window
 from vendoo_studio.services.comp_research import ModelSearch
 
 
@@ -129,6 +130,27 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(picked, ["Recycle Cartoon T-Shirts 70 pcs", "Plain Blank Tees 80 pcs"])
         self.assertLessEqual(plan["total"], 150)
         self.assertEqual(plan["carts"][0]["cart_url"], "https://raghouse.com/cart/2:1,4:1")
+
+    def test_window_matches_prioritize_qualifying_boxes_without_changing_profit(self):
+        catalogs = {"raghouse": [_raghouse("Flannel Shirts 60 pcs", "60", 12701, vid=10),
+                                 _raghouse("Cartoon T-Shirts 60 pcs", "60", 12701, vid=11)]}
+        resale = {"flannel shirts": 20, "cartoon t-shirts": 30}
+        ordinary = self.s.score_lots(catalogs, self.cfg, ZONES, self.s.Filters(), resale)[1]
+        seasonal = self.s.score_lots(catalogs, self.cfg, ZONES, self.s.Filters(trend=("flannel",)), resale)[1]
+        self.assertEqual({r["theme"]: r["expected_profit"] for r in ordinary},
+                         {r["theme"]: r["expected_profit"] for r in seasonal})
+        def picked(rows, min_roi=1):
+            plan = self.s.buy_list(rows, self.cfg, budget=100, min_roi=min_roi)
+            return [r["theme"] for c in plan["carts"] for r in c["lots"]]
+        self.assertEqual(picked(ordinary), ["cartoon t-shirts"])
+        self.assertEqual(picked(seasonal), ["flannel shirts"])
+        flannel = next(r for r in seasonal if r["theme"] == "flannel shirts")
+        self.assertEqual(picked(seasonal, flannel["roi"] + 0.1), ["cartoon t-shirts"])
+        flannel["resale_low"] = 1
+        self.assertEqual(picked(seasonal), ["cartoon t-shirts"])
+        flannel["resale_per_pc"] = None
+        flannel["roi"] = None
+        self.assertEqual(picked(seasonal), ["cartoon t-shirts"])
 
     def test_free_shipping_once_a_store_order_clears_its_threshold(self):
         resale = {"men's flannel shirts": 12}
@@ -266,6 +288,15 @@ def _price_evidence(theme: str, per_piece: float, vid: int = 1) -> dict:
     }
 
 
+def _planning_context(prefs, now):
+    window = selling_window(prefs, now.date())
+    return {"window": window, "seller_history": {
+        "periods": historical_windows(window, now.date()), "dated_recorded_sales": 0,
+        "matching_window_sales": 0, "excluded_incomplete_or_invalid": 0,
+        "minimum_group_sales": 5, "groups": [], "coverage": "imported recorded sales; inventory exposure unknown",
+    }}
+
+
 class RefreshTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -276,6 +307,8 @@ class RefreshTest(unittest.TestCase):
         mock.patch.object(s, "store_today", return_value=date(2026, 9, 27)).start()
         self.charts = mock.patch.object(s, "fetch_zone_chart", side_effect=ZONE_CHARTS.__getitem__).start()
         mock.patch.object(box_scout, "state_path", return_value=self.state_file).start()
+        mock.patch.object(box_scout, "planning_context", side_effect=_planning_context).start()
+        mock.patch.object(box_scout, "_calibration", return_value={}).start()
         mock.patch.dict(box_scout._catalogs, clear=True).start()
         self.addCleanup(mock.patch.stopall)
 
@@ -336,6 +369,49 @@ class RefreshTest(unittest.TestCase):
         self.assertTrue(asked)
         self.assertNotIn("cartoon t-shirts", asked)  # priced a moment ago
 
+    def test_selling_window_change_researches_new_themes_but_reuses_recent_prices(self):
+        prices = json.dumps({"prices": [_price_evidence("cartoon t-shirts", 30)]})
+        with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}', prices, "{}"])):
+            box_scout.refresh()
+        box_scout.set_prefs(ready_in_weeks=8, selling_window_weeks=6)
+        self.assertTrue(box_scout.refresh_is_due())
+        trends = mock.AsyncMock(return_value=(["flannel"], "ChatGPT"))
+        prices = mock.AsyncMock(return_value=({}, None))
+        with self._models(_search("ChatGPT", [])), \
+                mock.patch.object(box_scout, "_research_trends", trends), \
+                mock.patch.object(box_scout, "_research_prices", prices):
+            snapshot = box_scout.refresh(recrawl=False)
+        self.assertEqual(self.fetch.call_count, 2)
+        self.assertEqual(snapshot["seasonality"]["window"]["ready_in_weeks"], 8)
+        self.assertEqual(snapshot["seasonality"]["window"]["selling_window_weeks"], 6)
+        trends.assert_called_once()
+        self.assertNotIn("cartoon t-shirts", [theme for call in prices.call_args_list for theme in call.args[0]])
+        self.assertTrue(any(lot["trend_hits"] == ["flannel"] for lot in snapshot["lots"]))
+        self.assertFalse(box_scout.refresh_is_due())
+
+    def test_changed_window_discards_old_themes_without_a_model(self):
+        with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}', "{}", "{}", "{}"])):
+            box_scout.refresh()
+        box_scout.set_prefs(ready_in_weeks=0)
+        snapshot = box_scout.refresh(recrawl=False, research=False)
+        self.assertEqual(box_scout.read_state()["trend"]["terms"], [])
+        self.assertTrue(all(not lot["trend_hits"] for lot in snapshot["lots"]))
+
+    def test_research_prompts_include_dated_window_and_history(self):
+        ask = mock.AsyncMock(return_value=(None, None))
+        context = _planning_context(box_scout.DEFAULT_PREFS, datetime(2026, 10, 7, tzinfo=UTC))
+        context["seller_history"]["groups"] = [{"category_path": "Clothing > Coats", "count": 5}]
+        import asyncio
+        with mock.patch.object(box_scout, "_ask", ask):
+            asyncio.run(box_scout._research_trends(context))
+            asyncio.run(box_scout._research_prices(["coats"], {"coats": "Coats 20 pcs"}, context))
+        for call in ask.call_args_list:
+            self.assertIn("2026-11-04", call.args[1])
+            self.assertIn("2026-12-01", call.args[1])
+            self.assertIn("Clothing > Coats", call.args[1])
+            self.assertIn("not exposure-adjusted demand", call.args[1])
+            self.assertIn("recent sold comps for current prices", call.args[1])
+
     def test_without_models_it_still_ranks_boxes(self):
         with self._models():
             snapshot = box_scout.refresh()
@@ -376,9 +452,10 @@ class RefreshTest(unittest.TestCase):
 
 
     def test_preferences_saved_during_research_survive_and_request_a_rebuild(self):
-        async def research(themes, examples):
+        async def research(themes, examples, context):
             box_scout.set_prefs(budget=200, min_roi=1.5, zip="10001", raghouse_vip=True,
-                                sell_through=0.6, fees=0.25, cost_per_piece=1.5, include_rework=True)
+                                sell_through=0.6, fees=0.25, cost_per_piece=1.5, include_rework=True,
+                                ready_in_weeks=8, selling_window_weeks=6)
             return box_scout.clean_prices([_price_evidence("cartoon t-shirts", 40)], set(themes)), "ChatGPT"
 
         with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}'])), \
@@ -388,6 +465,8 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual(prefs["budget"], 200)
         self.assertEqual(prefs["zip"], "10001")
         self.assertEqual(first["preferences"]["budget"], 300)
+        self.assertEqual(first["seasonality"]["window"]["ready_in_weeks"], 4)
+        self.assertEqual(prefs["ready_in_weeks"], 8)
         self.assertTrue(box_scout.refresh_is_due())
         second = box_scout.refresh(recrawl=False, research=False)
         self.assertEqual(second["preferences"], {k: prefs[k] for k in box_scout.PLAN_PREFS})
@@ -423,6 +502,8 @@ class SourcingRouteTest(unittest.TestCase):
         mock.patch.object(box_scout, "state_path", return_value=Path(tmp.name) / "sourcing.json").start()
         mock.patch.object(box_scout, "research_available", return_value=False).start()
         self.background = mock.patch.object(box_scout, "refresh_in_background").start()
+        mock.patch.object(box_scout, "planning_context", side_effect=_planning_context).start()
+        mock.patch.object(box_scout, "_calibration", return_value={}).start()
         self.addCleanup(mock.patch.stopall)
         self.client = TestClient(app)
 
@@ -444,6 +525,14 @@ class SourcingRouteTest(unittest.TestCase):
         hawaii = self.client.put("/api/sourcing/prefs", json={"zip": "96815"})
         self.assertEqual(hawaii.status_code, 422)
         self.assertIn("48 contiguous states", hawaii.json()["detail"])
+
+    def test_selling_window_preferences_are_validated_and_rebuild_the_plan(self):
+        body = self.client.put("/api/sourcing/prefs", json={"ready_in_weeks": 0, "selling_window_weeks": 8}).json()
+        self.assertEqual((body["prefs"]["ready_in_weeks"], body["prefs"]["selling_window_weeks"]), (0, 8))
+        self.background.assert_called_once_with(recrawl=False)
+        for prefs in ({"ready_in_weeks": -1}, {"ready_in_weeks": 27}, {"ready_in_weeks": True},
+                      {"selling_window_weeks": 0}, {"selling_window_weeks": 27}, {"selling_window_weeks": 1.5}):
+            self.assertEqual(self.client.put("/api/sourcing/prefs", json=prefs).status_code, 422)
 
     def test_saved_snapshot_is_served(self):
         with mock.patch.object(box_scout.scout(), "fetch_catalog", side_effect=lambda store: CATALOGS[store]), \

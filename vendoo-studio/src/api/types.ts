@@ -592,6 +592,26 @@ export interface SourcingBuyList {
   exclusions: Record<string, "needs_research" | "rework" | "same_theme" | "return_target" | "downside" | "budget" | "alternative">;
 }
 
+export interface SourcingSeasonality {
+  window: { buy_on: string; start_date: string; end_date: string; ready_in_weeks: number; selling_window_weeks: number; market: string; timezone: string };
+  seller_history: {
+    periods: { start_date: string; end_date: string }[];
+    dated_recorded_sales: number;
+    matching_window_sales: number;
+    excluded_incomplete_or_invalid: number;
+    minimum_group_sales: number;
+    coverage: string;
+    groups: {
+      category_path: string;
+      item_type: string | null;
+      count: number;
+      historical_median_price: number;
+      period_counts: Record<string, number>;
+      examples: { title: string; sold_at: string; sold_price: number; listing_source: string }[];
+    }[];
+  };
+}
+
 export interface SourcingSnapshot {
   updated_at: string;
   destination_zip: string;
@@ -605,6 +625,7 @@ export interface SourcingSnapshot {
   store_buy_lists: Record<string, SourcingBuyList>;
   lots: SourcingLot[];
   calibration: Record<string, { factor: number | null; sales: number; needed: number }>;
+  seasonality: SourcingSeasonality;
 }
 
 export interface SourcingPrefs {
@@ -617,6 +638,8 @@ export interface SourcingPrefs {
   fees: number;
   cost_per_piece: number;
   include_rework: boolean;
+  ready_in_weeks: number;
+  selling_window_weeks: number;
 }
 
 export interface SourcingState {
