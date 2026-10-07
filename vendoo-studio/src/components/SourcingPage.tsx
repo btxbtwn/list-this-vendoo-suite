@@ -151,7 +151,7 @@ function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
             {updating ? <p className="sourcing-hint" role="status">Updating your options. Cart links will be ready when the check finishes.</p> : null}
             {selectedSnapshot ? <>
               <BuyList data={data} snapshot={selectedSnapshot} choice={choice} updating={updating} onOpenProviders={onOpenProviders} />
-              <MoreBoxes snapshot={selectedSnapshot} />
+              <AvailableBoxes snapshot={selectedSnapshot} />
             </> : null}
             <BoughtBoxes />
             <Trending trend={data.trend} />
@@ -320,10 +320,13 @@ function Choices({ snapshot, choice, onChoose }: {
   choice: string;
   onChoose: (choice: string) => void;
 }) {
+  const hasRecommendations = [snapshot.buy_list, ...Object.values(snapshot.store_buy_lists)].some((plan) => plan.carts.length > 0);
   return (
     <section aria-label="Compare sourcing options">
-      <h2 className="sourcing-section-title">Choose a buy list</h2>
-      <p className="sourcing-hint">Each option uses the same {formatMoney(snapshot.buy_list.budget)} budget including estimated shipping. Choose one; these are alternatives. Tax is extra.</p>
+      <h2 className="sourcing-section-title">{hasRecommendations ? "Choose a buy list" : "Browse by supplier"}</h2>
+      <p className="sourcing-hint">{hasRecommendations
+        ? `Each option uses the same ${formatMoney(snapshot.buy_list.budget)} budget including estimated shipping. Choose one; these are alternatives. Tax is extra.`
+        : "Choose all boxes or a supplier to browse what Studio checked. Recommendations appear when the evidence and cost checks pass."}</p>
       {Object.entries(snapshot.calibration ?? {}).map(([store, calibration]) => {
         const note = calibrationNote(storeName(store), calibration);
         return note ? <p key={store} className="sourcing-hint">{note}</p> : null;
@@ -335,12 +338,15 @@ function Choices({ snapshot, choice, onChoose }: {
           const metrics = planMetrics(plan);
           return (
             <button key={key} type="button" className="sourcing-choice" aria-pressed={choice === key} onClick={() => onChoose(key)}>
-              <strong>{key === "all" ? "Combined list" : storeName(key)}</strong>
+              <strong>{key === "all" ? (hasRecommendations ? "Combined list" : "All suppliers") : storeName(key)}</strong>
               {count ? <>
                 <span>{boxCount(count)} · {formatMoney(plan.total)}</span>
                 <span>Est. profit {formatMoney(Math.round(plan.expected_profit))}</span>
                 <span>Lower-sales test {formatMoney(Math.round(metrics.downside))}</span>
-              </> : <span>{snapshot.stores[key]?.error ? "Store unavailable" : "No qualifying boxes"}</span>}
+              </> : <>
+                <span>{snapshot.stores[key]?.error ? "Store unavailable" : boxCount(snapshot.lots.filter((lot) => key === "all" || lot.store === key).length)}</span>
+                <span>No recommendations yet</span>
+              </>}
             </button>
           );
         })}
@@ -363,6 +369,7 @@ function BuyList({
   onOpenProviders: () => void;
 }) {
   const plan = snapshot.buy_list;
+  const hasEvidence = snapshot.lots.some((lot) => lot.resale_per_pc != null);
   if (plan.carts.length === 0) {
     if (choice !== "all" && snapshot.stores[choice]?.error) {
       return <div className="sourcing-empty">
@@ -371,7 +378,7 @@ function BuyList({
       </div>;
     }
     // Prices found earlier stay good for one week, so a list can stand without a model connected.
-    if (!data.research_available) {
+    if (!data.research_available && snapshot.lots.length > 0 && !hasEvidence) {
       return (
         <div className="sourcing-empty">
           <div className="sourcing-empty-title">One step before Studio can pick boxes</div>
@@ -384,11 +391,13 @@ function BuyList({
     }
     return (
       <div className="sourcing-empty">
-        <div className="sourcing-empty-title">{choice === "all" ? "No qualifying boxes right now" : `No qualifying boxes at ${storeName(choice)}`}</div>
-        <p>
-          No box passes all the evidence, condition, return and lower-sales checks within {formatMoney(plan.budget)} including shipping. Review the other boxes below to see what ruled them out. Studio checks again
-          by itself around {clockTime(nextUpdate(snapshot.updated_at))}.
-        </p>
+        <div className="sourcing-empty-title">{!snapshot.lots.length ? "No boxes available in this check"
+          : hasEvidence ? "No recommendations within these settings" : "No recommendations yet — sold evidence is missing"}</div>
+        <p>{snapshot.lots.length ? (hasEvidence
+          ? `No box passes all the evidence, condition, return and lower-sales checks within ${formatMoney(plan.budget)} including shipping. Browse the boxes below to see what ruled each one out.`
+          : `Studio found ${boxCount(snapshot.lots.length)}, but has no usable recent sold evidence to estimate their resale. Each theme needs at least 3 distinct comparable sales within 30 days. The boxes are shown below for you to review.`)
+          : "This check returned no available boxes for the selected suppliers. Review any supplier errors above."}</p>
+        <p className="sourcing-hint">Next automatic check around {clockTime(nextUpdate(snapshot.updated_at))}.</p>
       </div>
     );
   }
@@ -509,12 +518,13 @@ function Item({ lot, storeName }: { lot: SourcingLot; storeName: string }) {
   );
 }
 
-function MoreBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
+function AvailableBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
   const lots = otherLots(snapshot);
   if (lots.length === 0) return null;
   return (
-    <details className="sourcing-more">
-      <summary>See {lots.length} more boxes Studio looked at</summary>
+    <section className="sourcing-section" aria-label="Available boxes">
+      <h2 className="sourcing-section-title">{snapshot.buy_list.carts.length ? "Other available boxes" : "Available boxes"} · {boxCount(lots.length)}</h2>
+      <p className="sourcing-hint">Browse every box in this check. Each row shows why it isn’t in the recommended buy list; you can still open the supplier’s listing.</p>
       <ol className="sourcing-items">
         {lots.map((lot) => (
           <li key={`${lot.store}:${lot.variant_id}`} className="sourcing-item">
@@ -532,7 +542,7 @@ function MoreBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
           </li>
         ))}
       </ol>
-    </details>
+    </section>
   );
 }
 
@@ -562,7 +572,7 @@ function ResearchEvidence({ lot }: { lot: SourcingLot }) {
 function ResearchCoverage({ snapshot }: { snapshot: SourcingSnapshot }) {
   const priced = snapshot.lots.filter((lot) => lot.resale_per_pc != null).length;
   return <div className="sourcing-research-status" role="status">
-    <strong>{priced} of {snapshot.lots.length} boxes shown have enough recent sold evidence.</strong>
+    <strong>{boxCount(snapshot.lots.length)} in this check · {priced} with enough recent sold evidence.</strong>
     <span>At least 3 distinct reported sales within 30 days. Older sales provide context. Prices are checked weekly. Sales evidence supports an estimate; it does not measure the chance your box will sell.</span>
   </div>;
 }
