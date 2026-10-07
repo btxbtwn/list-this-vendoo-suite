@@ -432,12 +432,30 @@
 }
 
 @media (max-width: 480px) {
-  .mobile-workspace-panes {
-    max-width: none;
+  /* Phones put the pane switcher on its own full-width row under the nav bar */
+  .mobile-workspace-bar:has(.mobile-workspace-panes) {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    height: auto;
+    padding: 8px 12px;
   }
 
-  .mobile-workspace-title {
-    display: none;
+  .mobile-workspace-panes {
+    order: 1;
+    flex: 1 0 100%;
+    max-width: none;
+    padding: 2px;
+    border-radius: var(--radius-md);
+    background: var(--color-ink-raised);
+  }
+
+  .mobile-workspace-panes button {
+    flex: 1;
+  }
+
+  .mobile-workspace-panes button.selected {
+    background: var(--color-chrome-glass);
+    box-shadow: inset 0 0 0 1px var(--color-chrome-glass-border);
   }
 
   .item-row,

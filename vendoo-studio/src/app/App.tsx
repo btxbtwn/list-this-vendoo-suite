@@ -9,7 +9,7 @@ import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
 import { SetupChecklist } from "../components/SetupChecklist";
 import { BrowserPreview } from "../components/BrowserPreview";
-import { AnalyticsIcon, BackIcon, SourcingIcon, ComposeIcon, HamburgerIcon, ListingSidebar, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
+import { AnalyticsIcon, BackIcon, SourcingIcon, ComposeIcon, HamburgerIcon, ListingSidebar, QueueIcon, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
 import {
   DEFAULT_SETTINGS_SECTION,
   SETTINGS_SECTION_LABELS,
@@ -418,6 +418,9 @@ export function App() {
   };
 
   const bulk = useBulkRegenerate((id) => activeView === "listings" && selectedConvId === id);
+  const queueCount = (queue.data?.jobs.filter((j) => ACTIVE_JOB_STATUSES.has(j.status)).length ?? 0)
+    + (queue.data?.work.filter((w) => !bulk.pendingIds.includes(w.conversation_id)).length ?? 0)
+    + bulk.pendingIds.length;
 
   // A bulk upload asks for measurements next, then generates every draft.
   const askForMeasurements = (listings: BulkListingUploadResult[]) => {
@@ -599,9 +602,7 @@ export function App() {
             onOpenAnalytics={openAnalytics}
             onOpenSourcing={openSourcing}
             onOpenQueue={() => togglePage("queue")}
-            queueCount={(queue.data?.jobs.filter((j) => ACTIVE_JOB_STATUSES.has(j.status)).length ?? 0)
-              + (queue.data?.work.filter((w) => !bulk.pendingIds.includes(w.conversation_id)).length ?? 0)
-              + bulk.pendingIds.length}
+            queueCount={queueCount}
             onCloseSettings={closeSettings}
             onSettingsSectionChange={handleSettingsSectionChange}
             onSettingsSearchResult={handleSettingsSearchResult}
@@ -654,7 +655,16 @@ export function App() {
             <div className="mobile-workspace-title">{workspaceTitle}</div>
             {activeView === "listings" ? (
               <>
-                <button type="button" className="sidebar-icon-btn" aria-label="Queue" onClick={() => togglePage("queue")}>Queue</button>
+                <button
+                  type="button"
+                  className="sidebar-icon-btn mobile-workspace-settings queue-nav"
+                  title="Queue"
+                  aria-label={`Queue${queueCount ? ` (${queueCount})` : ""}`}
+                  onClick={() => togglePage("queue")}
+                >
+                  <QueueIcon />
+                  {queueCount ? <span className="queue-nav-dot" aria-hidden="true" /> : null}
+                </button>
                 <div className="mobile-workspace-panes" role="tablist" aria-label="Workspace views">
                   <button
                     type="button"
