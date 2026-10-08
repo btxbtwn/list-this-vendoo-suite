@@ -38,7 +38,7 @@ import {
   filterListings,
   labelCounts,
   labelOptions,
-  listingStatusTab,
+  inStatusTab,
   matchesSearch,
   marketplaceCounts,
   marketplaceOptions,
@@ -579,7 +579,7 @@ export function ListingSidebar({
   // Each filter row carries how many listings it would keep, counted over the
   // status tab in front of the reader rather than the whole inventory.
   const facetSource = useMemo(
-    () => searched.filter((listing) => filters.status === "all" || listingStatusTab(listing.status) === filters.status),
+    () => searched.filter((listing) => inStatusTab(listing, filters.status)),
     [searched, filters.status],
   );
   const filterMarketplaceCounts = useMemo(() => marketplaceCounts(facetSource), [facetSource]);
