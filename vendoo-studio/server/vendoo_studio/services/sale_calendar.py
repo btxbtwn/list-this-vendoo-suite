@@ -227,7 +227,7 @@ def _days_label(start: int, days: int) -> str:
 
 
 def weekday_patterns(rows: list[AnalyticsItem], timezone: str, *, now: datetime) -> list[dict]:
-    """Find the strongest run of weekdays over up to 26 complete weeks of history.
+    """Find the strongest run of weekdays over up to 52 complete weeks of history.
 
     Kulldorff's scan statistic: every run of 1–6 consecutive weekdays is scored
     by how far its sales exceed an even spread, the length the data supports
@@ -247,7 +247,7 @@ def weekday_patterns(rows: list[AnalyticsItem], timezone: str, *, now: datetime)
         # Exclude the earliest partial week; dates before first recorded sale
         # cannot be treated as evidence of no sales.
         first_monday = first + timedelta(days=(-first.weekday()) % 7)
-        start = max(first_monday, end - timedelta(weeks=26))
+        start = max(first_monday, end - timedelta(weeks=52))  # one of each season
         weeks = max(0, (end - start).days // 7)
         counts = [0] * 7
         for row in sales:

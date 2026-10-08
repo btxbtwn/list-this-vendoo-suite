@@ -127,6 +127,14 @@ def test_complete_weeks_sample_threshold_and_sunday_monday_window():
     assert (sparse["suggested_start"], sparse["suggested_end"]) == ("2026-10-05", "2026-10-11")
 
 
+def test_history_covers_one_year():
+    start = NOW - timedelta(weeks=60)
+    rows = [sale(start + timedelta(weeks=week, hours=1)) for week in range(60)]
+    pattern = weekday_patterns(rows, "UTC", now=NOW)[0]
+    assert pattern["weeks"] == 52 and pattern["sales"] == 52
+    assert pattern["history_start"] == (NOW - timedelta(weeks=52)).date().isoformat()
+
+
 def test_window_length_follows_the_data():
     start = NOW - timedelta(weeks=12)
     one_day = [sale(start + timedelta(weeks=week, days=3, hours=hour)) for week in range(12) for hour in (1, 2)]
