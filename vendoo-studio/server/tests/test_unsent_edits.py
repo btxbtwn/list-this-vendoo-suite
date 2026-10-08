@@ -22,7 +22,7 @@ from vendoo_studio.main import app
 from vendoo_studio.models.fill_log import FillLogEntry  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
-from vendoo_studio.services.vendoo_import import merge_notes
+from vendoo_studio.services.vendoo_import import import_vendoo_item, merge_notes
 from vendoo_studio.services.vendoo_watch import sync_conversation
 
 from test_vendoo_import import VENDOO_ITEM
@@ -118,6 +118,29 @@ class UnsentEditsTest(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(res.json()["current_revision_id"], result["revision_id"])
         self.assertFalse(self.flag())
+
+    @mock.patch("vendoo_studio.services.vendoo_import.download_vendoo_photos", new_callable=mock.AsyncMock)
+    def import_draft(self, download) -> str:
+        download.return_value = []
+        item = {**copy.deepcopy(VENDOO_ITEM), "itemID": "imp1", "dateLastModified": 2000}
+        with mock.patch(
+            "vendoo_studio.services.vendoo_create.resolve_label_display_names",
+            mock.AsyncMock(side_effect=lambda _job, labels, **_kw: list(labels)),
+        ):
+            result = asyncio.run(import_vendoo_item(self.db, item_id="imp1", item=item))
+        return result["conversation"].id
+
+    def test_an_imported_draft_starts_level_with_vendoo(self):
+        self.assertFalse(self.flag(self.import_draft()))
+
+    def test_an_edit_to_an_imported_draft_is_unsent_before_any_sync(self):
+        """Chrome may never have answered a sync; the import itself is the baseline."""
+        conv_id = self.import_draft()
+        listing = ListingRepo(self.db).get_revisions(conv_id)[0].listing_json
+        ListingRepo(self.db).save_revision(conv_id, {**listing, "price": 7}, source="user_form")
+        self.assertTrue(self.flag(conv_id))
+        rows = self.client.get("/api/conversations").json()
+        self.assertTrue(next(item for item in rows if item["id"] == conv_id)["unsent_edits"])
 
 
 if __name__ == "__main__":

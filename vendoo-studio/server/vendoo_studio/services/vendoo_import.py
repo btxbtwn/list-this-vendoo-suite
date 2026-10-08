@@ -384,6 +384,13 @@ async def import_vendoo_draft(
         source="vendoo_import",
         parent_revision_id=current.current_revision_id if current else None,
     )
+    if isinstance(item, dict):
+        # The revision is Vendoo's own copy, so the two start out level. Without
+        # this the listing has no baseline until a sync through Chrome lands,
+        # and an edit made in the meantime never reads as unsent.
+        from vendoo_studio.services.vendoo_watch import mark_synced
+
+        mark_synced(db, conv_id, item, revision.id)
 
     conv = conv_repo.get(conv_id)
     if conv and listing.get("labels"):
@@ -843,12 +850,17 @@ async def import_vendoo_item(
         )
         if named != list(listing["labels"]):
             listing = {**listing, "labels": named}
-            ListingRepo(db).save_revision(
+            named_revision = ListingRepo(db).save_revision(
                 conv.id,
                 listing,
                 source="vendoo_import",
                 parent_revision_id=result["revision"].id,
             )
+            if isinstance(item, dict):
+                # Naming the labels is not an edit; Vendoo still has this copy.
+                from vendoo_studio.services.vendoo_watch import mark_synced
+
+                mark_synced(db, conv.id, item, named_revision.id)
             job.listing_snapshot = listing
             result["listing"] = listing
             conv.notes = merge_notes(conv.notes, {"vendooLabels": ", ".join(named)})
