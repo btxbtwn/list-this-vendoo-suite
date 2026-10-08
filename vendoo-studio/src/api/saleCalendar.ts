@@ -21,7 +21,6 @@ export interface SalePlan {
   fee_percent: number;
   shipping_cost: number;
   minimum_profit: number;
-  item_ids: string[];
   notes: string;
 }
 
@@ -35,7 +34,7 @@ export interface SaleTotals {
 
 export type SaleRecord = Pick<SalePlan, "title" | "start_date" | "end_date" | "timezone" | "notes"> & { marketplace: string; discount_percent: number | null };
 
-export interface SaleEvent extends Omit<SalePlan, "item_ids" | "marketplace" | "fee_percent" | "shipping_cost" | "minimum_profit" | "discount_percent"> {
+export interface SaleEvent extends Omit<SalePlan, "marketplace" | "fee_percent" | "shipping_cost" | "minimum_profit" | "discount_percent"> {
   marketplace: string;
   fee_percent: number | null;
   shipping_cost: number | null;
@@ -69,6 +68,8 @@ export interface SalePattern {
   suggested_start: string;
   suggested_end: string;
   reason: string;
+  fee_percent: number | null;
+  shipping_cost: number | null;
 }
 
 export interface SaleCalendarData {
