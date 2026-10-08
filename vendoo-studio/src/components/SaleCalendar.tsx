@@ -87,7 +87,7 @@ export function SaleCalendar({ onOpenListing }: { onOpenListing: (id: string) =>
                 ))}
               </div>
               {pattern.weeks > 0 ? <small>{pattern.sales} dated sales · {displayDate(pattern.history_start)}–{displayDate(pattern.history_end)}</small> : null}
-              {pattern.suggested_start && pattern.suggested_end ? <button type="button" className="pr-pill" onClick={() => newPlan(pattern.suggested_start!, pattern.suggested_end!, pattern.marketplace)}>Try {displayDate(pattern.suggested_start)}</button> : null}
+              {pattern.suggested_start && pattern.suggested_end ? <button type="button" className="pr-pill" onClick={() => newPlan(pattern.suggested_start!, pattern.suggested_end!, pattern.marketplace)}>Try {displayDate(pattern.suggested_start)}{pattern.suggested_end === pattern.suggested_start ? "" : `–${displayDate(pattern.suggested_end)}`}</button> : null}
             </article>
           ))}
         </div>

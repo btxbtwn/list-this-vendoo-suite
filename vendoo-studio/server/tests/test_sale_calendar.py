@@ -125,6 +125,30 @@ def test_complete_weeks_sample_threshold_and_sunday_monday_window():
     assert weekday_patterns(rows[-3:], "UTC", now=NOW)[0]["suggested_start"] is None
 
 
+def test_window_length_follows_the_data():
+    start = NOW - timedelta(weeks=12)
+    one_day = [sale(start + timedelta(weeks=week, days=3, hours=hour)) for week in range(12) for hour in (1, 2)]
+    one_day += [sale(start + timedelta(weeks=week, days=day, hours=1)) for week in (0, 4, 8) for day in (0, 1, 2, 4, 5, 6)]
+    pattern = weekday_patterns(one_day, "UTC", now=NOW)[0]
+    assert (pattern["suggested_start"], pattern["suggested_end"]) == ("2026-10-08", "2026-10-08")
+    assert pattern["reason"].startswith("Thursday had 24 of 42") and "Run sales on Thursday." in pattern["reason"]
+
+    three_days = [sale(start + timedelta(weeks=week, days=day, hours=1)) for week in range(12) for day in (4, 5, 6)]
+    three_days += [sale(start + timedelta(weeks=week, hours=1)) for week in (0, 6)]
+    pattern = weekday_patterns(three_days, "UTC", now=NOW)[0]
+    assert (pattern["suggested_start"], pattern["suggested_end"]) == ("2026-10-09", "2026-10-11")
+    assert pattern["reason"].startswith("Friday–Sunday had 36 of 38")
+
+
+def test_weak_peak_is_reported_as_possible_chance():
+    start = NOW - timedelta(weeks=26)
+    counts = [5, 1, 3, 8, 4, 3, 3]  # one seller's eBay weekdays: Thursday leads, but not clearly
+    rows = [sale(start + timedelta(weeks=n, days=day, hours=1)) for day, count in enumerate(counts) for n in range(count)]
+    pattern = weekday_patterns(rows, "UTC", now=NOW)[0]
+    assert (pattern["suggested_start"], pattern["suggested_end"]) == ("2026-10-08", "2026-10-08")
+    assert "may be chance" in pattern["reason"]
+
+
 def test_tied_weekdays_do_not_generate_a_suggestion():
     start = NOW - timedelta(weeks=12)
     rows = [sale(start + timedelta(days=day, hours=1)) for day in range(84)]

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.196 — 2026-10-08
+
+- Sale suggestions now pick however many days your sales history supports — one day, a weekend, or longer — instead of always two, and say whether the pattern is strong or may be chance. The Try button shows the full date range.
+
 ## 0.1.195 — 2026-10-08
 
 - A listing with unsent edits now also shows under the Draft tab, so everything waiting on Update Vendoo is in one place. It still shows under Active while it is live.
