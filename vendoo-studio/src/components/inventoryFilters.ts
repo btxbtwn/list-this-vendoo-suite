@@ -94,6 +94,17 @@ export function listingStatusTab(status?: string | null): string {
   return value === "in_progress" ? "draft" : value;
 }
 
+/**
+ * Whether a listing shows under a status tab. Unsent edits are a draft Vendoo
+ * has not been given yet, so a live listing carrying them also shows under
+ * Draft. A sold item is finished and stays under Sold alone.
+ */
+export function inStatusTab(listing: FilterableListing, tab: ListingStatusFilter): boolean {
+  if (tab === "all") return true;
+  const own = listingStatusTab(listing.status);
+  return own === tab || (tab === "draft" && Boolean(listing.unsent_edits) && own !== "sold");
+}
+
 function lower(value: string | null | undefined): string {
   return String(value || "").toLowerCase();
 }
@@ -135,7 +146,7 @@ export function matchesFilters(
   filters: ListingFilters,
   now: number = Date.now(),
 ): boolean {
-  if (filters.status !== "all" && listingStatusTab(listing.status) !== filters.status) return false;
+  if (!inStatusTab(listing, filters.status)) return false;
   const listed = listedOn(listing);
   // Vendoo's "View Not Listed" asks for the items no marketplace carries, which
   // is the opposite of picking marketplaces, so it wins over the chips.
@@ -232,6 +243,7 @@ export function statusCounts(listings: FilterableListing[]): Record<string, numb
   for (const listing of listings) {
     const status = listingStatusTab(listing.status);
     counts[status] = (counts[status] || 0) + 1;
+    if (status !== "draft" && inStatusTab(listing, "draft")) counts.draft = (counts.draft || 0) + 1;
   }
   return counts;
 }

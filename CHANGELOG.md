@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.195 — 2026-10-08
+
+- A listing with unsent edits now also shows under the Draft tab, so everything waiting on Update Vendoo is in one place. It still shows under Active while it is live.
+
 ## 0.1.194 — 2026-10-08
 
 - A draft imported from Vendoo now shows the blue unsent chip as soon as you edit it, even before Studio has checked Vendoo, and that first check no longer overwrites your edit.

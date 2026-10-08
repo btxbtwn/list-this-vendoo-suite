@@ -253,4 +253,23 @@ describe("unsent edits", () => {
   it("is off by default, so both still show", () => {
     expect(filterListings([edited, sent], "", DEFAULT_LISTING_FILTERS)).toHaveLength(2);
   });
+
+  it("shows a live listing with unsent edits under Draft as well as Active", () => {
+    const draftTab = { ...DEFAULT_LISTING_FILTERS, status: "draft" as const };
+    const activeTab = { ...DEFAULT_LISTING_FILTERS, status: "active" as const };
+    expect(filterListings([edited, sent], "", draftTab)).toEqual([edited]);
+    expect(filterListings([edited, sent], "", activeTab)).toEqual([edited, sent]);
+  });
+
+  it("counts it on the Draft tab without counting a draft twice", () => {
+    const draft: FilterableListing = { ...tee, status: "draft", unsent_edits: true };
+    expect(statusCounts([edited, sent, draft])).toMatchObject({ all: 3, active: 2, draft: 2 });
+  });
+
+  it("leaves a sold item under Sold alone", () => {
+    const sold: FilterableListing = { ...tee, status: "sold", unsent_edits: true };
+    const draftTab = { ...DEFAULT_LISTING_FILTERS, status: "draft" as const };
+    expect(filterListings([sold], "", draftTab)).toEqual([]);
+    expect(statusCounts([sold]).draft).toBeUndefined();
+  });
 });
