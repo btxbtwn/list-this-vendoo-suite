@@ -66,8 +66,8 @@ export interface SalePattern {
   history_start: string;
   history_end: string;
   weekdays: { label: string; count: number; average: number | null }[];
-  suggested_start: string | null;
-  suggested_end: string | null;
+  suggested_start: string;
+  suggested_end: string;
   reason: string;
 }
 

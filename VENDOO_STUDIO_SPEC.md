@@ -1030,8 +1030,11 @@ Weekday suggestions scan every run of one to six consecutive weekdays over up
 to 26 complete weeks of imported sales (Kulldorff's scan statistic), so the
 window length comes from the data. A seeded Monte Carlo test against evenly
 spread sales says whether the peak is stronger than chance or may be chance.
-Suggestions require at least 20 dated sales across 8 complete weeks and a unique
-strongest window; they are experiments, not predictions of discount lift. Records show sales and recorded profit during the event and a
+Picking days requires at least 20 dated sales across 8 complete weeks, a unique
+strongest window, and a peak that beats chance; otherwise the suggestion is a
+7-day sale starting today, which covers every weekday and keeps promotions from
+skewing the pattern. Suggestions are experiments, not predictions of discount
+lift. Records show sales and recorded profit during the event and a
 comparison with matching weekdays before it, plus marketplace sales over up
 to 14 days after it. Overlapping recorded promotions
 or insufficient history suppress that comparison. Missing prices, costs, and
