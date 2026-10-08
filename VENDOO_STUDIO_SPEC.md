@@ -471,17 +471,6 @@ instant. Generation matches historical facets against that snapshot, so later
 listing edits cannot rewrite historical examples. Legacy listings without a
 snapshot remain labeled as current text with unknown at-sale provenance.
 
-Input → Shipping and buyer response records packed weight, optional dimensions
-and actual postage, with a shipment date and `seller_measured` provenance.
-Marketplace reports record dated impressions, views, offers and returns with
-`seller_reported` provenance. Reports can be edited or removed; overlapping
-windows remain separate and unknown counts never become zero. Studio has no
-direct eBay OAuth connection, so these reports are entered by the seller rather
-than fetched through a new marketplace integration. Generation receives only
-bounded relevant records and their dates/sources. Neither sales alone nor
-traffic counts establish effective keywords or causation. No publishing or
-Vendoo-write action follows from recording evidence.
-
 The output contains a user-facing response, complete proposed listing, uncertainties, and validation warnings.
 
 ### Stage 3: Revision

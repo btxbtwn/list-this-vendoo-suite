@@ -3,62 +3,13 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import UTC, date, datetime
-from typing import Annotated, Literal
+from datetime import UTC
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert
 
-from vendoo_studio.models.listing_evidence import ListingCorrection, ListingEvidence, SaleSnapshot
+from vendoo_studio.models.listing_evidence import ListingCorrection, SaleSnapshot
 from vendoo_studio.services.sell_through import _parse_moment
-
-MARKETPLACES = Literal["ebay", "etsy", "poshmark", "mercari", "depop", "grailed"]
-Positive = Annotated[float, Field(gt=0, le=10000, allow_inf_nan=False, strict=True)]
-Money = Annotated[float, Field(ge=0, le=100000, allow_inf_nan=False, strict=True)]
-Count = Annotated[int, Field(ge=0, le=1000000000, strict=True)]
-
-
-class ShippingOutcome(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    shipped_on: date
-    packed_weight_oz: Positive
-    length_in: Positive | None = None
-    width_in: Positive | None = None
-    height_in: Positive | None = None
-    postage_paid: Money | None = None
-    currency: Literal["USD"] = "USD"
-
-    @model_validator(mode="after")
-    def valid_measurement(self):
-        if self.shipped_on > datetime.now(UTC).date():
-            raise ValueError("Shipment date cannot be in the future")
-        dims = (self.length_in, self.width_in, self.height_in)
-        if any(value is not None for value in dims) and not all(value is not None for value in dims):
-            raise ValueError("Enter all three packed dimensions or leave them empty")
-        return self
-
-
-class EngagementOutcome(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    marketplace: MARKETPLACES
-    start_date: date
-    end_date: date
-    impressions: Count | None = None
-    views: Count | None = None
-    offers: Count | None = None
-    returns: Count | None = None
-    return_reason: Literal["fit", "description", "damage", "changed_mind", "other"] | None = None
-
-    @model_validator(mode="after")
-    def valid_window(self):
-        if self.end_date < self.start_date or self.end_date > datetime.now(UTC).date():
-            raise ValueError("Use an ordered reporting period ending today or earlier")
-        if all(getattr(self, key) is None for key in ("impressions", "views", "offers", "returns")):
-            raise ValueError("Enter at least one reported count; leave unknown counts empty")
-        if self.return_reason and not self.returns:
-            raise ValueError("A return reason needs a recorded return")
-        return self
 
 
 def sale_key(sale: dict, dates: dict) -> str:
@@ -121,54 +72,6 @@ def record_correction(db: Session, conv_id: str, revision_id: str, listing: dict
                                  brand=str(listing.get("brand") or ""), changes=changes))
 
 
-def get_evidence(db: Session, conv_id: str) -> dict:
-    row = db.get(ListingEvidence, conv_id)
-    snapshots = db.query(SaleSnapshot).filter_by(conversation_id=conv_id).order_by(SaleSnapshot.observed_at.desc()).all()
-    return {
-        "shipping": row.shipping if row else None,
-        "engagement": row.engagement or [] if row else [],
-        "sale_snapshots": [{"source": snap.source, "sale_key": snap.sale_key,
-                            "observed_at": snap.observed_at.isoformat()} for snap in snapshots],
-    }
-
-
-def _row(db: Session, conv_id: str) -> ListingEvidence:
-    row = db.get(ListingEvidence, conv_id)
-    if row is None:
-        row = ListingEvidence(conversation_id=conv_id)
-        db.add(row)
-    return row
-
-
-def save_shipping(db: Session, conv_id: str, shipping: ShippingOutcome | None) -> None:
-    row = _row(db, conv_id)
-    row.shipping = ({**shipping.model_dump(mode="json"), "source": "seller_measured",
-                     "recorded_at": datetime.now(UTC).isoformat()} if shipping else None)
-    db.commit()
-
-
-def save_engagement(db: Session, conv_id: str, observation: EngagementOutcome) -> None:
-    row = _row(db, conv_id)
-    entries = list(row.engagement or [])
-    record = {**observation.model_dump(mode="json"), "source": "seller_reported",
-              "recorded_at": datetime.now(UTC).isoformat()}
-    def key(entry):
-        return entry["marketplace"], entry["start_date"], entry["end_date"]
-    entries = [entry for entry in entries if key(entry) != key(record)]
-    # Overlapping windows stay separate. Never sum them into lifetime counts.
-    row.engagement = [*entries, record]
-    db.commit()
-
-
-def delete_engagement(db: Session, conv_id: str, marketplace: str, start_date: date, end_date: date) -> None:
-    row = db.get(ListingEvidence, conv_id)
-    if row:
-        row.engagement = [entry for entry in row.engagement or [] if
-                          (entry["marketplace"], entry["start_date"], entry["end_date"]) !=
-                          (marketplace, start_date.isoformat(), end_date.isoformat())]
-        db.commit()
-
-
 def corrections_context(db: Session, conv_id: str, listing: dict) -> dict:
     own = db.query(ListingCorrection).filter_by(conversation_id=conv_id).order_by(ListingCorrection.created_at.desc()).limit(30).all()
     corrections = {}
@@ -205,13 +108,10 @@ def generation_evidence_prompt(db: Session, conv_id: str) -> str:
     revision = repo.get_revision(current.current_revision_id) if current and current.current_revision_id else None
     listing = revision.listing_json if revision else {}
     context = corrections_context(db, conv_id, listing)
-    row = db.get(ListingEvidence, conv_id)
-    context["current_item_measured_shipping"] = row.shipping if row else None
-    context["current_item_engagement"] = sorted(row.engagement or [], key=lambda entry: entry["end_date"], reverse=True)[:5] if row else []
     if not any(context.values()):
         return ""
     # Cap individual seller values too; no private notes or whole revisions.
     for value in context["current_item_corrections"].values():
         if len(json.dumps(value["value"], ensure_ascii=False)) > 600:
             value["value"] = str(value["value"])[:600]
-    return "\n\n--- Seller corrections and observed outcomes ---\n" + json.dumps(context, ensure_ascii=False)
+    return "\n\n--- Seller corrections ---\n" + json.dumps(context, ensure_ascii=False)

@@ -6,20 +6,19 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from vendoo_studio.database import Base, get_db, load_models
 from vendoo_studio.main import app
-from vendoo_studio.models.listing_evidence import ListingCorrection, ListingEvidence, SaleSnapshot
+from vendoo_studio.models.listing_evidence import ListingCorrection, SaleSnapshot
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
 from vendoo_studio.services.generation_history import seller_history_context
 from vendoo_studio.services.listing_delete import delete_listing, wipe_contents
 from vendoo_studio.services.listing_evidence import (
-    EngagementOutcome, ShippingOutcome, capture_sale_snapshot, corrections_context,
-    explicit_changes, generation_evidence_prompt, record_correction,
+    capture_sale_snapshot, corrections_context, explicit_changes, generation_evidence_prompt,
+    record_correction,
 )
 from vendoo_studio.services.registry import MEN_TSHIRT_PATH
 from vendoo_studio.services.vendoo_import import merge_notes, vendoo_dates, vendoo_sale
@@ -148,73 +147,16 @@ def test_history_matches_snapshot_instead_of_later_edited_brand_and_title(worksp
     assert "PRIVATE-REMOTE-NOTE" not in json.dumps(context)
 
 
-def test_shipping_and_overlapping_reports_reach_generation_without_summing(workspace):
-    db, conv, _, client = workspace
-    path = f"/api/conversations/{conv.id}/evidence"
-    shipping = {"shipped_on": "2026-10-01", "packed_weight_oz": 12, "postage_paid": 0}
-    response = client.put(path + "/shipping", json={"shipping": shipping})
-    assert response.status_code == 200
-    assert response.json()["shipping"]["postage_paid"] == 0
-    assert response.json()["shipping"]["length_in"] is None
-    assert response.json()["shipping"]["source"] == "seller_measured"
-    for start in ("2026-09-01", "2026-09-15"):
-        response = client.put(path + "/engagement", json={"marketplace": "ebay", "start_date": start,
-            "end_date": "2026-10-01", "impressions": 100, "views": 0})
-        assert response.status_code == 200
-    prompt = generation_evidence_prompt(db, conv.id)
-    assert prompt.count('"impressions": 100') == 2
-    assert '"impressions": 200' not in prompt
-    assert '"offers": null' in prompt
-    assert '"views": 0' in prompt
-    assert "seller_measured" in prompt
-    assert client.put(path + "/shipping", json={"shipping": None}).status_code == 200
-    assert client.get(path).json()["shipping"] is None
-    assert client.delete(path + "/engagement?marketplace=ebay&start_date=2026-09-01&end_date=2026-10-01").status_code == 200
-    assert len(client.get(path).json()["engagement"]) == 1
-
-
-def test_same_reporting_period_updates_in_place(workspace):
-    _, conv, _, client = workspace
-    path = f"/api/conversations/{conv.id}/evidence/engagement"
-    report = {"marketplace": "ebay", "start_date": "2026-09-01", "end_date": "2026-10-01", "views": 10}
-    client.put(path, json=report)
-    response = client.put(path, json={**report, "views": 20})
-    assert len(response.json()["engagement"]) == 1
-    assert response.json()["engagement"][0]["views"] == 20
-
-
-@pytest.mark.parametrize("changes", [{"packed_weight_oz": 0}, {"packed_weight_oz": -1},
-    {"length_in": 10}, {"shipped_on": "2099-01-01"}, {"packed_weight_oz": "NaN"}])
-def test_shipping_rejects_unverified_or_invalid_measurements(changes):
-    with pytest.raises(ValidationError):
-        ShippingOutcome.model_validate({"shipped_on": "2026-10-01", "packed_weight_oz": 12, **changes})
-
-
-@pytest.mark.parametrize("changes", [{"views": -1}, {"views": True}, {"views": 1.5},
-    {"end_date": "2099-01-01"}, {"end_date": "2026-08-01"}, {"views": None},
-    {"return_reason": "fit"}, {"marketplace": "unknown"}])
-def test_engagement_requires_dated_actual_counts(changes):
-    with pytest.raises(ValidationError):
-        EngagementOutcome.model_validate({"marketplace": "ebay", "start_date": "2026-09-01", "end_date": "2026-10-01", "views": 10, **changes})
-
-
 def test_evidence_survives_regeneration_and_is_deleted_with_listing(workspace):
-    db, conv, revision, client = workspace
+    db, conv, revision, _client = workspace
     record_correction(db, conv.id, revision.id, revision.listing_json, {"size": {"before": "L", "after": "M"}})
     capture_sale_snapshot(db, conv.id, sold_item())
-    client.put(f"/api/conversations/{conv.id}/evidence/shipping", json={"shipping": {"shipped_on": "2026-10-01", "packed_weight_oz": 12}})
     wipe_contents(db, conv.id, keep_photos=True)
     db.commit()
     assert db.query(ListingCorrection).count() == 1
     assert db.query(SaleSnapshot).count() == 1
-    assert db.get(ListingEvidence, conv.id)
     delete_listing(db, conv.id)
-    assert db.query(ListingCorrection).count() == db.query(SaleSnapshot).count() == db.query(ListingEvidence).count() == 0
-
-
-def test_missing_conversation_is_rejected(workspace):
-    _, _, _, client = workspace
-    assert client.get("/api/conversations/missing/evidence").status_code == 404
+    assert db.query(ListingCorrection).count() == db.query(SaleSnapshot).count() == 0
 
 
 def test_revision_restore_supersedes_current_corrections_without_teaching_related_preferences(workspace):
@@ -227,15 +169,13 @@ def test_revision_restore_supersedes_current_corrections_without_teaching_relate
     assert context["current_item_corrections"]["size"]["source"] == "restore"
 
 
-def test_observed_outcomes_and_corrections_reach_initial_generation_with_canonical_rules(workspace):
+def test_corrections_reach_initial_generation_with_canonical_rules(workspace):
     from vendoo_studio.services.chat_prompts import listing_generation_messages
     from vendoo_studio.services.skill_formulas import with_pinned_formulas
     db, conv, original, client = workspace
     client.put(f"/api/conversations/{conv.id}/listing", json={"listing": {**original.listing_json, "size": "M"}})
-    client.put(f"/api/conversations/{conv.id}/evidence/shipping", json={"shipping": {"shipped_on": "2026-10-01", "packed_weight_oz": 12}})
     prompt = listing_generation_messages(with_pinned_formulas(""), "", "- brand: Nike", db, conv.id)[0]["content"]
-    assert "Seller corrections and observed outcomes" in prompt
+    assert "--- Seller corrections ---" in prompt
     assert '"size": {"value": "M"' in prompt
-    assert '"packed_weight_oz": 12.0' in prompt
-    assert "never add them" in prompt
+    assert "Never transfer another item's facts" in prompt
     assert "buyer-facing listing copy" in prompt

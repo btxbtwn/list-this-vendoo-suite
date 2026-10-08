@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from vendoo_studio.models.conversation import Conversation
 from vendoo_studio.models.listing import Listing, ListingRevision
-from vendoo_studio.models.listing_evidence import ListingEvidence, SaleSnapshot
+from vendoo_studio.models.listing_evidence import SaleSnapshot
 from vendoo_studio.services.listing_evidence import sale_key
 from vendoo_studio.models.schema import ListingSchema, VALID_CONDITIONS
 from vendoo_studio.repositories.queries import ConversationRepo, ListingRepo
@@ -127,8 +127,6 @@ def seller_history_context(
     candidate_ids = [row[0] for row in rows]
     snapshots = {(row.conversation_id, row.sale_key): row for row in
                  db.query(SaleSnapshot).filter(SaleSnapshot.conversation_id.in_(candidate_ids)).all()}
-    evidence = {row.conversation_id: row for row in
-                db.query(ListingEvidence).filter(ListingEvidence.conversation_id.in_(candidate_ids)).all()}
     sales: list[dict] = []
     active: list[dict] = []
     excluded_sales = 0
@@ -169,16 +167,6 @@ def seller_history_context(
             "title": _text(title), "size": _text(size),
             "condition": candidate_condition,
         }
-        recorded = evidence.get(_id)
-        if recorded:
-            shipping = recorded.shipping
-            shipped_on = _parse_moment(str((shipping or {}).get("shipped_on") or ""))
-            if shipped_on and start <= shipped_on <= clock:
-                example["measured_shipping"] = shipping
-            windows = [entry for entry in recorded.engagement or [] if
-                       start.date().isoformat() <= entry["end_date"] <= clock.date().isoformat()]
-            if windows:
-                example["engagement_windows"] = sorted(windows, key=lambda entry: entry["end_date"], reverse=True)[:3]
         if effective == "sold":
             sold_price = _amount(sale.get("price"))
             sold_text = str(dates.get("sold") or sale.get("soldAt") or "")
