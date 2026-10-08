@@ -30,3 +30,16 @@ export function saleProfit(price: number, cost: number | null, discount: number,
   const profit = salePrice * (1 - fees / 100) - cost - shipping;
   return Math.sign(profit) * Math.round(Math.abs(profit) * 100 + 1e-8) / 100;
 }
+
+/** Past 30% a sale mostly discounts items that would have sold anyway. */
+export const DISCOUNT_CEILING = 30;
+
+/** Deepest 5% step where every listing with a cost still clears the profit floor; null when none does. */
+export function suggestDiscount(items: { price: number; cost: number | null }[], fees: number, shipping: number, floor: number): number | null {
+  const costed = items.filter(item => item.cost != null);
+  if (costed.length === 0) return null;
+  for (let discount = DISCOUNT_CEILING; discount >= 5; discount -= 5) {
+    if (costed.every(item => (saleProfit(item.price, item.cost, discount, fees, shipping) ?? -Infinity) >= floor)) return discount;
+  }
+  return null;
+}

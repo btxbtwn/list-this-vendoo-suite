@@ -16,7 +16,7 @@ from vendoo_studio.models.listing import Listing, ListingRevision
 from vendoo_studio.models.sale_event import SaleEvent
 from vendoo_studio.routes.sale_calendar import router
 from vendoo_studio.services.inventory_analytics import AnalyticsItem
-from vendoo_studio.services.sale_calendar import SalePlan, estimated_profit, event_result, weekday_patterns
+from vendoo_studio.services.sale_calendar import event_result, selling_costs, weekday_patterns
 
 NOW = datetime(2026, 10, 5, 12, tzinfo=UTC)
 
@@ -30,7 +30,7 @@ def plan(**changes):
     return {"title": "Weekend sale", "marketplace": "ebay", "start_date": "2026-10-09",
             "end_date": "2026-10-11", "timezone": "UTC", "discount_percent": 10,
             "fee_percent": 15, "shipping_cost": 2, "minimum_profit": 5,
-            "item_ids": ["active"], "notes": "", **changes}
+            "notes": "", **changes}
 
 
 @pytest.fixture
@@ -63,12 +63,9 @@ def test_local_event_lifecycle_and_snapshots(workspace):
     assert response.status_code == 201, response.text
     eid = response.json()["id"]
     payload = client.get("/api/analytics/calendar?timezone=UTC").json()
-    assert payload["events"][0]["items"][0]["estimated_profit"] == 26.25
+    assert payload["events"][0]["items"] == [] and payload["events"][0]["discount_percent"] == 10
     assert payload["events"][0]["result"] is None
     assert {item["id"] for item in payload["items"]} == {"active", "no-cost", "expensive"}
-    db.get(ListingRevision, "active").listing_json = {"price": 60, "cost": 10}
-    db.commit()
-    assert client.get("/api/analytics/calendar").json()["events"][0]["items"][0]["price"] == 50
     assert client.put(f"/api/analytics/calendar/{eid}", json=plan(title="Revised")).status_code == 200
     assert client.patch(f"/api/analytics/calendar/{eid}/status", json={"status": "ran"}).status_code == 422
     assert client.put(f"/api/analytics/calendar/{eid}", json=plan(start_date="2020-01-03", end_date="2020-01-05")).status_code == 200
@@ -82,9 +79,7 @@ def test_local_event_lifecycle_and_snapshots(workspace):
 
 
 @pytest.mark.parametrize("changes", [
-    {"item_ids": ["no-cost"]}, {"item_ids": ["expensive"]}, {"item_ids": ["missing"]},
-    {"item_ids": ["not-listed"]}, {"marketplace": "etsy"}, {"marketplace": "all"},
-    {"minimum_profit": 30}, {"item_ids": []}, {"item_ids": ["active", "active"]},
+    {"item_ids": ["active"]}, {"marketplace": "all"}, {"discount_percent": 4}, {"minimum_profit": -1},
     {"end_date": "2026-10-08"}, {"end_date": "2027-10-09"}, {"discount_percent": 99},
     {"fee_percent": -1}, {"timezone": "unknown/timezone"}, {"title": "   "}, {"confirm": True},
 ])
@@ -94,7 +89,7 @@ def test_invalid_plans_never_save(workspace, changes):
     assert db.query(SaleEvent).count() == 0
 
 
-def test_overlapping_items_and_cancellation(workspace):
+def test_overlapping_sales_and_cancellation(workspace):
     _db, client = workspace
     eid = client.post("/api/analytics/calendar", json=plan()).json()["id"]
     assert client.post("/api/analytics/calendar", json=plan()).status_code == 422
@@ -103,9 +98,13 @@ def test_overlapping_items_and_cancellation(workspace):
     assert client.post("/api/analytics/calendar", json=plan()).status_code == 201
 
 
-def test_rounding_and_zero_cost():
-    assert estimated_profit({"price": 19.99, "cost": 0}, SalePlan(**plan(discount_percent=50, fee_percent=0, shipping_cost=0))) == 10
-    assert estimated_profit({"price": 50, "cost": None}, SalePlan(**plan())) is None
+def test_selling_costs_come_from_the_last_year_of_sales():
+    from dataclasses import replace
+    recent = sale(NOW - timedelta(days=10), fees=5)
+    rows = [recent, replace(recent, fees=None, shipping_cost=6, shipping_credit=2),
+            replace(recent, fees=40, sold_at=NOW - timedelta(weeks=60)), sale(NOW - timedelta(days=3), market="etsy")]
+    assert selling_costs(rows, "ebay", now=NOW) == {"fee_percent": 12.5, "shipping_cost": 2.0}
+    assert selling_costs(rows, "depop", now=NOW) == {"fee_percent": None, "shipping_cost": None}
 
 
 def test_complete_weeks_sample_threshold_and_sunday_monday_window():
@@ -233,7 +232,7 @@ def test_migration_preserves_data_on_previous_release_snapshot(tmp_path):
 def test_past_marketplace_records_need_no_item_selection_and_can_be_corrected(workspace):
     db, client = workspace
     body = {key: value for key, value in plan(start_date='2020-01-03', end_date='2020-01-05').items()
-            if key not in {'fee_percent', 'shipping_cost', 'minimum_profit', 'item_ids'}}
+            if key not in {'fee_percent', 'shipping_cost', 'minimum_profit'}}
     body['discount_percent'] = None
     response = client.post('/api/analytics/calendar/records', json=body)
     assert response.status_code == 201, response.text
