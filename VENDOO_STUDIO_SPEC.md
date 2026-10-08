@@ -1027,7 +1027,7 @@ Saving, editing, recording, or cancelling an event never writes to a marketplace
 or to Vendoo. The seller runs the sale separately and marks it as run.
 
 Weekday suggestions scan every run of one to six consecutive weekdays over up
-to 26 complete weeks of imported sales (Kulldorff's scan statistic), so the
+to 52 complete weeks of imported sales (Kulldorff's scan statistic), so the
 window length comes from the data. A seeded Monte Carlo test against evenly
 spread sales says whether the peak is stronger than chance or may be chance.
 Picking days requires at least 20 dated sales across 8 complete weeks, a unique
