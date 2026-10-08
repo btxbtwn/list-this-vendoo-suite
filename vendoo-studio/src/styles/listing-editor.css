@@ -391,13 +391,3 @@
   overflow: visible;
 }
 
-.listing-outcomes { margin: 16px 0; border: 1px solid var(--color-border); border-radius: 8px; }
-.listing-outcomes > summary { cursor: pointer; padding: 12px; font-weight: 600; }
-.listing-outcomes-body { padding: 0 12px 12px; }
-.listing-outcomes-body fieldset { border: 0; padding: 0; margin: 20px 0; }
-.listing-outcomes-body legend { font-weight: 600; margin-bottom: 10px; }
-.listing-outcomes-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-.listing-outcomes-grid label { display: grid; gap: 4px; font-size: 12px; }
-.listing-outcomes-reports { list-style: none; padding: 0; }
-.listing-outcomes-reports li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--color-border); font-size: 12px; }
-.listing-outcomes-reports li > span { flex: 1; }

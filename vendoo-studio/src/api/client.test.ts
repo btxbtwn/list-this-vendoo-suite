@@ -116,28 +116,3 @@ describe("Send to Vendoo", () => {
   });
 });
 
-describe("Listing evidence", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("preserves unknown shipping amounts and observed zero buyer-response counts", async () => {
-    const fetch = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ shipping: null, engagement: [], sale_snapshots: [] }))));
-    vi.stubGlobal("fetch", fetch);
-    await api.evidence.shipping("listing1", { shipped_on: "2026-10-01", packed_weight_oz: 12,
-      length_in: null, width_in: null, height_in: null, postage_paid: null, currency: "USD" });
-    await api.evidence.engagement("listing1", { marketplace: "ebay", start_date: "2026-09-01", end_date: "2026-10-01",
-      impressions: 100, views: 0, offers: null, returns: null, return_reason: null });
-    const sent = fetch.mock.calls.map((call) => JSON.parse(call[1].body));
-    expect(sent[0].shipping.postage_paid).toBeNull();
-    expect(sent[1].views).toBe(0);
-    expect(sent[1].offers).toBeNull();
-  });
-
-  it("removes only the selected marketplace reporting period", async () => {
-    const fetch = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ shipping: null, engagement: [], sale_snapshots: [] }))));
-    vi.stubGlobal("fetch", fetch);
-    await api.evidence.removeEngagement("listing1", { marketplace: "ebay", start_date: "2026-09-01", end_date: "2026-10-01",
-      impressions: null, views: 0, offers: null, returns: null, return_reason: null });
-    expect(fetch.mock.calls[0][0]).toContain("/listing1/evidence/engagement?marketplace=ebay&start_date=2026-09-01&end_date=2026-10-01");
-    expect(fetch.mock.calls[0][1].method).toBe("DELETE");
-  });
-});

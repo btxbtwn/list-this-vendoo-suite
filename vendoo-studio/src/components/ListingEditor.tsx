@@ -6,7 +6,6 @@ import { cloneListing, getListingEditorValue, setListingEditorValue } from "../l
 import { FillLogPanel } from "./FillLogPanel";
 import { PhotoTray } from "./PhotoTray";
 import { ItemDetails } from "./ItemDetails";
-import { ListingOutcomes } from "./ListingOutcomes";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { SendProgress, sendProgressLabel } from "./SendProgress";
 import { ListingBlockers } from "./ListingBlockers";
@@ -423,7 +422,6 @@ export function ListingEditor({
           <>
             <PhotoTray convId={convId} onBulkListingsCreated={onBulkListingsCreated} />
             <ItemDetails convId={convId} />
-            <ListingOutcomes key={convId} convId={convId} />
           </>
         ) : reviewTab === "fields" ? (
           listingJob ? (

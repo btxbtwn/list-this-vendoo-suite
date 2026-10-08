@@ -732,29 +732,3 @@ export interface ScoutState {
   track_record: { checks: number; bought: number; sold: number; median_ratio: number | null; close: number };
 }
 
-export interface ShippingOutcome {
-  shipped_on: string;
-  packed_weight_oz: number;
-  length_in: number | null;
-  width_in: number | null;
-  height_in: number | null;
-  postage_paid: number | null;
-  currency: "USD";
-}
-
-export interface EngagementOutcome {
-  marketplace: string;
-  start_date: string;
-  end_date: string;
-  impressions: number | null;
-  views: number | null;
-  offers: number | null;
-  returns: number | null;
-  return_reason: "fit" | "description" | "damage" | "changed_mind" | "other" | null;
-}
-
-export interface ListingEvidence {
-  shipping: (ShippingOutcome & { source: string; recorded_at: string }) | null;
-  engagement: (EngagementOutcome & { source: string; recorded_at: string })[];
-  sale_snapshots: { source: string; sale_key: string; observed_at: string }[];
-}

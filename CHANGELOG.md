@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.197 — 2026-10-08
+
+- The "Shipping and buyer response" box is gone from the Input tab. You no longer see forms for packed weight or marketplace view counts, and listings generate the same as before.
+
 ## 0.1.196 — 2026-10-08
 
 - Sale suggestions now pick however many days your sales history supports — one day, a weekend, or longer — instead of always two, and say whether the pattern is strong or may be chance. The Try button shows the full date range.

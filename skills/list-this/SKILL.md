@@ -325,12 +325,10 @@ Minimum       = Listing Price - $4
 - Similar unsold inventory is a weak caution about demand and overpricing, not evidence of completed sales, a historical sell-through rate, or a reason to copy its asking prices.
 - Historical titles can supply relevant vocabulary only when supported by this item's photos and seller notes. Never copy another item's brand, size, material, flaws, measurements, manufacturing date, or vintage claim. A sale does not prove its wording caused the sale. Keep sales evidence, cost, profit, and pricing reasoning out of the buyer-facing description.
 
-### Seller Corrections and Observed Outcomes
+### Seller Corrections and Sale Snapshots
 - Studio supplies deliberate form edits captured before automatic normalization. Current-item corrections are seller evidence, including deliberate clears; honor them when consistent with the latest seller instructions and photos. Newer instructions and explicitly chosen prices take precedence. Related title/description edits are examples of editing choices only. Never transfer another item's facts, flaws, measurements or unsupported keywords, or infer a permanent preference from a single correction. Canonical and seller-customized formulas remain authoritative.
 - A sale snapshot labeled `vendoo_first_observed_sold` freezes the remote listing when Studio first observes the dated sale. That may be after the actual sale: its timestamp does not verify the exact text at sale or prove that wording caused a sale. Legacy `current_listing_not_verified_at_sale` text is weaker evidence. Neither justifies a claim about winning keywords or conversion.
-- `seller_measured` shipping contains an explicitly recorded packed weight and optional packed dimensions/postage. Use this item's measurement over estimates; similar items provide estimated shipping guidance only after checking item type, size and packaging. Never label a similar item's weight as measured for the new item. Postage depends on destination, service and date and is not a current shipping quote.
-- `seller_reported` engagement counts belong to the supplied marketplace and dated reporting window. Empty counts mean unknown; zero is observed zero. Windows can overlap: never add them, infer lifetime totals, or invent conversion rates without a matching sales denominator. Sparse impressions/views/offers are weak context, not proof of demand, bad keywords or a pricing cause. Return reasons can prompt clearer evidence-based fit, measurements or flaw disclosure; never copy a returned item's flaws to the new item.
-- Keep all correction examples, shipment economics, buyer-response counts and return history out of buyer-facing listing copy.
+- Keep all correction examples and sale snapshots out of buyer-facing listing copy.
 
 ## Rules (VIOLATION = INCORRECT LISTING)
 

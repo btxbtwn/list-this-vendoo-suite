@@ -11,7 +11,6 @@ from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, frontend_dist_dir
 from vendoo_studio.database import init_db
 from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop, imports
 from vendoo_studio.routes import analytics, backups, boxes, browser, catalog, changelog, sale_calendar, scout, sourcing, vendoo_api, suggestions
-from vendoo_studio.routes import listing_evidence
 from vendoo_studio.version import app_version
 
 
@@ -102,7 +101,6 @@ app.include_router(health.router)
 app.include_router(conversations.router)
 app.include_router(photos.router)
 app.include_router(listings.router)
-app.include_router(listing_evidence.router)
 app.include_router(jobs.router)
 app.include_router(imports.router)
 app.include_router(settings.router)

@@ -313,6 +313,7 @@ def test_listing_evidence_migrates_previous_release_without_inventing_history(en
     with sqlite3.connect(engine.url.database) as connection:
         assert connection.execute("SELECT title FROM conversations WHERE id = 'seller-item'").fetchone() == ("Original listing",)
         assert connection.execute("SELECT source FROM listing_revisions WHERE id = 'seller-rev'").fetchone() == ("user_form",)
-        for table in ("listing_corrections", "sale_snapshots", "listing_evidence"):
+        for table in ("listing_corrections", "sale_snapshots"):
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
+        assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'listing_evidence'").fetchone() is None
     assert [snapshot.reason for snapshot in backups.list_snapshots(snapshots)] == ["pre-migration"]

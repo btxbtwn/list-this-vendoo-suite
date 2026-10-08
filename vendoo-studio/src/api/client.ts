@@ -1,4 +1,3 @@
-import type { EngagementOutcome, ListingEvidence, ShippingOutcome } from "./types";
 import type {
   SendPreview,
   BackupSnapshot,
@@ -348,18 +347,6 @@ export const api = {
       request<VendooBulkImport>("/imports/vendoo/bulk/cancel", { method: "POST" }),
     syncLabels: () => request<VendooLabelSync>("/imports/vendoo/labels", { method: "POST" }),
     labelSyncStatus: () => request<VendooLabelSync>("/imports/vendoo/labels"),
-  },
-
-  evidence: {
-    get: (convId: string) => request<ListingEvidence>(`/conversations/${convId}/evidence`),
-    shipping: (convId: string, shipping: ShippingOutcome | null) =>
-      request<ListingEvidence>(`/conversations/${convId}/evidence/shipping`, { method: "PUT", body: JSON.stringify({ shipping }) }),
-    engagement: (convId: string, observation: EngagementOutcome) =>
-      request<ListingEvidence>(`/conversations/${convId}/evidence/engagement`, { method: "PUT", body: JSON.stringify(observation) }),
-    removeEngagement: (convId: string, entry: EngagementOutcome) => {
-      const params = new URLSearchParams({ marketplace: entry.marketplace, start_date: entry.start_date, end_date: entry.end_date });
-      return request<ListingEvidence>(`/conversations/${convId}/evidence/engagement?${params}`, { method: "DELETE" });
-    },
   },
 
   listings: {
