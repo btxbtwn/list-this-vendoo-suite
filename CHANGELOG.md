@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.199 — 2026-10-08
+
+- Studio now fills in Grailed, Vinted and Facebook Marketplace, not just eBay, Etsy, Poshmark, Mercari and Depop. Turn them on in Settings → Marketplaces and each draft gets its category, condition and fields for them, with your brand as the Grailed designer.
+
 ## 0.1.198 — 2026-10-08
 
 - Until your sales show a clear best day, sale suggestions recommend a 7-day sale starting today. It covers every day and keeps your weekday pattern accurate while sales build, and the card switches to specific days once a real pattern shows up.

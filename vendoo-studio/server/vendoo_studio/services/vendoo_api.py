@@ -100,6 +100,9 @@ _PACKAGE_DIMS_RE = re.compile(
 # The tier follows the package weight — see ``models.mercari_shipping``.
 MERCARI_GROUND_ADVANTAGE_LABEL = DEFAULT_SHIPPING_LABEL
 
+# Grailed ships per region; US is the one Vendoo turns on by default.
+GRAILED_SHIPPING_REGIONS = ("ca", "uk", "eu", "au", "asia", "other")
+
 # Poshmark Smart Sell floor used on this seller's working drafts.
 POSHMARK_SMART_SELL_MIN = "5"
 
@@ -117,14 +120,18 @@ ETSY_WHAT_CODES = {
 # Vendoo's listingStateOptions: draft = Draft Listing, active = Live Listing, edit = Inactive.
 ETSY_LIVE_LISTING = "active"
 
-SPECIFICS_SOURCES = {mp: f"{mp}_specifics" for mp in ("ebay", "poshmark", "mercari", "depop", "etsy")}
+SPECIFICS_SOURCES = {
+    mp: f"{mp}_specifics"
+    for mp in ("ebay", "poshmark", "mercari", "depop", "etsy", "grailed", "vinted", "facebook")
+}
 
 # Keys in <marketplace>_specifics that Studio keeps for itself, not Vendoo.
 _STUDIO_ONLY_SPECIFIC_KEYS = frozenset({"categoryPath", "category_specifics", "size", "sizeType"})
 
 # Marketplace form brand fields live on overrides, not categorySpecifics. The
 # Chrome filler writes `#listings.<mp>.overrides.brand`; create must too.
-_BRAND_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari", "depop"})
+# Grailed calls it the designer; its form reads the same override.
+_BRAND_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari", "depop", "grailed"})
 
 # Values that mean "there is no brand" on Mercari — check No Brand/Not sure.
 _MERCARI_NO_BRAND_TOKENS = frozenset({
@@ -237,6 +244,17 @@ def _marketplace_specific_defaults(marketplace: str) -> dict[str, Any]:
             "age": [], "source": [], "style": [],
             "location": {"geoLat": 0, "geoLng": 0, "address": "", "countryCode": "", "id": "", "zipCode": ""},
         }
+    if marketplace == "grailed":
+        # Vendoo's form ships US at $30 and every other region off; the seller
+        # sets the real rate on the form.
+        shipping = {region: {"amount": 0, "enabled": False} for region in GRAILED_SHIPPING_REGIONS}
+        shipping["us"] = {"amount": 30, "enabled": True}
+        return {
+            "makeoffer": False, "paypal_id": "", "buynow": True, "currency": "USD",
+            "minimum_price": "", "smart_price": False, "measurementType": "cm", "measurements": {},
+            "shipping": shipping,
+            "shippingForm": {"label": "", "method": "", "address": "", "freeShipping": False},
+        }
     return {}
 
 
@@ -249,14 +267,14 @@ def default_listing_section(marketplace: str) -> dict[str, Any]:
         "type": "listing",
         "status": {"notListed": True},
         "overrides": _weight_dims_overrides() if marketplace in ("ebay", "etsy", "poshmark", "mercari") else (
-            {"quantity": "1"} if marketplace == "depop" else {}
+            {"quantity": "1"} if marketplace in ("depop", "grailed", "vinted", "facebook") else {}
         ),
         "categorySpecifics": {},
         "listingAttemptMessages": [],
         "marketplaceSpecifics": _marketplace_specific_defaults(marketplace),
         "sales": [],
     }
-    if marketplace in ("shopify", "sellhound", "sellwild", "whatnot"):
+    if marketplace in ("shopify", "sellhound", "sellwild", "whatnot", "vinted", "facebook"):
         section["listedID"] = ""
         section["listingURL"] = ""
     return section
@@ -398,7 +416,7 @@ def observe_listing_encodings(
 # Poshmark shows an empty Condition when handed a code it does not own
 # (``good``), and rejects a Vendoo ``v_`` general code on Relist. eBay is
 # omitted on purpose — its ids are category-specific and stay learned-only.
-_VENDOO_MARKETPLACE_CONDITIONS: dict[str, dict[str, str]] = {
+_VENDOO_MARKETPLACE_CONDITIONS: dict[str, dict[str, str | int]] = {
     "poshmark": {
         "v_newWithTagsBox": "nwt",
         "v_newWithOutTags": "uln",
@@ -425,6 +443,37 @@ _VENDOO_MARKETPLACE_CONDITIONS: dict[str, dict[str, str]] = {
         "v_preowned": "used_good",
         "v_preowned_fair": "used_fair",
         "v_poor": "used_fair",
+    },
+    "grailed": {
+        "v_newWithTagsBox": "is_new",
+        "v_newWithOutTags": "is_new",
+        "v_newWithDefects": "is_gently_used",
+        "v_preowned_excellent": "is_gently_used",
+        "v_preowned": "is_used",
+        "v_preowned_fair": "is_used",
+        "v_poor": "is_worn",
+    },
+    # Vendoo leaves New with imperfections unmapped for Facebook; Used - Good
+    # is the nearest of its four.
+    "facebook": {
+        "v_newWithTagsBox": "new",
+        "v_newWithOutTags": "used_like_new",
+        "v_newWithDefects": "used_good",
+        "v_preowned_excellent": "used_good",
+        "v_preowned": "used_good",
+        "v_preowned_fair": "used_good",
+        "v_poor": "used_fair",
+    },
+    # Vinted's status ids: 6 new with tags, 1 new without, 2 very good,
+    # 3 good, 4 satisfactory.
+    "vinted": {
+        "v_newWithTagsBox": 6,
+        "v_newWithOutTags": 1,
+        "v_newWithDefects": 2,
+        "v_preowned_excellent": 3,
+        "v_preowned": 3,
+        "v_preowned_fair": 3,
+        "v_poor": 4,
     },
 }
 

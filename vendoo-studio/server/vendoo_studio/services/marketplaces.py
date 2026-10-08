@@ -11,12 +11,14 @@ from vendoo_studio.services.user_settings import read_settings, update_settings
 #   * a field schema. Vendoo answers
 #     GET /api/category/specifics/{marketplace}/category/{id} for ebay, etsy,
 #     whatnot, sellwild, vestiaireApi, shopify, mercari, grailed, poshmark,
-#     facebook, depop, vestiaire, vinted and vendoo — so grailed, vinted,
-#     facebook, whatnot and kidizen could be filled today with no new
-#     discovery work. Tradesy is gone: Vendoo dropped it from that list and
-#     the company itself closed in 2022.
+#     facebook, depop, vestiaire, vinted and vendoo — so whatnot and kidizen
+#     could be filled with no new discovery work. Tradesy is gone: Vendoo
+#     dropped it from that list and the company itself closed in 2022.
 #   * somewhere for the values to go, which is what this list drives.
-FILLABLE_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
+#
+# Grailed, Vinted and Facebook have no seeded category tree: their leaves come
+# from Vendoo mapping the general category, never from a local tree search.
+FILLABLE_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop", "grailed", "vinted", "facebook")
 
 # Every marketplace Vendoo lists to (its LISTABLE_MARKETPLACES, with
 # vestiaire/vestiaireApi folded together). Any of them can be selected in
@@ -28,9 +30,9 @@ MARKETPLACE_CATALOG: tuple[tuple[str, str, bool], ...] = (
     ("mercari", "Mercari", True),
     ("depop", "Depop", True),
     ("etsy", "Etsy", True),
-    ("facebook", "Facebook", False),
-    ("grailed", "Grailed", False),
-    ("vinted", "Vinted", False),
+    ("facebook", "Facebook", True),
+    ("grailed", "Grailed", True),
+    ("vinted", "Vinted", True),
     ("whatnot", "Whatnot", False),
     ("shopify", "Shopify", False),
     ("vestiaire", "Vestiaire Collective", False),
@@ -38,7 +40,8 @@ MARKETPLACE_CATALOG: tuple[tuple[str, str, bool], ...] = (
 )
 
 KNOWN_MARKETPLACES = tuple(item[0] for item in MARKETPLACE_CATALOG)
-DEFAULT_SELECTED = list(FILLABLE_MARKETPLACES)
+# New installs start on the original five; the rest are opted into in Settings.
+DEFAULT_SELECTED = ["ebay", "etsy", "poshmark", "mercari", "depop"]
 
 
 def marketplace_label(marketplace_id: str) -> str:

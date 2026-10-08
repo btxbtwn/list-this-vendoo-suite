@@ -201,7 +201,11 @@ export function ListingEditor({
 
   const tabs = React.useMemo(() => {
     const selected = new Set(marketplaceSettings?.selected ?? ["ebay", "etsy", "poshmark", "mercari", "depop"]);
-    return ["general", ...["ebay", "poshmark", "mercari", "depop", "etsy"].filter((id) => selected.has(id)), "json"];
+    return [
+      "general",
+      ...["ebay", "poshmark", "mercari", "depop", "etsy", "grailed", "vinted", "facebook"].filter((id) => selected.has(id)),
+      "json",
+    ];
   }, [marketplaceSettings?.selected]);
 
   React.useEffect(() => {
@@ -753,6 +757,16 @@ function getFieldsForTab(listing: ListingData | undefined, tab: string): EditorF
           })),
         ],
       );
+    case "grailed":
+    case "vinted":
+    case "facebook":
+      // Their fields come from the category Vendoo maps to, once it is chosen.
+      return [
+        { key: "price", label: "Price", type: "number" },
+        { key: "condition", label: "Condition" },
+        { key: "brand", label: tab === "grailed" ? "Designer" : "Brand" },
+        ...specificsFields(listing?.[`${tab}_specifics`], `${tab}_specifics`),
+      ];
     default:
       return [];
   }
