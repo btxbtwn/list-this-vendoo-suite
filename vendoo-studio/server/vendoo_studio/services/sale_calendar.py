@@ -232,8 +232,9 @@ def weekday_patterns(rows: list[AnalyticsItem], timezone: str, *, now: datetime)
     Kulldorff's scan statistic: every run of 1–6 consecutive weekdays is scored
     by how far its sales exceed an even spread, the length the data supports
     wins, and a Monte Carlo test reports how often an even spread produces a
-    peak that strong by chance. Sample thresholds gate suggestions. With no
-    inventory/traffic history, this is a descriptive pattern to test.
+    peak that strong by chance. Until a run beats chance, suggest a 7-day sale:
+    it covers every weekday, so promotions don't skew the pattern being
+    measured. With no inventory/traffic history, this is a descriptive pattern.
     """
     tz = zone(timezone)
     today = now.astimezone(tz).date()
@@ -256,33 +257,36 @@ def weekday_patterns(rows: list[AnalyticsItem], timezone: str, *, now: datetime)
         total = sum(counts)
         enough = weeks >= 8 and total >= 20
         score, best = _best_window(counts) if enough else (0.0, [])
-        # Don't invent a preferred window when the strongest runs tie or every day is even.
-        suggestion = score > 0 and len(best) == 1
-        reason = ("Need at least 20 dated sales spanning 8 complete weeks on this marketplace." if not enough else
-                  "No clear preferred window in your weekday pattern." if not suggestion else "")
-        next_start = next_end = None
-        if suggestion:
+        # A preferred window needs a unique strongest run that beats chance.
+        chance = (1 + sum(value >= score - 1e-9 for value in _null_maxima(total))) / 1000 if score else 1.0
+        week = " Run a 7-day sale so every day is covered; the weekday pattern stays fair while sales build."
+        if not enough:
+            reason = "Not enough history to pick days yet (20 dated sales across 8 complete weeks)." + week
+        elif score == 0 or len(best) > 1:
+            reason = "No weekday run stands out in your sales." + week
+        else:
             first_day, days = best[0]
-            in_window = sum(counts[(first_day + k) % 7] for k in range(days))
-            chance = (1 + sum(value >= score - 1e-9 for value in _null_maxima(total))) / 1000
             label = _days_label(first_day, days)
+            in_window = sum(counts[(first_day + k) % 7] for k in range(days))
             reason = f"{label} had {in_window} of {total} imported sales across {weeks} complete weeks"
             reason += (
                 f", more than an even spread gives by chance. Run sales on {label}."
                 if chance < 0.05 else
-                f". Evenly spread sales show a peak this strong {round(chance * 100)}% of the time, "
-                f"so this may be chance. Try it and measure the result."
+                f", but evenly spread sales show a peak this strong {round(chance * 100)}% of the time." + week
             )
+        if chance < 0.05:
             next_start = today + timedelta(days=(first_day - today.weekday()) % 7)
             next_end = next_start + timedelta(days=days - 1)
+        else:
+            next_start, next_end = today, today + timedelta(days=6)
         result.append({
             "marketplace": market, "weeks": weeks, "sales": total,
             "history_start": start.isoformat(), "history_end": (end - timedelta(days=1)).isoformat(),
             "weekdays": [{"label": label, "count": counts[i],
                           "average": round(counts[i] / weeks, 2) if weeks else None}
                          for i, label in enumerate(WEEKDAYS)],
-            "suggested_start": next_start.isoformat() if next_start else None,
-            "suggested_end": next_end.isoformat() if next_end else None,
+            "suggested_start": next_start.isoformat(),
+            "suggested_end": next_end.isoformat(),
             "reason": reason,
         })
     return result

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.198 — 2026-10-08
+
+- Until your sales show a clear best day, sale suggestions recommend a 7-day sale starting today. It covers every day and keeps your weekday pattern accurate while sales build, and the card switches to specific days once a real pattern shows up.
+
 ## 0.1.197 — 2026-10-08
 
 - The "Shipping and buyer response" box is gone from the Input tab. You no longer see forms for packed weight or marketplace view counts, and listings generate the same as before.

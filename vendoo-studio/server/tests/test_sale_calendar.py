@@ -121,8 +121,10 @@ def test_complete_weeks_sample_threshold_and_sunday_monday_window():
     assert ebay["sales"] == 37
     assert ebay["suggested_start"] == "2026-10-11"
     assert ebay["suggested_end"] == "2026-10-12"
-    assert depop["suggested_start"] is None and etsy["suggested_start"] is None
-    assert weekday_patterns(rows[-3:], "UTC", now=NOW)[0]["suggested_start"] is None
+    assert (depop["suggested_start"], depop["suggested_end"]) == ("2026-10-05", "2026-10-11")
+    assert "Not enough history" in etsy["reason"] and "7-day sale" in etsy["reason"]
+    sparse = weekday_patterns(rows[-3:], "UTC", now=NOW)[0]
+    assert (sparse["suggested_start"], sparse["suggested_end"]) == ("2026-10-05", "2026-10-11")
 
 
 def test_window_length_follows_the_data():
@@ -140,21 +142,23 @@ def test_window_length_follows_the_data():
     assert pattern["reason"].startswith("Friday–Sunday had 36 of 38")
 
 
-def test_weak_peak_is_reported_as_possible_chance():
+def test_weak_peak_suggests_a_full_week():
     start = NOW - timedelta(weeks=26)
     counts = [5, 1, 3, 8, 4, 3, 3]  # one seller's eBay weekdays: Thursday leads, but not clearly
     rows = [sale(start + timedelta(weeks=n, days=day, hours=1)) for day, count in enumerate(counts) for n in range(count)]
     pattern = weekday_patterns(rows, "UTC", now=NOW)[0]
-    assert (pattern["suggested_start"], pattern["suggested_end"]) == ("2026-10-08", "2026-10-08")
-    assert "may be chance" in pattern["reason"]
+    assert (pattern["suggested_start"], pattern["suggested_end"]) == ("2026-10-05", "2026-10-11")
+    assert pattern["reason"].startswith("Thursday had 8 of 27") and "% of the time" in pattern["reason"]
+    assert "7-day sale" in pattern["reason"]
 
 
-def test_tied_weekdays_do_not_generate_a_suggestion():
+def test_tied_weekdays_suggest_a_full_week():
     start = NOW - timedelta(weeks=12)
     rows = [sale(start + timedelta(days=day, hours=1)) for day in range(84)]
     pattern = weekday_patterns(rows, "UTC", now=NOW)[0]
-    assert pattern["sales"] == 84 and pattern["suggested_start"] is None
-    assert "No clear" in pattern["reason"]
+    assert pattern["sales"] == 84
+    assert (pattern["suggested_start"], pattern["suggested_end"]) == ("2026-10-05", "2026-10-11")
+    assert "No weekday run stands out" in pattern["reason"]
 
 
 def event():
