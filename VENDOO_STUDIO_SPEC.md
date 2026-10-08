@@ -1037,10 +1037,12 @@ seller-entered profit floor using estimated effective fees and seller shipping.
 Saving, editing, recording, or cancelling an event never writes to a marketplace
 or to Vendoo. The seller runs the sale separately and marks it as run.
 
-Weekday suggestions rank two-day windows over up to 26 complete weeks of
-imported sales. Suggestions require at least 20 dated sales across 8 complete
-weeks and a unique strongest window; they are experiments, not predictions of
-discount lift. Records show sales and recorded profit during the event and a
+Weekday suggestions scan every run of one to six consecutive weekdays over up
+to 26 complete weeks of imported sales (Kulldorff's scan statistic), so the
+window length comes from the data. A seeded Monte Carlo test against evenly
+spread sales says whether the peak is stronger than chance or may be chance.
+Suggestions require at least 20 dated sales across 8 complete weeks and a unique
+strongest window; they are experiments, not predictions of discount lift. Records show sales and recorded profit during the event and a
 comparison with matching weekdays before it, plus marketplace sales over up
 to 14 days after it. Overlapping recorded promotions
 or insufficient history suppress that comparison. Missing prices, costs, and
