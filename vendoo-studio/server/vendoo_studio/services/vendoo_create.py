@@ -184,6 +184,34 @@ async def probe_schema(job, item_ids: list[str], *, reset: bool = False) -> dict
     return {"schema": schema, "learned_from": len(items), "failures": failures}
 
 
+# Safe to learn from any draft, Studio's own included: Studio only ever writes
+# these back from what it learned, so every value traces to a seller's pick.
+_SHIPPING_CHOICES = (("facebook", "shippingCarrier"), ("vinted", "packageSize"))
+
+
+def learn_shipping_choices(item: dict[str, Any]) -> bool:
+    """Remember the Facebook carrier and Vinted package size set on ``item``.
+
+    Runs whenever Studio reads a draft back, so a pick the seller makes once by
+    hand fills every later draft. Returns whether anything new was learned.
+    """
+    learned = observe_item_schema([item])["marketplaces"]
+    schema = load_schema() or {}
+    markets = schema.setdefault("marketplaces", {})
+    changed = False
+    for marketplace, name in _SHIPPING_CHOICES:
+        seen = (learned.get(marketplace) or {}).get(name)
+        if not seen:
+            continue
+        table = markets.setdefault(marketplace, {}).setdefault(name, {})
+        if any(table.get(key) != value for key, value in seen.items()):
+            table.update(seen)
+            changed = True
+    if changed:
+        save_schema(schema)
+    return changed
+
+
 # --------------------------------------------------------------------------
 # Category resolution (unlocks marketplace fields the same way a picker does)
 # --------------------------------------------------------------------------
@@ -989,6 +1017,8 @@ async def create_item(
             or path.endswith(".marketplaceSpecifics.smartPricing")
             or path.endswith(".marketplaceSpecifics.floorPrice")
             or path.endswith(".marketplaceSpecifics.shippingLabel")
+            or path.endswith(".marketplaceSpecifics.packageWeightLabel")
+            or path.endswith(".marketplaceSpecifics.carrier")
             or ".marketplaceSpecifics.shipping." in path
             or ".marketplaceSpecifics.pricingFormat" in path
             or ".pricingFormatDetails.fixedPrice." in path

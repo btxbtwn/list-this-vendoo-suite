@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.216 — 2026-10-09
+
+- Facebook drafts now get their Package weight from the item's weight, and the Shipping carrier you picked on an earlier Facebook form. Color and size fields Facebook shows as optional are filled from the listing too.
+- Vinted drafts now get Shoulder Width and Length from the measurements you type (pit to pit and length), and the Package Size you picked for a similar-weight item before. Until you've picked a carrier or package size once by hand in Vendoo, Studio leaves it for you and lists it as unfilled.
+
 ## 0.1.215 — 2026-10-09
 
 - The bar at the top of the window is slimmer, so listings get more room.
