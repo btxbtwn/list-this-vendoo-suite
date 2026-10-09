@@ -1,21 +1,24 @@
 """Sign in with a Claude account through the Claude Code CLI.
 
-Studio does not hold Claude credentials. Like T3 Code, it drives the seller's
-own Claude Code install: `claude auth login` stores the subscription login in
-Claude Code's keychain entry, `claude auth status` reports it, and the Agent
-SDK runs listings on that login. There is no sign-out here: `claude auth logout`
-would also sign the seller out of Claude Code itself.
+Studio does not hold Claude credentials. It drives the seller's own Claude
+Code install: Settings runs `claude auth login` in a small terminal, the login
+lands in Claude Code's keychain entry, `claude auth status` reports it, and the
+Agent SDK runs listings on that login. There is no sign-out here: `claude auth
+logout` would also sign the seller out of Claude Code itself.
 """
 
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
 import logging
 import os
-import re
+import pty
 import shutil
+import struct
 import subprocess
+import termios
 import threading
 import time
 from dataclasses import dataclass, field
@@ -23,7 +26,6 @@ from pathlib import Path
 
 log = logging.getLogger("vendoo_studio.claude_auth")
 
-LOGIN_TIMEOUT_S = 15 * 60
 STATUS_TTL_S = 60
 STATUS_TIMEOUT_S = 15
 INSTALL_COMMAND = "curl -fsSL https://claude.ai/install.sh | bash"
@@ -34,7 +36,6 @@ CLI_LOCATIONS = (
     "/opt/homebrew/bin/claude",
     "/usr/local/bin/claude",
 )
-_URL_RE = re.compile(r"https://\S+")
 
 
 def claude_cli_path() -> str | None:
@@ -63,18 +64,8 @@ class _Status:
     checked_at: float = field(default_factory=time.monotonic)
 
 
-@dataclass
-class PendingLogin:
-    process: asyncio.subprocess.Process
-    url: str | None = None
-    task: asyncio.Task | None = None
-    error: str | None = None
-    done: bool = False
-
-
 _status: _Status | None = None
 _status_guard = threading.Lock()
-_pending: PendingLogin | None = None
 
 
 def _read_status() -> _Status:
@@ -131,112 +122,72 @@ def status() -> dict:
         "signed_in": current.signed_in,
         "email": current.email,
         "plan": current.plan,
-        "pending": pending_login(),
-        "error": None if current.signed_in else login_error(),
         "install_command": INSTALL_COMMAND,
     }
 
 
-async def start_login() -> dict:
-    global _pending
-    await cancel_login()
-    forget_status()
-    cli = claude_cli_path()
-    if not cli:
-        raise RuntimeError(f"Claude Code is not installed. Install it with: {INSTALL_COMMAND}")
-    # The CLI opens the browser itself and finishes on its local callback;
-    # the code prompt on stdin is the fallback when that callback can't land.
-    process = await asyncio.create_subprocess_exec(
-        cli,
-        "auth",
-        "login",
-        "--claudeai",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    pending = PendingLogin(process=process)
-    pending.task = asyncio.create_task(_complete_login(pending))
-    _pending = pending
-    # Show the sign-in link as soon as the CLI prints it.
-    for _ in range(50):
-        if pending.url or pending.done:
-            break
-        await asyncio.sleep(0.1)
-    if pending.done and pending.error:
-        raise RuntimeError(pending.error)
-    return {"url": pending.url}
+class LoginTerminal:
+    """`claude auth login` on a pseudo-terminal, for the sign-in terminal in Settings.
 
+    It runs that one command, not a shell, and ends when the command does.
+    """
 
-async def _complete_login(pending: PendingLogin) -> None:
-    process = pending.process
-    output: list[str] = []
-
-    async def read_output() -> None:
-        assert process.stdout is not None
-        async for raw in process.stdout:
-            line = raw.decode("utf-8", "replace").replace("Paste code here if prompted >", "").strip()
-            output.append(line)
-            match = _URL_RE.search(line)
-            if match and pending.url is None:
-                pending.url = match.group()
-
-    try:
-        await asyncio.wait_for(read_output(), timeout=LOGIN_TIMEOUT_S)
-        code = await process.wait()
-        if code != 0:
-            detail = next((line for line in reversed(output) if line), "")
-            if "status code 400" in detail:
-                detail = "Claude did not accept that code. Sign in again and paste the newest code."
-            pending.error = detail or f"Claude sign-in failed (exit {code})"
-    except TimeoutError:
-        pending.error = "Claude sign-in timed out after 15 minutes"
-    except asyncio.CancelledError:
-        pending.error = "Login cancelled"
-        raise
-    finally:
-        if process.returncode is None:
-            process.kill()
-            await process.wait()
-        pending.done = True
+    def __init__(self, cols: int = 80, rows: int = 24):
+        cli = claude_cli_path()
+        if not cli:
+            raise RuntimeError(f"Claude Code is not installed. Install it with: {INSTALL_COMMAND}")
         forget_status()
-
-
-async def submit_code(code: str) -> None:
-    """Finish a login whose browser could not reach the CLI by pasting the code it showed."""
-    pending = _pending
-    if pending is None or pending.done or pending.process.stdin is None:
-        raise RuntimeError("No Claude sign-in is waiting for a code.")
-    pending.process.stdin.write(code.strip().encode() + b"\n")
-    await pending.process.stdin.drain()
-    if pending.task is not None:
+        self._fd, child = pty.openpty()
+        self.resize(cols, rows)
         try:
-            await asyncio.wait_for(asyncio.shield(pending.task), timeout=30)
-        except TimeoutError:
-            pass
-    if pending.error:
-        raise RuntimeError(pending.error)
+            self.process = subprocess.Popen(
+                [cli, "auth", "login", "--claudeai"],
+                stdin=child,
+                stdout=child,
+                stderr=child,
+                start_new_session=True,
+                env={**os.environ, "TERM": "xterm-256color"},
+            )
+        finally:
+            os.close(child)
+        self._output: asyncio.Queue[bytes | None] = asyncio.Queue()
+        asyncio.get_running_loop().add_reader(self._fd, self._on_readable)
 
-
-async def cancel_login() -> None:
-    global _pending
-    previous, _pending = _pending, None
-    if previous and previous.task and not previous.task.done():
-        previous.task.cancel()
+    def _on_readable(self) -> None:
         try:
-            await previous.task
-        except asyncio.CancelledError:
-            pass
+            data = os.read(self._fd, 65536)
+        except OSError:
+            data = b""
+        if not data:
+            # The command exited and closed its end of the terminal.
+            asyncio.get_running_loop().remove_reader(self._fd)
+            self._output.put_nowait(None)
+            return
+        self._output.put_nowait(data)
 
+    async def read(self) -> bytes | None:
+        """The next output, or None once the command has exited."""
+        return await self._output.get()
 
-def pending_login() -> dict | None:
-    if not _pending or _pending.done:
-        return None
-    return {"url": _pending.url}
+    def write(self, data: bytes) -> None:
+        os.write(self._fd, data)
 
+    def resize(self, cols: int, rows: int) -> None:
+        size = struct.pack("HHHH", max(rows, 1), max(cols, 1), 0, 0)
+        fcntl.ioctl(self._fd, termios.TIOCSWINSZ, size)
 
-def login_error() -> str | None:
-    if _pending and _pending.done:
-        return _pending.error
-    return None
-
+    async def close(self) -> int | None:
+        """Stop the command if it is still running, and return its exit code."""
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                await asyncio.to_thread(self.process.wait, 5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                await asyncio.to_thread(self.process.wait)
+        if self._fd >= 0:
+            asyncio.get_running_loop().remove_reader(self._fd)
+            os.close(self._fd)
+            self._fd = -1
+        forget_status()
+        return self.process.returncode

@@ -143,17 +143,16 @@ class ClaudeAuthStatusTest(unittest.TestCase):
 
 FAKE_LOGIN = textwrap.dedent("""\
     #!/bin/sh
-    echo "Opening browser to sign in…"
-    echo "If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true"
+    [ -t 0 ] && echo "on a terminal: $*"
     printf "Paste code here if prompted > "
     read code
     if [ "$code" = "good#state" ]; then echo "Login successful."; exit 0; fi
-    echo "Login failed: Request failed with status code 400"
+    echo "Login failed"
     exit 1
 """)
 
 
-class ClaudeLoginTest(unittest.TestCase):
+class ClaudeLoginTerminalTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.mkdtemp()
         self.cli = Path(tmp) / "claude"
@@ -163,32 +162,49 @@ class ClaudeLoginTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _login(self, code: str) -> tuple[dict, str | None]:
-        async def run():
-            started = await claude_auth.start_login()
-            self.assertEqual(claude_auth.pending_login(), started)
-            error = None
-            try:
-                await claude_auth.submit_code(code)
-            except RuntimeError as exc:
-                error = str(exc)
-            return started, error
+    def _login(self, code: str) -> tuple[str, dict]:
+        from fastapi.testclient import TestClient
 
-        return asyncio.run(run())
+        from vendoo_studio.config import CORS_ORIGINS
+        from vendoo_studio.main import app
 
-    def test_pasted_code_finishes_the_login(self):
-        started, error = self._login("good#state")
-        self.assertEqual(started["url"], "https://claude.com/cai/oauth/authorize?code=true")
-        self.assertIsNone(error)
-        self.assertIsNone(claude_auth.pending_login())
-        self.assertIsNone(claude_auth.login_error())
+        output = ""
+        with TestClient(app).websocket_connect(
+            "/api/settings/claude/terminal?cols=100&rows=30",
+            headers={"origin": CORS_ORIGINS[0]},
+        ) as ws:
+            while "prompted >" not in output:
+                output += ws.receive_bytes().decode()
+            ws.send_text(json.dumps({"type": "input", "data": code + "\r"}))
+            while True:
+                message = ws.receive()
+                if message.get("bytes") is not None:
+                    output += message["bytes"].decode()
+                else:
+                    return output, json.loads(message["text"])
 
-    def test_rejected_code_reports_the_cli_error(self):
-        _, error = self._login("bad")
-        self.assertEqual(
-            error, "Claude did not accept that code. Sign in again and paste the newest code."
-        )
-        self.assertEqual(claude_auth.login_error(), error)
+    def test_runs_the_login_on_a_terminal_and_reports_success(self):
+        output, last = self._login("good#state")
+        self.assertIn("on a terminal: auth login --claudeai", output)
+        self.assertIn("Login successful.", output)
+        self.assertEqual(last, {"type": "exit", "code": 0})
+
+    def test_a_failed_login_reports_its_exit_code(self):
+        output, last = self._login("bad")
+        self.assertIn("Login failed", output)
+        self.assertEqual(last, {"type": "exit", "code": 1})
+
+    def test_other_origins_cannot_open_it(self):
+        from fastapi.testclient import TestClient
+        from starlette.websockets import WebSocketDisconnect
+
+        from vendoo_studio.main import app
+
+        with self.assertRaises(WebSocketDisconnect):
+            with TestClient(app).websocket_connect(
+                "/api/settings/claude/terminal", headers={"origin": "https://example.com"}
+            ) as ws:
+                ws.receive()
 
 
 class ListingProviderClaudeTest(unittest.TestCase):

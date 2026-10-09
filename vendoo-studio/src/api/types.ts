@@ -271,9 +271,6 @@ export interface ClaudeStatus {
   signed_in: boolean;
   email?: string | null;
   plan?: string | null;
-  /** The sign-in link while `claude auth login` waits for the browser. */
-  pending?: { url: string | null } | null;
-  error?: string | null;
   install_command: string;
 }
 

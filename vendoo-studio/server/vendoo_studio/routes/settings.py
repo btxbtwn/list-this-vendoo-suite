@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -64,13 +67,7 @@ class ClaudeStatus(BaseModel):
     signed_in: bool
     email: str | None = None
     plan: str | None = None
-    pending: dict | None = None
-    error: str | None = None
     install_command: str
-
-
-class ClaudeLoginCode(BaseModel):
-    code: str
 
 
 class ProviderStatus(BaseModel):
@@ -646,33 +643,61 @@ async def chatgpt_logout():
     return {"ok": True}
 
 
-@router.post("/claude/login")
-async def claude_login():
-    from vendoo_studio.services import claude_auth
+@router.websocket("/claude/terminal")
+async def claude_login_terminal(ws: WebSocket):
+    """Run `claude auth login` in Settings' sign-in terminal.
 
+    Output goes to the page as binary frames; the page sends
+    ``{"type": "input", "data"}`` and ``{"type": "resize", "cols", "rows"}``.
+    The last frame is ``{"type": "exit", "code"}``, or ``{"type": "error"}``.
+    """
+    from vendoo_studio.config import CORS_ORIGINS
+    from vendoo_studio.services.claude_auth import LoginTerminal
+
+    # Only Studio's own window on this Mac: the login opens a browser here.
+    if ws.headers.get("origin") not in CORS_ORIGINS:
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    cols = int(ws.query_params.get("cols") or 80)
+    rows = int(ws.query_params.get("rows") or 24)
     try:
-        return await claude_auth.start_login()
+        terminal = LoginTerminal(cols, rows)
     except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+        await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
+        await ws.close()
+        return
 
+    async def pump_output() -> None:
+        while (data := await terminal.read()) is not None:
+            await ws.send_bytes(data)
 
-@router.post("/claude/login/code")
-async def claude_login_code(body: ClaudeLoginCode):
-    from vendoo_studio.services import claude_auth
+    async def pump_input() -> None:
+        while True:
+            try:
+                message = json.loads(await ws.receive_text())
+            except WebSocketDisconnect:
+                return
+            if message.get("type") == "input":
+                terminal.write(str(message.get("data") or "").encode())
+            elif message.get("type") == "resize":
+                terminal.resize(int(message.get("cols") or cols), int(message.get("rows") or rows))
 
+    output = asyncio.create_task(pump_output())
+    pump = asyncio.create_task(pump_input())
     try:
-        await claude_auth.submit_code(body.code)
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
-    return {"ok": True}
-
-
-@router.delete("/claude/login")
-async def claude_login_cancel():
-    from vendoo_studio.services import claude_auth
-
-    await claude_auth.cancel_login()
-    return {"ok": True}
+        done, _ = await asyncio.wait({output, pump}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        pump.cancel()
+        output.cancel()
+        code = await terminal.close()
+    # The page is still there when the command, not the page, finished first.
+    if output in done and output.exception() is None:
+        try:
+            await ws.send_text(json.dumps({"type": "exit", "code": code}))
+            await ws.close()
+        except (WebSocketDisconnect, RuntimeError):
+            pass
 
 
 class BraveConfig(BaseModel):

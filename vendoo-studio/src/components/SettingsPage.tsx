@@ -8,6 +8,7 @@ import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
 import { DuplicateVendooLinksButton } from "./DuplicateVendooLinksButton";
 import { ChangelogDialog } from "./ChangelogDialog";
+import { ClaudeLoginTerminal } from "./ClaudeLoginTerminal";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ProviderLogo, resolveProviderLogoId } from "./ProviderLogo";
 import {
@@ -1024,7 +1025,7 @@ function ProvidersPanel() {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
   const [cursorKey, setCursorKey] = useState("");
-  const [claudeCode, setClaudeCode] = useState("");
+  const [claudeTerminalOpen, setClaudeTerminalOpen] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [mimoTesting, setMimoTesting] = useState(false);
@@ -1107,22 +1108,6 @@ function ProvidersPanel() {
     mutationFn: () => api.settings.chatgptLogout(),
     onSuccess: refreshProvider,
   });
-  const claudeLoginMutation = useMutation({
-    mutationFn: () => api.settings.claudeLogin(),
-    onSuccess: refreshProvider,
-  });
-  const claudeCodeMutation = useMutation({
-    mutationFn: (code: string) => api.settings.claudeLoginCode(code),
-    onSuccess: () => {
-      setClaudeCode("");
-      refreshProvider();
-    },
-    onError: refreshProvider,
-  });
-  const claudeCancelMutation = useMutation({
-    mutationFn: () => api.settings.claudeCancelLogin(),
-    onSuccess: refreshProvider,
-  });
   const setChatGPTModelsMutation = useMutation({
     mutationFn: (models: { vision_model?: string; listing_model?: string; reasoning_effort?: string }) =>
       api.settings.setChatGPTModels(models),
@@ -1164,7 +1149,6 @@ function ProvidersPanel() {
   const chatgptPending = chatgpt?.pending;
   const pendingCode = chatgptPending?.user_code;
   const claude = provider?.claude;
-  const claudePending = claude?.pending;
   const mimoConfigured = Boolean(provider?.masked_key);
   const primary: ListingProviderId =
     provider?.primary === "claude" || provider?.primary === "mimo" || provider?.primary === "cursor"
@@ -1208,13 +1192,13 @@ function ProvidersPanel() {
     : ["none", "low", "medium", "high", "xhigh"];
 
   useEffect(() => {
-    if (!pendingCode && !claudePending) return;
+    if (!pendingCode) return;
     const id = window.setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     }, 2000);
     return () => window.clearInterval(id);
-  }, [pendingCode, claudePending, queryClient]);
+  }, [pendingCode, queryClient]);
 
   const handleTest = async () => {
     setTesting(true);
@@ -1483,8 +1467,6 @@ function ProvidersPanel() {
           status={
             claudeSignedIn && testResult && provider?.provider === "claude" ? (
               <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
-            ) : claude?.error ? (
-              <span className="text-error">{claude.error}</span>
             ) : null
           }
           control={
@@ -1494,23 +1476,14 @@ function ProvidersPanel() {
                   {testing ? "Testing…" : "Test"}
                 </button>
               ) : null
-            ) : claudePending ? (
-              <button
-                type="button"
-                className="btn btn-sm btn-outline"
-                onClick={() => claudeCancelMutation.mutate()}
-                disabled={claudeCancelMutation.isPending}
-              >
-                Cancel
-              </button>
-            ) : (
+            ) : claudeTerminalOpen ? null : (
               <button
                 type="button"
                 className="btn btn-sm btn-primary"
-                onClick={() => claudeLoginMutation.mutate()}
-                disabled={claudeLoginMutation.isPending}
+                onClick={() => setClaudeTerminalOpen(true)}
+                disabled={claude ? !claude.installed : true}
               >
-                {claudeLoginMutation.isPending ? "Starting…" : "Sign in"}
+                Sign in
               </button>
             )
           }
@@ -1527,47 +1500,13 @@ function ProvidersPanel() {
               {" "}Signing out of Claude Code (<code className="settings-row-code">claude auth logout</code> in
               Terminal) signs Studio out too; Sign in here brings it back.
             </p>
-          ) : claudePending ? (
-            <>
-              <p className="settings-row-desc">
-                Finish signing in in the browser window that opened.
-                {claudePending.url ? (
-                  <>
-                    {" "}If none opened,{" "}
-                    <a href={claudePending.url} target="_blank" rel="noreferrer">
-                      open the sign-in page
-                    </a>{" "}
-                    and paste the code it shows here.
-                  </>
-                ) : null}
-              </p>
-              {claudePending.url ? (
-                <form
-                  className="settings-row-field"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (claudeCode.trim()) claudeCodeMutation.mutate(claudeCode.trim());
-                  }}
-                >
-                  <input
-                    className="input"
-                    aria-label="Claude sign-in code"
-                    placeholder="Paste code"
-                    value={claudeCode}
-                    onChange={(event) => setClaudeCode(event.target.value)}
-                  />
-                  <button
-                    type="submit"
-                    className="btn btn-sm btn-primary"
-                    disabled={!claudeCode.trim() || claudeCodeMutation.isPending}
-                  >
-                    {claudeCodeMutation.isPending ? "Signing in…" : "Submit"}
-                  </button>
-                </form>
-              ) : null}
-            </>
-          ) : claudeLoginMutation.isError ? (
-            <p className="settings-row-desc text-error">{(claudeLoginMutation.error as Error).message}</p>
+          ) : claudeTerminalOpen ? (
+            <ClaudeLoginTerminal
+              onClose={() => {
+                setClaudeTerminalOpen(false);
+                refreshProvider();
+              }}
+            />
           ) : claude && !claude.installed ? (
             <p className="settings-row-desc">
               Needs Claude Code. Install it in Terminal with{" "}

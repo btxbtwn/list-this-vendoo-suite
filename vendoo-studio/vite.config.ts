@@ -46,6 +46,8 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:4318",
         changeOrigin: true,
+        // The Claude sign-in terminal is a WebSocket.
+        ws: true,
         timeout: 0,
         configure(proxy) {
           proxy.on("proxyRes", (proxyRes, _req, res) => {
