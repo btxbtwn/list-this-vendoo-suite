@@ -59,14 +59,16 @@ def workspace():
 
 def test_local_event_lifecycle_and_snapshots(workspace):
     db, client = workspace
-    response = client.post("/api/analytics/calendar", json=plan())
+    # A sale that has not started yet, whatever day the suite runs.
+    upcoming = {"start_date": "2099-10-09", "end_date": "2099-10-11"}
+    response = client.post("/api/analytics/calendar", json=plan(**upcoming))
     assert response.status_code == 201, response.text
     eid = response.json()["id"]
     payload = client.get("/api/analytics/calendar?timezone=UTC").json()
     assert payload["events"][0]["items"] == [] and payload["events"][0]["discount_percent"] == 10
     assert payload["events"][0]["result"] is None
     assert {item["id"] for item in payload["items"]} == {"active", "no-cost", "expensive"}
-    assert client.put(f"/api/analytics/calendar/{eid}", json=plan(title="Revised")).status_code == 200
+    assert client.put(f"/api/analytics/calendar/{eid}", json=plan(title="Revised", **upcoming)).status_code == 200
     assert client.patch(f"/api/analytics/calendar/{eid}/status", json={"status": "ran"}).status_code == 422
     assert client.put(f"/api/analytics/calendar/{eid}", json=plan(start_date="2020-01-03", end_date="2020-01-05")).status_code == 200
     assert client.patch(f"/api/analytics/calendar/{eid}/status", json={"status": "ran"}).status_code == 200
