@@ -48,3 +48,26 @@ def _claude_signed_out(monkeypatch):
     claude_auth.forget_status()
     yield
     claude_auth.forget_status()
+
+
+@pytest.fixture(autouse=True)
+def _keychain_memory_is_pristine():
+    """Leave the keychain module's in-memory state as a fresh process has it.
+
+    A test that reads a secret without a fake keyring leaves ``_store`` set,
+    and a later test's setter would flush it. ``RealKeychainIsUntouchedTest``
+    checks for exactly that, and with xdist the test that leaked can be any
+    test the worker ran first, so the state is reset around every test.
+    """
+    from vendoo_studio.services import keychain
+
+    def reset() -> None:
+        keychain._store = None
+        keychain._store_readable = False
+        keychain._warmed = False
+        keychain._touched.clear()
+        keychain._deleted.clear()
+
+    reset()
+    yield
+    reset()
