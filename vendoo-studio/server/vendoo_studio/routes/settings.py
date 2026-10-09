@@ -53,10 +53,24 @@ class ChatGPTStatus(BaseModel):
     error: str | None = None
 
 
+class ClaudeStatus(BaseModel):
+    installed: bool
+    signed_in: bool
+    email: str | None = None
+    plan: str | None = None
+    pending: dict | None = None
+    error: str | None = None
+    install_command: str
+
+
+class ClaudeLoginCode(BaseModel):
+    code: str
+
+
 class ProviderStatus(BaseModel):
     provider: str
-    primary: Literal["chatgpt", "mimo", "cursor"]
-    fallback: Literal["chatgpt", "mimo", "cursor", "none"]
+    primary: Literal["chatgpt", "claude", "mimo", "cursor"]
+    fallback: Literal["chatgpt", "claude", "mimo", "cursor", "none"]
     configured: bool
     masked_key: str | None
     masked_cursor_key: str | None = None
@@ -64,11 +78,12 @@ class ProviderStatus(BaseModel):
     listing_model: str
     base_url: str
     chatgpt: ChatGPTStatus
+    claude: ClaudeStatus
 
 
 class PreferredProviderConfig(BaseModel):
-    primary: Literal["chatgpt", "mimo", "cursor"]
-    fallback: Literal["chatgpt", "mimo", "cursor", "none"] | None = None
+    primary: Literal["chatgpt", "claude", "mimo", "cursor"]
+    fallback: Literal["chatgpt", "claude", "mimo", "cursor", "none"] | None = None
 
 
 def _chatgpt_status() -> ChatGPTStatus:
@@ -92,7 +107,10 @@ def get_provider():
     from vendoo_studio.services.listing_provider import get_listing_provider
     from vendoo_studio.services.user_settings import get_listing_provider_order
 
+    from vendoo_studio.services import claude_auth
+
     chatgpt = _chatgpt_status()
+    claude = ClaudeStatus(**claude_auth.status())
     key = get_api_key()
     masked = mask_secret(key)
     masked_cursor = mask_secret(get_cursor_api_key())
@@ -115,6 +133,22 @@ def get_provider():
             listing_model=listing_model,
             base_url="https://chatgpt.com/backend-api/codex",
             chatgpt=chatgpt,
+            claude=claude,
+        )
+
+    if active_name == "claude":
+        return ProviderStatus(
+            provider="claude",
+            primary=primary,
+            fallback=fallback,
+            configured=True,
+            masked_key=masked,
+            masked_cursor_key=masked_cursor,
+            vision_model=active.vision_model,
+            listing_model=active.listing_model,
+            base_url="claude-agent-sdk://local",
+            chatgpt=chatgpt,
+            claude=claude,
         )
 
     if active_name == "cursor":
@@ -132,6 +166,7 @@ def get_provider():
             listing_model=listing_model,
             base_url="cursor-sdk://local",
             chatgpt=chatgpt,
+            claude=claude,
         )
 
     return ProviderStatus(
@@ -145,6 +180,7 @@ def get_provider():
         listing_model="mimo-v2.5-pro",
         base_url="https://api.xiaomimimo.com/v1",
         chatgpt=chatgpt,
+        claude=claude,
     )
 
 
@@ -187,7 +223,7 @@ async def test_connection():
     if provider is None:
         raise HTTPException(
             400,
-            "Sign in with ChatGPT in Settings, or add a MiMo or Cursor API key.",
+            "Sign in with ChatGPT or Claude in Settings, or add a MiMo or Cursor API key.",
         )
 
     name = getattr(provider, "name", "xiaomi-mimo")
@@ -535,6 +571,35 @@ async def chatgpt_logout():
 
     await chatgpt_oauth.cancel_login()
     chatgpt_oauth.logout()
+    return {"ok": True}
+
+
+@router.post("/claude/login")
+async def claude_login():
+    from vendoo_studio.services import claude_auth
+
+    try:
+        return await claude_auth.start_login()
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/claude/login/code")
+async def claude_login_code(body: ClaudeLoginCode):
+    from vendoo_studio.services import claude_auth
+
+    try:
+        await claude_auth.submit_code(body.code)
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.delete("/claude/login")
+async def claude_login_cancel():
+    from vendoo_studio.services import claude_auth
+
+    await claude_auth.cancel_login()
     return {"ok": True}
 
 

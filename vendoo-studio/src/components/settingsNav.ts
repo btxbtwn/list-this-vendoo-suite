@@ -92,7 +92,7 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Setup guide",
     section: "general",
     targetId: "setup-guide",
-    searchTerms: ["tutorial", "onboarding", "first run", "chatgpt", "mimo", "cursor", "brave"],
+    searchTerms: ["tutorial", "onboarding", "first run", "chatgpt", "claude", "mimo", "cursor", "brave"],
   },
   {
     id: "backups",
@@ -134,7 +134,7 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Listing AI",
     section: "providers",
     targetId: "listing-ai",
-    searchTerms: ["chatgpt", "mimo", "cursor", "provider", "choose", "prefer", "primary", "fallback"],
+    searchTerms: ["chatgpt", "claude", "mimo", "cursor", "provider", "choose", "prefer", "primary", "fallback"],
   },
   {
     id: "chatgpt",
@@ -142,6 +142,13 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     section: "providers",
     targetId: "chatgpt",
     searchTerms: ["openai", "codex", "subscription", "sign out"],
+  },
+  {
+    id: "claude",
+    title: "Sign in with Claude",
+    section: "providers",
+    targetId: "claude",
+    searchTerms: ["anthropic", "claude code", "subscription", "pro", "max"],
   },
   {
     id: "vision-model",

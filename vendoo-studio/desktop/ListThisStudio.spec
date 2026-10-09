@@ -59,6 +59,9 @@ binaries: list = []
 hiddenimports = [
     *collect_submodules("vendoo_studio"),
     *collect_submodules("webview"),
+    # Modules only: the SDK's 240 MB bundled CLI stays out. Studio runs the
+    # seller's own Claude Code install, whose login is what it signs in with.
+    *collect_submodules("claude_agent_sdk"),
     "uvicorn.logging",
     "uvicorn.loops",
     "uvicorn.loops.auto",

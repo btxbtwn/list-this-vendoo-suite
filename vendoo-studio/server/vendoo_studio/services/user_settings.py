@@ -20,11 +20,11 @@ LISTING_NAMES_KEY = "listing_names"
 LISTING_NAME_CHOICES = frozenset({"title", "sku"})
 MAX_RECENT_LABELS = 12
 MAX_HIDDEN_LABELS = 200
-LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "mimo", "cursor"})
-LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "mimo", "cursor", "none"})
+LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "claude", "mimo", "cursor"})
+LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "claude", "mimo", "cursor", "none"})
 THEME_CHOICES = frozenset({"dark", "light", "system"})
-DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "mimo", "cursor"] = "chatgpt"
-DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "mimo", "cursor", "none"] = "mimo"
+DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "claude", "mimo", "cursor"] = "chatgpt"
+DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "claude", "mimo", "cursor", "none"] = "mimo"
 CURSOR_MODELS_KEY = "cursor_models"
 DEFAULT_CURSOR_MODEL = "composer-2.5"
 AUTO_CURSOR_MODEL = "auto"
@@ -33,8 +33,8 @@ PACKAGE_DIMENSIONS_KEY = "package_dimensions_in"
 DEFAULT_PACKAGE_DIMENSIONS = {"length": 13, "width": 10, "height": 3}
 DEFAULT_THEME: Literal["dark", "light", "system"] = "dark"
 
-ListingProviderChoice = Literal["chatgpt", "mimo", "cursor"]
-ListingFallbackChoice = Literal["chatgpt", "mimo", "cursor", "none"]
+ListingProviderChoice = Literal["chatgpt", "claude", "mimo", "cursor"]
+ListingFallbackChoice = Literal["chatgpt", "claude", "mimo", "cursor", "none"]
 ThemeChoice = Literal["dark", "light", "system"]
 
 
@@ -195,7 +195,7 @@ def set_listing_provider_order(
     fallback: object | None = None,
 ) -> dict[str, str]:
     if not isinstance(primary, str) or primary.strip().lower() not in LISTING_PROVIDER_CHOICES:
-        raise ValueError('Primary listing provider must be "chatgpt", "mimo", or "cursor".')
+        raise ValueError('Primary listing provider must be "chatgpt", "claude", "mimo", or "cursor".')
     primary_choice = normalize_listing_provider(primary)
 
     if fallback is None:
@@ -209,9 +209,9 @@ def set_listing_provider_order(
                 raise ValueError('Fallback must differ from primary, or be "none".')
             fallback_choice = cleaned  # type: ignore[assignment]
         else:
-            raise ValueError('Fallback must be "chatgpt", "mimo", "cursor", or "none".')
+            raise ValueError('Fallback must be "chatgpt", "claude", "mimo", "cursor", or "none".')
     else:
-        raise ValueError('Fallback must be "chatgpt", "mimo", "cursor", or "none".')
+        raise ValueError('Fallback must be "chatgpt", "claude", "mimo", "cursor", or "none".')
 
     def mutator(payload: dict) -> None:
         payload[LISTING_PROVIDER_KEY] = {

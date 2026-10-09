@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.205 — 2026-10-09
+
+- Sign in with your Claude account. Settings → Providers → Claude signs in through Claude Code with your Pro or Max plan, the way T3 Code does, and Claude can then write listings, read photos and look up sold comps. Choose it as Primary or Fallback under Listing AI. Needs Claude Code installed on this Mac.
+
 ## 0.1.204 — 2026-10-09
 
 - When Cursor writes your listings, Settings → Models → Reasoning now lets you choose how hard the listing model thinks. The levels come from the model itself; higher takes longer and uses more Cursor usage.

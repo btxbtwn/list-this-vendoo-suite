@@ -264,7 +264,19 @@ export interface ChatGPTStatus {
   error?: string | null;
 }
 
-export type ListingProviderId = "chatgpt" | "mimo" | "cursor";
+export interface ClaudeStatus {
+  /** Whether Claude Code, whose login Studio signs in with, is on this Mac. */
+  installed: boolean;
+  signed_in: boolean;
+  email?: string | null;
+  plan?: string | null;
+  /** The sign-in link while `claude auth login` waits for the browser. */
+  pending?: { url: string | null } | null;
+  error?: string | null;
+  install_command: string;
+}
+
+export type ListingProviderId = "chatgpt" | "claude" | "mimo" | "cursor";
 
 /** What the sidebar names each listing by. */
 export type ListingNames = "title" | "sku";
@@ -280,6 +292,7 @@ export interface ProviderStatus {
   listing_model: string;
   base_url: string;
   chatgpt: ChatGPTStatus;
+  claude: ClaudeStatus;
 }
 
 export interface ProviderTestResult {

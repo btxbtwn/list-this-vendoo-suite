@@ -4,8 +4,8 @@ import { PROVIDER_LOGOS } from "./providerLogos";
 import { providerStatusModelLabel } from "./ProviderStatus";
 
 describe("ProviderLogo", () => {
-  it("ships brand marks for ChatGPT, MiMo, and Cursor", () => {
-    for (const id of ["chatgpt", "mimo", "cursor"] as const) {
+  it("ships brand marks for ChatGPT, Claude, MiMo, and Cursor", () => {
+    for (const id of ["chatgpt", "claude", "mimo", "cursor"] as const) {
       expect(hasProviderLogo(id)).toBe(true);
       expect(PROVIDER_LOGOS[id].paths.length).toBeGreaterThan(0);
       expect(PROVIDER_LOGOS[id].viewBox).toMatch(/^\d/);
@@ -14,6 +14,7 @@ describe("ProviderLogo", () => {
 
   it("keeps current brand fills on provider logos", () => {
     expect(providerLogoColor("chatgpt")).toBe("#000000");
+    expect(providerLogoColor("claude")).toBe("#D97757");
     expect(providerLogoColor("mimo")).toBe("#000000");
     expect(providerLogoColor("cursor")).toBe("#26251E");
   });
@@ -27,6 +28,7 @@ describe("ProviderLogo", () => {
 
   it("maps API provider names to logo ids", () => {
     expect(resolveProviderLogoId("chatgpt")).toBe("chatgpt");
+    expect(resolveProviderLogoId("claude")).toBe("claude");
     expect(resolveProviderLogoId("xiaomi-mimo")).toBe("mimo");
     expect(resolveProviderLogoId("mimo")).toBe("mimo");
     expect(resolveProviderLogoId("cursor")).toBe("cursor");

@@ -535,6 +535,13 @@ export const api = {
     chatgptLogin: () => request<ChatGPTPendingLogin>("/settings/chatgpt/login", { method: "POST" }),
     chatgptCancelLogin: () => request<OkResponse>("/settings/chatgpt/login", { method: "DELETE" }),
     chatgptLogout: () => request<OkResponse>("/settings/chatgpt", { method: "DELETE" }),
+    claudeLogin: () => request<{ url: string | null }>("/settings/claude/login", { method: "POST" }),
+    claudeLoginCode: (code: string) =>
+      request<OkResponse>("/settings/claude/login/code", {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      }),
+    claudeCancelLogin: () => request<OkResponse>("/settings/claude/login", { method: "DELETE" }),
     chatgptModels: () =>
       request<{
         models: string[];
