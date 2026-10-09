@@ -7,7 +7,7 @@ from vendoo_studio.providers.xiaomi_mimo import MiMoProvider
 from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
 from vendoo_studio.services.claude_auth import claude_signed_in
 from vendoo_studio.services.keychain import get_api_key, get_cursor_api_key
-from vendoo_studio.services.user_settings import get_listing_provider_order
+from vendoo_studio.services.user_settings import get_listing_provider_order, get_photo_provider_choice
 
 
 def _mimo_provider():
@@ -60,6 +60,20 @@ def get_listing_provider():
     if fallback != "none":
         return _provider_for(fallback)
     return None
+
+
+def get_photo_provider():
+    """Return the provider that reads product photos.
+
+    The seller can pick one apart from the listing provider; when that one is
+    not ready, photos are read by the listing provider like everything else.
+    """
+    choice = get_photo_provider_choice()
+    if choice != "same":
+        provider = _provider_for(choice)
+        if provider is not None:
+            return provider
+    return get_listing_provider()
 
 
 def provider_is_configured() -> bool:

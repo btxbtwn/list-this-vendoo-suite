@@ -71,6 +71,7 @@ class ProviderStatus(BaseModel):
     provider: str
     primary: Literal["chatgpt", "claude", "mimo", "cursor"]
     fallback: Literal["chatgpt", "claude", "mimo", "cursor", "none"]
+    photo_provider: Literal["same", "chatgpt", "claude", "mimo", "cursor"] = "same"
     configured: bool
     masked_key: str | None
     masked_cursor_key: str | None = None
@@ -79,6 +80,10 @@ class ProviderStatus(BaseModel):
     base_url: str
     chatgpt: ChatGPTStatus
     claude: ClaudeStatus
+
+
+class PhotoProviderConfig(BaseModel):
+    choice: Literal["same", "chatgpt", "claude", "mimo", "cursor"]
 
 
 class PreferredProviderConfig(BaseModel):
@@ -105,12 +110,13 @@ def _chatgpt_status() -> ChatGPTStatus:
 def get_provider():
     from vendoo_studio.services.keychain import get_api_key, get_cursor_api_key, mask_secret
     from vendoo_studio.services.listing_provider import get_listing_provider
-    from vendoo_studio.services.user_settings import get_listing_provider_order
+    from vendoo_studio.services.user_settings import get_listing_provider_order, get_photo_provider_choice
 
     from vendoo_studio.services import claude_auth
 
     chatgpt = _chatgpt_status()
     claude = ClaudeStatus(**claude_auth.status())
+    photo_provider = get_photo_provider_choice()
     key = get_api_key()
     masked = mask_secret(key)
     masked_cursor = mask_secret(get_cursor_api_key())
@@ -126,6 +132,7 @@ def get_provider():
             provider="chatgpt",
             primary=primary,
             fallback=fallback,
+            photo_provider=photo_provider,
             configured=True,
             masked_key=masked,
             masked_cursor_key=masked_cursor,
@@ -159,6 +166,7 @@ def get_provider():
             provider="cursor",
             primary=primary,
             fallback=fallback,
+            photo_provider=photo_provider,
             configured=True,
             masked_key=masked,
             masked_cursor_key=masked_cursor,
@@ -173,6 +181,7 @@ def get_provider():
         provider="xiaomi-mimo",
         primary=primary,
         fallback=fallback,
+        photo_provider=photo_provider,
         configured=bool(active),
         masked_key=masked,
         masked_cursor_key=masked_cursor,
@@ -205,6 +214,13 @@ def set_preferred_provider(config: PreferredProviderConfig):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, **order}
+
+
+@router.put("/provider/photos")
+def set_photo_provider(config: PhotoProviderConfig):
+    from vendoo_studio.services.user_settings import set_photo_provider_choice
+
+    return {"ok": True, "photo_provider": set_photo_provider_choice(config.choice)}
 
 
 @router.delete("/provider/key")

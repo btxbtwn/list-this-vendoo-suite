@@ -1164,6 +1164,7 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
 
         self.patches = [
             patch("vendoo_studio.routes.chat.get_listing_provider", return_value=self.provider),
+            patch("vendoo_studio.routes.chat.get_photo_provider", return_value=self.provider),
             patch("vendoo_studio.services.listing_generation.load_skill_rules", return_value="rules"),
             patch("vendoo_studio.services.listing_generation.research_sold_comps", new=AsyncMock(return_value="")),
             patch("vendoo_studio.services.listing_generation.comps_search_available", return_value=False),
@@ -1267,10 +1268,11 @@ class GenerateStreamTest(unittest.IsolatedAsyncioTestCase):
                 yield '```json\n{"title": "Broken Tee", "price": 12,\n```'
 
         self.provider = RepairingProvider()
-        self.patches[0].stop()
-        provider_patch = patch("vendoo_studio.routes.chat.get_listing_provider", return_value=self.provider)
-        provider_patch.start()
-        self.patches[0] = provider_patch
+        for index, name in enumerate(("get_listing_provider", "get_photo_provider")):
+            self.patches[index].stop()
+            provider_patch = patch(f"vendoo_studio.routes.chat.{name}", return_value=self.provider)
+            provider_patch.start()
+            self.patches[index] = provider_patch
 
         transport = ASGITransport(app=app)
         body = ""

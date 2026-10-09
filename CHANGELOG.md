@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.207 — 2026-10-09
+
+- You can now pick a separate AI for reading photos. Settings → Listing AI → Photo analysis chooses who reads your product photos (for example ChatGPT), while the Primary provider still writes the listing and answers chat. If the photo provider isn't set up, the listing AI reads the photos instead.
+
 ## 0.1.206 — 2026-10-09
 
 - Sign in with your Claude account. Settings → Providers → Claude signs in through Claude Code with your Pro or Max plan, the way T3 Code does, and Claude can then write listings, read photos and look up sold comps. Choose it as Primary or Fallback under Listing AI. Needs Claude Code installed on this Mac.
