@@ -317,3 +317,48 @@ def test_listing_evidence_migrates_previous_release_without_inventing_history(en
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
         assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'listing_evidence'").fetchone() is None
     assert [snapshot.reason for snapshot in backups.list_snapshots(snapshots)] == ["pre-migration"]
+
+
+def test_linked_listings_get_the_sync_baseline_imports_now_record(engine, snapshots):
+    """An import from before the baseline existed is level with Vendoo as imported."""
+    import json
+
+    from alembic import command
+    config = schema_migrations.alembic_config(str(engine.url))
+    command.upgrade(config, "9d4e7a2b1c60")
+    bound = json.dumps({"vendooItemId": "itm"})
+    with sqlite3.connect(engine.url.database) as connection:
+        for conv_id, notes in [
+            ("imported", bound),
+            ("regenerated", bound),
+            ("synced", json.dumps({"vendooItemId": "itm", "vendooSyncedRevision": "kept"})),
+            ("unlinked", None),
+        ]:
+            connection.execute(
+                "INSERT INTO conversations (id, title, notes) VALUES (?, 'x', ?)", (conv_id, notes),
+            )
+        for rev_id, conv_id, source, created in [
+            ("imp-old", "imported", "vendoo_import", "2026-09-20 03:07:00"),
+            ("imp-named", "imported", "vendoo_import", "2026-09-20 03:07:01"),
+            ("norm", "imported", "dropdown_normalize", "2026-09-21 00:00:00"),
+            ("blank", "regenerated", "reset", "2026-10-09 00:29:00"),
+            ("gen", "regenerated", "model", "2026-10-09 00:31:00"),
+            ("own", "synced", "vendoo_import", "2026-09-20 00:00:00"),
+            ("draft", "unlinked", "model", "2026-09-20 00:00:00"),
+        ]:
+            connection.execute(
+                "INSERT INTO listing_revisions (id, conversation_id, listing_json, source, created_at) "
+                "VALUES (?, ?, '{}', ?, ?)",
+                (rev_id, conv_id, source, created),
+            )
+    ensure_schema(engine)
+    with sqlite3.connect(engine.url.database) as connection:
+        notes = {
+            conv_id: json.loads(raw) if raw else {}
+            for conv_id, raw in connection.execute("SELECT id, notes FROM conversations")
+        }
+    assert notes["imported"]["vendooSyncedRevision"] == "imp-named"
+    assert notes["imported"]["vendooSyncedAt"] == "1789873621000"
+    assert notes["regenerated"]["vendooSyncedRevision"] == "blank"
+    assert notes["synced"] == {"vendooItemId": "itm", "vendooSyncedRevision": "kept"}
+    assert notes["unlinked"] == {}
