@@ -19,6 +19,8 @@ from vendoo_studio.services.inventory_analytics import AnalyticsItem
 from vendoo_studio.services.sale_calendar import event_result, selling_costs, weekday_patterns
 
 NOW = datetime(2026, 10, 5, 12, tzinfo=UTC)
+# The routes judge a plan against the real clock, so plans start in its future.
+START = datetime.now(UTC).date() + timedelta(days=2)
 
 
 def sale(day, *, market="ebay", cid="sold", cost=10, fees=5):
@@ -27,8 +29,8 @@ def sale(day, *, market="ebay", cid="sold", cost=10, fees=5):
 
 
 def plan(**changes):
-    return {"title": "Weekend sale", "marketplace": "ebay", "start_date": "2026-10-09",
-            "end_date": "2026-10-11", "timezone": "UTC", "discount_percent": 10,
+    return {"title": "Weekend sale", "marketplace": "ebay", "start_date": START.isoformat(),
+            "end_date": (START + timedelta(days=2)).isoformat(), "timezone": "UTC", "discount_percent": 10,
             "fee_percent": 15, "shipping_cost": 2, "minimum_profit": 5,
             "notes": "", **changes}
 
@@ -80,7 +82,8 @@ def test_local_event_lifecycle_and_snapshots(workspace):
 
 @pytest.mark.parametrize("changes", [
     {"item_ids": ["active"]}, {"marketplace": "all"}, {"discount_percent": 4}, {"minimum_profit": -1},
-    {"end_date": "2026-10-08"}, {"end_date": "2027-10-09"}, {"discount_percent": 99},
+    {"end_date": (START - timedelta(days=1)).isoformat()},
+    {"end_date": (START + timedelta(days=365)).isoformat()}, {"discount_percent": 99},
     {"fee_percent": -1}, {"timezone": "unknown/timezone"}, {"title": "   "}, {"confirm": True},
 ])
 def test_invalid_plans_never_save(workspace, changes):
