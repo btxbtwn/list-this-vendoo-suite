@@ -10,6 +10,7 @@ from vendoo_studio.config import user_data_root
 _lock = threading.Lock()
 SETUP_GUIDE_DISMISSED_KEY = "setup_guide_dismissed"
 LISTING_PROVIDER_KEY = "listing_provider"
+PHOTO_PROVIDER_KEY = "photo_provider"
 UI_PREFS_KEY = "ui"
 VENDOO_INVENTORY_SYNCED_AT_KEY = "vendoo_inventory_synced_at"
 RECENT_LABELS_KEY = "recent_vendoo_labels"
@@ -22,6 +23,8 @@ MAX_RECENT_LABELS = 12
 MAX_HIDDEN_LABELS = 200
 LISTING_PROVIDER_CHOICES = frozenset({"chatgpt", "claude", "mimo", "cursor"})
 LISTING_FALLBACK_CHOICES = frozenset({"chatgpt", "claude", "mimo", "cursor", "none"})
+# "same" reads photos with whichever provider writes the listing.
+PHOTO_PROVIDER_CHOICES = frozenset({"same", "chatgpt", "claude", "mimo", "cursor"})
 THEME_CHOICES = frozenset({"dark", "light", "system"})
 DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "claude", "mimo", "cursor"] = "chatgpt"
 DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "claude", "mimo", "cursor", "none"] = "mimo"
@@ -35,6 +38,7 @@ DEFAULT_THEME: Literal["dark", "light", "system"] = "dark"
 
 ListingProviderChoice = Literal["chatgpt", "claude", "mimo", "cursor"]
 ListingFallbackChoice = Literal["chatgpt", "claude", "mimo", "cursor", "none"]
+PhotoProviderChoice = Literal["same", "chatgpt", "claude", "mimo", "cursor"]
 ThemeChoice = Literal["dark", "light", "system"]
 
 
@@ -221,6 +225,25 @@ def set_listing_provider_order(
 
     update_settings(mutator)
     return {"primary": primary_choice, "fallback": fallback_choice}
+
+
+def get_photo_provider_choice() -> PhotoProviderChoice:
+    value = read_settings().get(PHOTO_PROVIDER_KEY)
+    if isinstance(value, str) and value.strip().lower() in PHOTO_PROVIDER_CHOICES:
+        return value.strip().lower()  # type: ignore[return-value]
+    return "same"
+
+
+def set_photo_provider_choice(choice: object) -> PhotoProviderChoice:
+    if not isinstance(choice, str) or choice.strip().lower() not in PHOTO_PROVIDER_CHOICES:
+        raise ValueError('Photo analysis provider must be "same", "chatgpt", "claude", "mimo", or "cursor".')
+    cleaned = choice.strip().lower()
+
+    def mutator(payload: dict) -> None:
+        payload[PHOTO_PROVIDER_KEY] = cleaned
+
+    update_settings(mutator)
+    return cleaned  # type: ignore[return-value]
 
 
 def set_preferred_listing_provider(preferred: object) -> ListingProviderChoice:

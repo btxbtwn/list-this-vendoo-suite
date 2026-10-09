@@ -26,7 +26,7 @@ from vendoo_studio.services.listing_generate import (
     require_photo_analysis,
     seller_item_details,
 )
-from vendoo_studio.services.listing_provider import get_listing_provider
+from vendoo_studio.services.listing_provider import get_photo_provider
 from vendoo_studio.services.registry import MEN_TSHIRT_PATH, WOMEN_TOPS_PATH
 
 log = logging.getLogger("vendoo_studio.chat")
@@ -113,7 +113,7 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
             db,
         )
     elif photos:
-        provider = get_listing_provider()
+        provider = get_photo_provider()
         if provider:
             paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
             # End the read transaction so the session does not hold a pool

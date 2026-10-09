@@ -11,6 +11,7 @@ import type {
   ListingData,
   ListingNames,
   ListingProviderId,
+  PhotoProviderChoice,
   ListingResponse,
   ListingRevision,
   ListingUpdateResult,
@@ -510,6 +511,11 @@ export const api = {
           body: JSON.stringify(order),
         },
       ),
+    setPhotoProvider: (choice: PhotoProviderChoice) =>
+      request<{ ok: boolean; photo_provider: PhotoProviderChoice }>("/settings/provider/photos", {
+        method: "PUT",
+        body: JSON.stringify({ choice }),
+      }),
     brave: () => request<{ configured: boolean; masked_key: string | null }>("/settings/brave"),
     setBrave: (apiKey: string) =>
       request<{ ok: boolean; configured: boolean; masked_key: string | null }>("/settings/brave", {

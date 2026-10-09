@@ -70,7 +70,7 @@ async def run_check(check_id: str) -> None:
         analyze_photos_with_tag_retry,
         require_photo_analysis,
     )
-    from vendoo_studio.services.listing_provider import get_listing_provider
+    from vendoo_studio.services.listing_provider import get_photo_provider
     from vendoo_studio.services.price_drop import market_midpoint
     from vendoo_studio.services.sold_comps import parse_sold_comps
 
@@ -80,7 +80,7 @@ async def run_check(check_id: str) -> None:
         if check is None:
             return
         try:
-            provider = get_listing_provider()
+            provider = get_photo_provider()
             if provider is None:
                 raise RuntimeError("Connect ChatGPT, Cursor or MiMo in Settings to check items.")
             paths = [str(Path(PHOTOS_DIR) / name) for name in check.photos]

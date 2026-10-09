@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { ListingNames, ListingProviderId, VendooApiLogEntry } from "../api/types";
+import type { ListingNames, ListingProviderId, PhotoProviderChoice, VendooApiLogEntry } from "../api/types";
 import { backupSummary, formatBytes } from "./backupSummary";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
@@ -1032,6 +1032,10 @@ function ProvidersPanel() {
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
+  const setPhotoProviderMutation = useMutation({
+    mutationFn: (choice: PhotoProviderChoice) => api.settings.setPhotoProvider(choice),
+    onSuccess: refreshProvider,
+  });
   const setPreferredMutation = useMutation({
     mutationFn: (order: { primary: ListingProviderId; fallback: ListingFallbackId }) =>
       api.settings.setPreferredProvider(order),
@@ -1072,6 +1076,7 @@ function ProvidersPanel() {
         : choice === "cursor"
           ? cursorConfigured
           : false;
+  const photoProvider: PhotoProviderChoice = provider?.photo_provider ?? "same";
   const primaryReady = choiceReady(primary);
   const fallbackReady = choiceReady(fallback);
 
@@ -1181,7 +1186,7 @@ function ProvidersPanel() {
       <SettingsSection id="listing-ai" title="Listing AI">
         <SettingsRow
           title="Primary"
-          description="Tried first when generating listings and reading photos."
+          description="Tried first when generating listings, and for photos unless Photo analysis names another."
           control={
             <div className="settings-provider-select">
               <ProviderLogo id={primary} label={providerLabel(primary)} size={16} />
@@ -1226,6 +1231,39 @@ function ProvidersPanel() {
             </div>
           }
         />
+        <SettingsRow
+          title="Photo analysis"
+          description="Reads product photos before the listing is written. A provider that is not ready falls back to the listing AI."
+          control={
+            <div className="settings-provider-select">
+              {photoProvider !== "same" ? (
+                <ProviderLogo id={photoProvider} label={providerLabel(photoProvider)} size={16} />
+              ) : null}
+              <select
+                className="input settings-model-select"
+                aria-label="Photo analysis AI"
+                value={photoProvider}
+                disabled={setPhotoProviderMutation.isPending}
+                onChange={(event) =>
+                  setPhotoProviderMutation.mutate(event.target.value as PhotoProviderChoice)
+                }
+              >
+                <option value="same">Same as listing AI</option>
+                <option value="chatgpt">ChatGPT</option>
+                <option value="claude">Claude</option>
+                <option value="mimo">Xiaomi MiMo</option>
+                <option value="cursor">Cursor</option>
+              </select>
+            </div>
+          }
+        />
+        {photoProvider !== "same" && !choiceReady(photoProvider) ? (
+          <SettingsRow title="Photo analysis status">
+            <p className="settings-row-desc">
+              {providerLabel(photoProvider)} is not ready, so the listing AI reads photos. Configure it below.
+            </p>
+          </SettingsRow>
+        ) : null}
         <SettingsRow title="In use">
           <p className="settings-row-desc settings-provider-in-use">
             {provider?.configured && activeChoice ? (

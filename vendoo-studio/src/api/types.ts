@@ -277,6 +277,8 @@ export interface ClaudeStatus {
 }
 
 export type ListingProviderId = "chatgpt" | "claude" | "mimo" | "cursor";
+/** "same" reads photos with the listing provider. */
+export type PhotoProviderChoice = "same" | ListingProviderId;
 
 /** What the sidebar names each listing by. */
 export type ListingNames = "title" | "sku";
@@ -285,6 +287,7 @@ export interface ProviderStatus {
   provider: string;
   primary: ListingProviderId;
   fallback: ListingProviderId | "none";
+  photo_provider: PhotoProviderChoice;
   configured: boolean;
   masked_key: string | null;
   masked_cursor_key?: string | null;

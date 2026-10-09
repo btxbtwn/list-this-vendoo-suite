@@ -55,6 +55,7 @@ async def run_listing_generation(
     *,
     conv_id: str,
     provider,
+    vision_provider,
     vision_name: str,
     vision_model: str,
     notes: str,
@@ -97,7 +98,7 @@ async def run_listing_generation(
         else:
             analysis_task = asyncio.create_task(
                 analyze_photos_with_tag_retry(
-                    provider,
+                    vision_provider,
                     paths,
                     notes=item_details,
                     listing_rules=listing_rules[:8000],

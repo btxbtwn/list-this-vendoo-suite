@@ -28,7 +28,7 @@ from vendoo_studio.services.listing_generate import (
     seller_item_details,
 )
 from vendoo_studio.services.listing_generation import run_listing_generation
-from vendoo_studio.services.listing_provider import get_listing_provider
+from vendoo_studio.services.listing_provider import get_listing_provider, get_photo_provider
 from vendoo_studio.services.streaming import (
     KEEPALIVE,
     SSE_HEADERS,
@@ -295,7 +295,8 @@ async def analyze_photos(conv_id: str, db: Session = Depends(get_db)):
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    provider = _require_provider()
+    _require_provider()
+    provider = get_photo_provider()
     vision_name, vision_model = _vision_meta(provider)
 
     photos = repo.get_photos(conv_id)
@@ -336,7 +337,8 @@ async def generate_listing(conv_id: str, resume: bool = False, db: Session = Dep
         raise HTTPException(404, "Conversation not found")
 
     provider = _require_provider()
-    vision_name, vision_model = _vision_meta(provider)
+    vision_provider = get_photo_provider()
+    vision_name, vision_model = _vision_meta(vision_provider)
 
     existing = active_generation(conv_id)
     if existing is not None:
@@ -365,6 +367,7 @@ async def generate_listing(conv_id: str, resume: bool = False, db: Session = Dep
         run_listing_generation,
         conv_id=conv_id,
         provider=provider,
+        vision_provider=vision_provider,
         vision_name=vision_name,
         vision_model=vision_model,
         notes=notes,
