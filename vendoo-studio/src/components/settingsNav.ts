@@ -154,7 +154,7 @@ export const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: "mimo",
     title: "Xiaomi MiMo",
     section: "providers",
-    targetId: "provider",
+    targetId: "mimo",
     searchTerms: ["api key", "fallback", "xiaomi"],
   },
   {

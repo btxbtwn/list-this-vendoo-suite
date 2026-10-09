@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.211 — 2026-10-09
+
+- Settings → Providers now opens with which AI is in use, above the Primary, Fallback and Photo analysis choices, so you can see what's running before you change it.
+
 ## 0.1.210 — 2026-10-09
 
 - Open listing and Regenerate now sit at the top of each listing instead of above the tabs, so it's clear which listing they act on.

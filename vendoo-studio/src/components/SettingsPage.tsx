@@ -1249,6 +1249,36 @@ function ProvidersPanel() {
   return (
     <>
       <SettingsSection id="listing-ai" title="Listing AI">
+        <SettingsRow title="In use">
+          <p className="settings-row-desc settings-provider-in-use">
+            {provider?.configured && activeChoice ? (
+              <>
+                <ProviderLogo id={activeChoice} label={providerLabel(activeChoice)} size={16} />
+                <span>
+                  {providerLabel(activeChoice)} is active
+                  {activeChoice === primary ? " (primary)" : " (fallback)"}.
+                </span>
+              </>
+            ) : primaryReady ? (
+              <>
+                <ProviderLogo id={primary} label={providerLabel(primary)} size={16} />
+                <span>{providerLabel(primary)} is ready.</span>
+              </>
+            ) : fallback !== "none" && fallbackReady ? (
+              <>
+                <ProviderLogo id={fallback} label={providerLabel(fallback)} size={16} />
+                <span>
+                  {providerLabel(primary)} is not ready — {providerLabel(fallback)} will be used.
+                </span>
+              </>
+            ) : (
+              <span>
+                Configure {providerLabel(primary)}
+                {fallback !== "none" ? ` or ${providerLabel(fallback)}` : ""} below.
+              </span>
+            )}
+          </p>
+        </SettingsRow>
         <SettingsRow
           title="Primary"
           description="Writes listings, and reads photos unless Photo analysis names another. Each provider's models are set in its section below."
@@ -1329,36 +1359,6 @@ function ProvidersPanel() {
             </p>
           </SettingsRow>
         ) : null}
-        <SettingsRow title="In use">
-          <p className="settings-row-desc settings-provider-in-use">
-            {provider?.configured && activeChoice ? (
-              <>
-                <ProviderLogo id={activeChoice} label={providerLabel(activeChoice)} size={16} />
-                <span>
-                  {providerLabel(activeChoice)} is active
-                  {activeChoice === primary ? " (primary)" : " (fallback)"}.
-                </span>
-              </>
-            ) : primaryReady ? (
-              <>
-                <ProviderLogo id={primary} label={providerLabel(primary)} size={16} />
-                <span>{providerLabel(primary)} is ready.</span>
-              </>
-            ) : fallback !== "none" && fallbackReady ? (
-              <>
-                <ProviderLogo id={fallback} label={providerLabel(fallback)} size={16} />
-                <span>
-                  {providerLabel(primary)} is not ready — {providerLabel(fallback)} will be used.
-                </span>
-              </>
-            ) : (
-              <span>
-                Configure {providerLabel(primary)}
-                {fallback !== "none" ? ` or ${providerLabel(fallback)}` : ""} below.
-              </span>
-            )}
-          </p>
-        </SettingsRow>
       </SettingsSection>
 
       <SettingsSection id="chatgpt" title={providerTitle("chatgpt")}>
@@ -1543,7 +1543,7 @@ function ProvidersPanel() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection id="provider" title={providerTitle("mimo", true)}>
+      <SettingsSection id="mimo" title={providerTitle("mimo", true)}>
         <SettingsRow
           title="API key"
           description="Stored in macOS Keychain and never sent to the browser. When MiMo is your listing model, sold comps use its web search, which needs the Web Search plugin turned on in the MiMo console (Plugin Management)."
