@@ -313,13 +313,13 @@ export function ListingEditor({
   return (
     <div className="listing-editor" ref={editorRef}>
       <div className="pr-review-header">
-        {/* Desktop: the titlebar breadcrumb already names the listing in full and
-            the actions sit beside it, so repeating a truncated copy here only
-            costs a row. Mobile has no titlebar and keeps both. */}
-        <div className="pr-review-title-row pr-review-chrome-mobile">
+        {/* The actions belong to this listing, so they sit in its own header rather
+            than above the tabs. Desktop: the tab and the titlebar breadcrumb
+            already name the listing and the titlebar carries the browser toggle,
+            so only mobile, which has no titlebar, repeats them here. */}
+        <div className="pr-review-title-row">
           <h2 className="pr-review-title pywebview-drag-region" title={listingTitle}>{listingTitle}</h2>
           <ListingReviewActions
-            className="pr-review-chrome-mobile"
             convId={convId}
             onCleared={onCleared}
           >

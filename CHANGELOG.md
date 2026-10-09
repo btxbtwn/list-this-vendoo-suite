@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.210 — 2026-10-09
+
+- Open listing and Regenerate now sit at the top of each listing instead of above the tabs, so it's clear which listing they act on.
+
 ## 0.1.209 — 2026-10-09
 
 - Choose Claude's photo model, listing model and reasoning in Settings → Providers. Each provider now keeps its own model choices in its own section, so you can pick the photo model for whichever AI reads your photos.
