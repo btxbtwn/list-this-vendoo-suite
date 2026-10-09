@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.201 — 2026-10-08
+
+- Listings you imported from Vendoo before the unsent chip covered imports now get it too. Regenerating or editing one marks it unsent until you press Update Vendoo, and opening it no longer pulls Vendoo's older copy over your changes.
+
 ## 0.1.200 — 2026-10-08
 
 - Sale suggestions now include a percentage off: the deepest discount, up to 30%, where every listing with a cost still makes your minimum profit. Plans cover all your listings on the marketplace, so there's nothing to pick, and fees and shipping fill in from your past year of sales. The plan lists any listings that would fall below your minimum or have no cost.
