@@ -1,4 +1,5 @@
 /** Response shapes for the Studio FastAPI backend. Keep in sync with server/vendoo_studio/routes. */
+import type { AnalyticsAds } from "./adSpend";
 
 export type ListingData = Record<string, unknown>;
 
@@ -505,6 +506,7 @@ export interface InventoryAnalytics {
   stale: AnalyticsStaleListing[];
   recent: AnalyticsSale[];
   oldest: { conversation_id: string; title: string; price: number; days_listed: number }[];
+  ads: AnalyticsAds;
 }
 
 export interface BackupSnapshot {

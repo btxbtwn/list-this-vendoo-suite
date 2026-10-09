@@ -44,6 +44,7 @@ import type {
   SourcingState,
 } from "./types";
 import { readSse } from "./sse";
+import type { AdSpendEntry, AdSpendInput } from "./adSpend";
 import type { SaleCalendarData, SaleEventStatus, SalePlan, SaleRecord } from "./saleCalendar";
 
 const BASE = "/api";
@@ -195,6 +196,12 @@ export const api = {
       request<ScoutCheck>(`/scout/${id}`, { method: "PATCH", body: JSON.stringify({ asking_price: askingPrice }) }),
     decide: (id: string, decision: "bought" | "passed") =>
       request<ScoutCheck>(`/scout/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
+  },
+  adSpend: {
+    list: () => request<AdSpendEntry[]>("/analytics/ads"),
+    create: (entry: AdSpendInput) => request<AdSpendEntry>("/analytics/ads", { method: "POST", body: JSON.stringify(entry) }),
+    update: (id: string, entry: AdSpendInput) => request<AdSpendEntry>(`/analytics/ads/${id}`, { method: "PUT", body: JSON.stringify(entry) }),
+    remove: (id: string) => request<{ ok: boolean }>(`/analytics/ads/${id}`, { method: "DELETE" }),
   },
   saleCalendar: {
     record: (record: SaleRecord) => request<{ id: string }>("/analytics/calendar/records", { method: "POST", body: JSON.stringify(record) }),

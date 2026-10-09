@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import type { AdSpendEntry } from "../api/adSpend";
 import type { InventoryAnalytics, VendooBulkImport } from "../api/types";
 import { AnalyticsPage } from "./AnalyticsPage";
 
@@ -45,14 +46,26 @@ const data: InventoryAnalytics = {
     label: "Over 3 months", count: 1, asking_value: 60,
     listings: [{ conversation_id: "old-stock", title: "Older jacket", price: 60, days_listed: 110 }],
   }],
+  ads: { spend: 0, profit_after_ads: 50, marketplaces: [] },
 };
 
-function render(payload: InventoryAnalytics, run: Partial<VendooBulkImport> = { running: false }, starting = false) {
+const adEntry: AdSpendEntry = {
+  id: "posh-week", marketplace: "poshmark", start_date: "2026-09-01", end_date: "2026-09-07",
+  spend: 15, clicks: 60, orders: 1, revenue: 45, notes: "", roas: 3, cost_per_click: 0.25,
+};
+
+function render(
+  payload: InventoryAnalytics,
+  run: Partial<VendooBulkImport> = { running: false },
+  starting = false,
+  adEntries: AdSpendEntry[] = [],
+) {
   useMutation.mockReturnValue({ mutate: vi.fn(), isPending: starting });
   useQuery.mockImplementation(({ queryKey }: { queryKey: readonly string[] }) =>
     queryKey[0] === "sale-calendar"
       ? { data: { events: [], patterns: [], items: [], timezone: "UTC" }, isError: false }
       : queryKey[0] === "vendoo-bulk-import" ? { data: run }
+      : queryKey[0] === "ad-spend" ? { data: adEntries, isError: false }
       : { data: payload, isLoading: false, isError: false, isFetching: false },
   );
   return renderToStaticMarkup(<AnalyticsPage onOpenListing={vi.fn()} />);
@@ -167,5 +180,34 @@ describe("AnalyticsPage", () => {
     expect(html).not.toContain("Compared with");
     expect(html).not.toContain("Up $40");
     expect(html).toContain("Included in totals, but excluded from the chart");
+  });
+
+  it("invites ad spend before any is recorded and hides empty ad totals", () => {
+    const html = render(data);
+    expect(html).toContain("Add ad spend");
+    expect(html).toContain("No ad spend recorded yet.");
+    expect(html).not.toContain("Profit after ads");
+  });
+
+  it("sets Promoted Closet and Etsy Ads spend against the period's sales", () => {
+    const html = render({
+      ...data,
+      ads: {
+        spend: 40,
+        profit_after_ads: 10,
+        marketplaces: [
+          { id: "poshmark", entries: 1, spend: 15, clicks: 60, orders: 1, revenue: 45, roas: 3,
+            cost_per_click: 0.25, sales_revenue: 80, spend_percent: 18.8 },
+          { id: "etsy", entries: 1, spend: 25, clicks: null, orders: null, revenue: null, roas: null,
+            cost_per_click: null, sales_revenue: 0, spend_percent: null },
+        ],
+      },
+    }, { running: false }, false, [adEntry]);
+    expect(html).toContain("Profit after ads");
+    expect(html).toContain("$10");
+    expect(html).toContain("3× return on ad spend · $0.25 a click · 18.8% of $80 Poshmark sales");
+    expect(html).toContain("No Etsy sales recorded");
+    expect(html).toContain("60 clicks · 1 order · $45 sales · 3× ROAS");
+    expect(html).not.toContain("No ad spend recorded yet.");
   });
 });
