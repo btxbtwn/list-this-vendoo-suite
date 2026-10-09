@@ -555,6 +555,20 @@ export const api = {
         body: JSON.stringify({ code }),
       }),
     claudeCancelLogin: () => request<OkResponse>("/settings/claude/login", { method: "DELETE" }),
+    claudeModels: () =>
+      request<{
+        models: { value: string; label: string; efforts: string[] }[];
+        vision_model: string;
+        listing_model: string;
+        effort: string | null;
+        efforts: string[];
+        error?: string | null;
+      }>("/settings/claude/models"),
+    setClaudeModels: (models: { vision_model?: string; listing_model?: string; effort?: string }) =>
+      request<OkResponse>("/settings/claude/models", {
+        method: "PUT",
+        body: JSON.stringify(models),
+      }),
     chatgptModels: () =>
       request<{
         models: string[];

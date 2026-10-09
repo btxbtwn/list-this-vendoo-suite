@@ -23,6 +23,12 @@ class CursorModelsConfig(BaseModel):
     reasoning_effort: str | None = None
 
 
+class ClaudeModelsConfig(BaseModel):
+    vision_model: str | None = None
+    listing_model: str | None = None
+    effort: str | None = None
+
+
 class ProviderConfig(BaseModel):
     api_key: str | None = None
 
@@ -148,6 +154,7 @@ def get_provider():
             provider="claude",
             primary=primary,
             fallback=fallback,
+            photo_provider=photo_provider,
             configured=True,
             masked_key=masked,
             masked_cursor_key=masked_cursor,
@@ -435,6 +442,55 @@ async def set_cursor_models(config: CursorModelsConfig):
             raise HTTPException(400, f"{listing_model} does not support reasoning level {reasoning}.")
         set_cursor_reasoning(model=listing_model, param=choices["param"], value=reasoning)
     return {"ok": True, "vision_model": vision_model, "listing_model": listing_model}
+
+
+@router.get("/claude/models")
+async def claude_models():
+    """The account's Claude models, the saved picks, and the listing model's effort levels."""
+    from vendoo_studio.providers.claude_agent import list_models
+    from vendoo_studio.services.claude_auth import claude_signed_in
+    from vendoo_studio.services.user_settings import get_claude_models, resolved_claude_models
+
+    if not claude_signed_in():
+        raise HTTPException(400, "Sign in with Claude first.")
+    vision_model, listing_model = resolved_claude_models()
+    error = None
+    try:
+        models = await list_models()
+    except Exception as exc:
+        models = []
+        error = str(exc)
+    for slug in (vision_model, listing_model):
+        if not any(item["value"] == slug for item in models):
+            models.append({"value": slug, "label": slug, "efforts": []})
+    efforts = next(item["efforts"] for item in models if item["value"] == listing_model)
+    effort = get_claude_models().get("effort")
+    return {
+        "models": models,
+        "vision_model": vision_model,
+        "listing_model": listing_model,
+        "effort": effort if effort in efforts else None,
+        "efforts": efforts,
+        "error": error,
+    }
+
+
+@router.put("/claude/models")
+def set_claude_models(config: ClaudeModelsConfig):
+    from vendoo_studio.services.claude_auth import claude_signed_in
+    from vendoo_studio.services.user_settings import set_claude_models as persist_claude_models
+
+    if not claude_signed_in():
+        raise HTTPException(400, "Sign in with Claude first.")
+    try:
+        saved = persist_claude_models(
+            vision_model=config.vision_model,
+            listing_model=config.listing_model,
+            effort=config.effort,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **saved}
 
 
 def _marketplaces_payload(selected: list[str]) -> dict:

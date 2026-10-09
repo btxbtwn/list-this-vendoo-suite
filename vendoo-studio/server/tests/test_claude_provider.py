@@ -231,3 +231,92 @@ class ListingProviderClaudeTest(unittest.TestCase):
         self.assertEqual(body["claude"]["email"], "seller@example.com")
         self.assertEqual(body["claude"]["plan"], "pro")
         self.assertTrue(body["claude"]["signed_in"])
+
+
+class ClaudeModelSettingsTest(unittest.TestCase):
+    def setUp(self):
+        from vendoo_studio.services import user_settings
+
+        def forget_models():
+            user_settings.update_settings(lambda payload: payload.pop(user_settings.CLAUDE_MODELS_KEY, None))
+
+        forget_models()
+        self.addCleanup(forget_models)
+        patcher = patch.object(claude_auth, "claude_cli_path", return_value="/usr/bin/claude")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_runs_use_the_saved_models_and_effort(self):
+        from vendoo_studio.services.user_settings import set_claude_models
+
+        set_claude_models(vision_model="haiku", listing_model="opus", effort="low")
+        provider = ClaudeProvider()
+        self.assertEqual((provider.vision_model, provider.listing_model), ("haiku", "opus"))
+        captured: dict = {}
+        with patch("claude_agent_sdk.query", _fake_query([_result("OK")], captured)):
+            _collect(provider.chat([{"role": "user", "content": "hi"}]))
+        self.assertEqual(captured["options"].model, "opus")
+        self.assertEqual(captured["options"].effort, "low")
+
+    def test_default_effort_hands_the_choice_back_to_claude_code(self):
+        from vendoo_studio.services.user_settings import get_claude_models, set_claude_models
+
+        set_claude_models(listing_model="opus", effort="max")
+        set_claude_models(effort="default")
+        self.assertEqual(get_claude_models(), {"listing_model": "opus"})
+        self.assertIsNone(ClaudeProvider().effort)
+
+    def test_settings_list_the_account_models_and_save_a_pick(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+        from vendoo_studio.services.user_settings import get_claude_models
+
+        catalog = [
+            {"value": "sonnet", "label": "Sonnet", "efforts": ["low", "high"]},
+            {"value": "claude-haiku-4-5", "label": "Haiku 4.5", "efforts": []},
+        ]
+        signed_in = claude_auth._Status(installed=True, signed_in=True)
+        client = TestClient(app)
+        with (
+            patch.object(claude_auth, "_read_status", return_value=signed_in),
+            patch("vendoo_studio.providers.claude_agent.list_models", return_value=catalog),
+        ):
+            claude_auth.forget_status()
+            saved = client.put("/api/settings/claude/models", json={"effort": "high"})
+            body = client.get("/api/settings/claude/models").json()
+            client.put("/api/settings/claude/models", json={"listing_model": "claude-haiku-4-5"})
+            haiku = client.get("/api/settings/claude/models").json()
+        claude_auth.forget_status()
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual([item["value"] for item in body["models"]], ["sonnet", "claude-haiku-4-5"])
+        self.assertEqual((body["listing_model"], body["effort"], body["efforts"]), ("sonnet", "high", ["low", "high"]))
+        self.assertEqual((haiku["effort"], haiku["efforts"]), (None, []))
+        self.assertEqual(get_claude_models()["listing_model"], "claude-haiku-4-5")
+
+    def test_provider_status_keeps_the_photo_choice_while_claude_writes(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+
+        signed_in = claude_auth._Status(installed=True, signed_in=True)
+        with (
+            patch.object(claude_auth, "_read_status", return_value=signed_in),
+            patch(
+                "vendoo_studio.services.listing_provider.get_listing_provider_order",
+                return_value=("claude", "none"),
+            ),
+            patch(
+                "vendoo_studio.services.user_settings.get_listing_provider_order",
+                return_value=("claude", "none"),
+            ),
+            patch(
+                "vendoo_studio.services.user_settings.get_photo_provider_choice",
+                return_value="chatgpt",
+            ),
+        ):
+            claude_auth.forget_status()
+            body = TestClient(app).get("/api/settings/provider").json()
+        claude_auth.forget_status()
+        self.assertEqual(body["provider"], "claude")
+        self.assertEqual(body["photo_provider"], "chatgpt")
