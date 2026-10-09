@@ -1050,3 +1050,21 @@ Earlier multi-marketplace event records migrate to one record per marketplace;
 events that covered all marketplaces keep that scope. Their dates are retained,
 and UTC is explicitly flagged as assumed because the earlier schema stored no
 time zone. Sellers can correct the time zone on historical records.
+
+## Ad spend in Analytics
+
+Analytics records spend on Poshmark Promoted Closet and Etsy Ads. Neither
+programme has an API Studio can read and Vendoo does not import ad charges, so
+the seller copies each dashboard's figures for a stretch of days: the spend,
+and optionally the clicks, orders, and revenue the dashboard attributes to the
+ads. Entries may overlap and any length works; a week or a month is typical.
+
+Each entry's spend, clicks, orders, and attributed revenue are spread evenly
+over its days, so a sales period carries only the share of an entry that falls
+inside it. Totals per programme show spend, return on ad spend (attributed
+revenue ÷ spend), cost per click, and spend as a share of every recorded sale
+on that marketplace in the period, with or without ads. Profit after ads is the
+period's profit on sales with a recorded cost, less all ad spend in the period.
+Figures the seller left blank stay unknown and never read as zero. Saving or
+removing an entry never writes to a marketplace or to Vendoo.
+

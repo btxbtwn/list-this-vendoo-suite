@@ -4,6 +4,8 @@ import { api } from "../api/client";
 import type { AnalyticsGroup, AnalyticsRange, AnalyticsSales, AnalyticsStaleListing, InventoryAnalytics } from "../api/types";
 import { formatChange, formatDays, formatMoney } from "./analyticsFormat";
 import { marketplaceName } from "./marketplaceNames";
+import { AdSpend } from "./AdSpend";
+import { Stat } from "./AnalyticsStat";
 import { SaleCalendar } from "./SaleCalendar";
 import { VendooImportButton } from "./VendooImportButton";
 
@@ -184,6 +186,8 @@ export function AnalyticsPage({ onOpenListing }: Props) {
 
             <SaleCalendar onOpenListing={onOpenListing} />
 
+            <AdSpend ads={data.ads} heading={heading} />
+
             <section className="analytics-section" aria-label="Oldest active listings">
               <h2 className="analytics-section-title">Review your oldest listings</h2>
               <p className="analytics-note">Up to 8 listings that have been active for 90+ days. Open one to review its price, photos, or details.</p>
@@ -342,29 +346,6 @@ function SalesStats({ data }: { data: InventoryAnalytics }) {
         hint={`Based on ${sales.days_known} of ${sales.count} sales`}
         change={previous ? formatChange(sales.median_days, previous.median_days, formatDays) : undefined}
       />
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  hint,
-  change,
-  negative = false,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  change?: string;
-  negative?: boolean;
-}) {
-  return (
-    <div className="analytics-stat">
-      <div className="analytics-stat-label">{label}</div>
-      <div className={`analytics-stat-value${negative ? " is-negative" : ""}`}>{value}</div>
-      {hint ? <div className="analytics-stat-hint">{hint}</div> : null}
-      {change ? <div className="analytics-stat-change">{change}</div> : null}
     </div>
   );
 }

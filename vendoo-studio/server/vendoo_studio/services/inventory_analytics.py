@@ -90,14 +90,22 @@ def inventory_analytics(
     """Totals for ``range_id`` (``7d``, ``30d``, ``90d``, ``12m``, or ``all``)."""
     if range_id not in ANALYTICS_RANGES:
         raise ValueError(range_id)
+    from vendoo_studio.services.ad_spend import list_entries, summarize_ads
     from vendoo_studio.services.sale_events import windows
     from vendoo_studio.services.user_settings import vendoo_inventory_synced_at
 
     clock = now or datetime.now(UTC)
     if clock.tzinfo is None:
         clock = clock.replace(tzinfo=UTC)
+    payload = summarize(load_rows(db), range_id=range_id, now=clock, events=windows(db))
     return {
-        **summarize(load_rows(db), range_id=range_id, now=clock, events=windows(db)),
+        **payload,
+        "ads": summarize_ads(
+            list_entries(db),
+            start=_window_start(range_id, clock),
+            marketplace_revenue={row["id"]: row["revenue"] for row in payload["marketplaces"]},
+            profit=payload["sales"]["profit"],
+        ),
         "last_updated_at": vendoo_inventory_synced_at(),
     }
 

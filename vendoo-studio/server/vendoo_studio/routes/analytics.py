@@ -101,6 +101,25 @@ class AnalyticsIncompleteSale(BaseModel):
     missing: list[str]
 
 
+class AnalyticsAdMarketplace(BaseModel):
+    id: str
+    entries: int
+    spend: float
+    clicks: int | None
+    orders: int | None
+    revenue: float | None
+    roas: float | None
+    cost_per_click: float | None
+    sales_revenue: float
+    spend_percent: float | None
+
+
+class AnalyticsAds(BaseModel):
+    spend: float
+    profit_after_ads: float | None
+    marketplaces: list[AnalyticsAdMarketplace]
+
+
 class AnalyticsResponse(BaseModel):
     range: str
     last_updated_at: str | None
@@ -119,6 +138,7 @@ class AnalyticsResponse(BaseModel):
     stale: list[AnalyticsStaleListing]
     recent: list[AnalyticsSale]
     oldest: list[AnalyticsOldListing]
+    ads: AnalyticsAds
 
 
 @router.get("", response_model=AnalyticsResponse)

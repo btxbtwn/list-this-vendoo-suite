@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.208 — 2026-10-09
+
+- Analytics has a new Ads section for Poshmark Promoted Closet and Etsy Ads. Copy the spend from each dashboard for a week or a month, plus the clicks, orders, and sales it credits to the ads if you want them. Analytics then shows what you spent in the period, your profit after ads, return on ad spend, cost per click, and how much of each marketplace's sales went to ads.
+
 ## 0.1.207 — 2026-10-09
 
 - You can now pick a separate AI for reading photos. Settings → Listing AI → Photo analysis chooses who reads your product photos (for example ChatGPT), while the Primary provider still writes the listing and answers chat. If the photo provider isn't set up, the listing AI reads the photos instead.
