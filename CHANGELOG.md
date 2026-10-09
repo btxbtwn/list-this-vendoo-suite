@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.205 — 2026-10-08
+
+- Chat no longer hangs when several listings are busy at once. A message now shows its progress right away, even while Studio is still reading photos and researching prices, and a failed photo read ends the reply with an error you can retry instead of leaving it stuck. When Brave Search runs out of quota, price research stops retrying it for an hour, or until you save or test the key again.
+
 ## 0.1.204 — 2026-10-09
 
 - When Cursor writes your listings, Settings → Models → Reasoning now lets you choose how hard the listing model thinks. The levels come from the model itself; higher takes longer and uses more Cursor usage.
