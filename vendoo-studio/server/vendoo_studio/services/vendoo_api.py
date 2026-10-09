@@ -123,7 +123,7 @@ ETSY_LIVE_LISTING = "active"
 
 SPECIFICS_SOURCES = {
     mp: f"{mp}_specifics"
-    for mp in ("ebay", "poshmark", "mercari", "depop", "etsy", "grailed", "vinted", "facebook")
+    for mp in ("ebay", "poshmark", "mercari", "depop", "etsy", "grailed", "vinted", "facebook", "sellwild")
 }
 
 # Field names the general form uses for the package, not the item.
@@ -270,7 +270,7 @@ def default_listing_section(marketplace: str) -> dict[str, Any]:
         "dateLastModified": "",
         "type": "listing",
         "status": {"notListed": True},
-        "overrides": _weight_dims_overrides() if marketplace in ("ebay", "etsy", "poshmark", "mercari") else (
+        "overrides": _weight_dims_overrides() if marketplace in ("ebay", "etsy", "poshmark", "mercari", "sellwild") else (
             {"quantity": "1"} if marketplace in ("depop", "grailed", "vinted", "facebook") else {}
         ),
         "categorySpecifics": {},
@@ -498,6 +498,17 @@ _VENDOO_MARKETPLACE_CONDITIONS: dict[str, dict[str, str | int]] = {
         "v_preowned": "used_good",
         "v_preowned_fair": "used_good",
         "v_poor": "used_fair",
+    },
+    # Sellwild's own ids: 5 Brand New, 4 Almost New, 3 Gently Used, 2 Used,
+    # 1 Broken — Vendoo's mapping, which puts every pre-owned grade on Used.
+    "sellwild": {
+        "v_newWithTagsBox": "5",
+        "v_newWithOutTags": "4",
+        "v_newWithDefects": "3",
+        "v_preowned_excellent": "2",
+        "v_preowned": "2",
+        "v_preowned_fair": "2",
+        "v_poor": "1",
     },
     # Vinted's status ids: 6 new with tags, 1 new without, 2 very good,
     # 3 good, 4 satisfactory.
@@ -1788,7 +1799,7 @@ _UPDATE_ALL_OVERRIDE_KEYS = ("title", "description", "sku", "quantity", "tags")
 # Every form that keeps its own copy of the package. Depop has none — it prices
 # the parcel by tier, which ``ensure_depop_category_optionals`` rewrites.
 _PACKAGE_OVERRIDE_KEYS = ("weight", "dimensions")
-_PACKAGE_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari"})
+_PACKAGE_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari", "sellwild"})
 _PRICE_OVERRIDE_MARKETPLACES = frozenset({"etsy", "poshmark", "mercari", "depop"})
 # Forms whose condition is re-sent on every save — see ``force_condition_updates``.
 _ALWAYS_WRITE_CONDITION_MARKETPLACES = ("poshmark", "mercari")

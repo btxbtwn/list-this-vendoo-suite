@@ -46,6 +46,10 @@ class MarketplaceSettingsTest(unittest.TestCase):
         marketplaces.set_selected_marketplaces(["grailed", "vinted", "facebook", "whatnot"])
         self.assertEqual(marketplaces.selected_fillable_platforms(), ["grailed", "vinted", "facebook"])
 
+    def test_sellwild_is_filled(self):
+        marketplaces.set_selected_marketplaces(["sellwild", "shopify"])
+        self.assertEqual(marketplaces.selected_fillable_platforms(), ["sellwild"])
+
     def test_catalog_covers_vendoo_listable_marketplaces(self):
         for marketplace_id in ("vinted", "grailed", "whatnot", "vestiaire", "sellwild", "facebook", "shopify"):
             self.assertIn(marketplace_id, marketplaces.KNOWN_MARKETPLACES)

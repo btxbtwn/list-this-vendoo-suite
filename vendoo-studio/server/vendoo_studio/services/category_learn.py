@@ -26,7 +26,7 @@ __all__ = [
     "specs_as_remember_schema",
 ]
 
-_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop", "grailed", "vinted", "facebook")
+_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop", "grailed", "vinted", "facebook", "sellwild")
 
 
 def _text(value: Any) -> str:

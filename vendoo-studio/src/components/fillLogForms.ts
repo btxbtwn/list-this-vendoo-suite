@@ -448,7 +448,7 @@ function normalizeLookupKey(value: string): string {
     "return payed by": "return paid by",
   };
   const key = String(value || "")
-    .replace(/^(ebay|etsy|poshmark|mercari|depop|grailed|vinted|facebook)\s+/i, "")
+    .replace(/^(ebay|etsy|poshmark|mercari|depop|grailed|vinted|facebook|sellwild)\s+/i, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_*?-]+/g, " ")
     .replace(/[^\w\s]+/g, " ")
@@ -1009,7 +1009,7 @@ const FIELD_NAME_ALIASES: Record<string, string> = {
 
 export function normalizeFieldName(value: string): string {
   const key = String(value || "")
-    .replace(/^(ebay|etsy|poshmark|mercari|depop|grailed|vinted|facebook|vendoo)\s+/i, "")
+    .replace(/^(ebay|etsy|poshmark|mercari|depop|grailed|vinted|facebook|sellwild|vendoo)\s+/i, "")
     .replace(/[*?]+/g, " ")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[_.-]+/g, " ")
@@ -1352,7 +1352,7 @@ function organizeFields(marketplace: string, fields: DraftField[], leftovers: Fi
     const key = normalizeFieldName(entry.field);
     if (key && seenExtras.has(key)) return [];
     if (key) seenExtras.add(key);
-    const label = entry.field.replace(/^(ebay|etsy|poshmark|mercari|depop|grailed|vinted|facebook|vendoo)\s+/i, "").trim() || entry.field;
+    const label = entry.field.replace(/^(ebay|etsy|poshmark|mercari|depop|grailed|vinted|facebook|sellwild|vendoo)\s+/i, "").trim() || entry.field;
     if (entry.status === "not_applicable") {
       return [notApplicableField({
         key: entry.id,
@@ -1948,7 +1948,7 @@ function formsFromListing(listing?: Record<string, unknown>): DraftForm[] {
   if (!listing || typeof listing !== "object") return [];
   const general = LISTING_GENERAL_FIELDS.map((field) => listingField(listing, field.key, field.label));
   const forms: DraftForm[] = [toForm("general", organizeFields("general", general))];
-  for (const id of ["ebay", "etsy", "poshmark", "mercari", "depop", "grailed", "vinted", "facebook"]) {
+  for (const id of ["ebay", "etsy", "poshmark", "mercari", "depop", "grailed", "vinted", "facebook", "sellwild"]) {
     const extras: DraftField[] = [];
     if (id === "poshmark") extras.push(listingField(listing, "poshmark_specifics.originalPrice", "Original Price"));
     if (id === "mercari") extras.push(listingField(listing, "mercari_specifics.shippingLabel", "Shipping Label"));
