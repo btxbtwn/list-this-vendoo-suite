@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { BUSY_POLL_MS, IDLE_POLL_MS, pollMs } from "../api/polling";
 import { dismissSetupGuide } from "../onboarding";
+import { ClaudeLoginTerminal } from "./ClaudeLoginTerminal";
 import { ConnectChromeButton } from "./ConnectChromeButton";
 import { ExtensionLoadPath } from "./ExtensionLoadPath";
 
@@ -41,6 +42,7 @@ export function FirstRunGuide({
   const [listingChoice, setListingChoice] = useState<ListingChoice | null>(null);
   const [mimoKey, setMimoKey] = useState("");
   const [cursorKey, setCursorKey] = useState("");
+  const [claudeTerminalOpen, setClaudeTerminalOpen] = useState(false);
   const [braveKey, setBraveKey] = useState("");
   const [mimoMessage, setMimoMessage] = useState<string | null>(null);
   const [cursorMessage, setCursorMessage] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function FirstRunGuide({
     queryFn: api.settings.provider,
     // Fast only while a ChatGPT or Claude sign-in waits on the browser; key saves invalidate it.
     refetchInterval: (query) =>
-      pollMs(query.state.data?.chatgpt?.pending || query.state.data?.claude?.pending ? BUSY_POLL_MS : IDLE_POLL_MS),
+      pollMs(query.state.data?.chatgpt?.pending ? BUSY_POLL_MS : IDLE_POLL_MS),
   });
   const { data: brave } = useQuery({
     queryKey: ["settings-brave"],
@@ -61,7 +63,6 @@ export function FirstRunGuide({
   const chatgptSignedIn = Boolean(provider?.chatgpt?.signed_in);
   const chatgptPending = provider?.chatgpt?.pending;
   const claudeSignedIn = Boolean(provider?.claude?.signed_in);
-  const claudePending = provider?.claude?.pending;
   const mimoConfigured = Boolean(provider?.masked_key);
   const cursorConfigured = Boolean(provider?.masked_cursor_key);
   const braveConfigured = Boolean(brave?.configured);
@@ -113,17 +114,6 @@ export function FirstRunGuide({
   });
   const chatgptCancel = useMutation({
     mutationFn: () => api.settings.chatgptCancelLogin(),
-    onSuccess: refreshProvider,
-  });
-  const claudeLogin = useMutation({
-    mutationFn: () => api.settings.claudeLogin(),
-    onSuccess: () => {
-      setPreferred.mutate("claude");
-      refreshProvider();
-    },
-  });
-  const claudeCancel = useMutation({
-    mutationFn: () => api.settings.claudeCancelLogin(),
     onSuccess: refreshProvider,
   });
   const saveMimo = useMutation({
@@ -372,29 +362,14 @@ export function FirstRunGuide({
                   <div className="setup-guide-task">
                     {claudeSignedIn ? (
                       <p className="setup-guide-copy">Claude is ready. Continue when you want.</p>
-                    ) : claudePending ? (
-                      <>
-                        <p className="setup-guide-copy">
-                          Finish signing in in the browser window that opened.
-                          {claudePending.url ? (
-                            <>
-                              {" "}If none opened,{" "}
-                              <a href={claudePending.url} target="_blank" rel="noreferrer">
-                                open the sign-in page
-                              </a>{" "}
-                              and paste its code in Settings → Claude.
-                            </>
-                          ) : null}
-                        </p>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline"
-                          onClick={() => claudeCancel.mutate()}
-                          disabled={claudeCancel.isPending}
-                        >
-                          Cancel sign-in
-                        </button>
-                      </>
+                    ) : claudeTerminalOpen ? (
+                      <ClaudeLoginTerminal
+                        onClose={(signedIn) => {
+                          setClaudeTerminalOpen(false);
+                          if (signedIn) setPreferred.mutate("claude");
+                          refreshProvider();
+                        }}
+                      />
                     ) : (
                       <>
                         {provider?.claude && !provider.claude.installed ? (
@@ -406,18 +381,13 @@ export function FirstRunGuide({
                         <button
                           type="button"
                           className="btn btn-primary btn-sm"
-                          onClick={() => claudeLogin.mutate()}
-                          disabled={claudeLogin.isPending}
+                          onClick={() => setClaudeTerminalOpen(true)}
+                          disabled={provider?.claude ? !provider.claude.installed : true}
                         >
-                          {claudeLogin.isPending ? "Starting…" : "Sign in with Claude"}
+                          Sign in with Claude
                         </button>
                       </>
                     )}
-                    {claudeLogin.isError ? (
-                      <p className="setup-guide-error">{(claudeLogin.error as Error).message}</p>
-                    ) : provider?.claude?.error ? (
-                      <p className="setup-guide-error">{provider.claude.error}</p>
-                    ) : null}
                   </div>
                 ) : selectedListing === "cursor" ? (
                   <div className="setup-guide-task">

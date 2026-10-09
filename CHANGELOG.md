@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.209 — 2026-10-09
+
+- Choose Claude's photo model, listing model and reasoning in Settings → Providers. Each provider now keeps its own model choices in its own section, so you can pick the photo model for whichever AI reads your photos.
+- Sign in with Claude now opens a small terminal right in Studio running Claude Code's sign-in, so you can see what it's asking and paste the code without leaving the app.
+
 ## 0.1.208 — 2026-10-09
 
 - Analytics has a new Ads section for Poshmark Promoted Closet and Etsy Ads. Copy the spend from each dashboard for a week or a month, plus the clicks, orders, and sales it credits to the ads if you want them. Analytics then shows what you spent in the period, your profit after ads, return on ad spend, cost per click, and how much of each marketplace's sales went to ads.

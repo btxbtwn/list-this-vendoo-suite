@@ -548,13 +548,25 @@ export const api = {
     chatgptLogin: () => request<ChatGPTPendingLogin>("/settings/chatgpt/login", { method: "POST" }),
     chatgptCancelLogin: () => request<OkResponse>("/settings/chatgpt/login", { method: "DELETE" }),
     chatgptLogout: () => request<OkResponse>("/settings/chatgpt", { method: "DELETE" }),
-    claudeLogin: () => request<{ url: string | null }>("/settings/claude/login", { method: "POST" }),
-    claudeLoginCode: (code: string) =>
-      request<OkResponse>("/settings/claude/login/code", {
-        method: "POST",
-        body: JSON.stringify({ code }),
+    /** WebSocket that runs `claude auth login` for the sign-in terminal. */
+    claudeLoginTerminalUrl: (cols: number, rows: number) => {
+      const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+      return `${scheme}://${window.location.host}${BASE}/settings/claude/terminal?cols=${cols}&rows=${rows}`;
+    },
+    claudeModels: () =>
+      request<{
+        models: { value: string; label: string; efforts: string[] }[];
+        vision_model: string;
+        listing_model: string;
+        effort: string | null;
+        efforts: string[];
+        error?: string | null;
+      }>("/settings/claude/models"),
+    setClaudeModels: (models: { vision_model?: string; listing_model?: string; effort?: string }) =>
+      request<OkResponse>("/settings/claude/models", {
+        method: "PUT",
+        body: JSON.stringify(models),
       }),
-    claudeCancelLogin: () => request<OkResponse>("/settings/claude/login", { method: "DELETE" }),
     chatgptModels: () =>
       request<{
         models: string[];

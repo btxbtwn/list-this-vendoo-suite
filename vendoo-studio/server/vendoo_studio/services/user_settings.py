@@ -29,6 +29,8 @@ THEME_CHOICES = frozenset({"dark", "light", "system"})
 DEFAULT_LISTING_PROVIDER: Literal["chatgpt", "claude", "mimo", "cursor"] = "chatgpt"
 DEFAULT_LISTING_FALLBACK: Literal["chatgpt", "claude", "mimo", "cursor", "none"] = "mimo"
 CURSOR_MODELS_KEY = "cursor_models"
+CLAUDE_MODELS_KEY = "claude_models"
+DEFAULT_CLAUDE_MODEL = "sonnet"
 DEFAULT_CURSOR_MODEL = "composer-2.5"
 AUTO_CURSOR_MODEL = "auto"
 DEFAULT_SETTLED_SHELF_EXPANDED = True
@@ -333,6 +335,48 @@ def resolved_cursor_models() -> tuple[str, str]:
     vision = prefs.get("vision_model") or DEFAULT_CURSOR_MODEL
     listing = prefs.get("listing_model") or DEFAULT_CURSOR_MODEL
     return vision, listing
+
+
+def get_claude_models() -> dict[str, str]:
+    """Saved Claude choices: ``vision_model``, ``listing_model`` and ``effort``."""
+    raw = read_settings().get(CLAUDE_MODELS_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        key: value.strip()
+        for key in ("vision_model", "listing_model", "effort")
+        if isinstance((value := raw.get(key)), str) and value.strip()
+    }
+
+
+def set_claude_models(
+    *,
+    vision_model: str | None = None,
+    listing_model: str | None = None,
+    effort: str | None = None,
+) -> dict[str, str]:
+    choices = {"vision_model": vision_model, "listing_model": listing_model, "effort": effort}
+    changes = {key: value.strip() for key, value in choices.items() if value and value.strip()}
+    if not changes:
+        raise ValueError("Choose a photo model, listing model, or effort level.")
+    current = {**get_claude_models(), **changes}
+    # "default" hands effort back to Claude Code's own default for the model.
+    if current.get("effort") == "default":
+        del current["effort"]
+
+    def mutator(payload: dict) -> None:
+        payload[CLAUDE_MODELS_KEY] = current
+
+    update_settings(mutator)
+    return current
+
+
+def resolved_claude_models() -> tuple[str, str]:
+    prefs = get_claude_models()
+    return (
+        prefs.get("vision_model") or DEFAULT_CLAUDE_MODEL,
+        prefs.get("listing_model") or DEFAULT_CLAUDE_MODEL,
+    )
 
 
 def _ui_prefs(settings: dict | None = None) -> dict:

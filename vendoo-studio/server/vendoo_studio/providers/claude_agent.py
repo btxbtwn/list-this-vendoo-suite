@@ -13,11 +13,10 @@ from vendoo_studio.providers.xiaomi_mimo import (
     unpack_stream_item,
 )
 from vendoo_studio.services import claude_auth, live_trace
+from vendoo_studio.services.user_settings import get_claude_models, resolved_claude_models
 
 log = logging.getLogger("vendoo_studio.claude")
 
-VISION_MODEL = "sonnet"
-LISTING_MODEL = "sonnet"
 TEXT_ONLY_PREAMBLE = (
     "You are a product listing assistant for Vendoo Listing Studio. "
     "Reply with assistant text only. "
@@ -102,12 +101,59 @@ def _signed_out(text: str) -> bool:
     return "not logged in" in lowered or "/login" in lowered or "invalid api key" in lowered
 
 
+def _isolated_options(**kwargs):
+    """Agent SDK options that run on the seller's login only: none of their
+    Claude Code settings, hooks, MCP servers or IDE hookups."""
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    cli = claude_auth.claude_cli_path()
+    if not cli:
+        raise RuntimeError(
+            f"Claude Code is not installed. Install it with: {claude_auth.INSTALL_COMMAND}"
+        )
+    return ClaudeAgentOptions(
+        cli_path=cli,
+        cwd=str(listing_scratch_dir()),
+        setting_sources=[],
+        settings=json.dumps({"disableAllHooks": True}),
+        strict_mcp_config=True,
+        env={
+            "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+            "CLAUDE_CODE_AUTO_CONNECT_IDE": "0",
+            "CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL": "1",
+        },
+        **kwargs,
+    )
+
+
+async def list_models() -> list[dict]:
+    """The models this Claude account offers, as Claude Code lists them in /model:
+    ``[{"value", "label", "efforts"}]``."""
+    from claude_agent_sdk import ClaudeSDKClient
+
+    async with ClaudeSDKClient(_isolated_options(tools=[])) as client:
+        info = await client.get_server_info() or {}
+    models: list[dict] = []
+    for item in info.get("models") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("value"), str):
+            continue
+        efforts = item.get("supportedEffortLevels") if item.get("supportsEffort") else None
+        models.append(
+            {
+                "value": item["value"],
+                "label": str(item.get("displayName") or item["value"]),
+                "efforts": [str(level) for level in efforts or []],
+            }
+        )
+    return models
+
+
 class ClaudeProvider:
     name = "claude"
 
     def __init__(self):
-        self.vision_model = VISION_MODEL
-        self.listing_model = LISTING_MODEL
+        self.vision_model, self.listing_model = resolved_claude_models()
+        self.effort = get_claude_models().get("effort")
 
     async def test_connection(self) -> bool:
         text = ""
@@ -228,7 +274,6 @@ class ClaudeProvider:
         """
         from claude_agent_sdk import (
             AssistantMessage,
-            ClaudeAgentOptions,
             ClaudeSDKError,
             ResultMessage,
             StreamEvent,
@@ -236,31 +281,15 @@ class ClaudeProvider:
             query,
         )
 
-        cli = claude_auth.claude_cli_path()
-        if not cli:
-            raise RuntimeError(
-                f"Claude Code is not installed. Install it with: {claude_auth.INSTALL_COMMAND}"
-            )
         system, blocks = to_claude_turn(messages, preamble)
-        options = ClaudeAgentOptions(
-            cli_path=cli,
-            cwd=str(listing_scratch_dir()),
+        options = _isolated_options(
             model=model,
+            effort=self.effort,
             system_prompt=system,
             tools=list(tools or []),
             allowed_tools=list(tools or []),
             max_turns=max_turns,
-            # Run on the seller's login only: none of their Claude Code
-            # settings, hooks, MCP servers or IDE hookups.
-            setting_sources=[],
-            settings=json.dumps({"disableAllHooks": True}),
-            strict_mcp_config=True,
             include_partial_messages=True,
-            env={
-                "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
-                "CLAUDE_CODE_AUTO_CONNECT_IDE": "0",
-                "CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL": "1",
-            },
         )
         stream_text = not tools
         streamed = False

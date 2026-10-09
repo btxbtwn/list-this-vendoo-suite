@@ -1,7 +1,7 @@
 {
   "name": "vendoo-studio",
   "private": true,
-  "version": "0.1.208",
+  "version": "0.1.209",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,6 +23,9 @@
     "@tiptap/pm": "^3.31.4",
     "@tiptap/react": "^3.31.4",
     "@tiptap/starter-kit": "^3.31.4",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^9.1.0",

@@ -8,6 +8,7 @@ import { ExtensionLoadPath } from "./ExtensionLoadPath";
 import { useStudioUpdate } from "./UpdateButton";
 import { DuplicateVendooLinksButton } from "./DuplicateVendooLinksButton";
 import { ChangelogDialog } from "./ChangelogDialog";
+import { ClaudeLoginTerminal } from "./ClaudeLoginTerminal";
 import { MarketplaceLogo } from "./MarketplaceLogo";
 import { ProviderLogo, resolveProviderLogoId } from "./ProviderLogo";
 import {
@@ -920,11 +921,111 @@ function PackageDimensionsSection() {
   );
 }
 
+type ModelOption = { value: string; label: string };
+
+/** A provider's photo model, listing model and reasoning, kept in its own section. */
+function ProviderModelRows({
+  provider,
+  models,
+  visionModel,
+  listingModel,
+  onModel,
+  reasoning,
+  reasoningDescription,
+  pending,
+  error,
+}: {
+  provider: ListingProviderId;
+  models: ModelOption[];
+  visionModel: string;
+  listingModel: string;
+  onModel: (model: { vision_model: string } | { listing_model: string }) => void;
+  reasoning: { value: string; options: ModelOption[]; onChange: (value: string) => void } | null;
+  reasoningDescription: string;
+  pending: boolean;
+  error?: string | null;
+}) {
+  const label = providerLabel(provider);
+  const options = [...models];
+  for (const value of [visionModel, listingModel]) {
+    if (value && !options.some((option) => option.value === value)) options.push({ value, label: value });
+  }
+  const listingLabel = options.find((option) => option.value === listingModel)?.label ?? listingModel;
+  const modelSelect = (role: "vision_model" | "listing_model", value: string, ariaLabel: string) => (
+    <select
+      className="input settings-model-select"
+      aria-label={`${label} ${ariaLabel}`}
+      value={value}
+      disabled={pending || options.length === 0}
+      onChange={(event) =>
+        onModel(
+          role === "vision_model"
+            ? { vision_model: event.target.value }
+            : { listing_model: event.target.value },
+        )
+      }
+    >
+      {options.map((option) => (
+        <option key={`${role}-${option.value}`} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+  return (
+    <>
+      <SettingsRow
+        title="Photo model"
+        description={`Reads product photos when ${label} does photo analysis.`}
+        status={error ? <span className="text-error">{error}</span> : null}
+        control={modelSelect("vision_model", visionModel, "photo model")}
+      />
+      <SettingsRow
+        title="Listing model"
+        description={`Writes marketplace copy when ${label} is the listing AI.`}
+        control={modelSelect("listing_model", listingModel, "listing model")}
+      />
+      <SettingsRow
+        title="Reasoning"
+        description={reasoningDescription}
+        control={
+          reasoning ? (
+            <select
+              className="input settings-model-select"
+              aria-label={`${label} reasoning`}
+              value={reasoning.value}
+              disabled={pending}
+              onChange={(event) => reasoning.onChange(event.target.value)}
+            >
+              {reasoning.options.map((option) => (
+                <option key={`reasoning-${option.value}`} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="settings-row-value">Not adjustable for {listingLabel}</span>
+          )
+        }
+      />
+    </>
+  );
+}
+
+const REASONING_LABELS: Record<string, string> = {
+  none: "Off",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
 function ProvidersPanel() {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
   const [cursorKey, setCursorKey] = useState("");
-  const [claudeCode, setClaudeCode] = useState("");
+  const [claudeTerminalOpen, setClaudeTerminalOpen] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [mimoTesting, setMimoTesting] = useState(false);
@@ -937,21 +1038,30 @@ function ProvidersPanel() {
     queryFn: api.settings.provider,
   });
   const chatgptSignedIn = Boolean(provider?.chatgpt?.signed_in);
+  const claudeSignedIn = Boolean(provider?.claude?.signed_in);
   const cursorConfigured = Boolean(provider?.masked_cursor_key);
   const { data: chatgptModels } = useQuery({
     queryKey: ["chatgpt-models"],
     queryFn: api.settings.chatgptModels,
-    enabled: chatgptSignedIn && provider?.provider === "chatgpt",
+    enabled: chatgptSignedIn,
+  });
+  const { data: claudeModels } = useQuery({
+    queryKey: ["claude-models"],
+    queryFn: api.settings.claudeModels,
+    enabled: claudeSignedIn,
+    // Listing the account's models starts Claude Code, so don't redo it on every focus.
+    staleTime: 5 * 60_000,
   });
   const { data: cursorModels } = useQuery({
     queryKey: ["cursor-models"],
     queryFn: api.settings.cursorModels,
-    enabled: cursorConfigured && provider?.provider === "cursor",
+    enabled: cursorConfigured,
   });
 
   const refreshProvider = () => {
     queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
     queryClient.invalidateQueries({ queryKey: ["chatgpt-models"] });
+    queryClient.invalidateQueries({ queryKey: ["claude-models"] });
     queryClient.invalidateQueries({ queryKey: ["cursor-models"] });
     queryClient.invalidateQueries({ queryKey: ["status"] });
   };
@@ -998,22 +1108,6 @@ function ProvidersPanel() {
     mutationFn: () => api.settings.chatgptLogout(),
     onSuccess: refreshProvider,
   });
-  const claudeLoginMutation = useMutation({
-    mutationFn: () => api.settings.claudeLogin(),
-    onSuccess: refreshProvider,
-  });
-  const claudeCodeMutation = useMutation({
-    mutationFn: (code: string) => api.settings.claudeLoginCode(code),
-    onSuccess: () => {
-      setClaudeCode("");
-      refreshProvider();
-    },
-    onError: refreshProvider,
-  });
-  const claudeCancelMutation = useMutation({
-    mutationFn: () => api.settings.claudeCancelLogin(),
-    onSuccess: refreshProvider,
-  });
   const setChatGPTModelsMutation = useMutation({
     mutationFn: (models: { vision_model?: string; listing_model?: string; reasoning_effort?: string }) =>
       api.settings.setChatGPTModels(models),
@@ -1032,6 +1126,15 @@ function ProvidersPanel() {
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
+  const setClaudeModelsMutation = useMutation({
+    mutationFn: (models: { vision_model?: string; listing_model?: string; effort?: string }) =>
+      api.settings.setClaudeModels(models),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
+      queryClient.invalidateQueries({ queryKey: ["claude-models"] });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
   const setPhotoProviderMutation = useMutation({
     mutationFn: (choice: PhotoProviderChoice) => api.settings.setPhotoProvider(choice),
     onSuccess: refreshProvider,
@@ -1046,8 +1149,6 @@ function ProvidersPanel() {
   const chatgptPending = chatgpt?.pending;
   const pendingCode = chatgptPending?.user_code;
   const claude = provider?.claude;
-  const claudeSignedIn = Boolean(claude?.signed_in);
-  const claudePending = claude?.pending;
   const mimoConfigured = Boolean(provider?.masked_key);
   const primary: ListingProviderId =
     provider?.primary === "claude" || provider?.primary === "mimo" || provider?.primary === "cursor"
@@ -1063,8 +1164,6 @@ function ProvidersPanel() {
       : primary === "chatgpt"
         ? "mimo"
         : "chatgpt";
-  const usingChatGPT = provider?.provider === "chatgpt";
-  const usingCursor = provider?.provider === "cursor";
   const activeChoice = activeProviderChoice(provider?.provider);
   const choiceReady = (choice: ListingFallbackId) =>
     choice === "chatgpt"
@@ -1088,52 +1187,18 @@ function ProvidersPanel() {
     setPreferredMutation.mutate({ primary: nextPrimary, fallback: fallbackValue });
   };
 
-  const visionModel = usingChatGPT
-    ? chatgptModels?.vision_model || provider?.vision_model || "gpt-5.5"
-    : usingCursor
-      ? cursorModels?.vision_model || provider?.vision_model || "composer-2.5"
-      : provider?.vision_model || "mimo-v2.5";
-  const listingModel = usingChatGPT
-    ? chatgptModels?.listing_model || provider?.listing_model || "gpt-5.5"
-    : usingCursor
-      ? cursorModels?.listing_model || provider?.listing_model || "composer-2.5"
-      : provider?.listing_model || "mimo-v2.5-pro";
-  const reasoningEffort = chatgptModels?.reasoning_effort || "low";
-  const reasoningOptions = chatgptModels?.reasoning_efforts?.length
+  const chatgptReasoning = chatgptModels?.reasoning_efforts?.length
     ? chatgptModels.reasoning_efforts
     : ["none", "low", "medium", "high", "xhigh"];
-  const reasoningLabels: Record<string, string> = {
-    none: "Off",
-    low: "Low",
-    medium: "Medium",
-    high: "High",
-    xhigh: "Extra high",
-    max: "Max",
-  };
-  const modelOptions = (() => {
-    if (usingCursor) {
-      const slugs = [...(cursorModels?.models || ["auto", "composer-2.5"])];
-      for (const slug of [visionModel, listingModel]) {
-        if (slug && !slugs.includes(slug)) slugs.push(slug);
-      }
-      return slugs;
-    }
-    const slugs = [...(chatgptModels?.models || [])];
-    for (const slug of [visionModel, listingModel]) {
-      if (slug && !slugs.includes(slug)) slugs.push(slug);
-    }
-    return slugs;
-  })();
-  const modelLabel = (slug: string) => (slug === "auto" ? "Auto" : slug);
 
   useEffect(() => {
-    if (!pendingCode && !claudePending) return;
+    if (!pendingCode) return;
     const id = window.setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     }, 2000);
     return () => window.clearInterval(id);
-  }, [pendingCode, claudePending, queryClient]);
+  }, [pendingCode, queryClient]);
 
   const handleTest = async () => {
     setTesting(true);
@@ -1186,7 +1251,7 @@ function ProvidersPanel() {
       <SettingsSection id="listing-ai" title="Listing AI">
         <SettingsRow
           title="Primary"
-          description="Tried first when generating listings, and for photos unless Photo analysis names another."
+          description="Writes listings, and reads photos unless Photo analysis names another. Each provider's models are set in its section below."
           control={
             <div className="settings-provider-select">
               <ProviderLogo id={primary} label={providerLabel(primary)} size={16} />
@@ -1233,7 +1298,7 @@ function ProvidersPanel() {
         />
         <SettingsRow
           title="Photo analysis"
-          description="Reads product photos before the listing is written. A provider that is not ready falls back to the listing AI."
+          description="Reads product photos before the listing is written, with that provider's photo model. A provider that is not ready falls back to the listing AI."
           control={
             <div className="settings-provider-select">
               {photoProvider !== "same" ? (
@@ -1367,17 +1432,41 @@ function ProvidersPanel() {
             <p className="settings-row-desc text-error">{(chatgptLoginMutation.error as Error).message}</p>
           ) : null}
         </SettingsRow>
+        {chatgptSignedIn ? (
+          <ProviderModelRows
+            provider="chatgpt"
+            models={(chatgptModels?.models ?? []).map((slug) => ({ value: slug, label: slug }))}
+            visionModel={chatgptModels?.vision_model ?? ""}
+            listingModel={chatgptModels?.listing_model ?? ""}
+            onModel={(model) => setChatGPTModelsMutation.mutate(model)}
+            reasoning={
+              chatgptModels
+                ? {
+                    value: chatgptReasoning.includes(chatgptModels.reasoning_effort)
+                      ? chatgptModels.reasoning_effort
+                      : chatgptReasoning[0],
+                    options: chatgptReasoning.map((effort) => ({
+                      value: effort,
+                      label: REASONING_LABELS[effort] || effort,
+                    })),
+                    onChange: (value) => setChatGPTModelsMutation.mutate({ reasoning_effort: value }),
+                  }
+                : null
+            }
+            reasoningDescription="Higher uses more Codex quota and takes longer. Default is Low. Applies to both models."
+            pending={setChatGPTModelsMutation.isPending}
+            error={chatgptModels?.error || setChatGPTModelsMutation.error?.message}
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="claude" title={providerTitle("claude")}>
         <SettingsRow
           title="Sign in with Claude"
-          description="Uses your Claude Pro or Max subscription through Claude Code, the way T3 Code does. Usage counts against your Claude plan, not an API key."
+          description="Uses your Claude Pro or Max subscription through Claude Code. Usage counts against your Claude plan, not an API key."
           status={
             claudeSignedIn && testResult && provider?.provider === "claude" ? (
               <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
-            ) : claude?.error ? (
-              <span className="text-error">{claude.error}</span>
             ) : null
           }
           control={
@@ -1387,23 +1476,14 @@ function ProvidersPanel() {
                   {testing ? "Testing…" : "Test"}
                 </button>
               ) : null
-            ) : claudePending ? (
-              <button
-                type="button"
-                className="btn btn-sm btn-outline"
-                onClick={() => claudeCancelMutation.mutate()}
-                disabled={claudeCancelMutation.isPending}
-              >
-                Cancel
-              </button>
-            ) : (
+            ) : claudeTerminalOpen ? null : (
               <button
                 type="button"
                 className="btn btn-sm btn-primary"
-                onClick={() => claudeLoginMutation.mutate()}
-                disabled={claudeLoginMutation.isPending}
+                onClick={() => setClaudeTerminalOpen(true)}
+                disabled={claude ? !claude.installed : true}
               >
-                {claudeLoginMutation.isPending ? "Starting…" : "Sign in"}
+                Sign in
               </button>
             )
           }
@@ -1417,49 +1497,16 @@ function ProvidersPanel() {
                 : fallback === "claude"
                   ? " Fallback for listings."
                   : " Not in the listing order."}
-              {" "}To sign out, run <code className="settings-row-code">claude auth logout</code> in Terminal.
+              {" "}Signing out of Claude Code (<code className="settings-row-code">claude auth logout</code> in
+              Terminal) signs Studio out too; Sign in here brings it back.
             </p>
-          ) : claudePending ? (
-            <>
-              <p className="settings-row-desc">
-                Finish signing in in the browser window that opened.
-                {claudePending.url ? (
-                  <>
-                    {" "}If none opened,{" "}
-                    <a href={claudePending.url} target="_blank" rel="noreferrer">
-                      open the sign-in page
-                    </a>{" "}
-                    and paste the code it shows here.
-                  </>
-                ) : null}
-              </p>
-              {claudePending.url ? (
-                <form
-                  className="settings-row-field"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (claudeCode.trim()) claudeCodeMutation.mutate(claudeCode.trim());
-                  }}
-                >
-                  <input
-                    className="input"
-                    aria-label="Claude sign-in code"
-                    placeholder="Paste code"
-                    value={claudeCode}
-                    onChange={(event) => setClaudeCode(event.target.value)}
-                  />
-                  <button
-                    type="submit"
-                    className="btn btn-sm btn-primary"
-                    disabled={!claudeCode.trim() || claudeCodeMutation.isPending}
-                  >
-                    {claudeCodeMutation.isPending ? "Signing in…" : "Submit"}
-                  </button>
-                </form>
-              ) : null}
-            </>
-          ) : claudeLoginMutation.isError ? (
-            <p className="settings-row-desc text-error">{(claudeLoginMutation.error as Error).message}</p>
+          ) : claudeTerminalOpen ? (
+            <ClaudeLoginTerminal
+              onClose={() => {
+                setClaudeTerminalOpen(false);
+                refreshProvider();
+              }}
+            />
           ) : claude && !claude.installed ? (
             <p className="settings-row-desc">
               Needs Claude Code. Install it in Terminal with{" "}
@@ -1467,142 +1514,33 @@ function ProvidersPanel() {
             </p>
           ) : null}
         </SettingsRow>
-      </SettingsSection>
-
-      <SettingsSection
-        id="models"
-        title={
-          <>
-            {activeChoice ? (
-              <ProviderLogo id={activeChoice} label={providerLabel(activeChoice)} size={18} />
-            ) : null}
-            <span>Models</span>
-          </>
-        }
-      >
-        <SettingsRow
-          title="Vision model"
-          description="Used to read product photos."
-          status={
-            usingChatGPT && chatgptModels?.error ? (
-              <span className="text-error">{chatgptModels.error}</span>
-            ) : usingCursor && cursorModels?.error ? (
-              <span className="text-error">{cursorModels.error}</span>
-            ) : null
-          }
-          control={
-            usingChatGPT || usingCursor ? (
-              <select
-                className="input settings-model-select"
-                aria-label="Vision model"
-                value={visionModel}
-                disabled={
-                  (usingChatGPT
-                    ? setChatGPTModelsMutation.isPending
-                    : setCursorModelsMutation.isPending) || modelOptions.length === 0
-                }
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (usingCursor) {
-                    setCursorModelsMutation.mutate({ vision_model: value });
-                  } else {
-                    setChatGPTModelsMutation.mutate({ vision_model: value });
+        {claudeSignedIn ? (
+          <ProviderModelRows
+            provider="claude"
+            models={claudeModels?.models ?? []}
+            visionModel={claudeModels?.vision_model ?? ""}
+            listingModel={claudeModels?.listing_model ?? ""}
+            onModel={(model) => setClaudeModelsMutation.mutate(model)}
+            reasoning={
+              claudeModels?.efforts.length
+                ? {
+                    value: claudeModels.effort ?? "default",
+                    options: [
+                      { value: "default", label: "Default" },
+                      ...claudeModels.efforts.map((effort) => ({
+                        value: effort,
+                        label: REASONING_LABELS[effort] || effort,
+                      })),
+                    ],
+                    onChange: (value) => setClaudeModelsMutation.mutate({ effort: value }),
                   }
-                }}
-              >
-                {modelOptions.map((slug) => (
-                  <option key={`vision-${slug}`} value={slug}>
-                    {modelLabel(slug)}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="settings-row-value">{visionModel}</span>
-            )
-          }
-        />
-        <SettingsRow
-          title="Listing model"
-          description="Used to write marketplace copy. Auto lets Cursor pick the best model for the account."
-          control={
-            usingChatGPT || usingCursor ? (
-              <select
-                className="input settings-model-select"
-                aria-label="Listing model"
-                value={listingModel}
-                disabled={
-                  (usingChatGPT
-                    ? setChatGPTModelsMutation.isPending
-                    : setCursorModelsMutation.isPending) || modelOptions.length === 0
-                }
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (usingCursor) {
-                    setCursorModelsMutation.mutate({ listing_model: value });
-                  } else {
-                    setChatGPTModelsMutation.mutate({ listing_model: value });
-                  }
-                }}
-              >
-                {modelOptions.map((slug) => (
-                  <option key={`listing-${slug}`} value={slug}>
-                    {modelLabel(slug)}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="settings-row-value">{listingModel}</span>
-            )
-          }
-        />
-        <SettingsRow
-          title="Reasoning"
-          description={
-            usingCursor
-              ? "Higher uses more Cursor usage and takes longer. Options come from the listing model, and apply wherever that model is used."
-              : "Higher uses more Codex quota and takes longer. Default is Low. Applied to listing generation and photo analysis."
-          }
-          status={
-            usingCursor && setCursorModelsMutation.error ? (
-              <span className="text-error">{setCursorModelsMutation.error.message}</span>
-            ) : null
-          }
-          control={
-            usingCursor && cursorModels?.reasoning ? (
-              <select
-                className="input settings-model-select"
-                aria-label="Reasoning"
-                value={cursorModels.reasoning.value}
-                disabled={setCursorModelsMutation.isPending}
-                onChange={(event) => setCursorModelsMutation.mutate({ reasoning_effort: event.target.value })}
-              >
-                {cursorModels.reasoning.options.map((option) => (
-                  <option key={`reasoning-${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            ) : usingChatGPT ? (
-              <select
-                className="input settings-model-select"
-                aria-label="Reasoning"
-                value={reasoningOptions.includes(reasoningEffort) ? reasoningEffort : reasoningOptions[0]}
-                disabled={setChatGPTModelsMutation.isPending}
-                onChange={(event) => setChatGPTModelsMutation.mutate({ reasoning_effort: event.target.value })}
-              >
-                {reasoningOptions.map((effort) => (
-                  <option key={`reasoning-${effort}`} value={effort}>
-                    {reasoningLabels[effort] || effort}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="settings-row-value">
-                {usingCursor ? `Not adjustable for ${modelLabel(listingModel)}` : "Not used with MiMo"}
-              </span>
-            )
-          }
-        />
+                : null
+            }
+            reasoningDescription="Higher uses more of your Claude plan and takes longer. Options come from the listing model, and apply to both models."
+            pending={setClaudeModelsMutation.isPending}
+            error={claudeModels?.error || setClaudeModelsMutation.error?.message}
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="provider" title={providerTitle("mimo", true)}>
@@ -1660,6 +1598,10 @@ function ProvidersPanel() {
               </>
             ) : null
           }
+        />
+        <SettingsRow
+          title="Models"
+          description="MiMo reads photos with mimo-v2.5 and writes listings with mimo-v2.5-pro. These are fixed."
         />
       </SettingsSection>
 
@@ -1735,6 +1677,30 @@ function ProvidersPanel() {
             ) : null
           }
         />
+        {cursorConfigured ? (
+          <ProviderModelRows
+            provider="cursor"
+            models={(cursorModels?.models ?? []).map((slug) => ({
+              value: slug,
+              label: slug === "auto" ? "Auto" : slug,
+            }))}
+            visionModel={cursorModels?.vision_model ?? ""}
+            listingModel={cursorModels?.listing_model ?? ""}
+            onModel={(model) => setCursorModelsMutation.mutate(model)}
+            reasoning={
+              cursorModels?.reasoning
+                ? {
+                    value: cursorModels.reasoning.value,
+                    options: cursorModels.reasoning.options,
+                    onChange: (value) => setCursorModelsMutation.mutate({ reasoning_effort: value }),
+                  }
+                : null
+            }
+            reasoningDescription="Higher uses more Cursor usage and takes longer. Options come from the listing model, and apply wherever that model is used. Auto lets Cursor pick the model."
+            pending={setCursorModelsMutation.isPending}
+            error={cursorModels?.error || setCursorModelsMutation.error?.message}
+          />
+        ) : null}
       </SettingsSection>
 
       <BraveSearchSection chatgptSignedIn={chatgptSignedIn} />

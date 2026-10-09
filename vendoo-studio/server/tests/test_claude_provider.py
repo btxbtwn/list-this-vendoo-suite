@@ -143,17 +143,16 @@ class ClaudeAuthStatusTest(unittest.TestCase):
 
 FAKE_LOGIN = textwrap.dedent("""\
     #!/bin/sh
-    echo "Opening browser to sign in…"
-    echo "If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true"
+    [ -t 0 ] && echo "on a terminal: $*"
     printf "Paste code here if prompted > "
     read code
     if [ "$code" = "good#state" ]; then echo "Login successful."; exit 0; fi
-    echo "Login failed: Request failed with status code 400"
+    echo "Login failed"
     exit 1
 """)
 
 
-class ClaudeLoginTest(unittest.TestCase):
+class ClaudeLoginTerminalTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.mkdtemp()
         self.cli = Path(tmp) / "claude"
@@ -163,32 +162,49 @@ class ClaudeLoginTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _login(self, code: str) -> tuple[dict, str | None]:
-        async def run():
-            started = await claude_auth.start_login()
-            self.assertEqual(claude_auth.pending_login(), started)
-            error = None
-            try:
-                await claude_auth.submit_code(code)
-            except RuntimeError as exc:
-                error = str(exc)
-            return started, error
+    def _login(self, code: str) -> tuple[str, dict]:
+        from fastapi.testclient import TestClient
 
-        return asyncio.run(run())
+        from vendoo_studio.config import CORS_ORIGINS
+        from vendoo_studio.main import app
 
-    def test_pasted_code_finishes_the_login(self):
-        started, error = self._login("good#state")
-        self.assertEqual(started["url"], "https://claude.com/cai/oauth/authorize?code=true")
-        self.assertIsNone(error)
-        self.assertIsNone(claude_auth.pending_login())
-        self.assertIsNone(claude_auth.login_error())
+        output = ""
+        with TestClient(app).websocket_connect(
+            "/api/settings/claude/terminal?cols=100&rows=30",
+            headers={"origin": CORS_ORIGINS[0]},
+        ) as ws:
+            while "prompted >" not in output:
+                output += ws.receive_bytes().decode()
+            ws.send_text(json.dumps({"type": "input", "data": code + "\r"}))
+            while True:
+                message = ws.receive()
+                if message.get("bytes") is not None:
+                    output += message["bytes"].decode()
+                else:
+                    return output, json.loads(message["text"])
 
-    def test_rejected_code_reports_the_cli_error(self):
-        _, error = self._login("bad")
-        self.assertEqual(
-            error, "Claude did not accept that code. Sign in again and paste the newest code."
-        )
-        self.assertEqual(claude_auth.login_error(), error)
+    def test_runs_the_login_on_a_terminal_and_reports_success(self):
+        output, last = self._login("good#state")
+        self.assertIn("on a terminal: auth login --claudeai", output)
+        self.assertIn("Login successful.", output)
+        self.assertEqual(last, {"type": "exit", "code": 0})
+
+    def test_a_failed_login_reports_its_exit_code(self):
+        output, last = self._login("bad")
+        self.assertIn("Login failed", output)
+        self.assertEqual(last, {"type": "exit", "code": 1})
+
+    def test_other_origins_cannot_open_it(self):
+        from fastapi.testclient import TestClient
+        from starlette.websockets import WebSocketDisconnect
+
+        from vendoo_studio.main import app
+
+        with self.assertRaises(WebSocketDisconnect):
+            with TestClient(app).websocket_connect(
+                "/api/settings/claude/terminal", headers={"origin": "https://example.com"}
+            ) as ws:
+                ws.receive()
 
 
 class ListingProviderClaudeTest(unittest.TestCase):
@@ -231,3 +247,92 @@ class ListingProviderClaudeTest(unittest.TestCase):
         self.assertEqual(body["claude"]["email"], "seller@example.com")
         self.assertEqual(body["claude"]["plan"], "pro")
         self.assertTrue(body["claude"]["signed_in"])
+
+
+class ClaudeModelSettingsTest(unittest.TestCase):
+    def setUp(self):
+        from vendoo_studio.services import user_settings
+
+        def forget_models():
+            user_settings.update_settings(lambda payload: payload.pop(user_settings.CLAUDE_MODELS_KEY, None))
+
+        forget_models()
+        self.addCleanup(forget_models)
+        patcher = patch.object(claude_auth, "claude_cli_path", return_value="/usr/bin/claude")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_runs_use_the_saved_models_and_effort(self):
+        from vendoo_studio.services.user_settings import set_claude_models
+
+        set_claude_models(vision_model="haiku", listing_model="opus", effort="low")
+        provider = ClaudeProvider()
+        self.assertEqual((provider.vision_model, provider.listing_model), ("haiku", "opus"))
+        captured: dict = {}
+        with patch("claude_agent_sdk.query", _fake_query([_result("OK")], captured)):
+            _collect(provider.chat([{"role": "user", "content": "hi"}]))
+        self.assertEqual(captured["options"].model, "opus")
+        self.assertEqual(captured["options"].effort, "low")
+
+    def test_default_effort_hands_the_choice_back_to_claude_code(self):
+        from vendoo_studio.services.user_settings import get_claude_models, set_claude_models
+
+        set_claude_models(listing_model="opus", effort="max")
+        set_claude_models(effort="default")
+        self.assertEqual(get_claude_models(), {"listing_model": "opus"})
+        self.assertIsNone(ClaudeProvider().effort)
+
+    def test_settings_list_the_account_models_and_save_a_pick(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+        from vendoo_studio.services.user_settings import get_claude_models
+
+        catalog = [
+            {"value": "sonnet", "label": "Sonnet", "efforts": ["low", "high"]},
+            {"value": "claude-haiku-4-5", "label": "Haiku 4.5", "efforts": []},
+        ]
+        signed_in = claude_auth._Status(installed=True, signed_in=True)
+        client = TestClient(app)
+        with (
+            patch.object(claude_auth, "_read_status", return_value=signed_in),
+            patch("vendoo_studio.providers.claude_agent.list_models", return_value=catalog),
+        ):
+            claude_auth.forget_status()
+            saved = client.put("/api/settings/claude/models", json={"effort": "high"})
+            body = client.get("/api/settings/claude/models").json()
+            client.put("/api/settings/claude/models", json={"listing_model": "claude-haiku-4-5"})
+            haiku = client.get("/api/settings/claude/models").json()
+        claude_auth.forget_status()
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual([item["value"] for item in body["models"]], ["sonnet", "claude-haiku-4-5"])
+        self.assertEqual((body["listing_model"], body["effort"], body["efforts"]), ("sonnet", "high", ["low", "high"]))
+        self.assertEqual((haiku["effort"], haiku["efforts"]), (None, []))
+        self.assertEqual(get_claude_models()["listing_model"], "claude-haiku-4-5")
+
+    def test_provider_status_keeps_the_photo_choice_while_claude_writes(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+
+        signed_in = claude_auth._Status(installed=True, signed_in=True)
+        with (
+            patch.object(claude_auth, "_read_status", return_value=signed_in),
+            patch(
+                "vendoo_studio.services.listing_provider.get_listing_provider_order",
+                return_value=("claude", "none"),
+            ),
+            patch(
+                "vendoo_studio.services.user_settings.get_listing_provider_order",
+                return_value=("claude", "none"),
+            ),
+            patch(
+                "vendoo_studio.services.user_settings.get_photo_provider_choice",
+                return_value="chatgpt",
+            ),
+        ):
+            claude_auth.forget_status()
+            body = TestClient(app).get("/api/settings/provider").json()
+        claude_auth.forget_status()
+        self.assertEqual(body["provider"], "claude")
+        self.assertEqual(body["photo_provider"], "chatgpt")
