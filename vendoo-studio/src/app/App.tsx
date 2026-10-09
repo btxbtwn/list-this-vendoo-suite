@@ -19,7 +19,6 @@ import {
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { PhotoDropOverlay } from "../components/PhotoDropOverlay";
 import { BulkUploadDialog } from "../components/BulkUploadDialog";
-import { BulkMeasurementsDialog, type BulkMeasureListing } from "../components/BulkMeasurementsDialog";
 import { useBulkRegenerate } from "../components/useBulkRegenerate";
 import { bulkRegenerateToast } from "../bulkRegenerate";
 import { ToastHost } from "../components/ToastHost";
@@ -41,6 +40,7 @@ import {
   createBulkPhotoListings,
   type BulkListingUploadResult,
   type BulkUploadDefaults,
+  type BulkUploadItem,
 } from "../bulkPhotoUpload";
 import { ThemeSync } from "../components/ThemeSync";
 import { QueuePage } from "../components/QueuePage";
@@ -111,7 +111,6 @@ export function App() {
   const [browserFields, setBrowserFields] = useState<BrowserField[]>([]);
   const [browserExpanded, setBrowserExpanded] = useState(false);
   const [pendingBulkGroups, setPendingBulkGroups] = useState<PhotoFolderGroup[] | null>(null);
-  const [measureListings, setMeasureListings] = useState<BulkMeasureListing[] | null>(null);
   const wasBrowserOpen = useRef(false);
   const mainPanelRef = useRef<HTMLElement>(null);
   const [sidebarWidth, setSidebarWidth] = usePanelWidth("sidebar");
@@ -422,16 +421,12 @@ export function App() {
     + (queue.data?.work.filter((w) => !bulk.pendingIds.includes(w.conversation_id)).length ?? 0)
     + bulk.pendingIds.length;
 
-  // A bulk upload asks for measurements next, then generates every draft.
-  const askForMeasurements = (listings: BulkListingUploadResult[]) => {
-    const withPhotos = listings
+  // Bulk-uploaded drafts already carry their SKUs and measurements, so they generate straight away.
+  const generateBatch = async (uploaded: BulkListingUploadResult[]) => {
+    const listings = uploaded
       .filter((listing) => listing.count > 0)
       .map((listing) => ({ convId: listing.convId, title: listingTitleForFolder(listing.folder) }));
-    if (withPhotos.length) setMeasureListings(withPhotos);
-  };
-
-  const generateBatch = async (listings: BulkMeasureListing[]) => {
-    setMeasureListings(null);
+    if (!listings.length) return;
     if (bulk.running) {
       addToast({
         type: "warning",
@@ -454,11 +449,11 @@ export function App() {
     mutationFn: async (
       upload:
         | { files: File[] }
-        | { groups: PhotoFolderGroup[]; bulkDefaults: BulkUploadDefaults },
+        | { items: BulkUploadItem[]; bulkDefaults: BulkUploadDefaults; generate: boolean },
     ) => {
-      if ("groups" in upload) {
-        const listings = await createBulkPhotoListings(upload.groups, upload.bulkDefaults, api.conversations);
-        return { mode: "bulk" as const, listings };
+      if ("items" in upload) {
+        const listings = await createBulkPhotoListings(upload.items, upload.bulkDefaults, api.conversations);
+        return { mode: "bulk" as const, listings, generate: upload.generate };
       }
 
       const { files } = upload;
@@ -496,7 +491,7 @@ export function App() {
         const errors = result.listings.flatMap((row) => row.errors);
         const title = `Started ${result.listings.length} listings`;
         const description = `Added ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} from separate folders.`;
-        askForMeasurements(result.listings);
+        if (result.generate) void generateBatch(result.listings);
         if (errors.length) {
           addToast({ type: "error", title, description: errors.join("; ") });
           return;
@@ -865,8 +860,8 @@ export function App() {
                           onCleared={() => {
                             clearListingWorkspace(tab.id);
                           }}
-                          onBulkListingsCreated={(listings) => {
-                            askForMeasurements(listings);
+                          onBulkListingsCreated={(listings, generate) => {
+                            if (generate) void generateBatch(listings);
                             const first = listings[0]?.convId;
                             if (!first) return;
                             setSelectedConvId(first);
@@ -954,17 +949,10 @@ export function App() {
         <BulkUploadDialog
           groups={pendingBulkGroups}
           onCancel={() => setPendingBulkGroups(null)}
-          onConfirm={(bulkDefaults, groups) => {
+          onConfirm={(bulkDefaults, items, generate) => {
             setPendingBulkGroups(null);
-            dropPhotos.mutate({ groups, bulkDefaults });
+            dropPhotos.mutate({ items, bulkDefaults, generate });
           }}
-        />
-      ) : null}
-      {measureListings ? (
-        <BulkMeasurementsDialog
-          listings={measureListings}
-          onClose={() => setMeasureListings(null)}
-          onGenerate={(listings) => { void generateBatch(listings); }}
         />
       ) : null}
       <ThemeSync />

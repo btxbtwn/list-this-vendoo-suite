@@ -2,12 +2,20 @@ import type { PhotoUploadResult } from "./api/types";
 import type { PhotoFolderGroup } from "./photoDrop";
 import { listingTitleForFolder } from "./photoDrop";
 import { joinLabels, splitLabels } from "./components/itemLabels";
+import { notesWithMeasurements, typedMeasurements, type Garment } from "./components/garmentMeasurements";
 
 export interface BulkUploadDefaults {
   cog: string;
   labels: string;
   /** The wholesale box these items came out of. */
   boxId?: string;
+}
+
+/** One folder's photos plus what the seller typed for that item alone. */
+export interface BulkUploadItem extends PhotoFolderGroup {
+  sku?: string;
+  garment?: Garment;
+  measurements?: Record<string, string>;
 }
 
 interface BulkUploadApi {
@@ -23,32 +31,39 @@ export interface BulkListingUploadResult {
 }
 
 /** Build the same Item Details note fields used by an individually edited draft. */
-export function bulkListingNotes(defaults: BulkUploadDefaults): string | undefined {
+export function bulkListingNotes(defaults: BulkUploadDefaults, item: Omit<BulkUploadItem, "files" | "folder"> = {}): string | undefined {
   const cog = defaults.cog.trim();
   const vendooLabels = joinLabels(splitLabels(defaults.labels));
-  if (!cog && !vendooLabels) return undefined;
-  return JSON.stringify({ cog, vendooLabels });
+  const sku = item.sku?.trim();
+  const notes = {
+    ...(cog || vendooLabels ? { cog, vendooLabels } : {}),
+    ...(sku ? { sku } : {}),
+  };
+  const shared = Object.keys(notes).length ? JSON.stringify(notes) : undefined;
+  const { garment, measurements = {} } = item;
+  if (!garment || !Object.keys(typedMeasurements(garment, measurements)).length) return shared;
+  return notesWithMeasurements(shared, garment, measurements);
 }
 
-/** Create each draft with its shared details already attached, then add its photos. */
+/** Create each draft with its details already attached, then add its photos. */
 export async function createBulkPhotoListings(
-  groups: PhotoFolderGroup[],
+  items: BulkUploadItem[],
   defaults: BulkUploadDefaults,
   conversations: BulkUploadApi,
 ): Promise<BulkListingUploadResult[]> {
-  const notes = bulkListingNotes(defaults);
   const listings: BulkListingUploadResult[] = [];
 
-  for (const group of groups) {
+  for (const item of items) {
+    const notes = bulkListingNotes(defaults, item);
     const conv = await conversations.create({
-      title: listingTitleForFolder(group.folder),
+      title: listingTitleForFolder(item.folder),
       ...(notes ? { notes } : {}),
       ...(defaults.boxId ? { box_id: defaults.boxId } : {}),
     });
-    const result = await conversations.uploadPhotos(conv.id, group.files);
+    const result = await conversations.uploadPhotos(conv.id, item.files);
     listings.push({
       convId: conv.id,
-      folder: group.folder,
+      folder: item.folder,
       count: result.count,
       errors: result.errors || [],
     });
