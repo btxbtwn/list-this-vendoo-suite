@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.216 — 2026-10-09
+
+- The listing header has room to breathe again: Input / Forms / Fields sit on the left with Regenerate and the menu on the right, History reads as a quiet link beside Link Vendoo draft, and a divider separates the header from the listing.
+
 ## 0.1.215 — 2026-10-09
 
 - The bar at the top of the window is slimmer, so listings get more room.

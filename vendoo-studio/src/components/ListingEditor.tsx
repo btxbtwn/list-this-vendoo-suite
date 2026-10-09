@@ -332,7 +332,14 @@ export function ListingEditor({
           </ListingReviewActions>
         </div>
         <div className="pr-review-meta">
-          <button type="button" className="btn btn-ghost btn-sm" disabled={!data?.current_revision_id} onClick={() => { setFieldTarget(null); setHistoryOpen(true); }}>History</button>
+          <button
+            type="button"
+            className="pr-history-btn"
+            disabled={!data?.current_revision_id}
+            onClick={() => { setFieldTarget(null); setHistoryOpen(true); }}
+          >
+            History
+          </button>
           <VendooLinkControl
             convId={convId}
             itemId={importedItemId}

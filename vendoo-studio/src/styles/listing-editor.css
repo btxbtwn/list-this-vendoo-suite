@@ -13,10 +13,12 @@
 .pr-review-header {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   flex-shrink: 0;
   min-width: 0;
-  padding: 10px 12px 0;
+  margin-bottom: 12px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .pr-review-title-row {
@@ -41,8 +43,9 @@
 
 .pr-review-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 14px;
   min-width: 0;
   color: var(--color-text-muted);
   font-size: 12px;
@@ -56,6 +59,7 @@
   font-size: 11px;
 }
 
+.pr-history-btn,
 .pr-vendoo-link-btn {
   max-width: 100%;
   margin: 0;
@@ -72,6 +76,8 @@
   -webkit-app-region: no-drag;
 }
 
+.pr-history-btn:hover:not(:disabled),
+.pr-history-btn:focus-visible,
 .pr-vendoo-link-btn:hover,
 .pr-vendoo-link-btn:focus-visible {
   color: var(--color-text);
@@ -79,9 +85,15 @@
   text-underline-offset: 2px;
 }
 
+.pr-history-btn,
 .pr-vendoo-link-btn.is-empty {
   color: var(--color-text-muted);
   font-family: inherit;
+}
+
+.pr-history-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .pr-vendoo-sync {
@@ -180,6 +192,8 @@
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
+  /* Tabs hold the left edge; this listing's actions hold the right. */
+  margin-left: auto;
   max-width: 100%;
   pointer-events: auto;
   position: relative;
