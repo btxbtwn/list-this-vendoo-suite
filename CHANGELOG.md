@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.213 — 2026-10-09
+
+- Input, Forms and Fields and the browser button now sit in each listing's header beside Open listing and Regenerate, instead of up in the window's title bar.
+
 ## 0.1.212 — 2026-10-09
 
 - Settings → Providers now opens with which AI is in use, above the Primary, Fallback and Photo analysis choices, so you can see what's running before you change it.

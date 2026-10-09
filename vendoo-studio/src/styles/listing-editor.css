@@ -187,26 +187,19 @@
   -webkit-app-region: no-drag;
 }
 
-/* Desktop: the tab and breadcrumb name the listing and the titlebar holds the
-   browser toggle, so the header row carries only this listing's actions. */
-.pr-review-title-row > .pr-review-title,
-.pr-review-title-row .pr-review-actions > .titlebar-control {
+/* Desktop: the tab and the titlebar breadcrumb already name the listing. */
+.pr-review-title-row > .pr-review-title {
   display: none;
 }
 
-/* Desktop: Input/Forms/Fields live in the window topbar. */
-.pr-review-chrome-mobile {
-  display: none;
-}
-
-.pr-review-chrome-mobile.listing-review-tabs {
-  align-self: flex-start;
+/* Input/Forms/Fields sit beside this listing's actions. The tabs keep their
+   content width here instead of growing like the sidebar's status tabs. */
+.pr-review-title-row .listing-review-tabs {
   flex: 0 0 auto;
   container-type: normal;
-  margin: 4px 0 8px;
 }
 
-.pr-review-chrome-mobile.listing-review-tabs .listing-filter-tab {
+.pr-review-title-row .listing-review-tabs .listing-filter-tab {
   flex: 0 0 auto;
   padding: 0 10px;
 }

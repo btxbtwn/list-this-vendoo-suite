@@ -186,38 +186,6 @@
   min-width: 0;
 }
 
-/* Pin the listing chrome to the inspector column so Open listing lines up with
-   the panel's left edge and the surface toggles with its right. The topbar's
-   10px right padding is subtracted so the strip and panel share an edge. */
-.workspace-topbar-actions:has(.listing-review-tabs) {
-  width: calc(clamp(420px, var(--detail-width, 460px), 45vw) - 10px);
-  flex-shrink: 0;
-  box-sizing: border-box;
-}
-
-/* Push Input/Forms/Fields + the surface toggles to the panel's right edge so
-   Open listing / Regenerate stay on the left of the same column. */
-.workspace-topbar-actions:has(.listing-review-tabs) .listing-review-tabs {
-  margin-left: auto;
-}
-
-.workspace-topbar .listing-review-tabs + .titlebar-control {
-  margin-left: 4px;
-}
-
-/* Inventory status tabs grow to fill the sidebar; in the titlebar they stay
-   content-sized and share the same vertical center as the panel toggles. */
-.workspace-topbar .listing-review-tabs {
-  flex: 0 0 auto;
-  container-type: normal;
-  -webkit-app-region: no-drag;
-}
-
-.workspace-topbar .listing-review-tabs .listing-filter-tab {
-  flex: 0 0 auto;
-  padding: 0 10px;
-}
-
 .panel.main-panel {
   flex: 1;
   min-width: 0;
