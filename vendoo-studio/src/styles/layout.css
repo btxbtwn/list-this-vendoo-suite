@@ -218,21 +218,6 @@
   padding: 0 10px;
 }
 
-/* In the titlebar the listing actions read as one T3-style control row: ghost
-   buttons the same 28px tall as the panel toggles and the tab chip beside them,
-   muted until hovered. */
-.workspace-topbar .pr-review-actions {
-  flex-wrap: nowrap;
-  max-width: none;
-  gap: 2px;
-}
-
-.workspace-topbar .pr-review-actions .pr-review-open {
-  height: 28px;
-  padding: 0 10px;
-  border-radius: var(--radius-md);
-}
-
 .panel.main-panel {
   flex: 1;
   min-width: 0;

@@ -26,7 +26,7 @@ import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLim
 import { WorkspaceTopbar, stopTitlebarDrag } from "../components/WorkspaceTopbar";
 import { workspaceCrumbs, type WorkspaceView } from "../components/workspaceCrumbs";
 import { SuggestionsPanel } from "../components/SuggestionsPanel";
-import { ListingBrowserButton, ListingReviewActions } from "../components/ListingReviewActions";
+import { ListingBrowserButton } from "../components/ListingReviewActions";
 import type { ListingReviewTab } from "../components/ListingReviewTabs";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
@@ -557,17 +557,6 @@ export function App() {
             : null
         }
         onReviewTabChange={setReviewTab}
-        listingActions={
-          activeView === "listings" && selectedConvId && !detailHidden ? (
-            <ListingReviewActions
-              convId={selectedConvId}
-              onCleared={() => {
-                clearListingWorkspace(selectedConvId);
-              }}
-              onMouseDown={stopTitlebarDrag}
-            />
-          ) : null
-        }
         browserAction={
           activeView === "listings" && selectedConvId ? (
             <ListingBrowserButton

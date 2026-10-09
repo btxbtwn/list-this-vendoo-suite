@@ -187,8 +187,14 @@
   -webkit-app-region: no-drag;
 }
 
-/* Desktop: the listing title, its actions, and Input/Forms/Fields all live in
-   the window topbar, so the inspector starts at its sync line instead. */
+/* Desktop: the tab and breadcrumb name the listing and the titlebar holds the
+   browser toggle, so the header row carries only this listing's actions. */
+.pr-review-title-row > .pr-review-title,
+.pr-review-title-row .pr-review-actions > .titlebar-control {
+  display: none;
+}
+
+/* Desktop: Input/Forms/Fields live in the window topbar. */
 .pr-review-chrome-mobile {
   display: none;
 }

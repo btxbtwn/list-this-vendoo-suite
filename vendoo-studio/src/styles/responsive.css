@@ -310,6 +310,14 @@
     display: flex;
   }
 
+  .pr-review-title-row > .pr-review-title {
+    display: block;
+  }
+
+  .pr-review-title-row .pr-review-actions > .titlebar-control {
+    display: inline-flex;
+  }
+
   .pr-review-chrome-mobile.listing-review-tabs {
     display: inline-flex;
   }

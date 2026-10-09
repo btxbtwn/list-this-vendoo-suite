@@ -53,8 +53,6 @@ interface Props {
   /** Listing inspector tab; omit when no listing is open. */
   reviewTab?: ListingReviewTab | null;
   onReviewTabChange?: (tab: ListingReviewTab) => void;
-  /** Open listing / Regenerate / Clear — omit when no listing is open. */
-  listingActions?: ReactNode;
   /** The browser toggle, which sits with the panel toggles rather than the actions. */
   browserAction?: ReactNode;
 }
@@ -68,7 +66,6 @@ export function WorkspaceTopbar({
   onToggleDetail,
   reviewTab = null,
   onReviewTabChange,
-  listingActions = null,
   browserAction = null,
 }: Props) {
   return (
@@ -96,7 +93,6 @@ export function WorkspaceTopbar({
         ) : null}
       </div>
       <div className="workspace-topbar-actions">
-        {listingActions}
         {reviewTab && onReviewTabChange ? (
           <ListingReviewTabs
             value={reviewTab}
