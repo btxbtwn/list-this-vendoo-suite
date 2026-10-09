@@ -6,9 +6,13 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.205 — 2026-10-09
+## 0.1.206 — 2026-10-09
 
 - Sign in with your Claude account. Settings → Providers → Claude signs in through Claude Code with your Pro or Max plan, the way T3 Code does, and Claude can then write listings, read photos and look up sold comps. Choose it as Primary or Fallback under Listing AI. Needs Claude Code installed on this Mac.
+
+## 0.1.205 — 2026-10-08
+
+- Chat no longer hangs when several listings are busy at once. A message now shows its progress right away, even while Studio is still reading photos and researching prices, and a failed photo read ends the reply with an error you can retry instead of leaving it stuck. When Brave Search runs out of quota, price research stops retrying it for an hour, or until you save or test the key again.
 
 ## 0.1.204 — 2026-10-09
 

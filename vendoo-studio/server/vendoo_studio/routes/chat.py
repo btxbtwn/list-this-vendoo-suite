@@ -144,6 +144,24 @@ async def _browser_fix_stream(conv_id: str, body: ChatMessage, provider, provide
     yield "data: [DONE]\n\n"
 
 
+async def _persist_chat_result(conv_id: str, full_text: str, provider, **kwargs):
+    db = SessionLocal()
+    try:
+        return await persist_chat_result(db, conv_id, full_text, provider, **kwargs)
+    finally:
+        db.close()
+
+
+def _reset_status(conv_id: str, reason: str) -> None:
+    db = SessionLocal()
+    try:
+        ConversationRepo(db).update_status(conv_id, "draft")
+    except Exception:
+        log.exception("failed to reset status after %s for %s", reason, conv_id)
+    finally:
+        db.close()
+
+
 @router.post("/api/conversations/{conv_id}/messages")
 async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(get_db)):
     repo = ConversationRepo(db)
@@ -176,6 +194,9 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
     provider_name, provider_model = _provider_meta(provider)
 
     if body.browser:
+        # FastAPI keeps a yield dependency open until the response finishes, so
+        # the request session would hold a pool connection for the whole stream.
+        db.close()
         return StreamingResponse(
             _browser_fix_stream(conv_id, body, provider, provider_name, provider_model),
             media_type="text/event-stream",
@@ -190,19 +211,21 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
         return await generate_listing(conv_id, db=db)
 
     repo.update_status(conv_id, "in_progress")
-
-    try:
-        messages = await build_chat_messages(conv_id, db, body.text)
-    except PhotoAnalysisError as exc:
-        repo.update_status(conv_id, "draft")
-        raise HTTPException(502, str(exc)) from exc
+    db.close()
 
     async def stream_response():
-        stream_db = SessionLocal()
         full_text = ""
         stream_error = ""
         work = activity.begin(conv_id, "Answering…")
         try:
+            # Photo analysis and sold-comps research can take minutes; say so
+            # before they start instead of leaving the chat silent.
+            yield sse_event("status", "Reading the listing…")
+            build_db = SessionLocal()
+            try:
+                messages = await build_chat_messages(conv_id, build_db, body.text)
+            finally:
+                build_db.close()
             async for item in iter_with_keepalives(provider.chat(messages, stream=True)):
                 if work.cancelled:
                     yield "data: [DONE]\n\n"
@@ -226,8 +249,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
             yield sse_event("status", "Saving listing…")
             work.label = "Saving listing…"
             persist_task = asyncio.create_task(
-                persist_chat_result(
-                    stream_db,
+                _persist_chat_result(
                     conv_id,
                     full_text,
                     provider,
@@ -248,10 +270,7 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
                 _operations, saved = persist_task.result()
             except Exception:
                 log.exception("failed to persist chat result for %s", conv_id)
-                try:
-                    ConversationRepo(stream_db).update_status(conv_id, "draft")
-                except Exception:
-                    log.exception("failed to reset status after chat persist error for %s", conv_id)
+                _reset_status(conv_id, "chat persist error")
                 saved = False
             if saved:
                 yield sse_event("listing_updated", "1")
@@ -261,14 +280,10 @@ async def send_message(conv_id: str, body: ChatMessage, db: Session = Depends(ge
             log.exception("chat stream failed for %s: %s", conv_id, message)
             stream_error = message
             yield sse_data(f"Error: {message}")
-            try:
-                ConversationRepo(stream_db).update_status(conv_id, "draft")
-            except Exception:
-                log.exception("failed to reset status after chat stream error for %s", conv_id)
+            _reset_status(conv_id, "chat stream error")
             yield "data: [DONE]\n\n"
         finally:
             activity.end(work)
-            stream_db.close()
 
     return StreamingResponse(stream_response(), media_type="text/event-stream", headers=SSE_HEADERS)
 

@@ -116,6 +116,9 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
         provider = get_listing_provider()
         if provider:
             paths = [str(Path(PHOTOS_DIR) / p.stored_filename) for p in photos]
+            # End the read transaction so the session does not hold a pool
+            # connection while the model reads photos and researches comps.
+            db.commit()
             try:
                 result = await analyze_photos_with_tag_retry(provider, paths, notes="", listing_rules=skill_rules[:8000])
             except Exception as exc:
@@ -132,6 +135,7 @@ async def build_chat_messages(conv_id: str, db: Session, user_message: str) -> l
                 f"{user_message_text}\n{photo_analysis_text}\n{seller_item_details(notes)}",
                 db,
             )
+            db.commit()
             comps_text = await research_sold_comps(photo_analysis_text, evidence)
             if comps_text:
                 repo.add_message(conv_id, "system", comps_text, provider="web-search", model="web-search")
