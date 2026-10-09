@@ -13,6 +13,7 @@ import {
   boxCount,
   cartTotal,
   clockTime,
+  exclusionSummary,
   freeShippingGap,
   isZip,
   lotReason,
@@ -396,7 +397,7 @@ function BuyList({
         <div className="sourcing-empty-title">{!snapshot.lots.length ? "No boxes available in this check"
           : hasEvidence ? "No recommendations within these settings" : "No recommendations yet — sold evidence is missing"}</div>
         <p>{snapshot.lots.length ? (hasEvidence
-          ? `No box passes all the evidence, condition, return and lower-sales checks within ${formatMoney(plan.budget)} including shipping. Browse the boxes below to see what ruled each one out.`
+          ? `No box passes all the evidence, return and lower-sales checks within ${formatMoney(plan.budget)} including shipping. Of ${boxCount(snapshot.lots.length)}: ${exclusionSummary(plan)}. Browse the boxes below to see what ruled each one out, or change the settings above.`
           : `Studio found ${boxCount(snapshot.lots.length)}, but has no usable recent sold evidence to estimate their resale. Each theme needs at least 3 distinct comparable sales within 30 days. The boxes are shown below for you to review.`)
           : "This check returned no available boxes for the selected suppliers. Review any supplier errors above."}</p>
         <p className="sourcing-hint">Next automatic check around {clockTime(nextUpdate(snapshot.updated_at))}.</p>
@@ -420,7 +421,7 @@ function BuyList({
           <div><dt>Lower-sales test profit</dt><dd>{formatMoney(Math.round(metrics.downside))}</dd></div>
         </dl>
       </section>
-      <p className="sourcing-hint">{formatMoney(Math.max(0, plan.budget - plan.total))} of your purchase budget remains before tax. Keep another {formatMoney(metrics.operating)} for operating costs. The lower-sales test uses half your planned sales at each theme’s lowest retained sale price, capped by the resale estimate. It is a sensitivity test, not a guaranteed minimum profit.</p>
+      <p className="sourcing-hint">{formatMoney(Math.max(0, plan.budget - plan.total))} of your purchase budget remains before tax. Keep another {formatMoney(metrics.operating)} for operating costs. The lower-sales test assumes only half your planned sales, at each theme’s lowest retained sale price, with operating costs on those pieces. It is a sensitivity test, not a guaranteed minimum profit.</p>
       {plan.carts.map((cart, index) => (
         <Cart key={cart.store} cart={cart} updating={updating} step={plan.carts.length > 1 ? index + 1 : null} of={plan.carts.length} onOpenListing={onOpenListing} />
       ))}
@@ -644,7 +645,7 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
           Profit uses your {Math.round(a.sell_through * 100)}% sales assumption, {Math.round(a.fees * 100)}% effective fees,
           {" "}{formatMoney(a.cost_per_piece)} operating allowance per usable piece, and purchase cost with shipping. Usable-piece shares are planning estimates based on grade, not inspected counts.
         </li>
-        <li>Each recommended box must meet your ROI target and avoid a loss when half your planned pieces sell at the lower of its lowest retained sold price and resale estimate.</li>
+        <li>Each recommended box must meet your ROI target and avoid a loss when only half your planned pieces sell, at the lower of its lowest retained sold price and resale estimate, after operating costs on those pieces.</li>
         <li>It prefers researched selling-window matches among qualifying boxes, then incremental return, one box per theme, and checks the whole cart’s shipping. It also tests pairs that unlock free shipping. This is a greedy selection; it doesn’t guarantee the best possible combination.</li>
         <li>
           Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip} and Thrift Vintage Fashion is UPS Ground from Hialeah, each

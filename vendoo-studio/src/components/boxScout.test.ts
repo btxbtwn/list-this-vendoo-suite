@@ -13,6 +13,7 @@ import {
   planNeedsUpdate,
   piecesLabel,
   whyNotPicked,
+  exclusionSummary,
 } from "./boxScout";
 
 function lot(overrides: Partial<SourcingLot> = {}): SourcingLot {
@@ -112,6 +113,16 @@ function state(): SourcingState {
     },
   };
 }
+
+describe("exclusions", () => {
+  it("sums up what ruled the boxes out, most common first", () => {
+    const plan = { budget: 75, total: 0, expected_profit: 0, carts: [], exclusions: {
+      "raghouse:1": "downside" as const, "raghouse:2": "return_target" as const, "raghouse:3": "return_target" as const,
+      "tvf:100": "needs_research" as const, "tvf:101": "needs_research" as const, "tvf:102": "needs_research" as const,
+    } };
+    expect(exclusionSummary(plan)).toBe("3 need recent sold evidence · 2 are below your return target · 1 lose money in the lower-sales test");
+  });
+});
 
 describe("planning settings", () => {
   it("keeps cart links unavailable until every saved planning input is reflected", () => {
