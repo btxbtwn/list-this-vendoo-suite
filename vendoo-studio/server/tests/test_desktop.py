@@ -122,8 +122,8 @@ class StudioWindowChromeTest(unittest.TestCase):
             else:
                 self.assertEqual(name, "AppIcon.png")
 
-    def test_titlebar_matches_t3_code(self):
-        self.assertEqual(desktop.TITLEBAR_HEIGHT_PX, 52)
+    def test_titlebar_is_compact(self):
+        self.assertEqual(desktop.TITLEBAR_HEIGHT_PX, 38)
 
     def test_stamp_modern_chrome_skips_when_already_modern(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -191,7 +191,7 @@ class StudioWindowChromeTest(unittest.TestCase):
         zoom = MagicMock()
         titlebar = MagicMock()
         container = MagicMock()
-        container.frame.return_value.size.height = 52.0
+        container.frame.return_value.size.height = 38.0
         close.superview.return_value = container
         toolbar = MagicMock()
         notifications = MagicMock()
@@ -220,7 +220,7 @@ class StudioWindowChromeTest(unittest.TestCase):
             NSWindowCollectionBehaviorFullScreenNone=1 << 9,
             NSWindowCollectionBehaviorFullScreenPrimary=1 << 7,
             NSAppearanceNameDarkAqua="dark",
-            NSWindowToolbarStyleUnified=1,
+            NSWindowToolbarStyleUnifiedCompact=4,
             NSToolbar=SimpleNamespace(
                 alloc=lambda: SimpleNamespace(initWithIdentifier_=lambda identifier: toolbar)
             ),
@@ -249,8 +249,8 @@ class StudioWindowChromeTest(unittest.TestCase):
         close.setEnabled_.assert_called_once_with(True)
         miniaturize.setEnabled_.assert_called_once_with(True)
         zoom.setEnabled_.assert_called_once_with(True)
-        # AppKit owns the buttons' size and position: the empty unified toolbar
-        # is what insets them into T3 Code's 52pt band.
+        # AppKit owns the buttons' size and position: the empty compact toolbar
+        # is what insets them into the 38pt band.
         close.setControlSize_.assert_not_called()
         close.setFrame_.assert_not_called()
         miniaturize.setFrame_.assert_not_called()
@@ -265,7 +265,7 @@ class StudioWindowChromeTest(unittest.TestCase):
         )
         self.assertEqual(name, "NSWindowWillEnterFullScreenNotification")
         self.assertIs(observed, native)
-        native.setToolbarStyle_.assert_called_once_with(1)
+        native.setToolbarStyle_.assert_called_once_with(4)
         # Close, minimize, and zoom only respond when the mask carries their bits.
         native.setStyleMask_.assert_called_once_with(
             (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 15)

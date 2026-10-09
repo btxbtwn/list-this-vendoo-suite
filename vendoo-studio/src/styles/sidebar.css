@@ -28,8 +28,8 @@
 }
 
 html.desktop-app {
-  /* T3 Code's macOS chrome: a 52px titlebar band, with content clearing the
-     traffic lights at 90px (its --desktop-window-controls-inset). */
+  /* macOS compact titlebar band, with content clearing the traffic lights at
+     90px. */
   --titlebar-height: var(--workspace-topbar-height);
   --traffic-light-inset: 90px;
 }
