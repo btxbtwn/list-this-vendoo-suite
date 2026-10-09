@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { SaleCalendarItem, SaleEvent, SaleEventStatus, SaleMarketplace, SalePlan, SaleRecord } from "../api/saleCalendar";
+import type { SaleCalendarItem, SaleEvent, SaleEventStatus, SaleMarketplace, SalePattern, SalePlan, SaleRecord } from "../api/saleCalendar";
 import { confirmDialog } from "../ui/confirmDialog";
 import { formatMoney } from "./analyticsFormat";
 import { marketplaceName } from "./marketplaceNames";
-import { calendarDate, dateOnly, monthDays, saleProfit, shiftMonth } from "./saleCalendarDates";
+import { DISCOUNT_CEILING, calendarDate, dateOnly, monthDays, saleProfit, shiftMonth, suggestDiscount } from "./saleCalendarDates";
 import "../styles/sale-calendar.css";
 
 const MARKETS: SaleMarketplace[] = ["ebay", "depop", "etsy"];
@@ -15,6 +15,12 @@ type FormSeed = { start: string; end: string; marketplace: string; event?: SaleE
 
 function displayDate(day: string): string {
   return dateOnly(day).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** The suggestion a new plan opens with: no listing below a $0 floor, using this marketplace's history. */
+function patternDiscount(pattern: SalePattern | undefined, items: SaleCalendarItem[]): number | null {
+  if (pattern?.fee_percent == null) return null;
+  return suggestDiscount(items.filter(item => item.marketplaces.includes(pattern.marketplace)), pattern.fee_percent, pattern.shipping_cost ?? 0, 0);
 }
 
 export function SaleCalendar({ onOpenListing }: { onOpenListing: (id: string) => void }) {
@@ -75,8 +81,9 @@ export function SaleCalendar({ onOpenListing }: { onOpenListing: (id: string) =>
       {notice ? <p className="analytics-status" role="status">{notice}</p> : null}
       {query.data ? <>
         <div className="sale-patterns">
-          {query.data.patterns.map(pattern => (
-            <article key={pattern.marketplace} className="sale-pattern">
+          {query.data.patterns.map(pattern => {
+            const discount = patternDiscount(pattern, query.data.items);
+            return <article key={pattern.marketplace} className="sale-pattern">
               <h3>{marketplaceName(pattern.marketplace)}</h3>
               <p>{pattern.reason}</p>
               <div className="sale-weekdays" aria-label={`${marketplaceName(pattern.marketplace)} sales by weekday`}>
@@ -87,9 +94,9 @@ export function SaleCalendar({ onOpenListing }: { onOpenListing: (id: string) =>
                 ))}
               </div>
               {pattern.weeks > 0 ? <small>{pattern.sales} dated sales · {displayDate(pattern.history_start)}–{displayDate(pattern.history_end)}</small> : null}
-              <button type="button" className="pr-pill" onClick={() => newPlan(pattern.suggested_start, pattern.suggested_end, pattern.marketplace)}>Try {displayDate(pattern.suggested_start)}{pattern.suggested_end === pattern.suggested_start ? "" : `–${displayDate(pattern.suggested_end)}`}</button>
-            </article>
-          ))}
+              <button type="button" className="pr-pill" onClick={() => newPlan(pattern.suggested_start, pattern.suggested_end, pattern.marketplace)}>Try {displayDate(pattern.suggested_start)}{pattern.suggested_end === pattern.suggested_start ? "" : `–${displayDate(pattern.suggested_end)}`}{discount == null ? "" : ` · ${discount}% off`}</button>
+            </article>;
+          })}
         </div>
         <p className="analytics-note">Suggested windows are experiments based on imported sales in {timezone}, assuming complete history. They don’t predict extra sales from a discount. Stock, traffic, seasonality, and previous promotions can affect the pattern.</p>
         <div className="sale-calendar-toolbar">
@@ -139,41 +146,44 @@ export function SaleCalendar({ onOpenListing }: { onOpenListing: (id: string) =>
               <p className="analytics-note">Sales during the event are associated with it; this comparison doesn’t establish that the discount caused them. Shipping uses recorded amounts.</p>
             </div> : null}
             <div className="sale-actions">
-              {event.status === "planned" && event.items.length > 0 ? <>
+              {event.status === "planned" ? <>
                 <button type="button" className="pr-pill" disabled={busy} onClick={() => setForm({ start: event.start_date, end: event.end_date, marketplace: event.marketplace, event })}>Edit plan</button>
                 <button type="button" className="pr-pill" disabled={busy} onClick={() => statusMutation.mutate({ id: event.id, status: "ran" })}>I ran this sale</button>
-              </> : event.items.length === 0 ? <button type="button" className="pr-pill" disabled={busy} onClick={() => setForm({ start: event.start_date, end: event.end_date, marketplace: event.marketplace, event, record: true })}>Edit record</button> : <button type="button" className="pr-pill" disabled={busy} onClick={() => statusMutation.mutate({ id: event.id, status: "planned" })}>Return to planned</button>}
+              </> : event.fee_percent == null ? <button type="button" className="pr-pill" disabled={busy} onClick={() => setForm({ start: event.start_date, end: event.end_date, marketplace: event.marketplace, event, record: true })}>Edit record</button> : <button type="button" className="pr-pill" disabled={busy} onClick={() => statusMutation.mutate({ id: event.id, status: "planned" })}>Return to planned</button>}
               {event.status === "planned" ? <button type="button" className="pr-pill" disabled={busy} onClick={() => statusMutation.mutate({ id: event.id, status: "cancelled" })}>Cancel plan</button> : null}
               <button type="button" className="pr-pill" disabled={busy} onClick={() => void remove(event)}>Delete</button>
             </div>
           </article>)}
         </div>
-        {form ? <SalePlanForm key={`${form.event?.id ?? "new"}-${form.marketplace}-${form.start}`} seed={form} items={query.data.items} timezone={timezone}
+        {form ? <SalePlanForm key={`${form.event?.id ?? "new"}-${form.marketplace}-${form.start}`} seed={form} items={query.data.items} patterns={query.data.patterns} timezone={timezone} onOpenListing={onOpenListing}
           onClose={() => setForm(null)} onSaved={start => { setMonth(start.slice(0, 7)); setSelectedDay(null); setForm(null); setNotice(form.record ? "Sale record saved. Results will update as you resync Vendoo." : "Plan saved. Set up the sale on the marketplace when you’re ready."); }} /> : null}
       </> : null}
     </section>
   );
 }
 
-function SalePlanForm({ seed, items, timezone, onClose, onSaved }: {
-  seed: FormSeed; items: SaleCalendarItem[]; timezone: string; onClose: () => void; onSaved: (start: string) => void;
+function SalePlanForm({ seed, items, patterns, timezone, onOpenListing, onClose, onSaved }: {
+  seed: FormSeed; items: SaleCalendarItem[]; patterns: SalePattern[]; timezone: string;
+  onOpenListing: (id: string) => void; onClose: () => void; onSaved: (start: string) => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => { formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, []);
   const event = seed.event;
   const recording = seed.record === true;
+  const history = (marketplace: string) => patterns.find(pattern => pattern.marketplace === marketplace);
   const [title, setTitle] = useState(event?.title ?? `${marketplaceName(seed.marketplace)} sale`);
   const [market, setMarket] = useState(seed.marketplace);
   const [start, setStart] = useState(seed.start);
   const [end, setEnd] = useState(seed.end);
   const [tz, setTz] = useState(event?.timezone ?? timezone);
-  const [discount, setDiscount] = useState(event ? String(event.discount_percent ?? "") : recording ? "" : "10");
-  const [fees, setFees] = useState(event?.fee_percent == null ? "" : String(event.fee_percent));
-  const [shipping, setShipping] = useState(String(event?.shipping_cost ?? 0));
+  const [discount, setDiscount] = useState(() => {
+    if (event || recording) return event?.discount_percent == null ? "" : String(event.discount_percent);
+    return String(patternDiscount(history(seed.marketplace), items) ?? "");
+  });
+  const [fees, setFees] = useState(String(event?.fee_percent ?? history(seed.marketplace)?.fee_percent ?? ""));
+  const [shipping, setShipping] = useState(String(event?.shipping_cost ?? history(seed.marketplace)?.shipping_cost ?? 0));
   const [floor, setFloor] = useState(String(event?.minimum_profit ?? 0));
   const [notes, setNotes] = useState(event?.notes ?? "");
-  const [selected, setSelected] = useState<string[]>(event?.items.map(item => item.id) ?? []);
-  const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const client = useQueryClient();
   const save = useMutation({
@@ -185,26 +195,29 @@ function SalePlanForm({ seed, items, timezone, onClose, onSaved }: {
     },
     onSuccess: async (_result, command) => { await Promise.all([client.invalidateQueries({ queryKey: ["sale-calendar"] }), client.invalidateQueries({ queryKey: ["analytics"] })]); onSaved(command.input.start_date); },
   });
-  const available = items.filter(item => item.marketplaces.includes(market as SaleMarketplace));
-  const filtered = available.filter(item => `${item.title} ${item.category}`.toLowerCase().includes(search.toLowerCase()));
-  function profit(item: SaleCalendarItem) {
-    return fees.trim() === "" ? null : saleProfit(item.price, item.cost, Number(discount), Number(fees), Number(shipping));
+  const listings = items.filter(item => item.marketplaces.includes(market as SaleMarketplace));
+  const costsKnown = fees.trim() !== "" && shipping.trim() !== "";
+  const suggested = costsKnown ? suggestDiscount(listings, Number(fees), Number(shipping), Number(floor)) : null;
+  const estimates = listings.map(item => ({ item, profit: costsKnown ? saleProfit(item.price, item.cost, Number(discount), Number(fees), Number(shipping)) : null }));
+  const thin = estimates.filter(row => row.profit != null && row.profit < Number(floor));
+  const uncosted = listings.filter(item => item.cost == null);
+
+  function changeMarket(value: string) {
+    setMarket(value);
+    const past = history(value);
+    if (past?.fee_percent != null) setFees(String(past.fee_percent));
+    if (past?.shipping_cost != null) setShipping(String(past.shipping_cost));
   }
-  const invalid = selected.some(id => {
-    const item = available.find(row => row.id === id);
-    return !item || profit(item) == null || profit(item)! < Number(floor);
-  });
 
   function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
-    if (!recording && (selected.length === 0 || invalid)) { setError("Choose items with recorded costs that meet your profit floor."); return; }
     if (end < start) { setError("End date must be on or after the start date."); return; }
     const common = { title, marketplace: market, start_date: start, end_date: end, timezone: tz, notes };
     if (recording) {
       save.mutate({ kind: "record", input: { ...common, discount_percent: discount.trim() ? Number(discount) : null } });
     } else {
-      save.mutate({ kind: "plan", input: { ...common, marketplace: market as SaleMarketplace, discount_percent: Number(discount), fee_percent: Number(fees), shipping_cost: Number(shipping), minimum_profit: Number(floor), item_ids: selected } });
+      save.mutate({ kind: "plan", input: { ...common, marketplace: market as SaleMarketplace, discount_percent: Number(discount), fee_percent: Number(fees), shipping_cost: Number(shipping), minimum_profit: Number(floor) } });
     }
   }
 
@@ -213,7 +226,7 @@ function SalePlanForm({ seed, items, timezone, onClose, onSaved }: {
     <fieldset disabled={save.isPending}>
       <div className="sale-form-fields">
         <label>Title<input autoFocus required maxLength={120} value={title} onChange={e => setTitle(e.target.value)} /></label>
-        <label>Marketplace<select aria-label="Marketplace" value={market} onChange={e => { setMarket(e.target.value as SaleMarketplace); setSelected([]); }}>{!MARKETS.includes(market as SaleMarketplace) ? <option value={market}>{marketplaceName(market)}</option> : null}{MARKETS.map(value => <option key={value} value={value}>{marketplaceName(value)}</option>)}</select></label>
+        <label>Marketplace<select aria-label="Marketplace" value={market} onChange={e => changeMarket(e.target.value)}>{!MARKETS.includes(market as SaleMarketplace) ? <option value={market}>{marketplaceName(market)}</option> : null}{MARKETS.map(value => <option key={value} value={value}>{marketplaceName(value)}</option>)}</select></label>
         <label>Start date<input type="date" required value={start} onChange={e => setStart(e.target.value)} /></label>
         <label>End date (inclusive)<input type="date" required min={start} value={end} onChange={e => setEnd(e.target.value)} /></label>
         <label>Event time zone<input required value={tz} onChange={e => setTz(e.target.value)} /></label>
@@ -224,26 +237,18 @@ function SalePlanForm({ seed, items, timezone, onClose, onSaved }: {
         <label>Minimum estimated profit per item ($)<input type="number" required min={0} max={100000} step="0.01" value={floor} onChange={e => setFloor(e.target.value)} /></label>
         </> : null}
       </div>
-      {!recording ? <>
-      <p className="analytics-note">Profit estimate = discounted price minus estimated effective fees, item cost, and seller shipping. Enter your own fees, including ads and processing, and any shipping you cover. This is a planning estimate, not a guaranteed margin. Missing costs and items below your floor cannot be included.</p>
-      <label className="sale-search">Choose active items ({selected.length} selected)<input type="search" placeholder="Search title or category" value={search} onChange={e => setSearch(e.target.value)} /></label>
-      <div className="sale-item-picker">
-        {filtered.map(item => {
-          const estimate = profit(item);
-          const blocked = estimate == null || estimate < Number(floor);
-          return <label className="sale-item" key={item.id}><input type="checkbox" disabled={blocked && !selected.includes(item.id)} checked={selected.includes(item.id)} onChange={e => setSelected(e.target.checked ? [...selected, item.id] : selected.filter(id => id !== item.id))} />
-            <span>{item.title}<small>{item.category}{item.listed_at ? ` · Listed ${displayDate(item.listed_at.slice(0, 10))}` : ""}</small></span>
-            <span>{item.cost == null ? "Add a cost first" : estimate == null ? "Enter fees first" : `${formatMoney(estimate)} estimated profit`}{estimate != null && estimate < Number(floor) ? <small>Below your floor</small> : null}</span>
-          </label>;
-        })}
-        {filtered.length === 0 ? <p className="analytics-note">No matching active items with a recorded listing on {marketplaceName(market)}. Refresh your Vendoo import if needed.</p> : null}
-      </div>
-      {invalid ? <p className="sale-error">Some selected items are unavailable or no longer meet your profit floor. Remove them or adjust your plan.</p> : null}
-      {selected.filter(id => !available.some(item => item.id === id)).map(id => <button key={id} type="button" className="pr-pill" onClick={() => setSelected(selected.filter(value => value !== id))}>Remove unavailable item: {event?.items.find(item => item.id === id)?.title ?? id}</button>)}
-      </> : <p className="analytics-note">Records associate all sales on this marketplace during these dates with the event. Record the dates you actually ran it; a discount is optional.</p>}
+      {!recording ? <div className="sale-discount-check">
+        <p className="analytics-note">The sale covers all {listings.length} active listings on {marketplaceName(market)}. Fees and shipping start from your sales over the last year; profit is the discounted price minus fees, item cost, and shipping.</p>
+        {!costsKnown ? <p className="analytics-note">Enter fees and shipping to get a suggested discount.</p>
+          : suggested != null ? <p>Suggested: <strong>{suggested}% off</strong>, the deepest discount up to {DISCOUNT_CEILING}% where every listing with a cost still makes at least {formatMoney(Number(floor))}.{String(suggested) !== discount ? <> <button type="button" className="pr-pill" onClick={() => setDiscount(String(suggested))}>Use {suggested}%</button></> : null}</p>
+          : listings.length > uncosted.length ? <p>Even 5% off puts a listing below your {formatMoney(Number(floor))} minimum. Lower the minimum or check the listings below.</p>
+          : <p>Add costs to your listings to get a suggested discount.</p>}
+        {thin.length ? <details open><summary>{thin.length} {thin.length === 1 ? "listing makes" : "listings make"} less than {formatMoney(Number(floor))} at {discount || 0}% off</summary><ul>{thin.map(({ item, profit }) => <li key={item.id}><button type="button" onClick={() => onOpenListing(item.id)}>{item.title}</button><span>{formatMoney(item.price)} asking · {formatMoney(profit!)} estimated profit</span></li>)}</ul></details> : null}
+        {uncosted.length ? <details><summary>{uncosted.length} {uncosted.length === 1 ? "listing has" : "listings have"} no cost, so the suggestion can’t protect {uncosted.length === 1 ? "it" : "them"}</summary><ul>{uncosted.map(item => <li key={item.id}><button type="button" onClick={() => onOpenListing(item.id)}>{item.title}</button><span>{formatMoney(item.price)} asking</span></li>)}</ul></details> : null}
+      </div> : <p className="analytics-note">Records associate all sales on this marketplace during these dates with the event. Record the dates you actually ran it; a discount is optional.</p>}
       <label className="sale-search">Notes<textarea maxLength={2000} rows={3} value={notes} onChange={e => setNotes(e.target.value)} /></label>
       {error || save.isError ? <p className="sale-error" role="alert">{error || save.error?.message}</p> : null}
-      <button type="submit" className="pr-pill" disabled={save.isPending || (!recording && (selected.length === 0 || invalid))}>{save.isPending ? "Saving…" : recording ? "Save record" : "Save plan"}</button>
+      <button type="submit" className="pr-pill" disabled={save.isPending}>{save.isPending ? "Saving…" : recording ? "Save record" : "Save plan"}</button>
     </fieldset>
   </form>;
 }

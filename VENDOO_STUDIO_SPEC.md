@@ -1021,13 +1021,17 @@ Version 1 is complete when the user can:
 ## Sale calendar in Analytics
 
 The calendar stores local promotion plans and records for eBay, Depop, and Etsy.
-Planning selects active items, snapshots their prices and costs, and checks a
-seller-entered profit floor using estimated effective fees and seller shipping.
+A plan covers every active listing on its marketplace, because the seller runs
+sales shop-wide, and two sales on one marketplace cannot overlap. Effective fees
+and seller-paid shipping start from that marketplace's sales over the last year.
+The suggested discount is the deepest 5% step, up to 30%, at which every listing
+with a cost still clears the seller's minimum profit; the plan lists the
+listings that fall below it and those with no cost.
 Saving, editing, recording, or cancelling an event never writes to a marketplace
 or to Vendoo. The seller runs the sale separately and marks it as run.
 
 Weekday suggestions scan every run of one to six consecutive weekdays over up
-to 26 complete weeks of imported sales (Kulldorff's scan statistic), so the
+to 52 complete weeks of imported sales (Kulldorff's scan statistic), so the
 window length comes from the data. A seeded Monte Carlo test against evenly
 spread sales says whether the peak is stronger than chance or may be chance.
 Picking days requires at least 20 dated sales across 8 complete weeks, a unique

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarDate, dateOnly, monthDays, saleProfit, shiftMonth } from "./saleCalendarDates";
+import { calendarDate, dateOnly, monthDays, saleProfit, shiftMonth, suggestDiscount } from "./saleCalendarDates";
 
 describe("sale calendar dates", () => {
   it("preserves calendar dates across DST, leap days, and year boundaries", () => {
@@ -26,5 +26,17 @@ describe("sale profit planning", () => {
   it("does not invent profit with missing costs or invalid inputs", () => {
     expect(saleProfit(50, null, 10, 15, 2)).toBeNull();
     expect(saleProfit(50, 10, NaN, 15, 2)).toBeNull();
+  });
+});
+describe("suggested discount", () => {
+  it("picks the deepest 5% step, up to 30%, that keeps every costed listing above the floor", () => {
+    expect(suggestDiscount([{ price: 100, cost: 5 }], 10, 0, 0)).toBe(30);
+    // 25% off $40 is $30 → $27 after fees, less $20 cost is $7; 30% off leaves $5.20.
+    expect(suggestDiscount([{ price: 100, cost: 5 }, { price: 40, cost: 20 }], 10, 0, 6)).toBe(25);
+    expect(suggestDiscount([{ price: 40, cost: 20 }, { price: 50, cost: null }], 10, 0, 0)).toBe(30);
+  });
+  it("suggests nothing when no listing has a cost or even 5% breaks the floor", () => {
+    expect(suggestDiscount([{ price: 50, cost: null }], 10, 0, 0)).toBeNull();
+    expect(suggestDiscount([{ price: 20, cost: 19 }], 10, 0, 0)).toBeNull();
   });
 });

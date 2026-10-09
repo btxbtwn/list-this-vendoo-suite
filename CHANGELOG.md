@@ -6,9 +6,17 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
-## 0.1.199 — 2026-10-08
+## 0.1.201 — 2026-10-09
 
 - Studio now fills in Grailed, Vinted and Facebook Marketplace, not just eBay, Etsy, Poshmark, Mercari and Depop. Turn them on in Settings → Marketplaces and each draft gets its category, condition and fields for them, with your brand as the Grailed designer.
+
+## 0.1.200 — 2026-10-08
+
+- Sale suggestions now include a percentage off: the deepest discount, up to 30%, where every listing with a cost still makes your minimum profit. Plans cover all your listings on the marketplace, so there's nothing to pick, and fees and shipping fill in from your past year of sales. The plan lists any listings that would fall below your minimum or have no cost.
+
+## 0.1.199 — 2026-10-08
+
+- Sale suggestions now look back over the last year of sales instead of six months, so every season counts once and a real best day shows up sooner.
 
 ## 0.1.198 — 2026-10-08
 

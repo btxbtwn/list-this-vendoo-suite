@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 import random
 from datetime import UTC, date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -65,7 +64,6 @@ class SalePlan(BaseModel):
     fee_percent: float = Field(ge=0, le=50)
     shipping_cost: float = Field(ge=0, le=10000)
     minimum_profit: float = Field(ge=0, le=100000)
-    item_ids: list[str] = Field(min_length=1, max_length=1000)
     notes: str = Field(default="", max_length=2000)
 
     @field_validator("timezone")
@@ -75,13 +73,11 @@ class SalePlan(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def valid_dates_and_items(self):
+    def valid_dates(self):
         if self.end_date < self.start_date:
             raise ValueError("End date must be on or after the start date.")
         if (self.end_date - self.start_date).days > 89:
             raise ValueError("Plan a sale lasting at most 90 days.")
-        if len(set(self.item_ids)) != len(self.item_ids):
-            raise ValueError("Choose each item once.")
         return self
 
 
@@ -107,51 +103,26 @@ def eligible_items(db, rows: list[AnalyticsItem]) -> list[dict]:
     return sorted(result, key=lambda item: (item["listed_at"] or "9999", item["title"]))
 
 
-def estimated_profit(item: dict, plan: SalePlan) -> float | None:
-    if item["cost"] is None:
-        return None
-    # Round the sale price first, as a marketplace would, then estimate costs.
-    price = (Decimal(str(item["price"])) * (1 - Decimal(str(plan.discount_percent)) / 100)).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP,
-    )
-    profit = price * (1 - Decimal(str(plan.fee_percent)) / 100) - Decimal(str(item["cost"])) - Decimal(str(plan.shipping_cost))
-    return float(profit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
-
-def _check_overlap(db, marketplace, start_date, end_date, item_ids, event):
-    existing = db.query(SaleEvent).filter(
+def _check_overlap(db, marketplace, start_date, end_date, event):
+    others = db.query(SaleEvent).filter(
         SaleEvent.marketplace == marketplace,
         SaleEvent.status != "cancelled",
         SaleEvent.start_date <= end_date,
         SaleEvent.end_date >= start_date,
     ).all()
-    for other in existing:
-        if event is not None and other.id == event.id:
-            continue
-        if item_ids & {item["id"] for item in other.items}:
-            raise ValueError("These items are already in an overlapping sale on this marketplace.")
+    if any(event is None or other.id != event.id for other in others):
+        raise ValueError("Another sale on this marketplace overlaps these dates.")
 
 
 def save_plan(db, plan: SalePlan, event: SaleEvent | None = None) -> SaleEvent:
+    """A plan covers every listing on the marketplace, as the seller runs it."""
     if event is not None and event.status != "planned":
         raise ValueError("Only planned events can be edited.")
-    available = {item["id"]: item for item in eligible_items(db, load_rows(db))}
-    chosen = []
-    for item_id in plan.item_ids:
-        item = available.get(item_id)
-        if item is None or plan.marketplace not in item["marketplaces"]:
-            raise ValueError("An item is no longer active on this marketplace. Refresh the calendar.")
-        profit = estimated_profit(item, plan)
-        if profit is None:
-            raise ValueError(f"Add a cost for {item['title']} before including it in a sale.")
-        if profit < plan.minimum_profit:
-            raise ValueError(f"{item['title']} falls below your minimum estimated profit.")
-        chosen.append({**item, "estimated_profit": profit})
-    _check_overlap(db, plan.marketplace, plan.start_date, plan.end_date, set(plan.item_ids), event)
+    _check_overlap(db, plan.marketplace, plan.start_date, plan.end_date, event)
     target = event or SaleEvent()
-    for key, value in plan.model_dump(exclude={"item_ids"}).items():
+    for key, value in plan.model_dump().items():
         setattr(target, key, value)
-    target.items = chosen
+    target.items = []
     if event is None:
         target.status = "planned"
         db.add(target)
@@ -184,7 +155,7 @@ def change_status(db, event: SaleEvent, status: EventStatus, *, now: datetime | 
     if status == "ran" and event.start_date > today:
         raise ValueError("Mark an event as run once its start date has arrived.")
     if event.status == "cancelled" and status != "cancelled":
-        _check_overlap(db, event.marketplace, event.start_date, event.end_date, {item["id"] for item in event.items}, event)
+        _check_overlap(db, event.marketplace, event.start_date, event.end_date, event)
     event.status = status
     db.commit()
 
@@ -222,12 +193,26 @@ def _null_maxima(total: int) -> tuple[float, ...]:
     return tuple(maxima)
 
 
+def selling_costs(rows: list[AnalyticsItem], market: str, *, now: datetime) -> dict:
+    """Effective fee rate and seller-paid shipping per sale over the last year."""
+    sold = [row for row in rows if row.status == "sold" and row.marketplace == market
+            and row.sold_at is not None and now - timedelta(weeks=52) <= row.sold_at <= now
+            and row.sold_price is not None and row.sold_price > 0]
+    charged = [row for row in sold if row.fees is not None]
+    revenue = sum(row.sold_price for row in charged)
+    return {
+        "fee_percent": min(50.0, round(100 * sum(row.fees for row in charged) / revenue, 1)) if revenue else None,
+        "shipping_cost": round(sum(max(0.0, row.shipping_cost - row.shipping_credit) for row in sold) / len(sold), 2)
+        if sold else None,
+    }
+
+
 def _days_label(start: int, days: int) -> str:
     return WEEKDAYS[start] if days == 1 else f"{WEEKDAYS[start]}–{WEEKDAYS[(start + days - 1) % 7]}"
 
 
 def weekday_patterns(rows: list[AnalyticsItem], timezone: str, *, now: datetime) -> list[dict]:
-    """Find the strongest run of weekdays over up to 26 complete weeks of history.
+    """Find the strongest run of weekdays over up to 52 complete weeks of history.
 
     Kulldorff's scan statistic: every run of 1–6 consecutive weekdays is scored
     by how far its sales exceed an even spread, the length the data supports
@@ -247,7 +232,7 @@ def weekday_patterns(rows: list[AnalyticsItem], timezone: str, *, now: datetime)
         # Exclude the earliest partial week; dates before first recorded sale
         # cannot be treated as evidence of no sales.
         first_monday = first + timedelta(days=(-first.weekday()) % 7)
-        start = max(first_monday, end - timedelta(weeks=26))
+        start = max(first_monday, end - timedelta(weeks=52))  # one of each season
         weeks = max(0, (end - start).days // 7)
         counts = [0] * 7
         for row in sales:
@@ -288,6 +273,7 @@ def weekday_patterns(rows: list[AnalyticsItem], timezone: str, *, now: datetime)
             "suggested_start": next_start.isoformat(),
             "suggested_end": next_end.isoformat(),
             "reason": reason,
+            **selling_costs(rows, market, now=now),
         })
     return result
 
