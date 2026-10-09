@@ -130,7 +130,9 @@
   height: var(--workspace-topbar-height);
   padding: 0 10px 0 12px;
   background: var(--color-ink);
-  border-bottom: none;
+  /* The compact titlebar ends at a hairline, so the breadcrumb does not run
+     into the search row and listing tabs below it. */
+  border-bottom: 1px solid var(--color-border);
   z-index: 2;
   box-sizing: border-box;
 }
