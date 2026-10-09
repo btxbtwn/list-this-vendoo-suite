@@ -313,12 +313,13 @@ export function ListingEditor({
   return (
     <div className="listing-editor" ref={editorRef}>
       <div className="pr-review-header">
-        {/* The actions belong to this listing, so they sit in its own header rather
-            than above the tabs. Desktop: the tab and the titlebar breadcrumb
-            already name the listing and the titlebar carries the browser toggle,
-            so only mobile, which has no titlebar, repeats them here. */}
+        {/* The tabs, actions and browser toggle belong to this listing, so they
+            sit together in its own header. Desktop: the tab and the titlebar
+            breadcrumb already name the listing, so only mobile, which has no
+            titlebar, shows the title here. */}
         <div className="pr-review-title-row">
           <h2 className="pr-review-title pywebview-drag-region" title={listingTitle}>{listingTitle}</h2>
+          <ListingReviewTabs value={reviewTab} onChange={onReviewTabChange} />
           <ListingReviewActions
             convId={convId}
             onCleared={onCleared}
@@ -360,11 +361,6 @@ export function ListingEditor({
           ) : null}
           {data?.can_send && !generating && <span className="editor-ready">Ready</span>}
         </div>
-        <ListingReviewTabs
-          className="pr-review-chrome-mobile"
-          value={reviewTab}
-          onChange={onReviewTabChange}
-        />
       </div>
 
       {relistMarketplaces.length > 0 && (

@@ -1,5 +1,3 @@
-import type { MouseEvent } from "react";
-
 export type ListingReviewTab = "input" | "forms" | "fields";
 
 const TABS: { id: ListingReviewTab; label: string }[] = [
@@ -12,20 +10,15 @@ const TABS: { id: ListingReviewTab; label: string }[] = [
 export function ListingReviewTabs({
   value,
   onChange,
-  className,
-  onMouseDown,
 }: {
   value: ListingReviewTab;
   onChange: (tab: ListingReviewTab) => void;
-  className?: string;
-  onMouseDown?: (event: MouseEvent<HTMLElement>) => void;
 }) {
   return (
     <div
-      className={`listing-filter-tabs listing-review-tabs${className ? ` ${className}` : ""}`}
+      className="listing-filter-tabs listing-review-tabs"
       role="tablist"
       aria-label="Listing review"
-      onMouseDown={onMouseDown}
     >
       {TABS.map((tab) => (
         <button

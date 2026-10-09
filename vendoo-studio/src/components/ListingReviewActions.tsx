@@ -91,18 +91,16 @@ function useListingJob(convId: string) {
   };
 }
 
-/** Icon-only, and it sits beside the inspector toggle: it opens a surface in the
-    window the way T3 Code's panel toggles do, not a listing action like Clear. */
+/** Icon-only: it opens a surface in the window the way T3 Code's panel toggles
+    do, not a listing action like Clear. */
 export function ListingBrowserButton({
   convId,
   browserOpen,
   onOpenBrowser,
-  onMouseDown,
 }: {
   convId: string;
   browserOpen?: boolean;
   onOpenBrowser?: (jobId: string) => void;
-  onMouseDown?: (event: MouseEvent<HTMLElement>) => void;
 }) {
   const { listingJob } = useListingJob(convId);
   if (!listingJob || !onOpenBrowser) return null;
@@ -116,7 +114,6 @@ export function ListingBrowserButton({
       aria-label="Open the Vendoo draft in Studio"
       aria-pressed={browserOpen}
       title="Work in the Vendoo draft here: click, type, and point Studio at fields to fill"
-      onMouseDown={onMouseDown}
       onClick={() => onOpenBrowser(listingJob.id)}
     >
       <BrowserIcon />
@@ -181,7 +178,8 @@ function ListingActionsMenu({ convId, onCleared }: { convId: string; onCleared?:
   );
 }
 
-/** Open listing / Regenerate / More — header actions for a listing. */
+/** Open listing / Regenerate, then the icon controls (browser, More) — header
+    actions for a listing. */
 export function ListingReviewActions({
   convId,
   onCleared,
@@ -193,7 +191,7 @@ export function ListingReviewActions({
   onCleared?: () => void;
   className?: string;
   onMouseDown?: (event: MouseEvent<HTMLElement>) => void;
-  /** Mobile keeps the browser button in this row; the titlebar does not. */
+  /** The browser toggle, which sits with this listing's actions. */
   children?: ReactNode;
 }) {
   const { listingJob, importedItemId, importedUrl } = useListingJob(convId);
@@ -211,8 +209,8 @@ export function ListingReviewActions({
           className="pr-review-open"
         />
       ) : null}
-      {children}
       <RegenerateListingButton convId={convId} className="pr-review-open" onRegenerated={onCleared} />
+      {children}
       <ListingActionsMenu convId={convId} onCleared={onCleared} />
     </div>
   );

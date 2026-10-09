@@ -23,11 +23,9 @@ import { useBulkRegenerate } from "../components/useBulkRegenerate";
 import { bulkRegenerateToast } from "../bulkRegenerate";
 import { ToastHost } from "../components/ToastHost";
 import { PanelResizeHandle, usePanelCollapsed, usePanelWidth, type PanelWidthLimits } from "../components/PanelResizeHandle";
-import { WorkspaceTopbar, stopTitlebarDrag } from "../components/WorkspaceTopbar";
+import { WorkspaceTopbar } from "../components/WorkspaceTopbar";
 import { workspaceCrumbs, type WorkspaceView } from "../components/workspaceCrumbs";
 import { SuggestionsPanel } from "../components/SuggestionsPanel";
-import { ListingBrowserButton } from "../components/ListingReviewActions";
-import type { ListingReviewTab } from "../components/ListingReviewTabs";
 import { isConfirmDialogOpen } from "../ui/confirmDialog";
 import { dismissSetupGuide, isSetupGuideDismissed } from "../onboarding";
 import { addToast } from "../ui/toast";
@@ -96,12 +94,7 @@ export function App() {
     initialListingTabs,
   );
   const selectedConvId = listingTabs.selectedId;
-  const selectedTab = listingTabs.tabs.find((tab) => tab.id === selectedConvId);
-  const reviewTab = selectedTab?.reviewTab ?? "input";
   const setSelectedConvId = (id: string) => dispatchListingTab({ type: "open", id });
-  const setReviewTab = (value: ListingReviewTab) => {
-    if (selectedConvId) dispatchListingTab({ type: "review", id: selectedConvId, value });
-  };
   const clearListingWorkspace = (id: string) => dispatchListingTab({ type: "clear", id });
   const [activeView, setActiveView] = useState<WorkspaceView>("listings");
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(DEFAULT_SETTINGS_SECTION);
@@ -557,22 +550,6 @@ export function App() {
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         detailOpen={activeView === "listings" ? !detailHidden : null}
         onToggleDetail={() => setDetailCollapsed(!detailCollapsed)}
-        reviewTab={
-          activeView === "listings" && selectedConvId && !detailHidden
-            ? reviewTab
-            : null
-        }
-        onReviewTabChange={setReviewTab}
-        browserAction={
-          activeView === "listings" && selectedConvId ? (
-            <ListingBrowserButton
-              convId={selectedConvId}
-              browserOpen={browserOpen}
-              onOpenBrowser={(jobId) => openBrowser.mutate(jobId)}
-              onMouseDown={stopTitlebarDrag}
-            />
-          ) : null
-        }
       />
       <div
         className={`app-content mobile-pane-${mobilePane}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}${sidebarHidden ? " sidebar-collapsed" : ""}`}
