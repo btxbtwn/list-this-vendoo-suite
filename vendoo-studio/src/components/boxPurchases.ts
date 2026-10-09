@@ -27,6 +27,8 @@ export function boxFromLot(lot: SourcingLot): SourceBoxInput {
     price: lot.price,
     shipping: Math.round(lot.ship_est * 100) / 100,
     pieces: lot.pcs || null,
+    // The carrier list rate, so what the store charges can tune later estimates.
+    list_shipping: lot.ship_list || null,
     // The estimate before the seller's own sales adjusted it, so the next
     // adjustment compares like with like.
     estimate_per_piece: lot.resale_per_pc != null
@@ -57,6 +59,16 @@ export function calibrationNote(
   if (percent > 100) return `${storeLabel}: your ${sales} beat Studio's past estimates. Current research still caps new price estimates.`;
   if (percent === 100) return `${storeLabel}: your ${sales} match Studio's estimates.`;
   return `${storeLabel}: your ${sales} sold for ${percent}% of what Studio estimated, so its ${storeLabel} prices are set to ${percent}%.`;
+}
+
+/** One sentence on how a store's real shipping charges have set its estimates, or null. */
+export function shippingNote(
+  storeLabel: string,
+  calibration: { factor: number | null; orders: number; needed: number } | undefined,
+): string | null {
+  if (!calibration || calibration.factor == null) return null;
+  const orders = calibration.orders === 1 ? "1 order" : `${calibration.orders} orders`;
+  return `${storeLabel} shipping is set to ${Math.round(calibration.factor * 100)}% of the carrier list rate, from ${orders} you recorded.`;
 }
 
 export function formatPercent(value: number | null): string {

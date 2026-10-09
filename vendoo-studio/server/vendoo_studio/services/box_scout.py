@@ -51,6 +51,10 @@ RESEARCH_BATCH = 4  # each theme needs several sold and active source pages
 MODEL_TIMEOUT_SEC = 240
 ZONE_CHART_MAX_AGE = timedelta(days=30)
 RECENT_ZIPS = 4
+# Bump when the snapshot's shape changes: a snapshot written by another build is
+# a stale cache, dropped and rebuilt rather than served to a page that cannot
+# read it.
+SNAPSHOT_FORMAT = 3
 
 DEFAULT_PREFS = {
     "budget": 300.0, "min_roi": 1.0, "raghouse_vip": False, "zip": "70115", "recent_zips": ["70115"],
@@ -138,7 +142,7 @@ def read_state() -> dict:
     state.setdefault("zone_charts", {})
     state.setdefault("snapshot", None)
     # Sourcing snapshots are disposable caches; rebuild when the plan format changes.
-    if state["snapshot"] and ("seasonality" not in state["snapshot"]
+    if state["snapshot"] and (state["snapshot"].get("format") != SNAPSHOT_FORMAT
                               or not all(key in state["snapshot"].get("preferences", {}) for key in PLAN_PREFS)):
         state["snapshot"] = None
     return state
@@ -515,6 +519,21 @@ def _calibration() -> dict[str, dict]:
         db.close()
 
 
+def _shipping_calibration() -> dict[str, dict]:
+    """What each store charged the seller's own orders against the carrier list rate."""
+    from vendoo_studio.database import SessionLocal
+    from vendoo_studio.services.boxes import shipping_calibration
+
+    db = SessionLocal()
+    try:
+        return shipping_calibration(db)
+    finally:
+        db.close()
+
+
+RAGHOUSE_VIP_MONTHLY = 64.0
+
+
 def refresh(*, recrawl: bool = True, research: bool = True) -> dict:
     """Crawl, research what is stale, rebuild the buy list and save it."""
     with _refresh_lock:
@@ -528,6 +547,10 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
     prefs = state["prefs"]
     errors: dict[str, str] = {}
     cfg = s.load_shipping()
+    shipping_calibration = _shipping_calibration()
+    for store, entry in shipping_calibration.items():
+        if entry["factor"] is not None and store in cfg["stores"]:
+            cfg["stores"][store]["ship_factor"] = entry["factor"]
     zones = _zones(state, cfg, prefs["zip"], now, errors)
     catalogs = {k: v for k, v in _crawl(errors, recrawl=recrawl).items() if k in zones}
     can_research = research and research_available()
@@ -551,17 +574,19 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
                 state["trend"] = {"terms": terms, "updated_at": now.isoformat(), "source": source,
                                   "context_key": trend_key}
 
-    filters = s.Filters(trend=tuple(state["trend"]["terms"]), include_vip=prefs["raghouse_vip"],
+    # Members-only Raghouse boxes are scored and researched too, so a seller who
+    # is not a VIP can see what joining would add to the list.
+    filters = s.Filters(trend=tuple(state["trend"]["terms"]), include_vip=True,
                         sell_through=prefs["sell_through"], fees=prefs["fees"], cost_per_piece=prefs["cost_per_piece"])
     calibration = _calibration()
     factors = {store: c["factor"] for store, c in calibration.items() if c["factor"] is not None}
     own = own_evidence(_own_sales(), _lot_themes(catalogs))
     fresh = _fresh_research(state, now, own)
-    baselines, rows = s.score_lots(catalogs, cfg, zones, filters, {k: v["per_piece"] for k, v in fresh.items()}, factors,
-                                 resale_low={k: v["low"] for k, v in fresh.items()})
+    baselines, all_rows = s.score_lots(catalogs, cfg, zones, filters, {k: v["per_piece"] for k, v in fresh.items()}, factors,
+                                     resale_low={k: v["low"] for k, v in fresh.items()})
 
     if can_research:
-        research_rows = [r for r in rows if r["price"] <= prefs["budget"]]
+        research_rows = [r for r in all_rows if r["price"] <= prefs["budget"]]
         missing = s.research_themes([r for r in research_rows if r["theme"] not in fresh
                                      and _cached_research(state, r["theme"], now, RESEARCH_RETRY) is None],
                                     limit=RESEARCH_THEMES)
@@ -574,8 +599,9 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
             for name, entry in prices.items():
                 state["resale"][name] = {**entry, "updated_at": now.isoformat(), "source": source}
         fresh = _fresh_research(state, now, own)
-        baselines, rows = s.score_lots(catalogs, cfg, zones, filters, {k: v["per_piece"] for k, v in fresh.items()}, factors,
-                                     resale_low={k: v["low"] for k, v in fresh.items()})
+        baselines, all_rows = s.score_lots(catalogs, cfg, zones, filters, {k: v["per_piece"] for k, v in fresh.items()}, factors,
+                                         resale_low={k: v["low"] for k, v in fresh.items()})
+    rows = [r for r in all_rows if prefs["raghouse_vip"] or not r["vip"]]
 
     planning = {"budget": prefs["budget"], "min_roi": prefs["min_roi"],
                 "sell_through": prefs["sell_through"], "fees": prefs["fees"],
@@ -585,6 +611,15 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
         store: s.buy_list([r for r in rows if r["store"] == store], cfg, **planning)
         for store in s.STORES
     }
+    vip_upside = None
+    if not prefs["raghouse_vip"]:
+        # What the members-only Raghouse boxes would add to this same list.
+        vip_plan = s.buy_list(all_rows, cfg, **planning)
+        vip_upside = {
+            "boxes": sum(1 for c in vip_plan["carts"] for p in c["lots"] if p["vip"]),
+            "extra_profit": round(vip_plan["expected_profit"] - plan["expected_profit"], 2),
+            "monthly_fee": RAGHOUSE_VIP_MONTHLY,
+        }
     for lot in [*rows, *(p for choice in [plan, *store_plans.values()]
                           for c in choice["carts"] for p in c["lots"])]:
         # The examples themselves are served by `evidence` when the seller opens them.
@@ -595,6 +630,7 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
         lot["research_source"] = entry.get("source")
     _announce_new_picks(state["snapshot"], plan, prefs)
     state["snapshot"] = {
+        "format": SNAPSHOT_FORMAT,
         "updated_at": now.isoformat(),
         "destination_zip": prefs["zip"],
         "preferences": {key: prefs[key] for key in PLAN_PREFS},
@@ -607,7 +643,10 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
         "priced_themes": len(fresh),
         "shipping": {"residential_surcharge": cfg["residential_surcharge"],
                      "fuel_surcharge_pct": cfg["fuel_surcharge_pct"],
-                     "fuel_surcharge_as_of": cfg["fuel_surcharge_as_of"]},
+                     "fuel_surcharge_as_of": cfg["fuel_surcharge_as_of"],
+                     "factors": {store: cfg["stores"][store]["ship_factor"] for store in s.STORES},
+                     "calibration": shipping_calibration},
+        "vip_upside": vip_upside,
         "assumptions": {"sell_through": prefs["sell_through"], "fees": prefs["fees"],
                         "grade_yield": s.GRADE_YIELD, "cost_per_piece": prefs["cost_per_piece"]},
         "buy_list": plan,

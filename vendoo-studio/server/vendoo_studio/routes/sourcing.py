@@ -44,6 +44,7 @@ class SourcingLot(BaseModel):
     seller_resale: float | None
     theme: str
     ship_est: float
+    ship_list: float
     usable_pcs: float
     demand: float
     trend_hits: list[str]
@@ -107,10 +108,24 @@ class SourcingStore(BaseModel):
     zone: int | None
 
 
+class SourcingShippingCalibration(BaseModel):
+    factor: float | None
+    orders: int
+    needed: int
+
+
 class SourcingShipping(BaseModel):
     residential_surcharge: float
     fuel_surcharge_pct: float
     fuel_surcharge_as_of: str
+    factors: dict[str, float]
+    calibration: dict[str, SourcingShippingCalibration]
+
+
+class SourcingVipUpside(BaseModel):
+    boxes: int
+    extra_profit: float
+    monthly_fee: float
 
 
 class SourcingAssumptions(BaseModel):
@@ -181,6 +196,7 @@ class SourcingSnapshot(BaseModel):
     lots: list[SourcingLot]
     calibration: dict[str, SourcingCalibration] = {}
     seasonality: SourcingSeasonality
+    vip_upside: SourcingVipUpside | None
 
 
 class SourcingPrefs(BaseModel):

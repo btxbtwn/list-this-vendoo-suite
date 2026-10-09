@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SourceBox, SourcingLot } from "../api/types";
-import { boxFromLot, boxProgress, calibrationNote, boxStoreKey, boxStoreName, formatPercent, recentlyBought } from "./boxPurchases";
+import { boxFromLot, boxProgress, calibrationNote, boxStoreKey, boxStoreName, formatPercent, recentlyBought, shippingNote } from "./boxPurchases";
 
 const lot = {
   store: "raghouse",
@@ -8,6 +8,7 @@ const lot = {
   url: "https://raghouse.com/products/carhartt?variant=1",
   price: 180,
   ship_est: 33.951,
+  ship_list: 65.96,
   pcs: 25,
   resale_per_pc: 14,
 } as SourcingLot;
@@ -28,12 +29,20 @@ describe("bought boxes", () => {
       price: 180,
       shipping: 33.95,
       pieces: 25,
+      list_shipping: 65.96,
       estimate_per_piece: 14,
     });
   });
 
   it("stores the estimate from before the seller's sales adjusted it", () => {
     expect(boxFromLot({ ...lot, resale_per_pc: 11.2, resale_factor: 0.8 }).estimate_per_piece).toBe(14);
+  });
+
+  it("explains how real shipping charges set the estimates", () => {
+    expect(shippingNote("Raghouse", undefined)).toBeNull();
+    expect(shippingNote("Raghouse", { factor: null, orders: 1, needed: 2 })).toBeNull();
+    expect(shippingNote("Thrift Vintage Fashion", { factor: 0.62, orders: 3, needed: 2 }))
+      .toBe("Thrift Vintage Fashion shipping is set to 62% of the carrier list rate, from 3 orders you recorded.");
   });
 
   it("explains how real sales moved the estimates", () => {
