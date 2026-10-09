@@ -60,7 +60,7 @@ LOOKUP_TIMEOUT_SEC = 10.0
 ITEM_READ_TIMEOUT_SEC = 45.0
 SCHEMA_FILE = "vendoo-item-schema.json"
 # Marketplaces whose category tree unlocks the rest of that form's fields.
-CATEGORY_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop")
+CATEGORY_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop", "grailed", "vinted", "facebook")
 _specifics_requests: dict[tuple, asyncio.Task] = {}
 
 __all__ = ["BrowserBridgeError", "VendooCreateError", "create_item", "probe_schema", "load_schema"]

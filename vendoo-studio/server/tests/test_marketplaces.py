@@ -25,22 +25,26 @@ class MarketplaceSettingsTest(unittest.TestCase):
         else:
             os.environ["VENDOO_STUDIO_DATA_DIR"] = self._data
 
-    def test_defaults_to_fillable_platforms(self):
-        self.assertEqual(marketplaces.get_selected_marketplaces(), list(marketplaces.FILLABLE_MARKETPLACES))
-        self.assertEqual(marketplaces.selected_fillable_platforms(), list(marketplaces.FILLABLE_MARKETPLACES))
+    def test_defaults_to_original_five(self):
+        self.assertEqual(marketplaces.get_selected_marketplaces(), marketplaces.DEFAULT_SELECTED)
+        self.assertEqual(marketplaces.selected_fillable_platforms(), ["ebay", "etsy", "poshmark", "mercari", "depop"])
 
     def test_persists_catalog_order_and_keeps_crosslist_only(self):
         selected = marketplaces.set_selected_marketplaces(["shopify", "ebay", "ebay", "facebook", "poshmark"])
         self.assertEqual(selected, ["ebay", "poshmark", "facebook", "shopify"])
         self.assertEqual(marketplaces.get_selected_marketplaces(), ["ebay", "poshmark", "facebook", "shopify"])
         # Send only fills the marketplaces Studio has form fillers for.
-        self.assertEqual(marketplaces.selected_fillable_platforms(), ["ebay", "poshmark"])
+        self.assertEqual(marketplaces.selected_fillable_platforms(), ["ebay", "poshmark", "facebook"])
 
         payload = json.loads(Path(self.tmp.name, "settings.json").read_text())
         payload["marketplaces"] = ["ebay", "facebook", "not-a-market"]
         Path(self.tmp.name, "settings.json").write_text(json.dumps(payload))
         # Unknown on read → defaults.
-        self.assertEqual(marketplaces.get_selected_marketplaces(), list(marketplaces.FILLABLE_MARKETPLACES))
+        self.assertEqual(marketplaces.get_selected_marketplaces(), marketplaces.DEFAULT_SELECTED)
+
+    def test_grailed_vinted_facebook_are_filled(self):
+        marketplaces.set_selected_marketplaces(["grailed", "vinted", "facebook", "whatnot"])
+        self.assertEqual(marketplaces.selected_fillable_platforms(), ["grailed", "vinted", "facebook"])
 
     def test_catalog_covers_vendoo_listable_marketplaces(self):
         for marketplace_id in ("vinted", "grailed", "whatnot", "vestiaire", "sellwild", "facebook", "shopify"):
@@ -72,8 +76,8 @@ class MarketplaceSettingsRouteTest(unittest.TestCase):
     def test_get_and_put_marketplaces(self):
         empty = self.client.get("/api/settings/marketplaces")
         self.assertEqual(empty.status_code, 200)
-        self.assertEqual(empty.json()["selected"], list(marketplaces.FILLABLE_MARKETPLACES))
-        self.assertEqual(empty.json()["fillable"], list(marketplaces.FILLABLE_MARKETPLACES))
+        self.assertEqual(empty.json()["selected"], marketplaces.DEFAULT_SELECTED)
+        self.assertEqual(empty.json()["fillable"], marketplaces.DEFAULT_SELECTED)
         self.assertEqual([item["id"] for item in empty.json()["available"]], list(marketplaces.KNOWN_MARKETPLACES))
 
         saved = self.client.put("/api/settings/marketplaces", json={"selected": ["poshmark", "poshmark"]})
@@ -83,10 +87,10 @@ class MarketplaceSettingsRouteTest(unittest.TestCase):
 
         crosslist = self.client.put(
             "/api/settings/marketplaces",
-            json={"selected": ["poshmark", "facebook"]},
+            json={"selected": ["poshmark", "whatnot"]},
         )
         self.assertEqual(crosslist.status_code, 200)
-        self.assertEqual(crosslist.json()["selected"], ["poshmark", "facebook"])
+        self.assertEqual(crosslist.json()["selected"], ["poshmark", "whatnot"])
         self.assertEqual(crosslist.json()["fillable"], ["poshmark"])
 
         rejected = self.client.put("/api/settings/marketplaces", json={"selected": ["ebay", "nope"]})

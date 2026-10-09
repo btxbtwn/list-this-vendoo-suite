@@ -374,7 +374,11 @@ async def prepare_generation_schema(
             mp: map_marketplace_category_path(mp, path, listing_cues) or path
             for mp, path in mapped.items()
         }
-    missing = [mp for mp in platforms if mp not in mapped]
+    # Only marketplaces with a local tree can be chosen without Vendoo's mapper;
+    # the rest stay unmapped here and resolve when the draft is created.
+    from vendoo_studio.services.category_tree import MARKETPLACES as TREE_MARKETPLACES
+
+    missing = [mp for mp in platforms if mp not in mapped and mp in TREE_MARKETPLACES]
     if missing:
         # No mapper (no Chrome, say), or mapper returned hardware collisions —
         # ask for the missing trees. Lock the general leaf we already chose.

@@ -1022,6 +1022,16 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
             seed = await prepare_generation_schema(self.db, self.conv.id, provider, "Cotton tee", "")
         self.assertEqual(seed["category_path"], "Clothing > Tops")
 
+    async def test_unmapped_marketplace_without_a_tree_does_not_stop_generation(self):
+        """Grailed has no local tree; when Vendoo cannot map it, create resolves it later."""
+        self.manager.connected = False
+        select = AsyncMock(return_value={"general": "Clothing > Tops", "ebay": "Clothing > Shirts"})
+        with patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay", "grailed"]), \
+             patch("vendoo_studio.services.category_selection.select_categories", new=select):
+            seed = await prepare_generation_schema(self.db, self.conv.id, Provider({}), "Cotton tee", "")
+        self.assertEqual(select.await_args_list[1].args[4], ["ebay"])
+        self.assertNotIn("grailed", seed["marketplace_categories"])
+
     async def test_generation_uses_cached_schema_without_chrome(self):
         self.manager.connected = False
         remember_schema(self.db, "Clothing > Tops", self.verification["schema"])

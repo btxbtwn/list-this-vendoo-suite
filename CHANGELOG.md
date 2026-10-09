@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.202 — 2026-10-09
+
+- Studio now fills in Grailed, Vinted and Facebook Marketplace, not just eBay, Etsy, Poshmark, Mercari and Depop. Turn them on in Settings → Marketplaces and each draft gets its category, condition and fields for them, with your brand as the Grailed designer.
+
 ## 0.1.201 — 2026-10-08
 
 - Listings you imported from Vendoo before the unsent chip covered imports now get it too. Regenerating or editing one marks it unsent until you press Update Vendoo, and opening it no longer pulls Vendoo's older copy over your changes.

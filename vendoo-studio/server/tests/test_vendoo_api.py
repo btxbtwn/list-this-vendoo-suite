@@ -278,7 +278,8 @@ class BuildItemTest(unittest.TestCase):
         self.assertEqual(etsy["categorySpecifics"], {})
         self.assertEqual(etsy["overrides"]["brand"], "Levi's")
 
-        self.assertEqual(listings["grailed"]["marketplaceSpecifics"], {})
+        self.assertTrue(listings["grailed"]["marketplaceSpecifics"]["buynow"])
+        self.assertEqual(listings["whatnot"]["marketplaceSpecifics"], {})
 
     def test_depop_style_age_source_use_vendoo_codes(self):
         item, unresolved = build_vendoo_item({
@@ -692,6 +693,40 @@ class BuildItemTest(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertEqual(marketplace_condition(None, "poshmark", code), poshmark)
                 self.assertEqual(marketplace_condition(None, "mercari", code), mercari)
+
+    def test_grailed_vinted_and_facebook_use_vendoos_condition_codes(self):
+        for code, grailed, vinted, facebook in (
+            ("v_newWithTagsBox", "is_new", 6, "new"),
+            ("v_newWithOutTags", "is_new", 1, "used_like_new"),
+            ("v_preowned", "is_used", 3, "used_good"),
+            ("v_poor", "is_worn", 4, "used_fair"),
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(marketplace_condition(None, "grailed", code), grailed)
+                self.assertEqual(marketplace_condition(None, "vinted", code), vinted)
+                self.assertEqual(marketplace_condition(None, "facebook", code), facebook)
+
+    def test_grailed_vinted_and_facebook_sections_carry_leaf_condition_and_designer(self):
+        item, unresolved = build_vendoo_item({
+            "title": "Vintage Harley Davidson Tee",
+            "brand": "Harley Davidson",
+            "condition": "Pre-Owned - Good",
+            "marketplace_category_objects": {
+                "grailed": {"id": "g1", "displayPath": ["Menswear", "Tops", "Short Sleeve T-Shirts"]},
+                "vinted": {"id": "77"},
+                "facebook": {"id": "fb1"},
+            },
+        })
+        listings = item["listings"]
+        self.assertEqual(listings["grailed"]["overrides"]["condition"], "is_used")
+        self.assertEqual(listings["grailed"]["overrides"]["brand"], "Harley Davidson")
+        self.assertEqual(listings["grailed"]["overrides"]["categoryV2"]["id"], "g1")
+        self.assertEqual(listings["grailed"]["marketplaceSpecifics"]["shipping"]["us"], {"amount": 30, "enabled": True})
+        self.assertEqual(listings["vinted"]["overrides"]["condition"], 3)
+        self.assertEqual(listings["vinted"]["listedID"], "")
+        self.assertEqual(listings["facebook"]["overrides"]["condition"], "used_good")
+        self.assertNotIn("brand", listings["facebook"]["overrides"])
+        self.assertFalse([row for row in unresolved if "condition:" in row["field"]])
 
     def test_a_learned_code_the_marketplace_does_not_own_is_ignored(self):
         """Studio's own bad write must not teach itself back.
