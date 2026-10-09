@@ -288,10 +288,6 @@ function Settings({
               clean={(text) => text.replace(/[^\d.]/g, "")} accept={(text) => text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0}
               onCommit={(text) => onSave({ cost_per_piece: Number(text) })} />
           </span>
-          <label className="sourcing-setting sourcing-check">
-            <input type="checkbox" checked={prefs.include_rework} disabled={saving} onChange={(event) => onSave({ include_rework: event.target.checked })} />
-            Include damaged and rework grades
-          </label>
         </div>
         <p className="sourcing-hint">These are your planning inputs, not measured probabilities. Use your actual costs for cleaning, repairs, photography, labor, packaging, seller-paid postage, fixed fees and returns. The allowance is charged for every usable piece, even those that don’t sell. Purchase tax is extra.</p>
       </details>
@@ -614,7 +610,7 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
     <details className="sourcing-more">
       <summary>How Studio picks boxes</summary>
       <ul className="sourcing-how">
-        <li>Every {REFRESH_HOURS} hours it reads every box both stores have in stock.</li>
+        <li>Every {REFRESH_HOURS} hours it reads every box both stores list. Raghouse Recycle boxes and Thrift Vintage Fashion A/B, B, B/C and C grades are never considered.</li>
         <li>
           It asks your AI what one piece of each kind of box sells for on eBay, Poshmark, Depop and Mercari, and
           checks again every week. It requires dated sold examples and computes their median, capped by comparable asking prices when enough are available.
@@ -623,7 +619,7 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
           Profit uses your {Math.round(a.sell_through * 100)}% sales assumption, {Math.round(a.fees * 100)}% effective fees,
           {" "}{formatMoney(a.cost_per_piece)} operating allowance per usable piece, and purchase cost with shipping. Usable-piece shares are planning estimates based on grade, not inspected counts.
         </li>
-        <li>Each recommended box must meet your ROI target and avoid a loss when half your planned pieces sell at the lower of its lowest retained sold price and resale estimate. Damaged/rework grades are excluded unless you enable them.</li>
+        <li>Each recommended box must meet your ROI target and avoid a loss when half your planned pieces sell at the lower of its lowest retained sold price and resale estimate.</li>
         <li>It prefers researched selling-window matches among qualifying boxes, then incremental return, one box per theme, and checks the whole cart’s shipping. It also tests pairs that unlock free shipping. This is a greedy selection; it doesn’t guarantee the best possible combination.</li>
         <li>
           Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip}, scaled to a checkout you

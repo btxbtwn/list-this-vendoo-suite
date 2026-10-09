@@ -54,10 +54,10 @@ RECENT_ZIPS = 4
 DEFAULT_PREFS = {
     "budget": 300.0, "min_roi": 1.0, "raghouse_vip": False, "zip": "70115", "recent_zips": ["70115"],
     "sell_through": 0.5, "fees": 0.2,
-    "cost_per_piece": 2.0, "include_rework": False,
+    "cost_per_piece": 2.0,
     "ready_in_weeks": 4, "selling_window_weeks": 4,
 }
-PLAN_PREFS = ("budget", "min_roi", "raghouse_vip", "zip", "sell_through", "fees", "cost_per_piece", "include_rework",
+PLAN_PREFS = ("budget", "min_roi", "raghouse_vip", "zip", "sell_through", "fees", "cost_per_piece",
               "ready_in_weeks", "selling_window_weeks")
 
 TRENDS_PROMPT = (
@@ -131,7 +131,7 @@ def read_state() -> dict:
         except (OSError, json.JSONDecodeError):
             state = {}
     state.setdefault("prefs", {})
-    state["prefs"] = {**DEFAULT_PREFS, **state["prefs"]}
+    state["prefs"] = {**DEFAULT_PREFS, **{k: v for k, v in state["prefs"].items() if k in DEFAULT_PREFS}}
     state.setdefault("trend", {"terms": [], "updated_at": None, "source": None})
     state.setdefault("resale", {})
     state.setdefault("zone_charts", {})
@@ -180,7 +180,6 @@ def set_prefs(
     sell_through: float | None = None,
     fees: float | None = None,
     cost_per_piece: float | None = None,
-    include_rework: bool | None = None,
     ready_in_weeks: int | None = None,
     selling_window_weeks: int | None = None,
 ) -> dict:
@@ -218,8 +217,6 @@ def set_prefs(
             prefs["fees"] = float(fees)
         if cost_per_piece is not None:
             prefs["cost_per_piece"] = float(cost_per_piece)
-        if include_rework is not None:
-            prefs["include_rework"] = bool(include_rework)
         _write_state(state)
         return prefs
 
@@ -482,8 +479,7 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
                                  resale_low={k: v["low"] for k, v in fresh.items()})
 
     if can_research:
-        research_rows = [r for r in rows if r["price"] <= prefs["budget"]
-                         and (prefs["include_rework"] or r["grade"] not in s.REWORK_GRADES)]
+        research_rows = [r for r in rows if r["price"] <= prefs["budget"]]
         missing = s.research_themes([r for r in research_rows if r["theme"] not in fresh], limit=RESEARCH_THEMES)
         examples = {}
         for row in research_rows:
@@ -499,7 +495,7 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
 
     planning = {"budget": prefs["budget"], "min_roi": prefs["min_roi"],
                 "sell_through": prefs["sell_through"], "fees": prefs["fees"],
-                "cost_per_piece": prefs["cost_per_piece"], "include_rework": prefs["include_rework"]}
+                "cost_per_piece": prefs["cost_per_piece"]}
     plan = s.buy_list(rows, cfg, **planning)
     store_plans = {
         store: s.buy_list([r for r in rows if r["store"] == store], cfg, **planning)

@@ -50,6 +50,7 @@ RAGHOUSE = [
     _raghouse("Plain Blank Tees 80 pcs", "40.00", 12701, vid=4),
     _raghouse("Y2K Blouses 40 pcs", "45.00", 7258, tags=("VIP_Product",), vid=5),
     _raghouse("Tiny Lot 5 pcs", "10.00", 2000, vid=6),
+    _raghouse("Cartoon T-Shirts 65 pcs", "95.00", 12701, vid=7),
 ]
 
 TVF = [
@@ -96,6 +97,7 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertNotIn("Wholesale Vintage Graphic T-Shirts (10 Pieces) · B Grade", lots)
         self.assertNotIn("Cartoon T-Shirts · S / 3 tees", lots)
         self.assertNotIn("Tiny Lot 5 pcs", lots)
+        self.assertNotIn("Recycle Cartoon T-Shirts 70 pcs", lots)  # Recycle lots need TLC
         self.assertNotIn("Y2K Blouses 40 pcs", lots)  # VIP only unless asked for
 
     def test_shipping_uses_each_stores_zone_and_whole_pounds(self):
@@ -123,13 +125,13 @@ class ScoutScriptTest(unittest.TestCase):
     def test_buy_list_keeps_to_budget_one_lot_per_theme(self):
         resale = {"cartoon t-shirts": 15, "plain blank tees": 6, "men's flannel shirts": 12}
         rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), resale)[1]
-        plan = self.s.buy_list(rows, self.cfg, budget=150, min_roi=0.5, cost_per_piece=0, include_rework=True)
+        plan = self.s.buy_list(rows, self.cfg, budget=200, min_roi=0.5, cost_per_piece=0)
         picked = [lot["title"] for cart in plan["carts"] for lot in cart["lots"]]
-        # The $60 cartoon lot shares a theme with the recycle lot, so it stays off the list.
-        # Lower Raghouse shipping leaves room for the blank tees inside $150.
-        self.assertEqual(picked, ["Recycle Cartoon T-Shirts 70 pcs", "Plain Blank Tees 80 pcs"])
-        self.assertLessEqual(plan["total"], 150)
-        self.assertEqual(plan["carts"][0]["cart_url"], "https://raghouse.com/cart/2:1,4:1")
+        # The $95 cartoon lot shares a theme with the cheaper one, so it stays off the list.
+        self.assertEqual(picked, ["Cartoon T-Shirts 60 pcs", "Plain Blank Tees 80 pcs"])
+        self.assertEqual(plan["exclusions"]["raghouse:7"], "same_theme")
+        self.assertLessEqual(plan["total"], 200)
+        self.assertEqual(plan["carts"][0]["cart_url"], "https://raghouse.com/cart/1:1,4:1")
 
     def test_window_matches_prioritize_qualifying_boxes_without_changing_profit(self):
         catalogs = {"raghouse": [_raghouse("Flannel Shirts 60 pcs", "60", 12701, vid=10),
@@ -220,14 +222,18 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(priced["break_even_pcs"], 7)
         self.assertEqual(priced["downside_profit"], -66.25)
 
-    def test_default_recommendations_exclude_rework_even_with_high_roi(self):
-        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), {"cartoon t-shirts": 40})[1]
-        plan = self.s.buy_list(rows, self.cfg, budget=1000)
-        picked = [p for c in plan["carts"] for p in c["lots"]]
-        self.assertEqual([p["grade"] for p in picked], ["good"])
-        self.assertEqual(plan["exclusions"]["raghouse:2"], "rework")
-        allowed = self.s.buy_list(rows, self.cfg, budget=1000, include_rework=True)
-        self.assertEqual(allowed["carts"][0]["lots"][0]["grade"], "recycle")
+    def test_tvf_lower_grades_are_never_lots(self):
+        catalogs = {"tvf": [_tvf("Cartoon T-Shirts (70 Pieces)", [
+            ("A Grade", "90.00", 12701, True), ("A/B Grade", "60.00", 12701, True), ("B Grade", "30.00", 12701, True),
+            ("B/C Grade", "20.00", 12701, True), ("C Grade", "10.00", 12701, True)], vid=500)]}
+        rows = self.s.score_lots(catalogs, self.cfg, ZONES, self.s.Filters(), {"cartoon t-shirts": 40})[1]
+        self.assertEqual([r["title"] for r in rows], ["Cartoon T-Shirts (70 Pieces) · A Grade"])
+
+    def test_tvf_brand_mix_pieces_are_estimated_from_shipping_weight(self):
+        catalogs = {"tvf": [_tvf("Women's J. Crew Mix", [("Default Title", "200.00", 9072, True)], vid=600)]}
+        lot = self.s.score_lots(catalogs, self.cfg, ZONES, self.s.Filters())[1][0]
+        # 20 lb less 1 lb packaging at 1.6 mixed pieces per pound.
+        self.assertEqual((lot["pcs"], lot["pcs_estimated"], lot["lbs"]), (30, True, 20.0))
 
     def test_high_roi_with_a_losing_lower_sales_scenario_does_not_qualify(self):
         rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(),
@@ -454,7 +460,7 @@ class RefreshTest(unittest.TestCase):
     def test_preferences_saved_during_research_survive_and_request_a_rebuild(self):
         async def research(themes, examples, context):
             box_scout.set_prefs(budget=200, min_roi=1.5, zip="10001", raghouse_vip=True,
-                                sell_through=0.6, fees=0.25, cost_per_piece=1.5, include_rework=True,
+                                sell_through=0.6, fees=0.25, cost_per_piece=1.5,
                                 ready_in_weeks=8, selling_window_weeks=6)
             return box_scout.clean_prices([_price_evidence("cartoon t-shirts", 40)], set(themes)), "ChatGPT"
 

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.218 — 2026-10-09
+
+- Sourcing skips every Raghouse Recycle box and every Thrift Vintage Fashion A/B, B, B/C and C grade lot, so the "Include damaged and rework grades" setting is gone. Thrift Vintage Fashion brand mixes sold by weight, such as the J. Crew and American Eagle boxes, now show up with a piece count estimated from their shipping weight.
+
 ## 0.1.217 — 2026-10-09
 
 - The sale calendar in Marketing now covers Sellwild. Plan a Sellwild sale or record one you ran, and its Sellwild sales, results, and best-days pattern show up next to eBay, Depop, and Etsy.

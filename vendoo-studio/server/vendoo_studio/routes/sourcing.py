@@ -179,7 +179,6 @@ class SourcingPrefs(BaseModel):
     sell_through: float
     fees: float
     cost_per_piece: float
-    include_rework: bool
     ready_in_weeks: int
     selling_window_weeks: int
 
@@ -206,7 +205,6 @@ class SourcingPrefsUpdate(BaseModel):
     cost_per_piece: float | None = Field(None, ge=0, allow_inf_nan=False)
     ready_in_weeks: int | None = Field(None, ge=0, le=26, strict=True)
     selling_window_weeks: int | None = Field(None, ge=1, le=26, strict=True)
-    include_rework: bool | None = None
     raghouse_vip: bool | None = None
     zip: str | None = Field(None, pattern=r"^\d{5}$")
 

@@ -607,7 +607,7 @@ export interface SourcingBuyList {
   total: number;
   expected_profit: number;
   carts: SourcingCart[];
-  exclusions: Record<string, "needs_research" | "rework" | "same_theme" | "return_target" | "downside" | "budget" | "alternative">;
+  exclusions: Record<string, "needs_research" | "same_theme" | "return_target" | "downside" | "budget" | "alternative">;
 }
 
 export interface SourcingSeasonality {
@@ -655,7 +655,6 @@ export interface SourcingPrefs {
   sell_through: number;
   fees: number;
   cost_per_piece: number;
-  include_rework: boolean;
   ready_in_weeks: number;
   selling_window_weeks: number;
 }
