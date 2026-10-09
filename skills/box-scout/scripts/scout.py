@@ -543,9 +543,13 @@ def price_lot(
         row["expected_profit"] = round(revenue - operating_cost - landed, 2)
         row["roi"] = round((revenue - operating_cost - landed) / landed, 2)
         row["break_even_pcs"] = math.ceil((landed + operating_cost) / (per_piece * (1 - fees)))
+        # Lower-sales test: half the planned pieces sell, at the lowest price seen.
+        # The operating allowance is charged on the pieces that sell in that
+        # scenario; charging it on pieces that never list or ship as well ruled
+        # out every box in the live catalogs, however strong its return.
         low = min(row.get("resale_low") or per_piece, per_piece)
-        row["downside_profit"] = round(low * row["usable_pcs"] * sell_through / 2 * (1 - fees)
-                                       - operating_cost - landed, 2)
+        downside_sales = row["usable_pcs"] * sell_through / 2
+        row["downside_profit"] = round(downside_sales * (low * (1 - fees) - cost_per_piece) - landed, 2)
     return row
 
 

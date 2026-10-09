@@ -106,6 +106,24 @@ export function whyNotPicked(lot: SourcingLot, plan: SourcingBuyList): string {
   return EXCLUSION_LABELS[plan.exclusions[`${lot.store}:${lot.variant_id}`]];
 }
 
+/** "412 need recent sold evidence · 88 below your return target": what ruled the boxes out, most first. */
+export function exclusionSummary(plan: SourcingBuyList): string {
+  const counts = new Map<string, number>();
+  for (const reason of Object.values(plan.exclusions)) counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  const phrases: Record<string, string> = {
+    needs_research: "need recent sold evidence",
+    same_theme: "are another box of a kind already picked",
+    return_target: "are below your return target",
+    downside: "lose money in the lower-sales test",
+    budget: "don’t fit the budget",
+    alternative: "lost to another combination",
+  };
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `${count} ${phrases[reason]}`)
+    .join(" · ");
+}
+
 export function saleDate(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }

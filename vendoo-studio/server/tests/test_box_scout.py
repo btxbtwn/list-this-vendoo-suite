@@ -221,7 +221,16 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(priced["expected_revenue"], 90)
         self.assertEqual(priced["expected_profit"], -10)
         self.assertEqual(priced["break_even_pcs"], 7)
-        self.assertEqual(priced["downside_profit"], -66.25)
+        # Half the 6 planned sales at the $15 low: 3 x ($15 x 0.75 - $2) - $80 landed.
+        self.assertEqual(priced["downside_profit"], -52.25)
+
+    def test_lower_sales_test_charges_operating_costs_on_the_pieces_that_sell(self):
+        # A $66 box of 40 usable jackets at $30 (low $18) with a 500% return must not fail
+        # the test only because prep is charged on pieces the scenario never lists.
+        row = {"price": 36, "pcs": 45, "usable_pcs": 40.5, "demand": 1, "resale_low": 18}
+        priced = self.s.price_lot(row, 30, 30)
+        self.assertGreater(priced["roi"], 4)
+        self.assertGreater(priced["downside_profit"], 0)
 
     def test_themes_are_resale_categories(self):
         for title, expected in (

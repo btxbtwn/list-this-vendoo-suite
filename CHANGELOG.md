@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.221 — 2026-10-09
+
+- Sourcing recommendations were impossible to get: the lower-sales test charged your per-piece operating costs on every piece in a box even in a scenario where half of them never sell, which ruled out every box in both stores, including ones with a 500% expected return. The test still assumes only half your planned sales at the lowest price seen, but now charges operating costs on those pieces only.
+- When nothing qualifies, Sourcing now says how many boxes each check ruled out, so you can see what to change.
+
 ## 0.1.220 — 2026-10-09
 
 - Fixes the Sourcing page failing with “Request failed: 500” after updating to 0.1.219: the buy list saved by the previous version is now discarded and rebuilt instead of being served to a page that cannot read it.
