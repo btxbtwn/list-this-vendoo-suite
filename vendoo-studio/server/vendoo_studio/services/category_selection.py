@@ -172,10 +172,13 @@ async def _ask_model(provider, analysis: str, notes: str, choices: dict) -> dict
         "Match the actual product type and intended department; never infer department solely from size. "
         "Do not use a General breadcrumb for another marketplace. "
         "Marketplace leaf labels differ: General/eBay may say Tops while Poshmark/Mercari/Depop/Etsy use "
-        "Tees, T-shirts, or Blouses — those are valid women's top mappings. Always pick the closest "
-        "supplied candidate. Never ask the seller anything and never claim a marketplace lacks tops. "
-        "If candidates look noisy, put a short product-type search phrase in question "
-        "(e.g. \"women tops\") for an internal retry only. Return JSON "
+        "Tees, T-shirts, or Blouses — those are valid women's top mappings. "
+        "Before answering, confirm each pick: the leaf must name the same kind of product, not a "
+        "neighbour that shares a word (a t-shirt is not a button-down shirt, a short-sleeve top is "
+        "not shorts). When no candidate for a marketplace is that kind of product, leave that "
+        "marketplace out and put a short product-type search phrase in question "
+        "(e.g. \"men t-shirt\") for an internal retry only. Never ask the seller anything and never "
+        "claim a marketplace lacks tops. Return JSON "
         '{"categories": {"marketplace": "category id"}, "question": ""}.'
     )}, {"role": "user", "content": json.dumps({
         "photo_analysis": analysis,
@@ -440,6 +443,24 @@ def _collect_choices(
     return choices, nodes_by_marketplace
 
 
+def _model_picks(
+    response: dict, nodes_by_marketplace: dict[str, dict[str, CategoryTreeNode]], selected: dict[str, str],
+) -> tuple[dict[str, str], list[str]]:
+    """``(paths the model chose from its candidates, marketplaces it did not)``."""
+    picks: dict[str, str] = {}
+    failed: list[str] = []
+    for marketplace, nodes in nodes_by_marketplace.items():
+        if marketplace in selected:
+            continue
+        category_id = str((response.get("categories") or {}).get(marketplace) or "")
+        node = nodes.get(category_id)
+        if node is None:
+            failed.append(marketplace)
+            continue
+        picks[marketplace] = node.path
+    return picks, failed
+
+
 async def select_categories(
     db,
     provider,
@@ -475,44 +496,22 @@ async def select_categories(
 
     response = await _ask_model(provider, analysis, notes, choices)
     pending = dict(choices)
-    selected_from_model: dict[str, str] = {}
-    failed: list[str] = []
-    for marketplace, nodes in nodes_by_marketplace.items():
-        if marketplace in selected:
-            continue
-        category_id = str((response.get("categories") or {}).get(marketplace) or "")
-        node = nodes.get(category_id)
-        if node is None:
-            failed.append(marketplace)
-            continue
-        selected_from_model[marketplace] = node.path
+    selected_from_model, failed = _model_picks(response, nodes_by_marketplace, selected)
 
-    # Only spend a second model round when most picks failed and the model offered a clean search hint.
+    # A marketplace the model would not confirm gets one more search, on the
+    # product type it named; the picks it did confirm stand.
     retry_hint = _search_retry_hint(str(response.get("question") or ""))
-    need_retry = (
-        bool(failed)
-        and len(failed) > max(1, len(nodes_by_marketplace) // 2)
-        and bool(retry_hint)
-        and retry_hint.casefold() != query.casefold()
-    )
-    if need_retry:
-        choices, nodes_by_marketplace = _collect_choices(
-            db, marketplaces, retry_hint, selected, path_prefix,
+    if failed and retry_hint and retry_hint.casefold() != query.casefold():
+        confirmed = {**selected, **selected_from_model}
+        retry_choices, retry_nodes = _collect_choices(
+            db, marketplaces, retry_hint, confirmed, path_prefix,
             analysis=analysis, notes=notes, override=override,
         )
-        response = await _ask_model(provider, analysis, notes, choices)
-        pending = dict(choices)
-        selected_from_model = {}
-        failed = []
-        for marketplace, nodes in nodes_by_marketplace.items():
-            if marketplace in selected:
-                continue
-            category_id = str((response.get("categories") or {}).get(marketplace) or "")
-            node = nodes.get(category_id)
-            if node is None:
-                failed.append(marketplace)
-                continue
-            selected_from_model[marketplace] = node.path
+        response = await _ask_model(provider, analysis, notes, retry_choices)
+        pending.update(retry_choices)
+        nodes_by_marketplace.update(retry_nodes)
+        retried, failed = _model_picks(response, retry_nodes, confirmed)
+        selected_from_model.update(retried)
 
     selected.update(selected_from_model)
     if not failed:

@@ -167,6 +167,29 @@ class CategorySelectionTest(unittest.IsolatedAsyncioTestCase):
         # Seller interview text must not trigger extra model loops — catalog ranking finishes it.
         self.assertEqual(calls["n"], 1)
 
+    async def test_unconfirmed_marketplace_is_searched_again_on_the_models_phrase(self):
+        self.db.add(CategoryTreeNode(marketplace="ebay", category_id="ebay-tee", parent_id="ebay-root",
+            label="T-Shirts", path="Fashion > T-Shirts", is_leaf=True, has_children=False,
+            children_loaded=True))
+        self.db.commit()
+        rebuild_catalog_index(self.db)
+        seen: list[dict] = []
+
+        class Provider:
+            async def chat(self, messages, stream=True):
+                choices = json.loads(messages[-1]["content"])["choices"]
+                seen.append(choices)
+                if len(seen) == 1:
+                    # General fits; none of eBay's candidates is a t-shirt.
+                    yield json.dumps({"categories": {"general": "general-leaf"}, "question": "t-shirts"})
+                    return
+                yield json.dumps({"categories": {"ebay": "ebay-tee"}})
+
+        result = await select_categories(self.db, Provider(), "Women's tops", "", ["ebay"])
+        self.assertEqual(result, {"general": "Clothing > Women's Tops", "ebay": "Fashion > T-Shirts"})
+        # The confirmed General pick is not asked about again.
+        self.assertEqual(list(seen[1]), ["ebay"])
+
     async def test_womens_top_seeds_canonical_marketplace_leaves(self):
         from vendoo_studio.services.registry import (
             WOMEN_TOPS_PATH, POSHMARK_WOMEN_SHORT_TEE, MERCARI_WOMEN_TEE, DEPOP_WOMEN_TEE, ETSY_WOMEN_TEE,
