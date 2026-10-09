@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { AdMarketplace, AdMarketplaceTotals, AdSpendEntry, AdSpendInput, AnalyticsAds } from "../api/adSpend";
+import type { AdMarketplace, AdMarketplaceTotals, AdSpendEntry, AdSpendInput } from "../api/adSpend";
+import type { AnalyticsRange } from "../api/types";
 import { confirmDialog } from "../ui/confirmDialog";
-import { formatMoney } from "./analyticsFormat";
+import { ANALYTICS_RANGES, formatMoney } from "./analyticsFormat";
 import { Stat } from "./AnalyticsStat";
 import { marketplaceName } from "./marketplaceNames";
 import "../styles/ad-spend.css";
@@ -15,11 +16,18 @@ const ADS_QUERY_KEY = ["ad-spend"];
 /**
  * Poshmark Promoted Closet and Etsy Ads, set against what sold. Neither shares
  * its figures with Vendoo, so the seller copies each dashboard for the dates
- * it covers; the totals here follow the page's sales period.
+ * it covers; the totals follow the sales period picked here.
  */
-export function AdSpend({ ads, heading }: { ads: AnalyticsAds; heading: string }) {
+export function AdSpend() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ADS_QUERY_KEY, queryFn: api.adSpend.list });
+  const [range, setRange] = useState<AnalyticsRange>("12m");
+  const totals = useQuery({
+    queryKey: ["analytics", range],
+    queryFn: () => api.analytics.get(range),
+    placeholderData: keepPreviousData,
+  });
+  const ads = totals.data?.ads;
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ADS_QUERY_KEY }),
     queryClient.invalidateQueries({ queryKey: ["analytics"] }),
@@ -54,25 +62,40 @@ export function AdSpend({ ads, heading }: { ads: AnalyticsAds; heading: string }
         />
       ) : null}
 
-      {ads.marketplaces.length > 0 ? (
-        <>
-          <h3 className="ad-spend-heading">{heading}</h3>
-          <div className="analytics-stats">
-            <Stat label="Ad spend" value={formatMoney(ads.spend)} hint="Spread evenly over the days each entry covers" />
-            <Stat
-              label="Profit after ads"
-              value={ads.profit_after_ads == null ? "—" : formatMoney(ads.profit_after_ads)}
-              negative={ads.profit_after_ads != null && ads.profit_after_ads < 0}
-              hint={ads.profit_after_ads == null ? "Record sale prices and costs to see profit" : "Profit on sales with recorded cost, less all ad spend"}
-            />
-            {ads.marketplaces.map((market) => <MarketStat key={market.id} market={market} />)}
-          </div>
-        </>
+      {query.data?.length ? (
+        <div className="pr-pills ad-spend-heading" role="tablist" aria-label="Ad spend period">
+          {ANALYTICS_RANGES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={range === item.id}
+              className={`pr-pill${range === item.id ? " is-active" : ""}`}
+              onClick={() => setRange(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {ads && ads.marketplaces.length > 0 ? (
+        <div className="analytics-stats">
+          <Stat label="Ad spend" value={formatMoney(ads.spend)} hint="Spread evenly over the days each entry covers" />
+          <Stat
+            label="Profit after ads"
+            value={ads.profit_after_ads == null ? "—" : formatMoney(ads.profit_after_ads)}
+            negative={ads.profit_after_ads != null && ads.profit_after_ads < 0}
+            hint={ads.profit_after_ads == null ? "Record sale prices and costs to see profit" : "Profit on sales with recorded cost, less all ad spend"}
+          />
+          {ads.marketplaces.map((market) => <MarketStat key={market.id} market={market} />)}
+        </div>
       ) : null}
 
       {query.isError ? <p className="analytics-note">{(query.error as Error).message}</p> : null}
+      {totals.isError ? <p className="analytics-note">{(totals.error as Error).message}</p> : null}
       {remove.isError ? <p className="ad-spend-error" role="alert">{remove.error.message}</p> : null}
       {query.data?.length === 0 && editing == null ? <p className="analytics-note">No ad spend recorded yet.</p> : null}
+      {query.data?.length && ads?.marketplaces.length === 0 ? <p className="analytics-note">No ad spend in this period.</p> : null}
       {query.data?.length ? (
         <ul className="analytics-recent ad-spend-entries">
           {query.data.map((entry) => (
