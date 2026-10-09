@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.214 — 2026-10-09
+
+- Short-sleeve and unisex t-shirts no longer land in Casual Button-Down Shirts (or Pants & Shorts). Category picking now double-checks each marketplace's choice is the same kind of item, and searches again when none of the options fit.
+
 ## 0.1.213 — 2026-10-09
 
 - Input, Forms and Fields and the browser button now sit in each listing's header beside Open listing and Regenerate, instead of up in the window's title bar.

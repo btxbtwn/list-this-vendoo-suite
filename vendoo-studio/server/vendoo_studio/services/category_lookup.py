@@ -15,9 +15,11 @@ log = logging.getLogger("vendoo_studio.category_lookup")
 
 CATEGORY_SEARCH_TIMEOUT_SEC = 45
 
+# Shorts stays plural: "Short-sleeve" is a sleeve, and reading it as shorts
+# sent a short-sleeve tee's search to Pants & Shorts.
 _GARMENT_RE = re.compile(
     r"\b(sweatshirts?|hoodies?|sweaters?|t-?shirts?|tees?|polos?|dresses?|"
-    r"jeans?|pants?|shorts?|skirts?|jackets?|coats?|blouses?|tanks?)\b",
+    r"jeans?|pants?|shorts|skirts?|jackets?|coats?|blouses?|tanks?)\b",
     re.I,
 )
 _TEE_LEAF_RE = re.compile(r"\bt-?shirts?\b|\btees?\b", re.I)
@@ -42,6 +44,7 @@ _DEPARTMENT_WORDS = {
     "boys": "boys", "boy": "boys",
     "baby": "baby", "infant": "baby", "toddler": "baby",
 }
+_KIDS_WORDS = frozenset({"kid", "kids", "child", "children", "youth", "toddler", "baby", "infant"})
 # Roots / leaves that "tee" keyword ranking kept confusing with clothing.
 _NON_APPAREL_PATH_RE = re.compile(
     r"(^|\s)(business\s*&\s*industrial|toys?\s*&\s*collectibles|electronics|motors|"
@@ -173,7 +176,10 @@ def condense_category_search_query(*texts: str, override: str = "") -> str:
     override = str(override or "").strip()
     joined = "\n".join(str(text or "").strip() for text in (*texts, override) if str(text or "").strip())
     leaf = _path_leaf(override)
-    garment = _first_garment(override, joined)
+    stated = _analysis_category(joined) if not override else ""
+    # What the analysis called the item outranks a garment word in its style
+    # notes or measurements.
+    garment = _first_garment(override, stated, joined)
     gender = category_department(joined)
     # Sellers often say "women's top" — treat that as tops intent when no sharper garment matched.
     if not garment and gender == "women" and _TOPS_RE.search(joined):
@@ -185,13 +191,15 @@ def condense_category_search_query(*texts: str, override: str = "") -> str:
         parts.append(garment)
     elif leaf:
         parts.append(leaf)
+    # Poshmark files t-shirts as "Tees" and shares no other word with them.
+    if garment and re.fullmatch(r"t-?shirts?", garment, re.I):
+        parts.append("tee")
     if garment and re.search(r"jeans?", garment, re.I):
         style = _STYLE_RE.search(joined)
         if style:
             parts.append(re.sub(r"[\s-]+", " ", style.group(1)).strip())
     # The analysis already classified the item; a bare garment word like "Tee"
     # matches Fastener Nuts as readily as it matches a t-shirt.
-    stated = _analysis_category(joined) if not override else ""
     if stated:
         seen = {part.casefold() for part in parts}
         for word in re.findall(r"[A-Za-z0-9']+", stated):
@@ -214,9 +222,14 @@ def _stated_department(text: str) -> str | None:
     match = _ANALYSIS_DEPARTMENT_RE.search(text or "")
     if not match:
         return None
-    for word in re.findall(r"[a-z]+", match.group(1).casefold()):
+    words = re.findall(r"[a-z]+", match.group(1).casefold())
+    for word in words:
         if word in _DEPARTMENT_WORDS:
             return _DEPARTMENT_WORDS[word]
+    # Marketplaces have no adult unisex branch, and the seller's rule is that
+    # unisex takes Men. Unisex kids' clothing is not menswear.
+    if "unisex" in words and not _KIDS_WORDS.intersection(words):
+        return "men"
     return None
 
 

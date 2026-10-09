@@ -248,6 +248,23 @@ class StatedDepartmentTest(unittest.TestCase):
         analysis = "Photo analysis:\n- category: Women's T-Shirt"
         self.assertIn("women", condense_category_search_query(analysis).lower())
 
+    def test_unisex_takes_men_but_unisex_kids_does_not(self):
+        adult = "Photo analysis:\n- department: Unisex\n- category: T-shirt"
+        kids = "Photo analysis:\n- department: Unisex Kids\n- category: T-shirt"
+        self.assertEqual(condense_category_search_query(adult).split()[0], "men")
+        self.assertNotIn("men", condense_category_search_query(kids).lower().split())
+
+    def test_short_sleeve_is_not_shorts(self):
+        # A short-sleeve tee's query came out "Short shirt", and eBay's only
+        # candidate was Uniforms > Pants & Shorts.
+        analysis = (
+            "Photo analysis:\n- style: Short-sleeve crewneck graphic tee\n"
+            "- department: Unisex\n- category: T-shirt"
+        )
+        query = condense_category_search_query(analysis).lower()
+        self.assertNotIn("short", query.split())
+        self.assertIn("t-shirt", query)
+
 
 if __name__ == "__main__":
     unittest.main()
