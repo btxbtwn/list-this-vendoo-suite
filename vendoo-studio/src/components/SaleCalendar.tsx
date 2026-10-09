@@ -8,7 +8,7 @@ import { marketplaceName } from "./marketplaceNames";
 import { DISCOUNT_CEILING, calendarDate, dateOnly, monthDays, saleProfit, shiftMonth, suggestDiscount } from "./saleCalendarDates";
 import "../styles/sale-calendar.css";
 
-const MARKETS: SaleMarketplace[] = ["ebay", "depop", "etsy"];
+const MARKETS: SaleMarketplace[] = ["ebay", "depop", "etsy", "sellwild"];
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 type CalendarSave = { kind: "plan"; input: SalePlan } | { kind: "record"; input: SaleRecord };
 type FormSeed = { start: string; end: string; marketplace: string; event?: SaleEvent; record?: boolean };

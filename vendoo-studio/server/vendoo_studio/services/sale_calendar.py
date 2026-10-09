@@ -15,9 +15,9 @@ from vendoo_studio.models.sale_event import SaleEvent
 from vendoo_studio.services.inventory_analytics import AnalyticsItem, load_rows
 from vendoo_studio.services.vendoo_import import parse_notes
 
-Marketplace = Literal["ebay", "depop", "etsy"]
+Marketplace = Literal["ebay", "depop", "etsy", "sellwild"]
 EventStatus = Literal["planned", "ran", "cancelled"]
-MARKETPLACES = ("ebay", "depop", "etsy")
+MARKETPLACES = ("ebay", "depop", "etsy", "sellwild")
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
@@ -133,7 +133,7 @@ def save_plan(db, plan: SalePlan, event: SaleEvent | None = None) -> SaleEvent:
 
 def save_record(db, record: SaleRecord, event: SaleEvent | None = None, *, now: datetime | None = None):
     if record.marketplace not in MARKETPLACES and (event is None or record.marketplace != event.marketplace):
-        raise ValueError("Choose eBay, Depop, or Etsy for a new sale record.")
+        raise ValueError("Choose eBay, Depop, Etsy, or Sellwild for a new sale record.")
     today = (now or datetime.now(UTC)).astimezone(zone(record.timezone)).date()
     if record.start_date > today:
         raise ValueError("Record a sale once it has started. Use a plan for future events.")

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.217 — 2026-10-09
+
+- The sale calendar in Marketing now covers Sellwild. Plan a Sellwild sale or record one you ran, and its Sellwild sales, results, and best-days pattern show up next to eBay, Depop, and Etsy.
+
 ## 0.1.216 — 2026-10-09
 
 - Facebook drafts now get their Package weight from the item's weight, and the Shipping carrier you picked on an earlier Facebook form. Color and size fields Facebook shows as optional are filled from the listing too.
