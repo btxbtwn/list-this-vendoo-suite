@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from vendoo_studio.services import box_scout
@@ -15,6 +15,8 @@ class SourcingComp(BaseModel):
     price: float
     marketplace: str
     snippet: str
+    # Set when the sale is the seller's own listing rather than a web result.
+    conversation_id: str | None = None
 
 
 class SourcingActiveComp(BaseModel):
@@ -56,16 +58,27 @@ class SourcingLot(BaseModel):
     expected_profit: float | None
     roi: float | None
     score: float
-    evidence: list[str] = []
-    comps: list[SourcingComp]
+    comps_count: int
     research_at: str | None
     research_source: str | None
-    active_comps: list[SourcingActiveComp]
     active_median: float | None
     resale_low: float | None
     operating_cost: float
     break_even_pcs: int | None
     downside_profit: float | None
+
+
+class SourcingEvidence(BaseModel):
+    theme: str
+    per_piece: float
+    sold_median: float
+    active_median: float | None
+    low: float
+    high: float
+    comps: list[SourcingComp]
+    active: list[SourcingActiveComp]
+    updated_at: str | None
+    source: str | None
 
 
 class SourcingCart(BaseModel):
@@ -225,6 +238,14 @@ def get_sourcing():
     if box_scout.refresh_is_due():
         box_scout.refresh_in_background()
     return _response()
+
+
+@router.get("/evidence", response_model=SourcingEvidence)
+def get_sourcing_evidence(theme: str = Query(min_length=1)):
+    entry = box_scout.evidence(theme)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="No current sold evidence for this kind of box.")
+    return SourcingEvidence.model_validate(entry)
 
 
 @router.post("/refresh", response_model=SourcingResponse)

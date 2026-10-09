@@ -547,6 +547,22 @@ export interface SourcingComp {
   price: number;
   marketplace: string;
   snippet: string;
+  /** Set when the sale is one of the seller's own listings. */
+  conversation_id?: string | null;
+}
+
+/** Everything behind one kind of box's resale estimate. */
+export interface SourcingEvidence {
+  theme: string;
+  per_piece: number;
+  sold_median: number;
+  active_median: number | null;
+  low: number;
+  high: number;
+  comps: SourcingComp[];
+  active: Omit<SourcingComp, "sold_at">[];
+  updated_at: string | null;
+  source: string | null;
 }
 
 export interface SourcingLot {
@@ -579,11 +595,9 @@ export interface SourcingLot {
   expected_profit: number | null;
   roi: number | null;
   score: number;
-  evidence: string[];
-  comps: SourcingComp[];
+  comps_count: number;
   research_at: string | null;
   research_source: string | null;
-  active_comps: Omit<SourcingComp, "sold_at">[];
   active_median: number | null;
   resale_low: number | null;
   operating_cost: number;

@@ -69,14 +69,14 @@ export function SourcingPage({ onOpenProviders, onOpenListing }: Props) {
             <ScoutPanel onOpenListing={onOpenListing} />
           </>
         ) : (
-          <BoxSourcing onOpenProviders={onOpenProviders} />
+          <BoxSourcing onOpenProviders={onOpenProviders} onOpenListing={onOpenListing} />
         )}
       </div>
     </div>
   );
 }
 
-function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
+function BoxSourcing({ onOpenProviders, onOpenListing }: Props) {
   const queryClient = useQueryClient();
   const [choice, setChoice] = useState("all");
   const query = useQuery({
@@ -150,8 +150,8 @@ function BoxSourcing({ onOpenProviders }: { onOpenProviders: () => void }) {
             <Choices snapshot={snapshot} choice={choice} onChoose={setChoice} />
             {updating ? <p className="sourcing-hint" role="status">Updating your options. Cart links will be ready when the check finishes.</p> : null}
             {selectedSnapshot ? <>
-              <BuyList data={data} snapshot={selectedSnapshot} choice={choice} updating={updating} onOpenProviders={onOpenProviders} />
-              <AvailableBoxes snapshot={selectedSnapshot} />
+              <BuyList data={data} snapshot={selectedSnapshot} choice={choice} updating={updating} onOpenProviders={onOpenProviders} onOpenListing={onOpenListing} />
+              <AvailableBoxes snapshot={selectedSnapshot} onOpenListing={onOpenListing} />
             </> : null}
             <BoughtBoxes />
             <Trending trend={data.trend} />
@@ -357,12 +357,14 @@ function BuyList({
   choice,
   updating,
   onOpenProviders,
+  onOpenListing,
 }: {
   data: SourcingState;
   snapshot: SourcingSnapshot;
   choice: string;
   updating: boolean;
   onOpenProviders: () => void;
+  onOpenListing: (convId: string) => void;
 }) {
   const plan = snapshot.buy_list;
   const hasEvidence = snapshot.lots.some((lot) => lot.resale_per_pc != null);
@@ -416,13 +418,15 @@ function BuyList({
       </section>
       <p className="sourcing-hint">{formatMoney(Math.max(0, plan.budget - plan.total))} of your purchase budget remains before tax. Keep another {formatMoney(metrics.operating)} for operating costs. The lower-sales test uses half your planned sales at each theme’s lowest retained sale price, capped by the resale estimate. It is a sensitivity test, not a guaranteed minimum profit.</p>
       {plan.carts.map((cart, index) => (
-        <Cart key={cart.store} cart={cart} updating={updating} step={plan.carts.length > 1 ? index + 1 : null} of={plan.carts.length} />
+        <Cart key={cart.store} cart={cart} updating={updating} step={plan.carts.length > 1 ? index + 1 : null} of={plan.carts.length} onOpenListing={onOpenListing} />
       ))}
     </>
   );
 }
 
-function Cart({ cart, step, of, updating }: { cart: SourcingCart; step: number | null; of: number; updating: boolean }) {
+function Cart({ cart, step, of, updating, onOpenListing }: {
+  cart: SourcingCart; step: number | null; of: number; updating: boolean; onOpenListing: (convId: string) => void;
+}) {
   const gap = freeShippingGap(cart);
   return (
     <section className="sourcing-cart" aria-label={cart.name}>
@@ -434,7 +438,7 @@ function Cart({ cart, step, of, updating }: { cart: SourcingCart; step: number |
       </div>
       <ol className="sourcing-items">
         {cart.lots.map((lot) => (
-          <Item key={`${lot.store}:${lot.variant_id}`} lot={lot} storeName={cart.name} />
+          <Item key={`${lot.store}:${lot.variant_id}`} lot={lot} storeName={cart.name} onOpenListing={onOpenListing} />
         ))}
       </ol>
       <dl className="sourcing-totals">
@@ -458,7 +462,7 @@ function Cart({ cart, step, of, updating }: { cart: SourcingCart; step: number |
   );
 }
 
-function Item({ lot, storeName }: { lot: SourcingLot; storeName: string }) {
+function Item({ lot, storeName, onOpenListing }: { lot: SourcingLot; storeName: string; onOpenListing: (convId: string) => void }) {
   const queryClient = useQueryClient();
   const boxes = useQuery({ queryKey: BOXES_QUERY_KEY, queryFn: api.boxes.list });
   const record = useMutation({
@@ -490,7 +494,7 @@ function Item({ lot, storeName }: { lot: SourcingLot; storeName: string }) {
           Break even after {lot.break_even_pcs} sales · plan assumes ~{Math.round(lot.usable_pcs * lot.sell_through)} sales
         </div> : null}
         {lot.pcs_estimated || lot.lbs_estimated ? <div className="sourcing-item-why">{lot.pcs_estimated ? "Piece count is estimated from weight. " : ""}{lot.lbs_estimated ? "Shipping weight is estimated. " : ""}Check the supplier’s lot details.</div> : null}
-        <ResearchEvidence lot={lot} />
+        <ResearchEvidence lot={lot} onOpenListing={onOpenListing} />
       </div>
       <div className="sourcing-item-money">
         <div>{formatMoney(Math.round(lot.landed))}</div>
@@ -514,13 +518,13 @@ function Item({ lot, storeName }: { lot: SourcingLot; storeName: string }) {
   );
 }
 
-function AvailableBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
+function AvailableBoxes({ snapshot, onOpenListing }: { snapshot: SourcingSnapshot; onOpenListing: (convId: string) => void }) {
   const lots = otherLots(snapshot);
   if (lots.length === 0) return null;
   return (
     <section className="sourcing-section" aria-label="Available boxes">
       <h2 className="sourcing-section-title">{snapshot.buy_list.carts.length ? "Other available boxes" : "Available boxes"} · {boxCount(lots.length)}</h2>
-      <p className="sourcing-hint">Browse every box in this check. Each row shows why it isn’t in the recommended buy list; you can still open the supplier’s listing.</p>
+      <p className="sourcing-hint">Every box both stores have in stock, best first. Each row shows why it isn’t in the recommended buy list; you can still open the supplier’s listing.</p>
       <ol className="sourcing-items">
         {lots.map((lot) => (
           <li key={`${lot.store}:${lot.variant_id}`} className="sourcing-item">
@@ -529,7 +533,7 @@ function AvailableBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
                 {lot.title}
               </a>
               <div className="sourcing-item-reason">{lotReason(lot, true)}</div>
-              <ResearchEvidence lot={lot} />
+              <ResearchEvidence lot={lot} onOpenListing={onOpenListing} />
             </div>
             <div className="sourcing-item-money">
               <div>{formatMoney(Math.round(lot.landed))}</div>
@@ -542,26 +546,43 @@ function AvailableBoxes({ snapshot }: { snapshot: SourcingSnapshot }) {
   );
 }
 
-function ResearchEvidence({ lot }: { lot: SourcingLot }) {
-  if (!lot.comps.length) return <div className="sourcing-item-why">Not enough recent sold evidence to estimate resale.</div>;
-  return <details className="sourcing-evidence">
-    <summary>{lot.comps.length} reported sales · research {lot.research_at ? clockTime(lot.research_at) : ""}</summary>
-    <p className="sourcing-hint">{lot.research_source} reported these comparable sales. Sale status, dates, condition and relevance are AI-reported; Studio checks the supplied data but does not independently verify each source page. Review the links before buying.</p>
-    <ul className="sourcing-comps">
-      {lot.comps.map((comp) => <li key={comp.url}>
-        <a href={comp.url} target="_blank" rel="noopener noreferrer">{comp.title}</a>
-        <span>{comp.marketplace} · {formatMoney(comp.price)} · reported sold {saleDate(comp.sold_at)}</span>
-        <q>{comp.snippet}</q>
-      </li>)}
-    </ul>
-    {lot.active_median != null ? <p className="sourcing-hint">Current asking-price median {formatMoney(lot.active_median)}; the resale estimate is capped at this price.</p>
-      : <p className="sourcing-hint">Current competition sample is too small to cap the price. Market sell-through and time to sell are unknown.</p>}
-    {lot.active_comps.length ? <ul className="sourcing-comps">
-      {lot.active_comps.map((comp) => <li key={comp.url}>
-        <a href={comp.url} target="_blank" rel="noopener noreferrer">{comp.title}</a>
-        <span>{comp.marketplace} · asking {formatMoney(comp.price)}</span>
-      </li>)}
-    </ul> : null}
+function ResearchEvidence({ lot, onOpenListing }: { lot: SourcingLot; onOpenListing: (convId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  // The examples are fetched when the seller opens them, so the page itself stays light.
+  const evidence = useQuery({
+    queryKey: ["sourcing", "evidence", lot.theme],
+    queryFn: () => api.sourcing.evidence(lot.theme),
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+  if (!lot.comps_count) return <div className="sourcing-item-why">Not enough recent sold evidence to estimate resale.</div>;
+  const data = evidence.data;
+  return <details className="sourcing-evidence" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary>{lot.comps_count} {lot.research_source === "Your sales" ? "of your sales" : "reported sales"} · {lot.research_at ? clockTime(lot.research_at) : ""}</summary>
+    {evidence.isLoading ? <p className="sourcing-hint">Loading the sales…</p> : null}
+    {evidence.isError ? <p className="sourcing-hint">{(evidence.error as Error).message}</p> : null}
+    {data ? <>
+      <p className="sourcing-hint">{data.source === "Your sales"
+        ? "These are your own recorded sales of this kind of piece."
+        : `${data.source} reported the web sales. Sale status, dates, condition and relevance are AI-reported; Studio checks the supplied data but does not independently verify each source page. Your own recorded sales count too. Review the links before buying.`}</p>
+      <ul className="sourcing-comps">
+        {data.comps.map((comp) => <li key={comp.conversation_id ?? comp.url}>
+          {comp.conversation_id
+            ? <button type="button" className="sourcing-link" onClick={() => onOpenListing(comp.conversation_id!)}>{comp.title}</button>
+            : <a href={comp.url} target="_blank" rel="noopener noreferrer">{comp.title}</a>}
+          <span>{comp.conversation_id ? "Your sale" : comp.marketplace} · {formatMoney(comp.price)} · {comp.conversation_id ? "sold" : "reported sold"} {saleDate(comp.sold_at)}</span>
+          {comp.conversation_id ? null : <q>{comp.snippet}</q>}
+        </li>)}
+      </ul>
+      {data.active_median != null ? <p className="sourcing-hint">Current asking-price median {formatMoney(data.active_median)}; the resale estimate is capped at this price.</p>
+        : <p className="sourcing-hint">Current competition sample is too small to cap the price. Market sell-through and time to sell are unknown.</p>}
+      {data.active.length ? <ul className="sourcing-comps">
+        {data.active.map((comp) => <li key={comp.url}>
+          <a href={comp.url} target="_blank" rel="noopener noreferrer">{comp.title}</a>
+          <span>{comp.marketplace} · asking {formatMoney(comp.price)}</span>
+        </li>)}
+      </ul> : null}
+    </> : null}
   </details>;
 }
 
@@ -612,8 +633,8 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
       <ul className="sourcing-how">
         <li>Every {REFRESH_HOURS} hours it reads every box both stores list. Raghouse Recycle boxes and Thrift Vintage Fashion A/B, B, B/C and C grades are never considered.</li>
         <li>
-          It asks your AI what one piece of each kind of box sells for on eBay, Poshmark, Depop and Mercari, and
-          checks again every week. It requires dated sold examples and computes their median, capped by comparable asking prices when enough are available.
+          It groups boxes by the kind of piece inside (“vintage graphic t-shirts”, “hawaiian shirts”) and prices each kind from your own recorded sales of that kind
+          plus what your AI finds sold on eBay, Poshmark, Depop and Mercari, rechecked weekly. It requires dated sold examples and computes their median, capped by comparable asking prices when enough are available.
         </li>
         <li>
           Profit uses your {Math.round(a.sell_through * 100)}% sales assumption, {Math.round(a.fees * 100)}% effective fees,

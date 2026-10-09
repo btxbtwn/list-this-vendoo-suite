@@ -48,16 +48,18 @@ Search for what secondhand and vintage clothing is relevant on eBay, Poshmark, D
 ```bash
 python3 skills/box-scout/scripts/scout.py --trend "carhartt,y2k,cartoon,..." --themes
 ```
-This prints the lot themes that most need a resale price, best demand first. A theme is a lot's title without counts, grades and store filler: `Abbie Unsorted Tees & Tops 87 pcs` becomes `abbie tees & tops`.
+This prints the lot themes that most need a resale price, best demand first. A theme is the resale category one piece of the lot would be searched under: up to two style words, era first, and the garment, from the vocabulary in `scout.py` (`THEME_STYLES`, `THEME_GARMENTS`). Sorter names, bin names, seasons, sizes, pack counts and brand lists are dropped, so `Dirty White Graphic + Vintage + Concert Tees 57 pcs` becomes `vintage band t-shirts` and `Aerie Abercrombie Hollister American Eagle Aeropostale Sweatshirts & Joggers 23 pcs` becomes `brand name pants`. The garment is the last one named (`Crop Blouses` are blouses). Both stores together make about 175 themes instead of one per lot, so research can cover the whole catalog.
 
 ### 3. Price each theme
+In Studio, the seller's own recorded sales come first: a sold listing counts for a theme when it is the same garment and its title carries every style the theme names (a `Vintage 90s Harley Davidson T-Shirt` counts for `harley davidson t-shirts` and for `vintage harley davidson t-shirts`; a plain `Harley Davidson Tee` counts only for the first). Those sales carry real prices and dates, so they qualify a theme on their own; web research adds to them and is skipped for a day after it came back short.
+
 For each theme, find at least three distinct comparable sold listings within the last 30 days. This is the minimum sample accepted by Studio, not a statistical guarantee. Match garment type, likely brand tier, era and condition to ordinary pieces in the lot; exclude rare premium finds, bundles, new-with-tags condition mismatches and hidden accepted-offer prices. Use actual USD item prices excluding shipping. Keep the item URL, title, reported sale date and quoted sale-price evidence for every example. Active asking prices and supplier resale claims cannot supply a sold price.
 
-Compute the median of retained sales within the last 30 days. Older examples within 90 days can provide context, but cannot qualify a theme or set today’s price. When at least three comparable active listings are available, cap the estimate at their median asking price. Search results are a sample, not the complete market: do not calculate marketplace sell-through, sales velocity or a probability of sale from the count of results. Studio validates supplied data but does not independently verify the source pages, so label dates and sales as AI-reported and let the seller inspect them. Unsupported estimates stay out of recommendations. Research expires after seven days and cached sale dates are rechecked as they age.
+Compute the median of retained sales within the last 30 days. Older examples within 90 days can provide context, but cannot qualify a theme or set today’s price. When at least three comparable active listings are available, cap the estimate at their median asking price. Search results are a sample, not the complete market: do not calculate marketplace sell-through, sales velocity or a probability of sale from the count of results. Studio validates supplied data but does not independently verify the source pages, so label dates and sales as AI-reported and let the seller inspect them. Unsupported estimates stay out of recommendations. Research expires after seven days and cached sale dates are rechecked as they age. Studio keeps every box in the snapshot and serves a theme's examples (`GET /api/sourcing/evidence?theme=`) when the seller opens them. When a box joins the buy list between two checks of the same plan, Studio posts a Mac notification.
 
 Outside Studio, write researched prices to a file keyed by the exact theme text:
 ```json
-{"cartoon t-shirts": 14, "vintage graphic t-shirts": 22, "men's flannel shirts": 12}
+{"cartoon t-shirts": 14, "vintage graphic t-shirts": 22, "flannel shirts": 12}
 ```
 
 ### 4. Build the buy list

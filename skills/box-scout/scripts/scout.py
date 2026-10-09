@@ -83,13 +83,82 @@ STOPWORDS = {
     "with", "style", "unsorted", "mix", "mixed", "of", "a", "in", "new", "wholesale", "bale",
     "lb", "lbs", "pounds", "pound", "by", "grade", "default", "title",
 }
-# Words stripped from a lot's title to name its theme: what a buyer would search for.
-THEME_DROP_RE = re.compile(
-    r"\([^)]*\)|~|\bwholesale\b|\bbales?\b|\bby\s+(?:lb|pound)s?\b|\b\d+\s*(?:pcs?|pieces?|lbs?|pounds?)\b"
-    r"|\bgood\b|\bunsorted\b|\b[abc](?:/[abc])?\s+grade\b|\bgrade\s+[abc]\b"
-    r"|\bdeal zone\b|\b\d+%\s*off\b|\bdefault title\b|\ball sizes\b",
-    re.I,
+# A lot's theme is the resale category one of its pieces would be searched under:
+# up to two style words and the garment, in the words resale buyers use. Sorter
+# names, bin names, seasons, sizes, pack counts and brand lists are dropped, so
+# lots that sell the same kind of piece share one theme, one price research and
+# one slot in the buy list. Styles are named in this order, era first, so that
+# the same words always make the same theme.
+THEME_STYLES: tuple[tuple[str, str], ...] = (
+    (r"vintage|single stitch|[6-9]0s", "vintage"),
+    (r"y2k", "y2k"),
+    (r"kids|girls|boys|youth|toddler|baby", "kids"),
+    (r"carhartt", "carhartt"),
+    (r"dickies", "dickies"),
+    (r"levi'?s|levi|lee", "levis"),
+    (r"harley|biker", "harley davidson"),
+    (r"champion|nike|adidas|puma|reebok|fila|nautica|quiksilver|hurley|volcom|billabong|vans|oneil|no fear|metal mulisha",
+     "sports brand"),
+    (r"patagonia|north face|lululemon|athleta|free people|madewell|j\.? ?crew|banana republic|white house black market"
+     r"|true religion|lucky brand|deluxe|designer|premium", "premium brand"),
+    (r"aerie|abercrombie|hollister|american eagle|aeropostale|zara|urban outfitters|victoria secret|calvin klein|juicy"
+     r"|princess polly|lulu's|shein|chicos|brands?|branded", "brand name"),
+    (r"cartoon", "cartoon"),
+    (r"disney|mickey", "disney"),
+    (r"anime", "anime"),
+    (r"tv|movie", "tv & movie"),
+    (r"nascar|racing", "nascar"),
+    (r"rock|music|concert|band|taylor swift|rolling stones|garth brooks", "band"),
+    (r"nba|nfl|mlb|nhl|college|university|soccer|wrestling|sports?|superhero|star wars", "sports"),
+    (r"hawaiian|tiki|guayaberr?a", "hawaiian"),
+    (r"hippie|beach|beachy|boho|navajo|paisley", "hippie"),
+    (r"western|pearl snap|wrangler", "western"),
+    (r"military|camo|army|hunting|hunter", "camo"),
+    (r"christmas", "christmas"),
+    (r"graphic|advertising|destination|animal|beverage|food|car", "graphic"),
+    (r"blank|plain|basic", "blank"),
+    (r"office|work|church|conference|chino", "office"),
+    (r"flannel", "flannel"),
+    (r"leather|suede", "leather"),
+    (r"denim|jeans|jorts|cut ?offs?|cutoff", "denim"),
+    (r"fleece", "fleece"),
+    (r"mini|minis", "mini"),
+    (r"cargo|cargos", "cargo"),
+    (r"skate|skater", "skate"),
+    (r"track", "track"),
+    (r"cycling|bike", "cycling"),
 )
+# The garment is the last one named: the head noun of "Crop Blouses" is blouses,
+# and "Popcorn Tops + Denim Mini Skirts" are skirts. A lot naming none is a mix.
+THEME_GARMENTS: tuple[tuple[str, str], ...] = (
+    (r"denim jackets?|jean jackets?", "denim jackets"),
+    (r"windbreakers?|bombers?|jackets?|coats?|trench|outerwear|ponchos?", "jackets"),
+    (r"vests?", "vests"),
+    (r"blazers?", "blazers"),
+    (r"hood(?:ies?|ed)|baha", "hoodies"),
+    (r"sweatshirts?|crewnecks?|sweats", "sweatshirts"),
+    (r"sweaters?", "sweaters"),
+    (r"flannels?", "flannel shirts"),
+    (r"jerseys?", "jerseys"),
+    (r"t-?shirts?|tees?|tanks?", "t-shirts"),
+    (r"tops?|camisoles?", "tops"),
+    (r"blouses?|button ?ups?", "blouses"),
+    (r"shirts?", "shirts"),
+    (r"dress(?:es)?", "dresses"),
+    (r"skirts?|minis", "skirts"),
+    (r"shorts|jorts|cut ?offs?|cutoffs?", "shorts"),
+    (r"jeans|denim|overalls?|shortalls?", "jeans"),
+    (r"pants|trousers|joggers?|cargos?|leggings|loungers|crops?|flares?|capri", "pants"),
+    (r"rompers?|jumpsuits?|leotards?", "rompers"),
+    (r"swimsuits?|swimwear|bikinis?|tankinis?", "swimwear"),
+    (r"lingerie|bras?|teddies|corsets?|crinolines?", "lingerie"),
+    (r"pajamas?|pyjamas?", "pajamas"),
+    (r"kimonos?|wraps?|scarves|pashminas?|pashiminas?", "kimonos"),
+    (r"belts?|hats?|bags?|bandanas?|tablecloths?", "accessories"),
+)
+MIXED_GARMENT = "mixed clothing"
+THEME_RE = re.compile("|".join(f"(?P<s{i}>\\b(?:{pattern})\\b)" for i, (pattern, _) in enumerate(THEME_STYLES)), re.I)
+GARMENT_RE = re.compile("|".join(f"(?P<g{i}>\\b(?:{pattern})\\b)" for i, (pattern, _) in enumerate(THEME_GARMENTS)), re.I)
 
 
 @dataclass(frozen=True)
@@ -137,11 +206,29 @@ def terms(text: str) -> set[str]:
     return {w for w in words if w not in STOPWORDS and not w.isdigit() and len(w) > 1}
 
 
+def theme_parts(text: str) -> tuple[set[str], str]:
+    """Every style named in a title or listing, and its garment."""
+    text = text.lower()
+    styles = {THEME_STYLES[int(match.lastgroup[1:])][1] for match in THEME_RE.finditer(text)}
+    garment = MIXED_GARMENT
+    for match in GARMENT_RE.finditer(text):
+        garment = THEME_GARMENTS[int(match.lastgroup[1:])][1]
+    # "Denim jackets" and "jeans" already say denim; "mini skirts" already say skirts.
+    styles = {style for style in styles if style not in garment.split() and not (style == "denim" and garment == "jeans")}
+    return styles, garment
+
+
 def theme(text: str) -> str:
-    cleaned = THEME_DROP_RE.sub(" ", text.lower())
-    cleaned = re.sub(r"[/|+·]", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -&,.")
-    return cleaned
+    """The resale category of a lot: up to two of its styles, era first, and its garment."""
+    styles, garment = theme_parts(text)
+    order = [name for _, name in THEME_STYLES]
+    return " ".join([*sorted(styles, key=order.index)[:2], garment])
+
+
+def theme_matches(theme_text: str, styles: set[str], garment: str) -> bool:
+    """Whether a listing with these parts sells the kind of piece `theme_text` names."""
+    wanted, wanted_garment = theme_parts(theme_text)
+    return garment == wanted_garment and wanted <= styles
 
 
 def garment(text: str) -> str:

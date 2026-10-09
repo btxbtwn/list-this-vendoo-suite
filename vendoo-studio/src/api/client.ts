@@ -41,6 +41,7 @@ import type {
   SourceBoxInput,
   SourceBoxes,
   SourcingPrefs,
+  SourcingEvidence,
   SourcingState,
 } from "./types";
 import { readSse } from "./sse";
@@ -224,6 +225,8 @@ export const api = {
   sourcing: {
     get: () => request<SourcingState>("/sourcing"),
     refresh: () => request<SourcingState>("/sourcing/refresh", { method: "POST" }),
+    evidence: (theme: string) =>
+      request<SourcingEvidence>(`/sourcing/evidence?theme=${encodeURIComponent(theme)}`),
     savePrefs: (prefs: Partial<SourcingPrefs>) =>
       request<SourcingState>("/sourcing/prefs", {
         method: "PUT",
