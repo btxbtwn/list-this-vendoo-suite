@@ -1000,7 +1000,7 @@ function ProvidersPanel() {
     },
   });
   const setCursorModelsMutation = useMutation({
-    mutationFn: (models: { vision_model?: string; listing_model?: string }) =>
+    mutationFn: (models: { vision_model?: string; listing_model?: string; reasoning_effort?: string }) =>
       api.settings.setCursorModels(models),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
@@ -1385,9 +1385,32 @@ function ProvidersPanel() {
         />
         <SettingsRow
           title="Reasoning"
-          description="Higher uses more Codex quota and takes longer. Default is Low. Applied to listing generation and photo analysis."
+          description={
+            usingCursor
+              ? "Higher uses more Cursor usage and takes longer. Options come from the listing model, and apply wherever that model is used."
+              : "Higher uses more Codex quota and takes longer. Default is Low. Applied to listing generation and photo analysis."
+          }
+          status={
+            usingCursor && setCursorModelsMutation.error ? (
+              <span className="text-error">{setCursorModelsMutation.error.message}</span>
+            ) : null
+          }
           control={
-            usingChatGPT ? (
+            usingCursor && cursorModels?.reasoning ? (
+              <select
+                className="input settings-model-select"
+                aria-label="Reasoning"
+                value={cursorModels.reasoning.value}
+                disabled={setCursorModelsMutation.isPending}
+                onChange={(event) => setCursorModelsMutation.mutate({ reasoning_effort: event.target.value })}
+              >
+                {cursorModels.reasoning.options.map((option) => (
+                  <option key={`reasoning-${option.value}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ) : usingChatGPT ? (
               <select
                 className="input settings-model-select"
                 aria-label="Reasoning"
@@ -1403,7 +1426,7 @@ function ProvidersPanel() {
               </select>
             ) : (
               <span className="settings-row-value">
-                {usingCursor ? "Not used with Cursor" : "Not used with MiMo"}
+                {usingCursor ? `Not adjustable for ${modelLabel(listingModel)}` : "Not used with MiMo"}
               </span>
             )
           }

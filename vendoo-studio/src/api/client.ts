@@ -557,9 +557,10 @@ export const api = {
         models: string[];
         vision_model: string;
         listing_model: string;
+        reasoning: { param: string; options: { value: string; label: string }[]; value: string } | null;
         error?: string | null;
       }>("/settings/cursor/models"),
-    setCursorModels: (models: { vision_model?: string; listing_model?: string }) =>
+    setCursorModels: (models: { vision_model?: string; listing_model?: string; reasoning_effort?: string }) =>
       request<{ ok: boolean; vision_model: string; listing_model: string }>("/settings/cursor/models", {
         method: "PUT",
         body: JSON.stringify(models),

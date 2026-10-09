@@ -268,10 +268,41 @@ def set_cursor_models(
         raise ValueError("Choose a vision model or listing model.")
 
     def mutator(payload: dict) -> None:
-        payload[CURSOR_MODELS_KEY] = current
+        saved = payload.get(CURSOR_MODELS_KEY)
+        reasoning = saved.get("reasoning") if isinstance(saved, dict) else None
+        payload[CURSOR_MODELS_KEY] = {**current, "reasoning": reasoning} if reasoning else current
 
     update_settings(mutator)
     return current
+
+
+def get_cursor_reasoning() -> dict[str, str] | None:
+    """The saved reasoning choice: ``{"model", "param", "value"}``.
+
+    Cursor models each name their own reasoning parameter, so the choice is
+    kept with the model it was made for and only applies to that model.
+    """
+    raw = read_settings().get(CURSOR_MODELS_KEY)
+    reasoning = raw.get("reasoning") if isinstance(raw, dict) else None
+    if not isinstance(reasoning, dict):
+        return None
+    cleaned = {key: reasoning.get(key) for key in ("model", "param", "value")}
+    if not all(isinstance(item, str) and item.strip() for item in cleaned.values()):
+        return None
+    return {key: str(item).strip() for key, item in cleaned.items()}
+
+
+def set_cursor_reasoning(*, model: str, param: str, value: str) -> dict[str, str]:
+    reasoning = {"model": model.strip(), "param": param.strip(), "value": value.strip()}
+    if not all(reasoning.values()):
+        raise ValueError("Choose a reasoning level.")
+
+    def mutator(payload: dict) -> None:
+        saved = payload.get(CURSOR_MODELS_KEY)
+        payload[CURSOR_MODELS_KEY] = {**(saved if isinstance(saved, dict) else {}), "reasoning": reasoning}
+
+    update_settings(mutator)
+    return reasoning
 
 
 def resolved_cursor_models() -> tuple[str, str]:
