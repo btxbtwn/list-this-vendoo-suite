@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.204 — 2026-10-09
+
+- When Cursor writes your listings, Settings → Models → Reasoning now lets you choose how hard the listing model thinks. The levels come from the model itself; higher takes longer and uses more Cursor usage.
+
 ## 0.1.203 — 2026-10-09
 
 - Bulk uploads now happen in one window: put the photos in order, set the box, COG and labels, and type each item's SKU and measurements together before anything is created. Click a photo to enlarge it and read the tape, then choose Create and generate or Create drafts only.
