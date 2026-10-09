@@ -47,11 +47,11 @@ WINDOW_WIDTH = 1440
 WINDOW_HEIGHT = 900
 MIN_WINDOW_SIZE = (1024, 700)
 WINDOW_BACKGROUND = "#090909"
-# T3 Code's macOS chrome: a 52pt topbar with Electron `hiddenInset` traffic
-# lights. Electron gets that inset from an empty NSToolbar in the unified
-# titlebar, which is also how the buttons keep their full AppKit size and
-# spacing; moving or resizing them by hand only fights AppKit's own layout.
-TITLEBAR_HEIGHT_PX = 52
+# A 38pt topbar: the empty NSToolbar in AppKit's compact unified titlebar sets
+# that height and insets the traffic lights into it, which is also how the
+# buttons keep their full AppKit size and spacing; moving or resizing them by
+# hand only fights AppKit's own layout.
+TITLEBAR_HEIGHT_PX = 38
 TITLEBAR_TOOLBAR_ID = "VendooStudioTitlebar"
 # NSWindow -> fullscreen notification observer token, one per window.
 _FULLSCREEN_OBSERVERS: dict = {}
@@ -859,10 +859,10 @@ def _hex_to_srgb(color: str) -> tuple[float, float, float]:
 
 
 def _install_titlebar_toolbar(native, AppKit) -> None:
-    """Give the window the empty unified toolbar Electron's `hiddenInset` uses.
+    """Give the window an empty compact unified toolbar.
 
-    AppKit then grows the titlebar to T3 Code's 52pt band and insets the traffic
-    lights into it itself, at their native size, spacing, and hover behaviour.
+    AppKit then sizes the titlebar to a 38pt band and insets the traffic lights
+    into it itself, at their native size, spacing, and hover behaviour.
     """
     try:
         if native.toolbar() is not None:
@@ -887,7 +887,9 @@ def _install_titlebar_toolbar(native, AppKit) -> None:
     except Exception:
         return
     try:
-        native.setToolbarStyle_(_macos_flag(AppKit, "NSWindowToolbarStyleUnified", 1))
+        native.setToolbarStyle_(
+            _macos_flag(AppKit, "NSWindowToolbarStyleUnifiedCompact", 4)
+        )
     except Exception:
         pass
 
@@ -1014,7 +1016,7 @@ def _watch_fullscreen_transitions(native, AppKit) -> None:
 def _paint_transparent_titlebar(native, AppKit) -> None:
     """Keep AppKit's titlebar clear so the HTML chrome shows through.
 
-    Spaces fullscreen resets the titlebar to an opaque dark band (~52pt) that
+    Spaces fullscreen resets the titlebar to an opaque dark band that
     covers the window-wide topbar. Re-clear it on every chrome pass, including
     after enter/exit fullscreen.
     """
