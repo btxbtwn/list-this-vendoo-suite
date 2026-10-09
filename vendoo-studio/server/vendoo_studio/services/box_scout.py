@@ -30,6 +30,7 @@ from types import ModuleType
 from urllib.parse import urlparse
 
 from vendoo_studio.config import skills_dir, user_data_root
+from vendoo_studio.services.inventory_analytics import AnalyticsItem
 from vendoo_studio.services.sourcing_seasonality import planning_context, research_context
 from vendoo_studio.services.sold_comps import (
     MIN_CONFIDENT_COMPS,
@@ -44,20 +45,20 @@ log = logging.getLogger("vendoo_studio.box_scout")
 REFRESH_INTERVAL = timedelta(hours=6)
 TREND_MAX_AGE = timedelta(days=7)
 RESALE_MAX_AGE = timedelta(days=7)
+RESEARCH_RETRY = timedelta(days=1)  # before asking again about a theme the web could not price
 RESEARCH_THEMES = 24  # themes priced per refresh at most
 RESEARCH_BATCH = 4  # each theme needs several sold and active source pages
 MODEL_TIMEOUT_SEC = 240
-KEEP_LOTS = 80  # ranked lots kept in the snapshot for the page
 ZONE_CHART_MAX_AGE = timedelta(days=30)
 RECENT_ZIPS = 4
 
 DEFAULT_PREFS = {
     "budget": 300.0, "min_roi": 1.0, "raghouse_vip": False, "zip": "70115", "recent_zips": ["70115"],
     "sell_through": 0.5, "fees": 0.2,
-    "cost_per_piece": 2.0, "include_rework": False,
+    "cost_per_piece": 2.0,
     "ready_in_weeks": 4, "selling_window_weeks": 4,
 }
-PLAN_PREFS = ("budget", "min_roi", "raghouse_vip", "zip", "sell_through", "fees", "cost_per_piece", "include_rework",
+PLAN_PREFS = ("budget", "min_roi", "raghouse_vip", "zip", "sell_through", "fees", "cost_per_piece",
               "ready_in_weeks", "selling_window_weeks")
 
 TRENDS_PROMPT = (
@@ -131,7 +132,7 @@ def read_state() -> dict:
         except (OSError, json.JSONDecodeError):
             state = {}
     state.setdefault("prefs", {})
-    state["prefs"] = {**DEFAULT_PREFS, **state["prefs"]}
+    state["prefs"] = {**DEFAULT_PREFS, **{k: v for k, v in state["prefs"].items() if k in DEFAULT_PREFS}}
     state.setdefault("trend", {"terms": [], "updated_at": None, "source": None})
     state.setdefault("resale", {})
     state.setdefault("zone_charts", {})
@@ -180,7 +181,6 @@ def set_prefs(
     sell_through: float | None = None,
     fees: float | None = None,
     cost_per_piece: float | None = None,
-    include_rework: bool | None = None,
     ready_in_weeks: int | None = None,
     selling_window_weeks: int | None = None,
 ) -> dict:
@@ -218,8 +218,6 @@ def set_prefs(
             prefs["fees"] = float(fees)
         if cost_per_piece is not None:
             prefs["cost_per_piece"] = float(cost_per_piece)
-        if include_rework is not None:
-            prefs["include_rework"] = bool(include_rework)
         _write_state(state)
         return prefs
 
@@ -280,14 +278,15 @@ def _listing_identity(url: str, marketplace: str) -> str:
     return f"{marketplace}:{path.rsplit('/', 1)[-1] if marketplace == 'eBay' else path}"
 
 
-def clean_prices(raw: list, asked: set[str], *, now: datetime | None = None) -> dict[str, dict]:
-    """Price from dated, distinct, explicitly sold USD examples reported by research.
+def validate_research(raw: list, asked: set[str], *, now: datetime | None = None) -> dict[str, dict]:
+    """The dated, distinct, explicitly sold USD examples and comparable asking prices
+    reported by research, per asked theme, whether or not they are enough to price it.
 
     This validates the supplied evidence, not the source pages themselves. The
     seller can inspect every retained example; no probability of sale is inferred.
     """
     today = (now or _now()).date()
-    prices: dict[str, dict] = {}
+    research: dict[str, dict] = {}
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -322,14 +321,6 @@ def clean_prices(raw: list, asked: set[str], *, now: datetime | None = None) -> 
             seen.add(identity)
             comps.append({"url": url, "title": title[:200], "sold_at": sold_at.isoformat(),
                           "price": price, "marketplace": marketplace, "snippet": snippet[:1500], "currency": "USD"})
-        comps.sort(key=lambda comp: comp["sold_at"], reverse=True)
-        recent = [c for c in comps if (today - date.fromisoformat(c["sold_at"])).days <= 30]
-        kept_prices = trim_outliers([c["price"] for c in recent])
-        recent = [c for c in recent if c["price"] in kept_prices][:16]
-        if len(recent) < MIN_CONFIDENT_COMPS:
-            continue
-        comps = [*recent, *(c for c in comps if (today - date.fromisoformat(c["sold_at"])).days > 30)][:16]
-        values = [comp["price"] for comp in recent]
         active = []
         for comp in item.get("active", []) if isinstance(item.get("active"), list) else []:
             if not isinstance(comp, dict) or comp.get("currency") != "USD":
@@ -349,14 +340,45 @@ def clean_prices(raw: list, asked: set[str], *, now: datetime | None = None) -> 
             seen.add(identity)
             active.append({"url": url, "title": title[:200], "price": price, "marketplace": marketplace,
                            "snippet": str(comp["snippet"])[:1500], "currency": "USD"})
-        active = active[:8]
-        sold_median = statistics.median(values)
-        active_median = statistics.median(trim_outliers([c["price"] for c in active])) if len(active) >= MIN_CONFIDENT_COMPS else None
-        prices[name] = {
-            "per_piece": round(min(sold_median, active_median) if active_median is not None else sold_median, 2),
-            "sold_median": round(sold_median, 2), "active_median": active_median, "active": active,
-            "low": min(values), "high": max(values), "comps": comps,
-        }
+        research[name] = {"comps": comps, "active": active[:8]}
+    return research
+
+
+def price_evidence(web: dict, own: list[dict], *, now: datetime | None = None) -> dict | None:
+    """One theme's price from the seller's own sales and validated web sales
+    together: the median of distinct sales within 30 days, at least
+    MIN_CONFIDENT_COMPS of them, capped by the asking-price median when enough
+    current listings were found. Older sales within 90 days stay as context."""
+    today = (now or _now()).date()
+    comps = [c for c in own if 0 <= (today - date.fromisoformat(c["sold_at"])).days <= 90 and 1 <= c["price"] <= 500]
+    comps += [c for c in web.get("comps") or [] if isinstance(c, dict) and c.get("url")]
+    comps.sort(key=lambda comp: comp["sold_at"], reverse=True)
+    recent = [c for c in comps if (today - date.fromisoformat(c["sold_at"])).days <= 30]
+    kept_prices = trim_outliers([c["price"] for c in recent])
+    recent = [c for c in recent if c["price"] in kept_prices][:16]
+    if len(recent) < MIN_CONFIDENT_COMPS:
+        return None
+    comps = [*recent, *(c for c in comps if (today - date.fromisoformat(c["sold_at"])).days > 30)][:16]
+    values = [comp["price"] for comp in recent]
+    active = web.get("active") or []
+    sold_median = statistics.median(values)
+    active_median = statistics.median(trim_outliers([c["price"] for c in active])) if len(active) >= MIN_CONFIDENT_COMPS else None
+    return {
+        "per_piece": round(min(sold_median, active_median) if active_median is not None else sold_median, 2),
+        "sold_median": round(sold_median, 2), "active_median": active_median, "active": active,
+        "low": min(values), "high": max(values), "comps": comps,
+    }
+
+
+def clean_prices(raw: list, asked: set[str], *, now: datetime | None = None,
+                 own: dict[str, list[dict]] | None = None) -> dict[str, dict]:
+    """The themes reported research and the seller's own sales can price, with their prices."""
+    research = validate_research(raw, asked, now=now)
+    prices = {}
+    for name in asked:
+        priced = price_evidence(research.get(name, {}), (own or {}).get(name, []), now=now)
+        if priced:
+            prices[name] = priced
     return prices
 
 
@@ -368,21 +390,27 @@ async def _research_trends(context: dict) -> tuple[list[str], str | None]:
 async def _research_prices(themes: list[str], examples: dict[str, str], context: dict) -> tuple[dict[str, dict], str | None]:
     lines = "\n".join(f"- {t} (example lot: {examples.get(t, t)})" for t in themes)
     payload, source = await _ask(RESALE_PROMPT, f"{research_context(context)}\nCategories:\n{lines}", "prices")
-    return (clean_prices(payload["prices"], set(themes)) if payload else {}), source
+    return (validate_research(payload["prices"], set(themes)) if payload else {}), source
 
 
 # --- Refresh --------------------------------------------------------------------------------
 
 
-def _fresh_research(state: dict, now: datetime) -> dict[str, dict]:
+def _fresh_research(state: dict, now: datetime, own: dict[str, list[dict]]) -> dict[str, dict]:
+    """Themes with enough current evidence: cached web research under a week old,
+    rechecked as its sale dates age out, together with the seller's own sales."""
     fresh = {}
-    for name, entry in state["resale"].items():
-        age = _age(entry.get("updated_at"), now)
-        if age is not None and timedelta(0) <= age < RESALE_MAX_AGE:
-            # Recheck sale dates as cached examples age out; old price-only caches cannot qualify.
-            if valid := clean_prices([{"theme": name, "comps": entry.get("comps"), "active": entry.get("active")}], {name}, now=now):
-                fresh[name] = {**entry, **valid[name]}
+    for name in set(state["resale"]) | set(own):
+        entry = _cached_research(state, name, now, RESALE_MAX_AGE)
+        if priced := price_evidence(entry or {}, own.get(name, []), now=now):
+            fresh[name] = {**(entry or {"updated_at": now.isoformat(), "source": OWN_SOURCE}), **priced}
     return fresh
+
+
+def _cached_research(state: dict, name: str, now: datetime, max_age: timedelta) -> dict | None:
+    entry = state["resale"].get(name)
+    age = _age(entry and entry.get("updated_at"), now)
+    return entry if age is not None and timedelta(0) <= age < max_age else None
 
 
 FETCH_ERRORS = (urllib.error.URLError, TimeoutError, ValueError, KeyError)
@@ -423,6 +451,56 @@ def _zones(state: dict, cfg: dict, dest_zip: str, now: datetime, errors: dict[st
             continue
         zones[store] = zone
     return zones
+
+
+OWN_SOURCE = "Your sales"
+
+
+def _own_sales() -> list[AnalyticsItem]:
+    """The seller's recorded sales, read from the same rows Analytics uses."""
+    from vendoo_studio.database import SessionLocal
+    from vendoo_studio.services.inventory_analytics import load_rows
+
+    db = SessionLocal()
+    try:
+        return [item for item in load_rows(db) if item.status == "sold" and item.sold_price and item.sold_at]
+    finally:
+        db.close()
+
+
+def own_evidence(sales: list[AnalyticsItem], themes: set[str]) -> dict[str, list[dict]]:
+    """The seller's own sales that sold the kind of piece each theme names, newest
+    first, as comps alongside the web's. A sale matches a theme when it is the same
+    garment and carries every style the theme names."""
+    s = scout()
+    parts = [(item, *s.theme_parts(item.title)) for item in sales]
+    evidence: dict[str, list[dict]] = {}
+    for name in themes:
+        matches = [item for item, styles, garment in parts if s.theme_matches(name, styles, garment)]
+        if matches:
+            evidence[name] = [{
+                "url": "", "conversation_id": item.conversation_id, "title": item.title[:200],
+                "sold_at": item.sold_at.date().isoformat(), "price": float(item.sold_price),
+                "marketplace": item.marketplace, "currency": "USD",
+                "snippet": f"Your sale on {item.marketplace}, recorded in Studio.",
+            } for item in sorted(matches, key=lambda item: item.sold_at, reverse=True)]
+    return evidence
+
+
+def _lot_themes(catalogs: dict[str, list[dict]]) -> set[str]:
+    s = scout()
+    return {lot["theme"] for store, products in catalogs.items() for lot in s.ADAPTERS[store](products)}
+
+
+def evidence(theme: str) -> dict | None:
+    """Everything behind one theme's resale estimate, for the seller to inspect."""
+    state = read_state()
+    own = own_evidence(_own_sales(), {theme})
+    entry = _fresh_research(state, _now(), own).get(theme)
+    if entry is None:
+        return None
+    return {"theme": theme, **{key: entry.get(key) for key in (
+        "per_piece", "sold_median", "active_median", "low", "high", "comps", "active", "updated_at", "source")}}
 
 
 def _calibration() -> dict[str, dict]:
@@ -477,14 +555,16 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
                         sell_through=prefs["sell_through"], fees=prefs["fees"], cost_per_piece=prefs["cost_per_piece"])
     calibration = _calibration()
     factors = {store: c["factor"] for store, c in calibration.items() if c["factor"] is not None}
-    fresh = _fresh_research(state, now)
+    own = own_evidence(_own_sales(), _lot_themes(catalogs))
+    fresh = _fresh_research(state, now, own)
     baselines, rows = s.score_lots(catalogs, cfg, zones, filters, {k: v["per_piece"] for k, v in fresh.items()}, factors,
                                  resale_low={k: v["low"] for k, v in fresh.items()})
 
     if can_research:
-        research_rows = [r for r in rows if r["price"] <= prefs["budget"]
-                         and (prefs["include_rework"] or r["grade"] not in s.REWORK_GRADES)]
-        missing = s.research_themes([r for r in research_rows if r["theme"] not in fresh], limit=RESEARCH_THEMES)
+        research_rows = [r for r in rows if r["price"] <= prefs["budget"]]
+        missing = s.research_themes([r for r in research_rows if r["theme"] not in fresh
+                                     and _cached_research(state, r["theme"], now, RESEARCH_RETRY) is None],
+                                    limit=RESEARCH_THEMES)
         examples = {}
         for row in research_rows:
             examples.setdefault(row["theme"], row["title"])
@@ -493,13 +573,13 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
             prices, source = asyncio.run(_research_prices(batch, examples, context))
             for name, entry in prices.items():
                 state["resale"][name] = {**entry, "updated_at": now.isoformat(), "source": source}
-        fresh = _fresh_research(state, now)
+        fresh = _fresh_research(state, now, own)
         baselines, rows = s.score_lots(catalogs, cfg, zones, filters, {k: v["per_piece"] for k, v in fresh.items()}, factors,
                                      resale_low={k: v["low"] for k, v in fresh.items()})
 
     planning = {"budget": prefs["budget"], "min_roi": prefs["min_roi"],
                 "sell_through": prefs["sell_through"], "fees": prefs["fees"],
-                "cost_per_piece": prefs["cost_per_piece"], "include_rework": prefs["include_rework"]}
+                "cost_per_piece": prefs["cost_per_piece"]}
     plan = s.buy_list(rows, cfg, **planning)
     store_plans = {
         store: s.buy_list([r for r in rows if r["store"] == store], cfg, **planning)
@@ -507,13 +587,13 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
     }
     for lot in [*rows, *(p for choice in [plan, *store_plans.values()]
                           for c in choice["carts"] for p in c["lots"])]:
+        # The examples themselves are served by `evidence` when the seller opens them.
         entry = fresh.get(lot["theme"], {})
-        lot["comps"] = entry.get("comps", [])
-        lot["active_comps"] = entry.get("active", [])
+        lot["comps_count"] = len(entry.get("comps", []))
         lot["active_median"] = entry.get("active_median")
-        lot["evidence"] = [c["url"] for c in lot["comps"]]
         lot["research_at"] = entry.get("updated_at")
         lot["research_source"] = entry.get("source")
+    _announce_new_picks(state["snapshot"], plan, prefs)
     state["snapshot"] = {
         "updated_at": now.isoformat(),
         "destination_zip": prefs["zip"],
@@ -532,12 +612,29 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
                         "grade_yield": s.GRADE_YIELD, "cost_per_piece": prefs["cost_per_piece"]},
         "buy_list": plan,
         "store_buy_lists": store_plans,
-        "lots": rows[:KEEP_LOTS],
+        "lots": rows,
         "calibration": calibration,
         "seasonality": context,
     }
     _write_state(state, preserve_prefs=True)
     return state["snapshot"]
+
+
+def _announce_new_picks(previous: dict | None, plan: dict, prefs: dict) -> None:
+    """Tell the seller when a box joins the buy list between two checks of the
+    same plan, so a Raghouse drop is not missed while the page is closed."""
+    if not previous or any(previous["preferences"].get(key) != prefs[key] for key in PLAN_PREFS):
+        return
+    known = {f"{p['store']}:{p['variant_id']}" for c in previous["buy_list"]["carts"] for p in c["lots"]}
+    new = [p for c in plan["carts"] for p in c["lots"] if f"{p['store']}:{p['variant_id']}" not in known]
+    if not new:
+        return
+    from vendoo_studio.desktop import notify
+
+    first = new[0]
+    more = f" and {len(new) - 1} more" if len(new) > 1 else ""
+    notify(f"New on your buy list: {first['title']} ({scout().STORES[first['store']]['name']}, "
+           f"${first['landed']:,.0f} landed){more}.")
 
 
 def refreshing() -> bool:

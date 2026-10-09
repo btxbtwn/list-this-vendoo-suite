@@ -46,11 +46,9 @@ function lot(overrides: Partial<SourcingLot> = {}): SourcingLot {
     expected_profit: 388,
     roi: 2.94,
     score: 3.9,
-    evidence: [],
-    comps: [],
+    comps_count: 0,
     research_at: null,
     research_source: null,
-    active_comps: [],
     active_median: null,
     resale_low: 12,
     operating_cost: 124.2,
@@ -89,7 +87,7 @@ describe("money", () => {
 function state(): SourcingState {
   const prefs = {
     budget: 300, min_roi: 1, raghouse_vip: false, zip: "70115", recent_zips: ["70115"],
-    sell_through: 0.5, fees: 0.2, cost_per_piece: 2, include_rework: false, ready_in_weeks: 4, selling_window_weeks: 4,
+    sell_through: 0.5, fees: 0.2, cost_per_piece: 2, ready_in_weeks: 4, selling_window_weeks: 4,
   };
   const plan = { budget: 300, total: 132, expected_profit: 388, carts: [cart({ lots: [lot()] })], exclusions: {} };
   return {
@@ -99,7 +97,7 @@ function state(): SourcingState {
       updated_at: "2026-10-05T12:00:00Z", destination_zip: "70115",
       preferences: {
         budget: 300, min_roi: 1, raghouse_vip: false, zip: "70115", sell_through: 0.5,
-        fees: 0.2, cost_per_piece: 2, include_rework: false, ready_in_weeks: 4, selling_window_weeks: 4,
+        fees: 0.2, cost_per_piece: 2, ready_in_weeks: 4, selling_window_weeks: 4,
       },
       seasonality: {
         window: { buy_on: "2026-10-07", start_date: "2026-11-04", end_date: "2026-12-01", ready_in_weeks: 4, selling_window_weeks: 4, market: "US online resale", timezone: "UTC" },
@@ -120,7 +118,7 @@ describe("planning settings", () => {
     expect(planNeedsUpdate({ ...original, snapshot: null })).toBe(true);
     for (const [key, value] of Object.entries({
       budget: 200, min_roi: 1.5, raghouse_vip: true, zip: "10001", sell_through: 0.75,
-      fees: 0.25, cost_per_piece: 5, include_rework: true, ready_in_weeks: 8, selling_window_weeks: 6,
+      fees: 0.25, cost_per_piece: 5, ready_in_weeks: 8, selling_window_weeks: 6,
     })) {
       expect(planNeedsUpdate({ ...original, prefs: { ...original.prefs, [key]: value } }), key).toBe(true);
     }
@@ -154,16 +152,15 @@ describe("box wording", () => {
   });
 
   it("names grades in each store's words", () => {
-    expect(gradeLabel(lot({ grade: "recycle" }))).toBe("Recycle");
-    expect(gradeLabel(lot({ grade: "mixed" }))).toBe("Recycle & Good");
+    expect(gradeLabel(lot())).toBe("Good");
     expect(gradeLabel(lot({ store: "tvf", grade: "bc" }))).toBe("B/C Grade");
     expect(gradeLabel(lot({ store: "tvf", grade: "good" }))).toBeNull();
   });
 
   it("explains a box in one line", () => {
     expect(lotReason(lot())).toBe("69 pcs · Good · estimated resale $14 each");
-    expect(lotReason(lot({ grade: "recycle", resale_per_pc: null, vip: true }), true)).toBe(
-      "Raghouse · 69 pcs · Recycle · VIP only",
+    expect(lotReason(lot({ resale_per_pc: null, vip: true }), true)).toBe(
+      "Raghouse · 69 pcs · Good · VIP only",
     );
     expect(lotReason(lot({ store: "tvf", pcs: 10, resale_per_pc: null }), true)).toBe(
       "Thrift Vintage Fashion · 10 Pieces",

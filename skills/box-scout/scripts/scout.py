@@ -43,18 +43,13 @@ STORES = {
     "tvf": {"name": "Thrift Vintage Fashion", "url": "https://thriftvintagefashion.com", "tz": "America/New_York"},
 }
 
-# Share of a lot that is resellable. Raghouse sells "Recycle" lots as needing TLC;
-# TVF grades lots A/B/C and says a plain lot "may contain up to 15% Grade B".
-# Starting assumptions: replace them with your own counts after unpacking a few.
+# Share of a lot that is resellable. TVF says a plain lot "may contain up to 15%
+# Grade B"; its A/B, B, B/C and C grades carry defects and are never scouted, so
+# only these grades exist. Starting assumptions: replace them with your own counts
+# after unpacking a few.
 GRADE_YIELD = {
     "good": 0.90,
-    "mixed": 0.75,
-    "recycle": 0.60,
     "a": 0.95,
-    "ab": 0.85,
-    "b": 0.60,
-    "bc": 0.55,
-    "c": 0.50,
 }
 
 # Pieces per pound, for lots sold by weight (TVF bales and "by LB" mixes).
@@ -66,7 +61,6 @@ PACKAGING_LB = 1.0
 BASE_SELL_THROUGH = 0.50
 MARKETPLACE_FEES = 0.20  # fees and payment processing on each sale
 OPERATING_COST_PER_PIECE = 2.00  # planning allowance per usable piece; replace with actual costs
-REWORK_GRADES = {"mixed", "recycle", "b", "bc", "c"}
 
 SKIP_TYPES = {"Singles", "Membership", "Accessories", "Shoes"}
 SKIP_TITLE_RE = re.compile(r"gift card|membership|auction items|sample (?:tee|sweats) stock", re.I)
@@ -79,23 +73,92 @@ UNIT_RE = re.compile(
 LB_RE = re.compile(r"(\d+)\s*(?:lbs?|pounds?)\b", re.I)
 DATE_TAG_RE = re.compile(r"^(\d\d)-(\d\d)-(\d{4})$")
 TOKEN_RE = re.compile(r"[a-z0-9']+")
-# Raghouse titles misspell it ("Recyle", "Recycle4") and put it anywhere ("Abbie Recycle Tees").
+# Raghouse "Recycle" lots need TLC, so they are never scouted. Titles misspell it
+# ("Recyle", "Recycle4") and put it anywhere ("Abbie Recycle Tees", "Recycle & Good").
 RECYCLE_RE = re.compile(r"\brecyc?le\d*\b", re.I)
-MIXED_RE = re.compile(r"\brecyc?le\d*\s*(?:&|\+|and)\s*good\b", re.I)
 RESALE_RE = re.compile(r"Estimated Resale Value:?\s*\+?\s*\$\s*(\d+(?:\.\d+)?)", re.I)
 
 STOPWORDS = {
-    "recycle", "recyle", "good", "pcs", "pc", "pieces", "piece", "and", "more", "the", "for",
+    "good", "pcs", "pc", "pieces", "piece", "and", "more", "the", "for",
     "with", "style", "unsorted", "mix", "mixed", "of", "a", "in", "new", "wholesale", "bale",
     "lb", "lbs", "pounds", "pound", "by", "grade", "default", "title",
 }
-# Words stripped from a lot's title to name its theme: what a buyer would search for.
-THEME_DROP_RE = re.compile(
-    r"\([^)]*\)|~|\bwholesale\b|\bbales?\b|\bby\s+(?:lb|pound)s?\b|\b\d+\s*(?:pcs?|pieces?|lbs?|pounds?)\b"
-    r"|\brecyc?le\d*\b|\bgood\b|\bunsorted\b|\b[abc](?:/[abc])?\s+grade\b|\bgrade\s+[abc]\b"
-    r"|\bdeal zone\b|\b\d+%\s*off\b|\bdefault title\b|\ball sizes\b",
-    re.I,
+# A lot's theme is the resale category one of its pieces would be searched under:
+# up to two style words and the garment, in the words resale buyers use. Sorter
+# names, bin names, seasons, sizes, pack counts and brand lists are dropped, so
+# lots that sell the same kind of piece share one theme, one price research and
+# one slot in the buy list. Styles are named in this order, era first, so that
+# the same words always make the same theme.
+THEME_STYLES: tuple[tuple[str, str], ...] = (
+    (r"vintage|single stitch|[6-9]0s", "vintage"),
+    (r"y2k", "y2k"),
+    (r"kids|girls|boys|youth|toddler|baby", "kids"),
+    (r"carhartt", "carhartt"),
+    (r"dickies", "dickies"),
+    (r"levi'?s|levi|lee", "levis"),
+    (r"harley|biker", "harley davidson"),
+    (r"champion|nike|adidas|puma|reebok|fila|nautica|quiksilver|hurley|volcom|billabong|vans|oneil|no fear|metal mulisha",
+     "sports brand"),
+    (r"patagonia|north face|lululemon|athleta|free people|madewell|j\.? ?crew|banana republic|white house black market"
+     r"|true religion|lucky brand|deluxe|designer|premium", "premium brand"),
+    (r"aerie|abercrombie|hollister|american eagle|aeropostale|zara|urban outfitters|victoria secret|calvin klein|juicy"
+     r"|princess polly|lulu's|shein|chicos|brands?|branded", "brand name"),
+    (r"cartoon", "cartoon"),
+    (r"disney|mickey", "disney"),
+    (r"anime", "anime"),
+    (r"tv|movie", "tv & movie"),
+    (r"nascar|racing", "nascar"),
+    (r"rock|music|concert|band|taylor swift|rolling stones|garth brooks", "band"),
+    (r"nba|nfl|mlb|nhl|college|university|soccer|wrestling|sports?|superhero|star wars", "sports"),
+    (r"hawaiian|tiki|guayaberr?a", "hawaiian"),
+    (r"hippie|beach|beachy|boho|navajo|paisley", "hippie"),
+    (r"western|pearl snap|wrangler", "western"),
+    (r"military|camo|army|hunting|hunter", "camo"),
+    (r"christmas", "christmas"),
+    (r"graphic|advertising|destination|animal|beverage|food|car", "graphic"),
+    (r"blank|plain|basic", "blank"),
+    (r"office|work|church|conference|chino", "office"),
+    (r"flannel", "flannel"),
+    (r"leather|suede", "leather"),
+    (r"denim|jeans|jorts|cut ?offs?|cutoff", "denim"),
+    (r"fleece", "fleece"),
+    (r"mini|minis", "mini"),
+    (r"cargo|cargos", "cargo"),
+    (r"skate|skater", "skate"),
+    (r"track", "track"),
+    (r"cycling|bike", "cycling"),
 )
+# The garment is the last one named: the head noun of "Crop Blouses" is blouses,
+# and "Popcorn Tops + Denim Mini Skirts" are skirts. A lot naming none is a mix.
+THEME_GARMENTS: tuple[tuple[str, str], ...] = (
+    (r"denim jackets?|jean jackets?", "denim jackets"),
+    (r"windbreakers?|bombers?|jackets?|coats?|trench|outerwear|ponchos?", "jackets"),
+    (r"vests?", "vests"),
+    (r"blazers?", "blazers"),
+    (r"hood(?:ies?|ed)|baha", "hoodies"),
+    (r"sweatshirts?|crewnecks?|sweats", "sweatshirts"),
+    (r"sweaters?", "sweaters"),
+    (r"flannels?", "flannel shirts"),
+    (r"jerseys?", "jerseys"),
+    (r"t-?shirts?|tees?|tanks?", "t-shirts"),
+    (r"tops?|camisoles?", "tops"),
+    (r"blouses?|button ?ups?", "blouses"),
+    (r"shirts?", "shirts"),
+    (r"dress(?:es)?", "dresses"),
+    (r"skirts?|minis", "skirts"),
+    (r"shorts|jorts|cut ?offs?|cutoffs?", "shorts"),
+    (r"jeans|denim|overalls?|shortalls?", "jeans"),
+    (r"pants|trousers|joggers?|cargos?|leggings|loungers|crops?|flares?|capri", "pants"),
+    (r"rompers?|jumpsuits?|leotards?", "rompers"),
+    (r"swimsuits?|swimwear|bikinis?|tankinis?", "swimwear"),
+    (r"lingerie|bras?|teddies|corsets?|crinolines?", "lingerie"),
+    (r"pajamas?|pyjamas?", "pajamas"),
+    (r"kimonos?|wraps?|scarves|pashminas?|pashiminas?", "kimonos"),
+    (r"belts?|hats?|bags?|bandanas?|tablecloths?", "accessories"),
+)
+MIXED_GARMENT = "mixed clothing"
+THEME_RE = re.compile("|".join(f"(?P<s{i}>\\b(?:{pattern})\\b)" for i, (pattern, _) in enumerate(THEME_STYLES)), re.I)
+GARMENT_RE = re.compile("|".join(f"(?P<g{i}>\\b(?:{pattern})\\b)" for i, (pattern, _) in enumerate(THEME_GARMENTS)), re.I)
 
 
 @dataclass(frozen=True)
@@ -143,11 +206,29 @@ def terms(text: str) -> set[str]:
     return {w for w in words if w not in STOPWORDS and not w.isdigit() and len(w) > 1}
 
 
+def theme_parts(text: str) -> tuple[set[str], str]:
+    """Every style named in a title or listing, and its garment."""
+    text = text.lower()
+    styles = {THEME_STYLES[int(match.lastgroup[1:])][1] for match in THEME_RE.finditer(text)}
+    garment = MIXED_GARMENT
+    for match in GARMENT_RE.finditer(text):
+        garment = THEME_GARMENTS[int(match.lastgroup[1:])][1]
+    # "Denim jackets" and "jeans" already say denim; "mini skirts" already say skirts.
+    styles = {style for style in styles if style not in garment.split() and not (style == "denim" and garment == "jeans")}
+    return styles, garment
+
+
 def theme(text: str) -> str:
-    cleaned = THEME_DROP_RE.sub(" ", text.lower())
-    cleaned = re.sub(r"[/|+·]", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -&,.")
-    return cleaned
+    """The resale category of a lot: up to two of its styles, era first, and its garment."""
+    styles, garment = theme_parts(text)
+    order = [name for _, name in THEME_STYLES]
+    return " ".join([*sorted(styles, key=order.index)[:2], garment])
+
+
+def theme_matches(theme_text: str, styles: set[str], garment: str) -> bool:
+    """Whether a listing with these parts sells the kind of piece `theme_text` names."""
+    wanted, wanted_garment = theme_parts(theme_text)
+    return garment == wanted_garment and wanted <= styles
 
 
 def garment(text: str) -> str:
@@ -230,10 +311,9 @@ def raghouse_lots(products: list[dict]) -> list[dict]:
     lots = []
     for p in products:
         m = PCS_RE.search(p["title"])
-        if p["product_type"] in SKIP_TYPES or not p["product_type"] or not m:
+        if p["product_type"] in SKIP_TYPES or not p["product_type"] or not m or RECYCLE_RE.search(p["title"]):
             continue
         v = p["variants"][0]
-        grade = "mixed" if MIXED_RE.search(p["title"]) else "recycle" if RECYCLE_RE.search(p["title"]) else "good"
         lots.append({
             "store": "raghouse",
             "variant_id": v["id"],
@@ -244,7 +324,7 @@ def raghouse_lots(products: list[dict]) -> list[dict]:
             "compare_at": float(v["compare_at_price"]) if v["compare_at_price"] else None,
             "pcs": int(m[1]),
             "pcs_estimated": "~" in p["title"],
-            "grade": grade,
+            "grade": "good",
             "lbs": v["grams"] / 453.59237,
             "lbs_estimated": False,
             "vip": "VIP_Product" in p["tags"],
@@ -292,7 +372,11 @@ def tvf_lots(products: list[dict]) -> list[dict]:
                 lbs_stated = float(lb[1])
                 if pcs is None:
                     pcs, estimated = round(lbs_stated * PCS_PER_LB[kind]), True
-            if not pcs:
+            elif pcs is None and v["grams"] > 0:
+                # Brand mixes state no count, only a shipping weight.
+                pcs, estimated = round(max(v["grams"] / 453.59237 - PACKAGING_LB, 0) * PCS_PER_LB[kind]), True
+            grade = _tvf_grade(full)
+            if not pcs or grade not in GRADE_YIELD:
                 continue
             if lbs_stated:
                 lbs, lbs_estimated = lbs_stated + PACKAGING_LB, False
@@ -310,7 +394,7 @@ def tvf_lots(products: list[dict]) -> list[dict]:
                 "compare_at": float(v["compare_at_price"]) if v.get("compare_at_price") else None,
                 "pcs": pcs,
                 "pcs_estimated": estimated,
-                "grade": _tvf_grade(full),
+                "grade": grade,
                 "lbs": lbs,
                 "lbs_estimated": lbs_estimated,
                 "vip": False,
@@ -483,7 +567,7 @@ def research_themes(rows: list[dict], limit: int = 24) -> list[str]:
 def buy_list(
     rows: list[dict], cfg: dict, *, budget: float, min_roi: float = 1.0,
     sell_through: float = BASE_SELL_THROUGH, fees: float = MARKETPLACE_FEES,
-    cost_per_piece: float = OPERATING_COST_PER_PIECE, include_rework: bool = False,
+    cost_per_piece: float = OPERATING_COST_PER_PIECE,
 ) -> dict:
     """Prefer researched selling-window matches, then incremental return, within `budget`.
 
@@ -493,7 +577,7 @@ def buy_list(
     """
     picks: list[dict] = []
     seen: set[str] = set()
-    priced = [r for r in rows if r["roi"] is not None and (include_rework or r["grade"] not in REWORK_GRADES)]
+    priced = [r for r in rows if r["roi"] is not None]
 
     def evaluate(additions: list[dict]) -> list[dict]:
         proposed = [*picks, *additions]
@@ -572,9 +656,7 @@ def buy_list(
     for row in rows:
         if (row["store"], row["variant_id"]) in selected:
             continue
-        if not include_rework and row["grade"] in REWORK_GRADES:
-            reason = "rework"
-        elif row["roi"] is None:
+        if row["roi"] is None:
             reason = "needs_research"
         elif row["theme"] in seen:
             reason = "same_theme"
@@ -642,7 +724,6 @@ def main() -> int:
     ap.add_argument("--fees", type=float, default=MARKETPLACE_FEES, help="marketplace and payment fee share, 0–1")
     ap.add_argument("--cost-per-piece", type=float, default=OPERATING_COST_PER_PIECE,
                     help="operating cost allowance for each usable piece, including prep, labor and sale expenses")
-    ap.add_argument("--include-rework", action="store_true", help="allow damaged/rework grades in recommendations")
     ap.add_argument("--themes", action="store_true", help="print the themes that most need a resale price")
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument("--json", action="store_true", help="print every ranked lot as JSON")
@@ -679,8 +760,7 @@ def main() -> int:
         print("\n".join(research_themes(rows)))
         return 0
     plan = buy_list(rows, cfg, budget=args.budget, min_roi=args.min_roi,
-                    sell_through=args.sell_through, fees=args.fees, cost_per_piece=args.cost_per_piece,
-                    include_rework=args.include_rework) if resale else None
+                    sell_through=args.sell_through, fees=args.fees, cost_per_piece=args.cost_per_piece) if resale else None
     if args.json:
         json.dump({"baselines": baselines, "lots": rows, "buy_list": plan}, sys.stdout, indent=2)
         print()

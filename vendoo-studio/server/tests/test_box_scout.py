@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from vendoo_studio.main import app
 from vendoo_studio.services import box_scout
+from vendoo_studio.services.inventory_analytics import AnalyticsItem
 from vendoo_studio.services.sourcing_seasonality import historical_windows, selling_window
 from vendoo_studio.services.comp_research import ModelSearch
 
@@ -50,6 +51,7 @@ RAGHOUSE = [
     _raghouse("Plain Blank Tees 80 pcs", "40.00", 12701, vid=4),
     _raghouse("Y2K Blouses 40 pcs", "45.00", 7258, tags=("VIP_Product",), vid=5),
     _raghouse("Tiny Lot 5 pcs", "10.00", 2000, vid=6),
+    _raghouse("Cartoon T-Shirts 65 pcs", "95.00", 12701, vid=7),
 ]
 
 TVF = [
@@ -96,6 +98,7 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertNotIn("Wholesale Vintage Graphic T-Shirts (10 Pieces) · B Grade", lots)
         self.assertNotIn("Cartoon T-Shirts · S / 3 tees", lots)
         self.assertNotIn("Tiny Lot 5 pcs", lots)
+        self.assertNotIn("Recycle Cartoon T-Shirts 70 pcs", lots)  # Recycle lots need TLC
         self.assertNotIn("Y2K Blouses 40 pcs", lots)  # VIP only unless asked for
 
     def test_shipping_uses_each_stores_zone_and_whole_pounds(self):
@@ -121,15 +124,15 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertIsNone(self.s.zone_for(chart, "7011"))
 
     def test_buy_list_keeps_to_budget_one_lot_per_theme(self):
-        resale = {"cartoon t-shirts": 15, "plain blank tees": 6, "men's flannel shirts": 12}
+        resale = {"cartoon t-shirts": 15, "blank t-shirts": 6, "flannel shirts": 12}
         rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), resale)[1]
-        plan = self.s.buy_list(rows, self.cfg, budget=150, min_roi=0.5, cost_per_piece=0, include_rework=True)
+        plan = self.s.buy_list(rows, self.cfg, budget=200, min_roi=0.5, cost_per_piece=0)
         picked = [lot["title"] for cart in plan["carts"] for lot in cart["lots"]]
-        # The $60 cartoon lot shares a theme with the recycle lot, so it stays off the list.
-        # Lower Raghouse shipping leaves room for the blank tees inside $150.
-        self.assertEqual(picked, ["Recycle Cartoon T-Shirts 70 pcs", "Plain Blank Tees 80 pcs"])
-        self.assertLessEqual(plan["total"], 150)
-        self.assertEqual(plan["carts"][0]["cart_url"], "https://raghouse.com/cart/2:1,4:1")
+        # The $95 cartoon lot shares a theme with the cheaper one, so it stays off the list.
+        self.assertEqual(picked, ["Cartoon T-Shirts 60 pcs", "Plain Blank Tees 80 pcs"])
+        self.assertEqual(plan["exclusions"]["raghouse:7"], "same_theme")
+        self.assertLessEqual(plan["total"], 200)
+        self.assertEqual(plan["carts"][0]["cart_url"], "https://raghouse.com/cart/1:1,4:1")
 
     def test_window_matches_prioritize_qualifying_boxes_without_changing_profit(self):
         catalogs = {"raghouse": [_raghouse("Flannel Shirts 60 pcs", "60", 12701, vid=10),
@@ -153,7 +156,7 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(picked(seasonal), ["cartoon t-shirts"])
 
     def test_free_shipping_once_a_store_order_clears_its_threshold(self):
-        resale = {"men's flannel shirts": 12}
+        resale = {"flannel shirts": 12}
         rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), resale)[1]
         cart = self.s.buy_list(rows, self.cfg, budget=1000, min_roi=0, cost_per_piece=0)["carts"][0]
         self.assertEqual(cart["store"], "tvf")
@@ -163,10 +166,10 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual((lot["ship_est"], lot["landed"]), (0, lot["price"]))
 
     def test_a_store_factor_scales_only_that_stores_resale_prices(self):
-        resale = {"cartoon t-shirts": 15, "men's flannel shirts": 12}
+        resale = {"cartoon t-shirts": 15, "flannel shirts": 12}
         rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), resale, {"raghouse": 0.5})[1]
         cartoon = next(r for r in rows if r["theme"] == "cartoon t-shirts")
-        flannel = next(r for r in rows if r["theme"] == "men's flannel shirts")
+        flannel = next(r for r in rows if r["theme"] == "flannel shirts")
         self.assertEqual((cartoon["resale_per_pc"], cartoon["resale_factor"]), (7.5, 0.5))
         self.assertEqual((flannel["resale_per_pc"], flannel["resale_factor"]), (12, 1.0))
 
@@ -186,7 +189,7 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(sum(t.startswith("rag-") for t in themes), 12)
 
     def test_free_shipping_is_applied_before_budget_and_roi_checks(self):
-        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), {"men's flannel shirts": 20})[1]
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0), {"flannel shirts": 20})[1]
         plan = self.s.buy_list(rows, self.cfg, budget=225, cost_per_piece=0)
         self.assertEqual(plan["total"], 225)
         self.assertTrue(plan["carts"][0]["free_shipping"])
@@ -220,14 +223,34 @@ class ScoutScriptTest(unittest.TestCase):
         self.assertEqual(priced["break_even_pcs"], 7)
         self.assertEqual(priced["downside_profit"], -66.25)
 
-    def test_default_recommendations_exclude_rework_even_with_high_roi(self):
-        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(), {"cartoon t-shirts": 40})[1]
-        plan = self.s.buy_list(rows, self.cfg, budget=1000)
-        picked = [p for c in plan["carts"] for p in c["lots"]]
-        self.assertEqual([p["grade"] for p in picked], ["good"])
-        self.assertEqual(plan["exclusions"]["raghouse:2"], "rework")
-        allowed = self.s.buy_list(rows, self.cfg, budget=1000, include_rework=True)
-        self.assertEqual(allowed["carts"][0]["lots"][0]["grade"], "recycle")
+    def test_themes_are_resale_categories(self):
+        for title, expected in (
+            ("Abbie Recycle Tees & Tops 87 pcs", "tops"),
+            ("Dirty White Graphic + Vintage + Concert Tees 57 pcs", "vintage band t-shirts"),
+            ("Aerie Abercrombie Hollister American Eagle Aeropostale Sweatshirts & Joggers 23 pcs", "brand name pants"),
+            ("Crop Blouses 49 pcs", "blouses"),
+            ("Popcorn Tops + Denim Mini Skirts 18 pcs", "denim mini skirts"),
+            ("Wholesale Champion Sweatshirts (10 Pieces) · Modern Mix", "sports brand sweatshirts"),
+            ("Wholesale Levis Cutoff Shorts (10 Pieces) · 33\" & Down", "levis denim shorts"),
+            ("Mens Short Sleeve Check Shirts 42 pcs", "shirts"),
+            ("Josh x Ciara Y2K Variety Mix 36 pcs", "y2k mixed clothing"),
+            ("Women's J. Crew Mix", "premium brand mixed clothing"),
+        ):
+            with self.subTest(title=title):
+                self.assertEqual(self.s.theme(title), expected)
+
+    def test_tvf_lower_grades_are_never_lots(self):
+        catalogs = {"tvf": [_tvf("Cartoon T-Shirts (70 Pieces)", [
+            ("A Grade", "90.00", 12701, True), ("A/B Grade", "60.00", 12701, True), ("B Grade", "30.00", 12701, True),
+            ("B/C Grade", "20.00", 12701, True), ("C Grade", "10.00", 12701, True)], vid=500)]}
+        rows = self.s.score_lots(catalogs, self.cfg, ZONES, self.s.Filters(), {"cartoon t-shirts": 40})[1]
+        self.assertEqual([r["title"] for r in rows], ["Cartoon T-Shirts (70 Pieces) · A Grade"])
+
+    def test_tvf_brand_mix_pieces_are_estimated_from_shipping_weight(self):
+        catalogs = {"tvf": [_tvf("Women's J. Crew Mix", [("Default Title", "200.00", 9072, True)], vid=600)]}
+        lot = self.s.score_lots(catalogs, self.cfg, ZONES, self.s.Filters())[1][0]
+        # 20 lb less 1 lb packaging at 1.6 mixed pieces per pound.
+        self.assertEqual((lot["pcs"], lot["pcs_estimated"], lot["lbs"]), (30, True, 20.0))
 
     def test_high_roi_with_a_losing_lower_sales_scenario_does_not_qualify(self):
         rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(),
@@ -309,6 +332,8 @@ class RefreshTest(unittest.TestCase):
         mock.patch.object(box_scout, "state_path", return_value=self.state_file).start()
         mock.patch.object(box_scout, "planning_context", side_effect=_planning_context).start()
         mock.patch.object(box_scout, "_calibration", return_value={}).start()
+        mock.patch.object(box_scout, "_own_sales", return_value=[]).start()
+        mock.patch.object(box_scout, "_announce_new_picks").start()
         mock.patch.dict(box_scout._catalogs, clear=True).start()
         self.addCleanup(mock.patch.stopall)
 
@@ -329,8 +354,13 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual(state["resale"]["cartoon t-shirts"]["source"], "ChatGPT")
         lots = snapshot["buy_list"]["carts"][0]["lots"]
         self.assertEqual(lots[0]["title"], "Cartoon T-Shirts 60 pcs")
-        self.assertEqual(lots[0]["evidence"], [f"https://www.ebay.com/itm/{i}" for i in range(1, 4)])
+        self.assertEqual(lots[0]["comps_count"], 3)
+        self.assertNotIn("comps", lots[0])  # examples are served on request, not kept per lot
         self.assertTrue(snapshot["research"])
+        shown = box_scout.evidence("cartoon t-shirts")
+        self.assertEqual([c["url"] for c in shown["comps"]], [f"https://www.ebay.com/itm/{i}" for i in range(1, 4)])
+        self.assertEqual((shown["per_piece"], shown["source"]), (30, "ChatGPT"))
+        self.assertIsNone(box_scout.evidence("hawaiian shirts"))
 
     def test_both_store_choices_use_the_same_budget_and_keep_evidence(self):
         prices = json.dumps({"prices": [
@@ -345,7 +375,7 @@ class RefreshTest(unittest.TestCase):
             self.assertLessEqual(plan["total"], 300)
             self.assertTrue(plan["carts"])
             self.assertEqual({c["store"] for c in plan["carts"]}, {store})
-            self.assertTrue(plan["carts"][0]["lots"][0]["evidence"])
+            self.assertTrue(plan["carts"][0]["lots"][0]["comps_count"])
 
     def test_old_snapshot_cache_is_rebuilt_without_losing_preferences(self):
         self.state_file.write_text(json.dumps({"prefs": {"budget": 180}, "snapshot": {"updated_at": "old"}}))
@@ -454,7 +484,7 @@ class RefreshTest(unittest.TestCase):
     def test_preferences_saved_during_research_survive_and_request_a_rebuild(self):
         async def research(themes, examples, context):
             box_scout.set_prefs(budget=200, min_roi=1.5, zip="10001", raghouse_vip=True,
-                                sell_through=0.6, fees=0.25, cost_per_piece=1.5, include_rework=True,
+                                sell_through=0.6, fees=0.25, cost_per_piece=1.5,
                                 ready_in_weeks=8, selling_window_weeks=6)
             return box_scout.clean_prices([_price_evidence("cartoon t-shirts", 40)], set(themes)), "ChatGPT"
 
@@ -489,10 +519,72 @@ class RefreshTest(unittest.TestCase):
 
         snapshot = SourcingSnapshot.model_validate(box_scout.read_state()["snapshot"])
         lot = snapshot.buy_list.carts[0].lots[0]
-        self.assertEqual(len(lot.comps), 3)
+        self.assertEqual(lot.comps_count, 3)
         self.assertEqual(lot.research_source, "ChatGPT")
         self.assertGreater(lot.operating_cost, 0)
         self.assertGreaterEqual(lot.downside_profit, 0)
+
+
+def _sale(title: str, price: float, days_ago: int, conv: str = "c1", marketplace: str = "eBay") -> AnalyticsItem:
+    sold_at = box_scout._now() - timedelta(days=days_ago)
+    return AnalyticsItem(conversation_id=conv, title=title, status="sold", price=price, cost=None, brand="",
+                         category="", sold_price=price, sold_at=sold_at, listed_at=None, marketplace=marketplace,
+                         days_listed=None)
+
+
+class OwnSalesTest(RefreshTest):
+    SALES = [
+        _sale("Vintage 90s Harley Davidson T-Shirt XL", 28, 3, "c1"),
+        _sale("Cartoon Looney Tunes Tee Men's L", 32, 10, "c2", "Depop"),
+        _sale("Cartoon Garfield T-Shirt", 28, 20, "c3"),
+        _sale("Cartoon Simpsons Tee", 30, 25, "c4"),
+        _sale("Cartoon Lunchbox", 40, 2, "c5"),  # not a garment
+        _sale("Cartoon Snoopy Tee", 24, 60, "c6"),  # older than 30 days: context only
+    ]
+
+    def test_own_sales_qualify_a_theme_without_web_research(self):
+        mock.patch.object(box_scout, "_own_sales", return_value=self.SALES).start()
+        with self._models():
+            snapshot = box_scout.refresh()
+        lot = snapshot["buy_list"]["carts"][0]["lots"][0]
+        self.assertEqual(lot["title"], "Cartoon T-Shirts 60 pcs")
+        self.assertEqual((lot["resale_per_pc"], lot["comps_count"], lot["research_source"]), (30, 4, "Your sales"))
+        shown = box_scout.evidence("cartoon t-shirts")
+        self.assertEqual([c["conversation_id"] for c in shown["comps"]], ["c2", "c3", "c4", "c6"])
+        self.assertEqual(shown["source"], "Your sales")
+        self.assertEqual(json.loads(self.state_file.read_text())["resale"], {})  # nothing cached as web research
+
+    def test_own_sales_and_web_sales_price_a_theme_together(self):
+        mock.patch.object(box_scout, "_own_sales", return_value=self.SALES[1:3]).start()
+        web = json.dumps({"prices": [{**_price_evidence("cartoon t-shirts", 30), "comps": _price_evidence("cartoon t-shirts", 30)["comps"][:1]}]})
+        with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}', web, "{}"])):
+            snapshot = box_scout.refresh()
+        lot = snapshot["buy_list"]["carts"][0]["lots"][0]
+        self.assertEqual((lot["resale_per_pc"], lot["comps_count"]), (30, 3))
+        comps = box_scout.evidence("cartoon t-shirts")["comps"]
+        self.assertEqual({c.get("conversation_id") for c in comps}, {"c2", "c3", None})
+
+    def test_a_theme_needs_every_style_it_names(self):
+        sales = [_sale(f"Harley Davidson Tee {i}", 20, i, f"h{i}") for i in range(3)]
+        own = box_scout.own_evidence(sales, {"harley davidson t-shirts", "vintage harley davidson t-shirts", "t-shirts"})
+        self.assertEqual({name: len(comps) for name, comps in own.items()}, {"harley davidson t-shirts": 3, "t-shirts": 3})
+
+
+class NewPickNoticeTest(unittest.TestCase):
+    def _plan(self, *titles):
+        return {"carts": [{"store": "raghouse", "lots": [{"store": "raghouse", "variant_id": i, "title": t, "landed": 93.5}
+                                                           for i, t in enumerate(titles)]}]}
+
+    def test_notifies_once_a_box_joins_an_unchanged_plan(self):
+        prefs = dict(box_scout.DEFAULT_PREFS)
+        previous = {"preferences": {k: prefs[k] for k in box_scout.PLAN_PREFS}, "buy_list": self._plan("Old box")}
+        with mock.patch("vendoo_studio.desktop.notify") as notify:
+            box_scout._announce_new_picks(previous, self._plan("Old box"), prefs)
+            box_scout._announce_new_picks(None, self._plan("Old box", "New box"), prefs)
+            box_scout._announce_new_picks(previous, self._plan("Old box", "New box"), {**prefs, "budget": 999})
+            notify.assert_not_called()
+            box_scout._announce_new_picks(previous, self._plan("Old box", "New box", "Third"), prefs)
+        notify.assert_called_once_with("New on your buy list: New box (Raghouse, $94 landed) and 1 more.")
 
 
 class SourcingRouteTest(unittest.TestCase):
@@ -504,6 +596,8 @@ class SourcingRouteTest(unittest.TestCase):
         self.background = mock.patch.object(box_scout, "refresh_in_background").start()
         mock.patch.object(box_scout, "planning_context", side_effect=_planning_context).start()
         mock.patch.object(box_scout, "_calibration", return_value={}).start()
+        mock.patch.object(box_scout, "_own_sales", return_value=[]).start()
+        mock.patch.object(box_scout, "_announce_new_picks").start()
         self.addCleanup(mock.patch.stopall)
         self.client = TestClient(app)
 
@@ -622,7 +716,7 @@ class ResearchEvidenceTest(unittest.TestCase):
         cleaned = self._clean(_price_evidence("cartoon t-shirts", 30))["cartoon t-shirts"]
         for age, qualifies in ((6, True), (7, False), (-1, False)):
             entry = {**cleaned, "updated_at": (self.now - timedelta(days=age)).isoformat()}
-            fresh = box_scout._fresh_research({"resale": {"cartoon t-shirts": entry}}, self.now)
+            fresh = box_scout._fresh_research({"resale": {"cartoon t-shirts": entry}}, self.now, {})
             self.assertEqual(bool(fresh), qualifies)
 
     def test_cached_dates_are_rechecked_even_before_the_week_is_up(self):
@@ -632,7 +726,7 @@ class ResearchEvidenceTest(unittest.TestCase):
         cleaned = self._clean(item)["cartoon t-shirts"]
         fresh = box_scout._fresh_research({"resale": {"cartoon t-shirts": {
             **cleaned, "updated_at": self.now.isoformat(),
-        }}}, self.now + timedelta(days=1))
+        }}}, self.now + timedelta(days=1), {})
         self.assertEqual(fresh, {})
 
 

@@ -1,11 +1,11 @@
 import type { SourcingBuyList, SourcingCart, SourcingLot, SourcingSnapshot, SourcingState } from "../api/types";
 
 /**
- * Each store's own name for a box's grade. Raghouse sells "Recycle", "Recycle & Good"
- * and plain lots; TVF grades A to C and says nothing on a plain lot.
+ * Each store's own name for a box's grade. Raghouse lots are all plain (its "Recycle"
+ * lots are never scouted); TVF grades A to C and says nothing on a plain lot.
  */
 export const GRADE_LABELS: Record<string, Record<string, string>> = {
-  raghouse: { good: "Good", mixed: "Recycle & Good", recycle: "Recycle" },
+  raghouse: { good: "Good" },
   tvf: { a: "A Grade", ab: "A/B Grade", b: "B Grade", bc: "B/C Grade", c: "C Grade" },
 };
 
@@ -94,7 +94,6 @@ export function planMetrics(plan: SourcingBuyList) {
 
 const EXCLUSION_LABELS = {
   needs_research: "Needs recent sold evidence",
-  rework: "Needs repairs or rework",
   same_theme: "Another box of this kind was selected",
   return_target: "Below your return target",
   downside: "Loses money in the lower-sales test",
