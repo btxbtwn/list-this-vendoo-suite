@@ -42,4 +42,11 @@ describe("workspaceCrumbs", () => {
       title: null,
     });
   });
+
+  it("reads Marketing with nothing open under it", () => {
+    expect(workspaceCrumbs("marketing", "Providers", { title: "REI XL" })).toEqual({
+      context: "Marketing",
+      title: null,
+    });
+  });
 });

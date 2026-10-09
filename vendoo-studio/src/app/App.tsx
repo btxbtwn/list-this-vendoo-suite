@@ -9,7 +9,7 @@ import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
 import { SetupChecklist } from "../components/SetupChecklist";
 import { BrowserPreview } from "../components/BrowserPreview";
-import { AnalyticsIcon, BackIcon, SourcingIcon, ComposeIcon, HamburgerIcon, ListingSidebar, QueueIcon, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
+import { AnalyticsIcon, BackIcon, SourcingIcon, ComposeIcon, HamburgerIcon, ListingSidebar, MarketingIcon, QueueIcon, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
 import {
   DEFAULT_SETTINGS_SECTION,
   SETTINGS_SECTION_LABELS,
@@ -56,6 +56,9 @@ const SettingsPage = lazy(() =>
 );
 const AnalyticsPage = lazy(() =>
   import("../components/AnalyticsPage").then((module) => ({ default: module.AnalyticsPage })),
+);
+const MarketingPage = lazy(() =>
+  import("../components/MarketingPage").then((module) => ({ default: module.MarketingPage })),
 );
 const SourcingPage = lazy(() =>
   import("../components/SourcingPage").then((module) => ({ default: module.SourcingPage })),
@@ -236,6 +239,8 @@ export function App() {
     ? SETTINGS_SECTION_LABELS[settingsSection]
     : activeView === "analytics"
       ? "Analytics"
+      : activeView === "marketing"
+        ? "Marketing"
       : activeView === "queue"
         ? "Queue"
       : activeView === "sourcing"
@@ -268,8 +273,8 @@ export function App() {
     closeMobileSidebar();
   };
 
-  // Analytics and Sourcing are toggles: pressing the open one goes back to listings.
-  const togglePage = (view: "analytics" | "sourcing" | "queue") => {
+  // Analytics, Marketing and Sourcing are toggles: pressing the open one goes back to listings.
+  const togglePage = (view: "analytics" | "marketing" | "sourcing" | "queue") => {
     setMobilePane("workspace");
     if (activeView === view) {
       setActiveView("listings");
@@ -279,6 +284,7 @@ export function App() {
     closeMobileSidebar();
   };
   const openAnalytics = () => togglePage("analytics");
+  const openMarketing = () => togglePage("marketing");
   const openProviders = () => {
     setSettingsSection("providers");
     setSettingsTargetId(null);
@@ -584,6 +590,7 @@ export function App() {
             onDelete={(id) => deleteConv.mutate(id)}
             onOpenSettings={openSettings}
             onOpenAnalytics={openAnalytics}
+            onOpenMarketing={openMarketing}
             onOpenSourcing={openSourcing}
             onOpenQueue={() => togglePage("queue")}
             queueCount={queueCount}
@@ -626,7 +633,7 @@ export function App() {
                   closeSettings();
                   return;
                 }
-                if (activeView === "analytics" || activeView === "sourcing") {
+                if (activeView === "analytics" || activeView === "marketing" || activeView === "sourcing") {
                   setActiveView("listings");
                   setMobileSidebarOpen(true);
                   return;
@@ -701,6 +708,15 @@ export function App() {
                 <button
                   type="button"
                   className="sidebar-icon-btn mobile-workspace-settings"
+                  title="Marketing"
+                  aria-label="Marketing"
+                  onClick={openMarketing}
+                >
+                  <MarketingIcon />
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-icon-btn mobile-workspace-settings"
                   title="Settings"
                   aria-label="Settings"
                   onClick={openSettings}
@@ -745,6 +761,10 @@ export function App() {
               ) : activeView === "analytics" ? (
                 <Suspense fallback={null}>
                   <AnalyticsPage onOpenListing={openListing} />
+                </Suspense>
+              ) : activeView === "marketing" ? (
+                <Suspense fallback={null}>
+                  <MarketingPage onOpenListing={openListing} />
                 </Suspense>
               ) : activeView === "sourcing" ? (
                 <Suspense fallback={null}>

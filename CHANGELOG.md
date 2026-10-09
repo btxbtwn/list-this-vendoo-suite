@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.211 — 2026-10-09
+
+- New Marketing section in the sidebar. The sale calendar, Discount deeper and the Ads tracker moved there from Analytics, so Analytics is just your sales and inventory. Pick the period for your ad totals right in the Ads section.
+
 ## 0.1.210 — 2026-10-09
 
 - Open listing and Regenerate now sit at the top of each listing instead of above the tabs, so it's clear which listing they act on.

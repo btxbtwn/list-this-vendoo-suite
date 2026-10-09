@@ -1,6 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { AdSpendEntry } from "../api/adSpend";
 import type { InventoryAnalytics, VendooBulkImport } from "../api/types";
 import { AnalyticsPage } from "./AnalyticsPage";
 
@@ -49,23 +48,14 @@ const data: InventoryAnalytics = {
   ads: { spend: 0, profit_after_ads: 50, marketplaces: [] },
 };
 
-const adEntry: AdSpendEntry = {
-  id: "posh-week", marketplace: "poshmark", start_date: "2026-09-01", end_date: "2026-09-07",
-  spend: 15, clicks: 60, orders: 1, revenue: 45, notes: "", roas: 3, cost_per_click: 0.25,
-};
-
 function render(
   payload: InventoryAnalytics,
   run: Partial<VendooBulkImport> = { running: false },
   starting = false,
-  adEntries: AdSpendEntry[] = [],
 ) {
   useMutation.mockReturnValue({ mutate: vi.fn(), isPending: starting });
   useQuery.mockImplementation(({ queryKey }: { queryKey: readonly string[] }) =>
-    queryKey[0] === "sale-calendar"
-      ? { data: { events: [], patterns: [], items: [], timezone: "UTC" }, isError: false }
-      : queryKey[0] === "vendoo-bulk-import" ? { data: run }
-      : queryKey[0] === "ad-spend" ? { data: adEntries, isError: false }
+    queryKey[0] === "vendoo-bulk-import" ? { data: run }
       : { data: payload, isLoading: false, isError: false, isFetching: false },
   );
   return renderToStaticMarkup(<AnalyticsPage onOpenListing={vi.fn()} />);
@@ -132,16 +122,6 @@ describe("AnalyticsPage", () => {
     expect(html).toContain("110 days");
   });
 
-  it("lists stale stock with how deep to cut, and tags event sales", () => {
-    const html = render(data);
-    expect(html).toContain("Discount deeper");
-    expect(html).toContain("40% off → $36");
-    expect(html).toContain("lowest $10");
-    expect(html).toContain("Keep full price");
-    expect(html).toContain("Depop fall sale");
-    expect(html).toContain("No events here yet. Select a day and plan a sale.");
-  });
-
   it("withholds comparisons when prices or costs are missing", () => {
     const html = render({ ...data, sales: { ...sales, revenue_known: 1, profit_known: 1, fees_known: 0 } });
     expect(html).toContain("Comparison unavailable: missing prices");
@@ -162,6 +142,9 @@ describe("AnalyticsPage", () => {
     expect(html).toContain("Review your oldest listings");
     expect(html).toContain("110 days listed");
     expect(html).toContain("$12 profit");
+    expect(html).toContain("Depop fall sale");
+    expect(html).not.toContain("Sale calendar");
+    expect(html).not.toContain("Add ad spend");
   });
 
   it("keeps unknown prices and profits distinct from recorded zero amounts", () => {
@@ -182,32 +165,4 @@ describe("AnalyticsPage", () => {
     expect(html).toContain("Included in totals, but excluded from the chart");
   });
 
-  it("invites ad spend before any is recorded and hides empty ad totals", () => {
-    const html = render(data);
-    expect(html).toContain("Add ad spend");
-    expect(html).toContain("No ad spend recorded yet.");
-    expect(html).not.toContain("Profit after ads");
-  });
-
-  it("sets Promoted Closet and Etsy Ads spend against the period's sales", () => {
-    const html = render({
-      ...data,
-      ads: {
-        spend: 40,
-        profit_after_ads: 10,
-        marketplaces: [
-          { id: "poshmark", entries: 1, spend: 15, clicks: 60, orders: 1, revenue: 45, roas: 3,
-            cost_per_click: 0.25, sales_revenue: 80, spend_percent: 18.8 },
-          { id: "etsy", entries: 1, spend: 25, clicks: null, orders: null, revenue: null, roas: null,
-            cost_per_click: null, sales_revenue: 0, spend_percent: null },
-        ],
-      },
-    }, { running: false }, false, [adEntry]);
-    expect(html).toContain("Profit after ads");
-    expect(html).toContain("$10");
-    expect(html).toContain("3× return on ad spend · $0.25 a click · 18.8% of $80 Poshmark sales");
-    expect(html).toContain("No Etsy sales recorded");
-    expect(html).toContain("60 clicks · 1 order · $45 sales · 3× ROAS");
-    expect(html).not.toContain("No ad spend recorded yet.");
-  });
 });

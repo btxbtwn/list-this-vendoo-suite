@@ -1,3 +1,14 @@
+import type { AnalyticsRange } from "../api/types";
+
+/** The sales periods Analytics and Marketing both total over. */
+export const ANALYTICS_RANGES: { id: AnalyticsRange; label: string; heading: string }[] = [
+  { id: "7d", label: "7 days", heading: "Last 7 days" },
+  { id: "30d", label: "30 days", heading: "Last 30 days" },
+  { id: "90d", label: "90 days", heading: "Last 90 days" },
+  { id: "12m", label: "12 months", heading: "Last 12 months" },
+  { id: "all", label: "All", heading: "All time" },
+];
+
 /** Whole dollars stay whole; a cent keeps two places. */
 export function formatMoney(value: number): string {
   if (!Number.isFinite(value)) return "$0";
