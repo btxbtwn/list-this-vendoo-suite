@@ -33,6 +33,7 @@ function lot(overrides: Partial<SourcingLot> = {}): SourcingLot {
     seller_resale: null,
     theme: "cartoon t-shirts",
     ship_est: 64,
+    ship_list: 124.3,
     usable_pcs: 62.1,
     demand: 1.5,
     trend_hits: [],
@@ -104,7 +105,8 @@ function state(): SourcingState {
         seller_history: { periods: [], dated_recorded_sales: 0, matching_window_sales: 0, excluded_incomplete_or_invalid: 0, minimum_group_sales: 5, coverage: "recorded sales", groups: [] },
       },
       calibration: {}, stores: {}, research: true, priced_themes: 1,
-      shipping: { residential_surcharge: 6, fuel_surcharge_pct: 0.2, fuel_surcharge_as_of: "2026-10-01" },
+      shipping: { residential_surcharge: 6, fuel_surcharge_pct: 0.2, fuel_surcharge_as_of: "2026-10-01", factors: { raghouse: 0.5147, tvf: 1 }, calibration: {} },
+      vip_upside: null,
       assumptions: { sell_through: 0.5, fees: 0.2, cost_per_piece: 2, grade_yield: { good: 0.9 } },
       buy_list: plan, store_buy_lists: { raghouse: plan, tvf: plan }, lots: [lot()],
     },
@@ -159,6 +161,7 @@ describe("box wording", () => {
 
   it("explains a box in one line", () => {
     expect(lotReason(lot())).toBe("69 pcs · Good · estimated resale $14 each");
+    expect(lotReason(lot({ compare_at: 136 }))).toBe("69 pcs · Good · estimated resale $14 each · 50% off");
     expect(lotReason(lot({ resale_per_pc: null, vip: true }), true)).toBe(
       "Raghouse · 69 pcs · Good · VIP only",
     );

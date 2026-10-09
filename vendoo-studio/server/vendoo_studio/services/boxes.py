@@ -27,6 +27,10 @@ _LISTED = {"active", "sold"}
 # how far they may move: a few lucky or unlucky sales should not swing the list.
 CALIBRATION_MIN_SALES = 5
 CALIBRATION_RANGE = (0.3, 2.0)
+# Orders from a store before its shipping estimates follow what it charged,
+# and how far they may move from the carrier's list rate.
+SHIPPING_MIN_ORDERS = 2
+SHIPPING_RANGE = (0.2, 1.5)
 
 
 def list_boxes(db: Session) -> list[SourceBox]:
@@ -48,6 +52,7 @@ def create_box(
     url: str | None = None,
     bought_at: datetime | None = None,
     estimate_per_piece: float | None = None,
+    list_shipping: float | None = None,
 ) -> SourceBox:
     box = SourceBox(
         store=store.strip(),
@@ -56,6 +61,7 @@ def create_box(
         shipping=shipping,
         pieces=pieces or None,
         estimate_per_piece=estimate_per_piece or None,
+        list_shipping=list_shipping or None,
         url=(url or "").strip() or None,
         bought_at=bought_at or datetime.now(UTC),
     )
@@ -145,6 +151,28 @@ def resale_calibration(db: Session) -> dict[str, dict[str, Any]]:
     }
 
 
+def shipping_calibration(db: Session) -> dict[str, dict[str, Any]]:
+    """Per store, what its orders were charged for shipping against the carrier
+    list rate the buy list estimated from. The median ratio becomes the store's
+    shipping factor once enough orders are recorded."""
+    ratios: dict[str, list[float]] = {}
+    for box in list_boxes(db):
+        if box.list_shipping and box.shipping > 0:
+            ratios.setdefault(box.store, []).append(box.shipping / box.list_shipping)
+    low, high = SHIPPING_RANGE
+    return {
+        store: {
+            "factor": (
+                round(min(high, max(low, statistics.median(values))), 4)
+                if len(values) >= SHIPPING_MIN_ORDERS else None
+            ),
+            "orders": len(values),
+            "needed": SHIPPING_MIN_ORDERS,
+        }
+        for store, values in ratios.items()
+    }
+
+
 def _box_row(box: SourceBox, items: list[AnalyticsItem]) -> dict[str, Any]:
     return {
         "id": box.id,
@@ -155,6 +183,7 @@ def _box_row(box: SourceBox, items: list[AnalyticsItem]) -> dict[str, Any]:
         "shipping": round(box.shipping, 2),
         "pieces": box.pieces,
         "estimate_per_piece": box.estimate_per_piece,
+        "list_shipping": box.list_shipping,
         "bought_at": _iso(box.bought_at),
         "cost_per_piece": cost_share(box),
         **_totals(box.price + box.shipping, box.pieces, items),

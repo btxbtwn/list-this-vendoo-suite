@@ -582,6 +582,8 @@ export interface SourcingLot {
   seller_resale: number | null;
   theme: string;
   ship_est: number;
+  /** The carrier's list rate before the store's discount; what a bought box records. */
+  ship_list: number;
   usable_pcs: number;
   demand: number;
   trend_hits: string[];
@@ -651,13 +653,21 @@ export interface SourcingSnapshot {
   stores: Record<string, { name: string; error: string | null; sellout: number | null; zone: number | null }>;
   research: boolean;
   priced_themes: number;
-  shipping: { residential_surcharge: number; fuel_surcharge_pct: number; fuel_surcharge_as_of: string };
+  shipping: {
+    residential_surcharge: number;
+    fuel_surcharge_pct: number;
+    fuel_surcharge_as_of: string;
+    factors: Record<string, number>;
+    calibration: Record<string, { factor: number | null; orders: number; needed: number }>;
+  };
   assumptions: { sell_through: number; fees: number; grade_yield: Record<string, number>; cost_per_piece: number };
   buy_list: SourcingBuyList;
   store_buy_lists: Record<string, SourcingBuyList>;
   lots: SourcingLot[];
   calibration: Record<string, { factor: number | null; sales: number; needed: number }>;
   seasonality: SourcingSeasonality;
+  /** What Raghouse's members-only boxes would add to this list; null when the seller is a VIP. */
+  vip_upside: { boxes: number; extra_profit: number; monthly_fee: number } | null;
 }
 
 export interface SourcingPrefs {
@@ -705,6 +715,7 @@ export interface SourceBox extends BoxTotals {
   shipping: number;
   pieces: number | null;
   estimate_per_piece: number | null;
+  list_shipping: number | null;
   bought_at: string | null;
   cost_per_piece: number | null;
 }
@@ -727,6 +738,7 @@ export interface SourceBoxInput {
   pieces: number | null;
   url?: string | null;
   estimate_per_piece?: number | null;
+  list_shipping?: number | null;
 }
 
 export type ScoutVerdict = "buy" | "maybe" | "pass" | "unsure";

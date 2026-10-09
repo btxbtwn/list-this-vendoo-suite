@@ -19,6 +19,9 @@ class SourceBox(Base):
     url = Column(String, nullable=True)
     price = Column(Float, nullable=False, default=0.0)
     shipping = Column(Float, nullable=False, default=0.0)
+    # The carrier's list rate the buy list estimated from when the box was
+    # bought, so what the store actually charged can tune later estimates.
+    list_shipping = Column(Float, nullable=True)
     pieces = Column(Integer, nullable=True)
     # What the buy list expected one piece to sell for when the box was bought,
     # so real sales can show how far off the estimates run.

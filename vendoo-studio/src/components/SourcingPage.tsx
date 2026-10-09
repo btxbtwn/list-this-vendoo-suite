@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { SourceBoxes, SourcingCart, SourcingLot, SourcingPrefs, SourcingSnapshot, SourcingState } from "../api/types";
 import { addToast } from "../ui/toast";
 import { BoughtBoxes } from "./BoughtBoxes";
-import { BOXES_QUERY_KEY, boxFromLot, calibrationNote, recentlyBought } from "./boxPurchases";
+import { BOXES_QUERY_KEY, boxFromLot, calibrationNote, recentlyBought, shippingNote } from "./boxPurchases";
 import { DraftInput } from "./DraftInput";
 import { ScoutPanel } from "./ScoutPanel";
 import { formatMoney } from "./analyticsFormat";
@@ -327,6 +327,10 @@ function Choices({ snapshot, choice, onChoose }: {
         const note = calibrationNote(storeName(store), calibration);
         return note ? <p key={store} className="sourcing-hint">{note}</p> : null;
       })}
+      {snapshot.vip_upside && snapshot.vip_upside.boxes > 0 ? <p className="sourcing-hint">
+        Raghouse VIP ({formatMoney(snapshot.vip_upside.monthly_fee)}/month) would add {boxCount(snapshot.vip_upside.boxes)} to this list,
+        about {formatMoney(Math.round(snapshot.vip_upside.extra_profit))} more estimated profit. Turn on “I'm a Raghouse VIP” above once you join.
+      </p> : null}
       <div className="sourcing-choices">
         {["all", "raghouse", "tvf"].map((key) => {
           const plan = key === "all" ? snapshot.buy_list : snapshot.store_buy_lists[key];
@@ -643,8 +647,10 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
         <li>Each recommended box must meet your ROI target and avoid a loss when half your planned pieces sell at the lower of its lowest retained sold price and resale estimate.</li>
         <li>It prefers researched selling-window matches among qualifying boxes, then incremental return, one box per theme, and checks the whole cart’s shipping. It also tests pairs that unlock free shipping. This is a greedy selection; it doesn’t guarantee the best possible combination.</li>
         <li>
-          Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip}, scaled to a checkout you
-          already paid. Thrift Vintage Fashion is a UPS Ground estimate, still at list price.
+          Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip} and Thrift Vintage Fashion is UPS Ground from Hialeah, each
+          scaled to what the store charged your recorded orders ({Object.entries(snapshot.shipping.factors).map(([store, factor]) => `${storeName(store)} ${Math.round(factor * 100)}%`).join(", ")} of list).
+          {" "}{Object.keys(snapshot.shipping.factors).map((store) => shippingNote(storeName(store), snapshot.shipping.calibration[store])).filter(Boolean).join(" ")}
+          {" "}Correct a box’s shipping under Boxes you bought once the store charges it, and the estimates follow.
         </li>
         <li>Studio never buys. The cart buttons only fill a cart for you to check and pay.</li>
         <li>Inspect supplier photos and grade notes before buying. Check sale sources against the likely brand, era, condition and garment mix. Confirm final shipping and tax at checkout; a wholesale box is not an inspected set of identical products.</li>

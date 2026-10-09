@@ -6,6 +6,13 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.220 — 2026-10-09
+
+- Fixes the Sourcing page failing with “Request failed: 500” after updating to 0.1.219: the buy list saved by the previous version is now discarded and rebuilt instead of being served to a page that cannot read it.
+- Shipping estimates learn from your orders: record a box from the buy list, correct its shipping once the store charges it, and after two orders that store's estimates follow what it really charges. Thrift Vintage Fashion was still at the UPS list price.
+- Sourcing tells you what Raghouse VIP would add to your buy list, so you can see whether the $64 a month pays for itself before joining.
+- Boxes on sale show their discount next to the piece count.
+
 ## 0.1.219 — 2026-10-09
 
 - Sourcing now prices boxes by the kind of piece inside them (“vintage graphic t-shirts”, “hawaiian shirts”) instead of by each box’s exact title, so research covers the whole catalog and far more boxes get a resale estimate. Your own recorded sales count as evidence for a kind of box, alongside what the AI finds sold on the web.

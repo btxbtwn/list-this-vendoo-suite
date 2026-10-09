@@ -332,6 +332,7 @@ class RefreshTest(unittest.TestCase):
         mock.patch.object(box_scout, "state_path", return_value=self.state_file).start()
         mock.patch.object(box_scout, "planning_context", side_effect=_planning_context).start()
         mock.patch.object(box_scout, "_calibration", return_value={}).start()
+        mock.patch.object(box_scout, "_shipping_calibration", return_value={}).start()
         mock.patch.object(box_scout, "_own_sales", return_value=[]).start()
         mock.patch.object(box_scout, "_announce_new_picks").start()
         mock.patch.dict(box_scout._catalogs, clear=True).start()
@@ -382,6 +383,23 @@ class RefreshTest(unittest.TestCase):
         state = box_scout.read_state()
         self.assertIsNone(state["snapshot"])
         self.assertEqual(state["prefs"]["budget"], 180)
+        self.assertTrue(box_scout.refresh_is_due())
+
+    def test_a_snapshot_from_another_build_is_dropped_before_the_page_reads_it(self):
+        # 0.1.219 served a snapshot whose lots lacked a field the page's model requires,
+        # and the whole Sourcing request failed with a 500 until the next refresh.
+        with self._models():
+            box_scout.refresh()
+        state = json.loads(self.state_file.read_text())
+        self.assertEqual(state["snapshot"]["format"], box_scout.SNAPSHOT_FORMAT)
+        for lot in state["snapshot"]["lots"]:
+            del lot["comps_count"]
+        state["snapshot"]["format"] = box_scout.SNAPSHOT_FORMAT - 1
+        self.state_file.write_text(json.dumps(state))
+        from vendoo_studio.routes.sourcing import _response
+
+        with mock.patch.object(box_scout, "research_available", return_value=False):
+            self.assertIsNone(_response().snapshot)
         self.assertTrue(box_scout.refresh_is_due())
 
     def test_cached_research_is_not_repeated(self):
@@ -532,6 +550,34 @@ def _sale(title: str, price: float, days_ago: int, conv: str = "c1", marketplace
                          days_listed=None)
 
 
+class ShippingAndVipTest(RefreshTest):
+    def test_recorded_orders_set_a_stores_shipping_factor(self):
+        mock.patch.object(box_scout, "_shipping_calibration", return_value={
+            "tvf": {"factor": 0.5, "orders": 2, "needed": 2}, "raghouse": {"factor": None, "orders": 1, "needed": 2},
+        }).start()
+        with self._models():
+            snapshot = box_scout.refresh()
+        graphic = next(lot for lot in snapshot["lots"] if lot["title"].startswith("Wholesale Vintage Graphic"))
+        # Half of the $32.46 UPS list estimate; Raghouse keeps the factor from shipping.json.
+        self.assertEqual((graphic["ship_list"], graphic["ship_est"]), (32.46, 16.23))
+        self.assertEqual(snapshot["shipping"]["factors"], {"raghouse": 0.5147, "tvf": 0.5})
+        self.assertEqual(snapshot["shipping"]["calibration"]["tvf"]["orders"], 2)
+
+    def test_vip_upside_counts_members_only_boxes_that_would_qualify(self):
+        prices = json.dumps({"prices": [_price_evidence("y2k blouses", 40)]})
+        with self._models(_search("ChatGPT", ['{"terms": ["y2k"]}', prices, "{}"])):
+            snapshot = box_scout.refresh()
+        self.assertEqual(snapshot["buy_list"]["carts"], [])  # the Y2K lot is VIP only
+        self.assertEqual(snapshot["vip_upside"]["boxes"], 1)
+        self.assertGreater(snapshot["vip_upside"]["extra_profit"], 0)
+        self.assertEqual(snapshot["vip_upside"]["monthly_fee"], 64)
+        box_scout.set_prefs(raghouse_vip=True)
+        with self._models():
+            snapshot = box_scout.refresh(recrawl=False, research=False)
+        self.assertIsNone(snapshot["vip_upside"])
+        self.assertTrue(snapshot["buy_list"]["carts"][0]["lots"][0]["vip"])
+
+
 class OwnSalesTest(RefreshTest):
     SALES = [
         _sale("Vintage 90s Harley Davidson T-Shirt XL", 28, 3, "c1"),
@@ -596,6 +642,7 @@ class SourcingRouteTest(unittest.TestCase):
         self.background = mock.patch.object(box_scout, "refresh_in_background").start()
         mock.patch.object(box_scout, "planning_context", side_effect=_planning_context).start()
         mock.patch.object(box_scout, "_calibration", return_value={}).start()
+        mock.patch.object(box_scout, "_shipping_calibration", return_value={}).start()
         mock.patch.object(box_scout, "_own_sales", return_value=[]).start()
         mock.patch.object(box_scout, "_announce_new_picks").start()
         self.addCleanup(mock.patch.stopall)

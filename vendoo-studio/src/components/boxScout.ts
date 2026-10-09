@@ -42,6 +42,7 @@ export function lotReason(lot: SourcingLot, withStore = false): string {
     piecesLabel(lot),
     gradeLabel(lot),
     lot.resale_per_pc != null ? `estimated resale $${Math.round(lot.resale_per_pc)} each` : null,
+    lot.compare_at != null && lot.compare_at > lot.price ? `${Math.round((1 - lot.price / lot.compare_at) * 100)}% off` : null,
     lot.vip ? "VIP only" : null,
   ];
   return parts.filter(Boolean).join(" · ");
