@@ -728,6 +728,24 @@ class BuildItemTest(unittest.TestCase):
         self.assertNotIn("brand", listings["facebook"]["overrides"])
         self.assertFalse([row for row in unresolved if "condition:" in row["field"]])
 
+    def test_sellwild_section_carries_condition_package_and_leaf(self):
+        item, unresolved = build_vendoo_item({
+            "title": "Harry Potter Tee",
+            "condition": "Pre-Owned - Good",
+            "weight_lb": 0,
+            "weight_oz": 8,
+            "package_dimensions_in": "13x10x3",
+            "marketplace_category_objects": {"sellwild": {"id": "sw1"}},
+        })
+        section = item["listings"]["sellwild"]
+        self.assertEqual(section["overrides"]["condition"], "2")
+        self.assertEqual(section["overrides"]["categoryV2"]["id"], "sw1")
+        self.assertEqual(section["overrides"]["quantity"], "1")
+        self.assertEqual(section["overrides"]["weight"], {"pounds": "0", "ounces": "8"})
+        self.assertEqual(section["overrides"]["dimensions"], {"length": "13", "width": "10", "height": "3"})
+        self.assertEqual(section["listedID"], "")
+        self.assertFalse([row for row in unresolved if "condition:" in row["field"]])
+
     def test_a_learned_code_the_marketplace_does_not_own_is_ignored(self):
         """Studio's own bad write must not teach itself back.
 

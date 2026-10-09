@@ -894,7 +894,8 @@ def is_account_managed_field(marketplace: str, field_label: str) -> bool:
     and Mercari (shipping label), so the filler leaves shipping alone on every other
     form — including the general form's marketplace-agnostic shipping rows. General
     weight and package dimensions are not matched here: Depop's parcel tier is
-    derived from them.
+    derived from them. Facebook's carrier and Vinted's Package Size stay out of
+    the filler too; ``vendoo_api`` writes them from the seller's own past picks.
     """
     words = _label_words(field_label)
     if not words:

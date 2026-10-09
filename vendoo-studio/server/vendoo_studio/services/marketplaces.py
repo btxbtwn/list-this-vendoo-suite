@@ -16,9 +16,9 @@ from vendoo_studio.services.user_settings import read_settings, update_settings
 #     dropped it from that list and the company itself closed in 2022.
 #   * somewhere for the values to go, which is what this list drives.
 #
-# Grailed, Vinted and Facebook have no seeded category tree: their leaves come
+# Grailed, Vinted, Facebook and Sellwild have no seeded category tree: their leaves come
 # from Vendoo mapping the general category, never from a local tree search.
-FILLABLE_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop", "grailed", "vinted", "facebook")
+FILLABLE_MARKETPLACES = ("ebay", "etsy", "poshmark", "mercari", "depop", "grailed", "vinted", "facebook", "sellwild")
 
 # Every marketplace Vendoo lists to (its LISTABLE_MARKETPLACES, with
 # vestiaire/vestiaireApi folded together). Any of them can be selected in
@@ -36,7 +36,7 @@ MARKETPLACE_CATALOG: tuple[tuple[str, str, bool], ...] = (
     ("whatnot", "Whatnot", False),
     ("shopify", "Shopify", False),
     ("vestiaire", "Vestiaire Collective", False),
-    ("sellwild", "Sellwild", False),
+    ("sellwild", "Sellwild", True),
 )
 
 KNOWN_MARKETPLACES = tuple(item[0] for item in MARKETPLACE_CATALOG)

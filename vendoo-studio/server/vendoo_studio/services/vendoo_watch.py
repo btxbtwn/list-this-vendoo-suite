@@ -419,6 +419,12 @@ async def sync_conversation(db: Session, conv_id: str) -> dict[str, Any]:
                 result["schemas_learned"] = learned["learned"]
         except Exception:  # noqa: BLE001 - sync succeeded; cache growth is optional
             log.info("category schema learn skipped after sync", exc_info=True)
+        try:
+            from vendoo_studio.services.vendoo_create import learn_shipping_choices
+
+            learn_shipping_choices(item)
+        except Exception:  # noqa: BLE001 - same: learning is best-effort
+            log.info("shipping choice learn skipped after sync", exc_info=True)
         db.expire_all()
         conv = ConversationRepo(db).get(conv_id)
         result["vendoo_status"] = str(parse_notes(conv.notes if conv else None).get("vendooStatus") or "draft")

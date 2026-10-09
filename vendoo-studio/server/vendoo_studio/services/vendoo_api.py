@@ -26,6 +26,7 @@ from typing import Any
 
 from vendoo_studio.models.ebay_fields import EBAY_CONDITION_DESCRIPTION
 from vendoo_studio.models.etsy_fields import sanitize_etsy_tags
+from vendoo_studio.models.facebook_shipping import package_weight_label
 from vendoo_studio.models.mercari_shipping import (
     DEFAULT_PACKAGE_OUNCES,
     DEFAULT_SHIPPING_LABEL,
@@ -122,8 +123,11 @@ ETSY_LIVE_LISTING = "active"
 
 SPECIFICS_SOURCES = {
     mp: f"{mp}_specifics"
-    for mp in ("ebay", "poshmark", "mercari", "depop", "etsy", "grailed", "vinted", "facebook")
+    for mp in ("ebay", "poshmark", "mercari", "depop", "etsy", "grailed", "vinted", "facebook", "sellwild")
 }
+
+# Field names the general form uses for the package, not the item.
+_PACKAGE_DIMENSION_WORDS = frozenset({"length", "width", "height"})
 
 # Keys in <marketplace>_specifics that Studio keeps for itself, not Vendoo.
 _STUDIO_ONLY_SPECIFIC_KEYS = frozenset({"categoryPath", "category_specifics", "size", "sizeType"})
@@ -266,7 +270,7 @@ def default_listing_section(marketplace: str) -> dict[str, Any]:
         "dateLastModified": "",
         "type": "listing",
         "status": {"notListed": True},
-        "overrides": _weight_dims_overrides() if marketplace in ("ebay", "etsy", "poshmark", "mercari") else (
+        "overrides": _weight_dims_overrides() if marketplace in ("ebay", "etsy", "poshmark", "mercari", "sellwild") else (
             {"quantity": "1"} if marketplace in ("depop", "grailed", "vinted", "facebook") else {}
         ),
         "categorySpecifics": {},
@@ -368,6 +372,36 @@ def aspect_suffix(key: str, category_id: Any = "") -> str:
     return re.sub(r"^\d+_", "", text)
 
 
+def _observe_shipping_choices(
+    marketplace: str,
+    section: dict[str, Any],
+    leaf_id: str,
+    general: dict[str, Any],
+    marketplaces: dict[str, dict[str, Any]],
+) -> None:
+    """Learn the shipping picks only the marketplace itself can offer.
+
+    Facebook's carrier is ``"<service type>:<name>"`` from Facebook's own
+    answer for a weight tier; Vinted's Package Size is an id from Vinted's
+    list for the category. Neither is in Vendoo's schema, so both are read off
+    forms the seller filled in: the carrier per Package weight tier, the
+    package size against the package's weight in ounces.
+    """
+    if marketplace == "facebook":
+        specifics = section.get("marketplaceSpecifics")
+        specifics = specifics if isinstance(specifics, dict) else {}
+        carrier, tier = specifics.get("carrier"), specifics.get("packageWeightLabel")
+        if isinstance(carrier, str) and ":" in carrier and isinstance(tier, str) and tier:
+            marketplaces.setdefault(marketplace, {}).setdefault("shippingCarrier", {})[tier] = carrier
+    elif marketplace == "vinted" and leaf_id:
+        specifics = section.get("categorySpecifics")
+        size = (specifics or {}).get(specifics_key(leaf_id, "packageSizeId")) if isinstance(specifics, dict) else None
+        weight = general.get("weight") if isinstance(general.get("weight"), dict) else {}
+        ounces = package_ounces(weight.get("pounds"), weight.get("ounces"))
+        if size not in (None, "") and ounces > 0:
+            marketplaces.setdefault(marketplace, {}).setdefault("packageSize", {})[str(ounces)] = str(size)
+
+
 def observe_listing_encodings(
     item: dict[str, Any],
     marketplaces: dict[str, dict[str, Any]],
@@ -394,11 +428,12 @@ def observe_listing_encodings(
         if general_key and code not in (None, ""):
             entry = marketplaces.setdefault(str(marketplace), {})
             entry.setdefault("condition", {})[general_key] = code
+        leaf = overrides.get("categoryV2") if isinstance(overrides.get("categoryV2"), dict) else {}
+        leaf_id = leaf.get("id") or ""
+        _observe_shipping_choices(str(marketplace), section, str(leaf_id), general, marketplaces)
         specifics = section.get("categorySpecifics")
         if not isinstance(specifics, dict):
             continue
-        leaf = overrides.get("categoryV2") if isinstance(overrides.get("categoryV2"), dict) else {}
-        leaf_id = leaf.get("id") or ""
         shapes = aspects.setdefault(str(marketplace), {})
         for key, value in specifics.items():
             suffix = aspect_suffix(key, leaf_id)
@@ -463,6 +498,17 @@ _VENDOO_MARKETPLACE_CONDITIONS: dict[str, dict[str, str | int]] = {
         "v_preowned": "used_good",
         "v_preowned_fair": "used_good",
         "v_poor": "used_fair",
+    },
+    # Sellwild's own ids: 5 Brand New, 4 Almost New, 3 Gently Used, 2 Used,
+    # 1 Broken — Vendoo's mapping, which puts every pre-owned grade on Used.
+    "sellwild": {
+        "v_newWithTagsBox": "5",
+        "v_newWithOutTags": "4",
+        "v_newWithDefects": "3",
+        "v_preowned_excellent": "2",
+        "v_preowned": "2",
+        "v_preowned_fair": "2",
+        "v_poor": "1",
     },
     # Vinted's status ids: 6 new with tags, 1 new without, 2 very good,
     # 3 good, 4 satisfactory.
@@ -897,6 +943,98 @@ def _apply_mercari_shipping(
     shipping["carrierId"] = carrier_id
 
 
+def _learned(schema: dict[str, Any] | None, marketplace: str, name: str) -> dict[str, Any]:
+    table = (((schema or {}).get("marketplaces") or {}).get(marketplace) or {}).get(name)
+    return table if isinstance(table, dict) else {}
+
+
+def _apply_facebook_shipping(
+    known: dict[str, Any],
+    weight: dict[str, Any] | None,
+    schema: dict[str, Any] | None,
+    unresolved: list[dict[str, str]] | None,
+) -> None:
+    """Pick Facebook's Package weight from the weight, and the carrier the seller uses.
+
+    Delivery method, shipping option and free shipping are the account's
+    defaults and are left alone. The carrier is whatever the seller chose on
+    their own Facebook forms for this tier — Facebook decides which carriers a
+    tier offers — or their only carrier when they have only ever used one.
+    """
+    label = package_weight_label(weight)
+    if not label:
+        return
+    known["packageWeightLabel"] = label
+    carriers = _learned(schema, "facebook", "shippingCarrier")
+    carrier = carriers.get(label)
+    if not carrier and len(set(carriers.values())) == 1:
+        carrier = next(iter(carriers.values()))
+    if carrier:
+        known["carrier"] = carrier
+    elif unresolved is not None:
+        unresolved.append({"field": "facebook:Shipping carrier", "value": ""})
+
+
+# Vinted's Shoulder Width is the garment's width across, measured pit to pit.
+_PIT_TO_PIT_RE = re.compile(r"(?i)\bpit[\s-]*to[\s-]*pit\s*:\s*(\d+(?:\.\d+)?)")
+_LENGTH_RE = re.compile(r"(?i)\blength\s*:\s*(\d+(?:\.\d+)?)")
+VINTED_MEASUREMENT_KEYS = ("width", "length")
+
+
+def vinted_measurements(listing: dict[str, Any]) -> dict[str, str]:
+    """Shoulder Width and Length, in inches, from the description's Measurements line.
+
+    That line holds the seller's own tape-measure numbers, written there
+    verbatim. Nothing else is trusted for them, so a model's guess at a
+    measurement never reaches the form.
+    """
+    from vendoo_studio.services.listing_carryover import description_block
+
+    block = description_block(listing.get("description"), "measurements?")
+    out: dict[str, str] = {}
+    for key, pattern in (("width", _PIT_TO_PIT_RE), ("length", _LENGTH_RE)):
+        match = pattern.search(block)
+        if match:
+            out[key] = match.group(1)
+    return out
+
+
+def _apply_vinted_package(
+    section: dict[str, Any],
+    leaf_id: str,
+    listing: dict[str, Any],
+    weight: dict[str, Any] | None,
+    schema: dict[str, Any] | None,
+    unresolved: list[dict[str, str]] | None,
+) -> None:
+    """Vinted's measurements and Package Size, stored as ``{leaf}_<field>``.
+
+    Package Size is a Vinted id offered per category, so it is learned from the
+    seller's own Vinted forms against each package's weight: an item gets the
+    size the seller chose for the lightest package that weighed at least as
+    much. A heavier item than any seen is left for the seller to pick.
+    """
+    specifics = _bucket(section, "categorySpecifics")
+    measured = vinted_measurements(listing)
+    for key in VINTED_MEASUREMENT_KEYS:
+        if key in measured:
+            specifics[specifics_key(leaf_id, key)] = measured[key]
+        else:
+            specifics.pop(specifics_key(leaf_id, key), None)
+
+    weight = weight if isinstance(weight, dict) else {}
+    ounces = package_ounces(weight.get("pounds"), weight.get("ounces")) or DEFAULT_PACKAGE_OUNCES
+    sizes = _learned(schema, "vinted", "packageSize")
+    heavier = sorted(
+        (int(seen), size) for seen, size in sizes.items()
+        if str(seen).isdigit() and int(seen) >= ounces and size not in (None, "")
+    )
+    if heavier:
+        specifics[specifics_key(leaf_id, "packageSizeId")] = str(heavier[0][1])
+    elif unresolved is not None:
+        unresolved.append({"field": "vinted:Package Size", "value": ""})
+
+
 def _mercari_wants_no_brand(brand: str) -> bool:
     return _norm(brand) in _MERCARI_NO_BRAND_TOKENS
 
@@ -1278,6 +1416,7 @@ def _category_specifics(
 
     index = _spec_index(specs)
     out: dict[str, Any] = {}
+    answered: list[tuple[FieldSpec, Any]] = []
     for studio_key, value in merged.items():
         words = _field_words(studio_key)
         if not words or words in _NOT_CATEGORY_FIELDS:
@@ -1285,6 +1424,22 @@ def _category_specifics(
         spec = index.get(words)
         if spec is None:
             continue
+        answered.append((spec, value))
+    # A field the marketplace's own answers skip is read the way the gap check
+    # reads it — the listing's general color, size, material — or that check
+    # counts it answered and the form is left blank. Package dimensions share
+    # their names with garment measurements, so those are never borrowed.
+    from vendoo_studio.services.fill_log import listing_value_for_field
+
+    taken = {spec.key for spec, _value in answered}
+    for spec in specs.values():
+        words = _field_words(spec.display or spec.key)
+        if spec.key in taken or not words or words in _NOT_CATEGORY_FIELDS or words in _PACKAGE_DIMENSION_WORDS:
+            continue
+        value = listing_value_for_field(listing, marketplace, spec.display or spec.key)
+        if value:
+            answered.append((spec, value))
+    for spec, value in answered:
         if spec.scales:
             # Size and friends: Vendoo stores the chosen scale alongside the
             # value, and the value alone means nothing without it.
@@ -1517,6 +1672,8 @@ def _listing_section(
                 )
             if candidate_conditions:
                 _set_learned_condition(section, schema, marketplace, leaf_id, candidate_conditions, reports)
+        if marketplace == "vinted":
+            _apply_vinted_package(section, leaf_id, listing, general.get("weight"), schema, unresolved)
 
     for key, value in specifics.items():
         if value in (None, "", []):
@@ -1548,6 +1705,8 @@ def _listing_section(
         _apply_mercari_smart_pricing(known)
     elif marketplace == "depop":
         _apply_depop_option_codes(known, unresolved)
+    elif marketplace == "facebook" and section["overrides"].get("categoryV2"):
+        _apply_facebook_shipping(known, general.get("weight"), schema, unresolved)
 
     _apply_marketplace_brand(section, marketplace, listing)
     return section
@@ -1640,7 +1799,7 @@ _UPDATE_ALL_OVERRIDE_KEYS = ("title", "description", "sku", "quantity", "tags")
 # Every form that keeps its own copy of the package. Depop has none — it prices
 # the parcel by tier, which ``ensure_depop_category_optionals`` rewrites.
 _PACKAGE_OVERRIDE_KEYS = ("weight", "dimensions")
-_PACKAGE_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari"})
+_PACKAGE_OVERRIDE_MARKETPLACES = frozenset({"ebay", "etsy", "poshmark", "mercari", "sellwild"})
 _PRICE_OVERRIDE_MARKETPLACES = frozenset({"etsy", "poshmark", "mercari", "depop"})
 # Forms whose condition is re-sent on every save — see ``force_condition_updates``.
 _ALWAYS_WRITE_CONDITION_MARKETPLACES = ("poshmark", "mercari")
@@ -1810,6 +1969,7 @@ def apply_update_all(
                 want_over,
             )
             _apply_mercari_smart_pricing(specifics)
+        _keep_seller_shipping_choices(marketplace, have_section, want_section)
         _clear_stale_category_specifics(have_section, want_section)
         # Keep the original form-created stamp; refresh only last-modified so
         # Vendoo marks the form saved the way first Send does.
@@ -1823,6 +1983,33 @@ def apply_update_all(
             ):
                 want_over["price"] = deepcopy(price)
     return desired
+
+
+def _keep_seller_shipping_choices(
+    marketplace: str, have_section: dict[str, Any], want_section: dict[str, Any]
+) -> None:
+    """A carrier or package size already on the form outranks a learned one.
+
+    Studio only knows the seller's usual pick; one they made on this draft is
+    the answer for this item. The carrier holds only while the weight tier it
+    was offered for still stands.
+    """
+    have_specifics = have_section.get("marketplaceSpecifics")
+    have_specifics = have_specifics if isinstance(have_specifics, dict) else {}
+    if marketplace == "facebook":
+        want_specifics = _bucket(want_section, "marketplaceSpecifics")
+        if have_specifics.get("carrier") and (
+            have_specifics.get("packageWeightLabel") == want_specifics.get("packageWeightLabel")
+        ):
+            want_specifics["carrier"] = have_specifics["carrier"]
+    elif marketplace == "vinted":
+        have_aspects = have_section.get("categorySpecifics")
+        want_aspects = _bucket(want_section, "categorySpecifics")
+        if not isinstance(have_aspects, dict):
+            return
+        for key, value in have_aspects.items():
+            if key.endswith("_packageSizeId") and key in want_aspects and value not in (None, ""):
+                want_aspects[key] = value
 
 
 def _clear_stale_category_specifics(have_section: dict[str, Any], want_section: dict[str, Any]) -> None:

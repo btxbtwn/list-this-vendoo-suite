@@ -203,7 +203,7 @@ export function ListingEditor({
     const selected = new Set(marketplaceSettings?.selected ?? ["ebay", "etsy", "poshmark", "mercari", "depop"]);
     return [
       "general",
-      ...["ebay", "poshmark", "mercari", "depop", "etsy", "grailed", "vinted", "facebook"].filter((id) => selected.has(id)),
+      ...["ebay", "poshmark", "mercari", "depop", "etsy", "grailed", "vinted", "facebook", "sellwild"].filter((id) => selected.has(id)),
       "json",
     ];
   }, [marketplaceSettings?.selected]);
@@ -756,6 +756,7 @@ function getFieldsForTab(listing: ListingData | undefined, tab: string): EditorF
     case "grailed":
     case "vinted":
     case "facebook":
+    case "sellwild":
       // Their fields come from the category Vendoo maps to, once it is chosen.
       return [
         { key: "price", label: "Price", type: "number" },
