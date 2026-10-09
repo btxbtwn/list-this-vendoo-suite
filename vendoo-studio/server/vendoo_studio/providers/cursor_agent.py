@@ -16,6 +16,7 @@ from vendoo_studio.services import live_trace
 from vendoo_studio.providers.xiaomi_mimo import VISION_MAX_SIDE, encode_images
 from vendoo_studio.services.user_settings import (
     DEFAULT_CURSOR_MODEL,
+    get_cursor_reasoning,
     resolved_cursor_models,
 )
 
@@ -43,6 +44,9 @@ WEB_SEARCH_WRAP_UP = (
     "Stop searching now. Reply immediately with the JSON of every sold comp and live "
     "listing you have already found, in the required shape. Do not search again."
 )
+# Cursor models name their reasoning knob differently ("reasoning", "effort",
+# "thinking"); the first parameter matching one of these is the one Studio sets.
+REASONING_PARAM_PATTERN = re.compile(r"reasoning|effort|thinking", re.IGNORECASE)
 _STREAM_DONE = object()
 # A Cursor run that sends nothing for this long has stalled. The SDK waits on
 # it forever, and generation's field fill sat behind one with the listing busy.
@@ -141,6 +145,34 @@ def _image_from_data_url(url: str):
         return None
 
 
+def reasoning_parameter(model) -> object | None:
+    """The model's reasoning parameter definition, or None when it has none."""
+    for param in getattr(model, "parameters", ()) or ():
+        label = f"{getattr(param, 'id', '')} {getattr(param, 'display_name', '')}"
+        if REASONING_PARAM_PATTERN.search(label) and getattr(param, "values", ()):
+            return param
+    return None
+
+
+def default_param_value(model, param_id: str) -> str | None:
+    """The value the model's default variant uses for ``param_id``."""
+    for variant in getattr(model, "variants", ()) or ():
+        if not getattr(variant, "is_default", False):
+            continue
+        for param in getattr(variant, "params", ()) or ():
+            if getattr(param, "id", None) == param_id:
+                return getattr(param, "value", None)
+    return None
+
+
+def model_selection(model: str) -> str | dict:
+    """``model`` with the saved reasoning level when it was chosen for this model."""
+    reasoning = get_cursor_reasoning()
+    if not reasoning or reasoning["model"] != model:
+        return model
+    return {"id": model, "params": [{"id": reasoning["param"], "value": reasoning["value"]}]}
+
+
 @dataclass(frozen=True)
 class _Thinking:
     text: str
@@ -227,22 +259,15 @@ class CursorProvider:
             raise RuntimeError("Cursor API key worked but returned no models for this account.")
         return True
 
-    def list_model_ids(self) -> list[str]:
-        """Return catalog model IDs for Settings (sync; call from a worker thread)."""
+    def list_models(self) -> list:
+        """Return the account's model catalog for Settings (sync; call from a worker thread)."""
         from cursor_sdk import Client
 
         scratch = str(listing_scratch_dir())
         with _patched_bridge_env():
             with Client.launch_bridge(workspace=scratch) as client:
                 models = list(client.list_models(api_key=self.api_key))
-        ids: list[str] = []
-        for item in models:
-            model_id = getattr(item, "id", None)
-            if model_id is None and isinstance(item, dict):
-                model_id = item.get("id")
-            if isinstance(model_id, str) and model_id.strip():
-                ids.append(model_id.strip())
-        return ids
+        return [item for item in models if isinstance(getattr(item, "id", None), str) and item.id.strip()]
 
     async def analyze_photos(
         self,
@@ -377,7 +402,7 @@ class CursorProvider:
                         handles["client"] = client
                         with client.agents.create(
                             {"tools": list(tools)} if tools is not None else None,
-                            model=selected,
+                            model=model_selection(selected),
                             api_key=self.api_key,
                             local=LocalAgentOptions(cwd=scratch, setting_sources=[]),
                         ) as agent:

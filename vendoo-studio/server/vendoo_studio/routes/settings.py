@@ -20,6 +20,7 @@ class ChatGPTModelsConfig(BaseModel):
 class CursorModelsConfig(BaseModel):
     vision_model: str | None = None
     listing_model: str | None = None
+    reasoning_effort: str | None = None
 
 
 class ProviderConfig(BaseModel):
@@ -284,12 +285,39 @@ def set_chatgpt_models(config: ChatGPTModelsConfig):
     }
 
 
-@router.get("/cursor/models")
-async def cursor_models():
-    """Return saved Cursor model prefs and catalog IDs when a key is present."""
+def _cursor_reasoning_payload(catalog: list, listing_model: str) -> dict | None:
+    """The listing model's reasoning choices and the level in effect, if it has any."""
+    from vendoo_studio.providers.cursor_agent import default_param_value, reasoning_parameter
+    from vendoo_studio.services.user_settings import get_cursor_reasoning
+
+    model = next((item for item in catalog if item.id == listing_model), None)
+    param = reasoning_parameter(model) if model is not None else None
+    if param is None:
+        return None
+    options = [{"value": item.value, "label": item.display_name or item.value} for item in param.values]
+    values = [item["value"] for item in options]
+    saved = get_cursor_reasoning()
+    value = saved["value"] if saved and saved["model"] == listing_model and saved["param"] == param.id else None
+    if value not in values:
+        value = default_param_value(model, param.id)
+    return {
+        "param": param.id,
+        "options": options,
+        "value": value if value in values else values[0],
+    }
+
+
+async def _cursor_catalog(key: str) -> list:
     import asyncio
 
     from vendoo_studio.providers.cursor_agent import CursorProvider
+
+    return await asyncio.to_thread(CursorProvider(api_key=key).list_models)
+
+
+@router.get("/cursor/models")
+async def cursor_models():
+    """Return saved Cursor model prefs and catalog IDs when a key is present."""
     from vendoo_studio.services.keychain import get_cursor_api_key
     from vendoo_studio.services.user_settings import (
         AUTO_CURSOR_MODEL,
@@ -299,47 +327,61 @@ async def cursor_models():
 
     vision_model, listing_model = resolved_cursor_models()
     slugs = [AUTO_CURSOR_MODEL, DEFAULT_CURSOR_MODEL]
+    catalog: list = []
     error = None
     key = get_cursor_api_key()
     if key:
         try:
-            provider = CursorProvider(api_key=key)
-            for model_id in await asyncio.to_thread(provider.list_model_ids):
-                if model_id not in slugs:
-                    slugs.append(model_id)
+            catalog = await _cursor_catalog(key)
         except Exception as exc:
             error = str(exc)
-    for slug in (vision_model, listing_model):
+    for slug in [item.id for item in catalog] + [vision_model, listing_model]:
         if slug and slug not in slugs:
             slugs.append(slug)
     return {
         "models": slugs,
         "vision_model": vision_model,
         "listing_model": listing_model,
+        "reasoning": _cursor_reasoning_payload(catalog, listing_model),
         "error": error,
     }
 
 
 @router.put("/cursor/models")
-def set_cursor_models(config: CursorModelsConfig):
+async def set_cursor_models(config: CursorModelsConfig):
     from vendoo_studio.services.keychain import get_cursor_api_key
     from vendoo_studio.services.user_settings import (
         resolved_cursor_models,
         set_cursor_models as persist_cursor_models,
+        set_cursor_reasoning,
     )
 
-    if not get_cursor_api_key():
+    key = get_cursor_api_key()
+    if not key:
         raise HTTPException(400, "Add a Cursor API key in Settings.")
 
     vision = (config.vision_model or "").strip()
     listing = (config.listing_model or "").strip()
-    if not vision and not listing:
-        raise HTTPException(400, "Choose a vision model or listing model.")
-    try:
-        persist_cursor_models(vision_model=vision or None, listing_model=listing or None)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    reasoning = (config.reasoning_effort or "").strip()
+    if not vision and not listing and not reasoning:
+        raise HTTPException(400, "Choose a vision model, listing model, or reasoning level.")
+    if vision or listing:
+        try:
+            persist_cursor_models(vision_model=vision or None, listing_model=listing or None)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     vision_model, listing_model = resolved_cursor_models()
+    if reasoning:
+        try:
+            catalog = await _cursor_catalog(key)
+        except Exception as exc:
+            raise HTTPException(502, f"Could not load Cursor models: {exc}") from exc
+        choices = _cursor_reasoning_payload(catalog, listing_model)
+        if choices is None:
+            raise HTTPException(400, f"{listing_model} has no reasoning setting.")
+        if reasoning not in [item["value"] for item in choices["options"]]:
+            raise HTTPException(400, f"{listing_model} does not support reasoning level {reasoning}.")
+        set_cursor_reasoning(model=listing_model, param=choices["param"], value=reasoning)
     return {"ok": True, "vision_model": vision_model, "listing_model": listing_model}
 
 

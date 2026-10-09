@@ -457,5 +457,122 @@ class CursorModelsSettingsTest(unittest.TestCase):
         persist.assert_called_once_with(vision_model="auto", listing_model="auto")
 
 
+def sdk_model(model_id: str, *, effort: tuple[str, ...] = (), default: str | None = None):
+    from cursor_sdk import (
+        ModelParameterDefinition,
+        ModelParameterDefinitionValue,
+        ModelParameterValue,
+        ModelVariant,
+        SDKModel,
+    )
+
+    parameters = (
+        (
+            ModelParameterDefinition(
+                id="reasoning_effort",
+                display_name="Reasoning",
+                values=tuple(ModelParameterDefinitionValue(value=v, display_name=v.title()) for v in effort),
+            ),
+        )
+        if effort
+        else ()
+    )
+    variants = (
+        (ModelVariant(params=(ModelParameterValue(id="reasoning_effort", value=default),), is_default=True),)
+        if default
+        else ()
+    )
+    return SDKModel(id=model_id, display_name=model_id, parameters=parameters, variants=variants)
+
+
+class CursorReasoningTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import tempfile
+
+        from vendoo_studio.services import user_settings
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self._settings = patch.object(
+            user_settings, "settings_path", return_value=Path(self._tmp.name) / "settings.json"
+        )
+        self._settings.start()
+
+    def tearDown(self):
+        self._settings.stop()
+        self._tmp.cleanup()
+
+    async def test_run_sends_the_reasoning_saved_for_that_model(self):
+        from vendoo_studio.services import user_settings
+
+        user_settings.set_cursor_models(vision_model="composer-2.5", listing_model="gpt-5.5")
+        user_settings.set_cursor_reasoning(model="gpt-5.5", param="reasoning_effort", value="high")
+        provider = CursorProvider(api_key="cursor_test")
+
+        class FakeRun:
+            id = "run-r"
+
+            def stream(self):
+                yield assistant("ok")
+
+            def wait(self):
+                return MagicMock(status="finished", result="ok", id=self.id)
+
+        fake_client, fake_agents = fake_bridge(FakeRun())
+        with (
+            patch("cursor_sdk.Client.launch_bridge", return_value=fake_client),
+            patch("vendoo_studio.providers.cursor_agent.listing_scratch_dir") as scratch,
+        ):
+            scratch.return_value = MagicMock(__str__=lambda self: "/tmp/cursor-scratch")
+            async for _ in provider.chat([{"role": "user", "content": "Hi"}]):
+                pass
+            async for _ in provider.vision_chat([{"role": "user", "content": "Hi"}]):
+                pass
+
+        listing_call, vision_call = fake_agents.create.call_args_list
+        self.assertEqual(
+            listing_call.kwargs["model"],
+            {"id": "gpt-5.5", "params": [{"id": "reasoning_effort", "value": "high"}]},
+        )
+        self.assertEqual(vision_call.kwargs["model"], "composer-2.5")
+
+    def test_changing_models_keeps_the_saved_reasoning(self):
+        from vendoo_studio.services import user_settings
+
+        user_settings.set_cursor_reasoning(model="gpt-5.5", param="reasoning_effort", value="high")
+        user_settings.set_cursor_models(listing_model="gpt-5.5")
+        self.assertEqual(
+            user_settings.get_cursor_reasoning(),
+            {"model": "gpt-5.5", "param": "reasoning_effort", "value": "high"},
+        )
+
+    def test_routes_list_and_save_the_listing_models_reasoning(self):
+        from fastapi.testclient import TestClient
+
+        from vendoo_studio.main import app
+        from vendoo_studio.services import user_settings
+
+        user_settings.set_cursor_models(listing_model="gpt-5.5")
+        catalog = [sdk_model("composer-2.5"), sdk_model("gpt-5.5", effort=("low", "medium", "high"), default="medium")]
+        with (
+            patch("vendoo_studio.services.keychain.get_cursor_api_key", return_value="cursor_key"),
+            patch.object(CursorProvider, "list_models", return_value=catalog),
+        ):
+            client = TestClient(app)
+            listed = client.get("/api/settings/cursor/models").json()
+            saved = client.put("/api/settings/cursor/models", json={"reasoning_effort": "high"})
+            relisted = client.get("/api/settings/cursor/models").json()
+            unsupported = client.put("/api/settings/cursor/models", json={"reasoning_effort": "max"})
+            user_settings.set_cursor_models(listing_model="composer-2.5")
+            plain = client.get("/api/settings/cursor/models").json()
+
+        self.assertEqual(listed["reasoning"]["param"], "reasoning_effort")
+        self.assertEqual([o["label"] for o in listed["reasoning"]["options"]], ["Low", "Medium", "High"])
+        self.assertEqual(listed["reasoning"]["value"], "medium")
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(relisted["reasoning"]["value"], "high")
+        self.assertEqual(unsupported.status_code, 400)
+        self.assertIsNone(plain["reasoning"])
+
+
 if __name__ == "__main__":
     unittest.main()
