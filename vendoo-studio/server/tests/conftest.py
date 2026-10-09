@@ -37,3 +37,14 @@ def _isolate_studio_settings(tmp_path_factory):
         os.environ.pop("VENDOO_STUDIO_DATA_DIR", None)
     else:
         os.environ["VENDOO_STUDIO_DATA_DIR"] = previous
+
+
+@pytest.fixture(autouse=True)
+def _claude_signed_out(monkeypatch):
+    """Keep the machine's own Claude Code login out of tests unless one opts in."""
+    from vendoo_studio.services import claude_auth
+
+    monkeypatch.setattr(claude_auth, "claude_cli_path", lambda: None)
+    claude_auth.forget_status()
+    yield
+    claude_auth.forget_status()

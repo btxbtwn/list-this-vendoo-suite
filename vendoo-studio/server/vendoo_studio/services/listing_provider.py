@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from vendoo_studio.providers.chatgpt_codex import ChatGPTCodexProvider
+from vendoo_studio.providers.claude_agent import ClaudeProvider
 from vendoo_studio.providers.cursor_agent import CursorProvider
 from vendoo_studio.providers.xiaomi_mimo import MiMoProvider
 from vendoo_studio.services.chatgpt_oauth import chatgpt_signed_in
+from vendoo_studio.services.claude_auth import claude_signed_in
 from vendoo_studio.services.keychain import get_api_key, get_cursor_api_key
 from vendoo_studio.services.user_settings import get_listing_provider_order
 
@@ -21,6 +23,12 @@ def _chatgpt_provider():
     return ChatGPTCodexProvider()
 
 
+def _claude_provider():
+    if not claude_signed_in():
+        return None
+    return ClaudeProvider()
+
+
 def _cursor_provider():
     key = get_cursor_api_key()
     if not key:
@@ -33,6 +41,8 @@ def _provider_for(choice: str):
         return _mimo_provider()
     if choice == "chatgpt":
         return _chatgpt_provider()
+    if choice == "claude":
+        return _claude_provider()
     if choice == "cursor":
         return _cursor_provider()
     return None
@@ -53,4 +63,9 @@ def get_listing_provider():
 
 
 def provider_is_configured() -> bool:
-    return chatgpt_signed_in() or bool(get_api_key()) or bool(get_cursor_api_key())
+    return (
+        chatgpt_signed_in()
+        or bool(get_api_key())
+        or bool(get_cursor_api_key())
+        or claude_signed_in()
+    )

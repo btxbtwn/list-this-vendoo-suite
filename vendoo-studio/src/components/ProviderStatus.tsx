@@ -23,7 +23,9 @@ export function ProviderStatus() {
   const providerLabel =
     logoId === "chatgpt"
       ? "ChatGPT"
-      : logoId === "mimo"
+      : logoId === "claude"
+        ? "Claude"
+        : logoId === "mimo"
         ? "MiMo"
         : logoId === "cursor"
           ? "Cursor"

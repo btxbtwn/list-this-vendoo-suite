@@ -17,7 +17,7 @@ export const SETUP_GUIDE_STEPS = [
 ] as const;
 
 type StepId = (typeof SETUP_GUIDE_STEPS)[number]["id"];
-type ListingChoice = "chatgpt" | "mimo" | "cursor";
+type ListingChoice = "chatgpt" | "claude" | "mimo" | "cursor";
 
 type FirstRunGuideProps = {
   providerConfigured: boolean;
@@ -49,8 +49,9 @@ export function FirstRunGuide({
   const { data: provider } = useQuery({
     queryKey: ["settings-provider"],
     queryFn: api.settings.provider,
-    // Fast only while a ChatGPT sign-in waits on the browser; key saves invalidate it.
-    refetchInterval: (query) => pollMs(query.state.data?.chatgpt?.pending ? BUSY_POLL_MS : IDLE_POLL_MS),
+    // Fast only while a ChatGPT or Claude sign-in waits on the browser; key saves invalidate it.
+    refetchInterval: (query) =>
+      pollMs(query.state.data?.chatgpt?.pending || query.state.data?.claude?.pending ? BUSY_POLL_MS : IDLE_POLL_MS),
   });
   const { data: brave } = useQuery({
     queryKey: ["settings-brave"],
@@ -59,17 +60,30 @@ export function FirstRunGuide({
 
   const chatgptSignedIn = Boolean(provider?.chatgpt?.signed_in);
   const chatgptPending = provider?.chatgpt?.pending;
+  const claudeSignedIn = Boolean(provider?.claude?.signed_in);
+  const claudePending = provider?.claude?.pending;
   const mimoConfigured = Boolean(provider?.masked_key);
   const cursorConfigured = Boolean(provider?.masked_cursor_key);
   const braveConfigured = Boolean(brave?.configured);
   const preferred =
-    provider?.primary === "mimo" || provider?.primary === "cursor" || provider?.primary === "chatgpt"
+    provider?.primary === "mimo" ||
+    provider?.primary === "cursor" ||
+    provider?.primary === "chatgpt" ||
+    provider?.primary === "claude"
       ? provider.primary
       : null;
   const selectedListing =
     listingChoice ??
     preferred ??
-    (chatgptSignedIn ? "chatgpt" : mimoConfigured ? "mimo" : cursorConfigured ? "cursor" : "chatgpt");
+    (chatgptSignedIn
+      ? "chatgpt"
+      : claudeSignedIn
+        ? "claude"
+        : mimoConfigured
+          ? "mimo"
+          : cursorConfigured
+            ? "cursor"
+            : "chatgpt");
 
   const refreshProvider = () => {
     queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
@@ -99,6 +113,17 @@ export function FirstRunGuide({
   });
   const chatgptCancel = useMutation({
     mutationFn: () => api.settings.chatgptCancelLogin(),
+    onSuccess: refreshProvider,
+  });
+  const claudeLogin = useMutation({
+    mutationFn: () => api.settings.claudeLogin(),
+    onSuccess: () => {
+      setPreferred.mutate("claude");
+      refreshProvider();
+    },
+  });
+  const claudeCancel = useMutation({
+    mutationFn: () => api.settings.claudeCancelLogin(),
     onSuccess: refreshProvider,
   });
   const saveMimo = useMutation({
@@ -133,16 +158,17 @@ export function FirstRunGuide({
 
   const stepIndex = SETUP_GUIDE_STEPS.findIndex((item) => item.id === step);
   const isLast = step === "ready";
-  const listingReady = chatgptSignedIn || mimoConfigured || cursorConfigured || providerConfigured;
+  const listingReady =
+    chatgptSignedIn || claudeSignedIn || mimoConfigured || cursorConfigured || providerConfigured;
   const canCreateListing = true;
   const chromeReady = extensionConnected;
   const canAdvance =
     step === "listing-ai" ? listingReady : true;
 
   useEffect(() => {
-    if (!chatgptSignedIn && !mimoConfigured && !cursorConfigured) return;
+    if (!chatgptSignedIn && !claudeSignedIn && !mimoConfigured && !cursorConfigured) return;
     queryClient.invalidateQueries({ queryKey: ["status"] });
-  }, [chatgptSignedIn, mimoConfigured, cursorConfigured, queryClient]);
+  }, [chatgptSignedIn, claudeSignedIn, mimoConfigured, cursorConfigured, queryClient]);
 
   const finish = () => {
     dismissSetupGuide();
@@ -275,6 +301,17 @@ export function FirstRunGuide({
                   <button
                     type="button"
                     role="radio"
+                    aria-checked={selectedListing === "claude"}
+                    className={`setup-guide-choice${selectedListing === "claude" ? " selected" : ""}`}
+                    onClick={() => chooseListing("claude")}
+                  >
+                    <strong>Claude</strong>
+                    <span>Sign in. Best if you already pay for Claude Pro or Max.</span>
+                    {claudeSignedIn ? <em>Signed in{provider?.claude?.email ? ` as ${provider.claude.email}` : ""}</em> : null}
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
                     aria-checked={selectedListing === "mimo"}
                     className={`setup-guide-choice${selectedListing === "mimo" ? " selected" : ""}`}
                     onClick={() => chooseListing("mimo")}
@@ -329,6 +366,57 @@ export function FirstRunGuide({
                     )}
                     {chatgptLogin.isError ? (
                       <p className="setup-guide-error">{(chatgptLogin.error as Error).message}</p>
+                    ) : null}
+                  </div>
+                ) : selectedListing === "claude" ? (
+                  <div className="setup-guide-task">
+                    {claudeSignedIn ? (
+                      <p className="setup-guide-copy">Claude is ready. Continue when you want.</p>
+                    ) : claudePending ? (
+                      <>
+                        <p className="setup-guide-copy">
+                          Finish signing in in the browser window that opened.
+                          {claudePending.url ? (
+                            <>
+                              {" "}If none opened,{" "}
+                              <a href={claudePending.url} target="_blank" rel="noreferrer">
+                                open the sign-in page
+                              </a>{" "}
+                              and paste its code in Settings → Claude.
+                            </>
+                          ) : null}
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => claudeCancel.mutate()}
+                          disabled={claudeCancel.isPending}
+                        >
+                          Cancel sign-in
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {provider?.claude && !provider.claude.installed ? (
+                          <p className="setup-guide-copy">
+                            Needs Claude Code. Install it in Terminal with{" "}
+                            <code>{provider.claude.install_command}</code>, then sign in.
+                          </p>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={() => claudeLogin.mutate()}
+                          disabled={claudeLogin.isPending}
+                        >
+                          {claudeLogin.isPending ? "Starting…" : "Sign in with Claude"}
+                        </button>
+                      </>
+                    )}
+                    {claudeLogin.isError ? (
+                      <p className="setup-guide-error">{(claudeLogin.error as Error).message}</p>
+                    ) : provider?.claude?.error ? (
+                      <p className="setup-guide-error">{provider.claude.error}</p>
                     ) : null}
                   </div>
                 ) : selectedListing === "cursor" ? (

@@ -77,7 +77,12 @@ class ModelSearch:
     search: Searcher
 
 
-_PROVIDER_LABELS = {"chatgpt": "ChatGPT", "cursor": "Cursor", "xiaomi-mimo": "MiMo"}
+_PROVIDER_LABELS = {
+    "chatgpt": "ChatGPT",
+    "claude": "Claude",
+    "cursor": "Cursor",
+    "xiaomi-mimo": "MiMo",
+}
 
 
 def model_search() -> ModelSearch | None:

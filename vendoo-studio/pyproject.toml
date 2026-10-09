@@ -1,6 +1,6 @@
 [project]
 name = "vendoo-studio"
-version = "0.1.205"
+version = "0.1.206"
 description = "Local web app for generating and automating Vendoo marketplace listings"
 requires-python = ">=3.12"
 dependencies = [
@@ -17,6 +17,7 @@ dependencies = [
     "aiofiles>=24.0.0",
     "semble>=0.5.0",
     "cursor-sdk>=1.0.31",
+    "claude-agent-sdk>=0.2.165",
 ]
 
 [project.optional-dependencies]

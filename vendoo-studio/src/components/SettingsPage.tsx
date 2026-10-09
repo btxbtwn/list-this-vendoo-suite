@@ -20,6 +20,7 @@ type ListingFallbackId = ListingProviderId | "none";
 
 function providerLabel(choice: ListingFallbackId): string {
   if (choice === "chatgpt") return "ChatGPT";
+  if (choice === "claude") return "Claude";
   if (choice === "mimo") return "MiMo";
   if (choice === "cursor") return "Cursor";
   return "None";
@@ -27,7 +28,13 @@ function providerLabel(choice: ListingFallbackId): string {
 
 function providerTitle(choice: ListingProviderId, full = false): ReactNode {
   const label =
-    choice === "chatgpt" ? "ChatGPT" : choice === "mimo" ? (full ? "Xiaomi MiMo" : "MiMo") : "Cursor";
+    choice === "chatgpt"
+      ? "ChatGPT"
+      : choice === "claude"
+        ? "Claude"
+        : choice === "mimo"
+          ? (full ? "Xiaomi MiMo" : "MiMo")
+          : "Cursor";
   return (
     <>
       <ProviderLogo id={choice} label={label} size={18} />
@@ -917,6 +924,7 @@ function ProvidersPanel() {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
   const [cursorKey, setCursorKey] = useState("");
+  const [claudeCode, setClaudeCode] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [mimoTesting, setMimoTesting] = useState(false);
@@ -990,6 +998,22 @@ function ProvidersPanel() {
     mutationFn: () => api.settings.chatgptLogout(),
     onSuccess: refreshProvider,
   });
+  const claudeLoginMutation = useMutation({
+    mutationFn: () => api.settings.claudeLogin(),
+    onSuccess: refreshProvider,
+  });
+  const claudeCodeMutation = useMutation({
+    mutationFn: (code: string) => api.settings.claudeLoginCode(code),
+    onSuccess: () => {
+      setClaudeCode("");
+      refreshProvider();
+    },
+    onError: refreshProvider,
+  });
+  const claudeCancelMutation = useMutation({
+    mutationFn: () => api.settings.claudeCancelLogin(),
+    onSuccess: refreshProvider,
+  });
   const setChatGPTModelsMutation = useMutation({
     mutationFn: (models: { vision_model?: string; listing_model?: string; reasoning_effort?: string }) =>
       api.settings.setChatGPTModels(models),
@@ -1017,11 +1041,17 @@ function ProvidersPanel() {
   const chatgpt = provider?.chatgpt;
   const chatgptPending = chatgpt?.pending;
   const pendingCode = chatgptPending?.user_code;
+  const claude = provider?.claude;
+  const claudeSignedIn = Boolean(claude?.signed_in);
+  const claudePending = claude?.pending;
   const mimoConfigured = Boolean(provider?.masked_key);
   const primary: ListingProviderId =
-    provider?.primary === "mimo" || provider?.primary === "cursor" ? provider.primary : "chatgpt";
+    provider?.primary === "claude" || provider?.primary === "mimo" || provider?.primary === "cursor"
+      ? provider.primary
+      : "chatgpt";
   const fallback: ListingFallbackId =
     provider?.fallback === "chatgpt" ||
+    provider?.fallback === "claude" ||
     provider?.fallback === "mimo" ||
     provider?.fallback === "cursor" ||
     provider?.fallback === "none"
@@ -1035,7 +1065,9 @@ function ProvidersPanel() {
   const choiceReady = (choice: ListingFallbackId) =>
     choice === "chatgpt"
       ? chatgptSignedIn
-      : choice === "mimo"
+      : choice === "claude"
+        ? claudeSignedIn
+        : choice === "mimo"
         ? mimoConfigured
         : choice === "cursor"
           ? cursorConfigured
@@ -1090,13 +1122,13 @@ function ProvidersPanel() {
   const modelLabel = (slug: string) => (slug === "auto" ? "Auto" : slug);
 
   useEffect(() => {
-    if (!pendingCode) return;
+    if (!pendingCode && !claudePending) return;
     const id = window.setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["settings-provider"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     }, 2000);
     return () => window.clearInterval(id);
-  }, [pendingCode, queryClient]);
+  }, [pendingCode, claudePending, queryClient]);
 
   const handleTest = async () => {
     setTesting(true);
@@ -1161,6 +1193,7 @@ function ProvidersPanel() {
                 onChange={(event) => saveOrder(event.target.value as ListingProviderId, fallback)}
               >
                 <option value="chatgpt">ChatGPT</option>
+                <option value="claude">Claude</option>
                 <option value="mimo">Xiaomi MiMo</option>
                 <option value="cursor">Cursor</option>
               </select>
@@ -1186,6 +1219,7 @@ function ProvidersPanel() {
               >
                 <option value="none">None</option>
                 {primary !== "chatgpt" ? <option value="chatgpt">ChatGPT</option> : null}
+                {primary !== "claude" ? <option value="claude">Claude</option> : null}
                 {primary !== "mimo" ? <option value="mimo">Xiaomi MiMo</option> : null}
                 {primary !== "cursor" ? <option value="cursor">Cursor</option> : null}
               </select>
@@ -1293,6 +1327,106 @@ function ProvidersPanel() {
             </p>
           ) : chatgptLoginMutation.isError ? (
             <p className="settings-row-desc text-error">{(chatgptLoginMutation.error as Error).message}</p>
+          ) : null}
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection id="claude" title={providerTitle("claude")}>
+        <SettingsRow
+          title="Sign in with Claude"
+          description="Uses your Claude Pro or Max subscription through Claude Code, the way T3 Code does. Usage counts against your Claude plan, not an API key."
+          status={
+            claudeSignedIn && testResult && provider?.provider === "claude" ? (
+              <span className={testResult.includes("successful") ? "text-success" : "text-error"}>{testResult}</span>
+            ) : claude?.error ? (
+              <span className="text-error">{claude.error}</span>
+            ) : null
+          }
+          control={
+            claudeSignedIn ? (
+              provider?.provider === "claude" ? (
+                <button type="button" className="btn btn-sm btn-outline" onClick={handleTest} disabled={testing}>
+                  {testing ? "Testing…" : "Test"}
+                </button>
+              ) : null
+            ) : claudePending ? (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => claudeCancelMutation.mutate()}
+                disabled={claudeCancelMutation.isPending}
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={() => claudeLoginMutation.mutate()}
+                disabled={claudeLoginMutation.isPending}
+              >
+                {claudeLoginMutation.isPending ? "Starting…" : "Sign in"}
+              </button>
+            )
+          }
+        >
+          {claudeSignedIn ? (
+            <p className="settings-row-desc">
+              Signed in{claude?.email ? ` as ${claude.email}` : ""}
+              {claude?.plan ? ` · ${claude.plan.charAt(0).toUpperCase()}${claude.plan.slice(1)}` : ""}.
+              {primary === "claude"
+                ? " Primary for listings."
+                : fallback === "claude"
+                  ? " Fallback for listings."
+                  : " Not in the listing order."}
+              {" "}To sign out, run <code className="settings-row-code">claude auth logout</code> in Terminal.
+            </p>
+          ) : claudePending ? (
+            <>
+              <p className="settings-row-desc">
+                Finish signing in in the browser window that opened.
+                {claudePending.url ? (
+                  <>
+                    {" "}If none opened,{" "}
+                    <a href={claudePending.url} target="_blank" rel="noreferrer">
+                      open the sign-in page
+                    </a>{" "}
+                    and paste the code it shows here.
+                  </>
+                ) : null}
+              </p>
+              {claudePending.url ? (
+                <form
+                  className="settings-row-field"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (claudeCode.trim()) claudeCodeMutation.mutate(claudeCode.trim());
+                  }}
+                >
+                  <input
+                    className="input"
+                    aria-label="Claude sign-in code"
+                    placeholder="Paste code"
+                    value={claudeCode}
+                    onChange={(event) => setClaudeCode(event.target.value)}
+                  />
+                  <button
+                    type="submit"
+                    className="btn btn-sm btn-primary"
+                    disabled={!claudeCode.trim() || claudeCodeMutation.isPending}
+                  >
+                    {claudeCodeMutation.isPending ? "Signing in…" : "Submit"}
+                  </button>
+                </form>
+              ) : null}
+            </>
+          ) : claudeLoginMutation.isError ? (
+            <p className="settings-row-desc text-error">{(claudeLoginMutation.error as Error).message}</p>
+          ) : claude && !claude.installed ? (
+            <p className="settings-row-desc">
+              Needs Claude Code. Install it in Terminal with{" "}
+              <code className="settings-row-code">{claude.install_command}</code>, then sign in.
+            </p>
           ) : null}
         </SettingsRow>
       </SettingsSection>
