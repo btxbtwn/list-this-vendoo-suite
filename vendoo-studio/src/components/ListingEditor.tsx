@@ -60,7 +60,7 @@ interface Props {
   browserOpen?: boolean;
   reviewTab: ListingReviewTab;
   onReviewTabChange: (tab: ListingReviewTab) => void;
-  onBulkListingsCreated?: (listings: BulkListingUploadResult[]) => void;
+  onBulkListingsCreated?: (listings: BulkListingUploadResult[], generate: boolean) => void;
 }
 
 interface EditorField {

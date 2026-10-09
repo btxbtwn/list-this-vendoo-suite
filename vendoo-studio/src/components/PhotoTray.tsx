@@ -10,6 +10,7 @@ import {
   createBulkPhotoListings,
   type BulkListingUploadResult,
   type BulkUploadDefaults,
+  type BulkUploadItem,
 } from "../bulkPhotoUpload";
 
 const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
@@ -17,7 +18,7 @@ const PHOTO_DRAG_TYPE = "application/x-vendoo-photo-id";
 interface Props {
   convId: string;
   /** When a folder pick expands into several item folders, App can focus the first draft. */
-  onBulkListingsCreated?: (listings: BulkListingUploadResult[]) => void;
+  onBulkListingsCreated?: (listings: BulkListingUploadResult[], generate: boolean) => void;
 }
 
 export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
@@ -181,11 +182,11 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
     if (folderInputRef.current) folderInputRef.current.value = "";
   };
 
-  const doBulkUpload = async (groups: PhotoFolderGroup[], bulkDefaults: BulkUploadDefaults) => {
+  const doBulkUpload = async (items: BulkUploadItem[], bulkDefaults: BulkUploadDefaults, generate: boolean) => {
     setUploading(true);
     setUploadError(null);
     try {
-      const listings = await createBulkPhotoListings(groups, bulkDefaults, api.conversations);
+      const listings = await createBulkPhotoListings(items, bulkDefaults, api.conversations);
       const createdIds = listings.map((listing) => listing.convId);
       const errors = listings.flatMap((listing) => listing.errors);
       const totalPhotos = listings.reduce((sum, listing) => sum + listing.count, 0);
@@ -193,7 +194,7 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
         queryClient.invalidateQueries({ queryKey: ["photos", id] })
       )));
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      onBulkListingsCreated?.(listings);
+      onBulkListingsCreated?.(listings, generate);
       const title = `Started ${createdIds.length} listings`;
       const description = `Added ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} from separate folders.`;
       if (errors.length) {
@@ -358,9 +359,9 @@ export function PhotoTray({ convId, onBulkListingsCreated }: Props) {
         <BulkUploadDialog
           groups={pendingBulkGroups}
           onCancel={() => setPendingBulkGroups(null)}
-          onConfirm={(bulkDefaults, groups) => {
+          onConfirm={(bulkDefaults, items, generate) => {
             setPendingBulkGroups(null);
-            void doBulkUpload(groups, bulkDefaults);
+            void doBulkUpload(items, bulkDefaults, generate);
           }}
         />
       ) : null}

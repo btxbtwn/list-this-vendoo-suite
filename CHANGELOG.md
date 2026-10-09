@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.203 — 2026-10-09
+
+- Bulk uploads now happen in one window: put the photos in order, set the box, COG and labels, and type each item's SKU and measurements together before anything is created. Click a photo to enlarge it and read the tape, then choose Create and generate or Create drafts only.
+
 ## 0.1.202 — 2026-10-09
 
 - Studio now fills in Grailed, Vinted and Facebook Marketplace, not just eBay, Etsy, Poshmark, Mercari and Depop. Turn them on in Settings → Marketplaces and each draft gets its category, condition and fields for them, with your brand as the Grailed designer.
