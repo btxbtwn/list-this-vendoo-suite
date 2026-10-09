@@ -1,4 +1,4 @@
-export type SaleMarketplace = "ebay" | "depop" | "etsy";
+export type SaleMarketplace = "ebay" | "depop" | "etsy" | "sellwild";
 export type SaleEventStatus = "planned" | "ran" | "cancelled";
 
 export interface SaleCalendarItem {

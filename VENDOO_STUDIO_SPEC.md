@@ -1020,7 +1020,7 @@ Version 1 is complete when the user can:
 
 ## Sale calendar in Marketing
 
-The calendar stores local promotion plans and records for eBay, Depop, and Etsy.
+The calendar stores local promotion plans and records for eBay, Depop, Etsy, and Sellwild.
 A plan covers every active listing on its marketplace, because the seller runs
 sales shop-wide, and two sales on one marketplace cannot overlap. Effective fees
 and seller-paid shipping start from that marketplace's sales over the last year.

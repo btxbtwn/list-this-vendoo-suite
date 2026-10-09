@@ -118,13 +118,14 @@ def test_complete_weeks_sample_threshold_and_sunday_monday_window():
                      sale(start + timedelta(weeks=week, days=6, hours=2)),
                      sale(start + timedelta(weeks=week, hours=3))])
     rows += [sale(None), sale(NOW + timedelta(days=1)), sale(NOW)]
-    ebay, depop, etsy = weekday_patterns(rows, "UTC", now=NOW)
+    ebay, depop, etsy, sellwild = weekday_patterns(rows, "UTC", now=NOW)
     assert ebay["weeks"] == 12
     assert ebay["sales"] == 37
     assert ebay["suggested_start"] == "2026-10-11"
     assert ebay["suggested_end"] == "2026-10-12"
     assert (depop["suggested_start"], depop["suggested_end"]) == ("2026-10-05", "2026-10-11")
     assert "Not enough history" in etsy["reason"] and "7-day sale" in etsy["reason"]
+    assert sellwild["sales"] == 0
     sparse = weekday_patterns(rows[-3:], "UTC", now=NOW)[0]
     assert (sparse["suggested_start"], sparse["suggested_end"]) == ("2026-10-05", "2026-10-11")
 
@@ -251,6 +252,19 @@ def test_past_marketplace_records_need_no_item_selection_and_can_be_corrected(wo
     assert client.post('/api/analytics/calendar/records', json=body).status_code == 422
     body.update(marketplace='ebay', start_date='2099-01-01', end_date='2099-01-02')
     assert client.post('/api/analytics/calendar/records', json=body).status_code == 422
+
+
+def test_sellwild_records_count_sellwild_sales(workspace):
+    db, client = workspace
+    body = {key: value for key, value in plan(marketplace="sellwild", start_date="2020-01-03",
+                                               end_date="2020-01-05").items()
+            if key not in {"fee_percent", "shipping_cost", "minimum_profit"}}
+    assert client.post("/api/analytics/calendar/records", json=body).status_code == 201
+    event = db.query(SaleEvent).one()
+    rows = [sale(datetime(2020, 1, 4, tzinfo=UTC), market="sellwild"),
+            sale(datetime(2020, 1, 4, tzinfo=UTC), market="ebay", cid="other")]
+    result = event_result(event, [event], rows, now=NOW)
+    assert result["marketplace"]["count"] == 1
 
 
 def test_cancelled_plan_cannot_be_restored_into_a_conflict(workspace):

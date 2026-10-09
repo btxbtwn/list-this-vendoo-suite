@@ -24,6 +24,7 @@
 .sale-ebay { background: color-mix(in srgb, var(--color-cobalt) 14%, transparent); }
 .sale-depop { background: color-mix(in srgb, var(--color-tomato) 14%, transparent); }
 .sale-etsy { background: color-mix(in srgb, var(--color-text-muted) 14%, transparent); }
+.sale-sellwild { background: color-mix(in srgb, var(--color-success) 14%, transparent); }
 .sale-agenda-title { margin-top: 24px; }
 .sale-agenda { display: grid; gap: 12px; }
 .sale-event details, .sale-discount-check details { margin: 14px 0; font-size: 13px; }
