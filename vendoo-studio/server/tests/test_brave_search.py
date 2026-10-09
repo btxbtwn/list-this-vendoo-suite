@@ -14,6 +14,7 @@ from vendoo_studio.services.brave_search import (
     fields_from_analysis,
     comp_report,
     research_brave_report,
+    reset_quota_backoff,
     search_web,
     sold_comps_query,
 )
@@ -254,6 +255,59 @@ class ResearchCompsTest(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "401"):
                 await research_brave_report("Nike Tee sold comps")
+
+
+class QuotaBackoffTest(unittest.IsolatedAsyncioTestCase):
+    """A spent quota stays spent, so research stops asking Brave for a while."""
+
+    def setUp(self):
+        reset_quota_backoff()
+        self.addCleanup(reset_quota_backoff)
+
+    def fake_client(self, status_code: int, calls: list):
+        class FakeResp:
+            text = '{"error": {"code": "USAGE_LIMIT_EXCEEDED"}}'
+
+            def json(self):
+                return {"error": {"code": "USAGE_LIMIT_EXCEEDED"}} if status_code >= 400 else BRAVE_PAYLOAD
+
+        FakeResp.status_code = status_code
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def get(self, url, headers=None, params=None):
+                calls.append(params["q"])
+                return FakeResp()
+
+        return FakeClient
+
+    async def test_a_402_skips_brave_until_the_key_is_reset(self):
+        calls: list = []
+        with (
+            patch("vendoo_studio.services.brave_search.get_brave_api_key", return_value="BSA-test"),
+            patch("vendoo_studio.services.brave_search.httpx.AsyncClient", self.fake_client(402, calls)),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "402"):
+                await research_brave_report("Nike Tee sold comps")
+            with self.assertRaisesRegex(RuntimeError, "402"):
+                await research_brave_report("Levi's shorts sold comps")
+        self.assertEqual(calls, ["Nike Tee sold comps"])
+
+        reset_quota_backoff()
+        with (
+            patch("vendoo_studio.services.brave_search.get_brave_api_key", return_value="BSA-test"),
+            patch("vendoo_studio.services.brave_search.httpx.AsyncClient", self.fake_client(200, calls)),
+        ):
+            await research_brave_report("Levi's shorts sold comps")
+        self.assertEqual(calls[-1], "Levi's shorts sold comps")
 
 
 class SearchWebTest(unittest.IsolatedAsyncioTestCase):

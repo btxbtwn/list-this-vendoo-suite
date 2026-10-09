@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 
 import httpx
 
@@ -22,6 +23,12 @@ BRAVE_RESULT_COUNT = 20
 # rather than firing every query at once.
 BRAVE_QUERY_STAGGER_SEC = 0.6
 BRAVE_RETRY_SEC = 1.5
+# A 402 means the plan's quota is spent, and it stays spent until the billing
+# period rolls over. Every research run retried it anyway, so skip Brave for a
+# while after one instead of failing the same way on each listing.
+BRAVE_QUOTA_BACKOFF_SEC = 3600
+_quota_error: str | None = None
+_quota_until = 0.0
 _ANALYSIS_FIELD_RE = re.compile(
     r"^-\s*(brand|category|style|graphic|size|color|material|pattern|department):\s*(.+?)(?:\s+\(source:.*\))?$",
     re.I | re.M,
@@ -209,13 +216,28 @@ async def search_web(query: str, api_key: str, *, count: int = 8) -> list[dict]:
             },
         )
         if resp.status_code >= 400:
-            raise RuntimeError(_brave_error(resp))
+            error = _brave_error(resp)
+            if resp.status_code == 402:
+                _note_quota_exhausted(error)
+            raise RuntimeError(error)
         payload = resp.json()
     web = payload.get("web") if isinstance(payload, dict) else None
     results = web.get("results") if isinstance(web, dict) else None
     if not isinstance(results, list):
         return []
     return [item for item in results if isinstance(item, dict)]
+
+
+def _note_quota_exhausted(error: str) -> None:
+    global _quota_error, _quota_until
+    _quota_error = error
+    _quota_until = time.monotonic() + BRAVE_QUOTA_BACKOFF_SEC
+
+
+def reset_quota_backoff() -> None:
+    global _quota_error, _quota_until
+    _quota_error = None
+    _quota_until = 0.0
 
 
 async def test_brave_connection(api_key: str | None = None) -> tuple[bool, str | None]:
@@ -226,6 +248,7 @@ async def test_brave_connection(api_key: str | None = None) -> tuple[bool, str |
         await search_web("ebay sold listings", key, count=1)
     except Exception as exc:
         return False, str(exc)
+    reset_quota_backoff()
     return True, None
 
 
@@ -271,6 +294,8 @@ async def research_brave_report(
     api_key = get_brave_api_key()
     if not api_key:
         raise RuntimeError("Add a Brave Search API key in Settings.")
+    if _quota_error and time.monotonic() < _quota_until:
+        raise RuntimeError(_quota_error)
     query_list = [queries] if isinstance(queries, str) else list(queries)
     query_list = [query for query in query_list if query]
     if not query_list:

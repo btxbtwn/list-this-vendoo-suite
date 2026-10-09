@@ -572,7 +572,10 @@ def set_brave(config: BraveConfig):
     key = (config.api_key or "").strip()
     if not key:
         raise HTTPException(400, "API key is required")
+    from vendoo_studio.services.brave_search import reset_quota_backoff
+
     set_brave_api_key(key)
+    reset_quota_backoff()
     return {"ok": True, **_brave_payload()}
 
 
